@@ -2,3 +2,7 @@
 name = "ambient-engine"
 version = "0.1.0"
 edition = "2021"
+
+[dependencies]
+blake3 = "1.5.5"
+thiserror = "2.0.11"
