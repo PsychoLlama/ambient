@@ -20,7 +20,7 @@ pub enum RuntimeError {
 }
 
 #[derive(Default)]
-struct Interpreter {
+pub struct Interpreter {
     resources: HashMap<blake3::Hash, Resource>,
 }
 
@@ -29,11 +29,23 @@ impl Interpreter {
         Ok(match node {
             Literal::Boolean(value) => Value::Boolean(*value),
             Literal::Int32(value) => Value::Int32(*value),
-            Literal::Hash(hash) => Value::Reference(hash.clone()),
+            Literal::Hash(hash) => {
+                let Some(resource) = self.resources.get(hash) else {
+                    return Err(RuntimeError::UnknownHash(hash.clone()));
+                };
+
+                match resource {
+                    // Don't invoke the function, just return a reference.
+                    Resource::FunctionDefinition { .. } => Value::Reference(hash.clone()),
+
+                    // Treat it like a variable. Resolve the value.
+                    Resource::Const(literal) => self.eval_literal_expr(literal)?,
+                }
+            }
         })
     }
 
-    pub(self) fn eval_expr(&self, node: &Expression) -> Result<Value, RuntimeError> {
+    pub fn eval_expr(&self, node: &Expression) -> Result<Value, RuntimeError> {
         match node {
             // `#abc()`
             Expression::FunctionCall { callee, arguments } => {
@@ -89,10 +101,58 @@ mod tests {
     }
 
     #[test]
-    fn test_evaluate_literal_hash() {
-        let hash = blake3::hash(b"id");
+    fn test_evaluate_unknown_reference_fails() {
+        let hash = blake3::hash(b"no-such-id");
         let node = Literal::Hash(hash);
         let result = Interpreter::default().eval_literal_expr(&node);
+        assert_eq!(result, Err(RuntimeError::UnknownHash(hash)));
+    }
+
+    #[test]
+    fn test_resolve_constant_value_from_hash() {
+        let value = Resource::Const(Literal::Int32(1234));
+        let hash = value.hash();
+        let interpreter = Interpreter {
+            resources: HashMap::from_iter(vec![(hash, value)]),
+        };
+
+        let expr = Literal::Hash(hash);
+        let result = interpreter.eval_literal_expr(&expr);
+        assert_eq!(result, Ok(Value::Int32(1234)));
+    }
+
+    #[test]
+    fn test_recursive_resolve_constant_value_from_hash() {
+        let value = Resource::Const(Literal::Int32(1234));
+        let hash = value.hash();
+
+        let reference = Resource::Const(Literal::Hash(hash));
+        let reference_hash = reference.hash();
+
+        let interpreter = Interpreter {
+            resources: HashMap::from_iter(vec![(hash, value), (reference_hash, reference)]),
+        };
+
+        let expr = Literal::Hash(reference_hash);
+        let result = interpreter.eval_literal_expr(&expr);
+        assert_eq!(result, Ok(Value::Int32(1234)));
+    }
+
+    #[test]
+    fn test_resolve_function_ref_from_hash() {
+        let value = Resource::FunctionDefinition {
+            body: Box::new(Expression::Literal(Literal::Boolean(true))),
+        };
+
+        let hash = value.hash();
+        let interpreter = Interpreter {
+            resources: HashMap::from_iter(vec![(hash, value)]),
+        };
+
+        let expr = Literal::Hash(hash);
+        let result = interpreter.eval_literal_expr(&expr);
+
+        // Function is not called. It only returns a reference.
         assert_eq!(result, Ok(Value::Reference(hash)));
     }
 
