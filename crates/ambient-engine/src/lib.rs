@@ -12,6 +12,7 @@
 )]
 #![cfg_attr(not(test), deny(clippy::expect_used))]
 
+mod content_hash;
 mod interpreter;
 mod syntax;
 mod value;

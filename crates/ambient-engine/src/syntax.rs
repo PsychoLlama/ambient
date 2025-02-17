@@ -27,3 +27,9 @@ pub enum Expression {
         body: Box<Expression>,
     },
 }
+
+#[derive(Clone, Debug)]
+pub enum Statement {
+    /// Immutable value known at compile time.
+    Const(Literal),
+}
