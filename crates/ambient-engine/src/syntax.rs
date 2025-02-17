@@ -9,6 +9,9 @@ pub enum Literal {
 
     /// A content-addressed resource ID. (Usually a function.)
     Hash(blake3::Hash),
+
+    /// Variable identifier. Each new identifier increments the counter.
+    Identifier(u16),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

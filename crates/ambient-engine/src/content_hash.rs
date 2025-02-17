@@ -27,6 +27,7 @@ enum SyntaxType {
     LiteralInt32 = 0,
     LiteralBoolean = 1,
     LiteralHash = 2,
+    LiteralIdentifier = 3,
 
     // Expressions
     ExpressionFunctionCall = 100,
@@ -56,6 +57,10 @@ impl ContentHash for Literal {
             Literal::Hash(value) => {
                 SyntaxType::LiteralHash.update(hash);
                 hash.update(value.as_bytes());
+            }
+            Literal::Identifier(value) => {
+                SyntaxType::LiteralIdentifier.update(hash);
+                hash.update(&value.to_le_bytes());
             }
         };
     }
@@ -104,6 +109,7 @@ mod tests {
         assert_eq!(Literal::Int32(1).hash(), Literal::Int32(1).hash());
         assert_eq!(Literal::Boolean(true).hash(), Literal::Boolean(true).hash());
         assert_eq!(Literal::Hash(hash).hash(), Literal::Hash(hash).hash());
+        assert_eq!(Literal::Identifier(0).hash(), Literal::Identifier(0).hash());
     }
 
     #[test]
@@ -117,6 +123,7 @@ mod tests {
             Literal::Boolean(false).hash()
         );
         assert_ne!(Literal::Hash(hash1).hash(), Literal::Hash(hash2).hash());
+        assert_ne!(Literal::Identifier(1).hash(), Literal::Identifier(2).hash());
     }
 
     #[test]
@@ -126,6 +133,7 @@ mod tests {
         assert_ne!(Literal::Int32(1).hash(), Literal::Boolean(true).hash());
         assert_ne!(Literal::Int32(1).hash(), Literal::Hash(hash).hash());
         assert_ne!(Literal::Boolean(true).hash(), Literal::Hash(hash).hash());
+        assert_ne!(Literal::Identifier(1).hash(), Literal::Int32(1).hash());
     }
 
     #[test]

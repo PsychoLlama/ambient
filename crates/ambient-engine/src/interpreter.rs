@@ -6,20 +6,6 @@ use crate::{
 
 use std::collections::HashMap;
 
-#[derive(thiserror::Error, Debug, PartialEq, Eq)]
-pub enum RuntimeError {
-    #[error("Unknown hash: {0}")]
-    UnknownHash(blake3::Hash),
-
-    /// Tried to call something that isn't a hash reference.
-    #[error("Unsupported call target: {0}")]
-    UnsupportedCallTarget(String),
-
-    /// Hash reference resolved to something that isn't a function.
-    #[error("{0:?} is not a hash")]
-    UnsupportedCallValue(blake3::Hash),
-}
-
 #[derive(Default)]
 pub struct Interpreter {
     /// Globally shared resources, such as constants and functions. These are content addressed and
@@ -28,6 +14,7 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
+    /// Instantiate an interpreter with a list of resources (functions, constants).
     pub fn with_resources(resources: Vec<Resource>) -> Self {
         Self {
             // Hash all resources and index them in the resource hashmap.
@@ -38,7 +25,23 @@ impl Interpreter {
         }
     }
 
-    pub(self) fn eval_literal_expr(&self, node: &Literal) -> Result<Value, RuntimeError> {
+    /// Run a function by its hash passing arguments along.
+    pub fn call(&self, func_id: &blake3::Hash) -> Result<Value, RuntimeError> {
+        let ctx = EngineContext::default();
+        self.eval_function_call(&ctx, func_id)
+    }
+
+    /// Evaluate an arbitrary expression.
+    pub fn eval(&self, node: &Expression) -> Result<Value, RuntimeError> {
+        let ctx = EngineContext::default();
+        self.eval_expr(&ctx, node)
+    }
+
+    fn eval_literal_expr(
+        &self,
+        ctx: &EngineContext,
+        node: &Literal,
+    ) -> Result<Value, RuntimeError> {
         Ok(match node {
             Literal::Boolean(value) => Value::Boolean(*value),
             Literal::Int32(value) => Value::Int32(*value),
@@ -52,34 +55,49 @@ impl Interpreter {
                     Resource::FunctionDefinition { .. } => Value::Reference(hash.clone()),
 
                     // Treat it like a variable. Resolve the value.
-                    Resource::Const(literal) => self.eval_literal_expr(literal)?,
+                    Resource::Const(literal) => self.eval_literal_expr(ctx, literal)?,
                 }
+            }
+            Literal::Identifier(id) => {
+                let Some(value) = ctx.stack.context.get(id) else {
+                    return Err(RuntimeError::UninitializedValue(*id));
+                };
+
+                // TODO: Avoid cloning values every time they are accessed.
+                value.clone()
             }
         })
     }
 
-    pub fn eval_expr(&self, node: &Expression) -> Result<Value, RuntimeError> {
+    pub(self) fn eval_expr(
+        &self,
+        ctx: &EngineContext,
+        node: &Expression,
+    ) -> Result<Value, RuntimeError> {
         match node {
             // `#abc()`
-            Expression::FunctionCall { callee, arguments } => {
+            Expression::FunctionCall {
+                callee,
+                arguments: _,
+            } => {
                 let Expression::Literal(Literal::Hash(hash)) = **callee else {
                     return Err(RuntimeError::UnsupportedCallTarget(
                         "Not a hash literal.".to_string(),
                     ));
                 };
 
-                self.eval_function_call(&hash, arguments)
+                self.eval_function_call(ctx, &hash)
             }
 
             // `123`
-            Expression::Literal(literal) => self.eval_literal_expr(literal),
+            Expression::Literal(literal) => self.eval_literal_expr(ctx, literal),
         }
     }
 
     pub(self) fn eval_function_call(
         &self,
+        ctx: &EngineContext,
         hash: &blake3::Hash,
-        _args: &Vec<Expression>,
     ) -> Result<Value, RuntimeError> {
         let resource = self
             .resources
@@ -88,29 +106,58 @@ impl Interpreter {
 
         match resource {
             // TODO: Support parameters.
-            Resource::FunctionDefinition { body, .. } => self.eval_expr(body),
+            Resource::FunctionDefinition { body, .. } => self.eval_expr(ctx, body),
             _ => Err(RuntimeError::UnsupportedCallValue(hash.clone())),
         }
     }
 }
 
+#[derive(Default)]
+pub(crate) struct EngineContext {
+    /// The current stack frame.
+    stack: StackFrame,
+}
+
+#[derive(Default)]
+pub(crate) struct StackFrame {
+    /// The parent stack frame, or none if this is the program's entry point.
+    _parent: Option<Box<StackFrame>>,
+
+    /// Local variables in this stack frame.
+    context: HashMap<u16, Value>,
+}
+
+#[derive(thiserror::Error, Debug, PartialEq, Eq)]
+pub enum RuntimeError {
+    #[error("Unknown hash: {0}")]
+    UnknownHash(blake3::Hash),
+
+    /// Tried to call something that isn't a hash reference.
+    #[error("Unsupported call target: {0}")]
+    UnsupportedCallTarget(String),
+
+    /// Hash reference resolved to something that isn't a function.
+    #[error("{0:?} is not a hash")]
+    UnsupportedCallValue(blake3::Hash),
+
+    #[error("Variable not found: {0}")]
+    UninitializedValue(u16),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content_hash::ContentHash;
 
     #[test]
     fn test_evaluate_literal_boolean() {
-        let node = Literal::Boolean(true);
-        let result = Interpreter::default().eval_literal_expr(&node);
+        let result = Interpreter::default().eval(&Expression::Literal(Literal::Boolean(true)));
 
         assert_eq!(result, Ok(Value::Boolean(true)));
     }
 
     #[test]
     fn test_evaluate_literal_i32() {
-        let node = Literal::Int32(42);
-        let result = Interpreter::default().eval_literal_expr(&node);
+        let result = Interpreter::default().eval(&Expression::Literal(Literal::Int32(42)));
 
         assert_eq!(result, Ok(Value::Int32(42)));
     }
@@ -118,8 +165,7 @@ mod tests {
     #[test]
     fn test_evaluate_unknown_reference_fails() {
         let hash = blake3::hash(b"no-such-id");
-        let node = Literal::Hash(hash);
-        let result = Interpreter::default().eval_literal_expr(&node);
+        let result = Interpreter::default().eval(&Expression::Literal(Literal::Hash(hash)));
 
         assert_eq!(result, Err(RuntimeError::UnknownHash(hash)));
     }
@@ -130,7 +176,7 @@ mod tests {
         let hash = value.hash();
 
         let interpreter = Interpreter::with_resources(vec![value]);
-        let result = interpreter.eval_literal_expr(&Literal::Hash(hash));
+        let result = interpreter.eval(&Expression::Literal(Literal::Hash(hash)));
 
         assert_eq!(result, Ok(Value::Int32(1234)));
     }
@@ -144,7 +190,7 @@ mod tests {
         let reference_hash = reference.hash();
 
         let interpreter = Interpreter::with_resources(vec![value, reference]);
-        let result = interpreter.eval_literal_expr(&Literal::Hash(reference_hash));
+        let result = interpreter.eval(&Expression::Literal(Literal::Hash(reference_hash)));
 
         assert_eq!(result, Ok(Value::Int32(1234)));
     }
@@ -157,7 +203,7 @@ mod tests {
 
         let hash = value.hash();
         let interpreter = Interpreter::with_resources(vec![value]);
-        let result = interpreter.eval_literal_expr(&Literal::Hash(hash));
+        let result = interpreter.eval(&Expression::Literal(Literal::Hash(hash)));
 
         // Function is not called. It only returns a reference.
         assert_eq!(result, Ok(Value::Reference(hash)));
@@ -169,12 +215,8 @@ mod tests {
             body: Box::new(Expression::Literal(Literal::Boolean(false))),
         };
 
-        let hash = func.hash();
-        let interpreter = Interpreter::with_resources(vec![func]);
-        let result = interpreter.eval_expr(&Expression::FunctionCall {
-            callee: Box::new(Expression::Literal(Literal::Hash(hash))),
-            arguments: vec![],
-        });
+        let main = func.hash();
+        let result = Interpreter::with_resources(vec![func]).call(&main);
 
         assert_eq!(result, Ok(Value::Boolean(false)));
     }
@@ -192,13 +234,8 @@ mod tests {
             }),
         };
 
-        let expr = Expression::FunctionCall {
-            callee: Box::new(Expression::Literal(Literal::Hash(fn2.hash()))),
-            arguments: vec![],
-        };
-
-        let interpreter = Interpreter::with_resources(vec![fn1, fn2]);
-        let result = interpreter.eval_expr(&expr);
+        let main = fn2.hash();
+        let result = Interpreter::with_resources(vec![fn1, fn2]).call(&main);
         assert_eq!(result, Ok(Value::Boolean(true)));
     }
 }
