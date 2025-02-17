@@ -1,5 +1,5 @@
 use crate::{
-    syntax::{Expression, Literal},
+    syntax::{Expression, Literal, Resource},
     value::Value,
 };
 
@@ -21,7 +21,7 @@ pub enum RuntimeError {
 
 #[derive(Default)]
 struct Interpreter {
-    resources: HashMap<blake3::Hash, Expression>,
+    resources: HashMap<blake3::Hash, Resource>,
 }
 
 impl Interpreter {
@@ -37,7 +37,7 @@ impl Interpreter {
         match node {
             // `#abc()`
             Expression::FunctionCall { callee, arguments } => {
-                let Value::Reference(hash) = **callee else {
+                let Expression::Literal(Literal::Hash(hash)) = **callee else {
                     return Err(RuntimeError::UnsupportedCallTarget(
                         "Not a hash literal.".to_string(),
                     ));
@@ -48,8 +48,6 @@ impl Interpreter {
 
             // `123`
             Expression::Literal(literal) => self.eval_literal_expr(literal),
-
-            _ => todo!(),
         }
     }
 
@@ -65,7 +63,7 @@ impl Interpreter {
 
         match resource {
             // TODO: Support parameters.
-            Expression::FunctionDefinition { body, .. } => self.eval_expr(body),
+            Resource::FunctionDefinition { body, .. } => self.eval_expr(body),
             _ => Err(RuntimeError::UnsupportedCallValue(hash.clone())),
         }
     }
@@ -74,6 +72,7 @@ impl Interpreter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::content_hash::ContentHash;
 
     #[test]
     fn test_evaluate_literal_boolean() {
@@ -99,21 +98,19 @@ mod tests {
 
     #[test]
     fn test_eval_function_call() {
-        let hash = blake3::hash(b"id");
+        let func = Resource::FunctionDefinition {
+            body: Box::new(Expression::Literal(Literal::Boolean(false))),
+        };
+
+        let hash = func.hash();
 
         // Define a function that always returns `false`.
         let interpreter = Interpreter {
-            resources: HashMap::from_iter(vec![(
-                hash,
-                Expression::FunctionDefinition {
-                    parameters: vec![],
-                    body: Box::new(Expression::Literal(Literal::Boolean(false))),
-                },
-            )]),
+            resources: HashMap::from_iter(vec![(hash, func)]),
         };
 
         let result = interpreter.eval_expr(&Expression::FunctionCall {
-            callee: Box::new(Value::Reference(hash.clone())),
+            callee: Box::new(Expression::Literal(Literal::Hash(hash))),
             arguments: vec![],
         });
 

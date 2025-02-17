@@ -1,4 +1,4 @@
-use crate::syntax::{Literal, Statement};
+use crate::syntax::{Expression, Literal, Resource};
 
 /// Resources that can be content addressed by hash. Outputs must be deterministic and globally
 /// unique.
@@ -28,8 +28,12 @@ enum SyntaxType {
     LiteralBoolean = 1,
     LiteralHash = 2,
 
-    // Statements
-    StatementConst = 100,
+    // Expressions
+    ExpressionFunctionCall = 100,
+
+    // Resources
+    ResourceConst = 200,
+    ResourceFunction = 201,
 }
 
 impl ContentHash for SyntaxType {
@@ -57,12 +61,33 @@ impl ContentHash for Literal {
     }
 }
 
-impl ContentHash for Statement {
+impl ContentHash for Expression {
     fn update(&self, hash: &mut blake3::Hasher) {
         match self {
-            Statement::Const(value) => {
-                SyntaxType::StatementConst.update(hash);
+            Expression::Literal(value) => value.update(hash),
+            Expression::FunctionCall { callee, arguments } => {
+                SyntaxType::ExpressionFunctionCall.update(hash);
+                callee.update(hash);
+
+                for arg in arguments {
+                    arg.update(hash);
+                }
+            }
+        };
+    }
+}
+
+impl ContentHash for Resource {
+    fn update(&self, hash: &mut blake3::Hasher) {
+        match self {
+            Resource::Const(value) => {
+                SyntaxType::ResourceConst.update(hash);
                 value.update(hash);
+            }
+            Resource::FunctionDefinition { body } => {
+                SyntaxType::ResourceFunction.update(hash);
+                // TODO: Support parameters.
+                body.update(hash);
             }
         };
     }
@@ -108,16 +133,16 @@ mod tests {
         let hash = blake3::hash(b"id");
 
         assert_eq!(
-            Statement::Const(Literal::Int32(1)).hash(),
-            Statement::Const(Literal::Int32(1)).hash()
+            Resource::Const(Literal::Int32(1)).hash(),
+            Resource::Const(Literal::Int32(1)).hash()
         );
         assert_eq!(
-            Statement::Const(Literal::Boolean(true)).hash(),
-            Statement::Const(Literal::Boolean(true)).hash()
+            Resource::Const(Literal::Boolean(true)).hash(),
+            Resource::Const(Literal::Boolean(true)).hash()
         );
         assert_eq!(
-            Statement::Const(Literal::Hash(hash)).hash(),
-            Statement::Const(Literal::Hash(hash)).hash()
+            Resource::Const(Literal::Hash(hash)).hash(),
+            Resource::Const(Literal::Hash(hash)).hash()
         );
     }
 
@@ -126,16 +151,79 @@ mod tests {
         let hash = blake3::hash(b"id-1");
 
         assert_ne!(
-            Statement::Const(Literal::Int32(1)).hash(),
+            Resource::Const(Literal::Int32(1)).hash(),
             Literal::Int32(1).hash()
         );
         assert_ne!(
-            Statement::Const(Literal::Boolean(true)).hash(),
+            Resource::Const(Literal::Boolean(true)).hash(),
             Literal::Boolean(true).hash()
         );
         assert_ne!(
-            Statement::Const(Literal::Hash(hash)).hash(),
+            Resource::Const(Literal::Hash(hash)).hash(),
             Literal::Hash(hash).hash()
+        );
+    }
+
+    #[test]
+    fn test_expression_literal_equality() {
+        assert_eq!(
+            Expression::Literal(Literal::Boolean(true)).hash(),
+            Expression::Literal(Literal::Boolean(true)).hash()
+        );
+
+        assert_eq!(
+            Expression::Literal(Literal::Int32(1)).hash(),
+            Expression::Literal(Literal::Int32(1)).hash()
+        );
+    }
+
+    #[test]
+    fn test_function_call_equality() {
+        let hash = blake3::hash(b"id");
+
+        assert_eq!(
+            Expression::FunctionCall {
+                callee: Box::new(Expression::Literal(Literal::Hash(hash))),
+                arguments: vec![Expression::Literal(Literal::Boolean(true))],
+            }
+            .hash(),
+            Expression::FunctionCall {
+                callee: Box::new(Expression::Literal(Literal::Hash(hash))),
+                arguments: vec![Expression::Literal(Literal::Boolean(true))],
+            }
+            .hash()
+        );
+    }
+
+    #[test]
+    fn test_function_call_param_inequality() {
+        let hash = blake3::hash(b"id");
+
+        assert_ne!(
+            Expression::FunctionCall {
+                callee: Box::new(Expression::Literal(Literal::Hash(hash))),
+                arguments: vec![Expression::Literal(Literal::Boolean(true))],
+            }
+            .hash(),
+            Expression::FunctionCall {
+                callee: Box::new(Expression::Literal(Literal::Hash(hash))),
+                arguments: vec![Expression::Literal(Literal::Boolean(false))],
+            }
+            .hash()
+        );
+    }
+
+    #[test]
+    fn test_function_equality() {
+        assert_eq!(
+            Resource::FunctionDefinition {
+                body: Box::new(Expression::Literal(Literal::Boolean(true))),
+            }
+            .hash(),
+            Resource::FunctionDefinition {
+                body: Box::new(Expression::Literal(Literal::Boolean(true))),
+            }
+            .hash()
         );
     }
 }
