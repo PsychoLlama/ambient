@@ -35,6 +35,7 @@
         pkgs.mkShell {
           packages = [
             (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
+            pkgs.just
           ];
         }
       );
