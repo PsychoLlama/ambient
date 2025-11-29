@@ -1922,4 +1922,309 @@ mod tests {
         let result = vm.call(&hash, vec![]);
         assert_eq!(result, Ok(Value::Number(42.0)));
     }
+
+    // =========================================================================
+    // Milestone 3 Test Cases: Abilities as Values
+    // =========================================================================
+
+    #[test]
+    fn test_ability_stored_in_variable() {
+        // Test: Create a suspended ability, store in variable, load and perform later
+        //
+        // ```ambient
+        // let op = Math.double(21);  // Suspended, not performed
+        // op!  // Perform the suspended ability
+        // ```
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let call_count: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
+        let count_clone = call_count.clone();
+
+        let mut builder = BytecodeBuilder::new();
+
+        // Create suspended ability: Math.double(21)
+        builder.emit_const(Value::Number(21.0));
+        builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
+
+        // Store in local variable (slot 0)
+        builder.emit_u16(Opcode::StoreLocal, 0);
+        builder.emit(Opcode::Pop);
+
+        // Do some other work (push and pop a value)
+        builder.emit_const(Value::Number(999.0));
+        builder.emit(Opcode::Pop);
+
+        // Load the suspended ability from variable
+        builder.emit_u16(Opcode::LoadLocal, 0);
+
+        // Now perform it
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(1, 0); // 1 local for the ability value
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        vm.register_host_handler(ABILITY_MATH, METHOD_DOUBLE, Box::new(move |ability| {
+            *count_clone.borrow_mut() += 1;
+            if let Value::Number(n) = &ability.args[0] {
+                Ok(Value::Number(n * 2.0))
+            } else {
+                Ok(Value::Unit)
+            }
+        }));
+
+        let result = vm.call(&hash, vec![]);
+
+        // Should return 42 (21 * 2)
+        assert_eq!(result, Ok(Value::Number(42.0)));
+        // Handler should have been called exactly once
+        assert_eq!(*call_count.borrow(), 1);
+    }
+
+    #[test]
+    fn test_ability_stored_in_tuple() {
+        // Test: Store ability in a tuple, extract and perform
+        //
+        // ```ambient
+        // let pair = (Math.double(21), "label");
+        // pair.0!  // Perform the first element
+        // ```
+
+        let mut builder = BytecodeBuilder::new();
+
+        // Create suspended ability
+        builder.emit_const(Value::Number(21.0));
+        builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
+
+        // Create a string
+        builder.emit_const(Value::string("label"));
+
+        // Make tuple (ability, string)
+        builder.emit_u8(Opcode::MakeTuple, 2);
+        builder.emit_u16(Opcode::StoreLocal, 0);
+        builder.emit(Opcode::Pop);
+
+        // Get first element (the ability)
+        builder.emit_u16(Opcode::LoadLocal, 0);
+        builder.emit_u8(Opcode::TupleGet, 0);
+
+        // Perform it
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(1, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        vm.register_host_handler(ABILITY_MATH, METHOD_DOUBLE, Box::new(|ability| {
+            if let Value::Number(n) = &ability.args[0] {
+                Ok(Value::Number(n * 2.0))
+            } else {
+                Ok(Value::Unit)
+            }
+        }));
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn test_ability_passed_to_function() {
+        // Test: Create ability in one function, pass to another, perform there
+        //
+        // ```ambient
+        // fn perform_ability(op: Ability<number, Math!>): number {
+        //   op!
+        // }
+        //
+        // fn main(): number {
+        //   let op = Math.double(21);
+        //   perform_ability(op)
+        // }
+        // ```
+
+        // Create the perform_ability function
+        let perform_hash = blake3::hash(b"test::perform_ability");
+        let mut perform_builder = BytecodeBuilder::new();
+        // Load the ability from parameter (local 0)
+        perform_builder.emit_u16(Opcode::LoadLocal, 0);
+        // Perform it
+        perform_builder.emit(Opcode::Perform);
+        perform_builder.emit(Opcode::Return);
+
+        let mut perform_func = perform_builder.build(1, 1); // 1 local (param), 1 param
+        perform_func.hash = perform_hash;
+
+        // Create the main function
+        let mut main_builder = BytecodeBuilder::new();
+        // Create suspended ability
+        main_builder.emit_const(Value::Number(21.0));
+        main_builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
+        // Call perform_ability with the suspended ability as argument
+        main_builder.emit_call(perform_hash, 1);
+        main_builder.emit(Opcode::Return);
+
+        let main_func = main_builder.build(0, 0);
+        let main_hash = main_func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(perform_func);
+        vm.load_function(main_func);
+
+        vm.register_host_handler(ABILITY_MATH, METHOD_DOUBLE, Box::new(|ability| {
+            if let Value::Number(n) = &ability.args[0] {
+                Ok(Value::Number(n * 2.0))
+            } else {
+                Ok(Value::Unit)
+            }
+        }));
+
+        let result = vm.call(&main_hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn test_multiple_abilities_different_order() {
+        // Test: Create multiple abilities, perform in different order
+        //
+        // ```ambient
+        // let op1 = Math.double(10);   // Would give 20
+        // let op2 = Math.double(21);   // Would give 42
+        // op2!  // Perform op2 first, return 42
+        // ```
+
+        let mut builder = BytecodeBuilder::new();
+
+        // Create first ability: Math.double(10)
+        builder.emit_const(Value::Number(10.0));
+        builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
+        builder.emit_u16(Opcode::StoreLocal, 0);
+        builder.emit(Opcode::Pop);
+
+        // Create second ability: Math.double(21)
+        builder.emit_const(Value::Number(21.0));
+        builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
+        builder.emit_u16(Opcode::StoreLocal, 1);
+        builder.emit(Opcode::Pop);
+
+        // Perform op2 (not op1!)
+        builder.emit_u16(Opcode::LoadLocal, 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(2, 0); // 2 locals for two abilities
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        vm.register_host_handler(ABILITY_MATH, METHOD_DOUBLE, Box::new(|ability| {
+            if let Value::Number(n) = &ability.args[0] {
+                Ok(Value::Number(n * 2.0))
+            } else {
+                Ok(Value::Unit)
+            }
+        }));
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(42.0))); // op2 result, not op1
+    }
+
+    #[test]
+    fn test_ability_equality() {
+        // Test that identical suspended abilities are equal
+        let mut builder = BytecodeBuilder::new();
+
+        // Create two identical abilities
+        builder.emit_const(Value::Number(42.0));
+        builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
+        builder.emit_u16(Opcode::StoreLocal, 0);
+        builder.emit(Opcode::Pop);
+
+        builder.emit_const(Value::Number(42.0));
+        builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
+        builder.emit_u16(Opcode::StoreLocal, 1);
+        builder.emit(Opcode::Pop);
+
+        // Compare them
+        builder.emit_u16(Opcode::LoadLocal, 0);
+        builder.emit_u16(Opcode::LoadLocal, 1);
+        builder.emit(Opcode::Eq);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(2, 0); // 2 locals for the abilities
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+        let result = vm.call(&hash, vec![]);
+
+        // Two SuspendedAbility values with same ability_id, method_id, and args should be equal
+        assert_eq!(result, Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_ability_returned_from_function() {
+        // Test: Function creates and returns a suspended ability
+        //
+        // ```ambient
+        // fn create_double_op(n: number): Ability<number, Math!> {
+        //   Math.double(n)  // Return suspended, not performed
+        // }
+        //
+        // fn main(): number {
+        //   let op = create_double_op(21);
+        //   op!
+        // }
+        // ```
+
+        // Create the create_double_op function
+        let creator_hash = blake3::hash(b"test::create_double_op");
+        let mut creator_builder = BytecodeBuilder::new();
+        // Load n from parameter
+        creator_builder.emit_u16(Opcode::LoadLocal, 0);
+        // Create and return suspended ability (no Perform!)
+        creator_builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
+        creator_builder.emit(Opcode::Return);
+
+        let mut creator_func = creator_builder.build(1, 1);
+        creator_func.hash = creator_hash;
+
+        // Create the main function
+        let mut main_builder = BytecodeBuilder::new();
+        // Call create_double_op(21)
+        main_builder.emit_const(Value::Number(21.0));
+        main_builder.emit_call(creator_hash, 1);
+        // Store the returned ability
+        main_builder.emit_u16(Opcode::StoreLocal, 0);
+        main_builder.emit(Opcode::Pop);
+        // Load and perform
+        main_builder.emit_u16(Opcode::LoadLocal, 0);
+        main_builder.emit(Opcode::Perform);
+        main_builder.emit(Opcode::Return);
+
+        let main_func = main_builder.build(1, 0);
+        let main_hash = main_func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(creator_func);
+        vm.load_function(main_func);
+
+        vm.register_host_handler(ABILITY_MATH, METHOD_DOUBLE, Box::new(|ability| {
+            if let Value::Number(n) = &ability.args[0] {
+                Ok(Value::Number(n * 2.0))
+            } else {
+                Ok(Value::Unit)
+            }
+        }));
+
+        let result = vm.call(&main_hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(42.0)));
+    }
 }

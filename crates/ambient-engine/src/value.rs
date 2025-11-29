@@ -2,11 +2,17 @@ use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use serde::{Deserialize, Serialize};
+
 /// Represents a runtime value in the language.
 ///
 /// Values are immutable and use reference counting for efficient sharing of
 /// heap-allocated data (strings, tuples, records).
-#[derive(Debug, Clone)]
+///
+/// Most values are serializable for remote execution and storage.
+/// `Continuation` is not serializable as it contains runtime-specific state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "value")]
 pub enum Value {
     /// Unit type, represents absence of a meaningful value.
     Unit,
@@ -35,11 +41,18 @@ pub enum Value {
     SuspendedAbility(Rc<SuspendedAbility>),
 
     /// A captured continuation that can be resumed (single-shot).
+    ///
+    /// Note: Continuations are NOT serializable as they contain runtime state.
+    /// Attempting to serialize a Continuation will produce an error.
+    #[serde(skip)]
     Continuation(Rc<Continuation>),
 }
 
 /// A suspended ability operation waiting to be performed.
-#[derive(Debug, Clone)]
+///
+/// This type is fully serializable, allowing ability values to be stored,
+/// transmitted, and executed remotely.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SuspendedAbility {
     /// The ability being invoked (e.g., "Filesystem", "Console").
     pub ability_id: u16,
@@ -231,5 +244,141 @@ mod tests {
             ("y", Value::Number(2.0)),
         ]);
         assert_eq!(record.type_name(), "record");
+    }
+
+    // =========================================================================
+    // Milestone 3: Serialization Tests
+    // =========================================================================
+
+    #[test]
+    fn test_serialize_primitives() {
+        // Test serialization of primitive types
+        let unit = Value::Unit;
+        let bool_val = Value::Bool(true);
+        let num_val = Value::Number(42.5);
+        let str_val = Value::string("hello");
+
+        // Round-trip through JSON
+        let unit_json = serde_json::to_string(&unit).unwrap();
+        let unit_back: Value = serde_json::from_str(&unit_json).unwrap();
+        assert_eq!(unit, unit_back);
+
+        let bool_json = serde_json::to_string(&bool_val).unwrap();
+        let bool_back: Value = serde_json::from_str(&bool_json).unwrap();
+        assert_eq!(bool_val, bool_back);
+
+        let num_json = serde_json::to_string(&num_val).unwrap();
+        let num_back: Value = serde_json::from_str(&num_json).unwrap();
+        assert_eq!(num_val, num_back);
+
+        let str_json = serde_json::to_string(&str_val).unwrap();
+        let str_back: Value = serde_json::from_str(&str_json).unwrap();
+        assert_eq!(str_val, str_back);
+    }
+
+    #[test]
+    fn test_serialize_tuple() {
+        let tuple = Value::tuple(vec![
+            Value::Number(1.0),
+            Value::Bool(false),
+            Value::string("nested"),
+        ]);
+
+        let json = serde_json::to_string(&tuple).unwrap();
+        let back: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(tuple, back);
+    }
+
+    #[test]
+    fn test_serialize_record() {
+        let record = Value::record([
+            ("name", Value::string("Alice")),
+            ("age", Value::Number(30.0)),
+            ("active", Value::Bool(true)),
+        ]);
+
+        let json = serde_json::to_string(&record).unwrap();
+        let back: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(record, back);
+    }
+
+    #[test]
+    fn test_serialize_function_ref() {
+        let hash = blake3::hash(b"test::my_function");
+        let func_ref = Value::FunctionRef(hash);
+
+        let json = serde_json::to_string(&func_ref).unwrap();
+        let back: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(func_ref, back);
+    }
+
+    #[test]
+    fn test_serialize_suspended_ability() {
+        // Create a suspended ability with arguments
+        let ability = Value::suspended_ability(
+            0x0001, // Console
+            0x0000, // print
+            vec![Value::string("Hello, world!")],
+        );
+
+        let json = serde_json::to_string(&ability).unwrap();
+        let back: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(ability, back);
+    }
+
+    #[test]
+    fn test_serialize_suspended_ability_multiple_args() {
+        // Create a suspended ability with multiple arguments of different types
+        let ability = Value::suspended_ability(
+            0x0002, // Math
+            0x0001, // add
+            vec![
+                Value::Number(10.0),
+                Value::Number(32.0),
+                Value::string("extra"),
+                Value::tuple(vec![Value::Bool(true)]),
+            ],
+        );
+
+        let json = serde_json::to_string(&ability).unwrap();
+        let back: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(ability, back);
+    }
+
+    #[test]
+    fn test_serialize_nested_structures() {
+        // Create deeply nested structure containing ability values
+        let inner_ability = Value::suspended_ability(0x0001, 0x0000, vec![Value::Number(42.0)]);
+
+        let record = Value::record([
+            ("operation", inner_ability.clone()),
+            ("label", Value::string("test op")),
+        ]);
+
+        let tuple = Value::tuple(vec![
+            record.clone(),
+            inner_ability,
+            Value::Number(123.0),
+        ]);
+
+        let json = serde_json::to_string(&tuple).unwrap();
+        let back: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(tuple, back);
+    }
+
+    #[test]
+    fn test_serialize_ability_preserves_ids() {
+        // Verify that ability_id and method_id are correctly preserved
+        let ability = Value::suspended_ability(0x1234, 0x5678, vec![Value::Unit]);
+
+        let json = serde_json::to_string(&ability).unwrap();
+        let back: Value = serde_json::from_str(&json).unwrap();
+
+        if let Value::SuspendedAbility(a) = back {
+            assert_eq!(a.ability_id, 0x1234);
+            assert_eq!(a.method_id, 0x5678);
+        } else {
+            panic!("Expected SuspendedAbility, got something else");
+        }
     }
 }

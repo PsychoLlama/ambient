@@ -903,13 +903,13 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 
 **Deliverables**:
 
-- [ ] Value representation (numbers, strings, bools, tuples, records)
-- [ ] Bytecode format and instruction set (core subset)
-- [ ] Stack-based VM execution loop
-- [ ] Arithmetic and comparison operations (no overloading)
-- [ ] Local variables
-- [ ] Function calls (direct, no closures yet)
-- [ ] Simple test harness for hand-written bytecode
+- [x] Value representation (numbers, strings, bools, tuples, records)
+- [x] Bytecode format and instruction set (core subset)
+- [x] Stack-based VM execution loop
+- [x] Arithmetic and comparison operations (no overloading)
+- [x] Local variables
+- [x] Function calls (direct, no closures yet)
+- [x] Simple test harness for hand-written bytecode
 
 **Test case**: Factorial, fibonacci, record manipulation.
 
@@ -919,15 +919,15 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 
 **Deliverables**:
 
-- [ ] Continuation representation (captured stack segments)
-- [ ] SUSPEND instruction (create ability value)
-- [ ] PERFORM instruction (execute ability value)
-- [ ] HANDLE/UNHANDLE instructions
-- [ ] RESUME instruction
-- [ ] Single-shot enforcement (error on double resume)
-- [ ] Host-provided ability handlers (Rust callbacks)
-- [ ] Exception ability (throw + catch)
-- [ ] Console ability (print)
+- [x] Continuation representation (captured stack segments)
+- [x] SUSPEND instruction (create ability value)
+- [x] PERFORM instruction (execute ability value)
+- [x] HANDLE/UNHANDLE instructions
+- [x] RESUME instruction
+- [x] Single-shot enforcement (error on double resume)
+- [x] Host-provided ability handlers (Rust callbacks)
+- [x] Exception ability (throw + catch)
+- [x] Console ability (print)
 
 **Test case**: Exception handling, console I/O, state threading.
 
@@ -937,10 +937,10 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 
 **Deliverables**:
 
-- [ ] Ability value representation
-- [ ] Store ability values in variables
-- [ ] Pass ability values to functions
-- [ ] Serialize ability values
+- [x] Ability value representation
+- [x] Store ability values in variables
+- [x] Pass ability values to functions
+- [x] Serialize ability values
 
 **Test case**: Create suspended ability, pass to another function, perform there.
 
