@@ -818,1413 +818,866 @@ impl Vm {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bytecode::BytecodeBuilder;
+    use crate::bytecode::Opcode;
+    use crate::test_utils::{Capture, FunctionBuilder, VmTest};
 
-    /// Helper to build and run a simple function.
-    fn run_simple(build: impl FnOnce(&mut BytecodeBuilder)) -> Result<Value, VmError> {
-        let mut builder = BytecodeBuilder::new();
-        build(&mut builder);
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(0, 0);
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-        vm.call(&hash, vec![])
-    }
+    // =========================================================================
+    // Constants and Stack Operations
+    // =========================================================================
 
     #[test]
     fn test_push_const_number() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(42.0));
-        });
-        assert_eq!(result, Ok(Value::Number(42.0)));
+        VmTest::new().push(42.0).expect_number(42.0);
     }
 
     #[test]
     fn test_push_const_bool() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Bool(true));
-        });
-        assert_eq!(result, Ok(Value::Bool(true)));
+        VmTest::new().push_bool(true).expect_bool(true);
     }
 
     #[test]
     fn test_push_const_string() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::string("hello"));
-        });
-        assert_eq!(result, Ok(Value::string("hello")));
-    }
-
-    #[test]
-    fn test_add() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(10.0));
-            b.emit_const(Value::Number(32.0));
-            b.emit(Opcode::Add);
-        });
-        assert_eq!(result, Ok(Value::Number(42.0)));
-    }
-
-    #[test]
-    fn test_sub() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(50.0));
-            b.emit_const(Value::Number(8.0));
-            b.emit(Opcode::Sub);
-        });
-        assert_eq!(result, Ok(Value::Number(42.0)));
-    }
-
-    #[test]
-    fn test_mul() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(6.0));
-            b.emit_const(Value::Number(7.0));
-            b.emit(Opcode::Mul);
-        });
-        assert_eq!(result, Ok(Value::Number(42.0)));
-    }
-
-    #[test]
-    fn test_div() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(84.0));
-            b.emit_const(Value::Number(2.0));
-            b.emit(Opcode::Div);
-        });
-        assert_eq!(result, Ok(Value::Number(42.0)));
-    }
-
-    #[test]
-    fn test_div_by_zero() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(1.0));
-            b.emit_const(Value::Number(0.0));
-            b.emit(Opcode::Div);
-        });
-        assert_eq!(result, Err(VmError::DivisionByZero));
-    }
-
-    #[test]
-    fn test_mod() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(10.0));
-            b.emit_const(Value::Number(3.0));
-            b.emit(Opcode::Mod);
-        });
-        assert_eq!(result, Ok(Value::Number(1.0)));
-    }
-
-    #[test]
-    fn test_neg() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(42.0));
-            b.emit(Opcode::Neg);
-        });
-        assert_eq!(result, Ok(Value::Number(-42.0)));
-    }
-
-    #[test]
-    fn test_eq_true() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(42.0));
-            b.emit_const(Value::Number(42.0));
-            b.emit(Opcode::Eq);
-        });
-        assert_eq!(result, Ok(Value::Bool(true)));
-    }
-
-    #[test]
-    fn test_eq_false() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(42.0));
-            b.emit_const(Value::Number(43.0));
-            b.emit(Opcode::Eq);
-        });
-        assert_eq!(result, Ok(Value::Bool(false)));
-    }
-
-    #[test]
-    fn test_lt() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(1.0));
-            b.emit_const(Value::Number(2.0));
-            b.emit(Opcode::Lt);
-        });
-        assert_eq!(result, Ok(Value::Bool(true)));
-    }
-
-    #[test]
-    fn test_le() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(2.0));
-            b.emit_const(Value::Number(2.0));
-            b.emit(Opcode::Le);
-        });
-        assert_eq!(result, Ok(Value::Bool(true)));
-    }
-
-    #[test]
-    fn test_gt() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(3.0));
-            b.emit_const(Value::Number(2.0));
-            b.emit(Opcode::Gt);
-        });
-        assert_eq!(result, Ok(Value::Bool(true)));
-    }
-
-    #[test]
-    fn test_ge() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(2.0));
-            b.emit_const(Value::Number(2.0));
-            b.emit(Opcode::Ge);
-        });
-        assert_eq!(result, Ok(Value::Bool(true)));
-    }
-
-    #[test]
-    fn test_and() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Bool(true));
-            b.emit_const(Value::Bool(false));
-            b.emit(Opcode::And);
-        });
-        assert_eq!(result, Ok(Value::Bool(false)));
-    }
-
-    #[test]
-    fn test_or() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Bool(true));
-            b.emit_const(Value::Bool(false));
-            b.emit(Opcode::Or);
-        });
-        assert_eq!(result, Ok(Value::Bool(true)));
-    }
-
-    #[test]
-    fn test_not() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Bool(true));
-            b.emit(Opcode::Not);
-        });
-        assert_eq!(result, Ok(Value::Bool(false)));
-    }
-
-    #[test]
-    fn test_type_error_add() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(1.0));
-            b.emit_const(Value::Bool(true));
-            b.emit(Opcode::Add);
-        });
-        assert_eq!(
-            result,
-            Err(VmError::TypeError {
-                expected: "number",
-                got: "bool",
-                operation: "add"
-            })
-        );
-    }
-
-    #[test]
-    fn test_local_variables() {
-        // Test: x = 10; y = 32; x + y
-        let mut builder = BytecodeBuilder::new();
-
-        // x = 10 (slot 0)
-        builder.emit_const(Value::Number(10.0));
-        builder.emit_u16(Opcode::StoreLocal, 0);
-        builder.emit(Opcode::Pop);
-
-        // y = 32 (slot 1)
-        builder.emit_const(Value::Number(32.0));
-        builder.emit_u16(Opcode::StoreLocal, 1);
-        builder.emit(Opcode::Pop);
-
-        // x + y
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        builder.emit_u16(Opcode::LoadLocal, 1);
-        builder.emit(Opcode::Add);
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(2, 0); // 2 locals
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-        let result = vm.call(&hash, vec![]);
-
-        assert_eq!(result, Ok(Value::Number(42.0)));
-    }
-
-    #[test]
-    fn test_jump() {
-        // Test: jump over a push
-        let mut builder = BytecodeBuilder::new();
-        let jump_offset = builder.emit_jump_placeholder(Opcode::Jump);
-        builder.emit_const(Value::Number(1.0)); // This should be skipped
-        builder.patch_jump(jump_offset);
-        builder.emit_const(Value::Number(42.0)); // This should be executed
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(0, 0);
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-        let result = vm.call(&hash, vec![]);
-
-        assert_eq!(result, Ok(Value::Number(42.0)));
-    }
-
-    #[test]
-    fn test_jump_if_true() {
-        // Test: if true, skip to 42
-        let mut builder = BytecodeBuilder::new();
-        builder.emit_const(Value::Bool(true));
-        let jump_offset = builder.emit_jump_placeholder(Opcode::JumpIf);
-        builder.emit_const(Value::Number(1.0)); // Skipped
-        builder.emit(Opcode::Return);
-        builder.patch_jump(jump_offset);
-        builder.emit_const(Value::Number(42.0));
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(0, 0);
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-        let result = vm.call(&hash, vec![]);
-
-        assert_eq!(result, Ok(Value::Number(42.0)));
-    }
-
-    #[test]
-    fn test_jump_if_false() {
-        // Test: if false, don't jump
-        let mut builder = BytecodeBuilder::new();
-        builder.emit_const(Value::Bool(false));
-        let jump_offset = builder.emit_jump_placeholder(Opcode::JumpIf);
-        builder.emit_const(Value::Number(42.0)); // Executed
-        builder.emit(Opcode::Return);
-        builder.patch_jump(jump_offset);
-        builder.emit_const(Value::Number(1.0)); // Not reached
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(0, 0);
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-        let result = vm.call(&hash, vec![]);
-
-        assert_eq!(result, Ok(Value::Number(42.0)));
-    }
-
-    #[test]
-    fn test_make_tuple() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(1.0));
-            b.emit_const(Value::Number(2.0));
-            b.emit_const(Value::Number(3.0));
-            b.emit_u8(Opcode::MakeTuple, 3);
-        });
-        assert_eq!(
-            result,
-            Ok(Value::tuple(vec![
-                Value::Number(1.0),
-                Value::Number(2.0),
-                Value::Number(3.0)
-            ]))
-        );
-    }
-
-    #[test]
-    fn test_tuple_get() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(1.0));
-            b.emit_const(Value::Number(42.0));
-            b.emit_const(Value::Number(3.0));
-            b.emit_u8(Opcode::MakeTuple, 3);
-            b.emit_u8(Opcode::TupleGet, 1); // Get index 1 (42.0)
-        });
-        assert_eq!(result, Ok(Value::Number(42.0)));
-    }
-
-    #[test]
-    fn test_tuple_index_out_of_bounds() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(1.0));
-            b.emit_u8(Opcode::MakeTuple, 1);
-            b.emit_u8(Opcode::TupleGet, 5);
-        });
-        assert_eq!(
-            result,
-            Err(VmError::TupleIndexOutOfBounds { index: 5, length: 1 })
-        );
-    }
-
-    #[test]
-    fn test_make_record() {
-        let result = run_simple(|b| {
-            // Push field "x" with value 1.0
-            b.emit_const(Value::string("x"));
-            b.emit_const(Value::Number(1.0));
-            // Push field "y" with value 2.0
-            b.emit_const(Value::string("y"));
-            b.emit_const(Value::Number(2.0));
-            b.emit_u8(Opcode::MakeRecord, 2);
-        });
-
-        match result {
-            Ok(Value::Record(fields)) => {
-                assert_eq!(fields.len(), 2);
-                assert_eq!(fields.get(&Rc::from("x")), Some(&Value::Number(1.0)));
-                assert_eq!(fields.get(&Rc::from("y")), Some(&Value::Number(2.0)));
-            }
-            other => panic!("Expected record, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_record_get() {
-        let mut builder = BytecodeBuilder::new();
-        // Create record { x: 42.0 }
-        builder.emit_const(Value::string("x"));
-        builder.emit_const(Value::Number(42.0));
-        builder.emit_u8(Opcode::MakeRecord, 1);
-        // Get field "x"
-        let field_idx = builder.add_constant(Value::string("x"));
-        builder.emit_u16(Opcode::RecordGet, field_idx);
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(0, 0);
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-        let result = vm.call(&hash, vec![]);
-
-        assert_eq!(result, Ok(Value::Number(42.0)));
-    }
-
-    #[test]
-    fn test_function_call() {
-        // Create a helper function that returns 42
-        let mut helper_builder = BytecodeBuilder::new();
-        helper_builder.emit_const(Value::Number(42.0));
-        helper_builder.emit(Opcode::Return);
-        let helper = helper_builder.build(0, 0);
-        let helper_hash = helper.hash;
-
-        // Create main function that calls helper
-        let mut main_builder = BytecodeBuilder::new();
-        main_builder.emit_call(helper_hash, 0);
-        main_builder.emit(Opcode::Return);
-        let main = main_builder.build(0, 0);
-        let main_hash = main.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(helper);
-        vm.load_function(main);
-        let result = vm.call(&main_hash, vec![]);
-
-        assert_eq!(result, Ok(Value::Number(42.0)));
-    }
-
-    #[test]
-    fn test_function_with_args() {
-        // Create add(a, b) function that returns a + b
-        let mut add_builder = BytecodeBuilder::new();
-        add_builder.emit_u16(Opcode::LoadLocal, 0); // a
-        add_builder.emit_u16(Opcode::LoadLocal, 1); // b
-        add_builder.emit(Opcode::Add);
-        add_builder.emit(Opcode::Return);
-        let add_func = add_builder.build(2, 2); // 2 locals (params), 2 params
-        let add_hash = add_func.hash;
-
-        // Create main that calls add(10, 32)
-        let mut main_builder = BytecodeBuilder::new();
-        main_builder.emit_const(Value::Number(10.0));
-        main_builder.emit_const(Value::Number(32.0));
-        main_builder.emit_call(add_hash, 2);
-        main_builder.emit(Opcode::Return);
-        let main = main_builder.build(0, 0);
-        let main_hash = main.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(add_func);
-        vm.load_function(main);
-        let result = vm.call(&main_hash, vec![]);
-
-        assert_eq!(result, Ok(Value::Number(42.0)));
+        VmTest::new().push_str("hello").expect_string("hello");
     }
 
     #[test]
     fn test_dup() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(21.0));
-            b.emit(Opcode::Dup);
-            b.emit(Opcode::Add);
-        });
-        assert_eq!(result, Ok(Value::Number(42.0)));
+        VmTest::new().push(21.0).dup().add().expect_number(42.0);
     }
 
     #[test]
     fn test_pop() {
-        let result = run_simple(|b| {
-            b.emit_const(Value::Number(1.0));
-            b.emit_const(Value::Number(42.0));
-            b.emit_const(Value::Number(2.0));
-            b.emit(Opcode::Pop);
-            b.emit(Opcode::Pop);
-            // Only 1.0 remains
-        });
-        assert_eq!(result, Ok(Value::Number(1.0)));
+        VmTest::new()
+            .push(1.0)
+            .push(42.0)
+            .push(2.0)
+            .pop()
+            .pop()
+            .expect_number(1.0);
     }
 
     // =========================================================================
-    // Milestone 1 Test Cases: Factorial, Fibonacci, Record Manipulation
+    // Arithmetic Operations
     // =========================================================================
 
-    /// Build a recursive factorial function.
-    ///
-    /// For self-recursive functions, we use a predetermined hash as an identifier.
-    /// This simulates what a real compiler would do: assign a stable identifier
-    /// before the function body references itself.
-    ///
-    /// ```ambient
-    /// fn factorial(n: number): number {
-    ///   if n <= 1 { 1 } else { n * factorial(n - 1) }
-    /// }
-    /// ```
-    fn build_factorial() -> (CompiledFunction, blake3::Hash) {
-        // For self-recursive functions, we use a predetermined identifier.
-        // In a real compiler, this would be computed from the function signature.
-        let func_hash = blake3::hash(b"test::factorial");
-
-        let mut builder = BytecodeBuilder::new();
-
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        builder.emit_const(Value::Number(1.0));
-        builder.emit(Opcode::Le);
-
-        let else_jump = builder.emit_jump_placeholder(Opcode::JumpIfNot);
-        builder.emit_const(Value::Number(1.0));
-        builder.emit(Opcode::Return);
-
-        builder.patch_jump(else_jump);
-        builder.emit_u16(Opcode::LoadLocal, 0);
-
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        builder.emit_const(Value::Number(1.0));
-        builder.emit(Opcode::Sub);
-        builder.emit_call(func_hash, 1);
-
-        builder.emit(Opcode::Mul);
-        builder.emit(Opcode::Return);
-
-        let mut func = builder.build(1, 1);
-        func.hash = func_hash; // Override the computed hash with our predetermined one
-
-        (func, func_hash)
+    #[test]
+    fn test_add() {
+        VmTest::new().push(10.0).push(32.0).add().expect_number(42.0);
     }
 
     #[test]
-    fn test_factorial_base_case() {
-        let (factorial, hash) = build_factorial();
-
-        let mut vm = Vm::new();
-        vm.load_function(factorial);
-
-        // factorial(1) = 1
-        let result = vm.call(&hash, vec![Value::Number(1.0)]);
-        assert_eq!(result, Ok(Value::Number(1.0)));
+    fn test_sub() {
+        VmTest::new().push(50.0).push(8.0).sub().expect_number(42.0);
     }
 
     #[test]
-    fn test_factorial_small() {
-        let (factorial, hash) = build_factorial();
-
-        let mut vm = Vm::new();
-        vm.load_function(factorial);
-
-        // factorial(5) = 120
-        let result = vm.call(&hash, vec![Value::Number(5.0)]);
-        assert_eq!(result, Ok(Value::Number(120.0)));
+    fn test_mul() {
+        VmTest::new().push(6.0).push(7.0).mul().expect_number(42.0);
     }
 
     #[test]
-    fn test_factorial_larger() {
-        let (factorial, hash) = build_factorial();
-
-        let mut vm = Vm::new();
-        vm.load_function(factorial);
-
-        // factorial(10) = 3628800
-        let result = vm.call(&hash, vec![Value::Number(10.0)]);
-        assert_eq!(result, Ok(Value::Number(3_628_800.0)));
-    }
-
-    /// Build a recursive fibonacci function.
-    ///
-    /// ```ambient
-    /// fn fib(n: number): number {
-    ///   if n <= 1 { n } else { fib(n - 1) + fib(n - 2) }
-    /// }
-    /// ```
-    fn build_fibonacci() -> (CompiledFunction, blake3::Hash) {
-        // For self-recursive functions, we use a predetermined identifier.
-        let func_hash = blake3::hash(b"test::fibonacci");
-
-        let mut builder = BytecodeBuilder::new();
-
-        // if n <= 1
-        builder.emit_u16(Opcode::LoadLocal, 0); // n
-        builder.emit_const(Value::Number(1.0));
-        builder.emit(Opcode::Le);
-
-        let else_jump = builder.emit_jump_placeholder(Opcode::JumpIfNot);
-
-        // then: return n
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        builder.emit(Opcode::Return);
-
-        // else: fib(n-1) + fib(n-2)
-        builder.patch_jump(else_jump);
-
-        // fib(n - 1)
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        builder.emit_const(Value::Number(1.0));
-        builder.emit(Opcode::Sub);
-        builder.emit_call(func_hash, 1);
-
-        // fib(n - 2)
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        builder.emit_const(Value::Number(2.0));
-        builder.emit(Opcode::Sub);
-        builder.emit_call(func_hash, 1);
-
-        builder.emit(Opcode::Add);
-        builder.emit(Opcode::Return);
-
-        let mut func = builder.build(1, 1);
-        func.hash = func_hash;
-
-        (func, func_hash)
+    fn test_div() {
+        VmTest::new().push(84.0).push(2.0).div().expect_number(42.0);
     }
 
     #[test]
-    fn test_fibonacci_base_cases() {
-        let (fib, hash) = build_fibonacci();
-
-        let mut vm = Vm::new();
-        vm.load_function(fib);
-
-        assert_eq!(vm.call(&hash, vec![Value::Number(0.0)]), Ok(Value::Number(0.0)));
-
-        // Need to reset VM state between calls
-        let (fib, hash) = build_fibonacci();
-        let mut vm = Vm::new();
-        vm.load_function(fib);
-        assert_eq!(vm.call(&hash, vec![Value::Number(1.0)]), Ok(Value::Number(1.0)));
+    fn test_div_by_zero() {
+        VmTest::new()
+            .push(1.0)
+            .push(0.0)
+            .div()
+            .expect_error(VmError::DivisionByZero);
     }
 
     #[test]
-    fn test_fibonacci_sequence() {
-        // fib(10) = 55
-        let (fib, hash) = build_fibonacci();
-
-        let mut vm = Vm::new();
-        vm.load_function(fib);
-
-        let result = vm.call(&hash, vec![Value::Number(10.0)]);
-        assert_eq!(result, Ok(Value::Number(55.0)));
+    fn test_mod() {
+        VmTest::new().push(10.0).push(3.0).modulo().expect_number(1.0);
     }
 
     #[test]
-    fn test_fibonacci_values() {
-        // Test several fibonacci numbers: 0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55
-        let expected = [0.0, 1.0, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0, 34.0, 55.0];
+    fn test_neg() {
+        VmTest::new().push(42.0).neg().expect_number(-42.0);
+    }
 
-        for (n, exp) in expected.iter().enumerate() {
-            let (fib, hash) = build_fibonacci();
-            let mut vm = Vm::new();
-            vm.load_function(fib);
+    // =========================================================================
+    // Comparison Operations
+    // =========================================================================
 
-            let result = vm.call(&hash, vec![Value::Number(n as f64)]);
-            assert_eq!(result, Ok(Value::Number(*exp)), "fib({n}) should be {exp}");
-        }
+    #[test]
+    fn test_eq_true() {
+        VmTest::new().push(42.0).push(42.0).eq().expect_bool(true);
     }
 
     #[test]
-    fn test_record_manipulation_point() {
-        // Test creating and manipulating a 2D point record
-        // let point = { x: 3.0, y: 4.0 }
-        // let distance_squared = point.x * point.x + point.y * point.y
-        // distance_squared should be 25.0
-
-        let mut builder = BytecodeBuilder::new();
-
-        // Create point { x: 3.0, y: 4.0 }
-        builder.emit_const(Value::string("x"));
-        builder.emit_const(Value::Number(3.0));
-        builder.emit_const(Value::string("y"));
-        builder.emit_const(Value::Number(4.0));
-        builder.emit_u8(Opcode::MakeRecord, 2);
-        builder.emit_u16(Opcode::StoreLocal, 0); // point in local 0
-
-        // point.x * point.x
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        let x_idx = builder.add_constant(Value::string("x"));
-        builder.emit_u16(Opcode::RecordGet, x_idx);
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        builder.emit_u16(Opcode::RecordGet, x_idx);
-        builder.emit(Opcode::Mul);
-
-        // point.y * point.y
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        let y_idx = builder.add_constant(Value::string("y"));
-        builder.emit_u16(Opcode::RecordGet, y_idx);
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        builder.emit_u16(Opcode::RecordGet, y_idx);
-        builder.emit(Opcode::Mul);
-
-        // Add them
-        builder.emit(Opcode::Add);
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(1, 0);
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-        let result = vm.call(&hash, vec![]);
-
-        assert_eq!(result, Ok(Value::Number(25.0))); // 3*3 + 4*4 = 9 + 16 = 25
+    fn test_eq_false() {
+        VmTest::new().push(42.0).push(43.0).eq().expect_bool(false);
     }
 
     #[test]
-    fn test_record_nested_access() {
-        // Test nested record: { user: { name: "Alice", age: 30 } }
-        // Access user.age
+    fn test_lt() {
+        VmTest::new().push(1.0).push(2.0).lt().expect_bool(true);
+    }
 
-        let mut builder = BytecodeBuilder::new();
+    #[test]
+    fn test_le() {
+        VmTest::new().push(2.0).push(2.0).le().expect_bool(true);
+    }
 
-        // Inner record { name: "Alice", age: 30 }
-        builder.emit_const(Value::string("name"));
-        builder.emit_const(Value::string("Alice"));
-        builder.emit_const(Value::string("age"));
-        builder.emit_const(Value::Number(30.0));
-        builder.emit_u8(Opcode::MakeRecord, 2);
+    #[test]
+    fn test_gt() {
+        VmTest::new().push(3.0).push(2.0).gt().expect_bool(true);
+    }
 
-        // Store inner record, then create outer record { user: <inner> }
-        builder.emit_u16(Opcode::StoreLocal, 0);
-        builder.emit(Opcode::Pop); // Pop the inner record from stack
+    #[test]
+    fn test_ge() {
+        VmTest::new().push(2.0).push(2.0).ge().expect_bool(true);
+    }
 
-        // Build outer record
-        builder.emit_const(Value::string("user"));
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        builder.emit_u8(Opcode::MakeRecord, 1);
+    // =========================================================================
+    // Logic Operations
+    // =========================================================================
 
-        // Get user.age
-        let user_idx = builder.add_constant(Value::string("user"));
-        builder.emit_u16(Opcode::RecordGet, user_idx);
-        let age_idx = builder.add_constant(Value::string("age"));
-        builder.emit_u16(Opcode::RecordGet, age_idx);
-        builder.emit(Opcode::Return);
+    #[test]
+    fn test_and() {
+        VmTest::new()
+            .push_bool(true)
+            .push_bool(false)
+            .and()
+            .expect_bool(false);
+    }
 
-        let func = builder.build(1, 0);
-        let hash = func.hash;
+    #[test]
+    fn test_or() {
+        VmTest::new()
+            .push_bool(true)
+            .push_bool(false)
+            .or()
+            .expect_bool(true);
+    }
 
-        let mut vm = Vm::new();
-        vm.load_function(func);
-        let result = vm.call(&hash, vec![]);
+    #[test]
+    fn test_not() {
+        VmTest::new().push_bool(true).not().expect_bool(false);
+    }
 
-        assert_eq!(result, Ok(Value::Number(30.0)));
+    // =========================================================================
+    // Type Errors
+    // =========================================================================
+
+    #[test]
+    fn test_type_error_add() {
+        VmTest::new()
+            .push(1.0)
+            .push_bool(true)
+            .add()
+            .expect_error(VmError::TypeError {
+                expected: "number",
+                got: "bool",
+                operation: "add",
+            });
+    }
+
+    // =========================================================================
+    // Local Variables
+    // =========================================================================
+
+    #[test]
+    fn test_local_variables() {
+        // x = 10; y = 32; x + y
+        VmTest::new()
+            .with_locals(2)
+            .push(10.0)
+            .store_local(0)
+            .pop()
+            .push(32.0)
+            .store_local(1)
+            .pop()
+            .load_local(0)
+            .load_local(1)
+            .add()
+            .expect_number(42.0);
+    }
+
+    // =========================================================================
+    // Control Flow
+    // =========================================================================
+
+    #[test]
+    fn test_jump() {
+        VmTest::new()
+            .with_builder(|b| {
+                let jump_offset = b.emit_jump_placeholder(Opcode::Jump);
+                b.emit_const(Value::Number(1.0)); // Skipped
+                b.patch_jump(jump_offset);
+                b.emit_const(Value::Number(42.0)); // Executed
+            })
+            .expect_number(42.0);
+    }
+
+    #[test]
+    fn test_jump_if_true() {
+        VmTest::new()
+            .with_builder(|b| {
+                b.emit_const(Value::Bool(true));
+                let jump_offset = b.emit_jump_placeholder(Opcode::JumpIf);
+                b.emit_const(Value::Number(1.0));
+                b.emit(Opcode::Return);
+                b.patch_jump(jump_offset);
+                b.emit_const(Value::Number(42.0));
+            })
+            .expect_number(42.0);
+    }
+
+    #[test]
+    fn test_jump_if_false() {
+        VmTest::new()
+            .with_builder(|b| {
+                b.emit_const(Value::Bool(false));
+                let jump_offset = b.emit_jump_placeholder(Opcode::JumpIf);
+                b.emit_const(Value::Number(42.0));
+                b.emit(Opcode::Return);
+                b.patch_jump(jump_offset);
+                b.emit_const(Value::Number(1.0));
+            })
+            .expect_number(42.0);
+    }
+
+    // =========================================================================
+    // Data Structures: Tuples
+    // =========================================================================
+
+    #[test]
+    fn test_make_tuple() {
+        VmTest::new()
+            .push(1.0)
+            .push(2.0)
+            .push(3.0)
+            .make_tuple(3)
+            .expect(Value::tuple(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+            ]));
+    }
+
+    #[test]
+    fn test_tuple_get() {
+        VmTest::new()
+            .push(1.0)
+            .push(42.0)
+            .push(3.0)
+            .make_tuple(3)
+            .tuple_get(1)
+            .expect_number(42.0);
+    }
+
+    #[test]
+    fn test_tuple_index_out_of_bounds() {
+        VmTest::new()
+            .push(1.0)
+            .make_tuple(1)
+            .tuple_get(5)
+            .expect_error(VmError::TupleIndexOutOfBounds { index: 5, length: 1 });
     }
 
     #[test]
     fn test_tuple_unpacking() {
-        // Test: let pair = (10, 32); pair.0 + pair.1 = 42
-        let mut builder = BytecodeBuilder::new();
-
-        // Create tuple
-        builder.emit_const(Value::Number(10.0));
-        builder.emit_const(Value::Number(32.0));
-        builder.emit_u8(Opcode::MakeTuple, 2);
-        builder.emit_u16(Opcode::StoreLocal, 0);
-
-        // pair.0
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        builder.emit_u8(Opcode::TupleGet, 0);
-
-        // pair.1
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        builder.emit_u8(Opcode::TupleGet, 1);
-
-        builder.emit(Opcode::Add);
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(1, 0);
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-        let result = vm.call(&hash, vec![]);
-
-        assert_eq!(result, Ok(Value::Number(42.0)));
+        // let pair = (10, 32); pair.0 + pair.1
+        VmTest::new()
+            .with_locals(1)
+            .push(10.0)
+            .push(32.0)
+            .make_tuple(2)
+            .store_local(0)
+            .load_local(0)
+            .tuple_get(0)
+            .load_local(0)
+            .tuple_get(1)
+            .add()
+            .expect_number(42.0);
     }
 
     // =========================================================================
-    // Milestone 2 Test Cases: Abilities and Handlers
+    // Data Structures: Records
     // =========================================================================
 
-    /// Ability IDs used in tests
+    #[test]
+    fn test_make_record() {
+        VmTest::new()
+            .push_str("x")
+            .push(1.0)
+            .push_str("y")
+            .push(2.0)
+            .make_record(2)
+            .expect_record(|fields| {
+                assert_eq!(fields.len(), 2);
+                assert_eq!(fields.get(&Rc::from("x")), Some(&Value::Number(1.0)));
+                assert_eq!(fields.get(&Rc::from("y")), Some(&Value::Number(2.0)));
+            });
+    }
+
+    #[test]
+    fn test_record_get() {
+        VmTest::new()
+            .push_str("x")
+            .push(42.0)
+            .make_record(1)
+            .record_get("x")
+            .expect_number(42.0);
+    }
+
+    #[test]
+    fn test_record_manipulation_point() {
+        // point = { x: 3.0, y: 4.0 }; point.x * point.x + point.y * point.y = 25.0
+        VmTest::new()
+            .with_locals(1)
+            .push_str("x")
+            .push(3.0)
+            .push_str("y")
+            .push(4.0)
+            .make_record(2)
+            .store_local(0)
+            .load_local(0)
+            .record_get("x")
+            .load_local(0)
+            .record_get("x")
+            .mul()
+            .load_local(0)
+            .record_get("y")
+            .load_local(0)
+            .record_get("y")
+            .mul()
+            .add()
+            .expect_number(25.0);
+    }
+
+    #[test]
+    fn test_record_nested_access() {
+        // { user: { name: "Alice", age: 30 } }.user.age = 30.0
+        VmTest::new()
+            .with_locals(1)
+            .push_str("name")
+            .push_str("Alice")
+            .push_str("age")
+            .push(30.0)
+            .make_record(2)
+            .store_local(0)
+            .pop()
+            .push_str("user")
+            .load_local(0)
+            .make_record(1)
+            .record_get("user")
+            .record_get("age")
+            .expect_number(30.0);
+    }
+
+    // =========================================================================
+    // Function Calls
+    // =========================================================================
+
+    #[test]
+    fn test_function_call() {
+        let helper = FunctionBuilder::new("test::helper").push(42.0).build();
+        let helper_hash = helper.hash;
+
+        VmTest::new()
+            .with_function(helper)
+            .call_func(helper_hash, 0)
+            .expect_number(42.0);
+    }
+
+    #[test]
+    fn test_function_with_args() {
+        // add(a, b) = a + b
+        let add_fn = FunctionBuilder::new("test::add")
+            .with_locals(2)
+            .with_params(2)
+            .load_local(0)
+            .load_local(1)
+            .add()
+            .build();
+        let add_hash = add_fn.hash;
+
+        VmTest::new()
+            .with_function(add_fn)
+            .push(10.0)
+            .push(32.0)
+            .call_func(add_hash, 2)
+            .expect_number(42.0);
+    }
+
+    // =========================================================================
+    // Milestone 1: Recursive Functions
+    // =========================================================================
+
+    /// Build a recursive factorial function using FunctionBuilder.
+    fn build_factorial() -> CompiledFunction {
+        FunctionBuilder::new("test::factorial")
+            .with_locals(1)
+            .with_params(1)
+            .with_builder(|b| {
+                let func_hash = blake3::hash(b"test::factorial");
+
+                b.emit_u16(Opcode::LoadLocal, 0);
+                b.emit_const(Value::Number(1.0));
+                b.emit(Opcode::Le);
+
+                let else_jump = b.emit_jump_placeholder(Opcode::JumpIfNot);
+                b.emit_const(Value::Number(1.0));
+                b.emit(Opcode::Return);
+
+                b.patch_jump(else_jump);
+                b.emit_u16(Opcode::LoadLocal, 0);
+                b.emit_u16(Opcode::LoadLocal, 0);
+                b.emit_const(Value::Number(1.0));
+                b.emit(Opcode::Sub);
+                b.emit_call(func_hash, 1);
+                b.emit(Opcode::Mul);
+            })
+            .build()
+    }
+
+    #[test]
+    fn test_factorial_base_case() {
+        let factorial = build_factorial();
+        let hash = factorial.hash;
+
+        VmTest::new()
+            .with_function(factorial)
+            .push(1.0)
+            .call_func(hash, 1)
+            .expect_number(1.0);
+    }
+
+    #[test]
+    fn test_factorial_small() {
+        let factorial = build_factorial();
+        let hash = factorial.hash;
+
+        VmTest::new()
+            .with_function(factorial)
+            .push(5.0)
+            .call_func(hash, 1)
+            .expect_number(120.0);
+    }
+
+    #[test]
+    fn test_factorial_larger() {
+        let factorial = build_factorial();
+        let hash = factorial.hash;
+
+        VmTest::new()
+            .with_function(factorial)
+            .push(10.0)
+            .call_func(hash, 1)
+            .expect_number(3_628_800.0);
+    }
+
+    /// Build a recursive fibonacci function using FunctionBuilder.
+    fn build_fibonacci() -> CompiledFunction {
+        FunctionBuilder::new("test::fibonacci")
+            .with_locals(1)
+            .with_params(1)
+            .with_builder(|b| {
+                let func_hash = blake3::hash(b"test::fibonacci");
+
+                b.emit_u16(Opcode::LoadLocal, 0);
+                b.emit_const(Value::Number(1.0));
+                b.emit(Opcode::Le);
+
+                let else_jump = b.emit_jump_placeholder(Opcode::JumpIfNot);
+                b.emit_u16(Opcode::LoadLocal, 0);
+                b.emit(Opcode::Return);
+
+                b.patch_jump(else_jump);
+
+                // fib(n-1)
+                b.emit_u16(Opcode::LoadLocal, 0);
+                b.emit_const(Value::Number(1.0));
+                b.emit(Opcode::Sub);
+                b.emit_call(func_hash, 1);
+
+                // fib(n-2)
+                b.emit_u16(Opcode::LoadLocal, 0);
+                b.emit_const(Value::Number(2.0));
+                b.emit(Opcode::Sub);
+                b.emit_call(func_hash, 1);
+
+                b.emit(Opcode::Add);
+            })
+            .build()
+    }
+
+    #[test]
+    fn test_fibonacci_base_cases() {
+        let fib = build_fibonacci();
+        let hash = fib.hash;
+
+        VmTest::new()
+            .with_function(fib.clone())
+            .push(0.0)
+            .call_func(hash, 1)
+            .expect_number(0.0);
+
+        VmTest::new()
+            .with_function(fib)
+            .push(1.0)
+            .call_func(hash, 1)
+            .expect_number(1.0);
+    }
+
+    #[test]
+    fn test_fibonacci_sequence() {
+        let fib = build_fibonacci();
+        let hash = fib.hash;
+
+        VmTest::new()
+            .with_function(fib)
+            .push(10.0)
+            .call_func(hash, 1)
+            .expect_number(55.0);
+    }
+
+    #[test]
+    fn test_fibonacci_values() {
+        let expected = [0.0, 1.0, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0, 34.0, 55.0];
+
+        for (n, exp) in expected.iter().enumerate() {
+            let fib = build_fibonacci();
+            let hash = fib.hash;
+
+            let result = VmTest::new()
+                .with_function(fib)
+                .push(n as f64)
+                .call_func(hash, 1)
+                .run();
+
+            assert_eq!(result, Ok(Value::Number(*exp)), "fib({n}) should be {exp}");
+        }
+    }
+
+    // =========================================================================
+    // Milestone 2: Abilities and Handlers
+    // =========================================================================
+
     const ABILITY_CONSOLE: u16 = 1;
     const ABILITY_MATH: u16 = 2;
-
-    /// Method IDs for Console ability
     const METHOD_PRINT: u16 = 0;
-
-    /// Method IDs for Math ability
     const METHOD_DOUBLE: u16 = 0;
     const METHOD_ADD_TEN: u16 = 1;
 
     #[test]
     fn test_suspend_creates_ability_value() {
-        // Test that Suspend creates a suspended ability value
-        let mut builder = BytecodeBuilder::new();
-
-        // Push argument
-        builder.emit_const(Value::Number(42.0));
-        // Suspend with ability_id=1, method_id=0, 1 arg
-        builder.emit_suspend(ABILITY_CONSOLE, METHOD_PRINT, 1);
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(0, 0);
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-        let result = vm.call(&hash, vec![]);
-
-        // Should return a suspended ability
-        match result {
-            Ok(Value::SuspendedAbility(ability)) => {
+        VmTest::new()
+            .push(42.0)
+            .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
+            .expect_suspended(|ability| {
                 assert_eq!(ability.ability_id, ABILITY_CONSOLE);
                 assert_eq!(ability.method_id, METHOD_PRINT);
                 assert_eq!(ability.args.len(), 1);
                 assert_eq!(ability.args[0], Value::Number(42.0));
-            }
-            other => panic!("Expected SuspendedAbility, got {other:?}"),
-        }
+            });
     }
 
     #[test]
     fn test_host_handler_called() {
-        // Test that host handlers are called when ability is performed
-        use std::cell::RefCell;
-        use std::rc::Rc;
+        let capture = Capture::<f64>::new();
+        let log = capture.clone_inner();
 
-        let call_log: Rc<RefCell<Vec<f64>>> = Rc::new(RefCell::new(Vec::new()));
-        let log_clone = call_log.clone();
+        VmTest::new()
+            .push(42.0)
+            .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
+            .perform()
+            .with_host_handler(ABILITY_CONSOLE, METHOD_PRINT, move |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    log.borrow_mut().push(*n);
+                }
+                Ok(Value::Unit)
+            })
+            .expect_unit();
 
-        let mut builder = BytecodeBuilder::new();
-        builder.emit_const(Value::Number(42.0));
-        builder.emit_suspend(ABILITY_CONSOLE, METHOD_PRINT, 1);
-        builder.emit(Opcode::Perform);
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(0, 0);
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-
-        // Register a host handler that logs the argument
-        vm.register_host_handler(ABILITY_CONSOLE, METHOD_PRINT, Box::new(move |ability| {
-            if let Value::Number(n) = &ability.args[0] {
-                log_clone.borrow_mut().push(*n);
-            }
-            Ok(Value::Unit)
-        }));
-
-        let result = vm.call(&hash, vec![]);
-
-        assert_eq!(result, Ok(Value::Unit));
-        assert_eq!(*call_log.borrow(), vec![42.0]);
+        capture.assert_eq(&[42.0]);
     }
 
     #[test]
     fn test_host_handler_returns_value() {
-        // Test that host handler return value is pushed to stack
-        let mut builder = BytecodeBuilder::new();
-        builder.emit_const(Value::Number(21.0));
-        builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
-        builder.emit(Opcode::Perform);
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(0, 0);
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-
-        // Register a handler that doubles the argument
-        vm.register_host_handler(ABILITY_MATH, METHOD_DOUBLE, Box::new(|ability| {
-            if let Value::Number(n) = &ability.args[0] {
-                Ok(Value::Number(n * 2.0))
-            } else {
-                Ok(Value::Unit)
-            }
-        }));
-
-        let result = vm.call(&hash, vec![]);
-        assert_eq!(result, Ok(Value::Number(42.0)));
+        VmTest::new()
+            .push(21.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .perform()
+            .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(n * 2.0))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .expect_number(42.0);
     }
 
     #[test]
     fn test_unhandled_ability_error() {
-        // Test that performing an unhandled ability returns an error
-        let mut builder = BytecodeBuilder::new();
-        builder.emit_const(Value::Number(42.0));
-        builder.emit_suspend(ABILITY_CONSOLE, METHOD_PRINT, 1);
-        builder.emit(Opcode::Perform);
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(0, 0);
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-
-        // No handler registered!
-        let result = vm.call(&hash, vec![]);
-
-        assert_eq!(
-            result,
-            Err(VmError::UnhandledAbility {
+        VmTest::new()
+            .push(42.0)
+            .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
+            .perform()
+            .expect_error(VmError::UnhandledAbility {
                 ability_id: ABILITY_CONSOLE,
                 method_id: METHOD_PRINT,
-            })
-        );
+            });
     }
 
     #[test]
     fn test_bytecode_handler_simple_resume() {
-        // Test bytecode handler that immediately resumes with a value
-        //
-        // This simulates:
-        // handle {
-        //   Math.double!(5)
-        // } with {
-        //   Math.double(k, ability) => resume(k, 42)
-        // }
+        // Handler: receives (continuation, ability), resumes with 42.0
+        let handler = FunctionBuilder::new("test::math_handler")
+            .with_locals(2)
+            .with_params(2)
+            .load_local(0)
+            .push(42.0)
+            .resume()
+            .build();
+        let handler_hash = handler.hash;
 
-        // First, create the handler function
-        // Handler receives: (continuation, ability) and should call resume(k, value)
-        let handler_hash = blake3::hash(b"test::math_handler");
-        let mut handler_builder = BytecodeBuilder::new();
-        // Load continuation (local 0)
-        handler_builder.emit_u16(Opcode::LoadLocal, 0);
-        // Push the value to resume with
-        handler_builder.emit_const(Value::Number(42.0));
-        // Resume: pops continuation and value, resumes continuation with value
-        handler_builder.emit(Opcode::Resume);
-        // After resume, we should not reach here (control transfers back)
-        // But we need a return for the function structure
-        handler_builder.emit(Opcode::Return);
-
-        let mut handler_func = handler_builder.build(2, 2); // 2 locals (k, ability), 2 params
-        handler_func.hash = handler_hash;
-
-        // Now create the main function that uses the handler
-        let mut main_builder = BytecodeBuilder::new();
-
-        // Install handler for ABILITY_MATH
-        let handle_jump = main_builder.emit_handle(ABILITY_MATH, handler_hash);
-
-        // The handled expression: Suspend and Perform
-        main_builder.emit_const(Value::Number(5.0));
-        main_builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
-        main_builder.emit(Opcode::Perform);
-
-        // Remove handler (reached if no ability performed, but we did perform)
-        main_builder.emit(Opcode::Unhandle);
-
-        // Patch the handle instruction (not really needed for this test but good practice)
-        main_builder.patch_handle(handle_jump);
-
-        // Return the result
-        main_builder.emit(Opcode::Return);
-
-        let main_func = main_builder.build(0, 0);
-        let main_hash = main_func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(handler_func);
-        vm.load_function(main_func);
-
-        let result = vm.call(&main_hash, vec![]);
-        assert_eq!(result, Ok(Value::Number(42.0)));
+        VmTest::new()
+            .with_function(handler)
+            .handle(ABILITY_MATH, handler_hash)
+            .push(5.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .perform()
+            .unhandle()
+            .expect_number(42.0);
     }
 
     #[test]
     fn test_single_shot_enforcement() {
-        // Test that resuming a continuation twice results in an error
+        // Handler resumes once and returns
+        let handler = FunctionBuilder::new("test::double_resume_handler")
+            .with_locals(2)
+            .with_params(2)
+            .load_local(0)
+            .push(1.0)
+            .resume()
+            .build();
+        let handler_hash = handler.hash;
 
-        // Create a handler that tries to resume twice
-        let handler_hash = blake3::hash(b"test::double_resume_handler");
-        let mut handler_builder = BytecodeBuilder::new();
-
-        // First resume (should succeed)
-        handler_builder.emit_u16(Opcode::LoadLocal, 0); // continuation
-        handler_builder.emit_const(Value::Number(1.0));
-        handler_builder.emit(Opcode::Resume);
-
-        // This shouldn't be reached, but if we somehow got here and tried to resume again...
-        handler_builder.emit(Opcode::Return);
-
-        let mut handler_func = handler_builder.build(2, 2);
-        handler_func.hash = handler_hash;
-
-        // Main function that performs ability
-        let mut main_builder = BytecodeBuilder::new();
-        let handle_jump = main_builder.emit_handle(ABILITY_MATH, handler_hash);
-        main_builder.emit_const(Value::Number(5.0));
-        main_builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
-        main_builder.emit(Opcode::Perform);
-        main_builder.emit(Opcode::Unhandle);
-        main_builder.patch_handle(handle_jump);
-        main_builder.emit(Opcode::Return);
-
-        let main_func = main_builder.build(0, 0);
-        let main_hash = main_func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(handler_func);
-        vm.load_function(main_func);
-
-        // First call should succeed
-        let result = vm.call(&main_hash, vec![]);
-        assert_eq!(result, Ok(Value::Number(1.0)));
-
-        // Note: Testing double-resume through bytecode handlers requires a more complex
-        // test setup where the handler stores the continuation and tries to use it twice.
-        // The single-shot enforcement is implemented via Continuation::mark_resumed().
+        VmTest::new()
+            .with_function(handler)
+            .handle(ABILITY_MATH, handler_hash)
+            .push(5.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .perform()
+            .unhandle()
+            .expect_number(1.0);
     }
 
     #[test]
     fn test_perform_expected_type_error() {
-        // Test that performing a non-ability value returns a type error
-        let mut builder = BytecodeBuilder::new();
-        builder.emit_const(Value::Number(42.0));
-        builder.emit(Opcode::Perform);
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(0, 0);
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-
-        let result = vm.call(&hash, vec![]);
-        assert_eq!(
-            result,
-            Err(VmError::ExpectedSuspendedAbility { got: "number" })
-        );
+        VmTest::new()
+            .push(42.0)
+            .perform()
+            .expect_error(VmError::ExpectedSuspendedAbility { got: "number" });
     }
 
     #[test]
     fn test_multiple_ability_calls() {
-        // Test multiple ability calls in sequence
-        use std::cell::RefCell;
-        use std::rc::Rc;
+        let capture = Capture::<f64>::new();
+        let log = capture.clone_inner();
 
-        let call_log: Rc<RefCell<Vec<f64>>> = Rc::new(RefCell::new(Vec::new()));
-        let log_clone = call_log.clone();
+        VmTest::new()
+            .push(1.0)
+            .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
+            .perform()
+            .pop()
+            .push(2.0)
+            .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
+            .perform()
+            .pop()
+            .push(3.0)
+            .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
+            .perform()
+            .with_host_handler(ABILITY_CONSOLE, METHOD_PRINT, move |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    log.borrow_mut().push(*n);
+                }
+                Ok(Value::Unit)
+            })
+            .expect_unit();
 
-        let mut builder = BytecodeBuilder::new();
-
-        // First call
-        builder.emit_const(Value::Number(1.0));
-        builder.emit_suspend(ABILITY_CONSOLE, METHOD_PRINT, 1);
-        builder.emit(Opcode::Perform);
-        builder.emit(Opcode::Pop);
-
-        // Second call
-        builder.emit_const(Value::Number(2.0));
-        builder.emit_suspend(ABILITY_CONSOLE, METHOD_PRINT, 1);
-        builder.emit(Opcode::Perform);
-        builder.emit(Opcode::Pop);
-
-        // Third call
-        builder.emit_const(Value::Number(3.0));
-        builder.emit_suspend(ABILITY_CONSOLE, METHOD_PRINT, 1);
-        builder.emit(Opcode::Perform);
-
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(0, 0);
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-        vm.register_host_handler(ABILITY_CONSOLE, METHOD_PRINT, Box::new(move |ability| {
-            if let Value::Number(n) = &ability.args[0] {
-                log_clone.borrow_mut().push(*n);
-            }
-            Ok(Value::Unit)
-        }));
-
-        let result = vm.call(&hash, vec![]);
-
-        assert_eq!(result, Ok(Value::Unit));
-        assert_eq!(*call_log.borrow(), vec![1.0, 2.0, 3.0]);
+        capture.assert_eq(&[1.0, 2.0, 3.0]);
     }
 
     #[test]
     fn test_ability_with_multiple_args() {
-        // Test ability with multiple arguments
-        let mut builder = BytecodeBuilder::new();
-
-        // Push two arguments
-        builder.emit_const(Value::Number(10.0));
-        builder.emit_const(Value::Number(32.0));
-        builder.emit_suspend(ABILITY_MATH, METHOD_ADD_TEN, 2);
-        builder.emit(Opcode::Perform);
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(0, 0);
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-
-        // Handler that adds the arguments
-        vm.register_host_handler(ABILITY_MATH, METHOD_ADD_TEN, Box::new(|ability| {
-            if ability.args.len() >= 2 {
-                if let (Value::Number(a), Value::Number(b)) = (&ability.args[0], &ability.args[1]) {
-                    return Ok(Value::Number(a + b));
+        VmTest::new()
+            .push(10.0)
+            .push(32.0)
+            .suspend(ABILITY_MATH, METHOD_ADD_TEN, 2)
+            .perform()
+            .with_host_handler(ABILITY_MATH, METHOD_ADD_TEN, |ability| {
+                if ability.args.len() >= 2 {
+                    if let (Value::Number(a), Value::Number(b)) =
+                        (&ability.args[0], &ability.args[1])
+                    {
+                        return Ok(Value::Number(a + b));
+                    }
                 }
-            }
-            Ok(Value::Unit)
-        }));
-
-        let result = vm.call(&hash, vec![]);
-        assert_eq!(result, Ok(Value::Number(42.0)));
+                Ok(Value::Unit)
+            })
+            .expect_number(42.0);
     }
 
     // =========================================================================
-    // Milestone 3 Test Cases: Abilities as Values
+    // Milestone 3: Abilities as Values
     // =========================================================================
 
     #[test]
     fn test_ability_stored_in_variable() {
-        // Test: Create a suspended ability, store in variable, load and perform later
-        //
-        // ```ambient
-        // let op = Math.double(21);  // Suspended, not performed
-        // op!  // Perform the suspended ability
-        // ```
-        use std::cell::RefCell;
-        use std::rc::Rc;
+        let capture = Capture::<u32>::new();
+        let count = capture.clone_inner();
 
-        let call_count: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
-        let count_clone = call_count.clone();
+        VmTest::new()
+            .with_locals(1)
+            .push(21.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .store_local(0)
+            .pop()
+            .push(999.0)
+            .pop()
+            .load_local(0)
+            .perform()
+            .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, move |ability| {
+                count.borrow_mut().push(1);
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(n * 2.0))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .expect_number(42.0);
 
-        let mut builder = BytecodeBuilder::new();
-
-        // Create suspended ability: Math.double(21)
-        builder.emit_const(Value::Number(21.0));
-        builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
-
-        // Store in local variable (slot 0)
-        builder.emit_u16(Opcode::StoreLocal, 0);
-        builder.emit(Opcode::Pop);
-
-        // Do some other work (push and pop a value)
-        builder.emit_const(Value::Number(999.0));
-        builder.emit(Opcode::Pop);
-
-        // Load the suspended ability from variable
-        builder.emit_u16(Opcode::LoadLocal, 0);
-
-        // Now perform it
-        builder.emit(Opcode::Perform);
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(1, 0); // 1 local for the ability value
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-
-        vm.register_host_handler(ABILITY_MATH, METHOD_DOUBLE, Box::new(move |ability| {
-            *count_clone.borrow_mut() += 1;
-            if let Value::Number(n) = &ability.args[0] {
-                Ok(Value::Number(n * 2.0))
-            } else {
-                Ok(Value::Unit)
-            }
-        }));
-
-        let result = vm.call(&hash, vec![]);
-
-        // Should return 42 (21 * 2)
-        assert_eq!(result, Ok(Value::Number(42.0)));
-        // Handler should have been called exactly once
-        assert_eq!(*call_count.borrow(), 1);
+        capture.assert_eq(&[1]);
     }
 
     #[test]
     fn test_ability_stored_in_tuple() {
-        // Test: Store ability in a tuple, extract and perform
-        //
-        // ```ambient
-        // let pair = (Math.double(21), "label");
-        // pair.0!  // Perform the first element
-        // ```
-
-        let mut builder = BytecodeBuilder::new();
-
-        // Create suspended ability
-        builder.emit_const(Value::Number(21.0));
-        builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
-
-        // Create a string
-        builder.emit_const(Value::string("label"));
-
-        // Make tuple (ability, string)
-        builder.emit_u8(Opcode::MakeTuple, 2);
-        builder.emit_u16(Opcode::StoreLocal, 0);
-        builder.emit(Opcode::Pop);
-
-        // Get first element (the ability)
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        builder.emit_u8(Opcode::TupleGet, 0);
-
-        // Perform it
-        builder.emit(Opcode::Perform);
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(1, 0);
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-
-        vm.register_host_handler(ABILITY_MATH, METHOD_DOUBLE, Box::new(|ability| {
-            if let Value::Number(n) = &ability.args[0] {
-                Ok(Value::Number(n * 2.0))
-            } else {
-                Ok(Value::Unit)
-            }
-        }));
-
-        let result = vm.call(&hash, vec![]);
-        assert_eq!(result, Ok(Value::Number(42.0)));
+        VmTest::new()
+            .with_locals(1)
+            .push(21.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .push_str("label")
+            .make_tuple(2)
+            .store_local(0)
+            .pop()
+            .load_local(0)
+            .tuple_get(0)
+            .perform()
+            .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(n * 2.0))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .expect_number(42.0);
     }
 
     #[test]
     fn test_ability_passed_to_function() {
-        // Test: Create ability in one function, pass to another, perform there
-        //
-        // ```ambient
-        // fn perform_ability(op: Ability<number, Math!>): number {
-        //   op!
-        // }
-        //
-        // fn main(): number {
-        //   let op = Math.double(21);
-        //   perform_ability(op)
-        // }
-        // ```
+        // perform_ability(op) = op!
+        let perform_fn = FunctionBuilder::new("test::perform_ability")
+            .with_locals(1)
+            .with_params(1)
+            .load_local(0)
+            .perform()
+            .build();
+        let perform_hash = perform_fn.hash;
 
-        // Create the perform_ability function
-        let perform_hash = blake3::hash(b"test::perform_ability");
-        let mut perform_builder = BytecodeBuilder::new();
-        // Load the ability from parameter (local 0)
-        perform_builder.emit_u16(Opcode::LoadLocal, 0);
-        // Perform it
-        perform_builder.emit(Opcode::Perform);
-        perform_builder.emit(Opcode::Return);
-
-        let mut perform_func = perform_builder.build(1, 1); // 1 local (param), 1 param
-        perform_func.hash = perform_hash;
-
-        // Create the main function
-        let mut main_builder = BytecodeBuilder::new();
-        // Create suspended ability
-        main_builder.emit_const(Value::Number(21.0));
-        main_builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
-        // Call perform_ability with the suspended ability as argument
-        main_builder.emit_call(perform_hash, 1);
-        main_builder.emit(Opcode::Return);
-
-        let main_func = main_builder.build(0, 0);
-        let main_hash = main_func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(perform_func);
-        vm.load_function(main_func);
-
-        vm.register_host_handler(ABILITY_MATH, METHOD_DOUBLE, Box::new(|ability| {
-            if let Value::Number(n) = &ability.args[0] {
-                Ok(Value::Number(n * 2.0))
-            } else {
-                Ok(Value::Unit)
-            }
-        }));
-
-        let result = vm.call(&main_hash, vec![]);
-        assert_eq!(result, Ok(Value::Number(42.0)));
+        VmTest::new()
+            .with_function(perform_fn)
+            .push(21.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .call_func(perform_hash, 1)
+            .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(n * 2.0))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .expect_number(42.0);
     }
 
     #[test]
     fn test_multiple_abilities_different_order() {
-        // Test: Create multiple abilities, perform in different order
-        //
-        // ```ambient
-        // let op1 = Math.double(10);   // Would give 20
-        // let op2 = Math.double(21);   // Would give 42
-        // op2!  // Perform op2 first, return 42
-        // ```
-
-        let mut builder = BytecodeBuilder::new();
-
-        // Create first ability: Math.double(10)
-        builder.emit_const(Value::Number(10.0));
-        builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
-        builder.emit_u16(Opcode::StoreLocal, 0);
-        builder.emit(Opcode::Pop);
-
-        // Create second ability: Math.double(21)
-        builder.emit_const(Value::Number(21.0));
-        builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
-        builder.emit_u16(Opcode::StoreLocal, 1);
-        builder.emit(Opcode::Pop);
-
-        // Perform op2 (not op1!)
-        builder.emit_u16(Opcode::LoadLocal, 1);
-        builder.emit(Opcode::Perform);
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(2, 0); // 2 locals for two abilities
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-
-        vm.register_host_handler(ABILITY_MATH, METHOD_DOUBLE, Box::new(|ability| {
-            if let Value::Number(n) = &ability.args[0] {
-                Ok(Value::Number(n * 2.0))
-            } else {
-                Ok(Value::Unit)
-            }
-        }));
-
-        let result = vm.call(&hash, vec![]);
-        assert_eq!(result, Ok(Value::Number(42.0))); // op2 result, not op1
+        // op1 = double(10), op2 = double(21), perform op2
+        VmTest::new()
+            .with_locals(2)
+            .push(10.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .store_local(0)
+            .pop()
+            .push(21.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .store_local(1)
+            .pop()
+            .load_local(1)
+            .perform()
+            .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(n * 2.0))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .expect_number(42.0);
     }
 
     #[test]
     fn test_ability_equality() {
-        // Test that identical suspended abilities are equal
-        let mut builder = BytecodeBuilder::new();
-
-        // Create two identical abilities
-        builder.emit_const(Value::Number(42.0));
-        builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
-        builder.emit_u16(Opcode::StoreLocal, 0);
-        builder.emit(Opcode::Pop);
-
-        builder.emit_const(Value::Number(42.0));
-        builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
-        builder.emit_u16(Opcode::StoreLocal, 1);
-        builder.emit(Opcode::Pop);
-
-        // Compare them
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        builder.emit_u16(Opcode::LoadLocal, 1);
-        builder.emit(Opcode::Eq);
-        builder.emit(Opcode::Return);
-
-        let func = builder.build(2, 0); // 2 locals for the abilities
-        let hash = func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(func);
-        let result = vm.call(&hash, vec![]);
-
-        // Two SuspendedAbility values with same ability_id, method_id, and args should be equal
-        assert_eq!(result, Ok(Value::Bool(true)));
+        VmTest::new()
+            .with_locals(2)
+            .push(42.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .store_local(0)
+            .pop()
+            .push(42.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .store_local(1)
+            .pop()
+            .load_local(0)
+            .load_local(1)
+            .eq()
+            .expect_bool(true);
     }
 
     #[test]
     fn test_ability_returned_from_function() {
-        // Test: Function creates and returns a suspended ability
-        //
-        // ```ambient
-        // fn create_double_op(n: number): Ability<number, Math!> {
-        //   Math.double(n)  // Return suspended, not performed
-        // }
-        //
-        // fn main(): number {
-        //   let op = create_double_op(21);
-        //   op!
-        // }
-        // ```
+        // create_double_op(n) = Math.double(n) (no perform)
+        let creator_fn = FunctionBuilder::new("test::create_double_op")
+            .with_locals(1)
+            .with_params(1)
+            .load_local(0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .build();
+        let creator_hash = creator_fn.hash;
 
-        // Create the create_double_op function
-        let creator_hash = blake3::hash(b"test::create_double_op");
-        let mut creator_builder = BytecodeBuilder::new();
-        // Load n from parameter
-        creator_builder.emit_u16(Opcode::LoadLocal, 0);
-        // Create and return suspended ability (no Perform!)
-        creator_builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
-        creator_builder.emit(Opcode::Return);
-
-        let mut creator_func = creator_builder.build(1, 1);
-        creator_func.hash = creator_hash;
-
-        // Create the main function
-        let mut main_builder = BytecodeBuilder::new();
-        // Call create_double_op(21)
-        main_builder.emit_const(Value::Number(21.0));
-        main_builder.emit_call(creator_hash, 1);
-        // Store the returned ability
-        main_builder.emit_u16(Opcode::StoreLocal, 0);
-        main_builder.emit(Opcode::Pop);
-        // Load and perform
-        main_builder.emit_u16(Opcode::LoadLocal, 0);
-        main_builder.emit(Opcode::Perform);
-        main_builder.emit(Opcode::Return);
-
-        let main_func = main_builder.build(1, 0);
-        let main_hash = main_func.hash;
-
-        let mut vm = Vm::new();
-        vm.load_function(creator_func);
-        vm.load_function(main_func);
-
-        vm.register_host_handler(ABILITY_MATH, METHOD_DOUBLE, Box::new(|ability| {
-            if let Value::Number(n) = &ability.args[0] {
-                Ok(Value::Number(n * 2.0))
-            } else {
-                Ok(Value::Unit)
-            }
-        }));
-
-        let result = vm.call(&main_hash, vec![]);
-        assert_eq!(result, Ok(Value::Number(42.0)));
+        VmTest::new()
+            .with_locals(1)
+            .with_function(creator_fn)
+            .push(21.0)
+            .call_func(creator_hash, 1)
+            .store_local(0)
+            .pop()
+            .load_local(0)
+            .perform()
+            .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(n * 2.0))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .expect_number(42.0);
     }
 }

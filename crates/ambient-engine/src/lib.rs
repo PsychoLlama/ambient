@@ -19,3 +19,6 @@ pub mod interpreter;
 pub mod syntax;
 pub mod value;
 pub mod vm;
+
+#[cfg(test)]
+pub mod test_utils;
