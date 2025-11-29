@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -27,6 +28,96 @@ pub enum Value {
 
     /// Reference to a content-addressed function.
     FunctionRef(blake3::Hash),
+
+    /// A suspended ability operation that can be performed later.
+    ///
+    /// Contains the ability ID, method ID, and arguments.
+    SuspendedAbility(Rc<SuspendedAbility>),
+
+    /// A captured continuation that can be resumed (single-shot).
+    Continuation(Rc<Continuation>),
+}
+
+/// A suspended ability operation waiting to be performed.
+#[derive(Debug, Clone)]
+pub struct SuspendedAbility {
+    /// The ability being invoked (e.g., "Filesystem", "Console").
+    pub ability_id: u16,
+
+    /// The method being called on the ability (e.g., "read", "print").
+    pub method_id: u16,
+
+    /// The arguments to pass to the ability method.
+    pub args: Vec<Value>,
+}
+
+impl SuspendedAbility {
+    /// Create a new suspended ability.
+    #[must_use]
+    pub fn new(ability_id: u16, method_id: u16, args: Vec<Value>) -> Self {
+        Self {
+            ability_id,
+            method_id,
+            args,
+        }
+    }
+}
+
+/// A captured continuation representing suspended computation.
+///
+/// Single-shot: can only be resumed once. Attempting to resume twice
+/// is a runtime error.
+#[derive(Debug)]
+pub struct Continuation {
+    /// The captured value stack segment.
+    pub stack: Vec<Value>,
+
+    /// The captured call frames.
+    pub frames: Vec<CapturedFrame>,
+
+    /// Whether this continuation has been resumed (single-shot enforcement).
+    pub resumed: Cell<bool>,
+}
+
+/// A captured call frame for continuations.
+#[derive(Debug, Clone)]
+pub struct CapturedFrame {
+    /// The function hash being executed.
+    pub function_hash: blake3::Hash,
+
+    /// The instruction pointer when captured.
+    pub ip: usize,
+
+    /// The base pointer when captured.
+    pub bp: usize,
+}
+
+impl Continuation {
+    /// Create a new continuation.
+    #[must_use]
+    pub fn new(stack: Vec<Value>, frames: Vec<CapturedFrame>) -> Self {
+        Self {
+            stack,
+            frames,
+            resumed: Cell::new(false),
+        }
+    }
+
+    /// Check if this continuation has already been resumed.
+    #[must_use]
+    pub fn is_resumed(&self) -> bool {
+        self.resumed.get()
+    }
+
+    /// Mark this continuation as resumed. Returns false if already resumed.
+    pub fn mark_resumed(&self) -> bool {
+        if self.resumed.get() {
+            false
+        } else {
+            self.resumed.set(true);
+            true
+        }
+    }
 }
 
 impl Value {
@@ -59,7 +150,21 @@ impl Value {
             Self::Tuple(_) => "tuple",
             Self::Record(_) => "record",
             Self::FunctionRef(_) => "function",
+            Self::SuspendedAbility(_) => "suspended_ability",
+            Self::Continuation(_) => "continuation",
         }
+    }
+
+    /// Create a new suspended ability value.
+    #[must_use]
+    pub fn suspended_ability(ability_id: u16, method_id: u16, args: Vec<Value>) -> Self {
+        Self::SuspendedAbility(Rc::new(SuspendedAbility::new(ability_id, method_id, args)))
+    }
+
+    /// Create a new continuation value.
+    #[must_use]
+    pub fn continuation(stack: Vec<Value>, frames: Vec<CapturedFrame>) -> Self {
+        Self::Continuation(Rc::new(Continuation::new(stack, frames)))
     }
 }
 
@@ -74,6 +179,14 @@ impl PartialEq for Value {
             (Self::Tuple(a), Self::Tuple(b)) => a == b,
             (Self::Record(a), Self::Record(b)) => a == b,
             (Self::FunctionRef(a), Self::FunctionRef(b)) => a == b,
+            // Suspended abilities are equal if they have the same ability/method/args
+            (Self::SuspendedAbility(a), Self::SuspendedAbility(b)) => {
+                a.ability_id == b.ability_id
+                    && a.method_id == b.method_id
+                    && a.args == b.args
+            }
+            // Continuations are identity-compared (same Rc)
+            (Self::Continuation(a), Self::Continuation(b)) => Rc::ptr_eq(a, b),
             _ => false,
         }
     }

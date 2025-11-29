@@ -146,6 +146,44 @@ pub enum Opcode {
     RecordGet = 0x73,
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Abilities (Milestone 2)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Create a suspended ability value from arguments on the stack.
+    /// Operand: u16 (ability ID)
+    /// Operand: u16 (method ID)
+    /// Operand: u8 (argument count)
+    ///
+    /// Pops `arg_count` arguments from the stack and creates a `SuspendedAbility` value.
+    Suspend = 0x80,
+
+    /// Perform a suspended ability value.
+    ///
+    /// Pops a `SuspendedAbility` from the stack, looks up the nearest handler,
+    /// captures the continuation, and jumps to the handler code.
+    Perform = 0x81,
+
+    /// Install an ability handler and mark a handler boundary.
+    /// Operand: u16 (ability ID to handle)
+    /// Operand: u16 (handler function index in constant pool)
+    /// Operand: i16 (offset to jump to after handled expression completes normally)
+    ///
+    /// This marks the start of a handled region. When an ability with matching ID
+    /// is performed, control transfers to the handler function.
+    Handle = 0x82,
+
+    /// Remove the most recent ability handler.
+    ///
+    /// Called when exiting a handled region normally (not via ability performance).
+    Unhandle = 0x83,
+
+    /// Resume a suspended continuation with a value.
+    ///
+    /// Pops a continuation and a value from the stack. Restores the continuation's
+    /// stack and frames, then pushes the value as the result of the Perform.
+    /// Single-shot: errors if continuation was already resumed.
+    Resume = 0x84,
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Special
     // ─────────────────────────────────────────────────────────────────────────
     /// Halt execution (end of program).
@@ -186,6 +224,12 @@ impl Opcode {
             0x71 => Some(Self::TupleGet),
             0x72 => Some(Self::MakeRecord),
             0x73 => Some(Self::RecordGet),
+            // Abilities
+            0x80 => Some(Self::Suspend),
+            0x81 => Some(Self::Perform),
+            0x82 => Some(Self::Handle),
+            0x83 => Some(Self::Unhandle),
+            0x84 => Some(Self::Resume),
             0xFF => Some(Self::Halt),
             _ => None,
         }
@@ -356,6 +400,37 @@ impl BytecodeBuilder {
         self.code[jump_offset + 2] = bytes[1];
     }
 
+    /// Emit a Suspend instruction to create a suspended ability value.
+    pub fn emit_suspend(&mut self, ability_id: u16, method_id: u16, arg_count: u8) {
+        self.code.push(Opcode::Suspend as u8);
+        self.code.extend_from_slice(&ability_id.to_le_bytes());
+        self.code.extend_from_slice(&method_id.to_le_bytes());
+        self.code.push(arg_count);
+    }
+
+    /// Emit a Handle instruction to install an ability handler.
+    /// Returns the offset for patching the normal completion jump.
+    pub fn emit_handle(&mut self, ability_id: u16, handler_func: blake3::Hash) -> usize {
+        let handler_idx = self.add_constant(Value::FunctionRef(handler_func));
+        self.code.push(Opcode::Handle as u8);
+        self.code.extend_from_slice(&ability_id.to_le_bytes());
+        self.code.extend_from_slice(&handler_idx.to_le_bytes());
+        let jump_offset = self.code.len();
+        self.code.extend_from_slice(&[0, 0]); // Placeholder for normal completion jump
+        jump_offset
+    }
+
+    /// Patch the normal completion jump offset for a Handle instruction.
+    pub fn patch_handle(&mut self, handle_jump_offset: usize) {
+        let target = self.code.len();
+        // The offset is from the end of the Handle instruction
+        let handle_start = handle_jump_offset - 4; // Back to ability_id start
+        let relative = (target as isize - handle_start as isize - 7) as i16;
+        let bytes = relative.to_le_bytes();
+        self.code[handle_jump_offset] = bytes[0];
+        self.code[handle_jump_offset + 1] = bytes[1];
+    }
+
     /// Build the final compiled function.
     #[must_use]
     pub fn build(self, local_count: u16, param_count: u8) -> CompiledFunction {
@@ -411,6 +486,12 @@ mod tests {
             Opcode::TupleGet,
             Opcode::MakeRecord,
             Opcode::RecordGet,
+            // Abilities
+            Opcode::Suspend,
+            Opcode::Perform,
+            Opcode::Handle,
+            Opcode::Unhandle,
+            Opcode::Resume,
             Opcode::Halt,
         ];
 

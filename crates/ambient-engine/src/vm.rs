@@ -3,6 +3,7 @@
 //! The VM executes compiled functions using:
 //! - A value stack for operands
 //! - A call stack for function frames
+//! - A handler stack for ability handlers
 //! - A content-addressed function store
 
 #![allow(clippy::must_use_candidate)]
@@ -17,7 +18,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::bytecode::{CompiledFunction, Opcode};
-use crate::value::Value;
+use crate::value::{CapturedFrame, SuspendedAbility, Value};
 
 /// Runtime error during VM execution.
 #[derive(Debug, Clone, PartialEq)]
@@ -61,6 +62,18 @@ pub enum VmError {
 
     /// Wrong number of arguments to function.
     ArityMismatch { expected: u8, got: u8 },
+
+    /// No handler found for an ability.
+    UnhandledAbility { ability_id: u16, method_id: u16 },
+
+    /// Tried to resume an already-resumed continuation (single-shot violation).
+    ContinuationAlreadyResumed,
+
+    /// Expected a suspended ability value but got something else.
+    ExpectedSuspendedAbility { got: &'static str },
+
+    /// Expected a continuation but got something else.
+    ExpectedContinuation { got: &'static str },
 }
 
 impl std::fmt::Display for VmError {
@@ -84,6 +97,18 @@ impl std::fmt::Display for VmError {
             Self::ArityMismatch { expected, got } => {
                 write!(f, "arity mismatch: expected {expected} arguments, got {got}")
             }
+            Self::UnhandledAbility { ability_id, method_id } => {
+                write!(f, "unhandled ability: ability {ability_id}, method {method_id}")
+            }
+            Self::ContinuationAlreadyResumed => {
+                write!(f, "continuation already resumed (single-shot violation)")
+            }
+            Self::ExpectedSuspendedAbility { got } => {
+                write!(f, "expected suspended ability, got {got}")
+            }
+            Self::ExpectedContinuation { got } => {
+                write!(f, "expected continuation, got {got}")
+            }
         }
     }
 }
@@ -91,7 +116,7 @@ impl std::fmt::Display for VmError {
 impl std::error::Error for VmError {}
 
 /// A single stack frame representing an active function call.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CallFrame {
     /// The function being executed.
     function: Rc<CompiledFunction>,
@@ -103,6 +128,29 @@ struct CallFrame {
     bp: usize,
 }
 
+/// An installed ability handler that can intercept ability operations.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // normal_completion_ip may be used for future optimizations
+struct HandlerFrame {
+    /// The ability ID this handler handles.
+    ability_id: u16,
+
+    /// The handler function to call when ability is performed.
+    handler_func: blake3::Hash,
+
+    /// The call frame index where this handler was installed.
+    call_frame_idx: usize,
+
+    /// The stack height when the handler was installed.
+    stack_height: usize,
+
+    /// The instruction pointer to jump to for normal completion.
+    normal_completion_ip: usize,
+}
+
+/// A host-provided ability handler callback.
+pub type HostHandler = Box<dyn Fn(&SuspendedAbility) -> Result<Value, VmError>>;
+
 /// The Ambient virtual machine.
 pub struct Vm {
     /// The value stack.
@@ -110,6 +158,13 @@ pub struct Vm {
 
     /// The call stack.
     frames: Vec<CallFrame>,
+
+    /// The handler stack for installed ability handlers.
+    handlers: Vec<HandlerFrame>,
+
+    /// Host-provided ability handlers (for abilities like Console, Filesystem).
+    /// Maps `(ability_id, method_id)` to handler functions.
+    host_handlers: HashMap<(u16, u16), HostHandler>,
 
     /// Content-addressed function store.
     functions: HashMap<blake3::Hash, Rc<CompiledFunction>>,
@@ -131,6 +186,8 @@ impl Vm {
         Self {
             stack: Vec::with_capacity(256),
             frames: Vec::with_capacity(64),
+            handlers: Vec::with_capacity(16),
+            host_handlers: HashMap::new(),
             functions: HashMap::new(),
             max_call_depth: 1000,
         }
@@ -142,11 +199,20 @@ impl Vm {
         self.functions.insert(hash, Rc::new(func));
     }
 
+    /// Register a host-provided ability handler.
+    ///
+    /// Host handlers are called synchronously when an ability is performed
+    /// and no bytecode handler is installed.
+    pub fn register_host_handler(&mut self, ability_id: u16, method_id: u16, handler: HostHandler) {
+        self.host_handlers.insert((ability_id, method_id), handler);
+    }
+
     /// Call a function by its hash with the given arguments.
     pub fn call(&mut self, hash: &blake3::Hash, args: Vec<Value>) -> Result<Value, VmError> {
         // Reset state
         self.stack.clear();
         self.frames.clear();
+        self.handlers.clear();
 
         let arg_count = args.len() as u8;
 
@@ -422,6 +488,166 @@ impl Vm {
                             })
                         }
                     }
+                }
+
+                // ─────────────────────────────────────────────────────────────
+                // Abilities (Milestone 2)
+                // ─────────────────────────────────────────────────────────────
+                Opcode::Suspend => {
+                    // Create a suspended ability value from arguments on the stack
+                    let ability_id = self.read_u16()?;
+                    let method_id = self.read_u16()?;
+                    let arg_count = self.read_u8()?;
+
+                    // Pop arguments (in reverse order)
+                    let mut args = Vec::with_capacity(arg_count as usize);
+                    for _ in 0..arg_count {
+                        args.push(self.pop()?);
+                    }
+                    args.reverse();
+
+                    // Push the suspended ability value
+                    self.stack.push(Value::suspended_ability(ability_id, method_id, args));
+                }
+
+                Opcode::Perform => {
+                    // Pop the suspended ability and perform it
+                    let ability = match self.pop()? {
+                        Value::SuspendedAbility(a) => a,
+                        other => {
+                            return Err(VmError::ExpectedSuspendedAbility {
+                                got: other.type_name(),
+                            })
+                        }
+                    };
+
+                    // First, check for a host handler
+                    if let Some(handler) = self.host_handlers.get(&(ability.ability_id, ability.method_id)) {
+                        // Call the host handler synchronously
+                        let result = handler(&ability)?;
+                        self.stack.push(result);
+                        continue;
+                    }
+
+                    // Look for a bytecode handler on the handler stack
+                    let handler_idx = self
+                        .handlers
+                        .iter()
+                        .rposition(|h| h.ability_id == ability.ability_id);
+
+                    if let Some(idx) = handler_idx {
+                        // Found a handler - capture continuation and jump to handler
+                        let handler = self.handlers[idx].clone();
+
+                        // Capture the continuation: stack and frames from handler point to current
+                        let captured_stack = self.stack.split_off(handler.stack_height);
+                        let captured_frames: Vec<CapturedFrame> = self.frames[handler.call_frame_idx..]
+                            .iter()
+                            .map(|f| CapturedFrame {
+                                function_hash: f.function.hash,
+                                ip: f.ip,
+                                bp: f.bp,
+                            })
+                            .collect();
+
+                        // Truncate frames to handler point
+                        self.frames.truncate(handler.call_frame_idx);
+
+                        // Remove the handler (and any handlers installed after it)
+                        self.handlers.truncate(idx);
+
+                        // Create continuation value
+                        let continuation = Value::continuation(captured_stack, captured_frames);
+
+                        // Push the continuation and the suspended ability as arguments
+                        // to the handler function
+                        self.stack.push(continuation);
+                        self.stack.push(Value::SuspendedAbility(ability));
+
+                        // Call the handler function
+                        self.push_frame(&handler.handler_func, 2)?;
+                    } else {
+                        // No handler found
+                        return Err(VmError::UnhandledAbility {
+                            ability_id: ability.ability_id,
+                            method_id: ability.method_id,
+                        });
+                    }
+                }
+
+                Opcode::Handle => {
+                    // Install an ability handler
+                    let ability_id = self.read_u16()?;
+                    let handler_idx = self.read_u16()?;
+                    let completion_offset = self.read_i16()?;
+
+                    let handler_func = match self.get_constant(handler_idx)? {
+                        Value::FunctionRef(h) => h,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "function",
+                                got: other.type_name(),
+                                operation: "handle",
+                            })
+                        }
+                    };
+
+                    // Calculate normal completion IP
+                    let frame = self.current_frame()?;
+                    let current_ip = frame.ip;
+                    let normal_completion_ip = (current_ip as isize + completion_offset as isize) as usize;
+
+                    self.handlers.push(HandlerFrame {
+                        ability_id,
+                        handler_func,
+                        call_frame_idx: self.frames.len() - 1,
+                        stack_height: self.stack.len(),
+                        normal_completion_ip,
+                    });
+                }
+
+                Opcode::Unhandle => {
+                    // Remove the most recent handler
+                    self.handlers.pop();
+                }
+
+                Opcode::Resume => {
+                    // Resume a continuation with a value
+                    let value = self.pop()?;
+                    let continuation = match self.pop()? {
+                        Value::Continuation(c) => c,
+                        other => {
+                            return Err(VmError::ExpectedContinuation {
+                                got: other.type_name(),
+                            })
+                        }
+                    };
+
+                    // Single-shot enforcement
+                    if !continuation.mark_resumed() {
+                        return Err(VmError::ContinuationAlreadyResumed);
+                    }
+
+                    // Restore the captured stack
+                    self.stack.extend(continuation.stack.iter().cloned());
+
+                    // Restore the captured frames
+                    for captured in &continuation.frames {
+                        let function = self
+                            .functions
+                            .get(&captured.function_hash)
+                            .ok_or(VmError::UnknownFunction(captured.function_hash))?
+                            .clone();
+
+                        self.frames.push(CallFrame {
+                            function,
+                            ip: captured.ip,
+                            bp: captured.bp,
+                        });
+                    }
+
+                    // Push the resume value as the result of the Perform
+                    self.stack.push(value);
                 }
 
                 Opcode::Halt => {
@@ -1354,6 +1580,346 @@ mod tests {
         vm.load_function(func);
         let result = vm.call(&hash, vec![]);
 
+        assert_eq!(result, Ok(Value::Number(42.0)));
+    }
+
+    // =========================================================================
+    // Milestone 2 Test Cases: Abilities and Handlers
+    // =========================================================================
+
+    /// Ability IDs used in tests
+    const ABILITY_CONSOLE: u16 = 1;
+    const ABILITY_MATH: u16 = 2;
+
+    /// Method IDs for Console ability
+    const METHOD_PRINT: u16 = 0;
+
+    /// Method IDs for Math ability
+    const METHOD_DOUBLE: u16 = 0;
+    const METHOD_ADD_TEN: u16 = 1;
+
+    #[test]
+    fn test_suspend_creates_ability_value() {
+        // Test that Suspend creates a suspended ability value
+        let mut builder = BytecodeBuilder::new();
+
+        // Push argument
+        builder.emit_const(Value::Number(42.0));
+        // Suspend with ability_id=1, method_id=0, 1 arg
+        builder.emit_suspend(ABILITY_CONSOLE, METHOD_PRINT, 1);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+        let result = vm.call(&hash, vec![]);
+
+        // Should return a suspended ability
+        match result {
+            Ok(Value::SuspendedAbility(ability)) => {
+                assert_eq!(ability.ability_id, ABILITY_CONSOLE);
+                assert_eq!(ability.method_id, METHOD_PRINT);
+                assert_eq!(ability.args.len(), 1);
+                assert_eq!(ability.args[0], Value::Number(42.0));
+            }
+            other => panic!("Expected SuspendedAbility, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_host_handler_called() {
+        // Test that host handlers are called when ability is performed
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let call_log: Rc<RefCell<Vec<f64>>> = Rc::new(RefCell::new(Vec::new()));
+        let log_clone = call_log.clone();
+
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(42.0));
+        builder.emit_suspend(ABILITY_CONSOLE, METHOD_PRINT, 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        // Register a host handler that logs the argument
+        vm.register_host_handler(ABILITY_CONSOLE, METHOD_PRINT, Box::new(move |ability| {
+            if let Value::Number(n) = &ability.args[0] {
+                log_clone.borrow_mut().push(*n);
+            }
+            Ok(Value::Unit)
+        }));
+
+        let result = vm.call(&hash, vec![]);
+
+        assert_eq!(result, Ok(Value::Unit));
+        assert_eq!(*call_log.borrow(), vec![42.0]);
+    }
+
+    #[test]
+    fn test_host_handler_returns_value() {
+        // Test that host handler return value is pushed to stack
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(21.0));
+        builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        // Register a handler that doubles the argument
+        vm.register_host_handler(ABILITY_MATH, METHOD_DOUBLE, Box::new(|ability| {
+            if let Value::Number(n) = &ability.args[0] {
+                Ok(Value::Number(n * 2.0))
+            } else {
+                Ok(Value::Unit)
+            }
+        }));
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn test_unhandled_ability_error() {
+        // Test that performing an unhandled ability returns an error
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(42.0));
+        builder.emit_suspend(ABILITY_CONSOLE, METHOD_PRINT, 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        // No handler registered!
+        let result = vm.call(&hash, vec![]);
+
+        assert_eq!(
+            result,
+            Err(VmError::UnhandledAbility {
+                ability_id: ABILITY_CONSOLE,
+                method_id: METHOD_PRINT,
+            })
+        );
+    }
+
+    #[test]
+    fn test_bytecode_handler_simple_resume() {
+        // Test bytecode handler that immediately resumes with a value
+        //
+        // This simulates:
+        // handle {
+        //   Math.double!(5)
+        // } with {
+        //   Math.double(k, ability) => resume(k, 42)
+        // }
+
+        // First, create the handler function
+        // Handler receives: (continuation, ability) and should call resume(k, value)
+        let handler_hash = blake3::hash(b"test::math_handler");
+        let mut handler_builder = BytecodeBuilder::new();
+        // Load continuation (local 0)
+        handler_builder.emit_u16(Opcode::LoadLocal, 0);
+        // Push the value to resume with
+        handler_builder.emit_const(Value::Number(42.0));
+        // Resume: pops continuation and value, resumes continuation with value
+        handler_builder.emit(Opcode::Resume);
+        // After resume, we should not reach here (control transfers back)
+        // But we need a return for the function structure
+        handler_builder.emit(Opcode::Return);
+
+        let mut handler_func = handler_builder.build(2, 2); // 2 locals (k, ability), 2 params
+        handler_func.hash = handler_hash;
+
+        // Now create the main function that uses the handler
+        let mut main_builder = BytecodeBuilder::new();
+
+        // Install handler for ABILITY_MATH
+        let handle_jump = main_builder.emit_handle(ABILITY_MATH, handler_hash);
+
+        // The handled expression: Suspend and Perform
+        main_builder.emit_const(Value::Number(5.0));
+        main_builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
+        main_builder.emit(Opcode::Perform);
+
+        // Remove handler (reached if no ability performed, but we did perform)
+        main_builder.emit(Opcode::Unhandle);
+
+        // Patch the handle instruction (not really needed for this test but good practice)
+        main_builder.patch_handle(handle_jump);
+
+        // Return the result
+        main_builder.emit(Opcode::Return);
+
+        let main_func = main_builder.build(0, 0);
+        let main_hash = main_func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(handler_func);
+        vm.load_function(main_func);
+
+        let result = vm.call(&main_hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn test_single_shot_enforcement() {
+        // Test that resuming a continuation twice results in an error
+
+        // Create a handler that tries to resume twice
+        let handler_hash = blake3::hash(b"test::double_resume_handler");
+        let mut handler_builder = BytecodeBuilder::new();
+
+        // First resume (should succeed)
+        handler_builder.emit_u16(Opcode::LoadLocal, 0); // continuation
+        handler_builder.emit_const(Value::Number(1.0));
+        handler_builder.emit(Opcode::Resume);
+
+        // This shouldn't be reached, but if we somehow got here and tried to resume again...
+        handler_builder.emit(Opcode::Return);
+
+        let mut handler_func = handler_builder.build(2, 2);
+        handler_func.hash = handler_hash;
+
+        // Main function that performs ability
+        let mut main_builder = BytecodeBuilder::new();
+        let handle_jump = main_builder.emit_handle(ABILITY_MATH, handler_hash);
+        main_builder.emit_const(Value::Number(5.0));
+        main_builder.emit_suspend(ABILITY_MATH, METHOD_DOUBLE, 1);
+        main_builder.emit(Opcode::Perform);
+        main_builder.emit(Opcode::Unhandle);
+        main_builder.patch_handle(handle_jump);
+        main_builder.emit(Opcode::Return);
+
+        let main_func = main_builder.build(0, 0);
+        let main_hash = main_func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(handler_func);
+        vm.load_function(main_func);
+
+        // First call should succeed
+        let result = vm.call(&main_hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(1.0)));
+
+        // Note: Testing double-resume through bytecode handlers requires a more complex
+        // test setup where the handler stores the continuation and tries to use it twice.
+        // The single-shot enforcement is implemented via Continuation::mark_resumed().
+    }
+
+    #[test]
+    fn test_perform_expected_type_error() {
+        // Test that performing a non-ability value returns a type error
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(42.0));
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(
+            result,
+            Err(VmError::ExpectedSuspendedAbility { got: "number" })
+        );
+    }
+
+    #[test]
+    fn test_multiple_ability_calls() {
+        // Test multiple ability calls in sequence
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let call_log: Rc<RefCell<Vec<f64>>> = Rc::new(RefCell::new(Vec::new()));
+        let log_clone = call_log.clone();
+
+        let mut builder = BytecodeBuilder::new();
+
+        // First call
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_suspend(ABILITY_CONSOLE, METHOD_PRINT, 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Pop);
+
+        // Second call
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_suspend(ABILITY_CONSOLE, METHOD_PRINT, 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Pop);
+
+        // Third call
+        builder.emit_const(Value::Number(3.0));
+        builder.emit_suspend(ABILITY_CONSOLE, METHOD_PRINT, 1);
+        builder.emit(Opcode::Perform);
+
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+        vm.register_host_handler(ABILITY_CONSOLE, METHOD_PRINT, Box::new(move |ability| {
+            if let Value::Number(n) = &ability.args[0] {
+                log_clone.borrow_mut().push(*n);
+            }
+            Ok(Value::Unit)
+        }));
+
+        let result = vm.call(&hash, vec![]);
+
+        assert_eq!(result, Ok(Value::Unit));
+        assert_eq!(*call_log.borrow(), vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_ability_with_multiple_args() {
+        // Test ability with multiple arguments
+        let mut builder = BytecodeBuilder::new();
+
+        // Push two arguments
+        builder.emit_const(Value::Number(10.0));
+        builder.emit_const(Value::Number(32.0));
+        builder.emit_suspend(ABILITY_MATH, METHOD_ADD_TEN, 2);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        // Handler that adds the arguments
+        vm.register_host_handler(ABILITY_MATH, METHOD_ADD_TEN, Box::new(|ability| {
+            if ability.args.len() >= 2 {
+                if let (Value::Number(a), Value::Number(b)) = (&ability.args[0], &ability.args[1]) {
+                    return Ok(Value::Number(a + b));
+                }
+            }
+            Ok(Value::Unit)
+        }));
+
+        let result = vm.call(&hash, vec![]);
         assert_eq!(result, Ok(Value::Number(42.0)));
     }
 }

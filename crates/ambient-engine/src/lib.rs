@@ -12,6 +12,7 @@
 )]
 #![cfg_attr(not(test), deny(clippy::expect_used))]
 
+pub mod abilities;
 pub mod bytecode;
 pub mod content_hash;
 pub mod interpreter;
