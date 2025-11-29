@@ -52,7 +52,7 @@ impl ContentHash for Literal {
             }
             Literal::Boolean(value) => {
                 SyntaxType::LiteralBoolean.update(hash);
-                hash.update(&[*value as u8]);
+                hash.update(&[u8::from(*value)]);
             }
             Literal::Hash(value) => {
                 SyntaxType::LiteralHash.update(hash);

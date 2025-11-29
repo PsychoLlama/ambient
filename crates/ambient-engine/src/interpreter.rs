@@ -1,3 +1,6 @@
+#![allow(clippy::must_use_candidate)]
+#![allow(clippy::missing_errors_doc)]
+
 use crate::{
     content_hash::ContentHash,
     syntax::{Expression, Literal, Resource},
@@ -43,16 +46,16 @@ impl Interpreter {
         node: &Literal,
     ) -> Result<Value, RuntimeError> {
         Ok(match node {
-            Literal::Boolean(value) => Value::Boolean(*value),
-            Literal::Int32(value) => Value::Int32(*value),
+            Literal::Boolean(value) => Value::Bool(*value),
+            Literal::Int32(value) => Value::Number(f64::from(*value)),
             Literal::Hash(hash) => {
                 let Some(resource) = self.resources.get(hash) else {
-                    return Err(RuntimeError::UnknownHash(hash.clone()));
+                    return Err(RuntimeError::UnknownHash(*hash));
                 };
 
                 match resource {
                     // Don't invoke the function, just return a reference.
-                    Resource::FunctionDefinition { .. } => Value::Reference(hash.clone()),
+                    Resource::FunctionDefinition { .. } => Value::FunctionRef(*hash),
 
                     // Treat it like a variable. Resolve the value.
                     Resource::Const(literal) => self.eval_literal_expr(ctx, literal)?,
@@ -101,13 +104,13 @@ impl Interpreter {
     ) -> Result<Value, RuntimeError> {
         let resource = self
             .resources
-            .get(&hash)
-            .ok_or(RuntimeError::UnknownHash(hash.clone()))?;
+            .get(hash)
+            .ok_or(RuntimeError::UnknownHash(*hash))?;
 
         match resource {
             // TODO: Support parameters.
             Resource::FunctionDefinition { body, .. } => self.eval_expr(ctx, body),
-            _ => Err(RuntimeError::UnsupportedCallValue(hash.clone())),
+            Resource::Const(_) => Err(RuntimeError::UnsupportedCallValue(*hash)),
         }
     }
 }
@@ -152,14 +155,14 @@ mod tests {
     fn test_evaluate_literal_boolean() {
         let result = Interpreter::default().eval(&Expression::Literal(Literal::Boolean(true)));
 
-        assert_eq!(result, Ok(Value::Boolean(true)));
+        assert_eq!(result, Ok(Value::Bool(true)));
     }
 
     #[test]
     fn test_evaluate_literal_i32() {
         let result = Interpreter::default().eval(&Expression::Literal(Literal::Int32(42)));
 
-        assert_eq!(result, Ok(Value::Int32(42)));
+        assert_eq!(result, Ok(Value::Number(42.0)));
     }
 
     #[test]
@@ -178,7 +181,7 @@ mod tests {
         let interpreter = Interpreter::with_resources(vec![value]);
         let result = interpreter.eval(&Expression::Literal(Literal::Hash(hash)));
 
-        assert_eq!(result, Ok(Value::Int32(1234)));
+        assert_eq!(result, Ok(Value::Number(1234.0)));
     }
 
     #[test]
@@ -192,7 +195,7 @@ mod tests {
         let interpreter = Interpreter::with_resources(vec![value, reference]);
         let result = interpreter.eval(&Expression::Literal(Literal::Hash(reference_hash)));
 
-        assert_eq!(result, Ok(Value::Int32(1234)));
+        assert_eq!(result, Ok(Value::Number(1234.0)));
     }
 
     #[test]
@@ -206,7 +209,7 @@ mod tests {
         let result = interpreter.eval(&Expression::Literal(Literal::Hash(hash)));
 
         // Function is not called. It only returns a reference.
-        assert_eq!(result, Ok(Value::Reference(hash)));
+        assert_eq!(result, Ok(Value::FunctionRef(hash)));
     }
 
     #[test]
@@ -218,7 +221,7 @@ mod tests {
         let main = func.hash();
         let result = Interpreter::with_resources(vec![func]).call(&main);
 
-        assert_eq!(result, Ok(Value::Boolean(false)));
+        assert_eq!(result, Ok(Value::Bool(false)));
     }
 
     #[test]
@@ -236,6 +239,6 @@ mod tests {
 
         let main = fn2.hash();
         let result = Interpreter::with_resources(vec![fn1, fn2]).call(&main);
-        assert_eq!(result, Ok(Value::Boolean(true)));
+        assert_eq!(result, Ok(Value::Bool(true)));
     }
 }
