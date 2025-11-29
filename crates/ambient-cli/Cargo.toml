@@ -1,0 +1,12 @@
+[package]
+name = "ambient-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "ambient"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.100"
+clap = { version = "4.5.53", features = ["cargo", "debug", "derive", "string", "env"] }
