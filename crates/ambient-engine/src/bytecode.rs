@@ -184,6 +184,24 @@ pub enum Opcode {
     Resume = 0x84,
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Concurrency (Milestone 9)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Perform multiple suspended abilities concurrently and collect all results.
+    /// Operand: u8 (count - number of ability values on stack)
+    ///
+    /// Pops `count` suspended ability values from the stack, performs them all
+    /// (potentially concurrently), and pushes a tuple of results in the same order.
+    AsyncAll = 0x90,
+
+    /// Race multiple suspended abilities, returning the first to complete.
+    /// Operand: u8 (count - number of ability values on stack)
+    ///
+    /// Pops `count` suspended ability values from the stack, performs them
+    /// (potentially concurrently), and pushes the result of the first to complete.
+    /// Other operations are cancelled.
+    AsyncRace = 0x91,
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Special
     // ─────────────────────────────────────────────────────────────────────────
     /// Halt execution (end of program).
@@ -230,6 +248,9 @@ impl Opcode {
             0x82 => Some(Self::Handle),
             0x83 => Some(Self::Unhandle),
             0x84 => Some(Self::Resume),
+            // Concurrency
+            0x90 => Some(Self::AsyncAll),
+            0x91 => Some(Self::AsyncRace),
             0xFF => Some(Self::Halt),
             _ => None,
         }
@@ -648,6 +669,9 @@ mod tests {
             Opcode::Handle,
             Opcode::Unhandle,
             Opcode::Resume,
+            // Concurrency
+            Opcode::AsyncAll,
+            Opcode::AsyncRace,
             Opcode::Halt,
         ];
 

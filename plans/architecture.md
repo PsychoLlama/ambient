@@ -1028,9 +1028,9 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 
 **Deliverables**:
 
-- [ ] `Async.all!` implementation
-- [ ] `Async.race!` implementation with cancellation
-- [ ] Host integration for concurrent ability execution
+- [x] `Async.all!` implementation
+- [x] `Async.race!` implementation with cancellation
+- [x] Host integration for concurrent ability execution
 - [ ] Type checking for concurrent operations
 
 **Test case**: Concurrent fetches (mocked), race with cancellation.

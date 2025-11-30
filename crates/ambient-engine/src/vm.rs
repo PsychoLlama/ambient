@@ -209,6 +209,105 @@ impl Vm {
         self.host_handlers.insert((ability_id, method_id), handler);
     }
 
+    /// Perform a single suspended ability using a host handler.
+    ///
+    /// Returns an error if no host handler is registered for this ability.
+    /// Note: This does not support bytecode handlers - only host handlers.
+    fn perform_ability_host(&self, ability: &SuspendedAbility) -> Result<Value, VmError> {
+        if let Some(handler) = self.host_handlers.get(&(ability.ability_id, ability.method_id)) {
+            handler(ability)
+        } else {
+            Err(VmError::UnhandledAbility {
+                ability_id: ability.ability_id,
+                method_id: ability.method_id,
+            })
+        }
+    }
+
+    /// Perform all abilities concurrently and collect results.
+    ///
+    /// Uses `std::thread::scope` for safe parallelism. Each ability is executed
+    /// in its own thread, and results are collected in order.
+    fn perform_all_abilities(
+        &self,
+        abilities: &[Arc<SuspendedAbility>],
+    ) -> Result<Vec<Value>, VmError> {
+        if abilities.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // For a single ability, no need for threading overhead
+        if abilities.len() == 1 {
+            return Ok(vec![self.perform_ability_host(&abilities[0])?]);
+        }
+
+        // Use thread::scope for safe concurrent execution
+        std::thread::scope(|s| {
+            // Spawn a thread for each ability
+            let handles: Vec<_> = abilities
+                .iter()
+                .map(|ability| {
+                    s.spawn(|| self.perform_ability_host(ability))
+                })
+                .collect();
+
+            // Collect results in order
+            let mut results = Vec::with_capacity(handles.len());
+            for handle in handles {
+                let result = handle.join().map_err(|_| VmError::StackOverflow)?;
+                results.push(result?);
+            }
+            Ok(results)
+        })
+    }
+
+    /// Race abilities concurrently and return the first result.
+    ///
+    /// Uses `std::thread::scope` with channels for true racing. The first
+    /// ability to complete wins, and its result is returned. Other threads
+    /// continue to completion but their results are discarded.
+    ///
+    /// Note: True cancellation would require cooperative cancellation tokens
+    /// in the ability handlers. For now, we let threads complete but only
+    /// use the first result.
+    fn perform_race_abilities(
+        &self,
+        abilities: &[Arc<SuspendedAbility>],
+    ) -> Result<Value, VmError> {
+        if abilities.is_empty() {
+            return Err(VmError::StackUnderflow);
+        }
+
+        // For a single ability, no need for threading overhead
+        if abilities.len() == 1 {
+            return self.perform_ability_host(&abilities[0]);
+        }
+
+        // Use a channel to receive the first result
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        std::thread::scope(|s| {
+            // Spawn a thread for each ability
+            for (idx, ability) in abilities.iter().enumerate() {
+                let tx = tx.clone();
+                s.spawn(move || {
+                    let result = self.perform_ability_host(ability);
+                    // Send result with index (for debugging/ordering if needed)
+                    let _ = tx.send((idx, result));
+                });
+            }
+
+            // Drop our sender so the channel closes when all threads complete
+            drop(tx);
+
+            // Return the first result we receive
+            match rx.recv() {
+                Ok((_idx, result)) => result,
+                Err(_) => Err(VmError::StackUnderflow), // All threads failed to send
+            }
+        })
+    }
+
     /// Call a function by its hash with the given arguments.
     pub fn call(&mut self, hash: &blake3::Hash, args: Vec<Value>) -> Result<Value, VmError> {
         // Reset state
@@ -654,6 +753,59 @@ impl Vm {
 
                 Opcode::Halt => {
                     return self.pop();
+                }
+
+                // ─────────────────────────────────────────────────────────────
+                // Concurrency (Milestone 9)
+                // ─────────────────────────────────────────────────────────────
+                Opcode::AsyncAll => {
+                    let count = self.read_u8()?;
+
+                    // Pop all suspended abilities (in reverse order)
+                    let mut abilities = Vec::with_capacity(count as usize);
+                    for _ in 0..count {
+                        let ability = match self.pop()? {
+                            Value::SuspendedAbility(a) => a,
+                            other => {
+                                return Err(VmError::ExpectedSuspendedAbility {
+                                    got: other.type_name(),
+                                })
+                            }
+                        };
+                        abilities.push(ability);
+                    }
+                    abilities.reverse(); // Restore original order
+
+                    // Perform all abilities and collect results
+                    let results = self.perform_all_abilities(&abilities)?;
+
+                    // Push tuple of results
+                    self.stack.push(Value::tuple(results));
+                }
+
+                Opcode::AsyncRace => {
+                    let count = self.read_u8()?;
+
+                    // Pop all suspended abilities (in reverse order)
+                    let mut abilities = Vec::with_capacity(count as usize);
+                    for _ in 0..count {
+                        let ability = match self.pop()? {
+                            Value::SuspendedAbility(a) => a,
+                            other => {
+                                return Err(VmError::ExpectedSuspendedAbility {
+                                    got: other.type_name(),
+                                })
+                            }
+                        };
+                        abilities.push(ability);
+                    }
+                    abilities.reverse(); // Restore original order
+
+                    // Race: perform abilities concurrently, return first result
+                    let result = self.perform_race_abilities(&abilities)?;
+
+                    // Push the winning result
+                    self.stack.push(result);
                 }
             }
         }
@@ -1681,5 +1833,383 @@ mod tests {
                 }
             })
             .expect_number(42.0);
+    }
+
+    // =========================================================================
+    // Milestone 9: Concurrency
+    // =========================================================================
+
+    #[test]
+    fn test_async_all_single_ability() {
+        // Create one suspended ability, perform with async_all
+        VmTest::new()
+            .push(21.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .async_all(1)
+            .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(n * 2.0))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .expect_tuple(|elements| {
+                assert_eq!(elements.len(), 1);
+                assert_eq!(elements[0], Value::Number(42.0));
+            });
+    }
+
+    #[test]
+    fn test_async_all_multiple_abilities() {
+        // Create multiple suspended abilities, perform all
+        VmTest::new()
+            .push(10.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .push(20.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .push(30.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .async_all(3)
+            .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(n * 2.0))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .expect_tuple(|elements| {
+                assert_eq!(elements.len(), 3);
+                assert_eq!(elements[0], Value::Number(20.0));
+                assert_eq!(elements[1], Value::Number(40.0));
+                assert_eq!(elements[2], Value::Number(60.0));
+            });
+    }
+
+    #[test]
+    fn test_async_all_execution_concurrent() {
+        // Verify that all abilities are executed and all results are collected.
+        // Note: With concurrent execution, the order of execution is NOT guaranteed,
+        // but the results are returned in the original order.
+        let capture = Capture::<f64>::new();
+        let log = capture.clone_inner();
+
+        VmTest::new()
+            .push(1.0)
+            .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
+            .push(2.0)
+            .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
+            .push(3.0)
+            .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
+            .async_all(3)
+            .with_host_handler(ABILITY_CONSOLE, METHOD_PRINT, move |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    log.lock().expect("lock").push(*n);
+                }
+                Ok(Value::Unit)
+            })
+            .expect_tuple(|elements| {
+                assert_eq!(elements.len(), 3);
+                // All should be Unit
+                for elem in elements {
+                    assert_eq!(*elem, Value::Unit);
+                }
+            });
+
+        // Verify all values were executed (order may vary with concurrent execution)
+        let mut values = capture.into_vec();
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(values, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_async_all_different_abilities() {
+        // Mix different ability types
+        VmTest::new()
+            .push(21.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .push(100.0)
+            .suspend(ABILITY_MATH, METHOD_ADD_TEN, 1)
+            .async_all(2)
+            .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(n * 2.0))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .with_host_handler(ABILITY_MATH, METHOD_ADD_TEN, |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(n + 10.0))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .expect_tuple(|elements| {
+                assert_eq!(elements.len(), 2);
+                assert_eq!(elements[0], Value::Number(42.0));
+                assert_eq!(elements[1], Value::Number(110.0));
+            });
+    }
+
+    #[test]
+    fn test_async_all_zero_abilities() {
+        // Empty async_all should return empty tuple
+        VmTest::new()
+            .async_all(0)
+            .expect_tuple(|elements| {
+                assert_eq!(elements.len(), 0);
+            });
+    }
+
+    #[test]
+    fn test_async_all_type_error() {
+        // Passing non-ability value should error
+        VmTest::new()
+            .push(42.0)
+            .async_all(1)
+            .expect_error(VmError::ExpectedSuspendedAbility { got: "number" });
+    }
+
+    #[test]
+    fn test_async_all_unhandled_ability() {
+        // Unhandled ability in async_all should error
+        VmTest::new()
+            .push(42.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .async_all(1)
+            .expect_error(VmError::UnhandledAbility {
+                ability_id: ABILITY_MATH,
+                method_id: METHOD_DOUBLE,
+            });
+    }
+
+    #[test]
+    fn test_async_race_single_ability() {
+        // Race with single ability should return that result
+        VmTest::new()
+            .push(21.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .async_race(1)
+            .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(n * 2.0))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .expect_number(42.0);
+    }
+
+    #[test]
+    fn test_async_race_multiple_abilities() {
+        // Race returns the first ability to complete.
+        // With concurrent execution, any of the results could win.
+        let result = VmTest::new()
+            .push(21.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .push(100.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .push(200.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .async_race(3)
+            .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(n * 2.0))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .run();
+
+        // The result should be one of the doubled values
+        match result {
+            Ok(Value::Number(n)) => {
+                assert!(
+                    n == 42.0 || n == 200.0 || n == 400.0,
+                    "Expected one of [42.0, 200.0, 400.0], got {n}"
+                );
+            }
+            other => panic!("Expected Number, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_async_race_type_error() {
+        // Passing non-ability value should error
+        VmTest::new()
+            .push_str("not an ability")
+            .async_race(1)
+            .expect_error(VmError::ExpectedSuspendedAbility { got: "string" });
+    }
+
+    #[test]
+    fn test_async_race_unhandled_ability() {
+        // Unhandled ability in async_race should error
+        VmTest::new()
+            .push(42.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .async_race(1)
+            .expect_error(VmError::UnhandledAbility {
+                ability_id: ABILITY_MATH,
+                method_id: METHOD_DOUBLE,
+            });
+    }
+
+    #[test]
+    fn test_async_all_stored_in_variables() {
+        // Store suspended abilities in variables, then async_all
+        VmTest::new()
+            .with_locals(2)
+            .push(10.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .store_local(0)
+            .pop()
+            .push(20.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .store_local(1)
+            .pop()
+            .load_local(0)
+            .load_local(1)
+            .async_all(2)
+            .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(n * 2.0))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .expect_tuple(|elements| {
+                assert_eq!(elements.len(), 2);
+                assert_eq!(elements[0], Value::Number(20.0));
+                assert_eq!(elements[1], Value::Number(40.0));
+            });
+    }
+
+    #[test]
+    fn test_async_all_result_used_in_computation() {
+        // Use async_all result in subsequent computation
+        VmTest::new()
+            .push(20.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .push(1.0)
+            .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+            .async_all(2)
+            .tuple_get(0)
+            .with_builder(|b| {
+                // result.0 + 2 = 40 + 2 = 42
+                b.emit_const(Value::Number(2.0));
+                b.emit(Opcode::Add);
+            })
+            .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(n * 2.0))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .expect_number(42.0);
+    }
+
+    #[test]
+    fn test_async_all_true_concurrency() {
+        // Demonstrate that async_all executes concurrently by using delays.
+        // If sequential, 3 x 50ms = 150ms minimum.
+        // If concurrent, should be ~50ms (plus overhead).
+        use std::time::{Duration, Instant};
+
+        const DELAY_MS: u64 = 50;
+
+        let start = Instant::now();
+
+        VmTest::new()
+            .push(1.0)
+            .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
+            .push(2.0)
+            .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
+            .push(3.0)
+            .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
+            .async_all(3)
+            .with_host_handler(ABILITY_CONSOLE, METHOD_PRINT, move |ability| {
+                // Simulate I/O delay
+                std::thread::sleep(Duration::from_millis(DELAY_MS));
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(*n))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .expect_tuple(|elements| {
+                assert_eq!(elements.len(), 3);
+            });
+
+        let elapsed = start.elapsed();
+
+        // With true concurrency, should complete in ~50-100ms
+        // If sequential, would take ~150ms
+        // Use 120ms as threshold to allow for overhead but detect sequential execution
+        assert!(
+            elapsed < Duration::from_millis(120),
+            "Expected concurrent execution (<120ms), but took {:?}. \
+             This suggests sequential execution.",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn test_async_race_true_concurrency() {
+        // Demonstrate that async_race returns the fastest result.
+        // One handler is fast (10ms), others are slow (100ms).
+        use std::time::{Duration, Instant};
+
+        const SLOW_MS: u64 = 100;
+        const FAST_MS: u64 = 10;
+
+        let start = Instant::now();
+
+        // Use different ability IDs to have different handlers
+        const SLOW_ABILITY: u16 = 0x0010;
+        const FAST_ABILITY: u16 = 0x0011;
+
+        let result = VmTest::new()
+            .push(1.0)
+            .suspend(SLOW_ABILITY, 0, 1) // slow
+            .push(42.0)
+            .suspend(FAST_ABILITY, 0, 1) // fast - should win
+            .push(3.0)
+            .suspend(SLOW_ABILITY, 0, 1) // slow
+            .async_race(3)
+            .with_host_handler(SLOW_ABILITY, 0, move |ability| {
+                std::thread::sleep(Duration::from_millis(SLOW_MS));
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(*n))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .with_host_handler(FAST_ABILITY, 0, move |ability| {
+                std::thread::sleep(Duration::from_millis(FAST_MS));
+                if let Value::Number(n) = &ability.args[0] {
+                    Ok(Value::Number(*n))
+                } else {
+                    Ok(Value::Unit)
+                }
+            })
+            .run();
+
+        let elapsed = start.elapsed();
+
+        // Should complete quickly (fast handler wins)
+        // The slow handlers will still run to completion but we don't wait for them
+        // due to scope semantics. With scoped threads, we wait for all threads.
+        // So the total time is max(all threads) = 100ms
+        // But the result should be from the fast handler.
+        assert!(
+            elapsed < Duration::from_millis(150),
+            "Took too long: {:?}",
+            elapsed
+        );
+
+        // The result should be 42.0 (from the fast handler)
+        assert_eq!(result, Ok(Value::Number(42.0)));
     }
 }

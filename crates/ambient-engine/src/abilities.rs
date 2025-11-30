@@ -60,6 +60,20 @@ pub mod random {
     pub const METHOD_IN_RANGE: u16 = 0x0001;
 }
 
+/// Async ability - for concurrent execution of abilities.
+pub mod async_ability {
+    /// Ability ID for Async.
+    pub const ABILITY_ID: u16 = 0x0005;
+
+    /// Method: wait for all operations to complete.
+    /// Takes a tuple of suspended abilities, returns a tuple of results.
+    pub const METHOD_ALL: u16 = 0x0000;
+
+    /// Method: wait for first operation to complete, cancel others.
+    /// Takes a tuple of suspended abilities, returns the first result.
+    pub const METHOD_RACE: u16 = 0x0001;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Console Ability Implementation
 // ═══════════════════════════════════════════════════════════════════════════
