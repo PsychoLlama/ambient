@@ -239,8 +239,6 @@ impl FunctionCompiler {
 ///
 /// Returns a `CompileError` if compilation fails.
 pub fn compile_module(module: &Module) -> Result<CompiledModule, CompileError> {
-    let mut result = CompiledModule::new();
-
     // Collect function definitions.
     let functions: Vec<&FunctionDef> = module
         .items
@@ -254,71 +252,367 @@ pub fn compile_module(module: &Module) -> Result<CompiledModule, CompileError> {
         })
         .collect();
 
-    // For proper handling of recursive calls, we need to compile functions
-    // using a stable hash that doesn't depend on call targets.
-    // For now, use a simpler approach: compile with name-based lookup at runtime.
-    //
-    // Phase 1: Create stable hashes based on function structure (not call targets).
-    let mut function_names: HashMap<Arc<str>, blake3::Hash> = HashMap::new();
+    // Phase 1: Create temporary hashes for name-based lookup during compilation.
+    // These will be replaced with content-addressed hashes after compilation.
+    let mut temp_hashes: HashMap<Arc<str>, blake3::Hash> = HashMap::new();
     for func in &functions {
-        // Create a deterministic hash based on function structure.
-        // This includes: name, params, body structure (but not call target hashes).
-        let hash = compute_function_hash(func);
-        function_names.insert(Arc::clone(&func.name), hash);
+        let hash = compute_temporary_hash(&func.name);
+        temp_hashes.insert(Arc::clone(&func.name), hash);
     }
 
-    // Phase 2: Compile each function using the pre-computed hashes.
+    // Phase 2: Compile each function using temporary hashes.
+    let mut compiled_functions: Vec<(Arc<str>, CompiledFunction, bool)> = Vec::new();
     for func in &functions {
-        let compiled = compile_function_with_hash(func, &function_names)?;
-        let hash = function_names[&func.name];
-
-        result.functions.insert(hash, compiled);
-        result.function_names.insert(Arc::clone(&func.name), hash);
-
-        // Check for main function.
-        if &*func.name == "main" {
-            result.entry_point = Some(hash);
-        }
+        let compiled = compile_function_with_hash(func, &temp_hashes)?;
+        let is_main = &*func.name == "main";
+        compiled_functions.push((Arc::clone(&func.name), compiled, is_main));
     }
 
     // Compile constants.
     for item in &module.items {
         if let ItemKind::Const(const_def) = &item.kind {
-            let compiled = compile_const(const_def, &result.function_names)?;
-            let hash = compiled.hash;
-            result.functions.insert(hash, compiled);
-            result
-                .function_names
-                .insert(Arc::clone(&const_def.name), hash);
+            let compiled = compile_const(const_def, &temp_hashes)?;
+            compiled_functions.push((Arc::clone(&const_def.name), compiled, false));
+        }
+    }
+
+    // Phase 3: Compute content-addressed hashes and finalize the module.
+    finalize_module_hashes(compiled_functions, temp_hashes)
+}
+
+/// Finalize content-addressed hashes for all compiled functions.
+///
+/// This handles:
+/// 1. Non-recursive functions: compute hash from bytecode content
+/// 2. Recursive functions (SCCs): compute group hash for mutual recursion
+fn finalize_module_hashes(
+    compiled_functions: Vec<(Arc<str>, CompiledFunction, bool)>,
+    temp_hashes: HashMap<Arc<str>, blake3::Hash>,
+) -> Result<CompiledModule, CompileError> {
+    // Build reverse mapping: temp_hash -> name
+    let temp_to_name: HashMap<blake3::Hash, Arc<str>> = temp_hashes
+        .iter()
+        .map(|(name, hash)| (*hash, Arc::clone(name)))
+        .collect();
+
+    // Build call graph: for each function, which other functions does it call?
+    // We detect this by looking at FunctionRef values in the constant pool.
+    let mut call_graph: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::new();
+    for (name, func, _) in &compiled_functions {
+        let mut calls = Vec::new();
+        for constant in &func.constants {
+            if let Value::FunctionRef(hash) = constant {
+                if let Some(called_name) = temp_to_name.get(hash) {
+                    calls.push(Arc::clone(called_name));
+                }
+            }
+        }
+        call_graph.insert(Arc::clone(name), calls);
+    }
+
+    // Find SCCs using Tarjan's algorithm (generic implementation from store module)
+    let scc_analysis = compute_sccs(&call_graph);
+
+    // Compute final hashes in topological order (dependencies before dependents)
+    let mut final_hashes: HashMap<Arc<str>, blake3::Hash> = HashMap::new();
+
+    for scc in &scc_analysis.components {
+        if scc.is_singleton() {
+            // Single function - might be self-recursive or not
+            let name = &scc.members[0];
+            let func = compiled_functions
+                .iter()
+                .find(|(n, _, _)| n == name)
+                .map(|(_, f, _)| f)
+                .expect("function should exist");
+
+            // Check if it's self-recursive
+            let is_self_recursive = call_graph
+                .get(name)
+                .map(|calls| calls.contains(name))
+                .unwrap_or(false);
+
+            if is_self_recursive {
+                // Self-recursive: compute hash excluding self-reference
+                let hash = compute_scc_hash(&scc.members, &compiled_functions, &final_hashes, &temp_hashes);
+                final_hashes.insert(Arc::clone(name), hash);
+            } else {
+                // Non-recursive: compute hash with resolved dependencies
+                let hash = compute_content_hash(func, &final_hashes, &temp_hashes);
+                final_hashes.insert(Arc::clone(name), hash);
+            }
+        } else {
+            // Multiple functions in SCC - mutual recursion
+            // Compute a group hash for the entire SCC
+            let scc_hash = compute_scc_hash(&scc.members, &compiled_functions, &final_hashes, &temp_hashes);
+
+            // Each function in the SCC gets a derived hash
+            for (idx, name) in scc.members.iter().enumerate() {
+                let mut hasher = blake3::Hasher::new();
+                hasher.update(scc_hash.as_bytes());
+                hasher.update(&(idx as u32).to_le_bytes());
+                let hash = hasher.finalize();
+                final_hashes.insert(Arc::clone(name), hash);
+            }
+        }
+    }
+
+    // Phase 4: Update all functions with final hashes
+    let mut result = CompiledModule::new();
+
+    for (name, mut func, is_main) in compiled_functions {
+        // Update FunctionRef values in constant pool
+        for constant in &mut func.constants {
+            if let Value::FunctionRef(ref mut hash) = constant {
+                if let Some(called_name) = temp_to_name.get(hash) {
+                    if let Some(&final_hash) = final_hashes.get(called_name) {
+                        *hash = final_hash;
+                    }
+                }
+            }
+        }
+
+        // Update dependencies
+        func.dependencies = func
+            .dependencies
+            .iter()
+            .filter_map(|dep| {
+                temp_to_name
+                    .get(dep)
+                    .and_then(|name| final_hashes.get(name))
+                    .copied()
+            })
+            .collect();
+
+        // Get the final hash for this function
+        let final_hash = final_hashes
+            .get(&name)
+            .copied()
+            .expect("all functions should have final hashes");
+
+        // Update the function's hash field
+        func.hash = final_hash;
+
+        result.functions.insert(final_hash, func);
+        result.function_names.insert(name, final_hash);
+
+        if is_main {
+            result.entry_point = Some(final_hash);
         }
     }
 
     Ok(result)
 }
 
-/// Compute a stable hash for a function based on its structure.
-/// This hash is deterministic and doesn't depend on call target hashes,
-/// allowing for recursive functions to be properly identified.
-fn compute_function_hash(func: &FunctionDef) -> blake3::Hash {
+/// Compute content-addressed hash for a non-recursive function.
+fn compute_content_hash(
+    func: &CompiledFunction,
+    final_hashes: &HashMap<Arc<str>, blake3::Hash>,
+    temp_hashes: &HashMap<Arc<str>, blake3::Hash>,
+) -> blake3::Hash {
+    let temp_to_name: HashMap<blake3::Hash, Arc<str>> = temp_hashes
+        .iter()
+        .map(|(name, hash)| (*hash, Arc::clone(name)))
+        .collect();
+
     let mut hasher = blake3::Hasher::new();
 
-    // Hash function name
-    hasher.update(func.name.as_bytes());
+    // Hash bytecode
+    hasher.update(&(func.bytecode.len() as u32).to_le_bytes());
+    hasher.update(&func.bytecode);
 
-    // Hash parameter count and names
-    hasher.update(&(func.params.len() as u32).to_le_bytes());
-    for param in &func.params {
-        hasher.update(param.name.as_bytes());
+    // Hash constants with resolved function references
+    hasher.update(&(func.constants.len() as u32).to_le_bytes());
+    for constant in &func.constants {
+        match constant {
+            Value::FunctionRef(hash) => {
+                // Resolve to final hash if available
+                let resolved = temp_to_name
+                    .get(hash)
+                    .and_then(|name| final_hashes.get(name))
+                    .copied()
+                    .unwrap_or(*hash);
+                hasher.update(&[6u8]); // TYPE_FUNCTION_REF
+                hasher.update(resolved.as_bytes());
+            }
+            _ => hash_value_for_content(&mut hasher, constant),
+        }
     }
 
-    // Hash public flag
-    hasher.update(&[u8::from(func.is_public)]);
+    // Hash metadata
+    hasher.update(&func.local_count.to_le_bytes());
+    hasher.update(&[func.param_count]);
 
-    // Hash a structural representation of the body
-    // For now, just hash the span as a proxy for body structure
-    hasher.update(&func.body.span.start.to_le_bytes());
-    hasher.update(&func.body.span.end.to_le_bytes());
+    // Hash resolved dependencies
+    let resolved_deps: Vec<blake3::Hash> = func
+        .dependencies
+        .iter()
+        .filter_map(|dep| {
+            temp_to_name
+                .get(dep)
+                .and_then(|name| final_hashes.get(name))
+                .copied()
+        })
+        .collect();
 
+    hasher.update(&(resolved_deps.len() as u32).to_le_bytes());
+    for dep in &resolved_deps {
+        hasher.update(dep.as_bytes());
+    }
+
+    hasher.finalize()
+}
+
+/// Compute a combined hash for a strongly connected component (recursive functions).
+fn compute_scc_hash(
+    scc: &[Arc<str>],
+    compiled_functions: &[(Arc<str>, CompiledFunction, bool)],
+    final_hashes: &HashMap<Arc<str>, blake3::Hash>,
+    temp_hashes: &HashMap<Arc<str>, blake3::Hash>,
+) -> blake3::Hash {
+    let temp_to_name: HashMap<blake3::Hash, Arc<str>> = temp_hashes
+        .iter()
+        .map(|(name, hash)| (*hash, Arc::clone(name)))
+        .collect();
+
+    // Create a set of names in this SCC for quick lookup
+    let scc_set: std::collections::HashSet<&Arc<str>> = scc.iter().collect();
+
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"__scc__");
+    hasher.update(&(scc.len() as u32).to_le_bytes());
+
+    // Sort SCC members for deterministic ordering
+    let mut sorted_scc: Vec<_> = scc.to_vec();
+    sorted_scc.sort();
+
+    for name in &sorted_scc {
+        let func = compiled_functions
+            .iter()
+            .find(|(n, _, _)| n == name)
+            .map(|(_, f, _)| f)
+            .expect("function should exist");
+
+        // Hash the function name (for position in SCC)
+        hasher.update(&(name.len() as u32).to_le_bytes());
+        hasher.update(name.as_bytes());
+
+        // Hash bytecode
+        hasher.update(&(func.bytecode.len() as u32).to_le_bytes());
+        hasher.update(&func.bytecode);
+
+        // Hash constants, but use placeholders for SCC-internal references
+        hasher.update(&(func.constants.len() as u32).to_le_bytes());
+        for constant in &func.constants {
+            match constant {
+                Value::FunctionRef(hash) => {
+                    if let Some(called_name) = temp_to_name.get(hash) {
+                        if scc_set.contains(called_name) {
+                            // Internal SCC reference - use canonical placeholder
+                            hasher.update(&[6u8]); // TYPE_FUNCTION_REF
+                            hasher.update(b"__scc_internal__");
+                            hasher.update(called_name.as_bytes());
+                        } else if let Some(&final_hash) = final_hashes.get(called_name) {
+                            // External reference - use final hash
+                            hasher.update(&[6u8]);
+                            hasher.update(final_hash.as_bytes());
+                        } else {
+                            // Unknown reference - use temp hash
+                            hasher.update(&[6u8]);
+                            hasher.update(hash.as_bytes());
+                        }
+                    } else {
+                        hasher.update(&[6u8]);
+                        hasher.update(hash.as_bytes());
+                    }
+                }
+                _ => hash_value_for_content(&mut hasher, constant),
+            }
+        }
+
+        // Hash metadata
+        hasher.update(&func.local_count.to_le_bytes());
+        hasher.update(&[func.param_count]);
+    }
+
+    hasher.finalize()
+}
+
+/// Hash a value for content-addressing (mirrors bytecode.rs but accessible here).
+fn hash_value_for_content(hasher: &mut blake3::Hasher, value: &Value) {
+    const TYPE_UNIT: u8 = 0;
+    const TYPE_BOOL: u8 = 1;
+    const TYPE_NUMBER: u8 = 2;
+    const TYPE_STRING: u8 = 3;
+    const TYPE_TUPLE: u8 = 4;
+    const TYPE_RECORD: u8 = 5;
+    const TYPE_FUNCTION_REF: u8 = 6;
+    const TYPE_SUSPENDED_ABILITY: u8 = 7;
+    const TYPE_CONTINUATION: u8 = 8;
+
+    match value {
+        Value::Unit => {
+            hasher.update(&[TYPE_UNIT]);
+        }
+        Value::Bool(b) => {
+            hasher.update(&[TYPE_BOOL, u8::from(*b)]);
+        }
+        Value::Number(n) => {
+            hasher.update(&[TYPE_NUMBER]);
+            hasher.update(&n.to_bits().to_le_bytes());
+        }
+        Value::String(s) => {
+            hasher.update(&[TYPE_STRING]);
+            hasher.update(&(s.len() as u32).to_le_bytes());
+            hasher.update(s.as_bytes());
+        }
+        Value::Tuple(elements) => {
+            hasher.update(&[TYPE_TUPLE]);
+            hasher.update(&(elements.len() as u32).to_le_bytes());
+            for elem in elements.iter() {
+                hash_value_for_content(hasher, elem);
+            }
+        }
+        Value::Record(fields) => {
+            hasher.update(&[TYPE_RECORD]);
+            let mut sorted_fields: Vec<_> = fields.iter().collect();
+            sorted_fields.sort_by(|a, b| a.0.cmp(b.0));
+            hasher.update(&(sorted_fields.len() as u32).to_le_bytes());
+            for (key, val) in sorted_fields {
+                hasher.update(&(key.len() as u32).to_le_bytes());
+                hasher.update(key.as_bytes());
+                hash_value_for_content(hasher, val);
+            }
+        }
+        Value::FunctionRef(h) => {
+            hasher.update(&[TYPE_FUNCTION_REF]);
+            hasher.update(h.as_bytes());
+        }
+        Value::SuspendedAbility(ability) => {
+            hasher.update(&[TYPE_SUSPENDED_ABILITY]);
+            hasher.update(&ability.ability_id.to_le_bytes());
+            hasher.update(&ability.method_id.to_le_bytes());
+            hasher.update(&(ability.args.len() as u32).to_le_bytes());
+            for arg in &ability.args {
+                hash_value_for_content(hasher, arg);
+            }
+        }
+        Value::Continuation(_) => {
+            hasher.update(&[TYPE_CONTINUATION]);
+        }
+    }
+}
+
+// Use the generic SCC implementation from store module
+use crate::store::compute_sccs;
+
+/// Compute a temporary hash for a function based on its name.
+/// This is only used during the initial compilation pass; the final
+/// content-addressed hash is computed after all functions are compiled.
+fn compute_temporary_hash(name: &str) -> blake3::Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"__temp_hash__");
+    hasher.update(name.as_bytes());
     hasher.finalize()
 }
 
@@ -871,7 +1165,7 @@ mod tests {
     /// Helper to compile a single function for testing.
     fn compile_test_function(func: &FunctionDef) -> Result<CompiledFunction, CompileError> {
         let mut hashes = HashMap::new();
-        let hash = compute_function_hash(func);
+        let hash = compute_temporary_hash(&func.name);
         hashes.insert(Arc::clone(&func.name), hash);
         compile_function_with_hash(func, &hashes)
     }
@@ -968,5 +1262,143 @@ mod tests {
         assert!(compiled.entry_point.is_some());
         assert!(compiled.get_function("double").is_some());
         assert!(compiled.get_function("main").is_some());
+    }
+
+    #[test]
+    fn test_content_addressed_hash_identical_functions() {
+        // Two modules with identical functions but different names should produce
+        // the same content hash for those functions.
+        let module1 = Module {
+            name: Arc::from("test1"),
+            items: vec![Item::new(
+                ItemKind::Function(FunctionDef {
+                    name: Arc::from("add_one"),
+                    is_public: false,
+                    type_params: vec![],
+                    params: vec![Param::new(0, "x")],
+                    ret_ty: None,
+                    abilities: vec![],
+                    body: Expr::binary(BinaryOp::Add, Expr::local(0), Expr::number(1.0)),
+                }),
+                test_span(),
+            )],
+        };
+
+        let module2 = Module {
+            name: Arc::from("test2"),
+            items: vec![Item::new(
+                ItemKind::Function(FunctionDef {
+                    name: Arc::from("increment"), // Different name, same implementation
+                    is_public: false,
+                    type_params: vec![],
+                    params: vec![Param::new(0, "x")],
+                    ret_ty: None,
+                    abilities: vec![],
+                    body: Expr::binary(BinaryOp::Add, Expr::local(0), Expr::number(1.0)),
+                }),
+                test_span(),
+            )],
+        };
+
+        let compiled1 = compile_module(&module1).expect("module1 compilation failed");
+        let compiled2 = compile_module(&module2).expect("module2 compilation failed");
+
+        let func1 = compiled1.get_function("add_one").expect("add_one not found");
+        let func2 = compiled2.get_function("increment").expect("increment not found");
+
+        // Content-addressed: identical bytecode should produce identical hash
+        assert_eq!(
+            func1.hash, func2.hash,
+            "Identical functions with different names should have the same content hash"
+        );
+    }
+
+    #[test]
+    fn test_content_addressed_hash_different_functions() {
+        // Functions with different implementations should have different hashes.
+        let module = Module {
+            name: Arc::from("test"),
+            items: vec![
+                Item::new(
+                    ItemKind::Function(FunctionDef {
+                        name: Arc::from("add_one"),
+                        is_public: false,
+                        type_params: vec![],
+                        params: vec![Param::new(0, "x")],
+                        ret_ty: None,
+                        abilities: vec![],
+                        body: Expr::binary(BinaryOp::Add, Expr::local(0), Expr::number(1.0)),
+                    }),
+                    test_span(),
+                ),
+                Item::new(
+                    ItemKind::Function(FunctionDef {
+                        name: Arc::from("add_two"),
+                        is_public: false,
+                        type_params: vec![],
+                        params: vec![Param::new(0, "x")],
+                        ret_ty: None,
+                        abilities: vec![],
+                        body: Expr::binary(BinaryOp::Add, Expr::local(0), Expr::number(2.0)),
+                    }),
+                    test_span(),
+                ),
+            ],
+        };
+
+        let compiled = compile_module(&module).expect("compilation failed");
+
+        let func1 = compiled.get_function("add_one").expect("add_one not found");
+        let func2 = compiled.get_function("add_two").expect("add_two not found");
+
+        // Different implementations should have different hashes
+        assert_ne!(
+            func1.hash, func2.hash,
+            "Functions with different implementations should have different hashes"
+        );
+    }
+
+    #[test]
+    fn test_recursive_function_hash() {
+        // A self-recursive function should get a stable hash
+        let module = Module {
+            name: Arc::from("test"),
+            items: vec![Item::new(
+                ItemKind::Function(FunctionDef {
+                    name: Arc::from("factorial"),
+                    is_public: false,
+                    type_params: vec![],
+                    params: vec![Param::new(0, "n")],
+                    ret_ty: None,
+                    abilities: vec![],
+                    // if n <= 1 { 1 } else { n * factorial(n - 1) }
+                    body: Expr::if_then_else(
+                        Expr::binary(BinaryOp::Le, Expr::local(0), Expr::number(1.0)),
+                        Expr::number(1.0),
+                        Some(Expr::binary(
+                            BinaryOp::Mul,
+                            Expr::local(0),
+                            Expr::call(
+                                Expr::name("factorial"),
+                                vec![Expr::binary(BinaryOp::Sub, Expr::local(0), Expr::number(1.0))],
+                            ),
+                        )),
+                    ),
+                }),
+                test_span(),
+            )],
+        };
+
+        let compiled = compile_module(&module).expect("compilation failed");
+        let func = compiled.get_function("factorial").expect("factorial not found");
+
+        // Verify the hash is deterministic - compile again and check
+        let compiled2 = compile_module(&module).expect("compilation failed");
+        let func2 = compiled2.get_function("factorial").expect("factorial not found");
+
+        assert_eq!(
+            func.hash, func2.hash,
+            "Recursive function hash should be deterministic"
+        );
     }
 }

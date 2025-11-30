@@ -181,21 +181,21 @@ impl Store {
 // SCC Detection (Tarjan's Algorithm)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Strongly Connected Component - a group of mutually recursive functions.
+/// Strongly Connected Component - a group of nodes in a directed graph.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Scc {
-    /// The function hashes in this SCC (sorted for deterministic ordering).
-    pub members: Vec<blake3::Hash>,
+pub struct GenericScc<T> {
+    /// The nodes in this SCC (sorted for deterministic ordering).
+    pub members: Vec<T>,
 }
 
-impl Scc {
-    /// Returns true if this SCC represents a single non-recursive function.
+impl<T> GenericScc<T> {
+    /// Returns true if this SCC represents a single node.
     #[must_use]
     pub fn is_singleton(&self) -> bool {
         self.members.len() == 1
     }
 
-    /// Returns the number of functions in this SCC.
+    /// Returns the number of nodes in this SCC.
     #[must_use]
     pub fn len(&self) -> usize {
         self.members.len()
@@ -208,50 +208,162 @@ impl Scc {
     }
 }
 
-/// Result of SCC analysis on a set of functions.
+/// Result of SCC analysis on a directed graph.
 #[derive(Debug, Clone)]
-pub struct SccAnalysis {
+pub struct GenericSccAnalysis<T: std::hash::Hash + Eq + Clone> {
     /// All strongly connected components, in reverse topological order.
     /// (Components that depend on nothing come first.)
-    pub components: Vec<Scc>,
-    /// Map from function hash to its SCC index.
-    pub function_to_scc: HashMap<blake3::Hash, usize>,
+    pub components: Vec<GenericScc<T>>,
+    /// Map from node to its SCC index.
+    pub node_to_scc: HashMap<T, usize>,
 }
+
+impl<T: std::hash::Hash + Eq + Clone> GenericSccAnalysis<T> {
+    /// Get the SCC containing a specific node.
+    #[must_use]
+    pub fn scc_for(&self, node: &T) -> Option<&GenericScc<T>> {
+        self.node_to_scc.get(node).map(|&idx| &self.components[idx])
+    }
+
+    /// Returns true if a node is part of a non-trivial cycle (multi-node SCC).
+    #[must_use]
+    pub fn is_in_cycle(&self, node: &T) -> bool {
+        self.scc_for(node).is_some_and(|scc| scc.members.len() > 1)
+    }
+}
+
+/// Compute strongly connected components from a directed graph using Tarjan's algorithm.
+///
+/// Returns SCCs in reverse topological order (dependencies before dependents).
+///
+/// # Arguments
+/// * `graph` - A map from each node to the nodes it points to (successors)
+///
+/// # Type Parameters
+/// * `T` - Node type, must be hashable and cloneable. If `T: Ord`, results are deterministically sorted.
+pub fn compute_sccs<T>(graph: &HashMap<T, Vec<T>>) -> GenericSccAnalysis<T>
+where
+    T: std::hash::Hash + Eq + Clone,
+{
+    compute_sccs_with_cmp(graph, |a, b| {
+        // Default comparison using hash of debug representation for types without Ord
+        // This provides deterministic ordering without requiring Ord
+        use std::hash::Hasher;
+        let hash_of = |x: &T| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            x.hash(&mut h);
+            h.finish()
+        };
+        hash_of(a).cmp(&hash_of(b))
+    })
+}
+
+/// Compute SCCs with a custom comparison function for deterministic ordering.
+pub fn compute_sccs_with_cmp<T, F>(
+    graph: &HashMap<T, Vec<T>>,
+    cmp: F,
+) -> GenericSccAnalysis<T>
+where
+    T: std::hash::Hash + Eq + Clone,
+    F: Fn(&T, &T) -> std::cmp::Ordering + Copy,
+{
+    struct TarjanState<T> {
+        index_counter: usize,
+        indices: HashMap<T, usize>,
+        lowlinks: HashMap<T, usize>,
+        on_stack: HashMap<T, bool>,
+        stack: Vec<T>,
+        sccs: Vec<GenericScc<T>>,
+    }
+
+    fn visit<T, F>(node: &T, graph: &HashMap<T, Vec<T>>, state: &mut TarjanState<T>, cmp: F)
+    where
+        T: std::hash::Hash + Eq + Clone,
+        F: Fn(&T, &T) -> std::cmp::Ordering + Copy,
+    {
+        let index = state.index_counter;
+        state.indices.insert(node.clone(), index);
+        state.lowlinks.insert(node.clone(), index);
+        state.index_counter += 1;
+        state.stack.push(node.clone());
+        state.on_stack.insert(node.clone(), true);
+
+        if let Some(successors) = graph.get(node) {
+            for successor in successors {
+                if !state.indices.contains_key(successor) {
+                    visit(successor, graph, state, cmp);
+                    let succ_lowlink = state.lowlinks.get(successor).copied().unwrap_or(usize::MAX);
+                    let curr_lowlink = state.lowlinks.get(node).copied().unwrap_or(usize::MAX);
+                    state.lowlinks.insert(node.clone(), curr_lowlink.min(succ_lowlink));
+                } else if state.on_stack.get(successor).copied().unwrap_or(false) {
+                    let succ_index = state.indices.get(successor).copied().unwrap_or(usize::MAX);
+                    let curr_lowlink = state.lowlinks.get(node).copied().unwrap_or(usize::MAX);
+                    state.lowlinks.insert(node.clone(), curr_lowlink.min(succ_index));
+                }
+            }
+        }
+
+        if state.lowlinks.get(node) == state.indices.get(node) {
+            let mut members = Vec::new();
+            while let Some(w) = state.stack.pop() {
+                state.on_stack.insert(w.clone(), false);
+                let is_node = &w == node;
+                members.push(w);
+                if is_node {
+                    break;
+                }
+            }
+            // Sort members for deterministic ordering
+            members.sort_by(cmp);
+            state.sccs.push(GenericScc { members });
+        }
+    }
+
+    let mut state = TarjanState {
+        index_counter: 0,
+        indices: HashMap::new(),
+        lowlinks: HashMap::new(),
+        on_stack: HashMap::new(),
+        stack: Vec::new(),
+        sccs: Vec::new(),
+    };
+
+    // Visit nodes in deterministic order
+    let mut nodes: Vec<_> = graph.keys().cloned().collect();
+    nodes.sort_by(&cmp);
+    for node in &nodes {
+        if !state.indices.contains_key(node) {
+            visit(node, graph, &mut state, cmp);
+        }
+    }
+
+    // Build node_to_scc map
+    let mut node_to_scc = HashMap::new();
+    for (scc_idx, scc) in state.sccs.iter().enumerate() {
+        for node in &scc.members {
+            node_to_scc.insert(node.clone(), scc_idx);
+        }
+    }
+
+    GenericSccAnalysis {
+        components: state.sccs,
+        node_to_scc,
+    }
+}
+
+// Type aliases for backward compatibility with existing code
+/// Strongly Connected Component for function hashes.
+pub type Scc = GenericScc<blake3::Hash>;
+
+/// SCC analysis result for function hashes.
+pub type SccAnalysis = GenericSccAnalysis<blake3::Hash>;
 
 impl SccAnalysis {
-    /// Get the SCC containing a specific function.
-    #[must_use]
-    pub fn scc_for(&self, hash: &blake3::Hash) -> Option<&Scc> {
-        self.function_to_scc.get(hash).map(|&idx| &self.components[idx])
-    }
-
     /// Returns true if a function is part of a non-trivial cycle.
+    /// (Alias for `is_in_cycle` for backward compatibility)
     #[must_use]
     pub fn is_recursive(&self, hash: &blake3::Hash) -> bool {
-        self.scc_for(hash).is_some_and(|scc| scc.members.len() > 1)
-    }
-}
-
-/// Internal state for Tarjan's algorithm.
-struct TarjanState {
-    index_counter: usize,
-    indices: HashMap<blake3::Hash, usize>,
-    lowlinks: HashMap<blake3::Hash, usize>,
-    on_stack: HashMap<blake3::Hash, bool>,
-    stack: Vec<blake3::Hash>,
-    sccs: Vec<Scc>,
-}
-
-impl TarjanState {
-    fn new() -> Self {
-        Self {
-            index_counter: 0,
-            indices: HashMap::new(),
-            lowlinks: HashMap::new(),
-            on_stack: HashMap::new(),
-            stack: Vec::new(),
-            sccs: Vec::new(),
-        }
+        self.is_in_cycle(hash)
     }
 }
 
@@ -262,77 +374,14 @@ impl Store {
     /// Returns SCCs in reverse topological order (dependencies before dependents).
     #[must_use]
     pub fn compute_sccs(&self) -> SccAnalysis {
-        let mut state = TarjanState::new();
-
-        // Run Tarjan's algorithm starting from each unvisited node
-        for hash in self.functions.keys() {
-            if !state.indices.contains_key(hash) {
-                self.tarjan_visit(hash, &mut state);
-            }
+        // Build call graph from store
+        let mut call_graph: HashMap<blake3::Hash, Vec<blake3::Hash>> = HashMap::new();
+        for (hash, func) in &self.functions {
+            call_graph.insert(*hash, func.dependencies.clone());
         }
 
-        // Build function_to_scc map
-        let mut function_to_scc = HashMap::new();
-        for (scc_idx, scc) in state.sccs.iter().enumerate() {
-            for hash in &scc.members {
-                function_to_scc.insert(*hash, scc_idx);
-            }
-        }
-
-        SccAnalysis {
-            components: state.sccs,
-            function_to_scc,
-        }
-    }
-
-    /// Tarjan's algorithm recursive visit function.
-    fn tarjan_visit(&self, hash: &blake3::Hash, state: &mut TarjanState) {
-        // Set the depth index for this node
-        let index = state.index_counter;
-        state.indices.insert(*hash, index);
-        state.lowlinks.insert(*hash, index);
-        state.index_counter += 1;
-        state.stack.push(*hash);
-        state.on_stack.insert(*hash, true);
-
-        // Consider successors (dependencies)
-        if let Some(func) = self.get(hash) {
-            for dep in &func.dependencies {
-                if !state.indices.contains_key(dep) {
-                    // Successor has not been visited; recurse
-                    self.tarjan_visit(dep, state);
-                    let successor_lowlink = state.lowlinks.get(dep).copied().unwrap_or(usize::MAX);
-                    let current_lowlink = state.lowlinks.get(hash).copied().unwrap_or(usize::MAX);
-                    state.lowlinks.insert(*hash, current_lowlink.min(successor_lowlink));
-                } else if state.on_stack.get(dep).copied().unwrap_or(false) {
-                    // Successor is on stack and hence in the current SCC
-                    let successor_index = state.indices.get(dep).copied().unwrap_or(usize::MAX);
-                    let current_lowlink = state.lowlinks.get(hash).copied().unwrap_or(usize::MAX);
-                    state.lowlinks.insert(*hash, current_lowlink.min(successor_index));
-                }
-            }
-        }
-
-        // If this is a root node, pop the stack and generate an SCC
-        let is_root = state.lowlinks.get(hash) == state.indices.get(hash);
-        if is_root {
-            let mut members = Vec::new();
-            loop {
-                // Stack should never be empty here - this is guaranteed by Tarjan's algorithm
-                // since we only reach this point if the current node is on the stack
-                let Some(w) = state.stack.pop() else {
-                    break;
-                };
-                state.on_stack.insert(w, false);
-                members.push(w);
-                if w == *hash {
-                    break;
-                }
-            }
-            // Sort members for deterministic ordering
-            members.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
-            state.sccs.push(Scc { members });
-        }
+        // Use the generic SCC algorithm with byte comparison for blake3::Hash
+        compute_sccs_with_cmp(&call_graph, |a, b| a.as_bytes().cmp(b.as_bytes()))
     }
 
     /// Check if a function is part of a recursive cycle.
@@ -439,7 +488,11 @@ impl From<&CompiledFunction> for PortableFunction {
             constants: func.constants.clone(),
             local_count: func.local_count,
             param_count: func.param_count,
-            dependencies: func.dependencies.iter().map(|h| h.to_hex().to_string()).collect(),
+            dependencies: func
+                .dependencies
+                .iter()
+                .map(|h| h.to_hex().to_string())
+                .collect(),
         }
     }
 }
@@ -486,7 +539,8 @@ impl TryFrom<PortableFunction> for CompiledFunction {
 
 /// Parse a hex-encoded hash string.
 fn parse_hash(s: &str) -> Result<blake3::Hash, StoreError> {
-    let bytes = hex::decode(s).map_err(|e| StoreError::Deserialization(format!("invalid hex: {e}")))?;
+    let bytes =
+        hex::decode(s).map_err(|e| StoreError::Deserialization(format!("invalid hex: {e}")))?;
     if bytes.len() != 32 {
         return Err(StoreError::Deserialization(format!(
             "invalid hash length: expected 32, got {}",
@@ -852,9 +906,15 @@ mod tests {
         assert!(bc_scc.members.contains(&hash_c));
 
         // A, D, E should each be singletons
-        assert!(analysis.scc_for(&hash_a).is_some_and(|scc| scc.is_singleton()));
-        assert!(analysis.scc_for(&hash_d).is_some_and(|scc| scc.is_singleton()));
-        assert!(analysis.scc_for(&hash_e).is_some_and(|scc| scc.is_singleton()));
+        assert!(analysis
+            .scc_for(&hash_a)
+            .is_some_and(|scc| scc.is_singleton()));
+        assert!(analysis
+            .scc_for(&hash_d)
+            .is_some_and(|scc| scc.is_singleton()));
+        assert!(analysis
+            .scc_for(&hash_e)
+            .is_some_and(|scc| scc.is_singleton()));
     }
 
     #[test]
