@@ -461,6 +461,9 @@ pub enum CstExprKind {
     /// Handle expression.
     Handle(Box<CstHandleExpr>),
 
+    /// Resume a continuation with a value: `resume(value)`.
+    Resume(Box<CstExpr>),
+
     // ─────────────────────────────────────────────────────────────────────────
     // Error recovery
     // ─────────────────────────────────────────────────────────────────────────

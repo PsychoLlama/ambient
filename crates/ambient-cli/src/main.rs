@@ -325,9 +325,11 @@ fn serialize_value(value: &ambient_engine::value::Value) -> SerializedValue {
         Value::String(s) => SerializedValue::String((**s).clone()),
         Value::FunctionRef(h) => SerializedValue::FunctionRef(h.to_hex().to_string()),
         // These shouldn't appear in constant pools
-        Value::Tuple(_) | Value::Record(_) | Value::SuspendedAbility(_) | Value::Continuation(_) => {
-            SerializedValue::Unit
-        }
+        Value::Tuple(_)
+        | Value::Record(_)
+        | Value::SuspendedAbility(_)
+        | Value::Continuation(_)
+        | Value::Closure(_) => SerializedValue::Unit,
     }
 }
 

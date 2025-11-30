@@ -180,6 +180,20 @@ struct FunctionCompiler {
 
     /// Map from function names to their hashes (for recursive calls).
     function_hashes: HashMap<Arc<str>, blake3::Hash>,
+
+    /// Captured variables (for closures): binding ID -> capture slot index.
+    /// These are variables from enclosing scopes that this function captures.
+    captures: HashMap<BindingId, u16>,
+
+    /// Captured variable names (for closures).
+    capture_names: HashMap<Arc<str>, u16>,
+
+    /// Parent's locals - used during closure compilation to identify free variables.
+    /// Maps binding IDs from the enclosing scope to their local slots there.
+    parent_locals: Option<HashMap<BindingId, u16>>,
+
+    /// Parent's local names - for name-based lookups during closure compilation.
+    parent_local_names: Option<HashMap<Arc<str>, u16>>,
 }
 
 impl FunctionCompiler {
@@ -191,6 +205,29 @@ impl FunctionCompiler {
             local_names: HashMap::new(),
             next_local: 0,
             function_hashes,
+            captures: HashMap::new(),
+            capture_names: HashMap::new(),
+            parent_locals: None,
+            parent_local_names: None,
+        }
+    }
+
+    /// Create a function compiler for a closure, with access to parent scope.
+    fn new_for_closure(
+        function_hashes: HashMap<Arc<str>, blake3::Hash>,
+        parent_locals: HashMap<BindingId, u16>,
+        parent_local_names: HashMap<Arc<str>, u16>,
+    ) -> Self {
+        Self {
+            builder: BytecodeBuilder::new(),
+            locals: HashMap::new(),
+            local_names: HashMap::new(),
+            next_local: 0,
+            function_hashes,
+            captures: HashMap::new(),
+            capture_names: HashMap::new(),
+            parent_locals: Some(parent_locals),
+            parent_local_names: Some(parent_local_names),
         }
     }
 
@@ -227,6 +264,110 @@ impl FunctionCompiler {
     fn get_local_by_name(&self, name: &str) -> Option<u16> {
         self.local_names.get(name).copied()
     }
+
+    /// Check if a binding ID is from the parent scope (needs to be captured).
+    fn is_parent_binding(&self, id: BindingId) -> bool {
+        if let Some(parent) = &self.parent_locals {
+            parent.contains_key(&id) && !self.locals.contains_key(&id)
+        } else {
+            false
+        }
+    }
+
+    /// Check if a name is from the parent scope (needs to be captured).
+    fn is_parent_name(&self, name: &str) -> bool {
+        if let Some(parent) = &self.parent_local_names {
+            parent.contains_key(name) && !self.local_names.contains_key(name)
+        } else {
+            false
+        }
+    }
+
+    /// Get or create a capture slot for a parent binding.
+    fn get_or_create_capture(&mut self, id: BindingId, name: Arc<str>) -> u16 {
+        if let Some(&slot) = self.captures.get(&id) {
+            slot
+        } else {
+            let slot = self.captures.len() as u16;
+            self.captures.insert(id, slot);
+            self.capture_names.insert(name, slot);
+            slot
+        }
+    }
+
+    /// Get or create a capture slot for a parent name.
+    fn get_or_create_capture_by_name(&mut self, name: Arc<str>) -> u16 {
+        if let Some(&slot) = self.capture_names.get(&name) {
+            slot
+        } else {
+            // Use capture_names.len() since we're tracking by name
+            let slot = self.capture_names.len() as u16;
+            self.capture_names.insert(name, slot);
+            slot
+        }
+    }
+
+    /// Get the list of captured binding IDs in capture slot order.
+    #[allow(dead_code)] // May be useful for debugging
+    fn get_captures_in_order(&self) -> Vec<(BindingId, u16)> {
+        let mut captures: Vec<_> = self.captures.iter().map(|(&id, &slot)| (id, slot)).collect();
+        captures.sort_by_key(|(_, slot)| *slot);
+        captures
+    }
+
+    /// Get the list of captured names in capture slot order.
+    fn get_capture_names_in_order(&self) -> Vec<(Arc<str>, u16)> {
+        let mut captures: Vec<_> = self
+            .capture_names
+            .iter()
+            .map(|(name, &slot)| (Arc::clone(name), slot))
+            .collect();
+        captures.sort_by_key(|(_, slot)| *slot);
+        captures
+    }
+}
+
+/// A compiled lambda function with its metadata.
+#[allow(dead_code)] // captures is used for debugging/future use
+struct CompiledLambda {
+    /// The compiled function.
+    function: CompiledFunction,
+    /// Capture info: list of (binding_id, name) pairs in capture slot order.
+    captures: Vec<(BindingId, Arc<str>)>,
+}
+
+/// Context for module compilation that accumulates lambda functions.
+struct ModuleContext {
+    /// Lambda functions discovered during compilation.
+    /// Maps temporary hash to compiled lambda info.
+    lambdas: Vec<(blake3::Hash, CompiledLambda)>,
+    /// Counter for generating unique lambda names.
+    lambda_counter: u32,
+}
+
+impl ModuleContext {
+    fn new() -> Self {
+        Self {
+            lambdas: Vec::new(),
+            lambda_counter: 0,
+        }
+    }
+
+    /// Generate a unique temporary hash for a lambda.
+    fn next_lambda_hash(&mut self) -> blake3::Hash {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"__lambda__");
+        hasher.update(&self.lambda_counter.to_le_bytes());
+        self.lambda_counter += 1;
+        hasher.finalize()
+    }
+
+    /// Register a compiled lambda and return its temporary hash.
+    fn register_lambda(&mut self, lambda: CompiledLambda) -> blake3::Hash {
+        let hash = self.next_lambda_hash();
+        self.lambdas.push((hash, lambda));
+        hash
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -260,10 +401,13 @@ pub fn compile_module(module: &Module) -> Result<CompiledModule, CompileError> {
         temp_hashes.insert(Arc::clone(&func.name), hash);
     }
 
+    // Create module context for tracking lambdas discovered during compilation.
+    let mut ctx = ModuleContext::new();
+
     // Phase 2: Compile each function using temporary hashes.
     let mut compiled_functions: Vec<(Arc<str>, CompiledFunction, bool)> = Vec::new();
     for func in &functions {
-        let compiled = compile_function_with_hash(func, &temp_hashes)?;
+        let compiled = compile_function_with_hash(func, &temp_hashes, &mut ctx)?;
         let is_main = &*func.name == "main";
         compiled_functions.push((Arc::clone(&func.name), compiled, is_main));
     }
@@ -271,9 +415,17 @@ pub fn compile_module(module: &Module) -> Result<CompiledModule, CompileError> {
     // Compile constants.
     for item in &module.items {
         if let ItemKind::Const(const_def) = &item.kind {
-            let compiled = compile_const(const_def, &temp_hashes)?;
+            let compiled = compile_const(const_def, &temp_hashes, &mut ctx)?;
             compiled_functions.push((Arc::clone(&const_def.name), compiled, false));
         }
+    }
+
+    // Add lambda functions discovered during compilation.
+    // Generate synthetic names for them in temp_hashes.
+    for (lambda_hash, compiled_lambda) in ctx.lambdas {
+        let lambda_name: Arc<str> = format!("__lambda_{}", lambda_hash).into();
+        temp_hashes.insert(Arc::clone(&lambda_name), lambda_hash);
+        compiled_functions.push((lambda_name, compiled_lambda.function, false));
     }
 
     // Phase 3: Compute content-addressed hashes and finalize the module.
@@ -600,6 +752,15 @@ fn hash_value_for_content(hasher: &mut blake3::Hasher, value: &Value) {
         Value::Continuation(_) => {
             hasher.update(&[TYPE_CONTINUATION]);
         }
+        Value::Closure(closure) => {
+            const TYPE_CLOSURE: u8 = 9;
+            hasher.update(&[TYPE_CLOSURE]);
+            hasher.update(closure.function_hash.as_bytes());
+            hasher.update(&(closure.environment.len() as u32).to_le_bytes());
+            for val in &closure.environment {
+                hash_value_for_content(hasher, val);
+            }
+        }
     }
 }
 
@@ -620,6 +781,7 @@ fn compute_temporary_hash(name: &str) -> blake3::Hash {
 fn compile_function_with_hash(
     func: &FunctionDef,
     function_hashes: &HashMap<Arc<str>, blake3::Hash>,
+    ctx: &mut ModuleContext,
 ) -> Result<CompiledFunction, CompileError> {
     let mut fc = FunctionCompiler::new(function_hashes.clone());
 
@@ -629,7 +791,7 @@ fn compile_function_with_hash(
     }
 
     // Compile the function body.
-    compile_expr(&mut fc, &func.body)?;
+    compile_expr(&mut fc, &func.body, ctx)?;
 
     // Emit return instruction.
     fc.builder.emit(Opcode::Return);
@@ -658,11 +820,12 @@ fn compile_function_with_hash(
 fn compile_const(
     const_def: &ConstDef,
     function_hashes: &HashMap<Arc<str>, blake3::Hash>,
+    ctx: &mut ModuleContext,
 ) -> Result<CompiledFunction, CompileError> {
     let mut fc = FunctionCompiler::new(function_hashes.clone());
 
     // Compile the value expression.
-    compile_expr(&mut fc, &const_def.value)?;
+    compile_expr(&mut fc, &const_def.value, ctx)?;
 
     // Return the value.
     fc.builder.emit(Opcode::Return);
@@ -675,7 +838,11 @@ fn compile_const(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Compile an expression, pushing its value onto the stack.
-fn compile_expr(fc: &mut FunctionCompiler, expr: &Expr) -> Result<(), CompileError> {
+fn compile_expr(
+    fc: &mut FunctionCompiler,
+    expr: &Expr,
+    ctx: &mut ModuleContext,
+) -> Result<(), CompileError> {
     match &expr.kind {
         // ─────────────────────────────────────────────────────────────────────
         // Literals
@@ -700,8 +867,34 @@ fn compile_expr(fc: &mut FunctionCompiler, expr: &Expr) -> Result<(), CompileErr
         // Variables
         // ─────────────────────────────────────────────────────────────────────
         ExprKind::Local(id) => {
-            let slot = fc.get_local(*id, (expr.span.start, expr.span.end))?;
-            fc.builder.emit_u16(Opcode::LoadLocal, slot);
+            // Check if this is a captured variable from the parent scope.
+            if let Some(&capture_slot) = fc.captures.get(id) {
+                fc.builder.emit_load_capture(capture_slot);
+            } else if fc.is_parent_binding(*id) {
+                // This is a free variable from the parent - add it as a capture.
+                // Find the name for this binding from parent.
+                let name = fc
+                    .parent_locals
+                    .as_ref()
+                    .and_then(|_| {
+                        // Look up name from parent_local_names by finding which name maps to the same slot
+                        fc.parent_local_names.as_ref().and_then(|names| {
+                            names.iter().find(|(_, &slot)| {
+                                fc.parent_locals
+                                    .as_ref()
+                                    .map(|pl| pl.get(id).copied() == Some(slot))
+                                    .unwrap_or(false)
+                            })
+                        })
+                    })
+                    .map(|(n, _)| Arc::clone(n))
+                    .unwrap_or_else(|| format!("__binding_{id}").into());
+                let capture_slot = fc.get_or_create_capture(*id, name);
+                fc.builder.emit_load_capture(capture_slot);
+            } else {
+                let slot = fc.get_local(*id, (expr.span.start, expr.span.end))?;
+                fc.builder.emit_u16(Opcode::LoadLocal, slot);
+            }
         }
 
         ExprKind::Name(name) => {
@@ -710,6 +903,13 @@ fn compile_expr(fc: &mut FunctionCompiler, expr: &Expr) -> Result<(), CompileErr
             if let Some(slot) = fc.get_local_by_name(var_name) {
                 // Load the local variable.
                 fc.builder.emit_u16(Opcode::LoadLocal, slot);
+            } else if let Some(&capture_slot) = fc.capture_names.get(var_name) {
+                // Load from captured environment.
+                fc.builder.emit_load_capture(capture_slot);
+            } else if fc.is_parent_name(var_name) {
+                // This is a free variable from the parent - add it as a capture.
+                let capture_slot = fc.get_or_create_capture_by_name(Arc::clone(var_name));
+                fc.builder.emit_load_capture(capture_slot);
             } else if let Some(&hash) = fc.function_hashes.get(var_name) {
                 // It's a function reference.
                 fc.builder.emit_const(Value::FunctionRef(hash));
@@ -728,13 +928,13 @@ fn compile_expr(fc: &mut FunctionCompiler, expr: &Expr) -> Result<(), CompileErr
         // ─────────────────────────────────────────────────────────────────────
         ExprKind::Tuple(elements) => {
             for elem in elements {
-                compile_expr(fc, elem)?;
+                compile_expr(fc, elem, ctx)?;
             }
             fc.builder.emit_u8(Opcode::MakeTuple, elements.len() as u8);
         }
 
         ExprKind::TupleIndex(tuple, index) => {
-            compile_expr(fc, tuple)?;
+            compile_expr(fc, tuple, ctx)?;
             fc.builder.emit_u8(Opcode::TupleGet, *index as u8);
         }
 
@@ -742,13 +942,13 @@ fn compile_expr(fc: &mut FunctionCompiler, expr: &Expr) -> Result<(), CompileErr
             // Push field names and values interleaved.
             for (name, value) in fields {
                 fc.builder.emit_const(str_to_value(name));
-                compile_expr(fc, value)?;
+                compile_expr(fc, value, ctx)?;
             }
             fc.builder.emit_u8(Opcode::MakeRecord, fields.len() as u8);
         }
 
         ExprKind::RecordField(record, field) => {
-            compile_expr(fc, record)?;
+            compile_expr(fc, record, ctx)?;
             let idx = fc.builder.add_constant(str_to_value(field));
             fc.builder.emit_u16(Opcode::RecordGet, idx);
         }
@@ -757,7 +957,7 @@ fn compile_expr(fc: &mut FunctionCompiler, expr: &Expr) -> Result<(), CompileErr
             // Lists are represented as tuples for now.
             // TODO: Implement proper List type.
             for elem in elements {
-                compile_expr(fc, elem)?;
+                compile_expr(fc, elem, ctx)?;
             }
             fc.builder.emit_u8(Opcode::MakeTuple, elements.len() as u8);
         }
@@ -769,24 +969,24 @@ fn compile_expr(fc: &mut FunctionCompiler, expr: &Expr) -> Result<(), CompileErr
             // Short-circuit evaluation for logical operators.
             match op {
                 BinaryOp::And => {
-                    compile_expr(fc, left)?;
+                    compile_expr(fc, left, ctx)?;
                     fc.builder.emit(Opcode::Dup);
                     let jump = fc.builder.emit_jump_placeholder(Opcode::JumpIfNot);
                     fc.builder.emit(Opcode::Pop);
-                    compile_expr(fc, right)?;
+                    compile_expr(fc, right, ctx)?;
                     fc.builder.patch_jump(jump);
                 }
                 BinaryOp::Or => {
-                    compile_expr(fc, left)?;
+                    compile_expr(fc, left, ctx)?;
                     fc.builder.emit(Opcode::Dup);
                     let jump = fc.builder.emit_jump_placeholder(Opcode::JumpIf);
                     fc.builder.emit(Opcode::Pop);
-                    compile_expr(fc, right)?;
+                    compile_expr(fc, right, ctx)?;
                     fc.builder.patch_jump(jump);
                 }
                 _ => {
-                    compile_expr(fc, left)?;
-                    compile_expr(fc, right)?;
+                    compile_expr(fc, left, ctx)?;
+                    compile_expr(fc, right, ctx)?;
                     let opcode = match op {
                         BinaryOp::Add => Opcode::Add,
                         BinaryOp::Sub => Opcode::Sub,
@@ -807,7 +1007,7 @@ fn compile_expr(fc: &mut FunctionCompiler, expr: &Expr) -> Result<(), CompileErr
         }
 
         ExprKind::Unary(op, operand) => {
-            compile_expr(fc, operand)?;
+            compile_expr(fc, operand, ctx)?;
             let opcode = match op {
                 UnaryOp::Neg => Opcode::Neg,
                 UnaryOp::Not => Opcode::Not,
@@ -819,15 +1019,15 @@ fn compile_expr(fc: &mut FunctionCompiler, expr: &Expr) -> Result<(), CompileErr
         // Control flow
         // ─────────────────────────────────────────────────────────────────────
         ExprKind::If(cond, then_branch, else_branch) => {
-            compile_expr(fc, cond)?;
+            compile_expr(fc, cond, ctx)?;
 
             let else_jump = fc.builder.emit_jump_placeholder(Opcode::JumpIfNot);
-            compile_expr(fc, then_branch)?;
+            compile_expr(fc, then_branch, ctx)?;
 
             if let Some(else_expr) = else_branch {
                 let end_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
                 fc.builder.patch_jump(else_jump);
-                compile_expr(fc, else_expr)?;
+                compile_expr(fc, else_expr, ctx)?;
                 fc.builder.patch_jump(end_jump);
             } else {
                 // No else branch - if condition is false, push unit.
@@ -839,15 +1039,15 @@ fn compile_expr(fc: &mut FunctionCompiler, expr: &Expr) -> Result<(), CompileErr
         }
 
         ExprKind::Match(scrutinee, arms) => {
-            compile_match(fc, scrutinee, arms, (expr.span.start, expr.span.end))?;
+            compile_match(fc, scrutinee, arms, (expr.span.start, expr.span.end), ctx)?;
         }
 
         ExprKind::Block(stmts, result) => {
             for stmt in stmts {
-                compile_stmt(fc, stmt)?;
+                compile_stmt(fc, stmt, ctx)?;
             }
             if let Some(result_expr) = result {
-                compile_expr(fc, result_expr)?;
+                compile_expr(fc, result_expr, ctx)?;
             } else {
                 fc.builder.emit_const(Value::Unit);
             }
@@ -856,47 +1056,45 @@ fn compile_expr(fc: &mut FunctionCompiler, expr: &Expr) -> Result<(), CompileErr
         // ─────────────────────────────────────────────────────────────────────
         // Functions and calls
         // ─────────────────────────────────────────────────────────────────────
-        ExprKind::Lambda(_lambda) => {
-            // For now, lambdas are not yet supported.
-            // TODO: Implement closure compilation.
-            return Err(CompileError::new(
-                CompileErrorKind::Unsupported {
-                    feature: "lambda expressions (closures)".to_string(),
-                },
-                (expr.span.start, expr.span.end),
-            ));
+        ExprKind::Lambda(lambda) => {
+            // Compile the lambda body as a separate function.
+            // The closure will capture variables from the enclosing scope.
+            compile_lambda(fc, lambda, ctx)?;
         }
 
         ExprKind::Call(callee, args) => {
-            // Compile arguments first (left to right).
-            for arg in args {
-                compile_expr(fc, arg)?;
-            }
-
-            // Compile the callee and call it.
+            // Check if this is a direct call to a known function or an indirect call.
             match &callee.kind {
-                ExprKind::Name(name) => {
-                    // Direct function call.
-                    if let Some(&hash) = fc.function_hashes.get(&name.name) {
-                        fc.builder.emit_call(hash, args.len() as u8);
-                    } else {
-                        return Err(CompileError::new(
-                            CompileErrorKind::UndefinedFunction {
-                                name: Arc::clone(&name.name),
-                            },
-                            (callee.span.start, callee.span.end),
-                        ));
+                ExprKind::Name(name) if fc.function_hashes.contains_key(&name.name) => {
+                    // Direct function call to a known function.
+                    // Compile arguments first (left to right).
+                    for arg in args {
+                        compile_expr(fc, arg, ctx)?;
                     }
+                    let hash = fc.function_hashes[&name.name];
+                    fc.builder.emit_call(hash, args.len() as u8);
+                }
+                ExprKind::Name(name)
+                    if fc.get_local_by_name(&name.name).is_some()
+                        || fc.capture_names.contains_key(&name.name)
+                        || fc.is_parent_name(&name.name) =>
+                {
+                    // Indirect call through a closure stored in a variable.
+                    // First compile the closure (callee), then arguments.
+                    compile_expr(fc, callee, ctx)?;
+                    for arg in args {
+                        compile_expr(fc, arg, ctx)?;
+                    }
+                    fc.builder.emit_call_closure(args.len() as u8);
                 }
                 _ => {
-                    // Indirect call through closure.
-                    // TODO: Implement CallClosure.
-                    return Err(CompileError::new(
-                        CompileErrorKind::Unsupported {
-                            feature: "indirect function calls".to_string(),
-                        },
-                        (callee.span.start, callee.span.end),
-                    ));
+                    // General indirect call (e.g., calling a lambda inline or result of expression).
+                    // Compile callee first, then arguments.
+                    compile_expr(fc, callee, ctx)?;
+                    for arg in args {
+                        compile_expr(fc, arg, ctx)?;
+                    }
+                    fc.builder.emit_call_closure(args.len() as u8);
                 }
             }
         }
@@ -905,22 +1103,262 @@ fn compile_expr(fc: &mut FunctionCompiler, expr: &Expr) -> Result<(), CompileErr
         // Abilities
         // ─────────────────────────────────────────────────────────────────────
         ExprKind::Perform(ability_call) => {
-            compile_ability_call(fc, ability_call, true)?;
+            compile_ability_call(fc, ability_call, true, ctx)?;
         }
 
         ExprKind::Suspend(ability_call) => {
-            compile_ability_call(fc, ability_call, false)?;
+            compile_ability_call(fc, ability_call, false, ctx)?;
         }
 
-        ExprKind::Handle(_handle_expr) => {
-            // TODO: Implement handle expression compilation.
+        ExprKind::Handle(handle_expr) => {
+            compile_handle_expr(fc, handle_expr, ctx)?;
+        }
+
+        ExprKind::Resume(value) => {
+            // Resume transfers control back to a captured continuation.
+            // In a handler function, the continuation is passed as the first argument (local slot 0).
+            //
+            // Compile to:
+            // 1. Load continuation from local slot 0
+            // 2. Push the resume value
+            // 3. Emit Resume opcode
+
+            // Load continuation from local slot 0 (implicit first parameter in handlers)
+            fc.builder.emit_u16(Opcode::LoadLocal, 0);
+
+            // Compile the value to resume with
+            compile_expr(fc, value, ctx)?;
+
+            // Emit Resume opcode
+            fc.builder.emit(Opcode::Resume);
+        }
+    }
+
+    Ok(())
+}
+
+/// Compile a lambda expression.
+///
+/// This compiles the lambda body as a separate function and emits code
+/// to create a closure value with captured variables.
+fn compile_lambda(
+    fc: &mut FunctionCompiler,
+    lambda: &crate::ast::Lambda,
+    ctx: &mut ModuleContext,
+) -> Result<(), CompileError> {
+    // Create a new FunctionCompiler for the lambda body.
+    // Pass the current scope's locals as the parent scope.
+    let mut lambda_fc = FunctionCompiler::new_for_closure(
+        fc.function_hashes.clone(),
+        fc.locals.clone(),
+        fc.local_names.clone(),
+    );
+
+    // Allocate slots for lambda parameters.
+    for param in &lambda.params {
+        lambda_fc.alloc_local_with_name(param.id, Arc::clone(&param.name))?;
+    }
+
+    // Compile the lambda body.
+    // During this compilation, lambda_fc will track any captured variables.
+    compile_expr(&mut lambda_fc, &lambda.body, ctx)?;
+
+    // Emit return instruction.
+    lambda_fc.builder.emit(Opcode::Return);
+
+    // Build the compiled lambda function.
+    let bytecode = lambda_fc.builder.bytecode().to_vec();
+    let constants = lambda_fc.builder.constants().to_vec();
+    let dependencies = lambda_fc.builder.dependencies().to_vec();
+    let local_count = lambda_fc.next_local;
+    let param_count = lambda.params.len() as u8;
+
+    // Create the CompiledFunction with a temporary hash.
+    let temp_hash = ctx.next_lambda_hash();
+    let compiled_func = CompiledFunction {
+        hash: temp_hash,
+        bytecode,
+        constants,
+        local_count,
+        param_count,
+        dependencies,
+    };
+
+    // Get the captures in order (by name, since that's how ExprKind::Name captures work).
+    let capture_names = lambda_fc.get_capture_names_in_order();
+    let capture_count = capture_names.len();
+
+    // Build capture info for debugging/metadata.
+    let captures_info: Vec<(BindingId, Arc<str>)> = capture_names
+        .iter()
+        .map(|(name, _slot)| {
+            // Try to find the binding ID from the captures map, or use 0 as placeholder.
+            let id = lambda_fc
+                .captures
+                .iter()
+                .find(|(_, &s)| s == *_slot)
+                .map(|(&id, _)| id)
+                .unwrap_or(0);
+            (id, Arc::clone(name))
+        })
+        .collect();
+
+    // Register the lambda with the module context.
+    let lambda_hash = ctx.register_lambda(CompiledLambda {
+        function: compiled_func,
+        captures: captures_info,
+    });
+
+    // Now emit code in the enclosing function to create the closure.
+    // Push captured values onto the stack in capture slot order.
+    for (name, _slot) in &capture_names {
+        // Load the captured value from the current function's scope.
+        if let Some(&slot) = fc.local_names.get(name) {
+            fc.builder.emit_u16(Opcode::LoadLocal, slot);
+        } else if let Some(&capture_slot) = fc.capture_names.get(name) {
+            // If the enclosing function is itself a closure, load from its captures.
+            fc.builder.emit_load_capture(capture_slot);
+        } else {
+            // Should not happen if capture analysis is correct.
             return Err(CompileError::new(
                 CompileErrorKind::Unsupported {
-                    feature: "handle expressions".to_string(),
+                    feature: format!("unknown capture: {name}"),
                 },
-                (expr.span.start, expr.span.end),
+                (0, 0),
             ));
         }
+    }
+
+    // 2. Emit MakeClosure instruction.
+    fc.builder
+        .emit_make_closure(lambda_hash, capture_count as u8);
+
+    Ok(())
+}
+
+/// Compile a handle expression.
+///
+/// A handle expression installs ability handlers and executes a body expression.
+/// Each handler is compiled as a separate function that receives:
+/// - Local slot 0: the continuation (to resume with)
+/// - Local slot 1: the suspended ability (containing method args)
+/// - Local slots 2+: extracted ability arguments bound to handler params
+fn compile_handle_expr(
+    fc: &mut FunctionCompiler,
+    handle_expr: &crate::ast::HandleExpr,
+    ctx: &mut ModuleContext,
+) -> Result<(), CompileError> {
+    let mut handler_hashes = Vec::new();
+    let mut handler_ability_ids = Vec::new();
+
+    // First, compile each handler as a separate function.
+    for handler in &handle_expr.handlers {
+        // Get ability ID for this handler.
+        let ability_name = &handler.ability.name;
+        let ability_id = get_ability_id(ability_name).ok_or_else(|| {
+            CompileError::new(
+                CompileErrorKind::Unsupported {
+                    feature: format!("unknown ability: {ability_name}"),
+                },
+                (handler.span.start, handler.span.end),
+            )
+        })?;
+
+        // Create a new FunctionCompiler for the handler.
+        // Handler functions have implicit parameters:
+        // - slot 0: continuation
+        // - slot 1: suspended ability value
+        // - slot 2+: ability method arguments
+        let mut handler_fc = FunctionCompiler::new(fc.function_hashes.clone());
+
+        // Allocate implicit slots for continuation and suspended ability.
+        // We use placeholder names since these are implicit.
+        let _continuation_slot =
+            handler_fc.alloc_local_with_name(0, Arc::from("__continuation"))?; // slot 0
+        let _ability_slot =
+            handler_fc.alloc_local_with_name(0, Arc::from("__suspended_ability"))?; // slot 1
+
+        // At the start of the handler, extract ability arguments and store to param slots.
+        // For each param, we need to:
+        // 1. Load the suspended ability from slot 1
+        // 2. Extract the argument at the corresponding index
+        // 3. Store to the param's slot
+        for (i, param) in handler.params.iter().enumerate() {
+            // Allocate slot for this param.
+            handler_fc.alloc_local_with_name(param.id, Arc::clone(&param.name))?;
+
+            // Load suspended ability from slot 1.
+            handler_fc.builder.emit_u16(Opcode::LoadLocal, 1);
+
+            // Extract argument at index i.
+            handler_fc.builder.emit_get_ability_arg(i as u8);
+
+            // Store to the param slot (slot 2+i).
+            handler_fc.builder.emit_u16(Opcode::StoreLocal, 2 + i as u16);
+        }
+
+        // Compile the handler body.
+        compile_expr(&mut handler_fc, &handler.body, ctx)?;
+
+        // Emit return instruction.
+        handler_fc.builder.emit(Opcode::Return);
+
+        // Build the handler function.
+        let local_count = handler_fc.next_local;
+        // Handler receives 2 implicit params: continuation and suspended ability.
+        let param_count = 2;
+        let handler_func = handler_fc.builder.build(local_count, param_count);
+        let handler_hash = handler_func.hash;
+
+        // Register the handler function.
+        ctx.lambdas.push((
+            handler_hash,
+            CompiledLambda {
+                function: handler_func,
+                captures: Vec::new(), // Handlers don't capture (for now).
+            },
+        ));
+
+        handler_hashes.push(handler_hash);
+        handler_ability_ids.push(ability_id);
+    }
+
+    // Now emit the handle expression code.
+    // Install handlers and compile the body.
+
+    // Store the handle instruction jump offsets for patching.
+    let mut handle_jump_offsets = Vec::new();
+
+    // Emit Handle instructions for each handler.
+    for (i, (ability_id, handler_hash)) in handler_ability_ids
+        .iter()
+        .zip(handler_hashes.iter())
+        .enumerate()
+    {
+        let _ = i; // Silence unused warning.
+        let jump_offset = fc.builder.emit_handle(*ability_id, *handler_hash);
+        handle_jump_offsets.push(jump_offset);
+    }
+
+    // Compile the body expression.
+    compile_expr(fc, &handle_expr.body, ctx)?;
+
+    // Emit Unhandle for each handler (in reverse order).
+    for _ in &handle_expr.handlers {
+        fc.builder.emit(Opcode::Unhandle);
+    }
+
+    // Patch all the handle instruction jump offsets to point here.
+    for offset in handle_jump_offsets {
+        fc.builder.patch_handle(offset);
+    }
+
+    // Handle else clause if present.
+    if let Some(else_clause) = &handle_expr.else_clause {
+        // The else clause wraps the result of normal completion.
+        // For now, just compile it and drop the body result.
+        fc.builder.emit(Opcode::Pop);
+        compile_expr(fc, else_clause, ctx)?;
     }
 
     Ok(())
@@ -931,10 +1369,11 @@ fn compile_ability_call(
     fc: &mut FunctionCompiler,
     ability_call: &crate::ast::AbilityCall,
     perform: bool,
+    ctx: &mut ModuleContext,
 ) -> Result<(), CompileError> {
     // Compile arguments.
     for arg in &ability_call.args {
-        compile_expr(fc, arg)?;
+        compile_expr(fc, arg, ctx)?;
     }
 
     // Get ability and method IDs.
@@ -983,18 +1422,36 @@ fn get_ability_ids(ability: &str, method: &str) -> Option<(u16, u16)> {
     }
 }
 
+/// Get ability ID for a well-known ability.
+fn get_ability_id(ability: &str) -> Option<u16> {
+    use crate::abilities::{async_ability, console, exception, random, time};
+
+    match ability {
+        "Console" => Some(console::ABILITY_ID),
+        "Exception" => Some(exception::ABILITY_ID),
+        "Time" => Some(time::ABILITY_ID),
+        "Random" => Some(random::ABILITY_ID),
+        "Async" => Some(async_ability::ABILITY_ID),
+        _ => None,
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Statement Compilation
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Compile a statement.
-fn compile_stmt(fc: &mut FunctionCompiler, stmt: &Stmt) -> Result<(), CompileError> {
+fn compile_stmt(
+    fc: &mut FunctionCompiler,
+    stmt: &Stmt,
+    ctx: &mut ModuleContext,
+) -> Result<(), CompileError> {
     match &stmt.kind {
         StmtKind::Let(let_binding) => {
-            compile_let(fc, let_binding)?;
+            compile_let(fc, let_binding, ctx)?;
         }
         StmtKind::Expr(expr) => {
-            compile_expr(fc, expr)?;
+            compile_expr(fc, expr, ctx)?;
             // Discard the result of expression statements.
             fc.builder.emit(Opcode::Pop);
         }
@@ -1003,9 +1460,13 @@ fn compile_stmt(fc: &mut FunctionCompiler, stmt: &Stmt) -> Result<(), CompileErr
 }
 
 /// Compile a let binding.
-fn compile_let(fc: &mut FunctionCompiler, binding: &LetBinding) -> Result<(), CompileError> {
+fn compile_let(
+    fc: &mut FunctionCompiler,
+    binding: &LetBinding,
+    ctx: &mut ModuleContext,
+) -> Result<(), CompileError> {
     // Compile the initializer.
-    compile_expr(fc, &binding.init)?;
+    compile_expr(fc, &binding.init, ctx)?;
 
     // Allocate a local slot and store the value.
     let slot = fc.alloc_local_with_name(binding.id, Arc::clone(&binding.name))?;
@@ -1024,6 +1485,7 @@ fn compile_match(
     scrutinee: &Expr,
     arms: &[MatchArm],
     span: (u32, u32),
+    ctx: &mut ModuleContext,
 ) -> Result<(), CompileError> {
     if arms.is_empty() {
         return Err(CompileError::new(
@@ -1035,7 +1497,7 @@ fn compile_match(
     }
 
     // Compile the scrutinee.
-    compile_expr(fc, scrutinee)?;
+    compile_expr(fc, scrutinee, ctx)?;
 
     // For now, only support simple patterns (wildcards, bindings, literals).
     // TODO: Full pattern matching with nested patterns and guards.
@@ -1055,12 +1517,12 @@ fn compile_match(
 
         // If guard exists, compile it.
         if let Some(guard) = &arm.guard {
-            compile_expr(fc, guard)?;
+            compile_expr(fc, guard, ctx)?;
             if let Some(fj) = fail_jump {
                 // If pattern matched but guard fails, need to jump to next arm.
                 let guard_fail = fc.builder.emit_jump_placeholder(Opcode::JumpIfNot);
                 // Pattern and guard both succeeded - compile body.
-                compile_expr(fc, &arm.body)?;
+                compile_expr(fc, &arm.body, ctx)?;
                 let end_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
                 end_jumps.push(end_jump);
                 fc.builder.patch_jump(guard_fail);
@@ -1068,7 +1530,7 @@ fn compile_match(
             } else {
                 // Last arm with guard.
                 let guard_fail = fc.builder.emit_jump_placeholder(Opcode::JumpIfNot);
-                compile_expr(fc, &arm.body)?;
+                compile_expr(fc, &arm.body, ctx)?;
                 let end_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
                 end_jumps.push(end_jump);
                 fc.builder.patch_jump(guard_fail);
@@ -1077,13 +1539,13 @@ fn compile_match(
             }
         } else if let Some(fj) = fail_jump {
             // Pattern match can fail, compile body and jump to end.
-            compile_expr(fc, &arm.body)?;
+            compile_expr(fc, &arm.body, ctx)?;
             let end_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
             end_jumps.push(end_jump);
             fc.builder.patch_jump(fj);
         } else {
             // Pattern always matches (wildcard or binding) and it's the last arm.
-            compile_expr(fc, &arm.body)?;
+            compile_expr(fc, &arm.body, ctx)?;
         }
     }
 
@@ -1167,7 +1629,8 @@ mod tests {
         let mut hashes = HashMap::new();
         let hash = compute_temporary_hash(&func.name);
         hashes.insert(Arc::clone(&func.name), hash);
-        compile_function_with_hash(func, &hashes)
+        let mut ctx = ModuleContext::new();
+        compile_function_with_hash(func, &hashes, &mut ctx)
     }
 
     #[test]

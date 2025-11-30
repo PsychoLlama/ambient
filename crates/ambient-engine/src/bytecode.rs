@@ -183,6 +183,13 @@ pub enum Opcode {
     /// Single-shot: errors if continuation was already resumed.
     Resume = 0x84,
 
+    /// Get an argument from a suspended ability value.
+    /// Operand: u8 (argument index)
+    ///
+    /// Pops a SuspendedAbility from the stack and pushes the argument at the given index.
+    /// Used in handler functions to extract ability method arguments.
+    GetAbilityArg = 0x85,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Concurrency (Milestone 9)
     // ─────────────────────────────────────────────────────────────────────────
@@ -200,6 +207,32 @@ pub enum Opcode {
     /// (potentially concurrently), and pushes the result of the first to complete.
     /// Other operations are cancelled.
     AsyncRace = 0x91,
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Closures
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Create a closure from a function and captured variables.
+    /// Operand: u16 (constant pool index for function hash)
+    /// Operand: u8 (capture count - number of values to capture from stack)
+    ///
+    /// Pops `capture_count` values from the stack and creates a closure value
+    /// combining the function with the captured environment.
+    MakeClosure = 0xA0,
+
+    /// Call a closure on the stack.
+    /// Operand: u8 (argument count)
+    ///
+    /// Stack: [closure, arg1, arg2, ..., argN] -> [result]
+    /// The closure is popped first, then arguments. The closure's captured
+    /// environment is prepended to the arguments when calling the function.
+    CallClosure = 0xA1,
+
+    /// Load a captured variable from the closure environment.
+    /// Operand: u16 (capture slot index)
+    ///
+    /// Loads a value from the current closure's captured environment.
+    /// Only valid inside a closure body.
+    LoadCapture = 0xA2,
 
     // ─────────────────────────────────────────────────────────────────────────
     // Special
@@ -248,9 +281,14 @@ impl Opcode {
             0x82 => Some(Self::Handle),
             0x83 => Some(Self::Unhandle),
             0x84 => Some(Self::Resume),
+            0x85 => Some(Self::GetAbilityArg),
             // Concurrency
             0x90 => Some(Self::AsyncAll),
             0x91 => Some(Self::AsyncRace),
+            // Closures
+            0xA0 => Some(Self::MakeClosure),
+            0xA1 => Some(Self::CallClosure),
+            0xA2 => Some(Self::LoadCapture),
             0xFF => Some(Self::Halt),
             _ => None,
         }
@@ -420,6 +458,15 @@ fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
             // Use a fixed marker to indicate presence
             hasher.update(&[TYPE_CONTINUATION]);
         }
+        Value::Closure(closure) => {
+            const TYPE_CLOSURE: u8 = 9;
+            hasher.update(&[TYPE_CLOSURE]);
+            hasher.update(closure.function_hash.as_bytes());
+            hasher.update(&(closure.environment.len() as u32).to_le_bytes());
+            for val in &closure.environment {
+                hash_value(hasher, val);
+            }
+        }
     }
 }
 
@@ -581,6 +628,45 @@ impl BytecodeBuilder {
         self.code[handle_jump_offset + 1] = bytes[1];
     }
 
+    /// Emit a MakeClosure instruction.
+    ///
+    /// Creates a closure from a function hash and captured values on the stack.
+    pub fn emit_make_closure(&mut self, func_hash: blake3::Hash, capture_count: u8) {
+        // Track the closure's function as a dependency
+        if !self.dependencies.contains(&func_hash) {
+            self.dependencies.push(func_hash);
+        }
+
+        let idx = self.add_constant(Value::FunctionRef(func_hash));
+        self.code.push(Opcode::MakeClosure as u8);
+        self.code.extend_from_slice(&idx.to_le_bytes());
+        self.code.push(capture_count);
+    }
+
+    /// Emit a CallClosure instruction.
+    ///
+    /// Calls a closure on the stack with the given number of arguments.
+    pub fn emit_call_closure(&mut self, arg_count: u8) {
+        self.code.push(Opcode::CallClosure as u8);
+        self.code.push(arg_count);
+    }
+
+    /// Emit a LoadCapture instruction.
+    ///
+    /// Loads a captured variable from the current closure's environment.
+    pub fn emit_load_capture(&mut self, capture_slot: u16) {
+        self.code.push(Opcode::LoadCapture as u8);
+        self.code.extend_from_slice(&capture_slot.to_le_bytes());
+    }
+
+    /// Emit a GetAbilityArg instruction.
+    ///
+    /// Extracts an argument at the given index from a SuspendedAbility on the stack.
+    pub fn emit_get_ability_arg(&mut self, arg_index: u8) {
+        self.code.push(Opcode::GetAbilityArg as u8);
+        self.code.push(arg_index);
+    }
+
     /// Build the final compiled function.
     ///
     /// Dependencies are automatically collected from `emit_call` invocations.
@@ -672,6 +758,10 @@ mod tests {
             // Concurrency
             Opcode::AsyncAll,
             Opcode::AsyncRace,
+            // Closures
+            Opcode::MakeClosure,
+            Opcode::CallClosure,
+            Opcode::LoadCapture,
             Opcode::Halt,
         ];
 

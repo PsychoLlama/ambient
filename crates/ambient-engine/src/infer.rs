@@ -1522,6 +1522,18 @@ impl Infer {
 
                 body_ty
             }
+
+            ExprKind::Resume(value) => {
+                // Resume transfers control to a continuation.
+                // The value type should match what the continuation expects.
+                // For now, just type-check the value and return a fresh type variable,
+                // since resume doesn't return normally.
+                let _value_ty = self.infer_expr(env, value)?;
+
+                // Resume doesn't return normally, so we use a fresh type variable.
+                // In a more complete implementation, this would be a never type (!).
+                self.fresh()
+            }
         };
 
         expr.ty = Some(ty.clone());

@@ -1178,6 +1178,11 @@ impl<'src> Parser<'src> {
             return self.parse_handle_expr();
         }
 
+        // Resume expression: resume(value)
+        if self.check(TokenKind::Resume) {
+            return self.parse_resume_expr();
+        }
+
         // Identifier or qualified name
         if self.check(TokenKind::Ident) {
             let ident = self.parse_ident()?;
@@ -1666,9 +1671,32 @@ impl<'src> Parser<'src> {
             }
 
             // Parse handler: Ability.method(params) => body
-            let ability = self.parse_qualified_name()?;
-            self.expect(TokenKind::Dot)?;
-            let method = self.parse_ident()?;
+            // parse_qualified_name consumes all segments, so we need to split off the method
+            let mut full_name = self.parse_qualified_name()?;
+
+            // The last segment is the method name
+            if full_name.segments.len() < 2 {
+                return Err(ParseError::new(
+                    ParseErrorKind::InvalidAbilitySyntax(
+                        "handler must specify Ability.method".into(),
+                    ),
+                    full_name.span,
+                ));
+            }
+
+            let method = full_name.segments.pop().expect("checked length above");
+            let ability = CstQualifiedName {
+                span: if full_name.segments.len() == 1 {
+                    full_name.segments[0].span
+                } else {
+                    Span::new(
+                        full_name.segments[0].span.start,
+                        full_name.segments.last().expect("segments not empty").span.end,
+                    )
+                },
+                segments: full_name.segments,
+            };
+
             self.expect(TokenKind::LParen)?;
             let params = self.parse_params()?;
             self.expect(TokenKind::RParen)?;
@@ -1703,6 +1731,19 @@ impl<'src> Parser<'src> {
                 else_clause,
                 span: Span::new(start, end),
             })),
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_resume_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::Resume)?;
+        self.expect(TokenKind::LParen)?;
+        let value = self.parse_expression()?;
+        let end = self.expect(TokenKind::RParen)?.span.end;
+
+        Ok(CstExpr {
+            kind: CstExprKind::Resume(Box::new(value)),
             span: Span::new(start, end),
         })
     }

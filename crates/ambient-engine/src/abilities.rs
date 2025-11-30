@@ -271,6 +271,11 @@ pub fn format_value(value: &Value) -> String {
             format!("<ability {ability_id}:{method_id} with {arg_count} args>")
         }
         Value::Continuation(_) => "<continuation>".to_string(),
+        Value::Closure(closure) => {
+            let hash_str = &closure.function_hash.to_string()[..8];
+            let capture_count = closure.environment.len();
+            format!("<closure {hash_str} [{capture_count} captures]>")
+        }
     }
 }
 

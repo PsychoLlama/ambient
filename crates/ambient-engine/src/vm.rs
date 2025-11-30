@@ -74,6 +74,9 @@ pub enum VmError {
 
     /// Expected a continuation but got something else.
     ExpectedContinuation { got: &'static str },
+
+    /// Ability argument index out of bounds.
+    AbilityArgOutOfBounds { index: usize, length: usize },
 }
 
 impl std::fmt::Display for VmError {
@@ -109,6 +112,9 @@ impl std::fmt::Display for VmError {
             Self::ExpectedContinuation { got } => {
                 write!(f, "expected continuation, got {got}")
             }
+            Self::AbilityArgOutOfBounds { index, length } => {
+                write!(f, "ability argument index {index} out of bounds (length {length})")
+            }
         }
     }
 }
@@ -126,6 +132,10 @@ struct CallFrame {
 
     /// Base pointer into the value stack for this frame's locals.
     bp: usize,
+
+    /// Captured environment for closures.
+    /// Empty for regular function calls, contains captured values for closure calls.
+    captures: Vec<Value>,
 }
 
 /// An installed ability handler that can intercept ability operations.
@@ -331,6 +341,16 @@ impl Vm {
 
     /// Push a new call frame for the given function.
     fn push_frame(&mut self, hash: &blake3::Hash, arg_count: u8) -> Result<(), VmError> {
+        self.push_frame_with_captures(hash, arg_count, Vec::new())
+    }
+
+    /// Push a new call frame for a closure call with captured environment.
+    fn push_frame_with_captures(
+        &mut self,
+        hash: &blake3::Hash,
+        arg_count: u8,
+        captures: Vec<Value>,
+    ) -> Result<(), VmError> {
         if self.frames.len() >= self.max_call_depth {
             return Err(VmError::StackOverflow);
         }
@@ -357,7 +377,12 @@ impl Vm {
             self.stack.push(Value::Unit);
         }
 
-        self.frames.push(CallFrame { function, ip: 0, bp });
+        self.frames.push(CallFrame {
+            function,
+            ip: 0,
+            bp,
+            captures,
+        });
 
         Ok(())
     }
@@ -744,11 +769,33 @@ impl Vm {
                             function,
                             ip: captured.ip,
                             bp: captured.bp,
+                            captures: Vec::new(), // Continuations don't preserve closure captures
                         });
                     }
 
                     // Push the resume value as the result of the Perform
                     self.stack.push(value);
+                }
+
+                Opcode::GetAbilityArg => {
+                    let arg_index = self.read_u8()? as usize;
+                    let ability = match self.pop()? {
+                        Value::SuspendedAbility(a) => a,
+                        other => {
+                            return Err(VmError::ExpectedSuspendedAbility {
+                                got: other.type_name(),
+                            })
+                        }
+                    };
+
+                    if arg_index >= ability.args.len() {
+                        return Err(VmError::AbilityArgOutOfBounds {
+                            index: arg_index,
+                            length: ability.args.len(),
+                        });
+                    }
+
+                    self.stack.push(ability.args[arg_index].clone());
                 }
 
                 Opcode::Halt => {
@@ -806,6 +853,87 @@ impl Vm {
 
                     // Push the winning result
                     self.stack.push(result);
+                }
+
+                // ─────────────────────────────────────────────────────────────
+                // Closures
+                // ─────────────────────────────────────────────────────────────
+                Opcode::MakeClosure => {
+                    let func_idx = self.read_u16()?;
+                    let capture_count = self.read_u8()?;
+
+                    // Get the function hash from the constant pool.
+                    let func_hash = match self.get_constant(func_idx)? {
+                        Value::FunctionRef(h) => h,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "function",
+                                got: other.type_name(),
+                                operation: "make_closure",
+                            })
+                        }
+                    };
+
+                    // Pop captured values from the stack (in reverse order).
+                    let mut environment = Vec::with_capacity(capture_count as usize);
+                    for _ in 0..capture_count {
+                        environment.push(self.pop()?);
+                    }
+                    environment.reverse(); // Restore original capture order
+
+                    // Create and push the closure value.
+                    self.stack.push(Value::closure(func_hash, environment));
+                }
+
+                Opcode::CallClosure => {
+                    let arg_count = self.read_u8()?;
+
+                    // The closure was pushed first, then arguments.
+                    // Pop arguments first to get to the closure.
+                    let mut args = Vec::with_capacity(arg_count as usize);
+                    for _ in 0..arg_count {
+                        args.push(self.pop()?);
+                    }
+                    args.reverse();
+
+                    // Now pop the closure.
+                    let closure = match self.pop()? {
+                        Value::Closure(c) => c,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "closure",
+                                got: other.type_name(),
+                                operation: "call_closure",
+                            })
+                        }
+                    };
+
+                    // Push arguments back onto the stack for the call.
+                    for arg in args {
+                        self.stack.push(arg);
+                    }
+
+                    // Call the closure's function with its captured environment.
+                    self.push_frame_with_captures(
+                        &closure.function_hash,
+                        arg_count,
+                        closure.environment.clone(),
+                    )?;
+                }
+
+                Opcode::LoadCapture => {
+                    let capture_slot = self.read_u16()?;
+
+                    // Get the captured value from the current frame's captures.
+                    let value = {
+                        let frame = self.current_frame()?;
+                        frame
+                            .captures
+                            .get(capture_slot as usize)
+                            .cloned()
+                            .ok_or(VmError::InvalidLocal(capture_slot))?
+                    };
+                    self.stack.push(value);
                 }
             }
         }

@@ -1,0 +1,33 @@
+// Test handle expressions
+
+// Test 1: Simple handle with no ability use (body returns normally)
+fn simple_function(): number {
+  100
+}
+
+fn test_simple_handle(): number {
+  handle simple_function() {
+    Console.print(msg) => {
+      resume(())
+    }
+  }
+}
+
+// Test 2: Multiple handlers
+fn test_multiple_handlers(): number {
+  handle simple_function() {
+    Console.print(msg) => {
+      resume(())
+    },
+    Exception.throw(e) => {
+      resume(())
+    }
+  }
+}
+
+pub fn main(): number {
+  let r1 = test_simple_handle();
+  let r2 = test_multiple_handlers();
+  // Both should return 100
+  r1 + r2
+}

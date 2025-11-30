@@ -1,0 +1,48 @@
+// Test closures
+
+// Simple closure that captures a variable
+fn test_capture(): number {
+  let n = 5;
+  let f = (x) => x + n;
+  f(10)
+}
+
+// Closure that captures multiple variables
+fn test_multi_capture(): number {
+  let a = 10;
+  let b = 20;
+  let f = (x) => x + a + b;
+  f(5)
+}
+
+// Passing closures to other functions
+fn apply(f: (number) -> number, x: number): number {
+  f(x)
+}
+
+fn test_pass_closure(): number {
+  let multiplier = 3;
+  let triple = (x) => x * multiplier;
+  apply(triple, 7)
+}
+
+// Returning closures (via immediate call)
+fn make_adder(n: number): number {
+  let add = (x) => x + n;
+  add(100)
+}
+
+fn test_closure_factory(): number {
+  make_adder(42)
+}
+
+// Main runs all tests
+pub fn main(): number {
+  let r1 = test_capture();       // Expected: 15
+  let r2 = test_multi_capture(); // Expected: 35
+  let r3 = test_pass_closure();  // Expected: 21
+  let r4 = test_closure_factory(); // Expected: 142
+
+  // Return sum to verify all worked
+  r1 + r2 + r3 + r4
+}

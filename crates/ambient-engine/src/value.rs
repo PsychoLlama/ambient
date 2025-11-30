@@ -46,6 +46,11 @@ pub enum Value {
     /// Attempting to serialize a Continuation will produce an error.
     #[serde(skip)]
     Continuation(Arc<Continuation>),
+
+    /// A closure: a function with captured environment.
+    ///
+    /// Contains the function hash and the captured values (environment).
+    Closure(Arc<Closure>),
 }
 
 /// A suspended ability operation waiting to be performed.
@@ -72,6 +77,31 @@ impl SuspendedAbility {
             ability_id,
             method_id,
             args,
+        }
+    }
+}
+
+/// A closure combining a function with its captured environment.
+///
+/// Closures are created when lambda expressions capture variables from
+/// their surrounding scope. The environment contains the captured values.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Closure {
+    /// The content-addressed hash of the function (lambda body).
+    pub function_hash: blake3::Hash,
+
+    /// The captured environment: values of free variables at closure creation time.
+    /// The order matches the capture order during compilation.
+    pub environment: Vec<Value>,
+}
+
+impl Closure {
+    /// Create a new closure.
+    #[must_use]
+    pub fn new(function_hash: blake3::Hash, environment: Vec<Value>) -> Self {
+        Self {
+            function_hash,
+            environment,
         }
     }
 }
@@ -164,6 +194,7 @@ impl Value {
             Self::FunctionRef(_) => "function",
             Self::SuspendedAbility(_) => "suspended_ability",
             Self::Continuation(_) => "continuation",
+            Self::Closure(_) => "closure",
         }
     }
 
@@ -177,6 +208,12 @@ impl Value {
     #[must_use]
     pub fn continuation(stack: Vec<Value>, frames: Vec<CapturedFrame>) -> Self {
         Self::Continuation(Arc::new(Continuation::new(stack, frames)))
+    }
+
+    /// Create a new closure value.
+    #[must_use]
+    pub fn closure(function_hash: blake3::Hash, environment: Vec<Value>) -> Self {
+        Self::Closure(Arc::new(Closure::new(function_hash, environment)))
     }
 }
 
@@ -199,6 +236,10 @@ impl PartialEq for Value {
             }
             // Continuations are identity-compared (same Arc)
             (Self::Continuation(a), Self::Continuation(b)) => Arc::ptr_eq(a, b),
+            // Closures are equal if they have the same function and environment
+            (Self::Closure(a), Self::Closure(b)) => {
+                a.function_hash == b.function_hash && a.environment == b.environment
+            }
             _ => false,
         }
     }

@@ -436,6 +436,11 @@ fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, P
             })
         }
 
+        CstExprKind::Resume(value) => {
+            let lowered_value = lower_expression(ctx, value)?;
+            ExprKind::Resume(Box::new(lowered_value))
+        }
+
         CstExprKind::Error => {
             return Err(ParseError::new(
                 ParseErrorKind::LoweringError("cannot lower error expression".into()),

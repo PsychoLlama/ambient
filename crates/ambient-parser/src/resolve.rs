@@ -419,6 +419,11 @@ impl Resolver {
 
                 Ok(())
             }
+
+            ExprKind::Resume(value) => {
+                // Resolve the value expression
+                self.resolve_expr(value)
+            }
         }
     }
 

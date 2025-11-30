@@ -219,6 +219,9 @@ pub enum ExprKind {
 
     /// Handle expression: `handle expr { handlers }`.
     Handle(HandleExpr),
+
+    /// Resume a continuation with a value: `resume(value)`.
+    Resume(Box<Expr>),
 }
 
 /// Binary operators.
