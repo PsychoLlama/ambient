@@ -109,15 +109,26 @@ fn cmd_check(file: &Path) -> Result<()> {
     let source = read_source(file)?;
 
     // Parse.
-    let _module =
+    let module =
         ambient_parser::parse(&source).map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
 
-    // TODO: Type checking is not yet implemented at the module level.
-    // For now, we just check that the file parses successfully.
+    // Type check.
+    let result = ambient_engine::infer::check_module(module);
 
-    eprintln!("No errors found in {}", file.display());
-
-    Ok(())
+    if result.is_ok() {
+        eprintln!("No errors found in {}", file.display());
+        Ok(())
+    } else {
+        // Format and print errors
+        for error in &result.errors {
+            print_type_error(&source, file, error);
+        }
+        bail!(
+            "Found {} type error(s) in {}",
+            result.errors.len(),
+            file.display()
+        );
+    }
 }
 
 /// Parse and dump the AST.
@@ -130,6 +141,80 @@ fn cmd_ast(file: &Path) -> Result<()> {
     println!("{module:#?}");
 
     Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Error Formatting
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Print a type error with source context.
+fn print_type_error(source: &str, file: &Path, error: &ambient_engine::infer::TypeError) {
+    let (start, end) = error.span;
+
+    // Find line and column from byte offset
+    let (line_num, col, line_start, line_end) = find_line_info(source, start as usize);
+
+    // Extract the line content
+    let line_content = &source[line_start..line_end];
+
+    // Print error header
+    eprintln!(
+        "\x1b[1;31merror\x1b[0m: {}",
+        error.kind
+    );
+
+    // Print location
+    eprintln!(
+        "  \x1b[1;34m-->\x1b[0m {}:{}:{}",
+        file.display(),
+        line_num,
+        col
+    );
+
+    // Print the source line with line number
+    let line_num_str = format!("{line_num}");
+    let padding = " ".repeat(line_num_str.len());
+    eprintln!("   {padding} \x1b[1;34m|\x1b[0m");
+    eprintln!(" {line_num_str} \x1b[1;34m|\x1b[0m {line_content}");
+
+    // Print the error underline
+    let underline_start = col.saturating_sub(1);
+    let underline_len = ((end - start) as usize).min(line_content.len() - underline_start).max(1);
+    let spaces = " ".repeat(underline_start);
+    let carets = "^".repeat(underline_len);
+    eprintln!("   {padding} \x1b[1;34m|\x1b[0m {spaces}\x1b[1;31m{carets}\x1b[0m");
+
+    // Print context if available
+    if let Some(ctx) = &error.context {
+        eprintln!("   {padding} \x1b[1;34m|\x1b[0m");
+        eprintln!("   {padding} \x1b[1;34m= note:\x1b[0m {ctx}");
+    }
+
+    eprintln!();
+}
+
+/// Find line number, column, and line bounds for a byte offset.
+fn find_line_info(source: &str, offset: usize) -> (usize, usize, usize, usize) {
+    let mut line_num = 1;
+    let mut line_start = 0;
+
+    for (i, ch) in source.char_indices() {
+        if i >= offset {
+            break;
+        }
+        if ch == '\n' {
+            line_num += 1;
+            line_start = i + 1;
+        }
+    }
+
+    // Find end of line
+    let line_end = source[line_start..]
+        .find('\n')
+        .map_or(source.len(), |i| line_start + i);
+
+    let col = offset - line_start + 1;
+    (line_num, col, line_start, line_end)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,13 +236,23 @@ fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
     let module =
         ambient_parser::parse(source).map_err(|e| anyhow::anyhow!("parse error at {}: {e}", file.display()))?;
 
-    // TODO: Type checking is not yet implemented at the module level.
-    // The compiler will catch some type-related issues, but full type inference
-    // for modules will be added in a future milestone.
+    // Type check.
+    let check_result = ambient_engine::infer::check_module(module);
+    if !check_result.is_ok() {
+        // Print type errors
+        for error in &check_result.errors {
+            print_type_error(source, file, error);
+        }
+        bail!(
+            "Found {} type error(s) in {}",
+            check_result.errors.len(),
+            file.display()
+        );
+    }
 
-    // Compile.
+    // Compile the type-checked module.
     let compiled =
-        compile_module(&module).map_err(|e| anyhow::anyhow!("compile error at {}: {e}", file.display()))?;
+        compile_module(&check_result.module).map_err(|e| anyhow::anyhow!("compile error at {}: {e}", file.display()))?;
 
     Ok(compiled)
 }

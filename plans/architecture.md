@@ -1082,7 +1082,7 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 - [x] Source → CST → AST → Bytecode
 - [x] CLI: `ambient compile`, `ambient run`, `ambient check`, `ambient ast`
 - [x] Integration tests for end-to-end compilation
-- [ ] Typed AST (module-level type checking)
+- [x] Typed AST (module-level type checking)
 - [x] Content-addressed store integration (hash computation from bytecode content)
 - [ ] Incremental compilation (only recompile changed functions)
 
@@ -1102,8 +1102,16 @@ The CLI supports:
 
 - `compile`: Source → .ambient bytecode file (JSON serialized)
 - `run`: Execute .ab source or .ambient bytecode
-- `check`: Validate syntax (parsing only, type checking pending)
+- `check`: Validate syntax and type-check the module
 - `ast`: Dump the AST for debugging
+
+Type checking integration (`ambient-engine/src/infer.rs`):
+
+- `check_module()`: Module-level type inference with Hindley-Milner algorithm
+- Phase 1: Collect all function signatures into type environment
+- Phase 2: Type-check each function body against its signature
+- Ability tracking and verification against declared abilities
+- Rich error messages with source context and suggestions
 
 ### Milestone 13: Handlers as Values
 
