@@ -10,7 +10,7 @@
 #![allow(clippy::cast_possible_wrap)]
 
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::value::Value;
 
@@ -419,7 +419,7 @@ pub struct BytecodeBuilder {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum ConstantKey {
     Number(u64), // Use bits for exact comparison
-    String(Rc<String>),
+    String(Arc<String>),
     Bool(bool),
     Hash(blake3::Hash),
 }
@@ -447,7 +447,7 @@ impl BytecodeBuilder {
     pub fn add_constant(&mut self, value: Value) -> u16 {
         let key = match &value {
             Value::Number(n) => ConstantKey::Number(n.to_bits()),
-            Value::String(s) => ConstantKey::String(Rc::clone(s)),
+            Value::String(s) => ConstantKey::String(Arc::clone(s)),
             Value::Bool(b) => ConstantKey::Bool(*b),
             Value::FunctionRef(h) => ConstantKey::Hash(*h),
             // For complex types, don't deduplicate (they're rare as constants)

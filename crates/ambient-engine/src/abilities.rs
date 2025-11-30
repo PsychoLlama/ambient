@@ -65,12 +65,14 @@ pub mod random {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Configuration for the Console ability.
+///
+/// Handlers must be Send + Sync to allow the VM to be used across threads.
 #[derive(Default)]
 pub struct ConsoleConfig {
     /// Custom print handler. If None, uses stdout.
-    pub print_handler: Option<Box<dyn Fn(&str)>>,
+    pub print_handler: Option<Box<dyn Fn(&str) + Send + Sync>>,
     /// Custom eprint handler. If None, uses stderr.
-    pub eprint_handler: Option<Box<dyn Fn(&str)>>,
+    pub eprint_handler: Option<Box<dyn Fn(&str) + Send + Sync>>,
 }
 
 /// Register the Console ability handlers on a VM.
@@ -127,9 +129,16 @@ pub fn register_console(vm: &mut Vm, config: ConsoleConfig) {
 }
 
 /// Register Console with a custom output collector (useful for testing).
+///
+/// Uses `Arc<Mutex<>>` for thread safety.
+///
+/// # Panics
+///
+/// Panics if the mutex is poisoned.
+#[cfg(test)]
 pub fn register_console_with_collector(
     vm: &mut Vm,
-    output: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+    output: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 ) {
     let output_clone = output.clone();
     vm.register_host_handler(
@@ -137,7 +146,7 @@ pub fn register_console_with_collector(
         console::METHOD_PRINT,
         Box::new(move |ability: &SuspendedAbility| {
             let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
-            output_clone.borrow_mut().push(message);
+            output_clone.lock().expect("lock poisoned").push(message);
             Ok(Value::Unit)
         }),
     );
@@ -148,7 +157,7 @@ pub fn register_console_with_collector(
         console::METHOD_PRINTLN,
         Box::new(move |ability: &SuspendedAbility| {
             let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
-            output_clone.borrow_mut().push(format!("{message}\n"));
+            output_clone.lock().expect("lock poisoned").push(format!("{message}\n"));
             Ok(Value::Unit)
         }),
     );
@@ -158,7 +167,7 @@ pub fn register_console_with_collector(
         console::METHOD_EPRINT,
         Box::new(move |ability: &SuspendedAbility| {
             let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
-            output.borrow_mut().push(format!("[ERR] {message}"));
+            output.lock().expect("lock poisoned").push(format!("[ERR] {message}"));
             Ok(Value::Unit)
         }),
     );
@@ -255,12 +264,11 @@ pub fn format_value(value: &Value) -> String {
 mod tests {
     use super::*;
     use crate::bytecode::{BytecodeBuilder, Opcode};
-    use std::cell::RefCell;
-    use std::rc::Rc;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_console_print_with_collector() {
-        let output: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+        let output: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
         let mut builder = BytecodeBuilder::new();
         builder.emit_const(Value::string("Hello, World!"));
@@ -277,12 +285,12 @@ mod tests {
 
         let result = vm.call(&hash, vec![]);
         assert_eq!(result, Ok(Value::Unit));
-        assert_eq!(*output.borrow(), vec!["Hello, World!"]);
+        assert_eq!(*output.lock().expect("lock"), vec!["Hello, World!"]);
     }
 
     #[test]
     fn test_console_println_with_collector() {
-        let output: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+        let output: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
         let mut builder = BytecodeBuilder::new();
         builder.emit_const(Value::Number(42.0));
@@ -299,7 +307,7 @@ mod tests {
 
         let result = vm.call(&hash, vec![]);
         assert_eq!(result, Ok(Value::Unit));
-        assert_eq!(*output.borrow(), vec!["42\n"]);
+        assert_eq!(*output.lock().expect("lock"), vec!["42\n"]);
     }
 
     #[test]
@@ -317,7 +325,7 @@ mod tests {
 
     #[test]
     fn test_multiple_prints() {
-        let output: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+        let output: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
         let mut builder = BytecodeBuilder::new();
 
@@ -349,6 +357,6 @@ mod tests {
 
         let result = vm.call(&hash, vec![]);
         assert_eq!(result, Ok(Value::Unit));
-        assert_eq!(*output.borrow(), vec!["one", "two", "three"]);
+        assert_eq!(*output.lock().expect("lock"), vec!["one", "two", "three"]);
     }
 }

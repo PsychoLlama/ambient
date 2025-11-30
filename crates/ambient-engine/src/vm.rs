@@ -15,7 +15,7 @@
 #![allow(clippy::cast_sign_loss)]
 
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::bytecode::{CompiledFunction, Opcode};
 use crate::value::{CapturedFrame, SuspendedAbility, Value};
@@ -119,7 +119,7 @@ impl std::error::Error for VmError {}
 #[derive(Debug, Clone)]
 struct CallFrame {
     /// The function being executed.
-    function: Rc<CompiledFunction>,
+    function: Arc<CompiledFunction>,
 
     /// Instruction pointer (offset into bytecode).
     ip: usize,
@@ -149,7 +149,9 @@ struct HandlerFrame {
 }
 
 /// A host-provided ability handler callback.
-pub type HostHandler = Box<dyn Fn(&SuspendedAbility) -> Result<Value, VmError>>;
+///
+/// Must be Send + Sync to allow the VM to be used across threads.
+pub type HostHandler = Box<dyn Fn(&SuspendedAbility) -> Result<Value, VmError> + Send + Sync>;
 
 /// The Ambient virtual machine.
 pub struct Vm {
@@ -167,7 +169,7 @@ pub struct Vm {
     host_handlers: HashMap<(u16, u16), HostHandler>,
 
     /// Content-addressed function store.
-    functions: HashMap<blake3::Hash, Rc<CompiledFunction>>,
+    functions: HashMap<blake3::Hash, Arc<CompiledFunction>>,
 
     /// Maximum call stack depth to prevent infinite recursion.
     max_call_depth: usize,
@@ -196,7 +198,7 @@ impl Vm {
     /// Load a compiled function into the VM.
     pub fn load_function(&mut self, func: CompiledFunction) {
         let hash = func.hash;
-        self.functions.insert(hash, Rc::new(func));
+        self.functions.insert(hash, Arc::new(func));
     }
 
     /// Register a host-provided ability handler.
@@ -437,13 +439,13 @@ impl Vm {
 
                 Opcode::MakeRecord => {
                     let field_count = self.read_u8()?;
-                    let mut fields: Vec<(Rc<str>, Value)> = Vec::with_capacity(field_count as usize);
+                    let mut fields: Vec<(Arc<str>, Value)> = Vec::with_capacity(field_count as usize);
 
                     // Pop field-value pairs (value first, then field name)
                     for _ in 0..field_count {
                         let value = self.pop()?;
                         let field_name = match self.pop()? {
-                            Value::String(s) => Rc::from(s.as_str()),
+                            Value::String(s) => Arc::from(s.as_str()),
                             other => {
                                 return Err(VmError::TypeError {
                                     expected: "string",
@@ -474,7 +476,7 @@ impl Vm {
                     let record = self.pop()?;
                     match record {
                         Value::Record(fields) => {
-                            let key: Rc<str> = Rc::from(field_name.as_str());
+                            let key: Arc<str> = Arc::from(field_name.as_str());
                             let value = fields
                                 .get(&key)
                                 .ok_or_else(|| VmError::RecordFieldNotFound(field_name.to_string()))?;
@@ -1111,8 +1113,8 @@ mod tests {
             .make_record(2)
             .expect_record(|fields| {
                 assert_eq!(fields.len(), 2);
-                assert_eq!(fields.get(&Rc::from("x")), Some(&Value::Number(1.0)));
-                assert_eq!(fields.get(&Rc::from("y")), Some(&Value::Number(2.0)));
+                assert_eq!(fields.get(&Arc::from("x")), Some(&Value::Number(1.0)));
+                assert_eq!(fields.get(&Arc::from("y")), Some(&Value::Number(2.0)));
             });
     }
 
@@ -1390,7 +1392,7 @@ mod tests {
             .perform()
             .with_host_handler(ABILITY_CONSOLE, METHOD_PRINT, move |ability| {
                 if let Value::Number(n) = &ability.args[0] {
-                    log.borrow_mut().push(*n);
+                    log.lock().expect("lock").push(*n);
                 }
                 Ok(Value::Unit)
             })
@@ -1498,7 +1500,7 @@ mod tests {
             .perform()
             .with_host_handler(ABILITY_CONSOLE, METHOD_PRINT, move |ability| {
                 if let Value::Number(n) = &ability.args[0] {
-                    log.borrow_mut().push(*n);
+                    log.lock().expect("lock").push(*n);
                 }
                 Ok(Value::Unit)
             })
@@ -1547,7 +1549,7 @@ mod tests {
             .load_local(0)
             .perform()
             .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, move |ability| {
-                count.borrow_mut().push(1);
+                count.lock().expect("lock").push(1);
                 if let Value::Number(n) = &ability.args[0] {
                     Ok(Value::Number(n * 2.0))
                 } else {

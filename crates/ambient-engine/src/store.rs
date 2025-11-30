@@ -14,7 +14,7 @@
 #![allow(clippy::missing_panics_doc)]
 
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -29,7 +29,7 @@ use crate::bytecode::CompiledFunction;
 #[derive(Debug, Default)]
 pub struct Store {
     /// Hash -> compiled function
-    functions: HashMap<blake3::Hash, Rc<CompiledFunction>>,
+    functions: HashMap<blake3::Hash, Arc<CompiledFunction>>,
 }
 
 impl Store {
@@ -42,13 +42,13 @@ impl Store {
     /// Add a function to the store. Returns the hash.
     pub fn add(&mut self, func: CompiledFunction) -> blake3::Hash {
         let hash = func.hash;
-        self.functions.insert(hash, Rc::new(func));
+        self.functions.insert(hash, Arc::new(func));
         hash
     }
 
     /// Get a function by its hash.
     #[must_use]
-    pub fn get(&self, hash: &blake3::Hash) -> Option<Rc<CompiledFunction>> {
+    pub fn get(&self, hash: &blake3::Hash) -> Option<Arc<CompiledFunction>> {
         self.functions.get(hash).cloned()
     }
 
@@ -142,7 +142,7 @@ impl Store {
     pub fn merge(&mut self, other: &Store) {
         for (hash, func) in &other.functions {
             if !self.contains(hash) {
-                self.functions.insert(*hash, Rc::clone(func));
+                self.functions.insert(*hash, Arc::clone(func));
             }
         }
     }
@@ -172,7 +172,7 @@ impl Store {
                 self.extract_recursive(dep, visited, result);
             }
             // Then add the function itself
-            result.functions.insert(*hash, Rc::clone(&func));
+            result.functions.insert(*hash, Arc::clone(&func));
         }
     }
 }

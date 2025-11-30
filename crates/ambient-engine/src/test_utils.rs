@@ -17,8 +17,7 @@
 //! }
 //! ```
 
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::bytecode::{BytecodeBuilder, CompiledFunction, Opcode};
 use crate::value::{SuspendedAbility, Value};
@@ -375,7 +374,7 @@ impl VmTest {
     #[must_use]
     pub fn with_host_handler<F>(mut self, ability_id: u16, method_id: u16, handler: F) -> Self
     where
-        F: Fn(&SuspendedAbility) -> Result<Value, VmError> + 'static,
+        F: Fn(&SuspendedAbility) -> Result<Value, VmError> + Send + Sync + 'static,
     {
         self.host_handlers
             .push((ability_id, method_id, Box::new(handler)));
@@ -512,7 +511,7 @@ impl VmTest {
     /// Assert the result is a record and apply custom assertions.
     pub fn expect_record<F>(self, check: F)
     where
-        F: FnOnce(&std::collections::HashMap<Rc<str>, Value>),
+        F: FnOnce(&std::collections::HashMap<Arc<str>, Value>),
     {
         let result = self.run();
         match result {
@@ -773,7 +772,7 @@ impl FunctionBuilder {
 
 /// Helper for capturing side effects in handlers.
 ///
-/// Reduces `Rc<RefCell<Vec<T>>>` boilerplate.
+/// Uses `Arc<Mutex<>>` for thread safety with Send + Sync handlers.
 ///
 /// # Example
 ///
@@ -788,7 +787,7 @@ impl FunctionBuilder {
 ///         let log = capture.clone_inner();
 ///         move |ability| {
 ///             if let Value::Number(n) = &ability.args[0] {
-///                 log.borrow_mut().push(*n);
+///                 log.lock().expect("lock").push(*n);
 ///             }
 ///             Ok(Value::Unit)
 ///         }
@@ -799,7 +798,7 @@ impl FunctionBuilder {
 /// ```
 #[derive(Debug)]
 pub struct Capture<T> {
-    inner: Rc<RefCell<Vec<T>>>,
+    inner: Arc<std::sync::Mutex<Vec<T>>>,
 }
 
 impl<T> Default for Capture<T> {
@@ -813,19 +812,19 @@ impl<T> Capture<T> {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            inner: Rc::new(RefCell::new(Vec::new())),
+            inner: Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 
-    /// Get a clone of the inner Rc for use in closures.
+    /// Get a clone of the inner Arc for use in closures.
     #[must_use]
-    pub fn clone_inner(&self) -> Rc<RefCell<Vec<T>>> {
-        Rc::clone(&self.inner)
+    pub fn clone_inner(&self) -> Arc<std::sync::Mutex<Vec<T>>> {
+        Arc::clone(&self.inner)
     }
 
     /// Get a reference to captured values.
-    pub fn values(&self) -> std::cell::Ref<'_, Vec<T>> {
-        self.inner.borrow()
+    pub fn values(&self) -> std::sync::MutexGuard<'_, Vec<T>> {
+        self.inner.lock().expect("lock poisoned")
     }
 }
 
@@ -837,23 +836,24 @@ impl<T: std::fmt::Debug> Capture<T> {
     /// Panics if the Capture still has other references.
     #[must_use]
     pub fn into_vec(self) -> Vec<T> {
-        Rc::try_unwrap(self.inner)
+        Arc::try_unwrap(self.inner)
             .expect("Capture still has references")
             .into_inner()
+            .expect("lock poisoned")
     }
 }
 
 impl<T: PartialEq + std::fmt::Debug> Capture<T> {
     /// Assert the captured values equal expected.
     pub fn assert_eq(&self, expected: &[T]) {
-        assert_eq!(*self.inner.borrow(), expected);
+        assert_eq!(*self.inner.lock().expect("lock"), expected);
     }
 }
 
 impl<T> Clone for Capture<T> {
     fn clone(&self) -> Self {
         Self {
-            inner: Rc::clone(&self.inner),
+            inner: Arc::clone(&self.inner),
         }
     }
 }

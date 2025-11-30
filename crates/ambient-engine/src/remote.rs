@@ -208,6 +208,11 @@ impl Executor {
         &self.store
     }
 
+    /// Get a mutable reference to the executor's store.
+    pub fn store_mut(&mut self) -> &mut Store {
+        &mut self.store
+    }
+
     /// Get a mutable reference to the executor's VM.
     ///
     /// This allows registering host ability handlers.

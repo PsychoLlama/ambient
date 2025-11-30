@@ -14,9 +14,12 @@
 
 pub mod abilities;
 pub mod bytecode;
+pub mod client;
 pub mod content_hash;
 pub mod interpreter;
+pub mod protocol;
 pub mod remote;
+pub mod server;
 pub mod store;
 pub mod syntax;
 pub mod value;

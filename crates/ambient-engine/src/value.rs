@@ -1,6 +1,6 @@
-use std::cell::Cell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -24,13 +24,13 @@ pub enum Value {
     Number(f64),
 
     /// UTF-8 string.
-    String(Rc<String>),
+    String(Arc<String>),
 
     /// Tuple: fixed-size, heterogeneous collection accessed by index.
-    Tuple(Rc<Vec<Value>>),
+    Tuple(Arc<Vec<Value>>),
 
     /// Record: named fields with values, structural typing.
-    Record(Rc<HashMap<Rc<str>, Value>>),
+    Record(Arc<HashMap<Arc<str>, Value>>),
 
     /// Reference to a content-addressed function.
     FunctionRef(blake3::Hash),
@@ -38,14 +38,14 @@ pub enum Value {
     /// A suspended ability operation that can be performed later.
     ///
     /// Contains the ability ID, method ID, and arguments.
-    SuspendedAbility(Rc<SuspendedAbility>),
+    SuspendedAbility(Arc<SuspendedAbility>),
 
     /// A captured continuation that can be resumed (single-shot).
     ///
     /// Note: Continuations are NOT serializable as they contain runtime state.
     /// Attempting to serialize a Continuation will produce an error.
     #[serde(skip)]
-    Continuation(Rc<Continuation>),
+    Continuation(Arc<Continuation>),
 }
 
 /// A suspended ability operation waiting to be performed.
@@ -89,7 +89,7 @@ pub struct Continuation {
     pub frames: Vec<CapturedFrame>,
 
     /// Whether this continuation has been resumed (single-shot enforcement).
-    pub resumed: Cell<bool>,
+    resumed: AtomicBool,
 }
 
 /// A captured call frame for continuations.
@@ -112,24 +112,23 @@ impl Continuation {
         Self {
             stack,
             frames,
-            resumed: Cell::new(false),
+            resumed: AtomicBool::new(false),
         }
     }
 
     /// Check if this continuation has already been resumed.
     #[must_use]
     pub fn is_resumed(&self) -> bool {
-        self.resumed.get()
+        self.resumed.load(Ordering::Acquire)
     }
 
     /// Mark this continuation as resumed. Returns false if already resumed.
+    ///
+    /// Uses compare-and-swap to atomically check and set, ensuring thread safety.
     pub fn mark_resumed(&self) -> bool {
-        if self.resumed.get() {
-            false
-        } else {
-            self.resumed.set(true);
-            true
-        }
+        self.resumed
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
     }
 }
 
@@ -137,19 +136,19 @@ impl Value {
     /// Create a new string value.
     #[must_use]
     pub fn string(s: impl Into<String>) -> Self {
-        Self::String(Rc::new(s.into()))
+        Self::String(Arc::new(s.into()))
     }
 
     /// Create a new tuple value.
     #[must_use]
     pub fn tuple(values: Vec<Value>) -> Self {
-        Self::Tuple(Rc::new(values))
+        Self::Tuple(Arc::new(values))
     }
 
     /// Create a new record value.
     #[must_use]
-    pub fn record(fields: impl IntoIterator<Item = (impl Into<Rc<str>>, Value)>) -> Self {
-        Self::Record(Rc::new(fields.into_iter().map(|(k, v)| (k.into(), v)).collect()))
+    pub fn record(fields: impl IntoIterator<Item = (impl Into<Arc<str>>, Value)>) -> Self {
+        Self::Record(Arc::new(fields.into_iter().map(|(k, v)| (k.into(), v)).collect()))
     }
 
     /// Returns the type name for error messages.
@@ -171,13 +170,13 @@ impl Value {
     /// Create a new suspended ability value.
     #[must_use]
     pub fn suspended_ability(ability_id: u16, method_id: u16, args: Vec<Value>) -> Self {
-        Self::SuspendedAbility(Rc::new(SuspendedAbility::new(ability_id, method_id, args)))
+        Self::SuspendedAbility(Arc::new(SuspendedAbility::new(ability_id, method_id, args)))
     }
 
     /// Create a new continuation value.
     #[must_use]
     pub fn continuation(stack: Vec<Value>, frames: Vec<CapturedFrame>) -> Self {
-        Self::Continuation(Rc::new(Continuation::new(stack, frames)))
+        Self::Continuation(Arc::new(Continuation::new(stack, frames)))
     }
 }
 
@@ -198,8 +197,8 @@ impl PartialEq for Value {
                     && a.method_id == b.method_id
                     && a.args == b.args
             }
-            // Continuations are identity-compared (same Rc)
-            (Self::Continuation(a), Self::Continuation(b)) => Rc::ptr_eq(a, b),
+            // Continuations are identity-compared (same Arc)
+            (Self::Continuation(a), Self::Continuation(b)) => Arc::ptr_eq(a, b),
             _ => false,
         }
     }
