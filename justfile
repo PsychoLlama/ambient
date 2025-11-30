@@ -2,10 +2,10 @@ _:
   just --list
 
 build:
-  cargo build --release
+  cargo build --release --workspace
 
 test:
-  cargo test
+  cargo test --workspace
 
 lint:
-  cargo clippy
+  cargo clippy --workspace
