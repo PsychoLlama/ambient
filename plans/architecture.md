@@ -966,11 +966,11 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 
 **Deliverables**:
 
-- [ ] VM instance isolation (separate stores, separate stacks)
-- [ ] Serialize function + dependencies
-- [ ] Transfer to second VM instance
-- [ ] Execute with host-provided ability handlers
-- [ ] Return result to caller
+- [x] VM instance isolation (separate stores, separate stacks)
+- [x] Serialize function + dependencies
+- [x] Transfer to second VM instance
+- [x] Execute with host-provided ability handlers
+- [x] Return result to caller
 
 **Test case**: Two VM instances in unit test. Send function from A to B. B executes and returns result.
 

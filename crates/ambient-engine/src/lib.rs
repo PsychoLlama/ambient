@@ -16,6 +16,7 @@ pub mod abilities;
 pub mod bytecode;
 pub mod content_hash;
 pub mod interpreter;
+pub mod remote;
 pub mod store;
 pub mod syntax;
 pub mod value;
