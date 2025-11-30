@@ -980,11 +980,11 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 
 **Deliverables**:
 
-- [ ] Wire protocol implementation
-- [ ] Server: listen, receive function, execute, return result
-- [ ] Client: connect, send function, receive result
-- [ ] Dependency negotiation (server requests missing functions)
-- [ ] Error handling with proper error values
+- [x] Wire protocol implementation
+- [x] Server: listen, receive function, execute, return result
+- [x] Client: connect, send function, receive result
+- [x] Dependency negotiation (server requests missing functions)
+- [x] Error handling with proper error values
 
 **Test case**: Server on localhost, client sends function, server executes and returns.
 
@@ -994,14 +994,14 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 
 **Deliverables**:
 
-- [ ] Type representation (primitives, functions, tuples, records, generics)
-- [ ] Type environment
-- [ ] Unification algorithm
-- [ ] Type inference (Algorithm W or J)
-- [ ] Structural type equivalence
-- [ ] Nominal types with `unique`
-- [ ] Type checking for hand-constructed ASTs
-- [ ] Type errors with context
+- [x] Type representation (primitives, functions, tuples, records, generics)
+- [x] Type environment
+- [x] Unification algorithm
+- [x] Type inference (Algorithm W or J)
+- [x] Structural type equivalence
+- [x] Nominal types with `unique`
+- [x] Type checking for hand-constructed ASTs
+- [x] Type errors with context
 
 **Test case**: Infer types for identity function, map function, record access.
 

@@ -13,12 +13,15 @@
 #![cfg_attr(not(test), deny(clippy::expect_used))]
 
 pub mod abilities;
+pub mod ast;
 pub mod bytecode;
 pub mod client;
+pub mod infer;
 pub mod protocol;
 pub mod remote;
 pub mod server;
 pub mod store;
+pub mod types;
 pub mod value;
 pub mod vm;
 
