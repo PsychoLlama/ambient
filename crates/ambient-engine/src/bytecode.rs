@@ -262,40 +262,157 @@ impl CompiledFunction {
     /// Create a new compiled function with the given bytecode and constants.
     #[must_use]
     pub fn new(bytecode: Vec<u8>, constants: Vec<Value>, local_count: u16, param_count: u8) -> Self {
-        // Compute hash from bytecode and constants
-        let hash = Self::compute_hash(&bytecode, &constants);
+        Self::with_dependencies(bytecode, constants, local_count, param_count, Vec::new())
+    }
+
+    /// Create a new compiled function with explicit dependencies.
+    #[must_use]
+    pub fn with_dependencies(
+        bytecode: Vec<u8>,
+        constants: Vec<Value>,
+        local_count: u16,
+        param_count: u8,
+        dependencies: Vec<blake3::Hash>,
+    ) -> Self {
+        // Compute hash from bytecode, constants, and function metadata
+        let hash = Self::compute_hash(&bytecode, &constants, local_count, param_count, &dependencies);
         Self {
             hash,
             bytecode,
             constants,
             local_count,
             param_count,
-            dependencies: Vec::new(),
+            dependencies,
         }
     }
 
     /// Compute the content hash for this function.
-    fn compute_hash(bytecode: &[u8], constants: &[Value]) -> blake3::Hash {
+    ///
+    /// The hash includes:
+    /// - Bytecode
+    /// - Constants (using stable binary representation)
+    /// - Local count and param count
+    /// - Dependencies (function hashes this function calls)
+    ///
+    /// This provides a stable, content-addressed identifier that:
+    /// - Is deterministic across runs
+    /// - Changes when any aspect of the function changes
+    /// - Enables deduplication of identical functions
+    fn compute_hash(
+        bytecode: &[u8],
+        constants: &[Value],
+        local_count: u16,
+        param_count: u8,
+        dependencies: &[blake3::Hash],
+    ) -> blake3::Hash {
         let mut hasher = blake3::Hasher::new();
+
+        // Hash bytecode
+        hasher.update(&(bytecode.len() as u32).to_le_bytes());
         hasher.update(bytecode);
-        // For now, just hash the debug representation of constants
-        // A proper implementation would have a stable serialization format
+
+        // Hash constants using stable binary format
+        hasher.update(&(constants.len() as u32).to_le_bytes());
         for constant in constants {
-            hasher.update(format!("{constant:?}").as_bytes());
+            hash_value(&mut hasher, constant);
         }
+
+        // Hash metadata
+        hasher.update(&local_count.to_le_bytes());
+        hasher.update(&[param_count]);
+
+        // Hash dependencies
+        hasher.update(&(dependencies.len() as u32).to_le_bytes());
+        for dep in dependencies {
+            hasher.update(dep.as_bytes());
+        }
+
         hasher.finalize()
+    }
+}
+
+/// Hash a Value using a stable binary representation.
+///
+/// This is used for content addressing and must be deterministic.
+fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
+    // Type discriminant for stable hashing
+    const TYPE_UNIT: u8 = 0;
+    const TYPE_BOOL: u8 = 1;
+    const TYPE_NUMBER: u8 = 2;
+    const TYPE_STRING: u8 = 3;
+    const TYPE_TUPLE: u8 = 4;
+    const TYPE_RECORD: u8 = 5;
+    const TYPE_FUNCTION_REF: u8 = 6;
+    const TYPE_SUSPENDED_ABILITY: u8 = 7;
+    const TYPE_CONTINUATION: u8 = 8;
+
+    match value {
+        Value::Unit => {
+            hasher.update(&[TYPE_UNIT]);
+        }
+        Value::Bool(b) => {
+            hasher.update(&[TYPE_BOOL, u8::from(*b)]);
+        }
+        Value::Number(n) => {
+            hasher.update(&[TYPE_NUMBER]);
+            hasher.update(&n.to_bits().to_le_bytes());
+        }
+        Value::String(s) => {
+            hasher.update(&[TYPE_STRING]);
+            hasher.update(&(s.len() as u32).to_le_bytes());
+            hasher.update(s.as_bytes());
+        }
+        Value::Tuple(elements) => {
+            hasher.update(&[TYPE_TUPLE]);
+            hasher.update(&(elements.len() as u32).to_le_bytes());
+            for elem in elements.iter() {
+                hash_value(hasher, elem);
+            }
+        }
+        Value::Record(fields) => {
+            hasher.update(&[TYPE_RECORD]);
+            // Sort fields for deterministic hashing
+            let mut sorted_fields: Vec<_> = fields.iter().collect();
+            sorted_fields.sort_by(|a, b| a.0.cmp(b.0));
+            hasher.update(&(sorted_fields.len() as u32).to_le_bytes());
+            for (key, val) in sorted_fields {
+                hasher.update(&(key.len() as u32).to_le_bytes());
+                hasher.update(key.as_bytes());
+                hash_value(hasher, val);
+            }
+        }
+        Value::FunctionRef(h) => {
+            hasher.update(&[TYPE_FUNCTION_REF]);
+            hasher.update(h.as_bytes());
+        }
+        Value::SuspendedAbility(ability) => {
+            hasher.update(&[TYPE_SUSPENDED_ABILITY]);
+            hasher.update(&ability.ability_id.to_le_bytes());
+            hasher.update(&ability.method_id.to_le_bytes());
+            hasher.update(&(ability.args.len() as u32).to_le_bytes());
+            for arg in &ability.args {
+                hash_value(hasher, arg);
+            }
+        }
+        Value::Continuation(_) => {
+            // Continuations cannot be content-hashed as they contain runtime state
+            // Use a fixed marker to indicate presence
+            hasher.update(&[TYPE_CONTINUATION]);
+        }
     }
 }
 
 /// A builder for constructing bytecode sequences.
 ///
 /// Provides a convenient API for emitting instructions without manually
-/// managing byte offsets.
+/// managing byte offsets. Automatically tracks function call dependencies.
 #[derive(Debug, Default)]
 pub struct BytecodeBuilder {
     code: Vec<u8>,
     constants: Vec<Value>,
     constant_map: HashMap<ConstantKey, u16>,
+    /// Collected function dependencies (hashes of functions called).
+    dependencies: Vec<blake3::Hash>,
 }
 
 /// Key for deduplicating constants in the constant pool.
@@ -311,7 +428,12 @@ impl BytecodeBuilder {
     /// Create a new bytecode builder.
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            code: Vec::new(),
+            constants: Vec::new(),
+            constant_map: HashMap::new(),
+            dependencies: Vec::new(),
+        }
     }
 
     /// Get the current bytecode offset (for jump targets).
@@ -376,7 +498,14 @@ impl BytecodeBuilder {
     }
 
     /// Emit a Call instruction.
+    ///
+    /// The function hash is automatically tracked as a dependency.
     pub fn emit_call(&mut self, func_hash: blake3::Hash, arg_count: u8) {
+        // Track this as a dependency
+        if !self.dependencies.contains(&func_hash) {
+            self.dependencies.push(func_hash);
+        }
+
         let idx = self.add_constant(Value::FunctionRef(func_hash));
         self.code.push(Opcode::Call as u8);
         self.code.extend_from_slice(&idx.to_le_bytes());
@@ -432,9 +561,36 @@ impl BytecodeBuilder {
     }
 
     /// Build the final compiled function.
+    ///
+    /// Dependencies are automatically collected from `emit_call` invocations.
     #[must_use]
     pub fn build(self, local_count: u16, param_count: u8) -> CompiledFunction {
-        CompiledFunction::new(self.code, self.constants, local_count, param_count)
+        CompiledFunction::with_dependencies(
+            self.code,
+            self.constants,
+            local_count,
+            param_count,
+            self.dependencies,
+        )
+    }
+
+    /// Build the final compiled function with explicit dependencies.
+    ///
+    /// This overrides the automatically collected dependencies.
+    #[must_use]
+    pub fn build_with_dependencies(
+        self,
+        local_count: u16,
+        param_count: u8,
+        dependencies: Vec<blake3::Hash>,
+    ) -> CompiledFunction {
+        CompiledFunction::with_dependencies(self.code, self.constants, local_count, param_count, dependencies)
+    }
+
+    /// Get the collected dependencies.
+    #[must_use]
+    pub fn dependencies(&self) -> &[blake3::Hash] {
+        &self.dependencies
     }
 
     /// Get the raw bytecode (for testing).
@@ -550,5 +706,33 @@ mod tests {
         let bytes = expected_offset.to_le_bytes();
         assert_eq!(builder.bytecode()[1], bytes[0]);
         assert_eq!(builder.bytecode()[2], bytes[1]);
+    }
+
+    #[test]
+    fn test_automatic_dependency_extraction() {
+        let hash1 = blake3::hash(b"func1");
+        let hash2 = blake3::hash(b"func2");
+
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_call(hash1, 0);
+        builder.emit_call(hash2, 1);
+        builder.emit_call(hash1, 2); // Duplicate call shouldn't add duplicate dependency
+
+        let func = builder.build(0, 0);
+
+        assert_eq!(func.dependencies.len(), 2);
+        assert!(func.dependencies.contains(&hash1));
+        assert!(func.dependencies.contains(&hash2));
+    }
+
+    #[test]
+    fn test_no_dependencies_when_no_calls() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(42.0));
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+
+        assert!(func.dependencies.is_empty());
     }
 }

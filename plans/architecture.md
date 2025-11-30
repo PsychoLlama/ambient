@@ -950,13 +950,13 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 
 **Deliverables**:
 
-- [ ] Hash computation for bytecode + type signature
-- [ ] Store implementation (in-memory HashMap)
-- [ ] Function lookup by hash
-- [ ] Dependency tracking
-- [ ] Cycle detection and SCC hashing
-- [ ] Serialization format for functions and values
-- [ ] Round-trip test: serialize → deserialize → execute
+- [x] Hash computation for bytecode + type signature
+- [x] Store implementation (in-memory HashMap)
+- [x] Function lookup by hash
+- [x] Dependency tracking
+- [x] Cycle detection and SCC hashing
+- [x] Serialization format for functions and values
+- [x] Round-trip test: serialize → deserialize → execute
 
 **Test case**: Store multiple functions, call between them by hash.
 
