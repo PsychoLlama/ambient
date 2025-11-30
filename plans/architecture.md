@@ -1041,14 +1041,16 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 
 **Deliverables**:
 
-- [ ] Lexer (tokens)
-- [ ] CST representation (preserves whitespace, comments)
-- [ ] Parser (recursive descent)
-- [ ] Error recovery (continue after errors)
-- [ ] Source spans on all nodes
-- [ ] String interpolation parsing
+- [x] Lexer (tokens)
+- [x] CST representation (preserves whitespace, comments)
+- [x] Parser (recursive descent)
+- [x] Error recovery (continue after errors)
+- [x] Source spans on all nodes
+- [x] String interpolation parsing
 
 **Test case**: Parse example programs, round-trip CST to source.
+
+**Implementation notes**: String interpolation lowering to AST is stubbed (runtime support needed).
 
 ### Milestone 11: Parser (AST + Lowering)
 
@@ -1056,11 +1058,11 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 
 **Deliverables**:
 
-- [ ] AST representation (desugared)
-- [ ] Name resolution
-- [ ] Module system (`use` imports)
-- [ ] Lowering from CST to AST
-- [ ] Source spans preserved for errors
+- [x] AST representation (desugared) - using ambient-engine::ast
+- [ ] Name resolution - qualified names to module definitions
+- [ ] Module system (`use` imports) - import resolution
+- [x] Lowering from CST to AST
+- [x] Source spans preserved for errors
 
 **Test case**: Parse and lower example programs, feed to type checker.
 

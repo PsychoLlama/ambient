@@ -3,5 +3,6 @@ resolver = "2"
 default-members = ["crates/ambient-cli"]
 members = [
   "crates/ambient-engine",
+  "crates/ambient-parser",
   "crates/ambient-cli",
 ]

@@ -1,0 +1,12 @@
+[package]
+name = "ambient-parser"
+version = "0.1.0"
+edition = "2021"
+description = "Parser for the Ambient programming language"
+
+[dependencies]
+ambient-engine = { path = "../ambient-engine" }
+thiserror = "2.0"
+
+[dev-dependencies]
+proptest = "1.5"
