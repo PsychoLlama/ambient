@@ -1059,12 +1059,18 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 **Deliverables**:
 
 - [x] AST representation (desugared) - using ambient-engine::ast
-- [ ] Name resolution - qualified names to module definitions
-- [ ] Module system (`use` imports) - import resolution
+- [x] Name resolution - qualified names to module definitions
+- [x] Module system (`use` imports) - import resolution (single module)
 - [x] Lowering from CST to AST
 - [x] Source spans preserved for errors
 
 **Test case**: Parse and lower example programs, feed to type checker.
+
+**Implementation notes**: Name resolution is implemented with support for:
+- Module-level definitions (functions, constants, types, enums, abilities)
+- Local scopes (parameters, let bindings, pattern bindings)
+- Import resolution within single modules
+- Cross-module imports will be added with the module registry in Milestone 12
 
 ### Milestone 12: Compiler Pipeline
 

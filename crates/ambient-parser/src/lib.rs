@@ -66,6 +66,7 @@ mod error;
 mod lexer;
 mod lower;
 mod parser;
+mod resolve;
 
 pub use cst::{
     CstAbilityDef, CstAbilityMethod, CstConstDef, CstEnumDef, CstEnumVariant, CstExpr, CstExprKind,
@@ -77,6 +78,7 @@ pub use error::{ParseError, ParseErrorKind};
 pub use lexer::{Lexer, Token, TokenKind};
 pub use lower::lower_module;
 pub use parser::Parser;
+pub use resolve::{DefId, Resolver};
 
 use ambient_engine::ast::{Expr, Module};
 

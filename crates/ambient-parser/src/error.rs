@@ -115,6 +115,15 @@ pub enum ParseErrorKind {
     // ─────────────────────────────────────────────────────────────────────────
     /// Error during CST to AST lowering.
     LoweringError(String),
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Name resolution errors
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Undefined name.
+    UndefinedName(String),
+
+    /// Duplicate definition.
+    DuplicateDefinition(String),
 }
 
 impl fmt::Display for ParseErrorKind {
@@ -143,6 +152,9 @@ impl fmt::Display for ParseErrorKind {
             }
 
             Self::LoweringError(msg) => write!(f, "lowering error: {msg}"),
+
+            Self::UndefinedName(name) => write!(f, "undefined name '{name}'"),
+            Self::DuplicateDefinition(name) => write!(f, "duplicate definition '{name}'"),
         }
     }
 }
