@@ -16,6 +16,7 @@ pub mod abilities;
 pub mod ast;
 pub mod bytecode;
 pub mod client;
+pub mod compiler;
 pub mod infer;
 pub mod protocol;
 pub mod remote;

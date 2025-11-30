@@ -1078,12 +1078,43 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 
 **Deliverables**:
 
-- [ ] Source → CST → AST → Typed AST → Bytecode
+- [x] Source → CST → AST → Bytecode
+- [x] CLI: `ambient compile`, `ambient run`, `ambient check`, `ambient ast`
+- [x] Integration tests for end-to-end compilation
+- [ ] Typed AST (module-level type checking)
 - [ ] Content-addressed store integration
 - [ ] Incremental compilation (only recompile changed functions)
-- [ ] CLI: `ambient compile`, `ambient run`
 
 **Test case**: Write programs in `.ab` files, compile and run.
+
+**Implementation notes**: The compiler pipeline (`ambient-engine/src/compiler.rs`) compiles AST to bytecode with support for:
+- Function definitions with parameters and return values
+- Recursive and mutually recursive functions (stable hash computation)
+- Literals (numbers, booleans, strings)
+- Binary and unary operators
+- If-else expressions
+- Let bindings
+- Function calls (both local and external)
+
+The CLI supports:
+- `compile`: Source → .ambient bytecode file (JSON serialized)
+- `run`: Execute .ab source or .ambient bytecode
+- `check`: Validate syntax (parsing only, type checking pending)
+- `ast`: Dump the AST for debugging
+
+**Technical debt to address**:
+
+1. **Hash computation is not content-addressed** (CRITICAL): Currently hashes function name + params + span instead of normalized bytecode + type signature. This violates the core language principle - identical implementations with different names get different hashes. Must fix before content-addressed store integration.
+
+2. **Missing compiler features**:
+   - [ ] Lambda/closure compilation (requires MAKE_CLOSURE opcode)
+   - [ ] Handle expression compilation (requires HANDLE/RESUME opcodes)
+   - [ ] List literal compilation
+   - [ ] Full pattern matching (nested patterns, guards)
+
+3. **Lowering gap**: Lowering produces `Name` nodes instead of `Local` nodes for local variable references. Compiler works around this with `local_names` HashMap, but lowering should emit `Local` nodes directly.
+
+4. **Binary serialization**: `.ambient` files use JSON; should use compact binary format.
 
 ### Milestone 13: Handlers as Values
 

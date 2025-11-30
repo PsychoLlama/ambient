@@ -1,0 +1,13 @@
+// Factorial example
+
+fn factorial(n: number): number {
+  if n <= 1 {
+    1
+  } else {
+    n * factorial(n - 1)
+  }
+}
+
+fn main(): number {
+  factorial(5)
+}

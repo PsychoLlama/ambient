@@ -165,7 +165,11 @@ impl<'src> Parser<'src> {
         let leading_trivia = self.skip_trivia();
 
         let mut items = Vec::new();
-        while !self.at_end() {
+        // Skip trivia before checking at_end to handle trailing whitespace/newlines
+        while {
+            self.skip_trivia();
+            !self.at_end()
+        } {
             match self.parse_item() {
                 Ok(item) => items.push(item),
                 Err(e) => {
