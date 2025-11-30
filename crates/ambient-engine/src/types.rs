@@ -5,6 +5,7 @@
 //! - Composite types (tuples, records, functions)
 //! - Polymorphic types (generics with type variables)
 //! - Nominal types (unique types distinguished by UUID)
+//! - Ability types for tracking side effects (Milestone 8)
 //!
 //! The type system uses structural equivalence by default, with nominal
 //! types providing opt-in name-based distinction.
@@ -20,17 +21,27 @@ use uuid::Uuid;
 /// A unique identifier for type variables, used during unification.
 pub type TypeVarId = u32;
 
+/// A unique identifier for ability variables, used during ability inference.
+pub type AbilityVarId = u32;
+
+/// An ability identifier (matches runtime ability IDs from abilities.rs).
+pub type AbilityId = u16;
+
 /// Counter for generating fresh type variable IDs.
 #[derive(Debug, Default)]
 pub struct TypeVarGen {
     next_id: TypeVarId,
+    next_ability_id: AbilityVarId,
 }
 
 impl TypeVarGen {
     /// Create a new type variable generator.
     #[must_use]
     pub fn new() -> Self {
-        Self { next_id: 0 }
+        Self {
+            next_id: 0,
+            next_ability_id: 0,
+        }
     }
 
     /// Generate a fresh type variable.
@@ -44,6 +55,20 @@ impl TypeVarGen {
     pub fn fresh_id(&mut self) -> TypeVarId {
         let id = self.next_id;
         self.next_id += 1;
+        id
+    }
+
+    /// Generate a fresh ability variable.
+    pub fn fresh_ability_var(&mut self) -> AbilitySet {
+        let id = self.next_ability_id;
+        self.next_ability_id += 1;
+        AbilitySet::Var(id)
+    }
+
+    /// Generate a fresh ability variable ID.
+    pub fn fresh_ability_id(&mut self) -> AbilityVarId {
+        let id = self.next_ability_id;
+        self.next_ability_id += 1;
         id
     }
 }
@@ -60,6 +85,314 @@ pub enum TypeVar {
     /// A type variable that has been linked to another type.
     /// Uses interior mutability for efficient union-find during unification.
     Link(Rc<RefCell<Type>>),
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ability Types (Milestone 8)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A set of abilities required or provided by a function.
+///
+/// Abilities can be:
+/// - Empty: A pure function with no effects
+/// - Concrete: A specific set of ability IDs
+/// - Variable: A polymorphic ability variable (for `E!` syntax)
+/// - Row: A concrete set plus a polymorphic tail (for `Filesystem, E!` syntax)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AbilitySet {
+    /// Empty set of abilities (pure function).
+    Empty,
+
+    /// A concrete set of ability IDs.
+    Concrete(Vec<AbilityId>),
+
+    /// An ability variable (for polymorphic effects like `E!`).
+    Var(AbilityVarId),
+
+    /// A row: concrete abilities plus a variable tail.
+    /// Represents `{Ability1, Ability2, ...} ∪ E!`
+    Row {
+        /// Known concrete abilities.
+        concrete: Vec<AbilityId>,
+        /// Polymorphic tail variable.
+        tail: AbilityVarId,
+    },
+}
+
+impl AbilitySet {
+    /// Create an empty ability set.
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self::Empty
+    }
+
+    /// Create a concrete ability set from a single ability.
+    #[must_use]
+    pub fn single(ability: AbilityId) -> Self {
+        Self::Concrete(vec![ability])
+    }
+
+    /// Create a concrete ability set from multiple abilities.
+    #[must_use]
+    pub fn from_abilities(abilities: impl IntoIterator<Item = AbilityId>) -> Self {
+        let mut abilities: Vec<_> = abilities.into_iter().collect();
+        if abilities.is_empty() {
+            Self::Empty
+        } else {
+            abilities.sort_unstable();
+            abilities.dedup();
+            Self::Concrete(abilities)
+        }
+    }
+
+    /// Create an ability variable.
+    #[must_use]
+    pub const fn var(id: AbilityVarId) -> Self {
+        Self::Var(id)
+    }
+
+    /// Create a row with concrete abilities and a variable tail.
+    #[must_use]
+    pub fn row(abilities: impl IntoIterator<Item = AbilityId>, tail: AbilityVarId) -> Self {
+        let mut concrete: Vec<_> = abilities.into_iter().collect();
+        if concrete.is_empty() {
+            Self::Var(tail)
+        } else {
+            concrete.sort_unstable();
+            concrete.dedup();
+            Self::Row { concrete, tail }
+        }
+    }
+
+    /// Check if this is an empty ability set.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        matches!(self, Self::Empty)
+    }
+
+    /// Check if this is a pure (no effects) ability set.
+    #[must_use]
+    pub fn is_pure(&self) -> bool {
+        matches!(self, Self::Empty)
+    }
+
+    /// Check if this set contains a specific ability.
+    #[must_use]
+    pub fn contains(&self, ability: AbilityId) -> bool {
+        match self {
+            Self::Empty => false,
+            Self::Concrete(abilities) => abilities.contains(&ability),
+            Self::Var(_) => false, // Variable might contain it, but we don't know
+            Self::Row { concrete, .. } => concrete.contains(&ability),
+        }
+    }
+
+    /// Get all concrete abilities in this set.
+    #[must_use]
+    pub fn concrete_abilities(&self) -> &[AbilityId] {
+        match self {
+            Self::Empty | Self::Var(_) => &[],
+            Self::Concrete(abilities) => abilities,
+            Self::Row { concrete, .. } => concrete,
+        }
+    }
+
+    /// Get the ability variable if this is a Var or Row.
+    #[must_use]
+    pub fn ability_var(&self) -> Option<AbilityVarId> {
+        match self {
+            Self::Var(id) | Self::Row { tail: id, .. } => Some(*id),
+            _ => None,
+        }
+    }
+
+    /// Collect all free ability variables.
+    #[must_use]
+    pub fn free_ability_vars(&self) -> Vec<AbilityVarId> {
+        match self {
+            Self::Empty | Self::Concrete(_) => Vec::new(),
+            Self::Var(id) | Self::Row { tail: id, .. } => vec![*id],
+        }
+    }
+
+    /// Union two ability sets.
+    #[must_use]
+    pub fn union(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Empty, other) | (other, Self::Empty) => other.clone(),
+            (Self::Concrete(a), Self::Concrete(b)) => {
+                let mut combined: Vec<_> = a.iter().chain(b.iter()).copied().collect();
+                combined.sort_unstable();
+                combined.dedup();
+                Self::Concrete(combined)
+            }
+            (Self::Concrete(concrete), Self::Var(tail))
+            | (Self::Var(tail), Self::Concrete(concrete)) => Self::Row {
+                concrete: concrete.clone(),
+                tail: *tail,
+            },
+            (Self::Concrete(a), Self::Row { concrete: b, tail })
+            | (Self::Row { concrete: b, tail }, Self::Concrete(a)) => {
+                let mut combined: Vec<_> = a.iter().chain(b.iter()).copied().collect();
+                combined.sort_unstable();
+                combined.dedup();
+                Self::Row {
+                    concrete: combined,
+                    tail: *tail,
+                }
+            }
+            // Two variables or two rows - we can't merge them without unification
+            // Return self for now, unification will handle this
+            (Self::Var(_), Self::Var(_)) => self.clone(),
+            (Self::Row { .. }, Self::Row { .. }) => self.clone(),
+            (Self::Var(_), Self::Row { .. }) | (Self::Row { .. }, Self::Var(_)) => self.clone(),
+        }
+    }
+}
+
+impl Default for AbilitySet {
+    fn default() -> Self {
+        Self::Empty
+    }
+}
+
+impl fmt::Display for AbilitySet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => write!(f, "{{}}"),
+            Self::Concrete(abilities) => {
+                write!(f, "{{")?;
+                for (i, ability) in abilities.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "#{ability}")?;
+                }
+                write!(f, "}}")
+            }
+            Self::Var(id) => write!(f, "E{id}!"),
+            Self::Row { concrete, tail } => {
+                write!(f, "{{")?;
+                for (i, ability) in concrete.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "#{ability}")?;
+                }
+                write!(f, ", E{tail}!}}")
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ability Registry
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Information about an ability definition.
+#[derive(Debug, Clone)]
+pub struct AbilityInfo {
+    /// The ability name.
+    pub name: Arc<str>,
+    /// Dependencies (other abilities this one requires).
+    pub dependencies: Vec<AbilityId>,
+    /// Method signatures: name -> (params, return type).
+    pub methods: HashMap<Arc<str>, (Vec<Type>, Type)>,
+}
+
+impl AbilityInfo {
+    /// Create a new ability info.
+    pub fn new(name: impl Into<Arc<str>>) -> Self {
+        Self {
+            name: name.into(),
+            dependencies: Vec::new(),
+            methods: HashMap::new(),
+        }
+    }
+
+    /// Add a dependency.
+    pub fn with_dependency(mut self, dep: AbilityId) -> Self {
+        self.dependencies.push(dep);
+        self
+    }
+
+    /// Add a method.
+    pub fn with_method(mut self, name: impl Into<Arc<str>>, params: Vec<Type>, ret: Type) -> Self {
+        self.methods.insert(name.into(), (params, ret));
+        self
+    }
+}
+
+/// Registry of ability definitions for dependency tracking.
+#[derive(Debug, Clone, Default)]
+pub struct AbilityRegistry {
+    /// Map from ability ID to ability info.
+    abilities: HashMap<AbilityId, AbilityInfo>,
+    /// Map from ability name to ID for lookup.
+    name_to_id: HashMap<Arc<str>, AbilityId>,
+}
+
+impl AbilityRegistry {
+    /// Create a new empty registry.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register an ability.
+    pub fn register(&mut self, id: AbilityId, info: AbilityInfo) {
+        self.name_to_id.insert(info.name.clone(), id);
+        self.abilities.insert(id, info);
+    }
+
+    /// Get ability info by ID.
+    #[must_use]
+    pub fn get(&self, id: AbilityId) -> Option<&AbilityInfo> {
+        self.abilities.get(&id)
+    }
+
+    /// Look up ability ID by name.
+    #[must_use]
+    pub fn lookup(&self, name: &str) -> Option<AbilityId> {
+        self.name_to_id.get(name).copied()
+    }
+
+    /// Get the transitive closure of dependencies for an ability.
+    /// Returns all abilities that must be available when this ability is used.
+    #[must_use]
+    pub fn transitive_dependencies(&self, id: AbilityId) -> Vec<AbilityId> {
+        let mut result = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        self.collect_dependencies(id, &mut result, &mut visited);
+        result
+    }
+
+    fn collect_dependencies(
+        &self,
+        id: AbilityId,
+        result: &mut Vec<AbilityId>,
+        visited: &mut std::collections::HashSet<AbilityId>,
+    ) {
+        if !visited.insert(id) {
+            return;
+        }
+        if let Some(info) = self.abilities.get(&id) {
+            for dep in &info.dependencies {
+                self.collect_dependencies(*dep, result, visited);
+                if !result.contains(dep) {
+                    result.push(*dep);
+                }
+            }
+        }
+    }
+
+    /// Get the ability set including an ability and all its dependencies.
+    #[must_use]
+    pub fn ability_with_dependencies(&self, id: AbilityId) -> AbilitySet {
+        let mut abilities = vec![id];
+        abilities.extend(self.transitive_dependencies(id));
+        AbilitySet::from_abilities(abilities)
+    }
 }
 
 /// Represents a type in the Ambient language.
@@ -91,8 +424,8 @@ pub enum Type {
     /// `{ field1: T1, field2: T2, ... }`
     Record(RecordType),
 
-    /// Function type: parameters -> return type.
-    /// `(P1, P2, ...) -> R`
+    /// Function type: parameters -> return type with abilities.
+    /// `(P1, P2, ...) -> R with A1, A2, ...`
     Function(FunctionType),
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -118,6 +451,14 @@ pub enum Type {
     Nominal(NominalType),
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Ability types (Milestone 8)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// A suspended ability value: `Ability<T, A!>`
+    /// Represents an ability call that has been suspended and stored as a value.
+    /// `T` is the result type when performed, `A!` is the ability required.
+    AbilityValue(AbilityValueType),
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Special types
     // ─────────────────────────────────────────────────────────────────────────
     /// The never type `!`, for expressions that never return.
@@ -125,6 +466,10 @@ pub enum Type {
 
     /// Error type used during type checking to allow recovery.
     Error,
+
+    /// A type hole `_` for partial annotation.
+    /// During inference, this is replaced with a fresh type variable.
+    Hole,
 }
 
 /// A record type with named fields.
@@ -153,7 +498,7 @@ impl RecordType {
     }
 }
 
-/// A function type with parameters and return type.
+/// A function type with parameters, return type, and ability requirements.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionType {
     /// Parameter types.
@@ -161,15 +506,57 @@ pub struct FunctionType {
 
     /// Return type.
     pub ret: Box<Type>,
+
+    /// Abilities required by this function (Milestone 8).
+    /// Empty means the function is pure.
+    pub abilities: AbilitySet,
 }
 
 impl FunctionType {
-    /// Create a new function type.
+    /// Create a new pure function type (no abilities).
     #[must_use]
     pub fn new(params: Vec<Type>, ret: Type) -> Self {
         Self {
             params,
             ret: Box::new(ret),
+            abilities: AbilitySet::Empty,
+        }
+    }
+
+    /// Create a new function type with abilities.
+    #[must_use]
+    pub fn with_abilities(params: Vec<Type>, ret: Type, abilities: AbilitySet) -> Self {
+        Self {
+            params,
+            ret: Box::new(ret),
+            abilities,
+        }
+    }
+
+    /// Check if this function is pure (has no abilities).
+    #[must_use]
+    pub fn is_pure(&self) -> bool {
+        self.abilities.is_pure()
+    }
+}
+
+/// A suspended ability value type: `Ability<T, A!>`
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AbilityValueType {
+    /// The result type when the ability is performed.
+    pub result: Box<Type>,
+
+    /// The ability required to perform this suspended value.
+    pub ability: AbilitySet,
+}
+
+impl AbilityValueType {
+    /// Create a new ability value type.
+    #[must_use]
+    pub fn new(result: Type, ability: AbilitySet) -> Self {
+        Self {
+            result: Box::new(result),
+            ability,
         }
     }
 }
@@ -179,6 +566,9 @@ impl FunctionType {
 pub struct ForallType {
     /// Bound type variable IDs.
     pub vars: Vec<TypeVarId>,
+
+    /// Bound ability variable IDs (Milestone 8).
+    pub ability_vars: Vec<AbilityVarId>,
 
     /// The quantified type.
     pub body: Box<Type>,
@@ -190,6 +580,21 @@ impl ForallType {
     pub fn new(vars: Vec<TypeVarId>, body: Type) -> Self {
         Self {
             vars,
+            ability_vars: Vec::new(),
+            body: Box::new(body),
+        }
+    }
+
+    /// Create a forall type with ability variables.
+    #[must_use]
+    pub fn with_abilities(
+        vars: Vec<TypeVarId>,
+        ability_vars: Vec<AbilityVarId>,
+        body: Type,
+    ) -> Self {
+        Self {
+            vars,
+            ability_vars,
             body: Box::new(body),
         }
     }
@@ -253,10 +658,22 @@ impl NominalType {
 // ─────────────────────────────────────────────────────────────────────────────
 
 impl Type {
-    /// Create a function type.
+    /// Create a pure function type (no abilities).
     #[must_use]
     pub fn function(params: Vec<Type>, ret: Type) -> Self {
         Self::Function(FunctionType::new(params, ret))
+    }
+
+    /// Create a function type with abilities.
+    #[must_use]
+    pub fn function_with_abilities(params: Vec<Type>, ret: Type, abilities: AbilitySet) -> Self {
+        Self::Function(FunctionType::with_abilities(params, ret, abilities))
+    }
+
+    /// Create an ability value type: `Ability<T, A!>`.
+    #[must_use]
+    pub fn ability_value(result: Type, ability: AbilitySet) -> Self {
+        Self::AbilityValue(AbilityValueType::new(result, ability))
     }
 
     /// Create a tuple type.
@@ -310,15 +727,18 @@ impl Type {
     #[must_use]
     pub fn is_concrete(&self) -> bool {
         match self {
-            Self::Var(_) => false,
+            Self::Var(_) | Self::Hole => false,
             Self::Tuple(elems) => elems.iter().all(Type::is_concrete),
             Self::Record(rec) => rec.fields.iter().all(|(_, t)| t.is_concrete()),
             Self::Function(f) => {
-                f.params.iter().all(Type::is_concrete) && f.ret.is_concrete()
+                f.params.iter().all(Type::is_concrete)
+                    && f.ret.is_concrete()
+                    && f.abilities.ability_var().is_none()
             }
             Self::Named(n) => n.args.iter().all(Type::is_concrete),
             Self::Nominal(n) => n.inner.is_concrete(),
             Self::Forall(f) => f.body.is_concrete(),
+            Self::AbilityValue(av) => av.result.is_concrete() && av.ability.ability_var().is_none(),
             _ => true,
         }
     }
@@ -369,6 +789,7 @@ impl Type {
                 }
             }
             Self::Nominal(n) => n.inner.collect_free_vars(vars),
+            Self::AbilityValue(av) => av.result.collect_free_vars(vars),
             Self::Forall(f) => {
                 // Bound variables are not free
                 let mut body_vars = Vec::new();
@@ -383,45 +804,158 @@ impl Type {
         }
     }
 
+    /// Collect all free ability variables in this type.
+    #[must_use]
+    pub fn free_ability_vars(&self) -> Vec<AbilityVarId> {
+        let mut vars = Vec::new();
+        self.collect_free_ability_vars(&mut vars);
+        vars.sort_unstable();
+        vars.dedup();
+        vars
+    }
+
+    fn collect_free_ability_vars(&self, vars: &mut Vec<AbilityVarId>) {
+        match self {
+            Self::Function(f) => {
+                for p in &f.params {
+                    p.collect_free_ability_vars(vars);
+                }
+                f.ret.collect_free_ability_vars(vars);
+                vars.extend(f.abilities.free_ability_vars());
+            }
+            Self::Tuple(elems) => {
+                for elem in elems {
+                    elem.collect_free_ability_vars(vars);
+                }
+            }
+            Self::Record(rec) => {
+                for (_, t) in &rec.fields {
+                    t.collect_free_ability_vars(vars);
+                }
+            }
+            Self::Named(n) => {
+                for arg in &n.args {
+                    arg.collect_free_ability_vars(vars);
+                }
+            }
+            Self::Nominal(n) => n.inner.collect_free_ability_vars(vars),
+            Self::AbilityValue(av) => {
+                av.result.collect_free_ability_vars(vars);
+                vars.extend(av.ability.free_ability_vars());
+            }
+            Self::Forall(f) => {
+                let mut body_vars = Vec::new();
+                f.body.collect_free_ability_vars(&mut body_vars);
+                for var in body_vars {
+                    if !f.ability_vars.contains(&var) {
+                        vars.push(var);
+                    }
+                }
+            }
+            Self::Var(TypeVar::Link(link)) => link.borrow().collect_free_ability_vars(vars),
+            _ => {}
+        }
+    }
+
     /// Substitute type variables with other types.
     #[must_use]
     pub fn substitute(&self, subst: &HashMap<TypeVarId, Type>) -> Type {
+        self.substitute_all(subst, &HashMap::new())
+    }
+
+    /// Substitute both type variables and ability variables.
+    #[must_use]
+    pub fn substitute_all(
+        &self,
+        type_subst: &HashMap<TypeVarId, Type>,
+        ability_subst: &HashMap<AbilityVarId, AbilitySet>,
+    ) -> Type {
         match self {
-            Self::Var(TypeVar::Unbound(id)) => {
-                subst.get(id).cloned().unwrap_or_else(|| self.clone())
+            Self::Var(TypeVar::Unbound(id)) => type_subst
+                .get(id)
+                .cloned()
+                .unwrap_or_else(|| self.clone()),
+            Self::Var(TypeVar::Link(link)) => {
+                link.borrow().substitute_all(type_subst, ability_subst)
             }
-            Self::Var(TypeVar::Link(link)) => link.borrow().substitute(subst),
-            Self::Tuple(elems) => {
-                Self::Tuple(elems.iter().map(|e| e.substitute(subst)).collect())
-            }
+            Self::Tuple(elems) => Self::Tuple(
+                elems
+                    .iter()
+                    .map(|e| e.substitute_all(type_subst, ability_subst))
+                    .collect(),
+            ),
             Self::Record(rec) => Self::Record(RecordType::new(
                 rec.fields
                     .iter()
-                    .map(|(n, t)| (n.clone(), t.substitute(subst)))
+                    .map(|(n, t)| (n.clone(), t.substitute_all(type_subst, ability_subst)))
                     .collect(),
             )),
-            Self::Function(f) => Self::Function(FunctionType::new(
-                f.params.iter().map(|p| p.substitute(subst)).collect(),
-                f.ret.substitute(subst),
-            )),
+            Self::Function(f) => {
+                let new_abilities = substitute_ability_set(&f.abilities, ability_subst);
+                Self::Function(FunctionType::with_abilities(
+                    f.params
+                        .iter()
+                        .map(|p| p.substitute_all(type_subst, ability_subst))
+                        .collect(),
+                    f.ret.substitute_all(type_subst, ability_subst),
+                    new_abilities,
+                ))
+            }
             Self::Named(n) => Self::Named(NamedType::new(
                 n.name.clone(),
-                n.args.iter().map(|a| a.substitute(subst)).collect(),
+                n.args
+                    .iter()
+                    .map(|a| a.substitute_all(type_subst, ability_subst))
+                    .collect(),
             )),
             Self::Nominal(n) => Self::Nominal(NominalType::new(
                 n.uuid,
-                n.inner.substitute(subst),
+                n.inner.substitute_all(type_subst, ability_subst),
                 n.name.clone(),
             )),
+            Self::AbilityValue(av) => {
+                let new_ability = substitute_ability_set(&av.ability, ability_subst);
+                Self::AbilityValue(AbilityValueType::new(
+                    av.result.substitute_all(type_subst, ability_subst),
+                    new_ability,
+                ))
+            }
             Self::Forall(f) => {
                 // Don't substitute bound variables
-                let mut new_subst = subst.clone();
+                let mut new_type_subst = type_subst.clone();
                 for var in &f.vars {
-                    new_subst.remove(var);
+                    new_type_subst.remove(var);
                 }
-                Self::Forall(ForallType::new(f.vars.clone(), f.body.substitute(&new_subst)))
+                let mut new_ability_subst = ability_subst.clone();
+                for var in &f.ability_vars {
+                    new_ability_subst.remove(var);
+                }
+                Self::Forall(ForallType::with_abilities(
+                    f.vars.clone(),
+                    f.ability_vars.clone(),
+                    f.body.substitute_all(&new_type_subst, &new_ability_subst),
+                ))
             }
             _ => self.clone(),
+        }
+    }
+}
+
+/// Substitute ability variables in an ability set.
+fn substitute_ability_set(
+    ability_set: &AbilitySet,
+    subst: &HashMap<AbilityVarId, AbilitySet>,
+) -> AbilitySet {
+    match ability_set {
+        AbilitySet::Empty | AbilitySet::Concrete(_) => ability_set.clone(),
+        AbilitySet::Var(id) => subst.get(id).cloned().unwrap_or_else(|| ability_set.clone()),
+        AbilitySet::Row { concrete, tail } => {
+            if let Some(tail_set) = subst.get(tail) {
+                // Merge concrete with the substituted tail
+                AbilitySet::from_abilities(concrete.iter().copied()).union(tail_set)
+            } else {
+                ability_set.clone()
+            }
         }
     }
 }
@@ -439,6 +973,7 @@ impl fmt::Display for Type {
             Self::String => write!(f, "string"),
             Self::Never => write!(f, "!"),
             Self::Error => write!(f, "<error>"),
+            Self::Hole => write!(f, "_"),
 
             Self::Var(TypeVar::Unbound(id)) => write!(f, "'{id}"),
             Self::Var(TypeVar::Link(link)) => write!(f, "{}", link.borrow()),
@@ -473,7 +1008,11 @@ impl fmt::Display for Type {
                     }
                     write!(f, "{param}")?;
                 }
-                write!(f, ") -> {}", func.ret)
+                write!(f, ") -> {}", func.ret)?;
+                if !func.abilities.is_empty() {
+                    write!(f, " with {}", func.abilities)?;
+                }
+                Ok(())
             }
 
             Self::Named(named) => {
@@ -499,6 +1038,10 @@ impl fmt::Display for Type {
                 }
             }
 
+            Self::AbilityValue(av) => {
+                write!(f, "Ability<{}, {}>", av.result, av.ability)
+            }
+
             Self::Forall(forall) => {
                 write!(f, "forall ")?;
                 for (i, var) in forall.vars.iter().enumerate() {
@@ -506,6 +1049,12 @@ impl fmt::Display for Type {
                         write!(f, " ")?;
                     }
                     write!(f, "'{var}")?;
+                }
+                for (i, var) in forall.ability_vars.iter().enumerate() {
+                    if !forall.vars.is_empty() || i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "E{var}!")?;
                 }
                 write!(f, ". {}", forall.body)
             }
@@ -654,5 +1203,314 @@ mod tests {
 
         // Same UUID -> same type
         assert_eq!(nominal1, nominal2);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Ability type tests (Milestone 8)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_ability_set_empty() {
+        let empty = AbilitySet::empty();
+        assert!(empty.is_empty());
+        assert!(empty.is_pure());
+        assert!(!empty.contains(1));
+        assert_eq!(empty.to_string(), "{}");
+    }
+
+    #[test]
+    fn test_ability_set_single() {
+        let single = AbilitySet::single(1);
+        assert!(!single.is_empty());
+        assert!(!single.is_pure());
+        assert!(single.contains(1));
+        assert!(!single.contains(2));
+        assert_eq!(single.to_string(), "{#1}");
+    }
+
+    #[test]
+    fn test_ability_set_from_abilities() {
+        let abilities = AbilitySet::from_abilities([3, 1, 2, 1]); // duplicates should be removed
+        assert!(abilities.contains(1));
+        assert!(abilities.contains(2));
+        assert!(abilities.contains(3));
+        assert!(!abilities.contains(4));
+        // Should be sorted
+        assert_eq!(abilities.concrete_abilities(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_ability_set_var() {
+        let var = AbilitySet::var(42);
+        assert!(!var.is_empty());
+        assert!(!var.is_pure());
+        assert_eq!(var.ability_var(), Some(42));
+        assert_eq!(var.to_string(), "E42!");
+    }
+
+    #[test]
+    fn test_ability_set_row() {
+        let row = AbilitySet::row([1, 2], 99);
+        assert!(!row.is_empty());
+        assert!(row.contains(1));
+        assert!(row.contains(2));
+        assert_eq!(row.ability_var(), Some(99));
+        assert_eq!(row.to_string(), "{#1, #2, E99!}");
+    }
+
+    #[test]
+    fn test_ability_set_union() {
+        let a = AbilitySet::from_abilities([1, 2]);
+        let b = AbilitySet::from_abilities([2, 3]);
+        let union = a.union(&b);
+
+        if let AbilitySet::Concrete(abilities) = union {
+            assert_eq!(abilities, vec![1, 2, 3]);
+        } else {
+            panic!("Expected concrete ability set");
+        }
+    }
+
+    #[test]
+    fn test_ability_set_union_with_var() {
+        let concrete = AbilitySet::from_abilities([1, 2]);
+        let var = AbilitySet::var(0);
+        let union = concrete.union(&var);
+
+        if let AbilitySet::Row { concrete, tail } = union {
+            assert_eq!(concrete, vec![1, 2]);
+            assert_eq!(tail, 0);
+        } else {
+            panic!("Expected row ability set");
+        }
+    }
+
+    #[test]
+    fn test_ability_set_free_vars() {
+        let empty = AbilitySet::empty();
+        assert!(empty.free_ability_vars().is_empty());
+
+        let concrete = AbilitySet::from_abilities([1, 2]);
+        assert!(concrete.free_ability_vars().is_empty());
+
+        let var = AbilitySet::var(5);
+        assert_eq!(var.free_ability_vars(), vec![5]);
+
+        let row = AbilitySet::row([1, 2], 10);
+        assert_eq!(row.free_ability_vars(), vec![10]);
+    }
+
+    #[test]
+    fn test_ability_value_type() {
+        let av = Type::ability_value(Type::String, AbilitySet::single(1));
+        assert_eq!(av.to_string(), "Ability<string, {#1}>");
+
+        if let Type::AbilityValue(avt) = av {
+            assert_eq!(*avt.result, Type::String);
+            assert!(avt.ability.contains(1));
+        } else {
+            panic!("Expected AbilityValue type");
+        }
+    }
+
+    #[test]
+    fn test_function_with_abilities() {
+        let func = Type::function_with_abilities(
+            vec![Type::String],
+            Type::Unit,
+            AbilitySet::from_abilities([1, 2]),
+        );
+
+        assert_eq!(func.to_string(), "(string) -> () with {#1, #2}");
+
+        if let Type::Function(ft) = func {
+            assert!(!ft.is_pure());
+            assert!(ft.abilities.contains(1));
+            assert!(ft.abilities.contains(2));
+        } else {
+            panic!("Expected function type");
+        }
+    }
+
+    #[test]
+    fn test_pure_function() {
+        let func = Type::function(vec![Type::Number], Type::Number);
+
+        if let Type::Function(ft) = func {
+            assert!(ft.is_pure());
+            assert!(ft.abilities.is_empty());
+        } else {
+            panic!("Expected function type");
+        }
+    }
+
+    #[test]
+    fn test_ability_var_generator() {
+        let mut gen = TypeVarGen::new();
+        let v1 = gen.fresh_ability_var();
+        let v2 = gen.fresh_ability_var();
+
+        assert_eq!(v1, AbilitySet::Var(0));
+        assert_eq!(v2, AbilitySet::Var(1));
+    }
+
+    #[test]
+    fn test_forall_with_ability_vars() {
+        let forall = Type::Forall(ForallType::with_abilities(
+            vec![0],
+            vec![1],
+            Type::function_with_abilities(
+                vec![Type::var(0)],
+                Type::var(0),
+                AbilitySet::var(1),
+            ),
+        ));
+
+        assert_eq!(forall.to_string(), "forall '0 E1!. ('0) -> '0 with E1!");
+    }
+
+    #[test]
+    fn test_ability_value_is_not_concrete() {
+        let av = Type::ability_value(Type::String, AbilitySet::var(0));
+        assert!(!av.is_concrete());
+
+        let av_concrete = Type::ability_value(Type::String, AbilitySet::single(1));
+        assert!(av_concrete.is_concrete());
+    }
+
+    #[test]
+    fn test_function_with_ability_var_is_not_concrete() {
+        let func = Type::function_with_abilities(
+            vec![Type::Number],
+            Type::Number,
+            AbilitySet::var(0),
+        );
+        assert!(!func.is_concrete());
+    }
+
+    #[test]
+    fn test_free_ability_vars_in_function() {
+        let func = Type::function_with_abilities(
+            vec![Type::Number],
+            Type::Number,
+            AbilitySet::var(42),
+        );
+        assert_eq!(func.free_ability_vars(), vec![42]);
+    }
+
+    #[test]
+    fn test_free_ability_vars_in_ability_value() {
+        let av = Type::ability_value(Type::String, AbilitySet::var(10));
+        assert_eq!(av.free_ability_vars(), vec![10]);
+    }
+
+    #[test]
+    fn test_substitute_ability_vars() {
+        let func = Type::function_with_abilities(
+            vec![Type::var(0)],
+            Type::var(0),
+            AbilitySet::var(1),
+        );
+
+        let type_subst: HashMap<TypeVarId, Type> = [(0, Type::Number)].into_iter().collect();
+        let ability_subst: HashMap<AbilityVarId, AbilitySet> =
+            [(1, AbilitySet::single(99))].into_iter().collect();
+
+        let result = func.substitute_all(&type_subst, &ability_subst);
+
+        if let Type::Function(ft) = result {
+            assert_eq!(ft.params, vec![Type::Number]);
+            assert_eq!(*ft.ret, Type::Number);
+            assert_eq!(ft.abilities, AbilitySet::single(99));
+        } else {
+            panic!("Expected function type");
+        }
+    }
+
+    #[test]
+    fn test_type_hole_display() {
+        assert_eq!(Type::Hole.to_string(), "_");
+    }
+
+    #[test]
+    fn test_type_hole_is_not_concrete() {
+        assert!(!Type::Hole.is_concrete());
+        // Hole in nested type
+        assert!(!Type::function(vec![Type::Hole], Type::Number).is_concrete());
+        assert!(!Type::Tuple(vec![Type::Number, Type::Hole]).is_concrete());
+    }
+
+    #[test]
+    fn test_ability_registry_basic() {
+        let mut registry = AbilityRegistry::new();
+
+        let info = AbilityInfo::new("Console")
+            .with_method("print", vec![Type::String], Type::Unit);
+
+        registry.register(1, info);
+
+        assert!(registry.get(1).is_some());
+        assert_eq!(registry.lookup("Console"), Some(1));
+        assert_eq!(registry.lookup("Unknown"), None);
+    }
+
+    #[test]
+    fn test_ability_registry_dependencies() {
+        let mut registry = AbilityRegistry::new();
+
+        // IO is a base ability
+        registry.register(1, AbilityInfo::new("IO"));
+
+        // FileSystem depends on IO
+        registry.register(
+            2,
+            AbilityInfo::new("FileSystem").with_dependency(1),
+        );
+
+        // Database depends on IO
+        registry.register(
+            3,
+            AbilityInfo::new("Database").with_dependency(1),
+        );
+
+        // App depends on FileSystem and Database
+        registry.register(
+            4,
+            AbilityInfo::new("App")
+                .with_dependency(2)
+                .with_dependency(3),
+        );
+
+        // Check transitive dependencies
+        assert!(registry.transitive_dependencies(1).is_empty());
+        assert_eq!(registry.transitive_dependencies(2), vec![1]);
+        assert_eq!(registry.transitive_dependencies(3), vec![1]);
+
+        // App should transitively depend on IO via both FileSystem and Database
+        let app_deps = registry.transitive_dependencies(4);
+        assert!(app_deps.contains(&1)); // IO
+        assert!(app_deps.contains(&2)); // FileSystem
+        assert!(app_deps.contains(&3)); // Database
+    }
+
+    #[test]
+    fn test_ability_with_dependencies() {
+        let mut registry = AbilityRegistry::new();
+
+        registry.register(1, AbilityInfo::new("IO"));
+        registry.register(
+            2,
+            AbilityInfo::new("FileSystem").with_dependency(1),
+        );
+
+        let set = registry.ability_with_dependencies(2);
+
+        // Should include both FileSystem (2) and IO (1)
+        if let AbilitySet::Concrete(abilities) = set {
+            assert!(abilities.contains(&1));
+            assert!(abilities.contains(&2));
+        } else {
+            panic!("Expected concrete ability set");
+        }
     }
 }

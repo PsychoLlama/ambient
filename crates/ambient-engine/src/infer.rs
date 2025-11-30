@@ -9,8 +9,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::ast::{BinaryOp, BindingId, Expr, ExprKind, Pattern, PatternKind, StmtKind, UnaryOp};
-use crate::types::{FunctionType, RecordType, Type, TypeVar, TypeVarGen, TypeVarId};
+use crate::ast::{BindingId, Expr, ExprKind, Pattern, PatternKind, StmtKind, UnaryOp};
+use crate::types::{
+    AbilityId, AbilityRegistry, AbilitySet, AbilityValueType, AbilityVarId, ForallType,
+    FunctionType, NamedType, NominalType, RecordType, Type, TypeVar, TypeVarGen, TypeVarId,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Type Errors
@@ -93,6 +96,42 @@ pub enum TypeErrorKind {
 
     /// Match arms have different types.
     MatchArmTypeMismatch { first: Type, arm: Type },
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Ability errors (Milestone 8)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Ability mismatch in unification.
+    AbilityMismatch {
+        expected: AbilitySet,
+        actual: AbilitySet,
+    },
+
+    /// Ability variable occurs check failed.
+    InfiniteAbility {
+        var: AbilityVarId,
+        abilities: AbilitySet,
+    },
+
+    /// Missing ability requirement.
+    MissingAbility {
+        required: AbilityId,
+        available: AbilitySet,
+    },
+
+    /// Unknown ability.
+    UnknownAbility { name: Arc<str> },
+
+    /// Unknown ability method.
+    UnknownAbilityMethod {
+        ability: Arc<str>,
+        method: Arc<str>,
+    },
+
+    /// Not a suspended ability value.
+    NotAnAbilityValue { ty: Type },
+
+    /// Ability not handled.
+    AbilityNotHandled { ability: AbilityId },
 }
 
 impl std::fmt::Display for TypeErrorKind {
@@ -134,6 +173,36 @@ impl std::fmt::Display for TypeErrorKind {
                     "match arm type `{arm}` differs from first arm type `{first}`"
                 )
             }
+            Self::AbilityMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "ability mismatch: expected `{expected}`, found `{actual}`"
+                )
+            }
+            Self::InfiniteAbility { var, abilities } => {
+                write!(f, "infinite ability type: E{var}! occurs in `{abilities}`")
+            }
+            Self::MissingAbility {
+                required,
+                available,
+            } => {
+                write!(
+                    f,
+                    "missing ability: #{required} is required but only `{available}` available"
+                )
+            }
+            Self::UnknownAbility { name } => {
+                write!(f, "unknown ability: `{name}`")
+            }
+            Self::UnknownAbilityMethod { ability, method } => {
+                write!(f, "unknown method `{method}` for ability `{ability}`")
+            }
+            Self::NotAnAbilityValue { ty } => {
+                write!(f, "expected a suspended ability value, found `{ty}`")
+            }
+            Self::AbilityNotHandled { ability } => {
+                write!(f, "ability #{ability} is not handled")
+            }
         }
     }
 }
@@ -156,11 +225,14 @@ pub struct TypeEnv {
 
 /// A type scheme (potentially polymorphic type).
 ///
-/// `forall a b. T` where `a` and `b` are quantified type variables.
+/// `forall a b E!. T` where `a` and `b` are quantified type variables
+/// and `E!` is a quantified ability variable.
 #[derive(Debug, Clone)]
 pub struct Scheme {
     /// Quantified type variables.
     pub vars: Vec<TypeVarId>,
+    /// Quantified ability variables (Milestone 8).
+    pub ability_vars: Vec<AbilityVarId>,
     /// The type body.
     pub ty: Type,
 }
@@ -171,14 +243,33 @@ impl Scheme {
     pub fn mono(ty: Type) -> Self {
         Self {
             vars: Vec::new(),
+            ability_vars: Vec::new(),
             ty,
         }
     }
 
-    /// Create a polymorphic scheme.
+    /// Create a polymorphic scheme with type variables only.
     #[must_use]
     pub fn poly(vars: Vec<TypeVarId>, ty: Type) -> Self {
-        Self { vars, ty }
+        Self {
+            vars,
+            ability_vars: Vec::new(),
+            ty,
+        }
+    }
+
+    /// Create a polymorphic scheme with both type and ability variables.
+    #[must_use]
+    pub fn poly_with_abilities(
+        vars: Vec<TypeVarId>,
+        ability_vars: Vec<AbilityVarId>,
+        ty: Type,
+    ) -> Self {
+        Self {
+            vars,
+            ability_vars,
+            ty,
+        }
     }
 }
 
@@ -226,6 +317,21 @@ impl TypeEnv {
             let scheme_vars = scheme.ty.free_vars();
             for var in scheme_vars {
                 if !scheme.vars.contains(&var) && !vars.contains(&var) {
+                    vars.push(var);
+                }
+            }
+        }
+        vars
+    }
+
+    /// Collect all free ability variables in the environment.
+    #[must_use]
+    pub fn free_ability_vars(&self) -> Vec<AbilityVarId> {
+        let mut vars = Vec::new();
+        for scheme in self.bindings.values() {
+            let scheme_vars = scheme.ty.free_ability_vars();
+            for var in scheme_vars {
+                if !scheme.ability_vars.contains(&var) && !vars.contains(&var) {
                     vars.push(var);
                 }
             }
@@ -416,6 +522,13 @@ pub struct Infer {
     gen: TypeVarGen,
     /// Substitution mapping type variables to their bindings.
     subst: HashMap<TypeVarId, Type>,
+    /// Substitution mapping ability variables to their bindings (Milestone 8).
+    ability_subst: HashMap<AbilityVarId, AbilitySet>,
+    /// Current ability requirements being accumulated (Milestone 8).
+    /// This tracks abilities used in the current function being inferred.
+    current_abilities: AbilitySet,
+    /// Optional ability registry for dependency tracking.
+    ability_registry: Option<AbilityRegistry>,
 }
 
 impl Default for Infer {
@@ -431,6 +544,21 @@ impl Infer {
         Self {
             gen: TypeVarGen::new(),
             subst: HashMap::new(),
+            ability_subst: HashMap::new(),
+            current_abilities: AbilitySet::Empty,
+            ability_registry: None,
+        }
+    }
+
+    /// Create a new inference context with an ability registry.
+    #[must_use]
+    pub fn with_registry(registry: AbilityRegistry) -> Self {
+        Self {
+            gen: TypeVarGen::new(),
+            subst: HashMap::new(),
+            ability_subst: HashMap::new(),
+            current_abilities: AbilitySet::Empty,
+            ability_registry: Some(registry),
         }
     }
 
@@ -439,9 +567,103 @@ impl Infer {
         self.gen.fresh()
     }
 
+    /// Generate a fresh ability variable.
+    pub fn fresh_ability_var(&mut self) -> AbilitySet {
+        self.gen.fresh_ability_var()
+    }
+
+    /// Add an ability to the current requirements, including its dependencies.
+    pub fn require_ability(&mut self, ability: AbilityId) {
+        // Add the ability and all its dependencies
+        let abilities = if let Some(registry) = &self.ability_registry {
+            registry.ability_with_dependencies(ability)
+        } else {
+            AbilitySet::single(ability)
+        };
+        self.current_abilities = self.current_abilities.union(&abilities);
+    }
+
+    /// Add an ability set to the current requirements.
+    pub fn require_abilities(&mut self, abilities: &AbilitySet) {
+        self.current_abilities = self.current_abilities.union(abilities);
+    }
+
+    /// Get the current ability requirements.
+    #[must_use]
+    pub fn current_abilities(&self) -> &AbilitySet {
+        &self.current_abilities
+    }
+
+    /// Reset ability tracking (e.g., when entering a new function body).
+    pub fn reset_abilities(&mut self) {
+        self.current_abilities = AbilitySet::Empty;
+    }
+
+    /// Resolve type holes (`_`) in a type annotation by replacing them with fresh
+    /// type variables. This enables partial annotation where users can specify
+    /// some parts of a type and let inference determine the rest.
+    pub fn resolve_holes(&mut self, ty: &Type) -> Type {
+        match ty {
+            Type::Hole => self.fresh(),
+            Type::Tuple(elems) => {
+                Type::Tuple(elems.iter().map(|e| self.resolve_holes(e)).collect())
+            }
+            Type::Record(rec) => Type::Record(RecordType::new(
+                rec.fields
+                    .iter()
+                    .map(|(n, t)| (n.clone(), self.resolve_holes(t)))
+                    .collect(),
+            )),
+            Type::Function(f) => {
+                let params = f.params.iter().map(|p| self.resolve_holes(p)).collect();
+                let ret = self.resolve_holes(&f.ret);
+                Type::function_with_abilities(params, ret, f.abilities.clone())
+            }
+            Type::Named(n) => Type::Named(NamedType::new(
+                n.name.clone(),
+                n.args.iter().map(|a| self.resolve_holes(a)).collect(),
+            )),
+            Type::Nominal(n) => Type::Nominal(NominalType::new(
+                n.uuid,
+                self.resolve_holes(&n.inner),
+                n.name.clone(),
+            )),
+            Type::AbilityValue(av) => Type::AbilityValue(AbilityValueType::new(
+                self.resolve_holes(&av.result),
+                av.ability.clone(),
+            )),
+            Type::Forall(f) => Type::Forall(ForallType::with_abilities(
+                f.vars.clone(),
+                f.ability_vars.clone(),
+                self.resolve_holes(&f.body),
+            )),
+            // Other types remain unchanged
+            _ => ty.clone(),
+        }
+    }
+
     /// Apply substitution to a type.
     pub fn apply(&self, ty: &Type) -> Type {
         self.apply_impl(ty, &mut Vec::new())
+    }
+
+    /// Apply ability substitution to an ability set.
+    pub fn apply_abilities(&self, abilities: &AbilitySet) -> AbilitySet {
+        match abilities {
+            AbilitySet::Empty | AbilitySet::Concrete(_) => abilities.clone(),
+            AbilitySet::Var(id) => self
+                .ability_subst
+                .get(id)
+                .cloned()
+                .unwrap_or_else(|| abilities.clone()),
+            AbilitySet::Row { concrete, tail } => {
+                if let Some(tail_set) = self.ability_subst.get(tail) {
+                    AbilitySet::from_abilities(concrete.iter().copied()).union(tail_set)
+                } else {
+                    abilities.clone()
+                }
+            }
+        }
     }
 
     fn apply_impl(&self, ty: &Type, seen: &mut Vec<TypeVarId>) -> Type {
@@ -469,10 +691,14 @@ impl Infer {
                     .map(|(n, t)| (n.clone(), self.apply_impl(t, seen)))
                     .collect(),
             )),
-            Type::Function(f) => Type::Function(FunctionType::new(
-                f.params.iter().map(|p| self.apply_impl(p, seen)).collect(),
-                self.apply_impl(&f.ret, seen),
-            )),
+            Type::Function(f) => {
+                let applied_abilities = self.apply_abilities(&f.abilities);
+                Type::Function(FunctionType::with_abilities(
+                    f.params.iter().map(|p| self.apply_impl(p, seen)).collect(),
+                    self.apply_impl(&f.ret, seen),
+                    applied_abilities,
+                ))
+            }
             Type::Named(n) => Type::Named(crate::types::NamedType::new(
                 n.name.clone(),
                 n.args.iter().map(|a| self.apply_impl(a, seen)).collect(),
@@ -482,18 +708,33 @@ impl Infer {
                 self.apply_impl(&n.inner, seen),
                 n.name.clone(),
             )),
+            Type::AbilityValue(av) => {
+                let applied_ability = self.apply_abilities(&av.ability);
+                Type::AbilityValue(AbilityValueType::new(
+                    self.apply_impl(&av.result, seen),
+                    applied_ability,
+                ))
+            }
             Type::Forall(f) => {
                 // Don't apply subst to bound variables
                 let mut new_subst = self.subst.clone();
                 for var in &f.vars {
                     new_subst.remove(var);
                 }
+                let mut new_ability_subst = self.ability_subst.clone();
+                for var in &f.ability_vars {
+                    new_ability_subst.remove(var);
+                }
                 let inner_infer = Infer {
                     gen: TypeVarGen::new(),
                     subst: new_subst,
+                    ability_subst: new_ability_subst,
+                    current_abilities: AbilitySet::Empty,
+                    ability_registry: self.ability_registry.clone(),
                 };
-                Type::Forall(crate::types::ForallType::new(
+                Type::Forall(crate::types::ForallType::with_abilities(
                     f.vars.clone(),
+                    f.ability_vars.clone(),
                     inner_infer.apply(&f.body),
                 ))
             }
@@ -593,7 +834,15 @@ impl Infer {
                 for (p1, p2) in f1.params.iter().zip(f2.params.iter()) {
                     self.unify(p1, p2, span)?;
                 }
-                self.unify(&f1.ret, &f2.ret, span)
+                self.unify(&f1.ret, &f2.ret, span)?;
+                // Unify ability requirements (Milestone 8)
+                self.unify_abilities(&f1.abilities, &f2.abilities, span)
+            }
+
+            // AbilityValue types (Milestone 8)
+            (Type::AbilityValue(av1), Type::AbilityValue(av2)) => {
+                self.unify(&av1.result, &av2.result, span)?;
+                self.unify_abilities(&av1.ability, &av2.ability, span)
             }
 
             // Named types
@@ -650,21 +899,248 @@ impl Infer {
             }
             Type::Named(n) => n.args.iter().any(|a| self.occurs(var, a)),
             Type::Nominal(n) => self.occurs(var, &n.inner),
+            Type::AbilityValue(av) => self.occurs(var, &av.result),
             _ => false,
         }
     }
 
+    /// Unify two ability sets.
+    pub fn unify_abilities(
+        &mut self,
+        a1: &AbilitySet,
+        a2: &AbilitySet,
+        span: (u32, u32),
+    ) -> Result<(), TypeError> {
+        let a1 = self.apply_abilities(a1);
+        let a2 = self.apply_abilities(a2);
+
+        match (&a1, &a2) {
+            // Both empty - trivially equal
+            (AbilitySet::Empty, AbilitySet::Empty) => Ok(()),
+
+            // Both concrete - must be equal
+            (AbilitySet::Concrete(c1), AbilitySet::Concrete(c2)) => {
+                if c1 == c2 {
+                    Ok(())
+                } else {
+                    Err(TypeError::new(
+                        TypeErrorKind::AbilityMismatch {
+                            expected: a1.clone(),
+                            actual: a2.clone(),
+                        },
+                        span,
+                    ))
+                }
+            }
+
+            // Same variable - trivially equal
+            (AbilitySet::Var(id1), AbilitySet::Var(id2)) if id1 == id2 => Ok(()),
+
+            // Variable with anything - bind the variable
+            (AbilitySet::Var(id), other) | (other, AbilitySet::Var(id)) => {
+                // Occurs check for ability variables
+                if self.ability_occurs(*id, other) {
+                    return Err(TypeError::new(
+                        TypeErrorKind::InfiniteAbility {
+                            var: *id,
+                            abilities: other.clone(),
+                        },
+                        span,
+                    ));
+                }
+                self.ability_subst.insert(*id, other.clone());
+                Ok(())
+            }
+
+            // Empty with concrete - concrete must be empty
+            (AbilitySet::Empty, AbilitySet::Concrete(c))
+            | (AbilitySet::Concrete(c), AbilitySet::Empty) => {
+                if c.is_empty() {
+                    Ok(())
+                } else {
+                    Err(TypeError::new(
+                        TypeErrorKind::AbilityMismatch {
+                            expected: a1.clone(),
+                            actual: a2.clone(),
+                        },
+                        span,
+                    ))
+                }
+            }
+
+            // Row with something - need to unify carefully
+            (AbilitySet::Row { concrete: c1, tail: t1 }, AbilitySet::Row { concrete: c2, tail: t2 }) => {
+                // Same tail - concrete parts must match
+                if t1 == t2 {
+                    if c1 == c2 {
+                        Ok(())
+                    } else {
+                        Err(TypeError::new(
+                            TypeErrorKind::AbilityMismatch {
+                                expected: a1.clone(),
+                                actual: a2.clone(),
+                            },
+                            span,
+                        ))
+                    }
+                } else {
+                    // Different tails - need to create a fresh tail for the common part
+                    // For now, we handle the simple case where one contains the other
+                    let fresh_tail = self.gen.fresh_ability_id();
+
+                    // The common abilities plus the fresh tail
+                    let mut all_abilities: Vec<_> = c1.iter().chain(c2.iter()).copied().collect();
+                    all_abilities.sort_unstable();
+                    all_abilities.dedup();
+
+                    let new_row = AbilitySet::Row {
+                        concrete: all_abilities,
+                        tail: fresh_tail,
+                    };
+
+                    self.ability_subst.insert(*t1, new_row.clone());
+                    self.ability_subst.insert(*t2, new_row);
+                    Ok(())
+                }
+            }
+
+            // Row with concrete - check that concrete is a subset
+            (AbilitySet::Row { concrete: row_concrete, tail }, AbilitySet::Concrete(c))
+            | (AbilitySet::Concrete(c), AbilitySet::Row { concrete: row_concrete, tail }) => {
+                // Check that all row_concrete abilities are in c
+                for ability in row_concrete {
+                    if !c.contains(ability) {
+                        return Err(TypeError::new(
+                            TypeErrorKind::AbilityMismatch {
+                                expected: a1.clone(),
+                                actual: a2.clone(),
+                            },
+                            span,
+                        ));
+                    }
+                }
+                // Bind the tail to the remaining abilities
+                let remaining: Vec<_> = c.iter().filter(|a| !row_concrete.contains(a)).copied().collect();
+                let remaining_set = AbilitySet::from_abilities(remaining);
+                self.ability_subst.insert(*tail, remaining_set);
+                Ok(())
+            }
+
+            // Row with empty - row must be empty
+            (AbilitySet::Row { concrete, tail }, AbilitySet::Empty)
+            | (AbilitySet::Empty, AbilitySet::Row { concrete, tail }) => {
+                if concrete.is_empty() {
+                    self.ability_subst.insert(*tail, AbilitySet::Empty);
+                    Ok(())
+                } else {
+                    Err(TypeError::new(
+                        TypeErrorKind::AbilityMismatch {
+                            expected: a1.clone(),
+                            actual: a2.clone(),
+                        },
+                        span,
+                    ))
+                }
+            }
+        }
+    }
+
+    /// Check if an ability variable occurs in an ability set.
+    fn ability_occurs(&self, var: AbilityVarId, abilities: &AbilitySet) -> bool {
+        let abilities = self.apply_abilities(abilities);
+        match &abilities {
+            AbilitySet::Empty | AbilitySet::Concrete(_) => false,
+            AbilitySet::Var(id) => *id == var,
+            AbilitySet::Row { tail, .. } => *tail == var,
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Ability lookup helpers (Milestone 8)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Well-known ability IDs (matching abilities.rs).
+    const ABILITY_CONSOLE: AbilityId = 0x0001;
+    const ABILITY_EXCEPTION: AbilityId = 0x0002;
+    const ABILITY_TIME: AbilityId = 0x0003;
+    const ABILITY_RANDOM: AbilityId = 0x0004;
+
+    /// Convert an ability name to its ID.
+    fn ability_name_to_id(&self, name: &str) -> Option<AbilityId> {
+        match name {
+            "Console" => Some(Self::ABILITY_CONSOLE),
+            "Exception" => Some(Self::ABILITY_EXCEPTION),
+            "Time" => Some(Self::ABILITY_TIME),
+            "Random" => Some(Self::ABILITY_RANDOM),
+            _ => None,
+        }
+    }
+
+    /// Look up an ability method and return its ID and result type.
+    fn lookup_ability_method(
+        &mut self,
+        ability_name: &str,
+        method_name: &str,
+        _arg_tys: &[Type],
+        span: (u32, u32),
+    ) -> Result<(AbilityId, Type), TypeError> {
+        let ability_id = self.ability_name_to_id(ability_name).ok_or_else(|| {
+            TypeError::new(
+                TypeErrorKind::UnknownAbility {
+                    name: ability_name.into(),
+                },
+                span,
+            )
+        })?;
+
+        // Look up method signature based on ability and method name
+        let result_ty = match (ability_name, method_name) {
+            // Console ability methods
+            ("Console", "print" | "println" | "eprint" | "eprintln") => Type::Unit,
+
+            // Exception ability methods
+            ("Exception", "throw") => Type::Never,
+
+            // Time ability methods
+            ("Time", "now") => Type::Number,
+            ("Time", "wait") => Type::Unit,
+
+            // Random ability methods
+            ("Random", "seed") => Type::Number,
+            ("Random", "in_range") => Type::Number,
+
+            // Unknown method
+            _ => {
+                return Err(TypeError::new(
+                    TypeErrorKind::UnknownAbilityMethod {
+                        ability: ability_name.into(),
+                        method: method_name.into(),
+                    },
+                    span,
+                ))
+            }
+        };
+
+        Ok((ability_id, result_ty))
+    }
+
     /// Instantiate a type scheme with fresh type variables.
     pub fn instantiate(&mut self, scheme: &Scheme) -> Type {
-        if scheme.vars.is_empty() {
+        if scheme.vars.is_empty() && scheme.ability_vars.is_empty() {
             return scheme.ty.clone();
         }
 
-        let mut subst = HashMap::new();
+        let mut type_subst = HashMap::new();
         for var in &scheme.vars {
-            subst.insert(*var, self.fresh());
+            type_subst.insert(*var, self.fresh());
         }
-        scheme.ty.substitute(&subst)
+
+        let mut ability_subst = HashMap::new();
+        for var in &scheme.ability_vars {
+            ability_subst.insert(*var, self.fresh_ability_var());
+        }
+
+        scheme.ty.substitute_all(&type_subst, &ability_subst)
     }
 
     /// Generalize a type to a scheme by quantifying free variables
@@ -674,15 +1150,23 @@ impl Infer {
         let ty_vars = ty.free_vars();
         let env_vars = env.free_vars();
 
-        let free: Vec<_> = ty_vars
+        let free_type_vars: Vec<_> = ty_vars
             .into_iter()
             .filter(|v| !env_vars.contains(v))
             .collect();
 
-        if free.is_empty() {
+        let ty_ability_vars = ty.free_ability_vars();
+        let env_ability_vars = env.free_ability_vars();
+
+        let free_ability_vars: Vec<_> = ty_ability_vars
+            .into_iter()
+            .filter(|v| !env_ability_vars.contains(v))
+            .collect();
+
+        if free_type_vars.is_empty() && free_ability_vars.is_empty() {
             Scheme::mono(ty)
         } else {
-            Scheme::poly(free, ty)
+            Scheme::poly_with_abilities(free_type_vars, free_ability_vars, ty)
         }
     }
 
@@ -916,7 +1400,11 @@ impl Infer {
                 let mut param_tys = Vec::with_capacity(lambda.params.len());
 
                 for param in &lambda.params {
-                    let param_ty = param.ty.clone().unwrap_or_else(|| self.fresh());
+                    // Resolve holes in type annotations (e.g., `_` becomes a fresh variable)
+                    let param_ty = match &param.ty {
+                        Some(ty) => self.resolve_holes(ty),
+                        None => self.fresh(),
+                    };
                     param_tys.push(param_ty.clone());
                     lambda_env.insert_mono(param.id, param.name.clone(), param_ty);
                 }
@@ -938,10 +1426,101 @@ impl Infer {
                 self.apply(&ret_ty)
             }
 
-            ExprKind::Perform(_) | ExprKind::Suspend(_) | ExprKind::Handle(_) => {
-                // Ability types require additional tracking (Milestone 8)
-                // For now, return a fresh type variable
-                self.fresh()
+            ExprKind::Perform(ability_call) => {
+                // Infer types of arguments
+                let mut arg_tys = Vec::with_capacity(ability_call.args.len());
+                for arg in &mut ability_call.args.clone() {
+                    let mut arg_clone = arg.clone();
+                    arg_tys.push(self.infer_expr(env, &mut arg_clone)?);
+                }
+
+                // Look up the ability and method to get return type
+                // For now, use a simple lookup based on ability name
+                let (ability_id, result_ty) =
+                    self.lookup_ability_method(&ability_call.ability.name, &ability_call.method, &arg_tys, span)?;
+
+                // Add ability to current requirements
+                self.require_ability(ability_id);
+
+                result_ty
+            }
+
+            ExprKind::Suspend(ability_call) => {
+                // Infer types of arguments
+                let mut arg_tys = Vec::with_capacity(ability_call.args.len());
+                for arg in &mut ability_call.args.clone() {
+                    let mut arg_clone = arg.clone();
+                    arg_tys.push(self.infer_expr(env, &mut arg_clone)?);
+                }
+
+                // Look up the ability and method to get return type
+                let (ability_id, result_ty) =
+                    self.lookup_ability_method(&ability_call.ability.name, &ability_call.method, &arg_tys, span)?;
+
+                // Return Ability<result_ty, ability_id> - a suspended ability value
+                Type::ability_value(result_ty, AbilitySet::single(ability_id))
+            }
+
+            ExprKind::Handle(handle_expr) => {
+                // Save current abilities
+                let saved_abilities = self.current_abilities.clone();
+                self.reset_abilities();
+
+                // Infer the body expression
+                let body_ty = self.infer_expr(env, &mut handle_expr.body.clone())?;
+
+                // Get the abilities required by the body
+                let body_abilities = self.current_abilities.clone();
+
+                // Collect handled abilities from the handlers
+                let mut handled_abilities = Vec::new();
+                for handler in &handle_expr.handlers {
+                    if let Some(ability_id) = self.ability_name_to_id(&handler.ability.name) {
+                        handled_abilities.push(ability_id);
+                    }
+
+                    // Infer handler body (with continuation parameter)
+                    let mut handler_env = env.extend();
+                    for param in &handler.params {
+                        let param_ty = param.ty.clone().unwrap_or_else(|| self.fresh());
+                        handler_env.insert_mono(param.id, param.name.clone(), param_ty);
+                    }
+
+                    // Handler body should produce the same type as the overall handle expression
+                    // (when resume is called, it continues with the body's result type)
+                    let mut handler_body = handler.body.clone();
+                    let handler_ty = self.infer_expr(&handler_env, &mut handler_body)?;
+                    self.unify(&body_ty, &handler_ty, span)?;
+                }
+
+                // Compute remaining unhandled abilities
+                let remaining_abilities = match &body_abilities {
+                    AbilitySet::Empty => AbilitySet::Empty,
+                    AbilitySet::Concrete(abilities) => {
+                        let remaining: Vec<_> = abilities
+                            .iter()
+                            .filter(|a| !handled_abilities.contains(a))
+                            .copied()
+                            .collect();
+                        AbilitySet::from_abilities(remaining)
+                    }
+                    AbilitySet::Var(_) | AbilitySet::Row { .. } => {
+                        // Can't statically determine which abilities are handled
+                        // For now, assume all handlers match
+                        body_abilities.clone()
+                    }
+                };
+
+                // Restore saved abilities and add remaining
+                self.current_abilities = saved_abilities.union(&remaining_abilities);
+
+                // Handle else clause if present
+                if let Some(else_clause) = &mut handle_expr.else_clause.clone() {
+                    let else_ty = self.infer_expr(env, else_clause)?;
+                    self.unify(&body_ty, &else_ty, span)?;
+                }
+
+                body_ty
             }
         };
 
@@ -1025,7 +1604,7 @@ impl Infer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::Param;
+    use crate::ast::{BinaryOp, Param};
 
     fn span() -> (u32, u32) {
         (0, 0)
@@ -1274,5 +1853,327 @@ mod tests {
         assert!(msg.contains("type mismatch"));
         assert!(msg.contains("number"));
         assert!(msg.contains("string"));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Ability type inference tests (Milestone 8)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_unify_empty_abilities() {
+        let mut infer = Infer::new();
+        let result = infer.unify_abilities(&AbilitySet::Empty, &AbilitySet::Empty, span());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_unify_same_abilities() {
+        let mut infer = Infer::new();
+        let a = AbilitySet::from_abilities([1, 2]);
+        let b = AbilitySet::from_abilities([1, 2]);
+        let result = infer.unify_abilities(&a, &b, span());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_unify_different_abilities_fails() {
+        let mut infer = Infer::new();
+        let a = AbilitySet::from_abilities([1, 2]);
+        let b = AbilitySet::from_abilities([1, 3]);
+        let result = infer.unify_abilities(&a, &b, span());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unify_ability_var_with_concrete() {
+        let mut infer = Infer::new();
+        let var = AbilitySet::var(0);
+        let concrete = AbilitySet::from_abilities([1, 2]);
+        let result = infer.unify_abilities(&var, &concrete, span());
+        assert!(result.is_ok());
+
+        // The variable should now be bound to the concrete set
+        let applied = infer.apply_abilities(&var);
+        assert_eq!(applied, concrete);
+    }
+
+    #[test]
+    fn test_unify_ability_var_with_empty() {
+        let mut infer = Infer::new();
+        let var = AbilitySet::var(0);
+        let result = infer.unify_abilities(&var, &AbilitySet::Empty, span());
+        assert!(result.is_ok());
+
+        let applied = infer.apply_abilities(&var);
+        assert_eq!(applied, AbilitySet::Empty);
+    }
+
+    #[test]
+    fn test_unify_same_ability_var() {
+        let mut infer = Infer::new();
+        let var = AbilitySet::var(0);
+        let result = infer.unify_abilities(&var, &var, span());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_ability_tracking() {
+        let mut infer = Infer::new();
+
+        // Start with empty abilities
+        assert!(infer.current_abilities().is_pure());
+
+        // Require an ability
+        infer.require_ability(1);
+        assert!(infer.current_abilities().contains(1));
+
+        // Require another ability
+        infer.require_ability(2);
+        assert!(infer.current_abilities().contains(1));
+        assert!(infer.current_abilities().contains(2));
+
+        // Reset
+        infer.reset_abilities();
+        assert!(infer.current_abilities().is_pure());
+    }
+
+    #[test]
+    fn test_fresh_ability_var() {
+        let mut infer = Infer::new();
+        let v1 = infer.fresh_ability_var();
+        let v2 = infer.fresh_ability_var();
+
+        assert!(matches!(v1, AbilitySet::Var(0)));
+        assert!(matches!(v2, AbilitySet::Var(1)));
+    }
+
+    #[test]
+    fn test_apply_abilities() {
+        let mut infer = Infer::new();
+        let var = AbilitySet::var(0);
+        let concrete = AbilitySet::from_abilities([1, 2]);
+
+        // Unify the variable with concrete
+        infer.unify_abilities(&var, &concrete, span()).unwrap();
+
+        // Apply should resolve the variable
+        let applied = infer.apply_abilities(&var);
+        assert_eq!(applied, concrete);
+
+        // Applying to an unbound variable returns the variable
+        let unbound = AbilitySet::var(99);
+        let applied_unbound = infer.apply_abilities(&unbound);
+        assert_eq!(applied_unbound, unbound);
+    }
+
+    #[test]
+    fn test_generalize_with_ability_vars() {
+        let infer = Infer::new();
+        let env = TypeEnv::new();
+
+        // A function type with an ability variable
+        let ty = Type::function_with_abilities(
+            vec![Type::var(0)],
+            Type::var(0),
+            AbilitySet::var(1),
+        );
+
+        let scheme = infer.generalize(&env, &ty);
+
+        // Both the type variable and ability variable should be quantified
+        assert_eq!(scheme.vars, vec![0]);
+        assert_eq!(scheme.ability_vars, vec![1]);
+    }
+
+    #[test]
+    fn test_instantiate_with_ability_vars() {
+        let mut infer = Infer::new();
+
+        // Use higher IDs in the scheme so that fresh vars will be different
+        let scheme = Scheme::poly_with_abilities(
+            vec![100],
+            vec![100],
+            Type::function_with_abilities(
+                vec![Type::var(100)],
+                Type::var(100),
+                AbilitySet::var(100),
+            ),
+        );
+
+        let ty = infer.instantiate(&scheme);
+
+        // Should get fresh type and ability variables (different from the scheme's 100s)
+        if let Type::Function(f) = ty {
+            assert!(matches!(f.params[0], Type::Var(TypeVar::Unbound(id)) if id != 100));
+            assert!(matches!(f.abilities, AbilitySet::Var(id) if id != 100));
+        } else {
+            panic!("Expected function type");
+        }
+    }
+
+    #[test]
+    fn test_unify_functions_with_abilities() {
+        let mut infer = Infer::new();
+
+        let f1 = Type::function_with_abilities(
+            vec![Type::Number],
+            Type::String,
+            AbilitySet::from_abilities([1]),
+        );
+
+        let f2 = Type::function_with_abilities(
+            vec![Type::Number],
+            Type::String,
+            AbilitySet::from_abilities([1]),
+        );
+
+        let result = infer.unify(&f1, &f2, span());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_unify_functions_different_abilities_fails() {
+        let mut infer = Infer::new();
+
+        let f1 = Type::function_with_abilities(
+            vec![Type::Number],
+            Type::String,
+            AbilitySet::from_abilities([1]),
+        );
+
+        let f2 = Type::function_with_abilities(
+            vec![Type::Number],
+            Type::String,
+            AbilitySet::from_abilities([2]),
+        );
+
+        let result = infer.unify(&f1, &f2, span());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unify_ability_values() {
+        let mut infer = Infer::new();
+
+        let av1 = Type::ability_value(Type::String, AbilitySet::single(1));
+        let av2 = Type::ability_value(Type::String, AbilitySet::single(1));
+
+        let result = infer.unify(&av1, &av2, span());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_unify_ability_values_different_result_fails() {
+        let mut infer = Infer::new();
+
+        let av1 = Type::ability_value(Type::String, AbilitySet::single(1));
+        let av2 = Type::ability_value(Type::Number, AbilitySet::single(1));
+
+        let result = infer.unify(&av1, &av2, span());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ability_name_to_id() {
+        let infer = Infer::new();
+        assert_eq!(infer.ability_name_to_id("Console"), Some(1));
+        assert_eq!(infer.ability_name_to_id("Exception"), Some(2));
+        assert_eq!(infer.ability_name_to_id("Time"), Some(3));
+        assert_eq!(infer.ability_name_to_id("Random"), Some(4));
+        assert_eq!(infer.ability_name_to_id("Unknown"), None);
+    }
+
+    #[test]
+    fn test_ability_error_display() {
+        let err = TypeError::new(
+            TypeErrorKind::AbilityMismatch {
+                expected: AbilitySet::from_abilities([1]),
+                actual: AbilitySet::from_abilities([2]),
+            },
+            (0, 10),
+        );
+        let msg = format!("{err}");
+        assert!(msg.contains("ability mismatch"));
+
+        let err2 = TypeError::new(
+            TypeErrorKind::UnknownAbility {
+                name: "Foo".into(),
+            },
+            (0, 10),
+        );
+        let msg2 = format!("{err2}");
+        assert!(msg2.contains("unknown ability"));
+        assert!(msg2.contains("Foo"));
+    }
+
+    #[test]
+    fn test_resolve_holes_simple() {
+        let mut infer = Infer::new();
+
+        // Hole becomes a fresh type variable
+        let resolved = infer.resolve_holes(&Type::Hole);
+        assert!(matches!(resolved, Type::Var(TypeVar::Unbound(_))));
+    }
+
+    #[test]
+    fn test_resolve_holes_nested() {
+        let mut infer = Infer::new();
+
+        // Holes in nested types get resolved
+        let func = Type::function(vec![Type::Hole], Type::Hole);
+        let resolved = infer.resolve_holes(&func);
+
+        if let Type::Function(f) = resolved {
+            assert!(matches!(f.params[0], Type::Var(TypeVar::Unbound(_))));
+            assert!(matches!(*f.ret, Type::Var(TypeVar::Unbound(_))));
+        } else {
+            panic!("Expected function type");
+        }
+    }
+
+    #[test]
+    fn test_resolve_holes_partial() {
+        let mut infer = Infer::new();
+
+        // Mix of concrete types and holes
+        let tuple = Type::Tuple(vec![Type::Number, Type::Hole, Type::String]);
+        let resolved = infer.resolve_holes(&tuple);
+
+        if let Type::Tuple(elems) = resolved {
+            assert_eq!(elems[0], Type::Number);
+            assert!(matches!(elems[1], Type::Var(TypeVar::Unbound(_))));
+            assert_eq!(elems[2], Type::String);
+        } else {
+            panic!("Expected tuple type");
+        }
+    }
+
+    #[test]
+    fn test_require_ability_with_registry() {
+        use crate::types::{AbilityInfo, AbilityRegistry};
+
+        let mut registry = AbilityRegistry::new();
+
+        // IO is ability 1
+        registry.register(1, AbilityInfo::new("IO"));
+
+        // FileSystem (2) depends on IO (1)
+        registry.register(
+            2,
+            AbilityInfo::new("FileSystem").with_dependency(1),
+        );
+
+        let mut infer = Infer::with_registry(registry);
+
+        // When we require FileSystem, IO should also be required
+        infer.require_ability(2);
+
+        let abilities = infer.current_abilities();
+        if let AbilitySet::Concrete(ids) = abilities {
+            assert!(ids.contains(&1), "IO should be required");
+            assert!(ids.contains(&2), "FileSystem should be required");
+        } else {
+            panic!("Expected concrete ability set");
+        }
     }
 }

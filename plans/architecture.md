@@ -1011,14 +1011,14 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 
 **Deliverables**:
 
-- [ ] Ability set representation
-- [ ] Ability variables (for polymorphism, with `!` syntax)
-- [ ] Ability row unification
-- [ ] Ability inference for function bodies
-- [ ] Ability checking at call sites
-- [ ] Ability dependency tracking (`with` clause on abilities)
-- [ ] `Ability<T, A!>` type for suspended abilities
-- [ ] Partial annotation with `_`
+- [x] Ability set representation
+- [x] Ability variables (for polymorphism, with `!` syntax)
+- [x] Ability row unification
+- [x] Ability inference for function bodies
+- [x] Ability checking at call sites
+- [x] Ability dependency tracking (`with` clause on abilities)
+- [x] `Ability<T, A!>` type for suspended abilities
+- [x] Partial annotation with `_`
 
 **Test case**: Infer abilities for function that reads a file. Verify ability polymorphism for `map`.
 
