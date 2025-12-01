@@ -1127,7 +1127,7 @@ Type checking integration (`ambient-engine/src/infer.rs`):
 - [x] `handle ... with handler_value` syntax (parsing and type checking)
 - [x] Handler composition runtime support (`HandlerValue::compose`)
 - [x] `handle ... with handler_value` runtime installation (`HandleWithValue` opcode)
-- [ ] Handler composition syntax (operator or built-in function)
+- [x] Handler composition via `handle ... with handler_value { inline_overrides }` syntax
 
 **Test case**: Define mock handlers, use in tests.
 
@@ -1135,7 +1135,7 @@ Type checking integration (`ambient-engine/src/infer.rs`):
 
 The `handle expr with handler1, handler2 { ... }` syntax is fully supported. Handler values in the `with` clause are type-checked to ensure they are `Handler<A>` types. The `HandleWithValue` opcode (0xB1) dynamically installs handlers from `HandlerValue` objects at runtime. The `HandlerFrame` struct supports both inline handlers (`HandlerKind::Inline`) and value-based handlers (`HandlerKind::Value`), and the `Perform` opcode correctly dispatches to the appropriate method function.
 
-Handler composition is supported at the runtime level via `HandlerValue::compose()`, but there is no syntax yet to invoke it from Ambient code. Future work could add an operator like `+` or a built-in function.
+Handler composition is achieved through the `handle ... with handler_value { inline_overrides }` syntax, where a complete handler value provides the base implementation and inline handlers override specific methods. This avoids the need for partial handlers (which would be invalid) while still enabling layered behavior.
 
 ### Milestone 14: Sandboxing
 
