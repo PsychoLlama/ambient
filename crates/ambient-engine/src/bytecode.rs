@@ -250,6 +250,14 @@ pub enum Opcode {
     /// a HandlerValue containing the ability ID, methods map, and captures.
     MakeHandler = 0xB0,
 
+    /// Install a handler from a HandlerValue on the stack.
+    /// Operand: i16 (offset to jump to after handled expression completes normally)
+    ///
+    /// Pops a HandlerValue from the stack and installs it as the current handler
+    /// for the ability. When an ability operation is performed, the handler's
+    /// method functions will be called based on the method ID.
+    HandleWithValue = 0xB1,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Special
     // ─────────────────────────────────────────────────────────────────────────
@@ -307,6 +315,7 @@ impl Opcode {
             0xA2 => Some(Self::LoadCapture),
             // Handler literals
             0xB0 => Some(Self::MakeHandler),
+            0xB1 => Some(Self::HandleWithValue),
             0xFF => Some(Self::Halt),
             _ => None,
         }
@@ -715,6 +724,28 @@ impl BytecodeBuilder {
             self.code.extend_from_slice(&method_id.to_le_bytes());
             self.code.extend_from_slice(&idx.to_le_bytes());
         }
+    }
+
+    /// Emit a HandleWithValue instruction.
+    ///
+    /// Expects a HandlerValue on the stack. Pops it and installs as the handler
+    /// for the ability. Returns the offset for patching the normal completion jump.
+    pub fn emit_handle_with_value(&mut self) -> usize {
+        self.code.push(Opcode::HandleWithValue as u8);
+        let jump_offset = self.code.len();
+        self.code.extend_from_slice(&[0, 0]); // Placeholder for normal completion jump
+        jump_offset
+    }
+
+    /// Patch the normal completion jump offset for a HandleWithValue instruction.
+    pub fn patch_handle_with_value(&mut self, handle_jump_offset: usize) {
+        let target = self.code.len();
+        // The offset is from right after the HandleWithValue opcode
+        let instruction_end = handle_jump_offset + 2; // After the i16 offset field
+        let relative = (target as isize - instruction_end as isize) as i16;
+        let bytes = relative.to_le_bytes();
+        self.code[handle_jump_offset] = bytes[0];
+        self.code[handle_jump_offset + 1] = bytes[1];
     }
 
     /// Emit a LoadCapture instruction.

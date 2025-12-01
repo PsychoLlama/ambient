@@ -138,6 +138,18 @@ struct CallFrame {
     captures: Vec<Value>,
 }
 
+/// The kind of handler installed in a handler frame.
+#[derive(Debug, Clone)]
+enum HandlerKind {
+    /// An inline handler with a single function for all methods.
+    /// The function receives (continuation, suspended_ability) and must dispatch by method.
+    Inline { handler_func: blake3::Hash },
+
+    /// A handler value with separate functions for each method.
+    /// When an ability is performed, the method_id is used to look up the function.
+    Value { handler_value: Arc<crate::value::HandlerValue> },
+}
+
 /// An installed ability handler that can intercept ability operations.
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // normal_completion_ip may be used for future optimizations
@@ -145,8 +157,8 @@ struct HandlerFrame {
     /// The ability ID this handler handles.
     ability_id: u16,
 
-    /// The handler function to call when ability is performed.
-    handler_func: blake3::Hash,
+    /// The handler implementation (inline function or handler value).
+    handler: HandlerKind,
 
     /// The call frame index where this handler was installed.
     call_frame_idx: usize,
@@ -665,6 +677,23 @@ impl Vm {
                         // Found a handler - capture continuation and jump to handler
                         let handler = self.handlers[idx].clone();
 
+                        // Determine the handler function to call based on handler kind
+                        let handler_func = match &handler.handler {
+                            HandlerKind::Inline { handler_func } => *handler_func,
+                            HandlerKind::Value { handler_value } => {
+                                // Look up the method function from the handler value
+                                match handler_value.get_method(ability.method_id) {
+                                    Some(func) => func,
+                                    None => {
+                                        return Err(VmError::UnhandledAbility {
+                                            ability_id: ability.ability_id,
+                                            method_id: ability.method_id,
+                                        });
+                                    }
+                                }
+                            }
+                        };
+
                         // Capture the continuation: stack and frames from handler point to current
                         let captured_stack = self.stack.split_off(handler.stack_height);
                         let captured_frames: Vec<CapturedFrame> = self.frames[handler.call_frame_idx..]
@@ -691,7 +720,7 @@ impl Vm {
                         self.stack.push(Value::SuspendedAbility(ability));
 
                         // Call the handler function
-                        self.push_frame(&handler.handler_func, 2)?;
+                        self.push_frame(&handler_func, 2)?;
                     } else {
                         // No handler found
                         return Err(VmError::UnhandledAbility {
@@ -702,7 +731,7 @@ impl Vm {
                 }
 
                 Opcode::Handle => {
-                    // Install an ability handler
+                    // Install an ability handler (inline)
                     let ability_id = self.read_u16()?;
                     let handler_idx = self.read_u16()?;
                     let completion_offset = self.read_i16()?;
@@ -725,7 +754,7 @@ impl Vm {
 
                     self.handlers.push(HandlerFrame {
                         ability_id,
-                        handler_func,
+                        handler: HandlerKind::Inline { handler_func },
                         call_frame_idx: self.frames.len() - 1,
                         stack_height: self.stack.len(),
                         normal_completion_ip,
@@ -973,6 +1002,37 @@ impl Vm {
                     self.stack.push(Value::Handler(std::sync::Arc::new(
                         crate::value::HandlerValue::with_captures(ability_id, methods, captures),
                     )));
+                }
+
+                Opcode::HandleWithValue => {
+                    // Install a handler from a HandlerValue on the stack
+                    let completion_offset = self.read_i16()?;
+
+                    // Pop the handler value from the stack
+                    let handler_value = match self.pop()? {
+                        Value::Handler(h) => h,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "handler",
+                                got: other.type_name(),
+                                operation: "handle_with_value",
+                            })
+                        }
+                    };
+
+                    // Calculate normal completion IP
+                    let frame = self.current_frame()?;
+                    let current_ip = frame.ip;
+                    let normal_completion_ip =
+                        (current_ip as isize + completion_offset as isize) as usize;
+
+                    self.handlers.push(HandlerFrame {
+                        ability_id: handler_value.ability_id,
+                        handler: HandlerKind::Value { handler_value },
+                        call_frame_idx: self.frames.len() - 1,
+                        stack_height: self.stack.len(),
+                        normal_completion_ip,
+                    });
                 }
             }
         }

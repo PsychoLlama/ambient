@@ -417,3 +417,108 @@ fn test_example_factorial() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("120"), "expected 120 in output: {stdout}");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Handler Value Tests (Milestone 13)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_handler_value_basic() {
+    // Test that handler values can be created and installed with `handle ... with`
+    let (dir, path) = temp_source(r#"
+        fn simple_function(): number { 100 }
+
+        fn test_handler_value(): number {
+            let mock_console = {
+                print(msg) => resume(())
+            };
+            handle simple_function() with mock_console {}
+        }
+
+        fn main(): number { test_handler_value() }
+    "#);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&path)
+        .output()
+        .expect("failed to execute command");
+
+    assert!(output.status.success(), "handler_value test failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("100"), "expected 100 in output: {stdout}");
+
+    drop(dir);
+}
+
+#[test]
+fn test_handler_value_multiple() {
+    // Test multiple handler values
+    let (dir, path) = temp_source(r#"
+        fn simple_function(): number { 200 }
+
+        fn test_multiple_handlers(): number {
+            let handler1 = { print(msg) => resume(()) };
+            let handler2 = { throw(err) => resume(()) };
+            handle simple_function() with handler1, handler2 {}
+        }
+
+        fn main(): number { test_multiple_handlers() }
+    "#);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&path)
+        .output()
+        .expect("failed to execute command");
+
+    assert!(output.status.success(), "multiple handler values test failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("200"), "expected 200 in output: {stdout}");
+
+    drop(dir);
+}
+
+#[test]
+fn test_handler_value_with_inline() {
+    // Test combining handler value with inline handlers
+    let (dir, path) = temp_source(r#"
+        fn simple_function(): number { 300 }
+
+        fn test_mixed(): number {
+            let mock_console = { print(msg) => resume(()) };
+            handle simple_function() with mock_console {
+                Exception.throw(err) => {
+                    resume(())
+                }
+            }
+        }
+
+        fn main(): number { test_mixed() }
+    "#);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&path)
+        .output()
+        .expect("failed to execute command");
+
+    assert!(output.status.success(), "mixed handlers test failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("300"), "expected 300 in output: {stdout}");
+
+    drop(dir);
+}
+
+#[test]
+fn test_example_handler_value() {
+    let output = ambient_cmd()
+        .arg("run")
+        .arg("../../examples/handler_value_test.ab")
+        .output()
+        .expect("failed to execute command");
+
+    assert!(output.status.success(), "handler_value_test.ab should run successfully: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("100"), "expected 100 in output: {stdout}");
+}

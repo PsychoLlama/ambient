@@ -1418,18 +1418,18 @@ fn compile_handle_expr(
     let mut handler_hashes = Vec::new();
     let mut handler_ability_ids = Vec::new();
 
-    // Handle handler values from `with` clause
-    // For each handler value, we need to evaluate it and install its methods.
-    // TODO: Full implementation requires a new opcode that can install handlers
-    // from a runtime HandlerValue. For now, we compile the expressions but
-    // defer the actual handler installation to inline handlers.
+    // Track jump offsets for handler values (from `with` clause)
+    let mut handler_value_jump_offsets = Vec::new();
+
+    // Compile handler values from `with` clause
+    // Each handler value expression evaluates to a HandlerValue on the stack,
+    // then HandleWithValue pops it and installs it as a handler.
     for handler_value in &handle_expr.handler_values {
-        // Get the ability ID from the handler value's type
-        let ability_id = match &handler_value.ty {
-            Some(crate::types::Type::Handler(h)) => h.ability,
+        // Verify this is a Handler type (type checking should have caught errors)
+        match &handler_value.ty {
+            Some(crate::types::Type::Handler(_)) => {}
             _ => {
-                // If we can't determine the ability, skip this handler value.
-                // Type checking should have caught this.
+                // Skip if not a handler type - type checking should have caught this
                 continue;
             }
         };
@@ -1437,17 +1437,9 @@ fn compile_handle_expr(
         // Compile the handler value expression - this leaves a HandlerValue on the stack.
         compile_expr(fc, handler_value, ctx)?;
 
-        // For now, we need to pop the handler value since we can't use it dynamically yet.
-        // A full implementation would use a HandleWithValue opcode.
-        // TODO: Implement HandleWithValue opcode that installs handlers from stack values.
-        fc.builder.emit(Opcode::Pop);
-
-        // Note: The handler value's methods are NOT installed here.
-        // To properly support `handle ... with handler_value`, we would need:
-        // 1. A new opcode HandleWithValue that takes a HandlerValue from the stack
-        // 2. VM logic to iterate over the handler's methods and install each
-        // This is left as future work.
-        let _ = ability_id;
+        // Emit HandleWithValue to pop the handler and install it
+        let jump_offset = fc.builder.emit_handle_with_value();
+        handler_value_jump_offsets.push(jump_offset);
     }
 
     // First, compile each inline handler as a separate function.
@@ -1542,13 +1534,23 @@ fn compile_handle_expr(
     compile_expr(fc, &handle_expr.body, ctx)?;
 
     // Emit Unhandle for each handler (in reverse order).
+    // First unhandle inline handlers (most recently installed)
     for _ in &handle_expr.handlers {
+        fc.builder.emit(Opcode::Unhandle);
+    }
+    // Then unhandle handler values (installed first)
+    for _ in &handle_expr.handler_values {
         fc.builder.emit(Opcode::Unhandle);
     }
 
     // Patch all the handle instruction jump offsets to point here.
+    // Patch inline handler offsets
     for offset in handle_jump_offsets {
         fc.builder.patch_handle(offset);
+    }
+    // Patch handler value offsets
+    for offset in handler_value_jump_offsets {
+        fc.builder.patch_handle_with_value(offset);
     }
 
     // Handle else clause if present.
