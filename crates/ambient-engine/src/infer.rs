@@ -1064,6 +1064,7 @@ impl Infer {
     const ABILITY_EXCEPTION: AbilityId = 0x0002;
     const ABILITY_TIME: AbilityId = 0x0003;
     const ABILITY_RANDOM: AbilityId = 0x0004;
+    const ABILITY_ASYNC: AbilityId = 0x0005;
 
     /// Convert an ability name to its ID.
     fn ability_name_to_id(&self, name: &str) -> Option<AbilityId> {
@@ -1072,18 +1073,22 @@ impl Infer {
             "Exception" => Some(Self::ABILITY_EXCEPTION),
             "Time" => Some(Self::ABILITY_TIME),
             "Random" => Some(Self::ABILITY_RANDOM),
+            "Async" => Some(Self::ABILITY_ASYNC),
             _ => None,
         }
     }
 
-    /// Look up an ability method and return its ID and result type.
+    /// Look up an ability method and return its ID, result type, and additional abilities to require.
+    ///
+    /// For most abilities, the additional abilities set is empty. For `Async.all` and `Async.race`,
+    /// it includes the underlying ability from the suspended ability values being performed.
     fn lookup_ability_method(
         &mut self,
         ability_name: &str,
         method_name: &str,
-        _arg_tys: &[Type],
+        arg_tys: &[Type],
         span: (u32, u32),
-    ) -> Result<(AbilityId, Type), TypeError> {
+    ) -> Result<(AbilityId, Type, AbilitySet), TypeError> {
         let ability_id = self.ability_name_to_id(ability_name).ok_or_else(|| {
             TypeError::new(
                 TypeErrorKind::UnknownAbility {
@@ -1094,20 +1099,32 @@ impl Infer {
         })?;
 
         // Look up method signature based on ability and method name
-        let result_ty = match (ability_name, method_name) {
+        let (result_ty, additional_abilities) = match (ability_name, method_name) {
             // Console ability methods
-            ("Console", "print" | "println" | "eprint" | "eprintln") => Type::Unit,
+            ("Console", "print" | "println" | "eprint" | "eprintln") => (Type::Unit, AbilitySet::Empty),
 
             // Exception ability methods
-            ("Exception", "throw") => Type::Never,
+            ("Exception", "throw") => (Type::Never, AbilitySet::Empty),
 
             // Time ability methods
-            ("Time", "now") => Type::Number,
-            ("Time", "wait") => Type::Unit,
+            ("Time", "now") => (Type::Number, AbilitySet::Empty),
+            ("Time", "wait") => (Type::Unit, AbilitySet::Empty),
 
             // Random ability methods
-            ("Random", "seed") => Type::Number,
-            ("Random", "in_range") => Type::Number,
+            ("Random", "seed") => (Type::Number, AbilitySet::Empty),
+            ("Random", "in_range") => (Type::Number, AbilitySet::Empty),
+
+            // Async ability methods - polymorphic over result type and underlying ability
+            ("Async", "all") => {
+                // Async.all: List<Ability<T, A!>> -> List<T> with Async, A
+                let (result_ty, underlying_ability) = self.infer_async_all_type(arg_tys, span)?;
+                (result_ty, underlying_ability)
+            }
+            ("Async", "race") => {
+                // Async.race: List<Ability<T, A!>> -> T with Async, A
+                let (result_ty, underlying_ability) = self.infer_async_race_type(arg_tys, span)?;
+                (result_ty, underlying_ability)
+            }
 
             // Unknown method
             _ => {
@@ -1121,7 +1138,86 @@ impl Infer {
             }
         };
 
-        Ok((ability_id, result_ty))
+        Ok((ability_id, result_ty, additional_abilities))
+    }
+
+    /// Infer the result type for `Async.all(ops)` where `ops: List<Ability<T, A!>>`.
+    /// Returns `(List<T>, A)` - the result type and the underlying ability to require.
+    fn infer_async_all_type(
+        &mut self,
+        arg_tys: &[Type],
+        span: (u32, u32),
+    ) -> Result<(Type, AbilitySet), TypeError> {
+        // Async.all takes exactly one argument
+        if arg_tys.len() != 1 {
+            return Err(TypeError::new(
+                TypeErrorKind::ArityMismatch {
+                    expected: 1,
+                    actual: arg_tys.len(),
+                },
+                span,
+            ));
+        }
+
+        // Extract T and A from List<Ability<T, A!>>
+        let (element_result_ty, underlying_ability) =
+            self.extract_list_ability_types(&arg_tys[0], span)?;
+
+        // Return List<T>
+        let result_ty = Type::named("List", vec![element_result_ty]);
+        Ok((result_ty, underlying_ability))
+    }
+
+    /// Infer the result type for `Async.race(ops)` where `ops: List<Ability<T, A!>>`.
+    /// Returns `(T, A)` - the result type and the underlying ability to require.
+    fn infer_async_race_type(
+        &mut self,
+        arg_tys: &[Type],
+        span: (u32, u32),
+    ) -> Result<(Type, AbilitySet), TypeError> {
+        // Async.race takes exactly one argument
+        if arg_tys.len() != 1 {
+            return Err(TypeError::new(
+                TypeErrorKind::ArityMismatch {
+                    expected: 1,
+                    actual: arg_tys.len(),
+                },
+                span,
+            ));
+        }
+
+        // Extract T and A from List<Ability<T, A!>>
+        let (element_result_ty, underlying_ability) =
+            self.extract_list_ability_types(&arg_tys[0], span)?;
+
+        // Return T (just the element type, not wrapped in List)
+        Ok((element_result_ty, underlying_ability))
+    }
+
+    /// Extract T and A from a type that should be `List<Ability<T, A!>>`.
+    ///
+    /// Returns the result type T and the ability set A.
+    fn extract_list_ability_types(
+        &mut self,
+        ty: &Type,
+        span: (u32, u32),
+    ) -> Result<(Type, AbilitySet), TypeError> {
+        let ty = self.apply(ty);
+
+        // Create fresh type variables for T and A
+        let expected_t = self.fresh();
+        let expected_a = self.fresh_ability_var();
+        let expected_ability_value = Type::ability_value(expected_t.clone(), expected_a.clone());
+        let expected_list = Type::named("List", vec![expected_ability_value]);
+
+        // Unify with the actual argument type
+        self.unify(&ty, &expected_list, span)?;
+
+        // Apply substitutions to get the concrete types
+        let result_ty = self.apply(&expected_t);
+        let ability_set = self.apply_abilities(&expected_a);
+
+        Ok((result_ty, ability_set))
     }
 
     /// Instantiate a type scheme with fresh type variables.
@@ -1434,13 +1530,15 @@ impl Infer {
                     arg_tys.push(self.infer_expr(env, &mut arg_clone)?);
                 }
 
-                // Look up the ability and method to get return type
-                // For now, use a simple lookup based on ability name
-                let (ability_id, result_ty) =
+                // Look up the ability and method to get return type and additional abilities
+                let (ability_id, result_ty, additional_abilities) =
                     self.lookup_ability_method(&ability_call.ability.name, &ability_call.method, &arg_tys, span)?;
 
-                // Add ability to current requirements
+                // Add primary ability to current requirements
                 self.require_ability(ability_id);
+
+                // Add any additional abilities (e.g., underlying abilities from Async.all/race)
+                self.require_abilities(&additional_abilities);
 
                 result_ty
             }
@@ -1454,7 +1552,8 @@ impl Infer {
                 }
 
                 // Look up the ability and method to get return type
-                let (ability_id, result_ty) =
+                // Note: For suspend, we ignore additional_abilities since we're just creating a value
+                let (ability_id, result_ty, _additional_abilities) =
                     self.lookup_ability_method(&ability_call.ability.name, &ability_call.method, &arg_tys, span)?;
 
                 // Return Ability<result_ty, ability_id> - a suspended ability value
@@ -2360,6 +2459,7 @@ mod tests {
         assert_eq!(infer.ability_name_to_id("Exception"), Some(2));
         assert_eq!(infer.ability_name_to_id("Time"), Some(3));
         assert_eq!(infer.ability_name_to_id("Random"), Some(4));
+        assert_eq!(infer.ability_name_to_id("Async"), Some(5));
         assert_eq!(infer.ability_name_to_id("Unknown"), None);
     }
 
@@ -2455,5 +2555,135 @@ mod tests {
         } else {
             panic!("Expected concrete ability set");
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Async type checking tests (Milestone 9)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_async_all_type_inference() {
+        let mut infer = Infer::new();
+
+        // Create argument type: List<Ability<string, Console!>>
+        let ability_value = Type::ability_value(Type::String, AbilitySet::single(1)); // Console = 1
+        let list_of_abilities = Type::named("List", vec![ability_value]);
+
+        // Look up Async.all with this argument
+        let result = infer.lookup_ability_method("Async", "all", &[list_of_abilities], span());
+        assert!(result.is_ok(), "Async.all should accept List<Ability<T, A!>>");
+
+        let (ability_id, result_ty, additional_abilities) = result.unwrap();
+
+        // Should return Async ability ID
+        assert_eq!(ability_id, 5, "Should return Async ability ID");
+
+        // Should return List<string> (the result type wrapped in List)
+        if let Type::Named(named) = &result_ty {
+            assert_eq!(named.name.as_ref(), "List");
+            assert_eq!(named.args.len(), 1);
+            assert_eq!(named.args[0], Type::String);
+        } else {
+            panic!("Expected Named type List<string>, got {:?}", result_ty);
+        }
+
+        // Should include Console in additional abilities
+        assert!(
+            matches!(&additional_abilities, AbilitySet::Concrete(ids) if ids.contains(&1)),
+            "Should include Console ability in additional_abilities"
+        );
+    }
+
+    #[test]
+    fn test_async_race_type_inference() {
+        let mut infer = Infer::new();
+
+        // Create argument type: List<Ability<number, Time!>>
+        let ability_value = Type::ability_value(Type::Number, AbilitySet::single(3)); // Time = 3
+        let list_of_abilities = Type::named("List", vec![ability_value]);
+
+        // Look up Async.race with this argument
+        let result = infer.lookup_ability_method("Async", "race", &[list_of_abilities], span());
+        assert!(result.is_ok(), "Async.race should accept List<Ability<T, A!>>");
+
+        let (ability_id, result_ty, additional_abilities) = result.unwrap();
+
+        // Should return Async ability ID
+        assert_eq!(ability_id, 5, "Should return Async ability ID");
+
+        // Should return number (the unwrapped result type)
+        assert_eq!(result_ty, Type::Number, "Async.race should return T, not List<T>");
+
+        // Should include Time in additional abilities
+        assert!(
+            matches!(&additional_abilities, AbilitySet::Concrete(ids) if ids.contains(&3)),
+            "Should include Time ability in additional_abilities"
+        );
+    }
+
+    #[test]
+    fn test_async_all_with_type_variable() {
+        let mut infer = Infer::new();
+
+        // Create a type variable for the result type
+        let result_var = infer.fresh();
+        let ability_var = infer.fresh_ability_var();
+
+        // Create argument type: List<Ability<T, A!>> with fresh variables
+        let ability_value = Type::ability_value(result_var.clone(), ability_var.clone());
+        let list_of_abilities = Type::named("List", vec![ability_value]);
+
+        // Look up Async.all - should succeed with polymorphic types
+        let result = infer.lookup_ability_method("Async", "all", &[list_of_abilities], span());
+        assert!(result.is_ok(), "Async.all should work with type variables");
+
+        let (_, result_ty, _) = result.unwrap();
+
+        // Result should be List<T> where T is the same variable
+        if let Type::Named(named) = &result_ty {
+            assert_eq!(named.name.as_ref(), "List");
+            // The inner type should be related to our original type variable
+            // (either the same or unified)
+        } else {
+            panic!("Expected Named type, got {:?}", result_ty);
+        }
+    }
+
+    #[test]
+    fn test_async_all_wrong_arity() {
+        let mut infer = Infer::new();
+
+        // Try calling Async.all with no arguments
+        let result = infer.lookup_ability_method("Async", "all", &[], span());
+        assert!(result.is_err(), "Async.all should require exactly one argument");
+
+        // Try calling Async.all with two arguments
+        let arg1 = Type::named("List", vec![Type::ability_value(Type::String, AbilitySet::single(1))]);
+        let arg2 = Type::named("List", vec![Type::ability_value(Type::Number, AbilitySet::single(1))]);
+        let result = infer.lookup_ability_method("Async", "all", &[arg1, arg2], span());
+        assert!(result.is_err(), "Async.all should not accept two arguments");
+    }
+
+    #[test]
+    fn test_async_race_wrong_arity() {
+        let mut infer = Infer::new();
+
+        // Try calling Async.race with no arguments
+        let result = infer.lookup_ability_method("Async", "race", &[], span());
+        assert!(result.is_err(), "Async.race should require exactly one argument");
+    }
+
+    #[test]
+    fn test_async_all_wrong_type() {
+        let mut infer = Infer::new();
+
+        // Try calling Async.all with a non-List type (e.g., just a number)
+        let result = infer.lookup_ability_method("Async", "all", &[Type::Number], span());
+        assert!(result.is_err(), "Async.all should reject non-List arguments");
+
+        // Try calling Async.all with List<number> (not List<Ability<...>>)
+        let list_of_numbers = Type::named("List", vec![Type::Number]);
+        let result = infer.lookup_ability_method("Async", "all", &[list_of_numbers], span());
+        assert!(result.is_err(), "Async.all should reject List<number>");
     }
 }

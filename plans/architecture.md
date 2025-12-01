@@ -1031,7 +1031,7 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 - [x] `Async.all!` implementation
 - [x] `Async.race!` implementation with cancellation
 - [x] Host integration for concurrent ability execution
-- [ ] Type checking for concurrent operations
+- [x] Type checking for concurrent operations
 
 **Test case**: Concurrent fetches (mocked), race with cancellation.
 
@@ -1084,7 +1084,6 @@ ambient dev foo.ab                  # watches for changes, hot reloads
 - [x] Integration tests for end-to-end compilation
 - [x] Typed AST (module-level type checking)
 - [x] Content-addressed store integration (hash computation from bytecode content)
-- [ ] Incremental compilation (only recompile changed functions)
 
 **Test case**: Write programs in `.ab` files, compile and run.
 
@@ -1179,6 +1178,7 @@ Type checking integration (`ambient-engine/src/infer.rs`):
 - Actor model
 - Trait system / operator overloading
 - Mutable references (`Store<T>` ability or affine types)
+- Incremental compilation (only recompile changed functions)
 
 ---
 
