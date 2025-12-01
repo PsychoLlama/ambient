@@ -402,6 +402,13 @@ fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, P
         CstExprKind::Handle(handle) => {
             let body = lower_expression(ctx, &handle.body)?;
 
+            // Lower handler values (from `with` clause)
+            let handler_values = handle
+                .handler_values
+                .iter()
+                .map(|e| lower_expression(ctx, e))
+                .collect::<Result<Vec<_>, _>>()?;
+
             let handlers = handle
                 .handlers
                 .iter()
@@ -431,6 +438,7 @@ fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, P
 
             ExprKind::Handle(HandleExpr {
                 body: Box::new(body),
+                handler_values,
                 handlers,
                 else_clause: else_clause.map(Box::new),
             })

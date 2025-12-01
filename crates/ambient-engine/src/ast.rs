@@ -387,7 +387,10 @@ pub struct AbilityCall {
 pub struct HandleExpr {
     /// The expression being handled.
     pub body: Box<Expr>,
-    /// The handlers for each ability method.
+    /// Handler values specified with `with` clause.
+    /// These are expressions that evaluate to Handler<A> values.
+    pub handler_values: Vec<Expr>,
+    /// Inline handlers for each ability method.
     pub handlers: Vec<Handler>,
     /// Optional else clause for the normal return value.
     pub else_clause: Option<Box<Expr>>,
@@ -754,6 +757,31 @@ impl Expr {
             ExprKind::Block(stmts, result.map(Box::new)),
             Span::default(),
         )
+    }
+
+    /// Create a handler literal expression.
+    #[must_use]
+    pub fn handler_literal(methods: Vec<HandlerLiteralMethod>) -> Self {
+        Self::new(
+            ExprKind::HandlerLiteral(HandlerLiteralExpr {
+                methods,
+                span: Span::default(),
+            }),
+            Span::default(),
+        )
+    }
+}
+
+impl HandlerLiteralMethod {
+    /// Create a new handler literal method.
+    #[must_use]
+    pub fn new(method: impl Into<Arc<str>>, params: Vec<Param>, body: Expr) -> Self {
+        Self {
+            method: method.into(),
+            params,
+            body,
+            span: Span::default(),
+        }
     }
 }
 

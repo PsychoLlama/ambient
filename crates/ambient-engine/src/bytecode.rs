@@ -235,6 +235,22 @@ pub enum Opcode {
     LoadCapture = 0xA2,
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Handler literals (Milestone 13)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Create a handler value from method implementations.
+    /// Operand: u16 (ability ID)
+    /// Operand: u8 (method count)
+    /// Operand: u8 (capture count - values to capture from stack)
+    ///
+    /// Following the operands, method_count pairs of:
+    ///   - u16 (method ID)
+    ///   - u16 (constant pool index for function hash)
+    ///
+    /// Pops `capture_count` values from the stack (captures), then pushes
+    /// a HandlerValue containing the ability ID, methods map, and captures.
+    MakeHandler = 0xB0,
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Special
     // ─────────────────────────────────────────────────────────────────────────
     /// Halt execution (end of program).
@@ -289,6 +305,8 @@ impl Opcode {
             0xA0 => Some(Self::MakeClosure),
             0xA1 => Some(Self::CallClosure),
             0xA2 => Some(Self::LoadCapture),
+            // Handler literals
+            0xB0 => Some(Self::MakeHandler),
             0xFF => Some(Self::Halt),
             _ => None,
         }
@@ -667,6 +685,36 @@ impl BytecodeBuilder {
     pub fn emit_call_closure(&mut self, arg_count: u8) {
         self.code.push(Opcode::CallClosure as u8);
         self.code.push(arg_count);
+    }
+
+    /// Emit a MakeHandler instruction.
+    ///
+    /// Creates a handler value from method implementations.
+    /// Methods is a list of (method_id, function_hash) pairs.
+    pub fn emit_make_handler(
+        &mut self,
+        ability_id: u16,
+        methods: &[(u16, blake3::Hash)],
+        capture_count: u8,
+    ) {
+        // Track method functions as dependencies
+        for (_, func_hash) in methods {
+            if !self.dependencies.contains(func_hash) {
+                self.dependencies.push(*func_hash);
+            }
+        }
+
+        self.code.push(Opcode::MakeHandler as u8);
+        self.code.extend_from_slice(&ability_id.to_le_bytes());
+        self.code.push(methods.len() as u8);
+        self.code.push(capture_count);
+
+        // Emit method mappings
+        for (method_id, func_hash) in methods {
+            let idx = self.add_constant(Value::FunctionRef(*func_hash));
+            self.code.extend_from_slice(&method_id.to_le_bytes());
+            self.code.extend_from_slice(&idx.to_le_bytes());
+        }
     }
 
     /// Emit a LoadCapture instruction.

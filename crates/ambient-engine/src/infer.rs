@@ -132,6 +132,32 @@ pub enum TypeErrorKind {
 
     /// Ability not handled.
     AbilityNotHandled { ability: AbilityId },
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Handler literal errors (Milestone 13)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Cannot determine which ability a handler literal is for.
+    HandlerAbilityAmbiguous { method_names: Vec<Arc<str>> },
+
+    /// Handler method doesn't exist in the target ability.
+    HandlerUnknownMethod {
+        ability: Arc<str>,
+        method: Arc<str>,
+    },
+
+    /// Handler method has wrong number of parameters.
+    HandlerMethodArityMismatch {
+        ability: Arc<str>,
+        method: Arc<str>,
+        expected: usize,
+        actual: usize,
+    },
+
+    /// Handler is missing a required ability method.
+    HandlerMissingMethod {
+        ability: Arc<str>,
+        method: Arc<str>,
+    },
 }
 
 impl std::fmt::Display for TypeErrorKind {
@@ -202,6 +228,42 @@ impl std::fmt::Display for TypeErrorKind {
             }
             Self::AbilityNotHandled { ability } => {
                 write!(f, "ability #{ability} is not handled")
+            }
+            Self::HandlerAbilityAmbiguous { method_names } => {
+                let methods = method_names
+                    .iter()
+                    .map(|s| s.as_ref())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(
+                    f,
+                    "cannot determine ability for handler with methods: [{methods}]. \
+                     Add a type annotation like `let h: Handler<Ability> = ...`"
+                )
+            }
+            Self::HandlerUnknownMethod { ability, method } => {
+                write!(
+                    f,
+                    "handler method `{method}` is not defined in ability `{ability}`"
+                )
+            }
+            Self::HandlerMethodArityMismatch {
+                ability,
+                method,
+                expected,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "handler method `{ability}.{method}` expects {expected} parameters, \
+                     but handler provides {actual}"
+                )
+            }
+            Self::HandlerMissingMethod { ability, method } => {
+                write!(
+                    f,
+                    "handler for `{ability}` is missing required method `{method}`"
+                )
             }
         }
     }
@@ -1078,6 +1140,91 @@ impl Infer {
         }
     }
 
+    /// Convert an ability ID to its name.
+    fn ability_id_to_name(&self, id: AbilityId) -> Option<&'static str> {
+        match id {
+            Self::ABILITY_CONSOLE => Some("Console"),
+            Self::ABILITY_EXCEPTION => Some("Exception"),
+            Self::ABILITY_TIME => Some("Time"),
+            Self::ABILITY_RANDOM => Some("Random"),
+            Self::ABILITY_ASYNC => Some("Async"),
+            _ => None,
+        }
+    }
+
+    /// Get the method signatures for an ability.
+    ///
+    /// Returns a list of (method_name, param_count, return_type) tuples.
+    /// Parameter types are inferred as fresh type variables during type checking.
+    fn get_ability_method_signatures(&self, ability_id: AbilityId) -> Vec<(&'static str, usize, Type)> {
+        match ability_id {
+            Self::ABILITY_CONSOLE => vec![
+                ("print", 1, Type::Unit),
+                ("println", 1, Type::Unit),
+                ("eprint", 1, Type::Unit),
+                ("eprintln", 1, Type::Unit),
+            ],
+            Self::ABILITY_EXCEPTION => vec![
+                ("throw", 1, Type::Never),
+            ],
+            Self::ABILITY_TIME => vec![
+                ("now", 0, Type::Number),
+                ("wait", 1, Type::Unit),
+            ],
+            Self::ABILITY_RANDOM => vec![
+                ("seed", 0, Type::Number),
+                ("in_range", 1, Type::Number),
+            ],
+            Self::ABILITY_ASYNC => vec![
+                // Async methods are polymorphic - simplified signatures here
+                ("all", 1, Type::Hole), // Result type depends on input
+                ("race", 1, Type::Hole), // Result type depends on input
+            ],
+            _ => vec![],
+        }
+    }
+
+    /// Try to infer which ability a handler literal is for based on method names.
+    ///
+    /// Returns the ability ID if all methods belong to exactly one ability.
+    fn infer_ability_from_methods(&self, method_names: &[Arc<str>]) -> Option<AbilityId> {
+        if method_names.is_empty() {
+            return None;
+        }
+
+        // All known abilities
+        let abilities = [
+            Self::ABILITY_CONSOLE,
+            Self::ABILITY_EXCEPTION,
+            Self::ABILITY_TIME,
+            Self::ABILITY_RANDOM,
+            Self::ABILITY_ASYNC,
+        ];
+
+        // Find abilities that contain all the given methods
+        let mut matching_abilities = Vec::new();
+
+        for ability_id in abilities {
+            let signatures = self.get_ability_method_signatures(ability_id);
+            let ability_methods: Vec<&str> = signatures.iter().map(|(name, _, _)| *name).collect();
+
+            let all_methods_match = method_names
+                .iter()
+                .all(|m| ability_methods.contains(&m.as_ref()));
+
+            if all_methods_match {
+                matching_abilities.push(ability_id);
+            }
+        }
+
+        // Return only if exactly one ability matches
+        if matching_abilities.len() == 1 {
+            Some(matching_abilities[0])
+        } else {
+            None
+        }
+    }
+
     /// Look up an ability method and return its ID, result type, and additional abilities to require.
     ///
     /// For most abilities, the additional abilities set is empty. For `Async.all` and `Async.race`,
@@ -1571,8 +1718,26 @@ impl Infer {
                 // Get the abilities required by the body
                 let body_abilities = self.current_abilities.clone();
 
-                // Collect handled abilities from the handlers
+                // Collect handled abilities from handler values (from `with` clause)
                 let mut handled_abilities = Vec::new();
+                for handler_value in &mut handle_expr.handler_values.clone() {
+                    let handler_ty = self.infer_expr(env, &mut handler_value.clone())?;
+
+                    // Handler value should be Handler<A>
+                    if let Type::Handler(handler_type) = handler_ty {
+                        handled_abilities.push(handler_type.ability);
+                    } else {
+                        return Err(TypeError::new(
+                            TypeErrorKind::TypeMismatch {
+                                expected: Type::handler(0), // Generic Handler type
+                                actual: handler_ty,
+                            },
+                            (handler_value.span.start, handler_value.span.end),
+                        ));
+                    }
+                }
+
+                // Collect handled abilities from inline handlers
                 for handler in &handle_expr.handlers {
                     if let Some(ability_id) = self.ability_name_to_id(&handler.ability.name) {
                         handled_abilities.push(ability_id);
@@ -1635,20 +1800,97 @@ impl Infer {
             }
 
             ExprKind::HandlerLiteral(handler_lit) => {
-                // TODO: Implement handler literal type checking (Milestone 13)
-                // For now, type-check the method bodies but return an error type.
-                // The proper implementation needs:
-                // 1. Determine which ability this handler is for (from context/annotation)
-                // 2. Check each method matches the ability's method signatures
-                // 3. Return Handler<A> type
+                // Handler literal type checking (Milestone 13)
+                //
+                // 1. Collect method names from the handler literal
+                // 2. Infer which ability this handler is for (from method names)
+                // 3. Verify each method matches the ability's signature
+                // 4. Type-check each handler body in an appropriate environment
+                // 5. Return Handler<A> type
 
+                // Collect method names
+                let method_names: Vec<Arc<str>> = handler_lit
+                    .methods
+                    .iter()
+                    .map(|m| m.method.clone())
+                    .collect();
+
+                // Try to infer the target ability from method names
+                let ability_id = self.infer_ability_from_methods(&method_names).ok_or_else(|| {
+                    TypeError::new(
+                        TypeErrorKind::HandlerAbilityAmbiguous {
+                            method_names: method_names.clone(),
+                        },
+                        span,
+                    )
+                })?;
+
+                let ability_name: Arc<str> = self
+                    .ability_id_to_name(ability_id)
+                    .unwrap_or("unknown")
+                    .into();
+
+                // Get the ability's method signatures
+                let ability_signatures = self.get_ability_method_signatures(ability_id);
+
+                // Verify each method in the handler matches the ability
                 for method in &mut handler_lit.methods {
-                    // Type-check each method body
-                    self.infer_expr(env, &mut method.body)?;
+                    // Find the corresponding ability method signature
+                    let sig = ability_signatures
+                        .iter()
+                        .find(|(name, _, _)| *name == method.method.as_ref());
+
+                    if let Some((_, expected_param_count, expected_return_ty)) = sig {
+                        // Check arity (excluding implicit continuation parameter)
+                        if method.params.len() != *expected_param_count {
+                            return Err(TypeError::new(
+                                TypeErrorKind::HandlerMethodArityMismatch {
+                                    ability: ability_name.clone(),
+                                    method: method.method.clone(),
+                                    expected: *expected_param_count,
+                                    actual: method.params.len(),
+                                },
+                                (method.span.start, method.span.end),
+                            ));
+                        }
+
+                        // Type-check the handler body with method parameters in scope
+                        let mut method_env = env.extend();
+                        for param in &method.params {
+                            // Parameter types are inferred (fresh type variables)
+                            let param_ty = param.ty.clone().unwrap_or_else(|| self.fresh());
+                            method_env.insert_mono(param.id, param.name.clone(), param_ty);
+                        }
+
+                        // The handler body type should be compatible with resume behavior
+                        // For most methods, the body should eventually call resume()
+                        // The resume value type determines what's returned to the call site
+                        let body_ty = self.infer_expr(&method_env, &mut method.body)?;
+
+                        // If we have a concrete expected return type, try to unify
+                        // (Hole means polymorphic - we don't constrain)
+                        if *expected_return_ty != Type::Hole && *expected_return_ty != Type::Never {
+                            // Note: The body type isn't directly the return type -
+                            // the return type is what resume() is called with.
+                            // For now, we just type-check the body without strict constraints.
+                            let _ = body_ty; // Body is checked but not constrained
+                        }
+                    } else {
+                        // Method not found in ability
+                        return Err(TypeError::new(
+                            TypeErrorKind::HandlerUnknownMethod {
+                                ability: ability_name.clone(),
+                                method: method.method.clone(),
+                            },
+                            (method.span.start, method.span.end),
+                        ));
+                    }
                 }
 
-                // Return Error type for now - this will be properly implemented
-                Type::Error
+                // Handlers don't need to provide all methods - partial handlers are allowed
+                // (they can be composed with other handlers that provide missing methods)
+
+                Type::handler(ability_id)
             }
         };
 
@@ -2702,5 +2944,175 @@ mod tests {
         let list_of_numbers = Type::named("List", vec![Type::Number]);
         let result = infer.lookup_ability_method("Async", "all", &[list_of_numbers], span());
         assert!(result.is_err(), "Async.all should reject List<number>");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Handler literal type checking tests (Milestone 13)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    use crate::ast::HandlerLiteralMethod;
+
+    #[test]
+    fn test_handler_literal_console_print() {
+        let mut infer = Infer::new();
+        let env = TypeEnv::new();
+
+        // { print(msg) => resume(()) }
+        let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
+            "print",
+            vec![Param::new(1, "msg")],
+            Expr::unit(), // resume(()) - simplified for test
+        )]);
+
+        let ty = infer.infer_expr(&env, &mut expr).unwrap();
+
+        // Should infer Handler<Console>
+        if let Type::Handler(handler_ty) = ty {
+            assert_eq!(handler_ty.ability, 0x0001); // Console ability ID
+        } else {
+            panic!("Expected Handler type, got {:?}", ty);
+        }
+    }
+
+    #[test]
+    fn test_handler_literal_exception_throw() {
+        let mut infer = Infer::new();
+        let env = TypeEnv::new();
+
+        // { throw(err) => ... }
+        let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
+            "throw",
+            vec![Param::new(1, "err")],
+            Expr::unit(),
+        )]);
+
+        let ty = infer.infer_expr(&env, &mut expr).unwrap();
+
+        // Should infer Handler<Exception>
+        if let Type::Handler(handler_ty) = ty {
+            assert_eq!(handler_ty.ability, 0x0002); // Exception ability ID
+        } else {
+            panic!("Expected Handler type, got {:?}", ty);
+        }
+    }
+
+    #[test]
+    fn test_handler_literal_time_methods() {
+        let mut infer = Infer::new();
+        let env = TypeEnv::new();
+
+        // { now() => resume(0.0), wait(duration) => resume(()) }
+        let mut expr = Expr::handler_literal(vec![
+            HandlerLiteralMethod::new("now", vec![], Expr::number(0.0)),
+            HandlerLiteralMethod::new("wait", vec![Param::new(1, "duration")], Expr::unit()),
+        ]);
+
+        let ty = infer.infer_expr(&env, &mut expr).unwrap();
+
+        // Should infer Handler<Time>
+        if let Type::Handler(handler_ty) = ty {
+            assert_eq!(handler_ty.ability, 0x0003); // Time ability ID
+        } else {
+            panic!("Expected Handler type, got {:?}", ty);
+        }
+    }
+
+    #[test]
+    fn test_handler_literal_unknown_method() {
+        let mut infer = Infer::new();
+        let env = TypeEnv::new();
+
+        // { unknown_method(x) => ... } - doesn't match any ability
+        let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
+            "unknown_method",
+            vec![Param::new(1, "x")],
+            Expr::unit(),
+        )]);
+
+        let result = infer.infer_expr(&env, &mut expr);
+        assert!(
+            result.is_err(),
+            "Should fail when methods don't match any ability"
+        );
+    }
+
+    #[test]
+    fn test_handler_literal_wrong_arity() {
+        let mut infer = Infer::new();
+        let env = TypeEnv::new();
+
+        // { print(a, b) => ... } - Console.print takes 1 arg, not 2
+        let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
+            "print",
+            vec![Param::new(1, "a"), Param::new(2, "b")],
+            Expr::unit(),
+        )]);
+
+        let result = infer.infer_expr(&env, &mut expr);
+        assert!(result.is_err(), "Should fail when arity doesn't match");
+
+        // Check error message mentions arity
+        if let Err(err) = result {
+            let msg = format!("{}", err.kind);
+            assert!(
+                msg.contains("expects 1 parameters") || msg.contains("expected 1"),
+                "Error should mention expected arity: {}",
+                msg
+            );
+        }
+    }
+
+    #[test]
+    fn test_handler_literal_partial_handler() {
+        let mut infer = Infer::new();
+        let env = TypeEnv::new();
+
+        // { print(msg) => ... } - only handles print, not println/eprint
+        // This should be allowed (partial handlers can be composed)
+        let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
+            "print",
+            vec![Param::new(1, "msg")],
+            Expr::unit(),
+        )]);
+
+        let ty = infer.infer_expr(&env, &mut expr).unwrap();
+        assert!(matches!(ty, Type::Handler(_)), "Partial handlers should be allowed");
+    }
+
+    #[test]
+    fn test_handler_literal_method_body_type_checked() {
+        let mut infer = Infer::new();
+        let env = TypeEnv::new();
+
+        // { print(msg) => msg + 1 } - body uses msg (should type-check)
+        let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
+            "print",
+            vec![Param::new(1, "msg")],
+            Expr::binary(BinaryOp::Add, Expr::local(1), Expr::number(1.0)),
+        )]);
+
+        // This should succeed - the parameter 'msg' is in scope
+        let result = infer.infer_expr(&env, &mut expr);
+        assert!(result.is_ok(), "Handler method body should type-check with params in scope");
+    }
+
+    #[test]
+    fn test_infer_ability_from_methods_uniqueness() {
+        let infer = Infer::new();
+
+        // "print" exists in Console
+        let methods: Vec<Arc<str>> = vec!["print".into()];
+        let ability = infer.infer_ability_from_methods(&methods);
+        assert_eq!(ability, Some(0x0001)); // Console
+
+        // "throw" exists only in Exception
+        let methods: Vec<Arc<str>> = vec!["throw".into()];
+        let ability = infer.infer_ability_from_methods(&methods);
+        assert_eq!(ability, Some(0x0002)); // Exception
+
+        // "now" exists only in Time
+        let methods: Vec<Arc<str>> = vec!["now".into()];
+        let ability = infer.infer_ability_from_methods(&methods);
+        assert_eq!(ability, Some(0x0003)); // Time
     }
 }

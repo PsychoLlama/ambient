@@ -1122,14 +1122,20 @@ Type checking integration (`ambient-engine/src/infer.rs`):
 - [x] Handler type (`Handler<A>`) in type system
 - [x] `HandlerValue` runtime representation
 - [x] CST and AST lowering for handler literals
-- [ ] Type checking for handler literals (matching ability signatures)
-- [ ] Bytecode compilation for handler literals
-- [ ] `handle ... with handler_value` syntax
-- [ ] Handler composition (base + overrides)
+- [x] Type checking for handler literals (matching ability signatures)
+- [x] Bytecode compilation for handler literals
+- [x] `handle ... with handler_value` syntax (parsing and type checking)
+- [x] Handler composition runtime support (`HandlerValue::compose`)
+- [ ] `handle ... with handler_value` runtime installation (requires HandleWithValue opcode)
+- [ ] Handler composition syntax (operator or built-in function)
 
 **Test case**: Define mock handlers, use in tests.
 
-**Implementation notes**: The parser recognizes handler literals as `{ method(params) => body, ... }` syntax. The type system includes `Handler<AbilityId>` and the runtime has `HandlerValue` with method-to-function mappings. Full type checking and compilation are pending.
+**Implementation notes**: The parser recognizes handler literals as `{ method(params) => body, ... }` syntax. The type system includes `Handler<AbilityId>` and the runtime has `HandlerValue` with method-to-function mappings. Type checking infers the ability from method names and validates signatures. Bytecode compilation uses `MakeHandler` opcode to create handler values at runtime.
+
+The `handle expr with handler1, handler2 { ... }` syntax is supported by the parser and type checker. Handler values in the `with` clause are type-checked to ensure they are `Handler<A>` types. Full runtime support (dynamic handler installation from `HandlerValue`) requires a new `HandleWithValue` opcode, which is pending.
+
+Handler composition is supported at the runtime level via `HandlerValue::compose()`, but there is no syntax yet to invoke it from Ambient code. Future work could add an operator like `+` or a built-in function.
 
 ### Milestone 14: Sandboxing
 

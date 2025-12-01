@@ -935,6 +935,45 @@ impl Vm {
                     };
                     self.stack.push(value);
                 }
+
+                Opcode::MakeHandler => {
+                    let ability_id = self.read_u16()?;
+                    let method_count = self.read_u8()?;
+                    let capture_count = self.read_u8()?;
+
+                    // Read method mappings.
+                    let mut methods = std::collections::HashMap::with_capacity(method_count as usize);
+                    for _ in 0..method_count {
+                        let method_id = self.read_u16()?;
+                        let func_idx = self.read_u16()?;
+
+                        // Get the function hash from the constant pool.
+                        let func_hash = match self.get_constant(func_idx)? {
+                            Value::FunctionRef(h) => h,
+                            other => {
+                                return Err(VmError::TypeError {
+                                    expected: "function",
+                                    got: other.type_name(),
+                                    operation: "make_handler",
+                                })
+                            }
+                        };
+
+                        methods.insert(method_id, func_hash);
+                    }
+
+                    // Pop captured values from the stack (in reverse order).
+                    let mut captures = Vec::with_capacity(capture_count as usize);
+                    for _ in 0..capture_count {
+                        captures.push(self.pop()?);
+                    }
+                    captures.reverse(); // Restore original capture order
+
+                    // Create and push the handler value.
+                    self.stack.push(Value::Handler(std::sync::Arc::new(
+                        crate::value::HandlerValue::with_captures(ability_id, methods, captures),
+                    )));
+                }
             }
         }
     }
@@ -1100,7 +1139,7 @@ impl Vm {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bytecode::Opcode;
+    use crate::bytecode::{BytecodeBuilder, Opcode};
     use crate::test_utils::{Capture, FunctionBuilder, VmTest};
 
     // =========================================================================
@@ -2339,5 +2378,99 @@ mod tests {
 
         // The result should be 42.0 (from the fast handler)
         assert_eq!(result, Ok(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn test_make_handler_creates_handler_value() {
+        use crate::abilities::console;
+
+        // Create a simple handler method function that returns unit.
+        let mut handler_builder = BytecodeBuilder::new();
+        handler_builder.emit_const(Value::Unit);
+        handler_builder.emit(Opcode::Return);
+        let handler_func = handler_builder.build(2, 2);
+        let handler_hash = handler_func.hash;
+
+        // Create main function that makes a handler and returns it.
+        let mut builder = BytecodeBuilder::new();
+
+        // Emit MakeHandler: Console ability, 1 method (print), 0 captures.
+        builder.emit_make_handler(
+            console::ABILITY_ID,
+            &[(console::METHOD_PRINT, handler_hash)],
+            0,
+        );
+
+        // Return the handler value.
+        builder.emit(Opcode::Return);
+
+        let main_func = builder.build(0, 0);
+        let main_hash = main_func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(handler_func);
+        vm.load_function(main_func);
+
+        let result = vm.call(&main_hash, vec![]);
+
+        // Should return a handler value.
+        assert!(result.is_ok(), "Should succeed: {:?}", result);
+        if let Ok(Value::Handler(handler)) = result {
+            assert_eq!(handler.ability_id, console::ABILITY_ID);
+            assert!(handler.handles_method(console::METHOD_PRINT));
+            assert_eq!(handler.methods.len(), 1);
+        } else {
+            panic!("Expected Handler value, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_make_handler_with_multiple_methods() {
+        use crate::abilities::console;
+
+        // Create handler method functions.
+        let mut print_builder = BytecodeBuilder::new();
+        print_builder.emit_const(Value::Unit);
+        print_builder.emit(Opcode::Return);
+        let print_func = print_builder.build(2, 2);
+        let print_hash = print_func.hash;
+
+        let mut eprint_builder = BytecodeBuilder::new();
+        eprint_builder.emit_const(Value::Unit);
+        eprint_builder.emit(Opcode::Return);
+        let eprint_func = eprint_builder.build(2, 2);
+        let eprint_hash = eprint_func.hash;
+
+        // Create main function that makes a handler with 2 methods.
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_make_handler(
+            console::ABILITY_ID,
+            &[
+                (console::METHOD_PRINT, print_hash),
+                (console::METHOD_EPRINT, eprint_hash),
+            ],
+            0,
+        );
+        builder.emit(Opcode::Return);
+
+        let main_func = builder.build(0, 0);
+        let main_hash = main_func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(print_func);
+        vm.load_function(eprint_func);
+        vm.load_function(main_func);
+
+        let result = vm.call(&main_hash, vec![]);
+
+        assert!(result.is_ok(), "Should succeed: {:?}", result);
+        if let Ok(Value::Handler(handler)) = result {
+            assert_eq!(handler.ability_id, console::ABILITY_ID);
+            assert!(handler.handles_method(console::METHOD_PRINT));
+            assert!(handler.handles_method(console::METHOD_EPRINT));
+            assert_eq!(handler.methods.len(), 2);
+        } else {
+            panic!("Expected Handler value, got {:?}", result);
+        }
     }
 }

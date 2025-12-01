@@ -540,7 +540,10 @@ pub struct CstMatchArm {
 pub struct CstHandleExpr {
     /// Body being handled.
     pub body: CstExpr,
-    /// Handlers.
+    /// Handler values specified with `with` clause.
+    /// These are expressions that evaluate to Handler<A> values.
+    pub handler_values: Vec<CstExpr>,
+    /// Inline handlers.
     pub handlers: Vec<CstHandler>,
     /// Else clause for normal return.
     pub else_clause: Option<CstExpr>,

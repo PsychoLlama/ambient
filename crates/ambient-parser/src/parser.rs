@@ -1704,6 +1704,21 @@ impl<'src> Parser<'src> {
         self.expect(TokenKind::Handle)?;
 
         let body = self.parse_expression()?;
+
+        // Parse optional `with` clause for handler values
+        let mut handler_values = Vec::new();
+        if self.consume(TokenKind::With).is_some() {
+            // Parse comma-separated handler expressions until we see `{`
+            loop {
+                let handler_expr = self.parse_primary_expr()?;
+                handler_values.push(handler_expr);
+
+                if !self.consume(TokenKind::Comma).is_some() {
+                    break;
+                }
+            }
+        }
+
         self.expect(TokenKind::LBrace)?;
 
         let mut handlers = Vec::new();
@@ -1782,6 +1797,7 @@ impl<'src> Parser<'src> {
         Ok(CstExpr {
             kind: CstExprKind::Handle(Box::new(CstHandleExpr {
                 body,
+                handler_values,
                 handlers,
                 else_clause,
                 span: Span::new(start, end),
