@@ -9,11 +9,12 @@ use ambient_engine::ast::Span;
 
 use crate::cst::{
     CstAbilityDef, CstAbilityMethod, CstBinaryOp, CstConstDef, CstEnumDef, CstEnumVariant,
-    CstExpr, CstExprKind, CstFunctionDef, CstHandler, CstHandleExpr, CstIdent, CstItem,
-    CstItemKind, CstLambda, CstLetBinding, CstLiteral, CstMatchArm, CstModule, CstParam,
-    CstPattern, CstPatternKind, CstQualifiedName, CstRecordPatternField, CstStmt, CstStmtKind,
-    CstTypeAliasDef, CstTypeExpr, CstTypeExprKind, CstTypeParam, CstUnaryOp, CstUseDef,
-    CstUseImports, StringPart, Trivia, TriviaItem, TriviaKind,
+    CstExpr, CstExprKind, CstFunctionDef, CstHandler, CstHandleExpr, CstHandlerLiteralExpr,
+    CstHandlerLiteralMethod, CstIdent, CstItem, CstItemKind, CstLambda, CstLetBinding,
+    CstLiteral, CstMatchArm, CstModule, CstParam, CstPattern, CstPatternKind, CstQualifiedName,
+    CstRecordPatternField, CstStmt, CstStmtKind, CstTypeAliasDef, CstTypeExpr, CstTypeExprKind,
+    CstTypeParam, CstUnaryOp, CstUseDef, CstUseImports, StringPart, Trivia, TriviaItem,
+    TriviaKind,
 };
 use crate::error::{ParseError, ParseErrorKind};
 use crate::lexer::{Lexer, Token, TokenKind};
@@ -1452,7 +1453,8 @@ impl<'src> Parser<'src> {
             });
         }
 
-        // Check if this is a record literal (starts with ident:)
+        // Check if this is a record literal (starts with ident:) or
+        // a handler literal (starts with ident()
         if self.check(TokenKind::Ident) {
             let saved = self.pos;
             self.skip_trivia();
@@ -1463,6 +1465,12 @@ impl<'src> Parser<'src> {
                 // It's a record
                 self.pos = saved;
                 return self.parse_record_literal(start);
+            }
+
+            if self.check(TokenKind::LParen) {
+                // It's a handler literal: { method(params) => body, ... }
+                self.pos = saved;
+                return self.parse_handler_literal(start);
             }
 
             // It's a block, restore position
@@ -1495,6 +1503,53 @@ impl<'src> Parser<'src> {
         let end = self.expect(TokenKind::RBrace)?.span.end;
         Ok(CstExpr {
             kind: CstExprKind::Record(fields),
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Parse a handler literal: `{ method(params) => body, ... }`
+    fn parse_handler_literal(&mut self, start: u32) -> Result<CstExpr, ParseError> {
+        let mut methods = Vec::new();
+
+        loop {
+            if self.check(TokenKind::RBrace) {
+                break;
+            }
+
+            let method_start = self.current().span.start;
+            let method = self.parse_ident()?;
+
+            // Parse parameters
+            self.expect(TokenKind::LParen)?;
+            let params = self.parse_params()?;
+            self.expect(TokenKind::RParen)?;
+
+            // Parse =>
+            self.expect(TokenKind::FatArrow)?;
+
+            // Parse body
+            let body = self.parse_expression()?;
+            let method_end = body.span.end;
+
+            methods.push(CstHandlerLiteralMethod {
+                method,
+                params,
+                body,
+                span: Span::new(method_start, method_end),
+            });
+
+            // Optional comma between methods
+            if !self.consume(TokenKind::Comma).is_some() {
+                break;
+            }
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span.end;
+        Ok(CstExpr {
+            kind: CstExprKind::HandlerLiteral(Box::new(CstHandlerLiteralExpr {
+                methods,
+                span: Span::new(start, end),
+            })),
             span: Span::new(start, end),
         })
     }
@@ -2263,6 +2318,64 @@ mod tests {
                 assert!(result.is_some());
             }
             _ => panic!("Expected block"),
+        }
+    }
+
+    #[test]
+    fn test_parse_handler_literal() {
+        let source = r#"
+            {
+                read(path) => resume("mock content"),
+                write(path, content) => resume(())
+            }
+        "#;
+        let mut parser = Parser::new(source);
+        let expr = parser.parse_expression().expect("parse error");
+        match expr.kind {
+            CstExprKind::HandlerLiteral(handler_lit) => {
+                assert_eq!(handler_lit.methods.len(), 2);
+
+                // Check first method
+                assert_eq!(&*handler_lit.methods[0].method.name, "read");
+                assert_eq!(handler_lit.methods[0].params.len(), 1);
+                assert_eq!(&*handler_lit.methods[0].params[0].name.name, "path");
+
+                // Check second method
+                assert_eq!(&*handler_lit.methods[1].method.name, "write");
+                assert_eq!(handler_lit.methods[1].params.len(), 2);
+                assert_eq!(&*handler_lit.methods[1].params[0].name.name, "path");
+                assert_eq!(&*handler_lit.methods[1].params[1].name.name, "content");
+            }
+            _ => panic!("Expected handler literal, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_parse_handler_literal_single_method() {
+        let source = r#"{ print(msg) => resume(()) }"#;
+        let mut parser = Parser::new(source);
+        let expr = parser.parse_expression().expect("parse error");
+        match expr.kind {
+            CstExprKind::HandlerLiteral(handler_lit) => {
+                assert_eq!(handler_lit.methods.len(), 1);
+                assert_eq!(&*handler_lit.methods[0].method.name, "print");
+            }
+            _ => panic!("Expected handler literal"),
+        }
+    }
+
+    #[test]
+    fn test_parse_handler_literal_empty_params() {
+        let source = r#"{ now() => resume(42) }"#;
+        let mut parser = Parser::new(source);
+        let expr = parser.parse_expression().expect("parse error");
+        match expr.kind {
+            CstExprKind::HandlerLiteral(handler_lit) => {
+                assert_eq!(handler_lit.methods.len(), 1);
+                assert_eq!(&*handler_lit.methods[0].method.name, "now");
+                assert!(handler_lit.methods[0].params.is_empty());
+            }
+            _ => panic!("Expected handler literal"),
         }
     }
 }

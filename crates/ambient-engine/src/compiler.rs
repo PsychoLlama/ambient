@@ -761,6 +761,24 @@ fn hash_value_for_content(hasher: &mut blake3::Hasher, value: &Value) {
                 hash_value_for_content(hasher, val);
             }
         }
+        Value::Handler(handler) => {
+            const TYPE_HANDLER: u8 = 10;
+            hasher.update(&[TYPE_HANDLER]);
+            hasher.update(&handler.ability_id.to_le_bytes());
+            // Hash methods in sorted order for deterministic hashing
+            let mut methods: Vec<_> = handler.methods.iter().collect();
+            methods.sort_by_key(|(k, _)| *k);
+            hasher.update(&(methods.len() as u32).to_le_bytes());
+            for (method_id, func_hash) in methods {
+                hasher.update(&method_id.to_le_bytes());
+                hasher.update(func_hash.as_bytes());
+            }
+            // Hash captures
+            hasher.update(&(handler.captures.len() as u32).to_le_bytes());
+            for val in &handler.captures {
+                hash_value_for_content(hasher, val);
+            }
+        }
     }
 }
 
@@ -1131,6 +1149,18 @@ fn compile_expr(
 
             // Emit Resume opcode
             fc.builder.emit(Opcode::Resume);
+        }
+
+        ExprKind::HandlerLiteral(_handler_lit) => {
+            // TODO: Implement handler literal compilation (Milestone 13)
+            // This will compile each method as a separate function and create
+            // a HandlerValue at runtime.
+            return Err(CompileError::new(
+                CompileErrorKind::Unsupported {
+                    feature: "handler literals".to_string(),
+                },
+                (expr.span.start, expr.span.end),
+            ));
         }
     }
 

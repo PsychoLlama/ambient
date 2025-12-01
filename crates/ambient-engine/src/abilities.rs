@@ -276,6 +276,11 @@ pub fn format_value(value: &Value) -> String {
             let capture_count = closure.environment.len();
             format!("<closure {hash_str} [{capture_count} captures]>")
         }
+        Value::Handler(handler) => {
+            let ability_id = handler.ability_id;
+            let method_count = handler.methods.len();
+            format!("<handler #{ability_id} [{method_count} methods]>")
+        }
     }
 }
 

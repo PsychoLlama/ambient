@@ -467,6 +467,24 @@ fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
                 hash_value(hasher, val);
             }
         }
+        Value::Handler(handler) => {
+            const TYPE_HANDLER: u8 = 10;
+            hasher.update(&[TYPE_HANDLER]);
+            hasher.update(&handler.ability_id.to_le_bytes());
+            // Hash methods in sorted order for deterministic hashing
+            let mut methods: Vec<_> = handler.methods.iter().collect();
+            methods.sort_by_key(|(k, _)| *k);
+            hasher.update(&(methods.len() as u32).to_le_bytes());
+            for (method_id, func_hash) in methods {
+                hasher.update(&method_id.to_le_bytes());
+                hasher.update(func_hash.as_bytes());
+            }
+            // Hash captures
+            hasher.update(&(handler.captures.len() as u32).to_le_bytes());
+            for val in &handler.captures {
+                hash_value(hasher, val);
+            }
+        }
     }
 }
 

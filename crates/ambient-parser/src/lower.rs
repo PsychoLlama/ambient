@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use ambient_engine::ast::{
     AbilityCall, AbilityDef, AbilityMethod, BinaryOp, BindingId, ConstDef, EnumDef, EnumVariant,
-    Expr, ExprKind, FunctionDef, HandleExpr, Handler, Item, ItemKind, Lambda, LetBinding, Literal,
-    MatchArm, Module, Param, Pattern, PatternKind, QualifiedName, Span, Stmt, StmtKind,
-    TypeAliasDef, TypeParam, UnaryOp, UseDef, UseImports,
+    Expr, ExprKind, FunctionDef, HandleExpr, Handler, HandlerLiteralExpr, HandlerLiteralMethod,
+    Item, ItemKind, Lambda, LetBinding, Literal, MatchArm, Module, Param, Pattern, PatternKind,
+    QualifiedName, Span, Stmt, StmtKind, TypeAliasDef, TypeParam, UnaryOp, UseDef, UseImports,
 };
 use ambient_engine::types::Type;
 
@@ -439,6 +439,33 @@ fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, P
         CstExprKind::Resume(value) => {
             let lowered_value = lower_expression(ctx, value)?;
             ExprKind::Resume(Box::new(lowered_value))
+        }
+
+        CstExprKind::HandlerLiteral(handler_lit) => {
+            let methods = handler_lit
+                .methods
+                .iter()
+                .map(|m| {
+                    let params = m
+                        .params
+                        .iter()
+                        .map(|p| lower_param(ctx, p))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let body = lower_expression(ctx, &m.body)?;
+
+                    Ok(HandlerLiteralMethod {
+                        method: m.method.name.clone(),
+                        params,
+                        body,
+                        span: m.span,
+                    })
+                })
+                .collect::<Result<Vec<_>, ParseError>>()?;
+
+            ExprKind::HandlerLiteral(HandlerLiteralExpr {
+                methods,
+                span: handler_lit.span,
+            })
         }
 
         CstExprKind::Error => {

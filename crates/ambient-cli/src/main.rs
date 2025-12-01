@@ -329,7 +329,8 @@ fn serialize_value(value: &ambient_engine::value::Value) -> SerializedValue {
         | Value::Record(_)
         | Value::SuspendedAbility(_)
         | Value::Continuation(_)
-        | Value::Closure(_) => SerializedValue::Unit,
+        | Value::Closure(_)
+        | Value::Handler(_) => SerializedValue::Unit,
     }
 }
 

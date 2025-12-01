@@ -222,6 +222,10 @@ pub enum ExprKind {
 
     /// Resume a continuation with a value: `resume(value)`.
     Resume(Box<Expr>),
+
+    /// Handler literal: `{ method(params) => body, ... }`.
+    /// Creates a first-class handler value.
+    HandlerLiteral(HandlerLiteralExpr),
 }
 
 /// Binary operators.
@@ -395,6 +399,29 @@ pub struct Handler {
     /// The ability being handled.
     pub ability: QualifiedName,
     /// The method being handled.
+    pub method: Arc<str>,
+    /// Parameter bindings for the ability arguments.
+    pub params: Vec<Param>,
+    /// The handler body.
+    pub body: Expr,
+    /// Source location.
+    pub span: Span,
+}
+
+/// A handler literal expression: `{ method(params) => body, ... }`.
+/// Creates a first-class handler value that can be stored, passed, and composed.
+#[derive(Debug, Clone)]
+pub struct HandlerLiteralExpr {
+    /// The methods provided by this handler.
+    pub methods: Vec<HandlerLiteralMethod>,
+    /// Source span.
+    pub span: Span,
+}
+
+/// A method in a handler literal.
+#[derive(Debug, Clone)]
+pub struct HandlerLiteralMethod {
+    /// The method name.
     pub method: Arc<str>,
     /// Parameter bindings for the ability arguments.
     pub params: Vec<Param>,

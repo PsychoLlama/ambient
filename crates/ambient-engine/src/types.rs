@@ -459,6 +459,13 @@ pub enum Type {
     AbilityValue(AbilityValueType),
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Handler types (Milestone 13)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// A handler value type: `Handler<A>`
+    /// Represents a first-class handler that can handle ability `A`.
+    Handler(HandlerType),
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Special types
     // ─────────────────────────────────────────────────────────────────────────
     /// The never type `!`, for expressions that never return.
@@ -558,6 +565,25 @@ impl AbilityValueType {
             result: Box::new(result),
             ability,
         }
+    }
+}
+
+/// A handler value type: `Handler<A>`
+///
+/// Represents a first-class handler that can handle a specific ability.
+/// Handler values can be passed around, stored, and composed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandlerType {
+    /// The ability that this handler handles.
+    /// This is a single ability ID (not a set), as handlers handle one ability at a time.
+    pub ability: AbilityId,
+}
+
+impl HandlerType {
+    /// Create a new handler type.
+    #[must_use]
+    pub const fn new(ability: AbilityId) -> Self {
+        Self { ability }
     }
 }
 
@@ -676,6 +702,12 @@ impl Type {
         Self::AbilityValue(AbilityValueType::new(result, ability))
     }
 
+    /// Create a handler type: `Handler<A>`.
+    #[must_use]
+    pub fn handler(ability: AbilityId) -> Self {
+        Self::Handler(HandlerType::new(ability))
+    }
+
     /// Create a tuple type.
     #[must_use]
     pub fn tuple(elements: Vec<Type>) -> Self {
@@ -739,6 +771,7 @@ impl Type {
             Self::Nominal(n) => n.inner.is_concrete(),
             Self::Forall(f) => f.body.is_concrete(),
             Self::AbilityValue(av) => av.result.is_concrete() && av.ability.ability_var().is_none(),
+            Self::Handler(_) => true, // Handler types are always concrete
             _ => true,
         }
     }
@@ -1040,6 +1073,10 @@ impl fmt::Display for Type {
 
             Self::AbilityValue(av) => {
                 write!(f, "Ability<{}, {}>", av.result, av.ability)
+            }
+
+            Self::Handler(handler) => {
+                write!(f, "Handler<#{}>", handler.ability)
             }
 
             Self::Forall(forall) => {

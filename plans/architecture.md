@@ -1118,12 +1118,18 @@ Type checking integration (`ambient-engine/src/infer.rs`):
 
 **Deliverables**:
 
-- [ ] Handler literal syntax
-- [ ] Handler type (`Handler<A>`)
+- [x] Handler literal syntax (parser: `{ method(params) => body, ... }`)
+- [x] Handler type (`Handler<A>`) in type system
+- [x] `HandlerValue` runtime representation
+- [x] CST and AST lowering for handler literals
+- [ ] Type checking for handler literals (matching ability signatures)
+- [ ] Bytecode compilation for handler literals
 - [ ] `handle ... with handler_value` syntax
 - [ ] Handler composition (base + overrides)
 
 **Test case**: Define mock handlers, use in tests.
+
+**Implementation notes**: The parser recognizes handler literals as `{ method(params) => body, ... }` syntax. The type system includes `Handler<AbilityId>` and the runtime has `HandlerValue` with method-to-function mappings. Full type checking and compilation are pending.
 
 ### Milestone 14: Sandboxing
 

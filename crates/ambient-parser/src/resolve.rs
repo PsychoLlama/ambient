@@ -424,6 +424,25 @@ impl Resolver {
                 // Resolve the value expression
                 self.resolve_expr(value)
             }
+
+            ExprKind::HandlerLiteral(handler_lit) => {
+                // Resolve each method in the handler literal
+                for method in &handler_lit.methods {
+                    self.push_scope();
+
+                    // Add method parameters to the scope
+                    for param in &method.params {
+                        self.add_local_binding(param.name.clone(), param.id)?;
+                    }
+
+                    // Resolve method body
+                    self.resolve_expr(&method.body)?;
+
+                    self.pop_scope();
+                }
+
+                Ok(())
+            }
         }
     }
 

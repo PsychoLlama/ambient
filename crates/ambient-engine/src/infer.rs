@@ -1633,6 +1633,23 @@ impl Infer {
                 // In a more complete implementation, this would be a never type (!).
                 self.fresh()
             }
+
+            ExprKind::HandlerLiteral(handler_lit) => {
+                // TODO: Implement handler literal type checking (Milestone 13)
+                // For now, type-check the method bodies but return an error type.
+                // The proper implementation needs:
+                // 1. Determine which ability this handler is for (from context/annotation)
+                // 2. Check each method matches the ability's method signatures
+                // 3. Return Handler<A> type
+
+                for method in &mut handler_lit.methods {
+                    // Type-check each method body
+                    self.infer_expr(env, &mut method.body)?;
+                }
+
+                // Return Error type for now - this will be properly implemented
+                Type::Error
+            }
         };
 
         expr.ty = Some(ty.clone());

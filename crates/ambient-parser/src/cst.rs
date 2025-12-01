@@ -464,6 +464,10 @@ pub enum CstExprKind {
     /// Resume a continuation with a value: `resume(value)`.
     Resume(Box<CstExpr>),
 
+    /// Handler literal: `{ read(path) => resume("content"), ... }`.
+    /// Creates a first-class handler value.
+    HandlerLiteral(Box<CstHandlerLiteralExpr>),
+
     // ─────────────────────────────────────────────────────────────────────────
     // Error recovery
     // ─────────────────────────────────────────────────────────────────────────
@@ -550,6 +554,38 @@ pub struct CstHandler {
     /// Ability being handled.
     pub ability: CstQualifiedName,
     /// Method being handled.
+    pub method: CstIdent,
+    /// Parameters.
+    pub params: Vec<CstParam>,
+    /// Handler body.
+    pub body: CstExpr,
+    /// Source span.
+    pub span: Span,
+}
+
+/// A handler literal expression creating a first-class handler value.
+///
+/// Syntax: `{ method(params) => body, ... }`
+///
+/// Example:
+/// ```ambient
+/// let mock_fs: Handler<Filesystem> = {
+///   read(path) => resume("mock content"),
+///   write(path, content) => resume(()),
+/// };
+/// ```
+#[derive(Debug, Clone)]
+pub struct CstHandlerLiteralExpr {
+    /// The handler methods.
+    pub methods: Vec<CstHandlerLiteralMethod>,
+    /// Source span.
+    pub span: Span,
+}
+
+/// A method in a handler literal.
+#[derive(Debug, Clone)]
+pub struct CstHandlerLiteralMethod {
+    /// Method name.
     pub method: CstIdent,
     /// Parameters.
     pub params: Vec<CstParam>,

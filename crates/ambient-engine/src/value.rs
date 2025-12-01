@@ -51,6 +51,12 @@ pub enum Value {
     ///
     /// Contains the function hash and the captured values (environment).
     Closure(Arc<Closure>),
+
+    /// A first-class handler value that can handle an ability.
+    ///
+    /// Handler values can be passed around, stored, composed with other handlers,
+    /// and used in `handle ... with handler_value` expressions.
+    Handler(Arc<HandlerValue>),
 }
 
 /// A suspended ability operation waiting to be performed.
@@ -103,6 +109,94 @@ impl Closure {
             function_hash,
             environment,
         }
+    }
+}
+
+/// A first-class handler value that can handle an ability.
+///
+/// Handler values are created using handler literal syntax:
+/// ```ambient
+/// let mock_fs: Handler<Filesystem> = {
+///   read(path) => resume("mock content"),
+///   write(path, content) => resume(()),
+///   exists(path) => resume(true),
+/// };
+/// ```
+///
+/// They can be composed with other handlers and used in handle expressions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HandlerValue {
+    /// The ability that this handler handles.
+    pub ability_id: u16,
+
+    /// Method implementations: method_id -> function hash that implements the handler.
+    /// Each handler function receives implicit parameters: (continuation, suspended_ability)
+    /// and can extract ability arguments from the suspended ability.
+    pub methods: HashMap<u16, blake3::Hash>,
+
+    /// Optional captured environment for closures within the handler.
+    /// If handler methods capture variables from their surrounding scope,
+    /// those values are stored here.
+    pub captures: Vec<Value>,
+}
+
+impl HandlerValue {
+    /// Create a new handler value.
+    #[must_use]
+    pub fn new(ability_id: u16, methods: HashMap<u16, blake3::Hash>) -> Self {
+        Self {
+            ability_id,
+            methods,
+            captures: Vec::new(),
+        }
+    }
+
+    /// Create a new handler value with captured environment.
+    #[must_use]
+    pub fn with_captures(
+        ability_id: u16,
+        methods: HashMap<u16, blake3::Hash>,
+        captures: Vec<Value>,
+    ) -> Self {
+        Self {
+            ability_id,
+            methods,
+            captures,
+        }
+    }
+
+    /// Get the handler function for a specific method.
+    #[must_use]
+    pub fn get_method(&self, method_id: u16) -> Option<blake3::Hash> {
+        self.methods.get(&method_id).copied()
+    }
+
+    /// Check if this handler handles a specific method.
+    #[must_use]
+    pub fn handles_method(&self, method_id: u16) -> bool {
+        self.methods.contains_key(&method_id)
+    }
+
+    /// Compose this handler with another, with `other` taking precedence.
+    /// Both handlers must handle the same ability.
+    #[must_use]
+    pub fn compose(&self, other: &Self) -> Option<Self> {
+        if self.ability_id != other.ability_id {
+            return None;
+        }
+
+        let mut methods = self.methods.clone();
+        methods.extend(other.methods.iter().map(|(k, v)| (*k, *v)));
+
+        // Combine captures from both handlers
+        let mut captures = self.captures.clone();
+        captures.extend(other.captures.iter().cloned());
+
+        Some(Self {
+            ability_id: self.ability_id,
+            methods,
+            captures,
+        })
     }
 }
 
@@ -195,6 +289,7 @@ impl Value {
             Self::SuspendedAbility(_) => "suspended_ability",
             Self::Continuation(_) => "continuation",
             Self::Closure(_) => "closure",
+            Self::Handler(_) => "handler",
         }
     }
 
@@ -214,6 +309,24 @@ impl Value {
     #[must_use]
     pub fn closure(function_hash: blake3::Hash, environment: Vec<Value>) -> Self {
         Self::Closure(Arc::new(Closure::new(function_hash, environment)))
+    }
+
+    /// Create a new handler value.
+    #[must_use]
+    pub fn handler(ability_id: u16, methods: HashMap<u16, blake3::Hash>) -> Self {
+        Self::Handler(Arc::new(HandlerValue::new(ability_id, methods)))
+    }
+
+    /// Create a new handler value with captured environment.
+    #[must_use]
+    pub fn handler_with_captures(
+        ability_id: u16,
+        methods: HashMap<u16, blake3::Hash>,
+        captures: Vec<Value>,
+    ) -> Self {
+        Self::Handler(Arc::new(HandlerValue::with_captures(
+            ability_id, methods, captures,
+        )))
     }
 }
 
@@ -239,6 +352,12 @@ impl PartialEq for Value {
             // Closures are equal if they have the same function and environment
             (Self::Closure(a), Self::Closure(b)) => {
                 a.function_hash == b.function_hash && a.environment == b.environment
+            }
+            // Handlers are equal if they have the same ability, methods, and captures
+            (Self::Handler(a), Self::Handler(b)) => {
+                a.ability_id == b.ability_id
+                    && a.methods == b.methods
+                    && a.captures == b.captures
             }
             _ => false,
         }
