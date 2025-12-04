@@ -350,7 +350,7 @@ impl Vm {
                     // Install an ability handler (inline)
                     let ability_id = self.read_u16()?;
                     let handler_idx = self.read_u16()?;
-                    let completion_offset = self.read_i16()?;
+                    let _completion_offset = self.read_i16()?; // Reserved for future optimization
 
                     let handler_func = match self.get_constant(handler_idx)? {
                         Value::FunctionRef(h) => h,
@@ -363,18 +363,11 @@ impl Vm {
                         }
                     };
 
-                    // Calculate normal completion IP
-                    let frame = self.current_frame()?;
-                    let current_ip = frame.ip;
-                    let normal_completion_ip =
-                        (current_ip as isize + completion_offset as isize) as usize;
-
                     self.handlers.push(HandlerFrame {
                         ability_id,
                         handler: HandlerKind::Inline { handler_func },
                         call_frame_idx: self.frames.len() - 1,
                         stack_height: self.stack.len(),
-                        normal_completion_ip,
                     });
                 }
 
@@ -624,7 +617,7 @@ impl Vm {
 
                 Opcode::HandleWithValue => {
                     // Install a handler from a HandlerValue on the stack
-                    let completion_offset = self.read_i16()?;
+                    let _completion_offset = self.read_i16()?; // Reserved for future optimization
 
                     // Pop the handler value from the stack
                     let handler_value = match self.pop()? {
@@ -638,18 +631,11 @@ impl Vm {
                         }
                     };
 
-                    // Calculate normal completion IP
-                    let frame = self.current_frame()?;
-                    let current_ip = frame.ip;
-                    let normal_completion_ip =
-                        (current_ip as isize + completion_offset as isize) as usize;
-
                     self.handlers.push(HandlerFrame {
                         ability_id: handler_value.ability_id,
                         handler: HandlerKind::Value { handler_value },
                         call_frame_idx: self.frames.len() - 1,
                         stack_height: self.stack.len(),
-                        normal_completion_ip,
                     });
                 }
 

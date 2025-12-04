@@ -41,7 +41,6 @@ pub(super) enum HandlerKind {
 
 /// An installed ability handler that can intercept ability operations.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // normal_completion_ip may be used for future optimizations
 pub(super) struct HandlerFrame {
     /// The ability ID this handler handles.
     pub ability_id: u16,
@@ -54,9 +53,6 @@ pub(super) struct HandlerFrame {
 
     /// The stack height when the handler was installed.
     pub stack_height: usize,
-
-    /// The instruction pointer to jump to for normal completion.
-    pub normal_completion_ip: usize,
 }
 
 /// A host-provided ability handler callback.
