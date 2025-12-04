@@ -1170,7 +1170,7 @@ impl Infer {
     const ABILITY_ASYNC: AbilityId = 0x0005;
 
     /// Convert an ability name to its ID.
-    fn ability_name_to_id(&self, name: &str) -> Option<AbilityId> {
+    fn ability_name_to_id(name: &str) -> Option<AbilityId> {
         match name {
             "Console" => Some(Self::ABILITY_CONSOLE),
             "Exception" => Some(Self::ABILITY_EXCEPTION),
@@ -1182,7 +1182,7 @@ impl Infer {
     }
 
     /// Convert an ability ID to its name.
-    fn ability_id_to_name(&self, id: AbilityId) -> Option<&'static str> {
+    fn ability_id_to_name(id: AbilityId) -> Option<&'static str> {
         match id {
             Self::ABILITY_CONSOLE => Some("Console"),
             Self::ABILITY_EXCEPTION => Some("Exception"),
@@ -1197,7 +1197,7 @@ impl Infer {
     ///
     /// Returns a list of (`method_name`, `param_count`, `return_type`) tuples.
     /// Parameter types are inferred as fresh type variables during type checking.
-    fn get_ability_method_signatures(&self, ability_id: AbilityId) -> Vec<(&'static str, usize, Type)> {
+    fn get_ability_method_signatures(ability_id: AbilityId) -> Vec<(&'static str, usize, Type)> {
         match ability_id {
             Self::ABILITY_CONSOLE => vec![
                 ("print", 1, Type::Unit),
@@ -1228,7 +1228,7 @@ impl Infer {
     /// Try to infer which ability a handler literal is for based on method names.
     ///
     /// Returns the ability ID if all methods belong to exactly one ability.
-    fn infer_ability_from_methods(&self, method_names: &[Arc<str>]) -> Option<AbilityId> {
+    fn infer_ability_from_methods(method_names: &[Arc<str>]) -> Option<AbilityId> {
         if method_names.is_empty() {
             return None;
         }
@@ -1246,7 +1246,7 @@ impl Infer {
         let mut matching_abilities = Vec::new();
 
         for ability_id in abilities {
-            let signatures = self.get_ability_method_signatures(ability_id);
+            let signatures = Self::get_ability_method_signatures(ability_id);
             let ability_methods: Vec<&str> = signatures.iter().map(|(name, _, _)| *name).collect();
 
             let all_methods_match = method_names
@@ -1277,7 +1277,7 @@ impl Infer {
         arg_tys: &[Type],
         span: (u32, u32),
     ) -> Result<(AbilityId, Type, AbilitySet), TypeError> {
-        let ability_id = self.ability_name_to_id(ability_name).ok_or_else(|| {
+        let ability_id = Self::ability_name_to_id(ability_name).ok_or_else(|| {
             TypeError::new(
                 TypeErrorKind::UnknownAbility {
                     name: ability_name.into(),
@@ -1784,7 +1784,7 @@ impl Infer {
 
                 // Collect handled abilities from inline handlers
                 for handler in &handle_expr.handlers {
-                    if let Some(ability_id) = self.ability_name_to_id(&handler.ability.name) {
+                    if let Some(ability_id) = Self::ability_name_to_id(&handler.ability.name) {
                         handled_abilities.push(ability_id);
                     }
 
@@ -1861,7 +1861,7 @@ impl Infer {
                     .collect();
 
                 // Try to infer the target ability from method names
-                let ability_id = self.infer_ability_from_methods(&method_names).ok_or_else(|| {
+                let ability_id = Self::infer_ability_from_methods(&method_names).ok_or_else(|| {
                     TypeError::new(
                         TypeErrorKind::HandlerAbilityAmbiguous {
                             method_names: method_names.clone(),
@@ -1870,13 +1870,12 @@ impl Infer {
                     )
                 })?;
 
-                let ability_name: Arc<str> = self
-                    .ability_id_to_name(ability_id)
+                let ability_name: Arc<str> = Self::ability_id_to_name(ability_id)
                     .unwrap_or("unknown")
                     .into();
 
                 // Get the ability's method signatures
-                let ability_signatures = self.get_ability_method_signatures(ability_id);
+                let ability_signatures = Self::get_ability_method_signatures(ability_id);
 
                 // Verify each method in the handler matches the ability
                 for method in &mut handler_lit.methods {
@@ -1961,12 +1960,12 @@ impl Infer {
                 let allowed_ability_ids: Vec<AbilityId> = sandbox_expr
                     .allowed_abilities
                     .iter()
-                    .filter_map(|name| self.ability_name_to_id(&name.name))
+                    .filter_map(|name| Self::ability_name_to_id(&name.name))
                     .collect();
 
                 // Check for unknown abilities
                 for ability_name in &sandbox_expr.allowed_abilities {
-                    if self.ability_name_to_id(&ability_name.name).is_none() {
+                    if Self::ability_name_to_id(&ability_name.name).is_none() {
                         return Err(TypeError::new(
                             TypeErrorKind::UnknownAbility {
                                 name: ability_name.name.clone(),
@@ -1987,8 +1986,7 @@ impl Infer {
                     // Check each required ability is in the allowed list
                     for ability_id in required_abilities {
                         if !allowed_ability_ids.contains(ability_id) {
-                            let ability_name = self
-                                .ability_id_to_name(*ability_id)
+                            let ability_name = Self::ability_id_to_name(*ability_id)
                                 .unwrap_or("unknown");
                             return Err(TypeError::new(
                                 TypeErrorKind::SandboxAbilityViolation {
@@ -2204,7 +2202,7 @@ pub fn check_module(mut module: crate::ast::Module) -> CheckResult {
                         let declared: Vec<AbilityId> = func
                             .abilities
                             .iter()
-                            .filter_map(|qn| infer.ability_name_to_id(&qn.name))
+                            .filter_map(|qn| Infer::ability_name_to_id(&qn.name))
                             .collect();
                         let declared_set = AbilitySet::from_abilities(declared);
 
@@ -2294,7 +2292,7 @@ fn build_function_scheme(infer: &mut Infer, func: &crate::ast::FunctionDef) -> S
         let ability_ids: Vec<AbilityId> = func
             .abilities
             .iter()
-            .filter_map(|qn| infer.ability_name_to_id(&qn.name))
+            .filter_map(|qn| Infer::ability_name_to_id(&qn.name))
             .collect();
         AbilitySet::from_abilities(ability_ids)
     };
@@ -2831,12 +2829,12 @@ mod tests {
     #[test]
     fn test_ability_name_to_id() {
         let infer = Infer::new();
-        assert_eq!(infer.ability_name_to_id("Console"), Some(1));
-        assert_eq!(infer.ability_name_to_id("Exception"), Some(2));
-        assert_eq!(infer.ability_name_to_id("Time"), Some(3));
-        assert_eq!(infer.ability_name_to_id("Random"), Some(4));
-        assert_eq!(infer.ability_name_to_id("Async"), Some(5));
-        assert_eq!(infer.ability_name_to_id("Unknown"), None);
+        assert_eq!(Infer::ability_name_to_id("Console"), Some(1));
+        assert_eq!(Infer::ability_name_to_id("Exception"), Some(2));
+        assert_eq!(Infer::ability_name_to_id("Time"), Some(3));
+        assert_eq!(Infer::ability_name_to_id("Random"), Some(4));
+        assert_eq!(Infer::ability_name_to_id("Async"), Some(5));
+        assert_eq!(Infer::ability_name_to_id("Unknown"), None);
     }
 
     #[test]
@@ -3219,17 +3217,17 @@ mod tests {
 
         // "print" exists in Console
         let methods: Vec<Arc<str>> = vec!["print".into()];
-        let ability = infer.infer_ability_from_methods(&methods);
+        let ability = Infer::infer_ability_from_methods(&methods);
         assert_eq!(ability, Some(0x0001)); // Console
 
         // "throw" exists only in Exception
         let methods: Vec<Arc<str>> = vec!["throw".into()];
-        let ability = infer.infer_ability_from_methods(&methods);
+        let ability = Infer::infer_ability_from_methods(&methods);
         assert_eq!(ability, Some(0x0002)); // Exception
 
         // "now" exists only in Time
         let methods: Vec<Arc<str>> = vec!["now".into()];
-        let ability = infer.infer_ability_from_methods(&methods);
+        let ability = Infer::infer_ability_from_methods(&methods);
         assert_eq!(ability, Some(0x0003)); // Time
     }
 }
