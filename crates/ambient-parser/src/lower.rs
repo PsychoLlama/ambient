@@ -10,7 +10,8 @@ use ambient_engine::ast::{
     AbilityCall, AbilityDef, AbilityMethod, BinaryOp, BindingId, ConstDef, EnumDef, EnumVariant,
     Expr, ExprKind, FunctionDef, HandleExpr, Handler, HandlerLiteralExpr, HandlerLiteralMethod,
     Item, ItemKind, Lambda, LetBinding, Literal, MatchArm, Module, Param, Pattern, PatternKind,
-    QualifiedName, Span, Stmt, StmtKind, TypeAliasDef, TypeParam, UnaryOp, UseDef, UseImports,
+    QualifiedName, SandboxExpr, Span, Stmt, StmtKind, TypeAliasDef, TypeParam, UnaryOp, UseDef,
+    UseImports,
 };
 use ambient_engine::types::Type;
 
@@ -473,6 +474,21 @@ fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, P
             ExprKind::HandlerLiteral(HandlerLiteralExpr {
                 methods,
                 span: handler_lit.span,
+            })
+        }
+
+        CstExprKind::Sandbox(sandbox) => {
+            let allowed_abilities = sandbox
+                .allowed_abilities
+                .iter()
+                .map(lower_qualified_name)
+                .collect();
+            let body = lower_expression(ctx, &sandbox.body)?;
+
+            ExprKind::Sandbox(SandboxExpr {
+                allowed_abilities,
+                body: Box::new(body),
+                span: sandbox.span,
             })
         }
 

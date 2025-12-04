@@ -158,6 +158,15 @@ pub enum TypeErrorKind {
         ability: Arc<str>,
         method: Arc<str>,
     },
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Sandbox errors (Milestone 14)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Sandbox attempted to use an ability that is not allowed.
+    SandboxAbilityViolation {
+        ability: Arc<str>,
+        allowed: Vec<Arc<str>>,
+    },
 }
 
 impl std::fmt::Display for TypeErrorKind {
@@ -264,6 +273,24 @@ impl std::fmt::Display for TypeErrorKind {
                     f,
                     "handler for `{ability}` is missing required method `{method}`"
                 )
+            }
+            Self::SandboxAbilityViolation { ability, allowed } => {
+                if allowed.is_empty() {
+                    write!(
+                        f,
+                        "sandbox violation: ability `{ability}` is not allowed (no abilities are allowed in this sandbox)"
+                    )
+                } else {
+                    let allowed_str = allowed
+                        .iter()
+                        .map(|s| format!("`{s}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    write!(
+                        f,
+                        "sandbox violation: ability `{ability}` is not allowed (allowed: {allowed_str})"
+                    )
+                }
             }
         }
     }
@@ -1891,6 +1918,89 @@ impl Infer {
                 // (they can be composed with other handlers that provide missing methods)
 
                 Type::handler(ability_id)
+            }
+
+            ExprKind::Sandbox(sandbox_expr) => {
+                // Sandbox type checking (Milestone 14)
+                //
+                // A sandbox restricts the abilities available within its body to only
+                // those explicitly allowed. This enables running untrusted code with
+                // limited capabilities.
+                //
+                // 1. Save the current ability context
+                // 2. Create a new ability context with only allowed abilities
+                // 3. Type-check the body in this restricted context
+                // 4. Verify the body only uses allowed abilities
+                // 5. Restore the original ability context
+
+                // Save current abilities
+                let saved_abilities = self.current_abilities.clone();
+
+                // Reset to empty abilities - only allowed abilities will be available
+                self.reset_abilities();
+
+                // Convert allowed ability names to IDs
+                let allowed_ability_ids: Vec<AbilityId> = sandbox_expr
+                    .allowed_abilities
+                    .iter()
+                    .filter_map(|name| self.ability_name_to_id(&name.name))
+                    .collect();
+
+                // Check for unknown abilities
+                for ability_name in &sandbox_expr.allowed_abilities {
+                    if self.ability_name_to_id(&ability_name.name).is_none() {
+                        return Err(TypeError::new(
+                            TypeErrorKind::UnknownAbility {
+                                name: ability_name.name.clone(),
+                            },
+                            span,
+                        ));
+                    }
+                }
+
+                // Infer the body expression
+                let body_ty = self.infer_expr(env, &mut sandbox_expr.body.clone())?;
+
+                // Get the abilities required by the body
+                let body_abilities = self.current_abilities.clone();
+
+                // Verify that the body only uses allowed abilities
+                match &body_abilities {
+                    AbilitySet::Empty => {
+                        // Pure computation - always allowed
+                    }
+                    AbilitySet::Concrete(required_abilities) => {
+                        // Check each required ability is in the allowed list
+                        for ability_id in required_abilities {
+                            if !allowed_ability_ids.contains(ability_id) {
+                                let ability_name = self
+                                    .ability_id_to_name(*ability_id)
+                                    .unwrap_or("unknown");
+                                return Err(TypeError::new(
+                                    TypeErrorKind::SandboxAbilityViolation {
+                                        ability: ability_name.into(),
+                                        allowed: sandbox_expr
+                                            .allowed_abilities
+                                            .iter()
+                                            .map(|n| n.name.clone())
+                                            .collect(),
+                                    },
+                                    span,
+                                ));
+                            }
+                        }
+                    }
+                    AbilitySet::Var(_) | AbilitySet::Row { .. } => {
+                        // Polymorphic abilities - we can't statically determine if they're allowed
+                        // For now, we'll allow this but it could fail at runtime
+                        // A more sophisticated implementation would propagate constraints
+                    }
+                }
+
+                // Restore saved abilities (sandbox doesn't add any abilities to the outer context)
+                self.current_abilities = saved_abilities;
+
+                body_ty
             }
         };
 

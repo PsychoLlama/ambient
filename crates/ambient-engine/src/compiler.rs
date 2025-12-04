@@ -1299,6 +1299,23 @@ fn compile_expr(
             // Emit MakeHandler instruction.
             fc.builder.emit_make_handler(ability_id, &method_hashes, capture_count);
         }
+
+        ExprKind::Sandbox(sandbox_expr) => {
+            // Sandbox compilation (Milestone 14)
+            //
+            // Sandboxing is a compile-time feature - the type checker has already
+            // verified that the body only uses allowed abilities. At runtime,
+            // we simply execute the body with no special handling.
+            //
+            // The type system ensures:
+            // - Only allowed abilities are used within the sandbox body
+            // - Unknown abilities in the `with` clause are rejected
+            //
+            // Future enhancements could add runtime enforcement via:
+            // - Handler frame markers to prevent ability escalation
+            // - Dynamic capability tracking
+            compile_expr(fc, &sandbox_expr.body, ctx)?;
+        }
     }
 
     Ok(())

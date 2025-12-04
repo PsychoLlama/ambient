@@ -522,3 +522,91 @@ fn test_example_handler_value() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("100"), "expected 100 in output: {stdout}");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sandbox Tests (Milestone 14)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_sandbox_pure_computation() {
+    // A sandbox with no abilities allows only pure computation
+    let (dir, path) = temp_source(r#"
+        fn pure_add(x: number, y: number): number {
+            x + y
+        }
+
+        fn main(): number {
+            sandbox {
+                pure_add(2, 3)
+            }
+        }
+    "#);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&path)
+        .output()
+        .expect("failed to execute command");
+
+    assert!(output.status.success(), "pure sandbox should succeed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("5"), "expected 5 in output: {stdout}");
+
+    drop(dir);
+}
+
+#[test]
+fn test_sandbox_with_allowed_ability() {
+    // A sandbox with Console ability allowed
+    let (dir, path) = temp_source(r#"
+        fn compute(): number {
+            42
+        }
+
+        fn main(): number {
+            sandbox with Console {
+                compute()
+            }
+        }
+    "#);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&path)
+        .output()
+        .expect("failed to execute command");
+
+    assert!(output.status.success(), "sandbox with Console should succeed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("42"), "expected 42 in output: {stdout}");
+
+    drop(dir);
+}
+
+#[test]
+fn test_sandbox_nested_pure() {
+    // Pure computation in nested sandbox
+    let (dir, path) = temp_source(r#"
+        fn factorial(n: number): number {
+            if n <= 1 { 1 } else { n * factorial(n - 1) }
+        }
+
+        fn main(): number {
+            sandbox {
+                factorial(5)
+            }
+        }
+    "#);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&path)
+        .output()
+        .expect("failed to execute command");
+
+    assert!(output.status.success(), "nested pure sandbox should succeed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("120"), "expected 120 in output: {stdout}");
+
+    drop(dir);
+}

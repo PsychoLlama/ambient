@@ -12,9 +12,9 @@ use crate::cst::{
     CstExpr, CstExprKind, CstFunctionDef, CstHandler, CstHandleExpr, CstHandlerLiteralExpr,
     CstHandlerLiteralMethod, CstIdent, CstItem, CstItemKind, CstLambda, CstLetBinding,
     CstLiteral, CstMatchArm, CstModule, CstParam, CstPattern, CstPatternKind, CstQualifiedName,
-    CstRecordPatternField, CstStmt, CstStmtKind, CstTypeAliasDef, CstTypeExpr, CstTypeExprKind,
-    CstTypeParam, CstUnaryOp, CstUseDef, CstUseImports, StringPart, Trivia, TriviaItem,
-    TriviaKind,
+    CstRecordPatternField, CstSandboxExpr, CstStmt, CstStmtKind, CstTypeAliasDef, CstTypeExpr,
+    CstTypeExprKind, CstTypeParam, CstUnaryOp, CstUseDef, CstUseImports, StringPart, Trivia,
+    TriviaItem, TriviaKind,
 };
 use crate::error::{ParseError, ParseErrorKind};
 use crate::lexer::{Lexer, Token, TokenKind};
@@ -1184,6 +1184,11 @@ impl<'src> Parser<'src> {
             return self.parse_resume_expr();
         }
 
+        // Sandbox expression: sandbox with Ability { ... } or sandbox { ... }
+        if self.check(TokenKind::Sandbox) {
+            return self.parse_sandbox_expr();
+        }
+
         // Identifier or qualified name
         if self.check(TokenKind::Ident) {
             let ident = self.parse_ident()?;
@@ -1819,6 +1824,32 @@ impl<'src> Parser<'src> {
         })
     }
 
+    /// Parse a sandbox expression: `sandbox with Ability { body }` or `sandbox { body }`
+    fn parse_sandbox_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::Sandbox)?;
+
+        // Parse optional `with` clause for allowed abilities
+        let allowed_abilities = if self.consume(TokenKind::With).is_some() {
+            self.parse_ability_list()?
+        } else {
+            Vec::new()
+        };
+
+        // Parse the body block
+        let body = self.parse_block_expr()?;
+        let end = body.span.end;
+
+        Ok(CstExpr {
+            kind: CstExprKind::Sandbox(Box::new(CstSandboxExpr {
+                allowed_abilities,
+                body,
+                span: Span::new(start, end),
+            })),
+            span: Span::new(start, end),
+        })
+    }
+
     fn parse_args(&mut self) -> Result<Vec<CstExpr>, ParseError> {
         let mut args = Vec::new();
 
@@ -2392,6 +2423,48 @@ mod tests {
                 assert!(handler_lit.methods[0].params.is_empty());
             }
             _ => panic!("Expected handler literal"),
+        }
+    }
+
+    #[test]
+    fn test_parse_sandbox_with_abilities() {
+        let source = r#"sandbox with Log, Console { untrusted_code() }"#;
+        let mut parser = Parser::new(source);
+        let expr = parser.parse_expression().expect("parse error");
+        match expr.kind {
+            CstExprKind::Sandbox(sandbox) => {
+                assert_eq!(sandbox.allowed_abilities.len(), 2);
+                assert_eq!(&*sandbox.allowed_abilities[0].segments[0].name, "Log");
+                assert_eq!(&*sandbox.allowed_abilities[1].segments[0].name, "Console");
+            }
+            _ => panic!("Expected sandbox expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_sandbox_pure() {
+        let source = r#"sandbox { pure_computation() }"#;
+        let mut parser = Parser::new(source);
+        let expr = parser.parse_expression().expect("parse error");
+        match expr.kind {
+            CstExprKind::Sandbox(sandbox) => {
+                assert!(sandbox.allowed_abilities.is_empty());
+            }
+            _ => panic!("Expected sandbox expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_sandbox_single_ability() {
+        let source = r#"sandbox with Log { plugin() }"#;
+        let mut parser = Parser::new(source);
+        let expr = parser.parse_expression().expect("parse error");
+        match expr.kind {
+            CstExprKind::Sandbox(sandbox) => {
+                assert_eq!(sandbox.allowed_abilities.len(), 1);
+                assert_eq!(&*sandbox.allowed_abilities[0].segments[0].name, "Log");
+            }
+            _ => panic!("Expected sandbox expression"),
         }
     }
 }

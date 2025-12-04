@@ -443,6 +443,12 @@ impl Resolver {
 
                 Ok(())
             }
+
+            ExprKind::Sandbox(sandbox_expr) => {
+                // Resolve the body of the sandbox
+                // Ability names in allowed_abilities are validated during type checking
+                self.resolve_expr(&sandbox_expr.body)
+            }
         }
     }
 

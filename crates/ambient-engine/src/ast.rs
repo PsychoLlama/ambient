@@ -226,6 +226,10 @@ pub enum ExprKind {
     /// Handler literal: `{ method(params) => body, ... }`.
     /// Creates a first-class handler value.
     HandlerLiteral(HandlerLiteralExpr),
+
+    /// Sandbox expression: `sandbox with Ability { body }`.
+    /// Restricts available abilities within the body.
+    Sandbox(SandboxExpr),
 }
 
 /// Binary operators.
@@ -430,6 +434,21 @@ pub struct HandlerLiteralMethod {
     pub params: Vec<Param>,
     /// The handler body.
     pub body: Expr,
+    /// Source location.
+    pub span: Span,
+}
+
+/// A sandbox expression: `sandbox with Ability { body }`.
+///
+/// Restricts the abilities available within the body to only those specified.
+/// This enables running untrusted code with limited capabilities.
+#[derive(Debug, Clone)]
+pub struct SandboxExpr {
+    /// The abilities allowed within the sandbox.
+    /// If empty, no abilities are allowed (pure computation only).
+    pub allowed_abilities: Vec<QualifiedName>,
+    /// The body expression to run in the sandboxed context.
+    pub body: Box<Expr>,
     /// Source location.
     pub span: Span,
 }
@@ -765,6 +784,19 @@ impl Expr {
         Self::new(
             ExprKind::HandlerLiteral(HandlerLiteralExpr {
                 methods,
+                span: Span::default(),
+            }),
+            Span::default(),
+        )
+    }
+
+    /// Create a sandbox expression.
+    #[must_use]
+    pub fn sandbox(allowed_abilities: Vec<QualifiedName>, body: Expr) -> Self {
+        Self::new(
+            ExprKind::Sandbox(SandboxExpr {
+                allowed_abilities,
+                body: Box::new(body),
                 span: Span::default(),
             }),
             Span::default(),

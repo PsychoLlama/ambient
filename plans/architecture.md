@@ -1143,11 +1143,42 @@ Handler composition is achieved through the `handle ... with handler_value { inl
 
 **Deliverables**:
 
-- [ ] `sandbox with abilities { ... }` syntax
-- [ ] Ability restriction enforcement
-- [ ] Type checking for sandbox blocks
+- [x] `sandbox with abilities { ... }` syntax
+- [x] Ability restriction enforcement
+- [x] Type checking for sandbox blocks
 
 **Test case**: Run untrusted code with limited abilities, verify restrictions.
+
+**Implementation notes**: Sandboxing is implemented as a compile-time feature that restricts which abilities can be used within a block. The implementation includes:
+
+- **Parser** (`ambient-parser/src/parser.rs`): `parse_sandbox_expr()` parses `sandbox with Ability1, Ability2 { body }` or `sandbox { body }` (pure computation).
+
+- **CST/AST** (`cst.rs`, `ast.rs`): `CstSandboxExpr` and `SandboxExpr` with `allowed_abilities` (list of ability names) and `body` expression.
+
+- **Type Checking** (`infer.rs`): The type checker:
+  1. Saves the current ability context
+  2. Resets to empty abilities
+  3. Type-checks the body expression
+  4. Verifies the body only uses abilities in the `allowed_abilities` list
+  5. Reports `SandboxAbilityViolation` error if unauthorized abilities are used
+  6. Restores the original ability context
+
+- **Bytecode Compilation** (`compiler.rs`): Since sandbox is purely compile-time, the body is compiled directly with no special bytecode. The type system has already verified ability restrictions.
+
+- **Error Messages**: `TypeErrorKind::SandboxAbilityViolation` reports which ability was used and what abilities were allowed.
+
+Example usage:
+```ambient
+// Pure sandbox - no abilities allowed
+sandbox {
+    pure_computation()
+}
+
+// Restricted sandbox - only Log ability
+sandbox with Log {
+    plugin_code()  // Can only use Log, not Filesystem, Network, etc.
+}
+```
 
 ### Milestone 15: Standard Library
 

@@ -468,6 +468,10 @@ pub enum CstExprKind {
     /// Creates a first-class handler value.
     HandlerLiteral(Box<CstHandlerLiteralExpr>),
 
+    /// Sandbox expression: `sandbox with Ability { ... }` or `sandbox { ... }`.
+    /// Restricts available abilities in the body.
+    Sandbox(Box<CstSandboxExpr>),
+
     // ─────────────────────────────────────────────────────────────────────────
     // Error recovery
     // ─────────────────────────────────────────────────────────────────────────
@@ -593,6 +597,32 @@ pub struct CstHandlerLiteralMethod {
     /// Parameters.
     pub params: Vec<CstParam>,
     /// Handler body.
+    pub body: CstExpr,
+    /// Source span.
+    pub span: Span,
+}
+
+/// A sandbox expression for restricting available abilities.
+///
+/// Syntax: `sandbox with Ability1, Ability2 { body }` or `sandbox { body }`
+///
+/// Example:
+/// ```ambient
+/// sandbox with Log {
+///   // Only Log ability available here
+///   untrusted_code()
+/// }
+///
+/// sandbox {
+///   // No abilities available - pure computation only
+///   pure_untrusted_code()
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct CstSandboxExpr {
+    /// Allowed abilities (empty means pure computation only).
+    pub allowed_abilities: Vec<CstQualifiedName>,
+    /// Body expression to run in sandboxed context.
     pub body: CstExpr,
     /// Source span.
     pub span: Span,
