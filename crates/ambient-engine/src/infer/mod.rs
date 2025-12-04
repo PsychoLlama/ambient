@@ -5,6 +5,16 @@
 //! - Unification with occurs check
 //! - Let-polymorphism (generalization at let bindings)
 //! - Type environment with lexical scoping
+//!
+//! # Module Organization
+//!
+//! This module is organized into logical sections:
+//!
+//! - **Type Errors** - Error types and display implementations
+//! - **Type Environment** - `TypeEnv` and `Scheme` for tracking bindings
+//! - **Unification** - Type unification with occurs check
+//! - **Type Inference** - The `Infer` struct and inference methods
+//! - **Module-level checking** - `check_module` for whole-program type checking
 
 use std::collections::HashMap;
 use std::sync::Arc;
