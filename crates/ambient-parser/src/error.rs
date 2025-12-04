@@ -72,10 +72,7 @@ pub enum ParseErrorKind {
     // Parser errors
     // ─────────────────────────────────────────────────────────────────────────
     /// Expected a specific token but found something else.
-    Expected {
-        expected: String,
-        found: String,
-    },
+    Expected { expected: String, found: String },
 
     /// Unexpected end of file.
     UnexpectedEof,
@@ -105,10 +102,7 @@ pub enum ParseErrorKind {
     InvalidAbilitySyntax(String),
 
     /// Too many items (exceeds parser limits).
-    TooManyItems {
-        kind: String,
-        max: usize,
-    },
+    TooManyItems { kind: String, max: usize },
 
     // ─────────────────────────────────────────────────────────────────────────
     // Lowering errors

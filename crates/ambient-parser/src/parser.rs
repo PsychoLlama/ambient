@@ -11,10 +11,10 @@ use std::sync::Arc;
 use ambient_engine::ast::Span;
 
 use crate::cst::{
-    CstAbilityDef, CstAbilityMethod, CstBinaryOp, CstConstDef, CstEnumDef, CstEnumVariant,
-    CstExpr, CstExprKind, CstFunctionDef, CstHandler, CstHandleExpr, CstHandlerLiteralExpr,
-    CstHandlerLiteralMethod, CstIdent, CstItem, CstItemKind, CstLambda, CstLetBinding,
-    CstLiteral, CstMatchArm, CstModule, CstParam, CstPattern, CstPatternKind, CstQualifiedName,
+    CstAbilityDef, CstAbilityMethod, CstBinaryOp, CstConstDef, CstEnumDef, CstEnumVariant, CstExpr,
+    CstExprKind, CstFunctionDef, CstHandleExpr, CstHandler, CstHandlerLiteralExpr,
+    CstHandlerLiteralMethod, CstIdent, CstItem, CstItemKind, CstLambda, CstLetBinding, CstLiteral,
+    CstMatchArm, CstModule, CstParam, CstPattern, CstPatternKind, CstQualifiedName,
     CstRecordPatternField, CstSandboxExpr, CstStmt, CstStmtKind, CstTypeAliasDef, CstTypeExpr,
     CstTypeExprKind, CstTypeParam, CstUnaryOp, CstUseDef, CstUseImports, StringPart, Trivia,
     TriviaItem, TriviaKind,
@@ -491,7 +491,9 @@ impl<'src> Parser<'src> {
                 None
             };
 
-            let end = payload.as_ref().map_or(variant_name.span.end, |t| t.span.end);
+            let end = payload
+                .as_ref()
+                .map_or(variant_name.span.end, |t| t.span.end);
 
             variants.push(CstEnumVariant {
                 name: variant_name,
@@ -975,10 +977,9 @@ impl<'src> Parser<'src> {
                 // Field access or tuple index
                 if self.check(TokenKind::Number) {
                     let token = self.advance();
-                    let index: u32 = token
-                        .text
-                        .parse()
-                        .map_err(|_| ParseError::new(ParseErrorKind::InvalidExpression, token.span))?;
+                    let index: u32 = token.text.parse().map_err(|_| {
+                        ParseError::new(ParseErrorKind::InvalidExpression, token.span)
+                    })?;
                     let span = Span::new(expr.span.start, token.span.end);
                     expr = CstExpr {
                         kind: CstExprKind::TupleIndex {
@@ -1142,10 +1143,12 @@ impl<'src> Parser<'src> {
 
         if self.check(TokenKind::Number) {
             let token = self.advance();
-            let value: f64 = token
-                .text
-                .parse()
-                .map_err(|_| ParseError::new(ParseErrorKind::InvalidNumber(token.text.clone()), token.span))?;
+            let value: f64 = token.text.parse().map_err(|_| {
+                ParseError::new(
+                    ParseErrorKind::InvalidNumber(token.text.clone()),
+                    token.span,
+                )
+            })?;
             return Ok(CstExpr {
                 kind: CstExprKind::Number(value),
                 span: token.span,
@@ -1227,7 +1230,10 @@ impl<'src> Parser<'src> {
                 }
 
                 if segments.len() > 1 {
-                    let span = Span::new(segments[0].span.start, segments.last().expect("segments not empty").span.end);
+                    let span = Span::new(
+                        segments[0].span.start,
+                        segments.last().expect("segments not empty").span.end,
+                    );
                     return Ok(CstExpr {
                         kind: CstExprKind::QualifiedName(CstQualifiedName { segments, span }),
                         span,
@@ -1235,7 +1241,9 @@ impl<'src> Parser<'src> {
                 }
                 // Only one segment, return as ident
                 return Ok(CstExpr {
-                    kind: CstExprKind::Ident(segments.into_iter().next().expect("segments not empty")),
+                    kind: CstExprKind::Ident(
+                        segments.into_iter().next().expect("segments not empty"),
+                    ),
                     span: Span::new(start, self.current().span.start),
                 });
             }
@@ -1783,7 +1791,12 @@ impl<'src> Parser<'src> {
                 } else {
                     Span::new(
                         full_name.segments[0].span.start,
-                        full_name.segments.last().expect("segments not empty").span.end,
+                        full_name
+                            .segments
+                            .last()
+                            .expect("segments not empty")
+                            .span
+                            .end,
                     )
                 },
                 segments: full_name.segments,
@@ -2049,7 +2062,11 @@ impl<'src> Parser<'src> {
                     None
                 };
 
-                let end = payload.as_ref().map_or(segments.last().expect("segments not empty").span.end, |p| p.span.end);
+                let end = payload
+                    .as_ref()
+                    .map_or(segments.last().expect("segments not empty").span.end, |p| {
+                        p.span.end
+                    });
 
                 return Ok(CstPattern {
                     kind: CstPatternKind::Variant {
@@ -2071,7 +2088,10 @@ impl<'src> Parser<'src> {
             });
         }
 
-        Err(ParseError::new(ParseErrorKind::InvalidPattern, self.current().span))
+        Err(ParseError::new(
+            ParseErrorKind::InvalidPattern,
+            self.current().span,
+        ))
     }
 
     // ─────────────────────────────────────────────────────────────────────────

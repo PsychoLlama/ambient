@@ -903,10 +903,9 @@ impl Type {
         ability_subst: &HashMap<AbilityVarId, AbilitySet>,
     ) -> Type {
         match self {
-            Self::Var(TypeVar::Unbound(id)) => type_subst
-                .get(id)
-                .cloned()
-                .unwrap_or_else(|| self.clone()),
+            Self::Var(TypeVar::Unbound(id)) => {
+                type_subst.get(id).cloned().unwrap_or_else(|| self.clone())
+            }
             Self::Var(TypeVar::Link(link)) => {
                 link.borrow().substitute_all(type_subst, ability_subst)
             }
@@ -980,7 +979,10 @@ fn substitute_ability_set(
 ) -> AbilitySet {
     match ability_set {
         AbilitySet::Empty | AbilitySet::Concrete(_) => ability_set.clone(),
-        AbilitySet::Var(id) => subst.get(id).cloned().unwrap_or_else(|| ability_set.clone()),
+        AbilitySet::Var(id) => subst
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| ability_set.clone()),
         AbilitySet::Row { concrete, tail } => {
             if let Some(tail_set) = subst.get(tail) {
                 // Merge concrete with the substituted tail
@@ -1146,10 +1148,7 @@ mod tests {
 
     #[test]
     fn test_forall_type_display() {
-        let forall = Type::forall(
-            vec![0, 1],
-            Type::function(vec![Type::var(0)], Type::var(1)),
-        );
+        let forall = Type::forall(vec![0, 1], Type::function(vec![Type::var(0)], Type::var(1)));
         assert_eq!(forall.to_string(), "forall '0 '1. ('0) -> '1");
     }
 
@@ -1167,14 +1166,12 @@ mod tests {
 
     #[test]
     fn test_record_field_access() {
-        let record = if let Type::Record(rec) = Type::record([
-            ("x", Type::Number),
-            ("y", Type::String),
-        ]) {
-            rec
-        } else {
-            panic!("Expected record type");
-        };
+        let record =
+            if let Type::Record(rec) = Type::record([("x", Type::Number), ("y", Type::String)]) {
+                rec
+            } else {
+                panic!("Expected record type");
+            };
 
         assert_eq!(record.get_field("x"), Some(&Type::Number));
         assert_eq!(record.get_field("y"), Some(&Type::String));
@@ -1191,10 +1188,7 @@ mod tests {
     #[test]
     fn test_free_vars_in_forall() {
         // forall '0. ('0 -> '1) should have '1 free, '0 bound
-        let t = Type::forall(
-            vec![0],
-            Type::function(vec![Type::var(0)], Type::var(1)),
-        );
+        let t = Type::forall(vec![0], Type::function(vec![Type::var(0)], Type::var(1)));
         let vars = t.free_vars();
         assert_eq!(vars, vec![1]);
     }
@@ -1395,11 +1389,7 @@ mod tests {
         let forall = Type::Forall(ForallType::with_abilities(
             vec![0],
             vec![1],
-            Type::function_with_abilities(
-                vec![Type::var(0)],
-                Type::var(0),
-                AbilitySet::var(1),
-            ),
+            Type::function_with_abilities(vec![Type::var(0)], Type::var(0), AbilitySet::var(1)),
         ));
 
         assert_eq!(forall.to_string(), "forall '0 E1!. ('0) -> '0 with E1!");
@@ -1416,21 +1406,15 @@ mod tests {
 
     #[test]
     fn test_function_with_ability_var_is_not_concrete() {
-        let func = Type::function_with_abilities(
-            vec![Type::Number],
-            Type::Number,
-            AbilitySet::var(0),
-        );
+        let func =
+            Type::function_with_abilities(vec![Type::Number], Type::Number, AbilitySet::var(0));
         assert!(!func.is_concrete());
     }
 
     #[test]
     fn test_free_ability_vars_in_function() {
-        let func = Type::function_with_abilities(
-            vec![Type::Number],
-            Type::Number,
-            AbilitySet::var(42),
-        );
+        let func =
+            Type::function_with_abilities(vec![Type::Number], Type::Number, AbilitySet::var(42));
         assert_eq!(func.free_ability_vars(), vec![42]);
     }
 
@@ -1442,11 +1426,8 @@ mod tests {
 
     #[test]
     fn test_substitute_ability_vars() {
-        let func = Type::function_with_abilities(
-            vec![Type::var(0)],
-            Type::var(0),
-            AbilitySet::var(1),
-        );
+        let func =
+            Type::function_with_abilities(vec![Type::var(0)], Type::var(0), AbilitySet::var(1));
 
         let type_subst: HashMap<TypeVarId, Type> = [(0, Type::Number)].into_iter().collect();
         let ability_subst: HashMap<AbilityVarId, AbilitySet> =
@@ -1480,8 +1461,7 @@ mod tests {
     fn test_ability_registry_basic() {
         let mut registry = AbilityRegistry::new();
 
-        let info = AbilityInfo::new("Console")
-            .with_method("print", vec![Type::String], Type::Unit);
+        let info = AbilityInfo::new("Console").with_method("print", vec![Type::String], Type::Unit);
 
         registry.register(1, info);
 
@@ -1498,16 +1478,10 @@ mod tests {
         registry.register(1, AbilityInfo::new("IO"));
 
         // FileSystem depends on IO
-        registry.register(
-            2,
-            AbilityInfo::new("FileSystem").with_dependency(1),
-        );
+        registry.register(2, AbilityInfo::new("FileSystem").with_dependency(1));
 
         // Database depends on IO
-        registry.register(
-            3,
-            AbilityInfo::new("Database").with_dependency(1),
-        );
+        registry.register(3, AbilityInfo::new("Database").with_dependency(1));
 
         // App depends on FileSystem and Database
         registry.register(
@@ -1534,10 +1508,7 @@ mod tests {
         let mut registry = AbilityRegistry::new();
 
         registry.register(1, AbilityInfo::new("IO"));
-        registry.register(
-            2,
-            AbilityInfo::new("FileSystem").with_dependency(1),
-        );
+        registry.register(2, AbilityInfo::new("FileSystem").with_dependency(1));
 
         let set = registry.ability_with_dependencies(2);
 

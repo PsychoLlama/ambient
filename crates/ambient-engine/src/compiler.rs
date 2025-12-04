@@ -324,7 +324,11 @@ impl FunctionCompiler {
     /// Get the list of captured binding IDs in capture slot order.
     #[allow(dead_code)] // May be useful for debugging
     fn get_captures_in_order(&self) -> Vec<(BindingId, u16)> {
-        let mut captures: Vec<_> = self.captures.iter().map(|(&id, &slot)| (id, slot)).collect();
+        let mut captures: Vec<_> = self
+            .captures
+            .iter()
+            .map(|(&id, &slot)| (id, slot))
+            .collect();
         captures.sort_by_key(|(_, slot)| *slot);
         captures
     }
@@ -507,7 +511,12 @@ fn finalize_module_hashes(
 
             if is_self_recursive {
                 // Self-recursive: compute hash excluding self-reference
-                let hash = compute_scc_hash(&scc.members, &compiled_functions, &final_hashes, temp_hashes);
+                let hash = compute_scc_hash(
+                    &scc.members,
+                    &compiled_functions,
+                    &final_hashes,
+                    temp_hashes,
+                );
                 final_hashes.insert(Arc::clone(name), hash);
             } else {
                 // Non-recursive: compute hash with resolved dependencies
@@ -517,7 +526,12 @@ fn finalize_module_hashes(
         } else {
             // Multiple functions in SCC - mutual recursion
             // Compute a group hash for the entire SCC
-            let scc_hash = compute_scc_hash(&scc.members, &compiled_functions, &final_hashes, temp_hashes);
+            let scc_hash = compute_scc_hash(
+                &scc.members,
+                &compiled_functions,
+                &final_hashes,
+                temp_hashes,
+            );
 
             // Each function in the SCC gets a derived hash
             for (idx, name) in scc.members.iter().enumerate() {
@@ -1213,14 +1227,18 @@ fn compile_expr(
             let mut method_hashes: Vec<(u16, blake3::Hash)> = Vec::new();
 
             for method in &handler_lit.methods {
-                let method_id = get_method_id_for_ability(ability_id, &method.method).ok_or_else(|| {
-                    CompileError::new(
-                        CompileErrorKind::Unsupported {
-                            feature: format!("unknown method `{}` for ability `{}`", method.method, ability_name),
-                        },
-                        (method.span.start, method.span.end),
-                    )
-                })?;
+                let method_id =
+                    get_method_id_for_ability(ability_id, &method.method).ok_or_else(|| {
+                        CompileError::new(
+                            CompileErrorKind::Unsupported {
+                                feature: format!(
+                                    "unknown method `{}` for ability `{}`",
+                                    method.method, ability_name
+                                ),
+                            },
+                            (method.span.start, method.span.end),
+                        )
+                    })?;
 
                 // Create a new FunctionCompiler for the handler method.
                 let mut method_fc = FunctionCompiler::new_for_closure(
@@ -1232,8 +1250,8 @@ fn compile_expr(
                 // Allocate implicit slots for continuation and suspended ability.
                 let _continuation_slot =
                     method_fc.alloc_local_with_name(0, Arc::from(HANDLER_PARAM_CONTINUATION))?;
-                let _ability_slot =
-                    method_fc.alloc_local_with_name(0, Arc::from(HANDLER_PARAM_SUSPENDED_ABILITY))?;
+                let _ability_slot = method_fc
+                    .alloc_local_with_name(0, Arc::from(HANDLER_PARAM_SUSPENDED_ABILITY))?;
 
                 // Extract ability arguments and store to param slots.
                 for (i, param) in method.params.iter().enumerate() {
@@ -1311,7 +1329,8 @@ fn compile_expr(
             let capture_count = 0u8;
 
             // Emit MakeHandler instruction.
-            fc.builder.emit_make_handler(ability_id, &method_hashes, capture_count);
+            fc.builder
+                .emit_make_handler(ability_id, &method_hashes, capture_count);
         }
 
         ExprKind::Sandbox(sandbox_expr) => {
@@ -1514,7 +1533,9 @@ fn compile_handle_expr(
             handler_fc.builder.emit_get_ability_arg(i as u8);
 
             // Store to the param slot (slot 2+i).
-            handler_fc.builder.emit_u16(Opcode::StoreLocal, 2 + i as u16);
+            handler_fc
+                .builder
+                .emit_u16(Opcode::StoreLocal, 2 + i as u16);
         }
 
         // Compile the handler body.
@@ -1945,7 +1966,10 @@ mod tests {
         let compiled = compile_test_function(&func).expect("compilation failed");
 
         // Should have the number constant in the pool.
-        assert!(compiled.constants.iter().any(|v| matches!(v, Value::Number(n) if (n - 42.0).abs() < f64::EPSILON)));
+        assert!(compiled
+            .constants
+            .iter()
+            .any(|v| matches!(v, Value::Number(n) if (n - 42.0).abs() < f64::EPSILON)));
     }
 
     #[test]
@@ -2044,8 +2068,12 @@ mod tests {
         let compiled1 = compile_module(&module1).expect("module1 compilation failed");
         let compiled2 = compile_module(&module2).expect("module2 compilation failed");
 
-        let func1 = compiled1.get_function("add_one").expect("add_one not found");
-        let func2 = compiled2.get_function("increment").expect("increment not found");
+        let func1 = compiled1
+            .get_function("add_one")
+            .expect("add_one not found");
+        let func2 = compiled2
+            .get_function("increment")
+            .expect("increment not found");
 
         // Content-addressed: identical bytecode should produce identical hash
         assert_eq!(
@@ -2121,7 +2149,11 @@ mod tests {
                             Expr::local(0),
                             Expr::call(
                                 Expr::name("factorial"),
-                                vec![Expr::binary(BinaryOp::Sub, Expr::local(0), Expr::number(1.0))],
+                                vec![Expr::binary(
+                                    BinaryOp::Sub,
+                                    Expr::local(0),
+                                    Expr::number(1.0),
+                                )],
                             ),
                         )),
                     ),
@@ -2131,11 +2163,15 @@ mod tests {
         };
 
         let compiled = compile_module(&module).expect("compilation failed");
-        let func = compiled.get_function("factorial").expect("factorial not found");
+        let func = compiled
+            .get_function("factorial")
+            .expect("factorial not found");
 
         // Verify the hash is deterministic - compile again and check
         let compiled2 = compile_module(&module).expect("compilation failed");
-        let func2 = compiled2.get_function("factorial").expect("factorial not found");
+        let func2 = compiled2
+            .get_function("factorial")
+            .expect("factorial not found");
 
         assert_eq!(
             func.hash, func2.hash,

@@ -206,7 +206,10 @@ async fn handle_message(message: Message, executor: &Arc<Mutex<Executor>>) -> Me
 
         // These are responses, not requests - protocol error
         Message::NeedDeps { .. } | Message::Result { .. } | Message::Error { .. } => {
-            Message::error(ErrorKind::ProtocolError, "unexpected message type from client")
+            Message::error(
+                ErrorKind::ProtocolError,
+                "unexpected message type from client",
+            )
         }
     }
 }
@@ -244,7 +247,10 @@ async fn handle_execute(
 }
 
 /// Handle a Provide request (client sending functions).
-async fn handle_provide(functions: Vec<PortableFunction>, executor: &Arc<Mutex<Executor>>) -> Message {
+async fn handle_provide(
+    functions: Vec<PortableFunction>,
+    executor: &Arc<Mutex<Executor>>,
+) -> Message {
     let mut exec = executor.lock().await;
 
     // Convert and add each function
@@ -252,10 +258,7 @@ async fn handle_provide(functions: Vec<PortableFunction>, executor: &Arc<Mutex<E
         let func = match CompiledFunction::try_from(pf) {
             Ok(f) => f,
             Err(e) => {
-                return Message::error(
-                    ErrorKind::ProtocolError,
-                    format!("invalid function: {e}"),
-                );
+                return Message::error(ErrorKind::ProtocolError, format!("invalid function: {e}"));
             }
         };
 
@@ -422,6 +425,9 @@ mod tests {
         drop(client_write);
 
         // Wait for server to finish
-        server_handle.await.expect("server task").expect("server session");
+        server_handle
+            .await
+            .expect("server task")
+            .expect("server session");
     }
 }

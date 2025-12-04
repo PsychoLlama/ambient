@@ -36,7 +36,10 @@ pub enum DefId {
     /// An enum.
     Enum(Arc<str>),
     /// An enum variant.
-    EnumVariant { enum_name: Arc<str>, variant_name: Arc<str> },
+    EnumVariant {
+        enum_name: Arc<str>,
+        variant_name: Arc<str>,
+    },
     /// An ability.
     Ability(Arc<str>),
     /// A local binding (parameter or let binding).
@@ -242,7 +245,10 @@ impl Resolver {
                 // Resolve names in the constant value
                 self.resolve_expr(&c.value)
             }
-            ItemKind::TypeAlias(_) | ItemKind::Enum(_) | ItemKind::Ability(_) | ItemKind::Use(_) => {
+            ItemKind::TypeAlias(_)
+            | ItemKind::Enum(_)
+            | ItemKind::Ability(_)
+            | ItemKind::Use(_) => {
                 // No name resolution needed for these
                 Ok(())
             }
@@ -556,12 +562,14 @@ impl Resolver {
     /// Add a local binding to the current scope.
     fn add_local_binding(&mut self, name: &Arc<str>, id: BindingId) -> Result<(), ParseError> {
         if let Some(scope) = self.local_scopes.last_mut() {
-            scope.insert(Arc::clone(name), DefId::Local(id)).map_err(|_| {
-                ParseError::new(
-                    ParseErrorKind::DuplicateDefinition(name.to_string()),
-                    ambient_engine::ast::Span::default(),
-                )
-            })?;
+            scope
+                .insert(Arc::clone(name), DefId::Local(id))
+                .map_err(|_| {
+                    ParseError::new(
+                        ParseErrorKind::DuplicateDefinition(name.to_string()),
+                        ambient_engine::ast::Span::default(),
+                    )
+                })?;
         }
         Ok(())
     }

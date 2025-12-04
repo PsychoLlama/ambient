@@ -128,7 +128,8 @@ impl Client {
     ) -> Result<Value, ClientError> {
         let stream = TcpStream::connect(addr).await?;
         let (mut reader, mut writer) = stream.into_split();
-        self.execute_on(&mut reader, &mut writer, function, args).await
+        self.execute_on(&mut reader, &mut writer, function, args)
+            .await
     }
 
     /// Execute a function using existing read/write streams.
@@ -150,9 +151,9 @@ impl Client {
 
         // Handle the conversation
         loop {
-            let response = read_message(reader)
-                .await?
-                .ok_or_else(|| ClientError::UnexpectedResponse("server closed connection".into()))?;
+            let response = read_message(reader).await?.ok_or_else(|| {
+                ClientError::UnexpectedResponse("server closed connection".into())
+            })?;
 
             match response {
                 Message::Result { value } => return Ok(value),
@@ -167,9 +168,9 @@ impl Client {
                     write_message(writer, &Message::Provide { functions }).await?;
 
                     // Read acknowledgement
-                    let ack = read_message(reader)
-                        .await?
-                        .ok_or_else(|| ClientError::UnexpectedResponse("server closed after Provide".into()))?;
+                    let ack = read_message(reader).await?.ok_or_else(|| {
+                        ClientError::UnexpectedResponse("server closed after Provide".into())
+                    })?;
 
                     match ack {
                         Message::Result { value: Value::Unit } => {
@@ -200,8 +201,9 @@ impl Client {
         let mut functions = Vec::with_capacity(hashes.len());
 
         for hash_hex in hashes {
-            let hash = parse_hash(hash_hex)
-                .map_err(|e| ClientError::UnexpectedResponse(format!("invalid hash from server: {e}")))?;
+            let hash = parse_hash(hash_hex).map_err(|e| {
+                ClientError::UnexpectedResponse(format!("invalid hash from server: {e}"))
+            })?;
 
             let func = self
                 .store

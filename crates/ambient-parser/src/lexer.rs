@@ -359,11 +359,7 @@ impl<'src> Lexer<'src> {
         }
 
         let Some(c) = self.peek() else {
-            return Ok(Token::new(
-                TokenKind::Eof,
-                self.span_from(self.pos),
-                "",
-            ));
+            return Ok(Token::new(TokenKind::Eof, self.span_from(self.pos), ""));
         };
 
         let start = self.pos;

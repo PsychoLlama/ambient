@@ -272,7 +272,9 @@ impl Value {
     /// Create a new record value.
     #[must_use]
     pub fn record(fields: impl IntoIterator<Item = (impl Into<Arc<str>>, Value)>) -> Self {
-        Self::Record(Arc::new(fields.into_iter().map(|(k, v)| (k.into(), v)).collect()))
+        Self::Record(Arc::new(
+            fields.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+        ))
     }
 
     /// Returns the type name for error messages.
@@ -343,9 +345,7 @@ impl PartialEq for Value {
             (Self::FunctionRef(a), Self::FunctionRef(b)) => a == b,
             // Suspended abilities are equal if they have the same ability/method/args
             (Self::SuspendedAbility(a), Self::SuspendedAbility(b)) => {
-                a.ability_id == b.ability_id
-                    && a.method_id == b.method_id
-                    && a.args == b.args
+                a.ability_id == b.ability_id && a.method_id == b.method_id && a.args == b.args
             }
             // Continuations are identity-compared (same Arc)
             (Self::Continuation(a), Self::Continuation(b)) => Arc::ptr_eq(a, b),
@@ -355,9 +355,7 @@ impl PartialEq for Value {
             }
             // Handlers are equal if they have the same ability, methods, and captures
             (Self::Handler(a), Self::Handler(b)) => {
-                a.ability_id == b.ability_id
-                    && a.methods == b.methods
-                    && a.captures == b.captures
+                a.ability_id == b.ability_id && a.methods == b.methods && a.captures == b.captures
             }
             _ => false,
         }
@@ -398,10 +396,7 @@ mod tests {
 
     #[test]
     fn test_record_creation() {
-        let record = Value::record([
-            ("x", Value::Number(1.0)),
-            ("y", Value::Number(2.0)),
-        ]);
+        let record = Value::record([("x", Value::Number(1.0)), ("y", Value::Number(2.0))]);
         assert_eq!(record.type_name(), "record");
     }
 
@@ -514,11 +509,7 @@ mod tests {
             ("label", Value::string("test op")),
         ]);
 
-        let tuple = Value::tuple(vec![
-            record.clone(),
-            inner_ability,
-            Value::Number(123.0),
-        ]);
+        let tuple = Value::tuple(vec![record.clone(), inner_ability, Value::Number(123.0)]);
 
         let json = serde_json::to_string(&tuple).unwrap();
         let back: Value = serde_json::from_str(&json).unwrap();

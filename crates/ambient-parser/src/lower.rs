@@ -18,8 +18,8 @@ use ambient_engine::types::Type;
 use crate::cst::{
     CstAbilityDef, CstBinaryOp, CstConstDef, CstEnumDef, CstExpr, CstExprKind, CstFunctionDef,
     CstItem, CstItemKind, CstLambda, CstLiteral, CstMatchArm, CstModule, CstParam, CstPattern,
-    CstPatternKind, CstQualifiedName, CstRecordPatternField, CstStmt, CstStmtKind,
-    CstTypeAliasDef, CstTypeExpr, CstTypeExprKind, CstUnaryOp, CstUseDef, StringPart,
+    CstPatternKind, CstQualifiedName, CstRecordPatternField, CstStmt, CstStmtKind, CstTypeAliasDef,
+    CstTypeExpr, CstTypeExprKind, CstUnaryOp, CstUseDef, StringPart,
 };
 use crate::error::{ParseError, ParseErrorKind};
 
@@ -84,7 +84,10 @@ fn lower_item(ctx: &mut LoweringContext, item: &CstItem) -> Result<Item, ParseEr
     Ok(Item::new(kind, item.span))
 }
 
-fn lower_function(ctx: &mut LoweringContext, f: &CstFunctionDef) -> Result<FunctionDef, ParseError> {
+fn lower_function(
+    ctx: &mut LoweringContext,
+    f: &CstFunctionDef,
+) -> Result<FunctionDef, ParseError> {
     let type_params = f
         .type_params
         .iter()
@@ -102,11 +105,7 @@ fn lower_function(ctx: &mut LoweringContext, f: &CstFunctionDef) -> Result<Funct
 
     let ret_ty = f.ret_ty.as_ref().map(lower_type).transpose()?;
 
-    let abilities = f
-        .abilities
-        .iter()
-        .map(lower_qualified_name)
-        .collect();
+    let abilities = f.abilities.iter().map(lower_qualified_name).collect();
 
     let body = lower_expression(ctx, &f.body)?;
 
@@ -236,7 +235,11 @@ fn lower_use(u: &CstUseDef) -> Result<UseDef, ParseError> {
         }
         crate::cst::CstUseImports::Single => {
             // For single imports, the last path segment is the imported name
-            UseImports::Items(vec![u.path.last().map(|i| i.name.clone()).unwrap_or_default()])
+            UseImports::Items(vec![u
+                .path
+                .last()
+                .map(|i| i.name.clone())
+                .unwrap_or_default()])
         }
     };
 
@@ -676,7 +679,10 @@ fn lower_record_pattern_field(
     } else {
         // If no pattern specified, create a binding with the field name
         let id = ctx.fresh_binding();
-        Pattern::new(PatternKind::Binding(id, field.field.name.clone()), field.span)
+        Pattern::new(
+            PatternKind::Binding(id, field.field.name.clone()),
+            field.span,
+        )
     };
 
     Ok((field.field.name.clone(), pattern))
@@ -687,7 +693,11 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
     match &ty.kind {
         CstTypeExprKind::Name(qn) => {
             // SAFETY: Qualified names always have at least one segment by construction
-            let name = &qn.segments.last().expect("qualified name must have segments").name;
+            let name = &qn
+                .segments
+                .last()
+                .expect("qualified name must have segments")
+                .name;
             match &**name {
                 "number" => Ok(Type::Number),
                 "string" => Ok(Type::String),
@@ -706,21 +716,18 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
         CstTypeExprKind::Generic { base, args } => {
             // Extract base name
             let base_name = match &base.kind {
-                CstTypeExprKind::Name(qn) => {
-                    qn.segments.last().expect("qualified name must have segments").name.clone()
-                }
+                CstTypeExprKind::Name(qn) => qn
+                    .segments
+                    .last()
+                    .expect("qualified name must have segments")
+                    .name
+                    .clone(),
                 _ => {
-                    return Err(ParseError::new(
-                        ParseErrorKind::InvalidType,
-                        base.span,
-                    ));
+                    return Err(ParseError::new(ParseErrorKind::InvalidType, base.span));
                 }
             };
 
-            let lowered_args = args
-                .iter()
-                .map(lower_type)
-                .collect::<Result<Vec<_>, _>>()?;
+            let lowered_args = args.iter().map(lower_type).collect::<Result<Vec<_>, _>>()?;
 
             Ok(Type::Named(ambient_engine::types::NamedType {
                 name: base_name,
@@ -779,10 +786,12 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
             let result = lower_type(result_ty)?;
             // Ability value type - for now just return the result type
             // Full implementation would track the ability set
-            Ok(Type::AbilityValue(ambient_engine::types::AbilityValueType {
-                result: Box::new(result),
-                ability: ambient_engine::types::AbilitySet::empty(), // TODO
-            }))
+            Ok(Type::AbilityValue(
+                ambient_engine::types::AbilityValueType {
+                    result: Box::new(result),
+                    ability: ambient_engine::types::AbilitySet::empty(), // TODO
+                },
+            ))
         }
 
         CstTypeExprKind::Never => {
@@ -799,12 +808,10 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
             Ok(Type::Var(ambient_engine::types::TypeVar::Unbound(0)))
         }
 
-        CstTypeExprKind::Error => {
-            Err(ParseError::new(
-                ParseErrorKind::LoweringError("cannot lower error type".into()),
-                ty.span,
-            ))
-        }
+        CstTypeExprKind::Error => Err(ParseError::new(
+            ParseErrorKind::LoweringError("cannot lower error type".into()),
+            ty.span,
+        )),
     }
 }
 

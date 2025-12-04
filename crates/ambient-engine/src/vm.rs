@@ -84,8 +84,15 @@ impl std::fmt::Display for VmError {
         match self {
             Self::StackUnderflow => write!(f, "stack underflow"),
             Self::InvalidOpcode(op) => write!(f, "invalid opcode: 0x{op:02x}"),
-            Self::TypeError { expected, got, operation } => {
-                write!(f, "type error in {operation}: expected {expected}, got {got}")
+            Self::TypeError {
+                expected,
+                got,
+                operation,
+            } => {
+                write!(
+                    f,
+                    "type error in {operation}: expected {expected}, got {got}"
+                )
             }
             Self::DivisionByZero => write!(f, "division by zero"),
             Self::InvalidConstant(idx) => write!(f, "invalid constant index: {idx}"),
@@ -98,10 +105,19 @@ impl std::fmt::Display for VmError {
             Self::InstructionOutOfBounds => write!(f, "instruction pointer out of bounds"),
             Self::StackOverflow => write!(f, "call stack overflow"),
             Self::ArityMismatch { expected, got } => {
-                write!(f, "arity mismatch: expected {expected} arguments, got {got}")
+                write!(
+                    f,
+                    "arity mismatch: expected {expected} arguments, got {got}"
+                )
             }
-            Self::UnhandledAbility { ability_id, method_id } => {
-                write!(f, "unhandled ability: ability {ability_id}, method {method_id}")
+            Self::UnhandledAbility {
+                ability_id,
+                method_id,
+            } => {
+                write!(
+                    f,
+                    "unhandled ability: ability {ability_id}, method {method_id}"
+                )
             }
             Self::ContinuationAlreadyResumed => {
                 write!(f, "continuation already resumed (single-shot violation)")
@@ -113,7 +129,10 @@ impl std::fmt::Display for VmError {
                 write!(f, "expected continuation, got {got}")
             }
             Self::AbilityArgOutOfBounds { index, length } => {
-                write!(f, "ability argument index {index} out of bounds (length {length})")
+                write!(
+                    f,
+                    "ability argument index {index} out of bounds (length {length})"
+                )
             }
         }
     }
@@ -147,7 +166,9 @@ enum HandlerKind {
 
     /// A handler value with separate functions for each method.
     /// When an ability is performed, the `method_id` is used to look up the function.
-    Value { handler_value: Arc<crate::value::HandlerValue> },
+    Value {
+        handler_value: Arc<crate::value::HandlerValue>,
+    },
 }
 
 /// An installed ability handler that can intercept ability operations.
@@ -236,7 +257,10 @@ impl Vm {
     /// Returns an error if no host handler is registered for this ability.
     /// Note: This does not support bytecode handlers - only host handlers.
     fn perform_ability_host(&self, ability: &SuspendedAbility) -> Result<Value, VmError> {
-        if let Some(handler) = self.host_handlers.get(&(ability.ability_id, ability.method_id)) {
+        if let Some(handler) = self
+            .host_handlers
+            .get(&(ability.ability_id, ability.method_id))
+        {
             handler(ability)
         } else {
             Err(VmError::UnhandledAbility {
@@ -268,9 +292,7 @@ impl Vm {
             // Spawn a thread for each ability
             let handles: Vec<_> = abilities
                 .iter()
-                .map(|ability| {
-                    s.spawn(|| self.perform_ability_host(ability))
-                })
+                .map(|ability| s.spawn(|| self.perform_ability_host(ability)))
                 .collect();
 
             // Collect results in order
@@ -575,7 +597,8 @@ impl Vm {
 
                 Opcode::MakeRecord => {
                     let field_count = self.read_u8()?;
-                    let mut fields: Vec<(Arc<str>, Value)> = Vec::with_capacity(field_count as usize);
+                    let mut fields: Vec<(Arc<str>, Value)> =
+                        Vec::with_capacity(field_count as usize);
 
                     // Pop field-value pairs (value first, then field name)
                     for _ in 0..field_count {
@@ -613,9 +636,9 @@ impl Vm {
                     match record {
                         Value::Record(fields) => {
                             let key: Arc<str> = Arc::from(field_name.as_str());
-                            let value = fields
-                                .get(&key)
-                                .ok_or_else(|| VmError::RecordFieldNotFound(field_name.to_string()))?;
+                            let value = fields.get(&key).ok_or_else(|| {
+                                VmError::RecordFieldNotFound(field_name.to_string())
+                            })?;
                             self.stack.push(value.clone());
                         }
                         other => {
@@ -645,7 +668,8 @@ impl Vm {
                     args.reverse();
 
                     // Push the suspended ability value
-                    self.stack.push(Value::suspended_ability(ability_id, method_id, args));
+                    self.stack
+                        .push(Value::suspended_ability(ability_id, method_id, args));
                 }
 
                 Opcode::Perform => {
@@ -660,7 +684,10 @@ impl Vm {
                     };
 
                     // First, check for a host handler
-                    if let Some(handler) = self.host_handlers.get(&(ability.ability_id, ability.method_id)) {
+                    if let Some(handler) = self
+                        .host_handlers
+                        .get(&(ability.ability_id, ability.method_id))
+                    {
                         // Call the host handler synchronously
                         let result = handler(&ability)?;
                         self.stack.push(result);
@@ -696,7 +723,8 @@ impl Vm {
 
                         // Capture the continuation: stack and frames from handler point to current
                         let captured_stack = self.stack.split_off(handler.stack_height);
-                        let captured_frames: Vec<CapturedFrame> = self.frames[handler.call_frame_idx..]
+                        let captured_frames: Vec<CapturedFrame> = self.frames
+                            [handler.call_frame_idx..]
                             .iter()
                             .map(|f| CapturedFrame {
                                 function_hash: f.function.hash,
@@ -750,7 +778,8 @@ impl Vm {
                     // Calculate normal completion IP
                     let frame = self.current_frame()?;
                     let current_ip = frame.ip;
-                    let normal_completion_ip = (current_ip as isize + completion_offset as isize) as usize;
+                    let normal_completion_ip =
+                        (current_ip as isize + completion_offset as isize) as usize;
 
                     self.handlers.push(HandlerFrame {
                         ability_id,
@@ -971,7 +1000,8 @@ impl Vm {
                     let capture_count = self.read_u8()?;
 
                     // Read method mappings.
-                    let mut methods = std::collections::HashMap::with_capacity(method_count as usize);
+                    let mut methods =
+                        std::collections::HashMap::with_capacity(method_count as usize);
                     for _ in 0..method_count {
                         let method_id = self.read_u16()?;
                         let func_idx = self.read_u16()?;
@@ -1243,7 +1273,11 @@ mod tests {
 
     #[test]
     fn test_add() {
-        VmTest::new().push(10.0).push(32.0).add().expect_number(42.0);
+        VmTest::new()
+            .push(10.0)
+            .push(32.0)
+            .add()
+            .expect_number(42.0);
     }
 
     #[test]
@@ -1272,7 +1306,11 @@ mod tests {
 
     #[test]
     fn test_mod() {
-        VmTest::new().push(10.0).push(3.0).modulo().expect_number(1.0);
+        VmTest::new()
+            .push(10.0)
+            .push(3.0)
+            .modulo()
+            .expect_number(1.0);
     }
 
     #[test]
@@ -1458,7 +1496,10 @@ mod tests {
             .push(1.0)
             .make_tuple(1)
             .tuple_get(5)
-            .expect_error(VmError::TupleIndexOutOfBounds { index: 5, length: 1 });
+            .expect_error(VmError::TupleIndexOutOfBounds {
+                index: 5,
+                length: 1,
+            });
     }
 
     #[test]
@@ -2181,11 +2222,9 @@ mod tests {
     #[test]
     fn test_async_all_zero_abilities() {
         // Empty async_all should return empty tuple
-        VmTest::new()
-            .async_all(0)
-            .expect_tuple(|elements| {
-                assert_eq!(elements.len(), 0);
-            });
+        VmTest::new().async_all(0).expect_tuple(|elements| {
+            assert_eq!(elements.len(), 0);
+        });
     }
 
     #[test]

@@ -703,10 +703,7 @@ impl Expr {
     /// Create a named reference.
     #[must_use]
     pub fn name(name: impl Into<Arc<str>>) -> Self {
-        Self::new(
-            ExprKind::Name(QualifiedName::simple(name)),
-            Span::default(),
-        )
+        Self::new(ExprKind::Name(QualifiedName::simple(name)), Span::default())
     }
 
     /// Create a binary operation.
@@ -855,11 +852,7 @@ mod tests {
 
     #[test]
     fn test_expr_builders() {
-        let expr = Expr::binary(
-            BinaryOp::Add,
-            Expr::number(1.0),
-            Expr::number(2.0),
-        );
+        let expr = Expr::binary(BinaryOp::Add, Expr::number(1.0), Expr::number(2.0));
 
         if let ExprKind::Binary(op, left, right) = expr.kind {
             assert_eq!(op, BinaryOp::Add);
@@ -901,10 +894,7 @@ mod tests {
 
     #[test]
     fn test_record_expr() {
-        let record = Expr::record([
-            ("x", Expr::number(1.0)),
-            ("y", Expr::number(2.0)),
-        ]);
+        let record = Expr::record([("x", Expr::number(1.0)), ("y", Expr::number(2.0))]);
 
         if let ExprKind::Record(fields) = record.kind {
             assert_eq!(fields.len(), 2);

@@ -119,7 +119,10 @@ impl std::fmt::Display for ProtocolError {
             Self::Io(e) => write!(f, "I/O error: {e}"),
             Self::Json(e) => write!(f, "JSON error: {e}"),
             Self::MessageTooLarge(size) => {
-                write!(f, "message too large: {size} bytes (max {MAX_MESSAGE_SIZE})")
+                write!(
+                    f,
+                    "message too large: {size} bytes (max {MAX_MESSAGE_SIZE})"
+                )
             }
             Self::ConnectionClosed => write!(f, "connection closed unexpectedly"),
         }

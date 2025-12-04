@@ -69,7 +69,7 @@ mod resolve;
 
 pub use cst::{
     CstAbilityDef, CstAbilityMethod, CstConstDef, CstEnumDef, CstEnumVariant, CstExpr, CstExprKind,
-    CstFunctionDef, CstHandler, CstHandleExpr, CstItem, CstItemKind, CstLambda, CstLetBinding,
+    CstFunctionDef, CstHandleExpr, CstHandler, CstItem, CstItemKind, CstLambda, CstLetBinding,
     CstMatchArm, CstModule, CstParam, CstPattern, CstPatternKind, CstStmt, CstStmtKind,
     CstTypeAliasDef, CstTypeExpr, CstTypeExprKind, CstUseDef, CstUseImports, Trivia, TriviaKind,
 };

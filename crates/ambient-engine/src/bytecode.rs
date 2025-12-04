@@ -347,7 +347,12 @@ pub struct CompiledFunction {
 impl CompiledFunction {
     /// Create a new compiled function with the given bytecode and constants.
     #[must_use]
-    pub fn new(bytecode: Vec<u8>, constants: Vec<Value>, local_count: u16, param_count: u8) -> Self {
+    pub fn new(
+        bytecode: Vec<u8>,
+        constants: Vec<Value>,
+        local_count: u16,
+        param_count: u8,
+    ) -> Self {
         Self::with_dependencies(bytecode, constants, local_count, param_count, Vec::new())
     }
 
@@ -361,7 +366,13 @@ impl CompiledFunction {
         dependencies: Vec<blake3::Hash>,
     ) -> Self {
         // Compute hash from bytecode, constants, and function metadata
-        let hash = Self::compute_hash(&bytecode, &constants, local_count, param_count, &dependencies);
+        let hash = Self::compute_hash(
+            &bytecode,
+            &constants,
+            local_count,
+            param_count,
+            &dependencies,
+        );
         Self {
             hash,
             bytecode,
@@ -788,7 +799,13 @@ impl BytecodeBuilder {
         param_count: u8,
         dependencies: Vec<blake3::Hash>,
     ) -> CompiledFunction {
-        CompiledFunction::with_dependencies(self.code, self.constants, local_count, param_count, dependencies)
+        CompiledFunction::with_dependencies(
+            self.code,
+            self.constants,
+            local_count,
+            param_count,
+            dependencies,
+        )
     }
 
     /// Get the collected dependencies.
@@ -881,7 +898,10 @@ mod tests {
         builder.emit(Opcode::Add);
         builder.emit(Opcode::Return);
 
-        assert_eq!(builder.bytecode(), &[Opcode::Add as u8, Opcode::Return as u8]);
+        assert_eq!(
+            builder.bytecode(),
+            &[Opcode::Add as u8, Opcode::Return as u8]
+        );
     }
 
     #[test]

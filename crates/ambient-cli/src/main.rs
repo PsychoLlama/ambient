@@ -46,15 +46,11 @@ fn cmd_compile(file: &Path, output: Option<&Path>) -> Result<()> {
 
     // Serialize and write the compiled module.
     // For now, we'll use a simple JSON serialization (can switch to binary later).
-    let serialized =
-        serde_json::to_string_pretty(&serialize_module(&compiled)).context("failed to serialize")?;
+    let serialized = serde_json::to_string_pretty(&serialize_module(&compiled))
+        .context("failed to serialize")?;
     fs::write(&output_path, serialized).context("failed to write output")?;
 
-    eprintln!(
-        "Compiled {} -> {}",
-        file.display(),
-        output_path.display()
-    );
+    eprintln!("Compiled {} -> {}", file.display(), output_path.display());
 
     Ok(())
 }
@@ -87,9 +83,10 @@ fn cmd_run(file: &Path, entry: &str) -> Result<()> {
     }
 
     // Find entry point.
-    let entry_hash = compiled.function_names.get(entry).ok_or_else(|| {
-        anyhow::anyhow!("entry function `{entry}` not found")
-    })?;
+    let entry_hash = compiled
+        .function_names
+        .get(entry)
+        .ok_or_else(|| anyhow::anyhow!("entry function `{entry}` not found"))?;
 
     // Execute.
     let result = vm
@@ -109,8 +106,7 @@ fn cmd_check(file: &Path) -> Result<()> {
     let source = read_source(file)?;
 
     // Parse.
-    let module =
-        ambient_parser::parse(&source).map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
+    let module = ambient_parser::parse(&source).map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
 
     // Type check.
     let result = ambient_engine::infer::check_module(module);
@@ -135,8 +131,7 @@ fn cmd_check(file: &Path) -> Result<()> {
 fn cmd_ast(file: &Path) -> Result<()> {
     let source = read_source(file)?;
 
-    let module =
-        ambient_parser::parse(&source).map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
+    let module = ambient_parser::parse(&source).map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
 
     println!("{module:#?}");
 
@@ -158,10 +153,7 @@ fn print_type_error(source: &str, file: &Path, error: &ambient_engine::infer::Ty
     let line_content = &source[line_start..line_end];
 
     // Print error header
-    eprintln!(
-        "\x1b[1;31merror\x1b[0m: {}",
-        error.kind
-    );
+    eprintln!("\x1b[1;31merror\x1b[0m: {}", error.kind);
 
     // Print location
     eprintln!(
@@ -179,7 +171,9 @@ fn print_type_error(source: &str, file: &Path, error: &ambient_engine::infer::Ty
 
     // Print the error underline
     let underline_start = col.saturating_sub(1);
-    let underline_len = ((end - start) as usize).min(line_content.len() - underline_start).max(1);
+    let underline_len = ((end - start) as usize)
+        .min(line_content.len() - underline_start)
+        .max(1);
     let spaces = " ".repeat(underline_start);
     let carets = "^".repeat(underline_len);
     eprintln!("   {padding} \x1b[1;34m|\x1b[0m {spaces}\x1b[1;31m{carets}\x1b[0m");
@@ -233,8 +227,8 @@ fn read_source(file: &Path) -> Result<String> {
 /// Compile source code to a module.
 fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
     // Parse.
-    let module =
-        ambient_parser::parse(source).map_err(|e| anyhow::anyhow!("parse error at {}: {e}", file.display()))?;
+    let module = ambient_parser::parse(source)
+        .map_err(|e| anyhow::anyhow!("parse error at {}: {e}", file.display()))?;
 
     // Type check.
     let check_result = ambient_engine::infer::check_module(module);
@@ -251,8 +245,8 @@ fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
     }
 
     // Compile the type-checked module.
-    let compiled =
-        compile_module(&check_result.module).map_err(|e| anyhow::anyhow!("compile error at {}: {e}", file.display()))?;
+    let compiled = compile_module(&check_result.module)
+        .map_err(|e| anyhow::anyhow!("compile error at {}: {e}", file.display()))?;
 
     Ok(compiled)
 }
@@ -290,7 +284,7 @@ enum SerializedValue {
     Number(f64),
     String(String),
     FunctionRef(String), // hex hash
-    // Tuples and records not typically in constant pools
+                         // Tuples and records not typically in constant pools
 }
 
 fn serialize_module(module: &CompiledModule) -> SerializedModule {
@@ -304,7 +298,11 @@ fn serialize_module(module: &CompiledModule) -> SerializedModule {
                 constants: f.constants.iter().map(serialize_value).collect(),
                 local_count: f.local_count,
                 param_count: f.param_count,
-                dependencies: f.dependencies.iter().map(|h| h.to_hex().to_string()).collect(),
+                dependencies: f
+                    .dependencies
+                    .iter()
+                    .map(|h| h.to_hex().to_string())
+                    .collect(),
             })
             .collect(),
         function_names: module

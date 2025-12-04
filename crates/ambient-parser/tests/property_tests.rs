@@ -120,15 +120,16 @@ proptest! {
 
 /// Strategy for generating simple arithmetic expressions.
 fn arith_expr_strategy() -> impl Strategy<Value = String> {
-    let leaf = prop_oneof![
-        (1..100u64).prop_map(|n| n.to_string()),
-        ident_strategy(),
-    ];
+    let leaf = prop_oneof![(1..100u64).prop_map(|n| n.to_string()), ident_strategy(),];
 
     leaf.prop_recursive(3, 64, 10, |inner| {
         prop_oneof![
             // Binary operations
-            (inner.clone(), prop::sample::select(vec!["+", "-", "*", "/", "%"]), inner.clone())
+            (
+                inner.clone(),
+                prop::sample::select(vec!["+", "-", "*", "/", "%"]),
+                inner.clone()
+            )
                 .prop_map(|(a, op, b)| format!("({} {} {})", a, op, b)),
             // Unary operations
             (prop::sample::select(vec!["-", "!"]), inner.clone())
@@ -141,12 +142,13 @@ fn arith_expr_strategy() -> impl Strategy<Value = String> {
 
 /// Strategy for generating comparison expressions.
 fn comparison_expr_strategy() -> impl Strategy<Value = String> {
-    let operand = prop_oneof![
-        (1..100u64).prop_map(|n| n.to_string()),
-        ident_strategy(),
-    ];
+    let operand = prop_oneof![(1..100u64).prop_map(|n| n.to_string()), ident_strategy(),];
 
-    (operand.clone(), prop::sample::select(vec!["==", "!=", "<", "<=", ">", ">="]), operand)
+    (
+        operand.clone(),
+        prop::sample::select(vec!["==", "!=", "<", "<=", ">", ">="]),
+        operand,
+    )
         .prop_map(|(a, op, b)| format!("{} {} {}", a, op, b))
 }
 
@@ -163,7 +165,11 @@ fn bool_expr_strategy() -> impl Strategy<Value = String> {
     leaf.prop_recursive(2, 32, 10, |inner| {
         prop_oneof![
             // And/Or
-            (inner.clone(), prop::sample::select(vec!["&&", "||"]), inner.clone())
+            (
+                inner.clone(),
+                prop::sample::select(vec!["&&", "||"]),
+                inner.clone()
+            )
                 .prop_map(|(a, op, b)| format!("({} {} {})", a, op, b)),
             // Not
             inner.clone().prop_map(|a| format!("(!{})", a)),
@@ -224,7 +230,7 @@ proptest! {
 /// Strategy for generating simple function definitions.
 fn function_def_strategy() -> impl Strategy<Value = String> {
     (
-        ident_strategy(), // function name
+        ident_strategy(),                              // function name
         prop::collection::vec(ident_strategy(), 0..3), // parameter names
     )
         .prop_map(|(name, params)| {

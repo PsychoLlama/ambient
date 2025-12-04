@@ -186,7 +186,10 @@ pub fn register_console_with_collector(
         console::METHOD_PRINTLN,
         Box::new(move |ability: &SuspendedAbility| {
             let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
-            output_clone.lock().expect("lock poisoned").push(format!("{message}\n"));
+            output_clone
+                .lock()
+                .expect("lock poisoned")
+                .push(format!("{message}\n"));
             Ok(Value::Unit)
         }),
     );
@@ -196,7 +199,10 @@ pub fn register_console_with_collector(
         console::METHOD_EPRINT,
         Box::new(move |ability: &SuspendedAbility| {
             let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
-            output.lock().expect("lock poisoned").push(format!("[ERR] {message}"));
+            output
+                .lock()
+                .expect("lock poisoned")
+                .push(format!("[ERR] {message}"));
             Ok(Value::Unit)
         }),
     );

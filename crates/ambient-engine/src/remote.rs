@@ -286,7 +286,9 @@ impl Executor {
         match self.execute(request) {
             ExecutionResponse::Success(value) => Ok(value),
             ExecutionResponse::Error(err) => Err(err),
-            ExecutionResponse::NeedDependencies(deps) => Err(RemoteError::MissingDependencies(deps)),
+            ExecutionResponse::NeedDependencies(deps) => {
+                Err(RemoteError::MissingDependencies(deps))
+            }
         }
     }
 }
@@ -590,7 +592,9 @@ mod tests {
         let parsed: ExecutionResponse = serde_json::from_str(&json).expect("deserialize");
 
         match parsed {
-            ExecutionResponse::Success(Value::Number(n)) => assert!((n - 42.0).abs() < f64::EPSILON),
+            ExecutionResponse::Success(Value::Number(n)) => {
+                assert!((n - 42.0).abs() < f64::EPSILON)
+            }
             _ => panic!("unexpected response type"),
         }
     }
@@ -601,8 +605,8 @@ mod tests {
         let func = make_const_function(1.0);
         let hash = store.add(func);
 
-        let request = ExecutionRequest::new(hash, vec![Value::Bool(true)], &store)
-            .expect("create request");
+        let request =
+            ExecutionRequest::new(hash, vec![Value::Bool(true)], &store).expect("create request");
 
         let json = serde_json::to_string(&request).expect("serialize");
         let parsed: ExecutionRequest = serde_json::from_str(&json).expect("deserialize");

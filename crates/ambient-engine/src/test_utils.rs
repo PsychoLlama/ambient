@@ -507,7 +507,10 @@ impl VmTest {
         F: FnOnce(&Result<Value, VmError>) -> bool,
     {
         let result = self.run();
-        assert!(predicate(&result), "Result did not match predicate: {result:?}");
+        assert!(
+            predicate(&result),
+            "Result did not match predicate: {result:?}"
+        );
     }
 
     /// Assert the result is a tuple and apply custom assertions.

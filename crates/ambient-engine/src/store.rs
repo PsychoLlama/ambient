@@ -300,11 +300,15 @@ where
                     visit(successor, graph, state, cmp);
                     let succ_lowlink = state.lowlinks.get(successor).copied().unwrap_or(usize::MAX);
                     let curr_lowlink = state.lowlinks.get(node).copied().unwrap_or(usize::MAX);
-                    state.lowlinks.insert(node.clone(), curr_lowlink.min(succ_lowlink));
+                    state
+                        .lowlinks
+                        .insert(node.clone(), curr_lowlink.min(succ_lowlink));
                 } else if state.on_stack.get(successor).copied().unwrap_or(false) {
                     let succ_index = state.indices.get(successor).copied().unwrap_or(usize::MAX);
                     let curr_lowlink = state.lowlinks.get(node).copied().unwrap_or(usize::MAX);
-                    state.lowlinks.insert(node.clone(), curr_lowlink.min(succ_index));
+                    state
+                        .lowlinks
+                        .insert(node.clone(), curr_lowlink.min(succ_index));
                 }
             }
         }

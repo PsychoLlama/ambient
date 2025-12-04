@@ -122,10 +122,7 @@ pub enum TypeErrorKind {
     UnknownAbility { name: Arc<str> },
 
     /// Unknown ability method.
-    UnknownAbilityMethod {
-        ability: Arc<str>,
-        method: Arc<str>,
-    },
+    UnknownAbilityMethod { ability: Arc<str>, method: Arc<str> },
 
     /// Not a suspended ability value.
     NotAnAbilityValue { ty: Type },
@@ -140,10 +137,7 @@ pub enum TypeErrorKind {
     HandlerAbilityAmbiguous { method_names: Vec<Arc<str>> },
 
     /// Handler method doesn't exist in the target ability.
-    HandlerUnknownMethod {
-        ability: Arc<str>,
-        method: Arc<str>,
-    },
+    HandlerUnknownMethod { ability: Arc<str>, method: Arc<str> },
 
     /// Handler method has wrong number of parameters.
     HandlerMethodArityMismatch {
@@ -154,10 +148,7 @@ pub enum TypeErrorKind {
     },
 
     /// Handler is missing a required ability method.
-    HandlerMissingMethod {
-        ability: Arc<str>,
-        method: Arc<str>,
-    },
+    HandlerMissingMethod { ability: Arc<str>, method: Arc<str> },
 
     // ─────────────────────────────────────────────────────────────────────────
     // Sandbox errors (Milestone 14)
@@ -591,9 +582,7 @@ fn occurs(var: TypeVarId, ty: &Type) -> bool {
         Type::Var(TypeVar::Unbound(id)) => id == var,
         Type::Tuple(elems) => elems.iter().any(|e| occurs(var, e)),
         Type::Record(r) => r.fields.iter().any(|(_, t)| occurs(var, t)),
-        Type::Function(f) => {
-            f.params.iter().any(|p| occurs(var, p)) || occurs(var, &f.ret)
-        }
+        Type::Function(f) => f.params.iter().any(|p| occurs(var, p)) || occurs(var, &f.ret),
         Type::Named(n) => n.args.iter().any(|a| occurs(var, a)),
         Type::Nominal(n) => occurs(var, &n.inner),
         Type::Forall(f) => {
@@ -1076,7 +1065,16 @@ impl Infer {
             }
 
             // Row with something - need to unify carefully
-            (AbilitySet::Row { concrete: c1, tail: t1 }, AbilitySet::Row { concrete: c2, tail: t2 }) => {
+            (
+                AbilitySet::Row {
+                    concrete: c1,
+                    tail: t1,
+                },
+                AbilitySet::Row {
+                    concrete: c2,
+                    tail: t2,
+                },
+            ) => {
                 // Same tail - concrete parts must match
                 if t1 == t2 {
                     if c1 == c2 {
@@ -1112,8 +1110,20 @@ impl Infer {
             }
 
             // Row with concrete - check that concrete is a subset
-            (AbilitySet::Row { concrete: row_concrete, tail }, AbilitySet::Concrete(c))
-            | (AbilitySet::Concrete(c), AbilitySet::Row { concrete: row_concrete, tail }) => {
+            (
+                AbilitySet::Row {
+                    concrete: row_concrete,
+                    tail,
+                },
+                AbilitySet::Concrete(c),
+            )
+            | (
+                AbilitySet::Concrete(c),
+                AbilitySet::Row {
+                    concrete: row_concrete,
+                    tail,
+                },
+            ) => {
                 // Check that all row_concrete abilities are in c
                 for ability in row_concrete {
                     if !c.contains(ability) {
@@ -1127,7 +1137,11 @@ impl Infer {
                     }
                 }
                 // Bind the tail to the remaining abilities
-                let remaining: Vec<_> = c.iter().filter(|a| !row_concrete.contains(a)).copied().collect();
+                let remaining: Vec<_> = c
+                    .iter()
+                    .filter(|a| !row_concrete.contains(a))
+                    .copied()
+                    .collect();
                 let remaining_set = AbilitySet::from_abilities(remaining);
                 self.ability_subst.insert(*tail, remaining_set);
                 Ok(())
@@ -1209,20 +1223,12 @@ impl Infer {
                 ("eprint", 1, Type::Unit),
                 ("eprintln", 1, Type::Unit),
             ],
-            Self::ABILITY_EXCEPTION => vec![
-                ("throw", 1, Type::Never),
-            ],
-            Self::ABILITY_TIME => vec![
-                ("now", 0, Type::Number),
-                ("wait", 1, Type::Unit),
-            ],
-            Self::ABILITY_RANDOM => vec![
-                ("seed", 0, Type::Number),
-                ("in_range", 1, Type::Number),
-            ],
+            Self::ABILITY_EXCEPTION => vec![("throw", 1, Type::Never)],
+            Self::ABILITY_TIME => vec![("now", 0, Type::Number), ("wait", 1, Type::Unit)],
+            Self::ABILITY_RANDOM => vec![("seed", 0, Type::Number), ("in_range", 1, Type::Number)],
             Self::ABILITY_ASYNC => vec![
                 // Async methods are polymorphic - simplified signatures here
-                ("all", 1, Type::Hole), // Result type depends on input
+                ("all", 1, Type::Hole),  // Result type depends on input
                 ("race", 1, Type::Hole), // Result type depends on input
             ],
             _ => vec![],
@@ -1548,19 +1554,15 @@ impl Infer {
                 let record_ty = self.infer_expr(env, record_expr)?;
                 let record_ty = self.apply(&record_ty);
                 match &record_ty {
-                    Type::Record(rec) => {
-                        rec.get_field(field)
-                            .cloned()
-                            .ok_or_else(|| {
-                                TypeError::new(
-                                    TypeErrorKind::FieldNotFound {
-                                        field: field.clone(),
-                                        record_ty: record_ty.clone(),
-                                    },
-                                    span,
-                                )
-                            })?
-                    }
+                    Type::Record(rec) => rec.get_field(field).cloned().ok_or_else(|| {
+                        TypeError::new(
+                            TypeErrorKind::FieldNotFound {
+                                field: field.clone(),
+                                record_ty: record_ty.clone(),
+                            },
+                            span,
+                        )
+                    })?,
                     Type::Var(_) => {
                         return Err(TypeError::new(
                             TypeErrorKind::CannotInfer {
@@ -1726,8 +1728,12 @@ impl Infer {
                 }
 
                 // Look up the ability and method to get return type and additional abilities
-                let (ability_id, result_ty, additional_abilities) =
-                    self.lookup_ability_method(&ability_call.ability.name, &ability_call.method, &arg_tys, span)?;
+                let (ability_id, result_ty, additional_abilities) = self.lookup_ability_method(
+                    &ability_call.ability.name,
+                    &ability_call.method,
+                    &arg_tys,
+                    span,
+                )?;
 
                 // Add primary ability to current requirements
                 self.require_ability(ability_id);
@@ -1748,8 +1754,12 @@ impl Infer {
 
                 // Look up the ability and method to get return type
                 // Note: For suspend, we ignore additional_abilities since we're just creating a value
-                let (ability_id, result_ty, _additional_abilities) =
-                    self.lookup_ability_method(&ability_call.ability.name, &ability_call.method, &arg_tys, span)?;
+                let (ability_id, result_ty, _additional_abilities) = self.lookup_ability_method(
+                    &ability_call.ability.name,
+                    &ability_call.method,
+                    &arg_tys,
+                    span,
+                )?;
 
                 // Return Ability<result_ty, ability_id> - a suspended ability value
                 Type::ability_value(result_ty, AbilitySet::single(ability_id))
@@ -1864,14 +1874,15 @@ impl Infer {
                     .collect();
 
                 // Try to infer the target ability from method names
-                let ability_id = Self::infer_ability_from_methods(&method_names).ok_or_else(|| {
-                    TypeError::new(
-                        TypeErrorKind::HandlerAbilityAmbiguous {
-                            method_names: method_names.clone(),
-                        },
-                        span,
-                    )
-                })?;
+                let ability_id =
+                    Self::infer_ability_from_methods(&method_names).ok_or_else(|| {
+                        TypeError::new(
+                            TypeErrorKind::HandlerAbilityAmbiguous {
+                                method_names: method_names.clone(),
+                            },
+                            span,
+                        )
+                    })?;
 
                 let ability_name: Arc<str> = Self::ability_id_to_name(ability_id)
                     .unwrap_or("unknown")
@@ -1989,8 +2000,8 @@ impl Infer {
                     // Check each required ability is in the allowed list
                     for ability_id in required_abilities {
                         if !allowed_ability_ids.contains(ability_id) {
-                            let ability_name = Self::ability_id_to_name(*ability_id)
-                                .unwrap_or("unknown");
+                            let ability_name =
+                                Self::ability_id_to_name(*ability_id).unwrap_or("unknown");
                             return Err(TypeError::new(
                                 TypeErrorKind::SandboxAbilityViolation {
                                     ability: ability_name.into(),
@@ -2058,7 +2069,12 @@ impl Infer {
                     let pat_env = self.infer_pattern(&new_env, pat, ty)?;
                     // Merge bindings
                     for (id, scheme) in pat_env.bindings {
-                        if let Some(name) = pat_env.names.iter().find(|(_, v)| **v == id).map(|(k, _)| k) {
+                        if let Some(name) = pat_env
+                            .names
+                            .iter()
+                            .find(|(_, v)| **v == id)
+                            .map(|(k, _)| k)
+                        {
                             new_env.insert(id, name.clone(), scheme);
                         }
                     }
@@ -2076,7 +2092,12 @@ impl Infer {
                 for ((_, pat), (_, ty)) in field_patterns.iter().zip(field_tys.iter()) {
                     let pat_env = self.infer_pattern(&new_env, pat, ty)?;
                     for (id, scheme) in pat_env.bindings {
-                        if let Some(name) = pat_env.names.iter().find(|(_, v)| **v == id).map(|(k, _)| k) {
+                        if let Some(name) = pat_env
+                            .names
+                            .iter()
+                            .find(|(_, v)| **v == id)
+                            .map(|(k, _)| k)
+                        {
                             new_env.insert(id, name.clone(), scheme);
                         }
                     }
@@ -2214,16 +2235,21 @@ pub fn check_module(mut module: crate::ast::Module) -> CheckResult {
                             for ability_id in inferred_ids {
                                 if !declared_set.contains(*ability_id) {
                                     let span = (item.span.start, item.span.end);
-                                    errors.push(TypeError::new(
-                                        TypeErrorKind::MissingAbility {
-                                            required: *ability_id,
-                                            available: declared_set.clone(),
-                                        },
-                                        span,
-                                    ).with_context(format!(
+                                    errors.push(
+                                        TypeError::new(
+                                            TypeErrorKind::MissingAbility {
+                                                required: *ability_id,
+                                                available: declared_set.clone(),
+                                            },
+                                            span,
+                                        )
+                                        .with_context(
+                                            format!(
                                         "function `{}` uses ability #{} but doesn't declare it",
                                         func.name, ability_id
-                                    )));
+                                    ),
+                                        ),
+                                    );
                                 }
                             }
                         }
@@ -2263,7 +2289,8 @@ pub fn check_module(mut module: crate::ast::Module) -> CheckResult {
 /// Build a type scheme for a function from its signature.
 fn build_function_scheme(infer: &mut Infer, func: &crate::ast::FunctionDef) -> Scheme {
     // Collect type variables from type parameters
-    let mut type_var_map: std::collections::HashMap<Arc<str>, TypeVarId> = std::collections::HashMap::new();
+    let mut type_var_map: std::collections::HashMap<Arc<str>, TypeVarId> =
+        std::collections::HashMap::new();
     let mut quantified_vars = Vec::new();
 
     for (idx, tp) in func.type_params.iter().enumerate() {
@@ -2475,11 +2502,8 @@ mod tests {
         let mut infer = Infer::new();
         let env = TypeEnv::new();
 
-        let mut expr = Expr::if_then_else(
-            Expr::bool(true),
-            Expr::number(1.0),
-            Some(Expr::number(2.0)),
-        );
+        let mut expr =
+            Expr::if_then_else(Expr::bool(true), Expr::number(1.0), Some(Expr::number(2.0)));
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
         assert_eq!(ty, Type::Number);
     }
@@ -2514,10 +2538,7 @@ mod tests {
 
         let mut expr = Expr::record([("x", Expr::number(1.0)), ("y", Expr::number(2.0))]);
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
-        assert_eq!(
-            ty,
-            Type::record([("x", Type::Number), ("y", Type::Number)])
-        );
+        assert_eq!(ty, Type::record([("x", Type::Number), ("y", Type::Number)]));
     }
 
     #[test]
@@ -2556,7 +2577,11 @@ mod tests {
         let mut env = TypeEnv::new();
 
         // identity: forall a. a -> a
-        env.insert(0, "id".into(), Scheme::poly(vec![0], Type::function(vec![Type::var(0)], Type::var(0))));
+        env.insert(
+            0,
+            "id".into(),
+            Scheme::poly(vec![0], Type::function(vec![Type::var(0)], Type::var(0))),
+        );
 
         // id(42) should be number
         let mut expr = Expr::call(Expr::local(0), vec![Expr::number(42.0)]);
@@ -2729,11 +2754,8 @@ mod tests {
         let env = TypeEnv::new();
 
         // A function type with an ability variable
-        let ty = Type::function_with_abilities(
-            vec![Type::var(0)],
-            Type::var(0),
-            AbilitySet::var(1),
-        );
+        let ty =
+            Type::function_with_abilities(vec![Type::var(0)], Type::var(0), AbilitySet::var(1));
 
         let scheme = infer.generalize(&env, &ty);
 
@@ -2853,9 +2875,7 @@ mod tests {
         assert!(msg.contains("ability mismatch"));
 
         let err2 = TypeError::new(
-            TypeErrorKind::UnknownAbility {
-                name: "Foo".into(),
-            },
+            TypeErrorKind::UnknownAbility { name: "Foo".into() },
             (0, 10),
         );
         let msg2 = format!("{err2}");
@@ -2915,10 +2935,7 @@ mod tests {
         registry.register(1, AbilityInfo::new("IO"));
 
         // FileSystem (2) depends on IO (1)
-        registry.register(
-            2,
-            AbilityInfo::new("FileSystem").with_dependency(1),
-        );
+        registry.register(2, AbilityInfo::new("FileSystem").with_dependency(1));
 
         let mut infer = Infer::with_registry(registry);
 
@@ -2948,7 +2965,10 @@ mod tests {
 
         // Look up Async.all with this argument
         let result = infer.lookup_ability_method("Async", "all", &[list_of_abilities], span());
-        assert!(result.is_ok(), "Async.all should accept List<Ability<T, A!>>");
+        assert!(
+            result.is_ok(),
+            "Async.all should accept List<Ability<T, A!>>"
+        );
 
         let (ability_id, result_ty, additional_abilities) = result.unwrap();
 
@@ -2981,7 +3001,10 @@ mod tests {
 
         // Look up Async.race with this argument
         let result = infer.lookup_ability_method("Async", "race", &[list_of_abilities], span());
-        assert!(result.is_ok(), "Async.race should accept List<Ability<T, A!>>");
+        assert!(
+            result.is_ok(),
+            "Async.race should accept List<Ability<T, A!>>"
+        );
 
         let (ability_id, result_ty, additional_abilities) = result.unwrap();
 
@@ -2989,7 +3012,11 @@ mod tests {
         assert_eq!(ability_id, 5, "Should return Async ability ID");
 
         // Should return number (the unwrapped result type)
-        assert_eq!(result_ty, Type::Number, "Async.race should return T, not List<T>");
+        assert_eq!(
+            result_ty,
+            Type::Number,
+            "Async.race should return T, not List<T>"
+        );
 
         // Should include Time in additional abilities
         assert!(
@@ -3032,11 +3059,20 @@ mod tests {
 
         // Try calling Async.all with no arguments
         let result = infer.lookup_ability_method("Async", "all", &[], span());
-        assert!(result.is_err(), "Async.all should require exactly one argument");
+        assert!(
+            result.is_err(),
+            "Async.all should require exactly one argument"
+        );
 
         // Try calling Async.all with two arguments
-        let arg1 = Type::named("List", vec![Type::ability_value(Type::String, AbilitySet::single(1))]);
-        let arg2 = Type::named("List", vec![Type::ability_value(Type::Number, AbilitySet::single(1))]);
+        let arg1 = Type::named(
+            "List",
+            vec![Type::ability_value(Type::String, AbilitySet::single(1))],
+        );
+        let arg2 = Type::named(
+            "List",
+            vec![Type::ability_value(Type::Number, AbilitySet::single(1))],
+        );
         let result = infer.lookup_ability_method("Async", "all", &[arg1, arg2], span());
         assert!(result.is_err(), "Async.all should not accept two arguments");
     }
@@ -3047,7 +3083,10 @@ mod tests {
 
         // Try calling Async.race with no arguments
         let result = infer.lookup_ability_method("Async", "race", &[], span());
-        assert!(result.is_err(), "Async.race should require exactly one argument");
+        assert!(
+            result.is_err(),
+            "Async.race should require exactly one argument"
+        );
     }
 
     #[test]
@@ -3056,7 +3095,10 @@ mod tests {
 
         // Try calling Async.all with a non-List type (e.g., just a number)
         let result = infer.lookup_ability_method("Async", "all", &[Type::Number], span());
-        assert!(result.is_err(), "Async.all should reject non-List arguments");
+        assert!(
+            result.is_err(),
+            "Async.all should reject non-List arguments"
+        );
 
         // Try calling Async.all with List<number> (not List<Ability<...>>)
         let list_of_numbers = Type::named("List", vec![Type::Number]);
@@ -3194,7 +3236,10 @@ mod tests {
         )]);
 
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
-        assert!(matches!(ty, Type::Handler(_)), "Partial handlers should be allowed");
+        assert!(
+            matches!(ty, Type::Handler(_)),
+            "Partial handlers should be allowed"
+        );
     }
 
     #[test]
@@ -3211,7 +3256,10 @@ mod tests {
 
         // This should succeed - the parameter 'msg' is in scope
         let result = infer.infer_expr(&env, &mut expr);
-        assert!(result.is_ok(), "Handler method body should type-check with params in scope");
+        assert!(
+            result.is_ok(),
+            "Handler method body should type-check with params in scope"
+        );
     }
 
     #[test]

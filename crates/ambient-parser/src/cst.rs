@@ -34,7 +34,9 @@ impl Trivia {
     /// Check if trivia contains any comments.
     #[must_use]
     pub fn has_comments(&self) -> bool {
-        self.items.iter().any(|t| matches!(t.kind, TriviaKind::Comment))
+        self.items
+            .iter()
+            .any(|t| matches!(t.kind, TriviaKind::Comment))
     }
 }
 
@@ -374,10 +376,7 @@ pub enum CstExprKind {
     Tuple(Vec<CstExpr>),
 
     /// Tuple index: `tuple.0`.
-    TupleIndex {
-        tuple: Box<CstExpr>,
-        index: u32,
-    },
+    TupleIndex { tuple: Box<CstExpr>, index: u32 },
 
     /// Record: `{ x: 1, y: 2 }`.
     Record(Vec<(CstIdent, CstExpr)>),
