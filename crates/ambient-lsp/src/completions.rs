@@ -83,7 +83,10 @@ pub fn get_completions(
 
     // If we're completing an ability method, show ability methods.
     if let Some(ability_name) = ctx.after_ability_dot {
-        items.extend(get_ability_method_completions(ability_name, ctx.word_prefix));
+        items.extend(get_ability_method_completions(
+            ability_name,
+            ctx.word_prefix,
+        ));
         return items;
     }
 
@@ -157,8 +160,16 @@ fn get_ability_completions(prefix: &str) -> Vec<CompletionItem> {
 fn get_ability_method_completions(ability_name: &str, prefix: &str) -> Vec<CompletionItem> {
     let methods: &[(&str, &str, &str)] = match ability_name {
         "Console" => &[
-            ("print", "(message: string): ()", "Print a message to stdout"),
-            ("eprint", "(message: string): ()", "Print a message to stderr"),
+            (
+                "print",
+                "(message: string): ()",
+                "Print a message to stdout",
+            ),
+            (
+                "eprint",
+                "(message: string): ()",
+                "Print a message to stderr",
+            ),
             (
                 "println",
                 "(message: string): ()",
@@ -263,10 +274,7 @@ fn function_to_completion(func: &FunctionDef) -> CompletionItem {
         })
         .collect();
 
-    let ret = func
-        .ret_ty
-        .as_ref()
-        .map_or("_".to_string(), format_type);
+    let ret = func.ret_ty.as_ref().map_or("_".to_string(), format_type);
 
     let signature = format!("({}): {}", params.join(", "), ret);
 
@@ -420,7 +428,13 @@ fn collect_block_locals(
             // Only include if the binding is before the cursor.
             if stmt.span.end < offset && binding.name.starts_with(prefix) {
                 let type_str = binding.ty.as_ref().map_or_else(
-                    || binding.init.ty.as_ref().map_or("_".to_string(), format_type),
+                    || {
+                        binding
+                            .init
+                            .ty
+                            .as_ref()
+                            .map_or("_".to_string(), format_type)
+                    },
                     format_type,
                 );
 

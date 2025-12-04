@@ -285,7 +285,14 @@ impl TokenKind {
     #[must_use]
     pub const fn builtin_abilities() -> &'static [&'static str] {
         &[
-            "Console", "Exception", "Time", "Random", "Async", "Log", "Filesystem", "Network",
+            "Console",
+            "Exception",
+            "Time",
+            "Random",
+            "Async",
+            "Log",
+            "Filesystem",
+            "Network",
         ]
     }
 }

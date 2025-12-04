@@ -18,6 +18,21 @@
 //!        ▼
 //! CompiledModule { functions, entry_point }
 //! ```
+//!
+//! # Internal Organization
+//!
+//! This file is organized into the following sections:
+//!
+//! - **Handler implicit parameter names**: Constants for implicit handler parameters
+//! - **Compilation Errors**: `CompileError` and `CompileErrorKind` types
+//! - **Compiled Module**: `CompiledModule` struct for compilation output
+//! - **Compiler State**: `Compiler` struct with scoping and local variable management
+//! - **Module Compilation**: Top-level compilation of modules, functions, and definitions
+//! - **Expression Compilation**: Bytecode generation for all expression types
+//! - **Statement Compilation**: Bytecode generation for statements
+//! - **Pattern Matching Compilation**: Pattern matching code generation
+//! - **REPL Support**: Interactive compilation utilities
+//! - **Tests**: Unit tests for the compiler
 
 #![allow(clippy::cast_possible_truncation)]
 
