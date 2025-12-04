@@ -396,6 +396,60 @@ pub enum Opcode {
     MapValues = 0xEF,
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Set operations (Milestone 15 - Standard Library)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Create an empty set.
+    ///
+    /// Stack: `[] -> [set]`
+    MakeEmptySet = 0xF0,
+
+    /// Create a set from N values on the stack.
+    /// Operand: u16 (number of elements)
+    ///
+    /// Stack: `[v1, v2, ..., vN] -> [set]`
+    MakeSet = 0xF1,
+
+    /// Insert a value into a set (returns new set).
+    ///
+    /// Stack: `[set, value] -> [new_set]`
+    SetInsert = 0xF2,
+
+    /// Remove a value from a set (returns new set).
+    ///
+    /// Stack: `[set, value] -> [new_set]`
+    SetRemove = 0xF3,
+
+    /// Check if a set contains a value.
+    ///
+    /// Stack: `[set, value] -> [bool]`
+    SetContains = 0xF4,
+
+    /// Get the number of elements in a set.
+    ///
+    /// Stack: `[set] -> [number]`
+    SetLength = 0xF5,
+
+    /// Compute the union of two sets.
+    ///
+    /// Stack: `[set1, set2] -> [union_set]`
+    SetUnion = 0xF6,
+
+    /// Compute the intersection of two sets.
+    ///
+    /// Stack: `[set1, set2] -> [intersection_set]`
+    SetIntersection = 0xF7,
+
+    /// Compute the difference of two sets (set1 - set2).
+    ///
+    /// Stack: `[set1, set2] -> [difference_set]`
+    SetDifference = 0xF8,
+
+    /// Convert a set to a list.
+    ///
+    /// Stack: `[set] -> [list]`
+    SetToList = 0xF9,
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Special
     // ─────────────────────────────────────────────────────────────────────────
     /// Halt execution (end of program).
@@ -481,6 +535,17 @@ impl Opcode {
             0xED => Some(Self::MapLength),
             0xEE => Some(Self::MapKeys),
             0xEF => Some(Self::MapValues),
+            // Sets
+            0xF0 => Some(Self::MakeEmptySet),
+            0xF1 => Some(Self::MakeSet),
+            0xF2 => Some(Self::SetInsert),
+            0xF3 => Some(Self::SetRemove),
+            0xF4 => Some(Self::SetContains),
+            0xF5 => Some(Self::SetLength),
+            0xF6 => Some(Self::SetUnion),
+            0xF7 => Some(Self::SetIntersection),
+            0xF8 => Some(Self::SetDifference),
+            0xF9 => Some(Self::SetToList),
             0xFF => Some(Self::Halt),
             _ => None,
         }
@@ -706,6 +771,14 @@ fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
                 hasher.update(&(key.len() as u32).to_le_bytes());
                 hasher.update(key.as_bytes());
                 hash_value(hasher, val);
+            }
+        }
+        Value::Set(set) => {
+            const TYPE_SET: u8 = 13;
+            hasher.update(&[TYPE_SET]);
+            hasher.update(&(set.elements.len() as u32).to_le_bytes());
+            for elem in &set.elements {
+                hash_value(hasher, elem);
             }
         }
     }
@@ -1067,6 +1140,81 @@ impl BytecodeBuilder {
         self.code.push(Opcode::ParseBool as u8);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Set operations (Milestone 15)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Emit a `MakeEmptySet` instruction.
+    ///
+    /// Creates an empty set.
+    pub fn emit_make_empty_set(&mut self) {
+        self.code.push(Opcode::MakeEmptySet as u8);
+    }
+
+    /// Emit a `MakeSet` instruction.
+    ///
+    /// Creates a set from `count` values on the stack.
+    pub fn emit_make_set(&mut self, count: u16) {
+        self.code.push(Opcode::MakeSet as u8);
+        self.code.extend_from_slice(&count.to_le_bytes());
+    }
+
+    /// Emit a `SetInsert` instruction.
+    ///
+    /// Pops a set and value, pushes a new set with the value inserted.
+    pub fn emit_set_insert(&mut self) {
+        self.code.push(Opcode::SetInsert as u8);
+    }
+
+    /// Emit a `SetRemove` instruction.
+    ///
+    /// Pops a set and value, pushes a new set with the value removed.
+    pub fn emit_set_remove(&mut self) {
+        self.code.push(Opcode::SetRemove as u8);
+    }
+
+    /// Emit a `SetContains` instruction.
+    ///
+    /// Pops a set and value, pushes a boolean.
+    pub fn emit_set_contains(&mut self) {
+        self.code.push(Opcode::SetContains as u8);
+    }
+
+    /// Emit a `SetLength` instruction.
+    ///
+    /// Pops a set and pushes its length.
+    pub fn emit_set_length(&mut self) {
+        self.code.push(Opcode::SetLength as u8);
+    }
+
+    /// Emit a `SetUnion` instruction.
+    ///
+    /// Pops two sets and pushes their union.
+    pub fn emit_set_union(&mut self) {
+        self.code.push(Opcode::SetUnion as u8);
+    }
+
+    /// Emit a `SetIntersection` instruction.
+    ///
+    /// Pops two sets and pushes their intersection.
+    pub fn emit_set_intersection(&mut self) {
+        self.code.push(Opcode::SetIntersection as u8);
+    }
+
+    /// Emit a `SetDifference` instruction.
+    ///
+    /// Pops two sets and pushes the difference (set1 - set2).
+    pub fn emit_set_difference(&mut self) {
+        self.code.push(Opcode::SetDifference as u8);
+    }
+
+    /// Emit a `SetToList` instruction.
+    ///
+    /// Pops a set and pushes it as a list.
+    pub fn emit_set_to_list(&mut self) {
+        self.code.push(Opcode::SetToList as u8);
+    }
+
     /// Build the final compiled function.
     ///
     /// Dependencies are automatically collected from `emit_call` invocations.
@@ -1190,6 +1338,26 @@ mod tests {
             Opcode::ToString,
             Opcode::ParseNumber,
             Opcode::ParseBool,
+            // Maps
+            Opcode::MakeEmptyMap,
+            Opcode::MapGet,
+            Opcode::MapInsert,
+            Opcode::MapRemove,
+            Opcode::MapContains,
+            Opcode::MapLength,
+            Opcode::MapKeys,
+            Opcode::MapValues,
+            // Sets
+            Opcode::MakeEmptySet,
+            Opcode::MakeSet,
+            Opcode::SetInsert,
+            Opcode::SetRemove,
+            Opcode::SetContains,
+            Opcode::SetLength,
+            Opcode::SetUnion,
+            Opcode::SetIntersection,
+            Opcode::SetDifference,
+            Opcode::SetToList,
             Opcode::Halt,
         ];
 

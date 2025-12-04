@@ -541,6 +541,11 @@ pub fn format_value(value: &Value) -> String {
             let joined = parts.join(", ");
             format!("Map {{ {joined} }}")
         }
+        Value::Set(set) => {
+            let parts: Vec<String> = set.elements.iter().map(format_value).collect();
+            let joined = parts.join(", ");
+            format!("Set {{ {joined} }}")
+        }
     }
 }
 

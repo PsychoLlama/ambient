@@ -1409,6 +1409,174 @@ impl Vm {
                     let values = map.values();
                     self.stack.push(Value::list(values));
                 }
+
+                // ─────────────────────────────────────────────────────────────
+                // Sets (Milestone 15)
+                // ─────────────────────────────────────────────────────────────
+                Opcode::MakeEmptySet => {
+                    self.stack.push(Value::empty_set());
+                }
+
+                Opcode::MakeSet => {
+                    let count = self.read_u16()? as usize;
+                    let mut elements = Vec::with_capacity(count);
+                    for _ in 0..count {
+                        elements.push(self.pop()?);
+                    }
+                    elements.reverse();
+                    self.stack.push(Value::set(elements));
+                }
+
+                Opcode::SetInsert => {
+                    let value = self.pop()?;
+                    let set = match self.pop()? {
+                        Value::Set(s) => s,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "set",
+                                got: other.type_name(),
+                                operation: "set_insert",
+                            })
+                        }
+                    };
+                    let new_set = set.insert(value);
+                    self.stack.push(Value::Set(Arc::new(new_set)));
+                }
+
+                Opcode::SetRemove => {
+                    let value = self.pop()?;
+                    let set = match self.pop()? {
+                        Value::Set(s) => s,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "set",
+                                got: other.type_name(),
+                                operation: "set_remove",
+                            })
+                        }
+                    };
+                    let new_set = set.remove(&value);
+                    self.stack.push(Value::Set(Arc::new(new_set)));
+                }
+
+                Opcode::SetContains => {
+                    let value = self.pop()?;
+                    let set = match self.pop()? {
+                        Value::Set(s) => s,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "set",
+                                got: other.type_name(),
+                                operation: "set_contains",
+                            })
+                        }
+                    };
+                    self.stack.push(Value::Bool(set.contains(&value)));
+                }
+
+                Opcode::SetLength => {
+                    let set = match self.pop()? {
+                        Value::Set(s) => s,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "set",
+                                got: other.type_name(),
+                                operation: "set_length",
+                            })
+                        }
+                    };
+                    #[allow(clippy::cast_precision_loss)]
+                    self.stack.push(Value::Number(set.len() as f64));
+                }
+
+                Opcode::SetUnion => {
+                    let set2 = match self.pop()? {
+                        Value::Set(s) => s,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "set",
+                                got: other.type_name(),
+                                operation: "set_union",
+                            })
+                        }
+                    };
+                    let set1 = match self.pop()? {
+                        Value::Set(s) => s,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "set",
+                                got: other.type_name(),
+                                operation: "set_union",
+                            })
+                        }
+                    };
+                    let result = set1.union(&set2);
+                    self.stack.push(Value::Set(Arc::new(result)));
+                }
+
+                Opcode::SetIntersection => {
+                    let set2 = match self.pop()? {
+                        Value::Set(s) => s,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "set",
+                                got: other.type_name(),
+                                operation: "set_intersection",
+                            })
+                        }
+                    };
+                    let set1 = match self.pop()? {
+                        Value::Set(s) => s,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "set",
+                                got: other.type_name(),
+                                operation: "set_intersection",
+                            })
+                        }
+                    };
+                    let result = set1.intersection(&set2);
+                    self.stack.push(Value::Set(Arc::new(result)));
+                }
+
+                Opcode::SetDifference => {
+                    let set2 = match self.pop()? {
+                        Value::Set(s) => s,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "set",
+                                got: other.type_name(),
+                                operation: "set_difference",
+                            })
+                        }
+                    };
+                    let set1 = match self.pop()? {
+                        Value::Set(s) => s,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "set",
+                                got: other.type_name(),
+                                operation: "set_difference",
+                            })
+                        }
+                    };
+                    let result = set1.difference(&set2);
+                    self.stack.push(Value::Set(Arc::new(result)));
+                }
+
+                Opcode::SetToList => {
+                    let set = match self.pop()? {
+                        Value::Set(s) => s,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "set",
+                                got: other.type_name(),
+                                operation: "set_to_list",
+                            })
+                        }
+                    };
+                    self.stack.push(Value::list(set.to_list()));
+                }
             }
         }
     }
@@ -3394,5 +3562,274 @@ mod tests {
         } else {
             panic!("Expected Tuple, got {:?}", result);
         }
+    }
+
+    // =========================================================================
+    // Set Operations (Milestone 15)
+    // =========================================================================
+
+    #[test]
+    fn test_set_empty() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_make_empty_set();
+        builder.emit_set_length();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(0.0)));
+    }
+
+    #[test]
+    fn test_set_from_values() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_const(Value::Number(3.0));
+        builder.emit_make_set(3);
+        builder.emit_set_length();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(3.0)));
+    }
+
+    #[test]
+    fn test_set_insert() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_make_empty_set();
+        builder.emit_const(Value::Number(42.0));
+        builder.emit_set_insert();
+        builder.emit_set_length();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(1.0)));
+    }
+
+    #[test]
+    fn test_set_insert_duplicate() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_make_empty_set();
+        builder.emit_const(Value::Number(42.0));
+        builder.emit_set_insert();
+        builder.emit_const(Value::Number(42.0)); // Same value
+        builder.emit_set_insert();
+        builder.emit_set_length();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        // Inserting a duplicate should not increase size
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(1.0)));
+    }
+
+    #[test]
+    fn test_set_contains() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_const(Value::Number(3.0));
+        builder.emit_make_set(3);
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_set_contains();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_set_contains_missing() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_make_set(2);
+        builder.emit_const(Value::Number(99.0));
+        builder.emit_set_contains();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_set_remove() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_const(Value::Number(3.0));
+        builder.emit_make_set(3);
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_set_remove();
+        builder.emit_set_length();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn test_set_union() {
+        let mut builder = BytecodeBuilder::new();
+        // Set 1: {1, 2}
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_make_set(2);
+        // Set 2: {2, 3}
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_const(Value::Number(3.0));
+        builder.emit_make_set(2);
+        // Union
+        builder.emit_set_union();
+        builder.emit_set_length();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        // Union of {1, 2} and {2, 3} = {1, 2, 3}
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(3.0)));
+    }
+
+    #[test]
+    fn test_set_intersection() {
+        let mut builder = BytecodeBuilder::new();
+        // Set 1: {1, 2, 3}
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_const(Value::Number(3.0));
+        builder.emit_make_set(3);
+        // Set 2: {2, 3, 4}
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_const(Value::Number(3.0));
+        builder.emit_const(Value::Number(4.0));
+        builder.emit_make_set(3);
+        // Intersection
+        builder.emit_set_intersection();
+        builder.emit_set_length();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        // Intersection of {1, 2, 3} and {2, 3, 4} = {2, 3}
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn test_set_difference() {
+        let mut builder = BytecodeBuilder::new();
+        // Set 1: {1, 2, 3}
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_const(Value::Number(3.0));
+        builder.emit_make_set(3);
+        // Set 2: {2}
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_make_set(1);
+        // Difference
+        builder.emit_set_difference();
+        builder.emit_set_length();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        // Difference of {1, 2, 3} - {2} = {1, 3}
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn test_set_to_list() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_make_set(2);
+        builder.emit_set_to_list();
+        builder.emit_list_length();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn test_set_with_strings() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("a"));
+        builder.emit_const(Value::string("b"));
+        builder.emit_const(Value::string("a")); // Duplicate
+        builder.emit_make_set(3);
+        builder.emit_set_length();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        // Should only have 2 unique values
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(2.0)));
     }
 }

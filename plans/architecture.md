@@ -1194,7 +1194,7 @@ sandbox with Log {
 - [x] Log ability (debug, info, warn, error with level filtering)
 - [x] `register_all_standard_abilities()` convenience function
 - [x] Map collection type and operations (`MakeEmptyMap`, `MapGet`, `MapInsert`, `MapRemove`, `MapContains`, `MapLength`, `MapKeys`, `MapValues`)
-- [ ] Set collection type (future)
+- [x] Set collection type and operations (`MakeEmptySet`, `MakeSet`, `SetInsert`, `SetRemove`, `SetContains`, `SetLength`, `SetUnion`, `SetIntersection`, `SetDifference`, `SetToList`)
 - [ ] Option/Result utilities (future)
 
 **Test case**: Write useful programs using standard library.

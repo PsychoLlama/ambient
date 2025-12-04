@@ -65,6 +65,10 @@ pub enum Value {
     /// A map: key-value collection with string keys.
     /// `Map<K, V>` where K is always string for now (simplifies hashing).
     Map(Arc<MapValue>),
+
+    /// A set: collection of unique values.
+    /// `Set<T>` - elements are compared by value equality.
+    Set(Arc<SetValue>),
 }
 
 /// A map value with string keys.
@@ -147,6 +151,128 @@ impl MapValue {
 }
 
 impl Default for MapValue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A set value containing unique elements.
+///
+/// Uses a `Vec` internally but maintains set semantics (no duplicates).
+/// Elements are compared using `Value::eq`. Order is preserved for
+/// deterministic serialization.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SetValue {
+    /// The elements in the set. No duplicates (checked on insert).
+    pub elements: Vec<Value>,
+}
+
+impl SetValue {
+    /// Create a new empty set.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            elements: Vec::new(),
+        }
+    }
+
+    /// Create a set from an iterator of values. Duplicates are ignored.
+    pub fn from_values(iter: impl IntoIterator<Item = Value>) -> Self {
+        let mut elements = Vec::new();
+        for value in iter {
+            if !elements.contains(&value) {
+                elements.push(value);
+            }
+        }
+        Self { elements }
+    }
+
+    /// Check if the set contains a value.
+    #[must_use]
+    pub fn contains(&self, value: &Value) -> bool {
+        self.elements.contains(value)
+    }
+
+    /// Insert a value, returning a new set.
+    #[must_use]
+    pub fn insert(&self, value: Value) -> Self {
+        if self.contains(&value) {
+            self.clone()
+        } else {
+            let mut elements = self.elements.clone();
+            elements.push(value);
+            Self { elements }
+        }
+    }
+
+    /// Remove a value, returning a new set.
+    #[must_use]
+    pub fn remove(&self, value: &Value) -> Self {
+        let elements: Vec<_> = self
+            .elements
+            .iter()
+            .filter(|v| *v != value)
+            .cloned()
+            .collect();
+        Self { elements }
+    }
+
+    /// Get the number of elements.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.elements.len()
+    }
+
+    /// Check if the set is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.elements.is_empty()
+    }
+
+    /// Compute the union with another set, returning a new set.
+    #[must_use]
+    pub fn union(&self, other: &Self) -> Self {
+        let mut result = self.clone();
+        for value in &other.elements {
+            if !result.contains(value) {
+                result.elements.push(value.clone());
+            }
+        }
+        result
+    }
+
+    /// Compute the intersection with another set, returning a new set.
+    #[must_use]
+    pub fn intersection(&self, other: &Self) -> Self {
+        let elements: Vec<_> = self
+            .elements
+            .iter()
+            .filter(|v| other.contains(v))
+            .cloned()
+            .collect();
+        Self { elements }
+    }
+
+    /// Compute the difference with another set (self - other), returning a new set.
+    #[must_use]
+    pub fn difference(&self, other: &Self) -> Self {
+        let elements: Vec<_> = self
+            .elements
+            .iter()
+            .filter(|v| !other.contains(v))
+            .cloned()
+            .collect();
+        Self { elements }
+    }
+
+    /// Convert the set to a list.
+    #[must_use]
+    pub fn to_list(&self) -> Vec<Value> {
+        self.elements.clone()
+    }
+}
+
+impl Default for SetValue {
     fn default() -> Self {
         Self::new()
     }
@@ -387,6 +513,7 @@ impl Value {
             Self::Handler(_) => "handler",
             Self::List(_) => "list",
             Self::Map(_) => "map",
+            Self::Set(_) => "set",
         }
     }
 
@@ -443,6 +570,18 @@ impl Value {
     pub fn map(entries: impl IntoIterator<Item = (impl Into<Arc<str>>, Value)>) -> Self {
         Self::Map(Arc::new(MapValue::from_entries(entries)))
     }
+
+    /// Create a new empty set value.
+    #[must_use]
+    pub fn empty_set() -> Self {
+        Self::Set(Arc::new(SetValue::new()))
+    }
+
+    /// Create a new set value from values.
+    #[must_use]
+    pub fn set(values: impl IntoIterator<Item = Value>) -> Self {
+        Self::Set(Arc::new(SetValue::from_values(values)))
+    }
 }
 
 impl PartialEq for Value {
@@ -458,6 +597,8 @@ impl PartialEq for Value {
             (Self::Record(a), Self::Record(b)) => a == b,
             // Maps are structurally equal
             (Self::Map(a), Self::Map(b)) => a == b,
+            // Sets are structurally equal
+            (Self::Set(a), Self::Set(b)) => a == b,
             (Self::FunctionRef(a), Self::FunctionRef(b)) => a == b,
             // Suspended abilities are equal if they have the same ability/method/args
             (Self::SuspendedAbility(a), Self::SuspendedAbility(b)) => {
