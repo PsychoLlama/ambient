@@ -331,6 +331,7 @@ impl<'src> Lexer<'src> {
     }
 
     /// Get the next token.
+    #[allow(clippy::too_many_lines)]
     pub fn next_token(&mut self) -> Result<Token, ParseError> {
         // Handle string interpolation continuation
         if !self.interpolation_depth.is_empty() {

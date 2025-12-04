@@ -268,6 +268,7 @@ impl Resolver {
     }
 
     /// Resolve names within an expression.
+    #[allow(clippy::too_many_lines)]
     fn resolve_expr(&mut self, expr: &Expr) -> Result<(), ParseError> {
         match &expr.kind {
             ExprKind::Unit | ExprKind::Bool(_) | ExprKind::Number(_) | ExprKind::String(_) => {

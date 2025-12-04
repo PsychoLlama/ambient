@@ -250,6 +250,7 @@ fn lower_param(ctx: &mut LoweringContext, p: &CstParam) -> Result<Param, ParseEr
     })
 }
 
+#[allow(clippy::too_many_lines)]
 fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, ParseError> {
     let kind = match &expr.kind {
         CstExprKind::Unit => ExprKind::Unit,
@@ -676,7 +677,7 @@ fn lower_record_pattern_field(
     Ok((field.field.name.clone(), pattern))
 }
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::too_many_lines)]
 fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
     match &ty.kind {
         CstTypeExprKind::Name(qn) => {

@@ -954,6 +954,7 @@ impl<'src> Parser<'src> {
         self.parse_postfix_expr()
     }
 
+    #[allow(clippy::too_many_lines)]
     fn parse_postfix_expr(&mut self) -> Result<CstExpr, ParseError> {
         let mut expr = self.parse_primary_expr()?;
 
@@ -1875,6 +1876,7 @@ impl<'src> Parser<'src> {
     // Pattern parsing
     // ─────────────────────────────────────────────────────────────────────────
 
+    #[allow(clippy::too_many_lines)]
     fn parse_pattern(&mut self) -> Result<CstPattern, ParseError> {
         let start = self.current().span.start;
 
