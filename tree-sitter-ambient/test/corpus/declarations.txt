@@ -1,0 +1,167 @@
+================================================================================
+Simple function
+================================================================================
+
+fn add(x: number, y: number): number {
+  x + y
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list
+      (parameter name: (identifier) type: (identifier))
+      (parameter name: (identifier) type: (identifier)))
+    return_type: (identifier)
+    body: (block
+      (binary_expression (identifier) (identifier)))))
+
+================================================================================
+Public function
+================================================================================
+
+pub fn main(): () {
+  42
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    (visibility)
+    name: (identifier)
+    (parameter_list)
+    return_type: (unit_type)
+    body: (block (number))))
+
+================================================================================
+Function with abilities
+================================================================================
+
+fn read_file(path: string): string
+  with Filesystem
+{
+  Filesystem.read!(path)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list
+      (parameter name: (identifier) type: (identifier)))
+    return_type: (identifier)
+    (ability_clause (identifier))
+    body: (block
+      (perform_expression
+        (call_expression
+          (member_expression (identifier) (identifier))
+          (argument_list (identifier)))))))
+
+================================================================================
+Const definition
+================================================================================
+
+const PI: number = 3.14159;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (const_definition
+    name: (identifier)
+    type: (identifier)
+    value: (number)))
+
+================================================================================
+Enum definition
+================================================================================
+
+enum Option<T> {
+  Some(T),
+  None,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_definition
+    name: (identifier)
+    (type_parameters (type_parameter (identifier)))
+    (enum_variant_list
+      (enum_variant name: (identifier) (identifier))
+      (enum_variant name: (identifier)))))
+
+================================================================================
+Ability definition
+================================================================================
+
+ability Console {
+  fn print(message: string): ();
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (ability_definition
+    name: (identifier)
+    (ability_method
+      name: (identifier)
+      (parameter_list (parameter name: (identifier) type: (identifier)))
+      return_type: (unit_type))))
+
+================================================================================
+Ability with dependency
+================================================================================
+
+ability Log
+  with Console
+{
+  fn info(message: string): ();
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (ability_definition
+    name: (identifier)
+    (ability_dependency (identifier_list (identifier)))
+    (ability_method
+      name: (identifier)
+      (parameter_list (parameter name: (identifier) type: (identifier)))
+      return_type: (unit_type))))
+
+================================================================================
+Use declaration
+================================================================================
+
+use some_library.mod.{a, b};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (use_declaration
+    (use_path
+      (identifier)
+      (identifier)
+      (use_group (identifier_list (identifier) (identifier))))))
+
+================================================================================
+Type definition with unique
+================================================================================
+
+unique(d098767b-4093-4d5c-ba37-ad92aa7b5d98) type UserId {
+  value: string,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_definition
+    (unique_modifier (uuid))
+    name: (identifier)
+    (record_type_body
+      (record_type_fields
+        (record_type_field name: (identifier) type: (identifier))))))

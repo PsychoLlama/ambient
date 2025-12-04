@@ -1,0 +1,33 @@
+{
+  "name": "tree-sitter-ambient",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for the Ambient programming language",
+  "main": "bindings/node",
+  "keywords": [
+    "tree-sitter",
+    "parser",
+    "ambient"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "nan": "^2.17.0"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.20.8"
+  },
+  "scripts": {
+    "build": "tree-sitter generate",
+    "test": "tree-sitter test",
+    "parse": "tree-sitter parse"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.ambient",
+      "file-types": [
+        "ab"
+      ],
+      "highlights": "queries/highlights.scm",
+      "injection-regex": "^ambient$"
+    }
+  ]
+}

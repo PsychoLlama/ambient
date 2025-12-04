@@ -1,0 +1,73 @@
+================================================================================
+Handle expression
+================================================================================
+
+fn test(): number {
+  handle compute() {
+    Exception.throw(e) => {
+      resume(0)
+    }
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (handle_expression
+        body: (call_expression (identifier) (argument_list))
+        (handler_block
+          (handler_arm
+            ability: (identifier)
+            method: (identifier)
+            (parameter_list (parameter name: (identifier)))
+            (block
+              (call_expression (identifier) (argument_list (number))))))))))
+
+================================================================================
+Sandbox expression
+================================================================================
+
+fn test(): number {
+  sandbox with Log {
+    pure_code()
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (sandbox_expression
+        (identifier)
+        (block
+          (call_expression (identifier) (argument_list)))))))
+
+================================================================================
+Pure sandbox
+================================================================================
+
+fn test(): number {
+  sandbox {
+    42
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (sandbox_expression
+        (block (number))))))

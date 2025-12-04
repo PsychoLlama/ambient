@@ -37,6 +37,8 @@
           packages = [
             (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
             pkgs.just
+            pkgs.tree-sitter
+            pkgs.nodejs
           ];
         }
       );

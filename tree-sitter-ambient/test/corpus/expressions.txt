@@ -1,0 +1,220 @@
+================================================================================
+Binary expressions
+================================================================================
+
+fn test(): number {
+  1 + 2 * 3
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (binary_expression
+        (number)
+        (binary_expression (number) (number))))))
+
+================================================================================
+Comparison expressions
+================================================================================
+
+fn test(): bool {
+  x > 0 && y < 10
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (binary_expression
+        (binary_expression (identifier) (number))
+        (binary_expression (identifier) (number))))))
+
+================================================================================
+If expression
+================================================================================
+
+fn test(): number {
+  if x > 0 {
+    1
+  } else {
+    0
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (if_expression
+        condition: (binary_expression (identifier) (number))
+        then: (block (number))
+        else: (block (number))))))
+
+================================================================================
+Match expression
+================================================================================
+
+fn test(): number {
+  match opt {
+    Some(x) => x,
+    None => 0,
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (match_expression
+        value: (identifier)
+        (match_arm
+          pattern: (variant_pattern name: (identifier) (identifier))
+          body: (identifier))
+        (match_arm
+          pattern: (identifier)
+          body: (number))))))
+
+================================================================================
+Lambda expression
+================================================================================
+
+fn test(): number {
+  List.map(nums, (x) => x + 1)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (call_expression
+        (member_expression (identifier) (identifier))
+        (argument_list
+          (identifier)
+          (lambda
+            (lambda_parameters (lambda_parameter name: (identifier)))
+            (binary_expression (identifier) (number))))))))
+
+================================================================================
+String interpolation
+================================================================================
+
+fn test(): string {
+  "Hello, ${name}!"
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (string
+        (string_content)
+        (string_interpolation (identifier))
+        (string_content)))))
+
+================================================================================
+List literal
+================================================================================
+
+fn test(): List<number> {
+  [1, 2, 3]
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (generic_type (identifier) (identifier))
+    body: (block
+      (list_literal (number) (number) (number)))))
+
+================================================================================
+Record literal
+================================================================================
+
+fn test(): Point {
+  { x: 1, y: 2 }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (record_literal
+        (record_fields
+          (record_field name: (identifier) value: (number))
+          (record_field name: (identifier) value: (number)))))))
+
+================================================================================
+Let statement
+================================================================================
+
+fn test(): number {
+  let x = 42;
+  x
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (let_statement pattern: (identifier) value: (number))
+      (identifier))))
+
+================================================================================
+Perform expression
+================================================================================
+
+fn test(): ()
+  with Console
+{
+  Console.print!("hello")
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (unit_type)
+    (ability_clause (identifier))
+    body: (block
+      (perform_expression
+        (call_expression
+          (member_expression (identifier) (identifier))
+          (argument_list (string (string_content))))))))
