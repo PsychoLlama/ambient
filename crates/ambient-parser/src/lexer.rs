@@ -317,6 +317,10 @@ impl<'src> Lexer<'src> {
     }
 
     /// Tokenize the entire source into a vector of tokens.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ParseError` if an invalid token is encountered.
     pub fn tokenize(&mut self) -> Result<Vec<Token>, ParseError> {
         let mut tokens = Vec::new();
         loop {
@@ -331,6 +335,10 @@ impl<'src> Lexer<'src> {
     }
 
     /// Get the next token.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ParseError` if an invalid token is encountered.
     #[allow(clippy::too_many_lines)]
     pub fn next_token(&mut self) -> Result<Token, ParseError> {
         // Handle string interpolation continuation
@@ -517,6 +525,7 @@ impl<'src> Lexer<'src> {
         }
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn lex_whitespace(&mut self, start: usize) -> Result<Token, ParseError> {
         while let Some(c) = self.peek() {
             match c {
@@ -529,6 +538,7 @@ impl<'src> Lexer<'src> {
         Ok(self.make_token(TokenKind::Whitespace, start))
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn lex_line_comment(&mut self, start: usize) -> Result<Token, ParseError> {
         // Already consumed "//"
         while let Some(c) = self.peek() {
@@ -540,6 +550,7 @@ impl<'src> Lexer<'src> {
         Ok(self.make_token(TokenKind::Comment, start))
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn lex_identifier(&mut self, start: usize) -> Result<Token, ParseError> {
         while let Some(c) = self.peek() {
             match c {

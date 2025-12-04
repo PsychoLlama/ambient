@@ -38,7 +38,7 @@ impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.kind)?;
         if let Some(ctx) = &self.context {
-            write!(f, " ({})", ctx)?;
+            write!(f, " ({ctx})")?;
         }
         write!(f, " at {}..{}", self.span.start, self.span.end)?;
         Ok(())
