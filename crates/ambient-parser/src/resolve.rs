@@ -82,6 +82,7 @@ pub struct Resolver {
 
 impl Resolver {
     /// Create a new resolver.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             module_scope: Scope::new(),
@@ -255,7 +256,7 @@ impl Resolver {
 
         // Add parameters to the local scope
         for param in &func.params {
-            self.add_local_binding(param.name.clone(), param.id)?;
+            self.add_local_binding(&param.name, param.id)?;
         }
 
         // Resolve the function body
@@ -363,7 +364,7 @@ impl Resolver {
 
                 // Add lambda parameters to the scope
                 for param in &lambda.params {
-                    self.add_local_binding(param.name.clone(), param.id)?;
+                    self.add_local_binding(&param.name, param.id)?;
                 }
 
                 self.resolve_expr(&lambda.body)?;
@@ -401,7 +402,7 @@ impl Resolver {
 
                     // Add handler parameters to the scope
                     for param in &handler.params {
-                        self.add_local_binding(param.name.clone(), param.id)?;
+                        self.add_local_binding(&param.name, param.id)?;
                     }
 
                     // Resolve the ability name
@@ -433,7 +434,7 @@ impl Resolver {
 
                     // Add method parameters to the scope
                     for param in &method.params {
-                        self.add_local_binding(param.name.clone(), param.id)?;
+                        self.add_local_binding(&param.name, param.id)?;
                     }
 
                     // Resolve method body
@@ -461,7 +462,7 @@ impl Resolver {
                 self.resolve_expr(&binding.init)?;
 
                 // Then add the binding to the current scope
-                self.add_local_binding(binding.name.clone(), binding.id)?;
+                self.add_local_binding(&binding.name, binding.id)?;
 
                 Ok(())
             }
@@ -475,13 +476,12 @@ impl Resolver {
         pattern: &ambient_engine::ast::Pattern,
     ) -> Result<(), ParseError> {
         match &pattern.kind {
-            ambient_engine::ast::PatternKind::Wildcard => Ok(()),
+            ambient_engine::ast::PatternKind::Wildcard
+            | ambient_engine::ast::PatternKind::Literal(_) => Ok(()),
 
             ambient_engine::ast::PatternKind::Binding(id, name) => {
-                self.add_local_binding(name.clone(), *id)
+                self.add_local_binding(name, *id)
             }
-
-            ambient_engine::ast::PatternKind::Literal(_) => Ok(()),
 
             ambient_engine::ast::PatternKind::Tuple(patterns) => {
                 for pat in patterns {
@@ -554,9 +554,9 @@ impl Resolver {
     }
 
     /// Add a local binding to the current scope.
-    fn add_local_binding(&mut self, name: Arc<str>, id: BindingId) -> Result<(), ParseError> {
+    fn add_local_binding(&mut self, name: &Arc<str>, id: BindingId) -> Result<(), ParseError> {
         if let Some(scope) = self.local_scopes.last_mut() {
-            scope.insert(name.clone(), DefId::Local(id)).map_err(|_| {
+            scope.insert(Arc::clone(name), DefId::Local(id)).map_err(|_| {
                 ParseError::new(
                     ParseErrorKind::DuplicateDefinition(name.to_string()),
                     ambient_engine::ast::Span::default(),

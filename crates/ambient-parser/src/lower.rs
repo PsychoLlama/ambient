@@ -41,6 +41,10 @@ impl LoweringContext {
 }
 
 /// Lower a CST module to an AST module.
+///
+/// # Errors
+///
+/// Returns a `ParseError` if the CST cannot be lowered to an AST.
 pub fn lower_module(cst: &CstModule) -> Result<Module, ParseError> {
     let mut ctx = LoweringContext::new();
 
@@ -221,6 +225,7 @@ fn lower_ability_def(a: &CstAbilityDef) -> Result<AbilityDef, ParseError> {
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn lower_use(u: &CstUseDef) -> Result<UseDef, ParseError> {
     let path = u.path.iter().map(|i| i.name.clone()).collect();
 

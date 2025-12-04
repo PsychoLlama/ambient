@@ -164,6 +164,10 @@ impl<'src> Parser<'src> {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Parse a complete module.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ParseError` if the source contains syntax errors.
     pub fn parse_module(&mut self) -> Result<CstModule, ParseError> {
         let start = self.current().span.start;
         let leading_trivia = self.skip_trivia();
@@ -645,6 +649,10 @@ impl<'src> Parser<'src> {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Parse a type expression.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ParseError` if the source is not a valid type expression.
     pub fn parse_type(&mut self) -> Result<CstTypeExpr, ParseError> {
         let start = self.current().span.start;
 
@@ -768,6 +776,10 @@ impl<'src> Parser<'src> {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Parse an expression.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ParseError` if the source is not a valid expression.
     pub fn parse_expression(&mut self) -> Result<CstExpr, ParseError> {
         self.parse_or_expr()
     }
@@ -1141,7 +1153,7 @@ impl<'src> Parser<'src> {
 
         if self.check(TokenKind::String) {
             let token = self.advance();
-            let value = self.unescape_string(&token.text)?;
+            let value = Self::unescape_string(&token.text);
             return Ok(CstExpr {
                 kind: CstExprKind::String(value.into()),
                 span: token.span,
@@ -1247,7 +1259,7 @@ impl<'src> Parser<'src> {
         // First part (StringStart)
         let token = self.advance();
         if !token.text.is_empty() {
-            let content = self.unescape_string_part(&token.text)?;
+            let content = Self::unescape_string_part(&token.text);
             parts.push(StringPart::Literal(content.into(), token.span));
         }
 
@@ -1261,14 +1273,14 @@ impl<'src> Parser<'src> {
                 TokenKind::StringMiddle => {
                     let token = self.advance();
                     if !token.text.is_empty() {
-                        let content = self.unescape_string_part(&token.text)?;
+                        let content = Self::unescape_string_part(&token.text);
                         parts.push(StringPart::Literal(content.into(), token.span));
                     }
                 }
                 TokenKind::StringEnd => {
                     let token = self.advance();
                     if !token.text.is_empty() {
-                        let content = self.unescape_string_part(&token.text)?;
+                        let content = Self::unescape_string_part(&token.text);
                         parts.push(StringPart::Literal(content.into(), token.span));
                     }
                     break;
@@ -1919,7 +1931,7 @@ impl<'src> Parser<'src> {
 
         if self.check(TokenKind::String) {
             let token = self.advance();
-            let value = self.unescape_string(&token.text)?;
+            let value = Self::unescape_string(&token.text);
             return Ok(CstPattern {
                 kind: CstPatternKind::Literal(CstLiteral::String(value.into())),
                 span: token.span,
@@ -2095,13 +2107,13 @@ impl<'src> Parser<'src> {
         })
     }
 
-    fn unescape_string(&self, text: &str) -> Result<String, ParseError> {
+    fn unescape_string(text: &str) -> String {
         // Remove quotes
         let content = text.trim_start_matches('"').trim_end_matches('"');
-        self.unescape_string_part(content)
+        Self::unescape_string_part(content)
     }
 
-    fn unescape_string_part(&self, text: &str) -> Result<String, ParseError> {
+    fn unescape_string_part(text: &str) -> String {
         let mut result = String::with_capacity(text.len());
         let mut chars = text.chars().peekable();
 
@@ -2111,22 +2123,21 @@ impl<'src> Parser<'src> {
                     Some('n') => result.push('\n'),
                     Some('r') => result.push('\r'),
                     Some('t') => result.push('\t'),
-                    Some('\\') => result.push('\\'),
                     Some('"') => result.push('"'),
                     Some('$') => result.push('$'),
+                    Some('\\') | None => result.push('\\'),
                     Some(other) => {
                         // This shouldn't happen if lexer is correct
                         result.push('\\');
                         result.push(other);
                     }
-                    None => result.push('\\'),
                 }
             } else {
                 result.push(c);
             }
         }
 
-        Ok(result)
+        result
     }
 }
 
