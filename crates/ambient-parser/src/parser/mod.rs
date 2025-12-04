@@ -36,12 +36,12 @@ use crate::lexer::{Lexer, Token, TokenKind};
 
 /// The parser for Ambient source code.
 pub struct Parser<'src> {
-    #[allow(dead_code)]
-    source: &'src str,
     tokens: Vec<Token>,
     pos: usize,
     /// Collected errors for error recovery.
     errors: Vec<ParseError>,
+    /// Phantom data to tie the parser's lifetime to the source.
+    _marker: std::marker::PhantomData<&'src str>,
 }
 
 impl<'src> Parser<'src> {
@@ -67,10 +67,10 @@ impl<'src> Parser<'src> {
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize()?;
         Ok(Self {
-            source,
             tokens,
             pos: 0,
             errors: Vec::new(),
+            _marker: std::marker::PhantomData,
         })
     }
 
