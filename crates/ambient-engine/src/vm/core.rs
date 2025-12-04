@@ -390,40 +390,36 @@ impl Vm {
         self.stack.last().ok_or(VmError::StackUnderflow)
     }
 
+    /// Pop a typed value from the stack or return a type error.
+    ///
+    /// This is the generic implementation used by the type-specific pop methods.
+    fn pop_typed<T>(
+        &mut self,
+        expected: &'static str,
+        extract: impl FnOnce(Value) -> Option<T>,
+        operation: &'static str,
+    ) -> Result<T, VmError> {
+        let value = self.pop()?;
+        extract(value.clone()).ok_or_else(|| VmError::TypeError {
+            expected,
+            got: value.type_name(),
+            operation,
+        })
+    }
+
     /// Pop a number from the stack or return a type error.
     pub(super) fn pop_number(&mut self, operation: &'static str) -> Result<f64, VmError> {
-        match self.pop()? {
-            Value::Number(n) => Ok(n),
-            other => Err(VmError::TypeError {
-                expected: "number",
-                got: other.type_name(),
-                operation,
-            }),
-        }
+        self.pop_typed("number", |v| v.as_number(), operation)
     }
 
     /// Pop a bool from the stack or return a type error.
     pub(super) fn pop_bool(&mut self, operation: &'static str) -> Result<bool, VmError> {
-        match self.pop()? {
-            Value::Bool(b) => Ok(b),
-            other => Err(VmError::TypeError {
-                expected: "bool",
-                got: other.type_name(),
-                operation,
-            }),
-        }
+        self.pop_typed("bool", |v| v.as_bool(), operation)
     }
 
     /// Pop a string from the stack or return a type error.
     pub(super) fn pop_string(&mut self, operation: &'static str) -> Result<Arc<String>, VmError> {
-        match self.pop()? {
-            Value::String(s) => Ok(s),
-            other => Err(VmError::TypeError {
-                expected: "string",
-                got: other.type_name(),
-                operation,
-            }),
-        }
+        self.pop_typed("string", Value::into_string, operation)
     }
 
     /// Execute a binary operation on numbers.

@@ -582,6 +582,37 @@ impl Value {
     pub fn set(values: impl IntoIterator<Item = Value>) -> Self {
         Self::Set(Arc::new(SetValue::from_values(values)))
     }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Type accessors
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /// Extract the number if this value is a `Number`, otherwise `None`.
+    #[must_use]
+    pub fn as_number(&self) -> Option<f64> {
+        match self {
+            Self::Number(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    /// Extract the boolean if this value is a `Bool`, otherwise `None`.
+    #[must_use]
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Self::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    /// Extract the string if this value is a `String`, consuming self.
+    #[must_use]
+    pub fn into_string(self) -> Option<Arc<String>> {
+        match self {
+            Self::String(s) => Some(s),
+            _ => None,
+        }
+    }
 }
 
 impl PartialEq for Value {
