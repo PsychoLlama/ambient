@@ -1298,10 +1298,10 @@ Completed:
 - [x] Tree-sitter grammar for editor support (syntax highlighting, code folding, structural editing)
 - [x] REPL enhancements: syntax highlighting and persistent history
 - [x] Source map integration (debug info generation in compiler pipeline)
+- [x] Source maps in VM error messages (show file:line:col in stack traces)
 
 Future developer experience improvements:
 
-- Use source maps in VM error messages (show file:line:col in stack traces)
 - LSP integration with source maps (better go-to-definition across files)
 - Debugger support using source maps
 

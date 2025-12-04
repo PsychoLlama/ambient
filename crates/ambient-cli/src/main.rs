@@ -20,7 +20,7 @@ use rustyline::{Config as RustylineConfig, Editor, Helper};
 use ambient_engine::abilities::{
     format_value, register_all_standard_abilities, register_console, ConsoleConfig,
 };
-use ambient_engine::compiler::{compile_expression, compile_module, CompiledModule};
+use ambient_engine::compiler::{compile_expression, compile_module_with_source, CompiledModule};
 use ambient_engine::vm::Vm;
 
 mod cli;
@@ -102,17 +102,23 @@ fn cmd_run(file: &Path, entry: &str) -> Result<()> {
         .get(entry)
         .ok_or_else(|| anyhow::anyhow!("entry function `{entry}` not found"))?;
 
-    // Execute.
-    let result = vm
-        .call(entry_hash, Vec::new())
-        .map_err(|e| anyhow::anyhow!("runtime error: {e}"))?;
+    // Execute with stack trace support.
+    let result = vm.call_with_trace(entry_hash, Vec::new());
 
-    // Print result if not unit.
-    if !matches!(result, ambient_engine::value::Value::Unit) {
-        println!("{result:?}");
+    match result {
+        Ok(value) => {
+            // Print result if not unit.
+            if !matches!(value, ambient_engine::value::Value::Unit) {
+                println!("{value:?}");
+            }
+            Ok(())
+        }
+        Err(runtime_error) => {
+            // Print rich error with stack trace.
+            eprintln!("{runtime_error}");
+            bail!("runtime error");
+        }
     }
-
-    Ok(())
 }
 
 /// Check an Ambient source file for errors.
@@ -549,10 +555,10 @@ fn eval_repl_line(
     // Load the function into the VM.
     vm.load_function(func);
 
-    // Execute the function.
+    // Execute the function with stack trace support.
     let result = vm
-        .call(&func_hash, Vec::new())
-        .map_err(|e| format!("runtime error: {e}"))?;
+        .call_with_trace(&func_hash, Vec::new())
+        .map_err(|e| format!("{e}"))?;
 
     // Return the result (None for Unit).
     if matches!(result, ambient_engine::value::Value::Unit) {
@@ -742,9 +748,10 @@ fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
         );
     }
 
-    // Compile the type-checked module.
-    let compiled = compile_module(&check_result.module)
-        .map_err(|e| anyhow::anyhow!("compile error at {}: {e}", file.display()))?;
+    // Compile the type-checked module with debug info.
+    let compiled =
+        compile_module_with_source(&check_result.module, source, &file.display().to_string())
+            .map_err(|e| anyhow::anyhow!("compile error at {}: {e}", file.display()))?;
 
     Ok(compiled)
 }
@@ -1033,9 +1040,9 @@ fn run_dev_iteration(file: &Path, entry: &str) {
         }
     };
 
-    // Execute.
+    // Execute with stack trace support.
     let run_start = Instant::now();
-    match vm.call(entry_hash, Vec::new()) {
+    match vm.call_with_trace(entry_hash, Vec::new()) {
         Ok(result) => {
             let run_time = run_start.elapsed();
             let formatted = format_value(&result);
@@ -1045,9 +1052,9 @@ fn run_dev_iteration(file: &Path, entry: &str) {
                 formatted, compile_time, run_time
             );
         }
-        Err(e) => {
+        Err(runtime_error) => {
             eprintln!();
-            eprintln!("\x1b[1;31mruntime error\x1b[0m: {e}");
+            eprintln!("\x1b[1;31m{runtime_error}\x1b[0m");
         }
     }
 }

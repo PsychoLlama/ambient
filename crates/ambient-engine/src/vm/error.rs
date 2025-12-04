@@ -1,5 +1,123 @@
 //! VM error types.
 
+/// A single frame in a runtime stack trace.
+#[derive(Debug, Clone)]
+pub struct StackTraceFrame {
+    /// Name of the function, if known from debug info.
+    pub function_name: Option<String>,
+
+    /// Path to the source file, if known.
+    pub source_file: Option<String>,
+
+    /// Line number in the source file (1-indexed).
+    pub line: Option<u32>,
+
+    /// Column number in the source file (1-indexed).
+    pub column: Option<u32>,
+
+    /// The function hash for identification.
+    pub function_hash: blake3::Hash,
+
+    /// Bytecode offset where the error occurred.
+    pub bytecode_offset: usize,
+}
+
+impl std::fmt::Display for StackTraceFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Format: "  at function_name (file.ab:10:5)"
+        write!(f, "  at ")?;
+
+        if let Some(name) = &self.function_name {
+            write!(f, "{name}")?;
+        } else {
+            // Show abbreviated hash if no name
+            write!(f, "<{}>", &self.function_hash.to_string()[..8])?;
+        }
+
+        match (&self.source_file, self.line, self.column) {
+            (Some(file), Some(line), Some(col)) => {
+                write!(f, " ({file}:{line}:{col})")
+            }
+            (Some(file), Some(line), None) => {
+                write!(f, " ({file}:{line})")
+            }
+            (Some(file), None, None) => {
+                write!(f, " ({file})")
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+/// A runtime error with optional stack trace.
+#[derive(Debug, Clone)]
+pub struct RuntimeError {
+    /// The underlying error.
+    pub error: VmError,
+
+    /// Stack trace at the point of the error.
+    pub stack_trace: Vec<StackTraceFrame>,
+
+    /// Source context for the error location (the line of code).
+    pub source_context: Option<String>,
+}
+
+impl RuntimeError {
+    /// Create a new runtime error without a stack trace.
+    pub fn new(error: VmError) -> Self {
+        Self {
+            error,
+            stack_trace: Vec::new(),
+            source_context: None,
+        }
+    }
+
+    /// Create a runtime error with a stack trace.
+    pub fn with_stack_trace(error: VmError, stack_trace: Vec<StackTraceFrame>) -> Self {
+        Self {
+            error,
+            stack_trace,
+            source_context: None,
+        }
+    }
+
+    /// Add source context to the error.
+    #[must_use]
+    pub fn with_source_context(mut self, context: String) -> Self {
+        self.source_context = Some(context);
+        self
+    }
+}
+
+impl std::fmt::Display for RuntimeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Runtime error: {}", self.error)?;
+
+        if let Some(context) = &self.source_context {
+            writeln!(f)?;
+            writeln!(f, "{context}")?;
+        }
+
+        if !self.stack_trace.is_empty() {
+            writeln!(f)?;
+            writeln!(f, "Stack trace:")?;
+            for frame in &self.stack_trace {
+                writeln!(f, "{frame}")?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl std::error::Error for RuntimeError {}
+
+impl From<VmError> for RuntimeError {
+    fn from(error: VmError) -> Self {
+        Self::new(error)
+    }
+}
+
 /// Runtime error during VM execution.
 #[derive(Debug, Clone, PartialEq)]
 pub enum VmError {

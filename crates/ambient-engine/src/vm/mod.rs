@@ -62,7 +62,7 @@ mod dispatch;
 mod error;
 
 pub use core::{HostHandler, Vm};
-pub use error::VmError;
+pub use error::{RuntimeError, StackTraceFrame, VmError};
 
 #[cfg(test)]
 mod tests {

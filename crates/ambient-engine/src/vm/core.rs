@@ -165,6 +165,18 @@ impl Vm {
         self.run()
     }
 
+    /// Call a function and return a `RuntimeError` with stack trace on failure.
+    ///
+    /// This is the preferred method for calling functions when you want
+    /// rich error messages with source locations.
+    pub fn call_with_trace(
+        &mut self,
+        hash: &blake3::Hash,
+        args: Vec<Value>,
+    ) -> Result<Value, super::error::RuntimeError> {
+        self.call(hash, args).map_err(|e| self.runtime_error(e))
+    }
+
     /// Push a new call frame for the given function.
     pub(super) fn push_frame(&mut self, hash: &blake3::Hash, arg_count: u8) -> Result<(), VmError> {
         self.push_frame_with_captures(hash, arg_count, Vec::new())
@@ -528,5 +540,48 @@ impl Vm {
         }
         frame.ip = new_ip as usize;
         Ok(())
+    }
+
+    /// Capture the current call stack as a stack trace.
+    ///
+    /// This collects information from all active call frames, using debug info
+    /// when available to provide source locations.
+    pub fn capture_stack_trace(&self) -> Vec<super::error::StackTraceFrame> {
+        self.frames
+            .iter()
+            .rev() // Most recent frame first
+            .map(|frame| {
+                let function = &frame.function;
+                let bytecode_offset = frame.ip.saturating_sub(1); // Point to the instruction that caused the error
+
+                // Try to get source location from debug info
+                let (source_file, function_name, line, column) =
+                    if let Some(ref debug_info) = function.debug_info {
+                        let mapping = debug_info.find_source_location(bytecode_offset);
+                        (
+                            debug_info.source_file.clone(),
+                            debug_info.function_name.clone(),
+                            mapping.map(|m| m.line),
+                            mapping.map(|m| m.column),
+                        )
+                    } else {
+                        (None, None, None, None)
+                    };
+
+                super::error::StackTraceFrame {
+                    function_name,
+                    source_file,
+                    line,
+                    column,
+                    function_hash: function.hash,
+                    bytecode_offset,
+                }
+            })
+            .collect()
+    }
+
+    /// Create a `RuntimeError` with the current stack trace.
+    pub fn runtime_error(&self, error: VmError) -> super::error::RuntimeError {
+        super::error::RuntimeError::with_stack_trace(error, self.capture_stack_trace())
     }
 }
