@@ -1,0 +1,463 @@
+//! Core VM structures and infrastructure.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::bytecode::{CompiledFunction, Opcode};
+use crate::value::{SuspendedAbility, Value};
+
+use super::error::VmError;
+
+/// A single stack frame representing an active function call.
+#[derive(Debug, Clone)]
+pub(super) struct CallFrame {
+    /// The function being executed.
+    pub function: Arc<CompiledFunction>,
+
+    /// Instruction pointer (offset into bytecode).
+    pub ip: usize,
+
+    /// Base pointer into the value stack for this frame's locals.
+    pub bp: usize,
+
+    /// Captured environment for closures.
+    /// Empty for regular function calls, contains captured values for closure calls.
+    pub captures: Vec<Value>,
+}
+
+/// The kind of handler installed in a handler frame.
+#[derive(Debug, Clone)]
+pub(super) enum HandlerKind {
+    /// An inline handler with a single function for all methods.
+    /// The function receives (continuation, `suspended_ability`) and must dispatch by method.
+    Inline { handler_func: blake3::Hash },
+
+    /// A handler value with separate functions for each method.
+    /// When an ability is performed, the `method_id` is used to look up the function.
+    Value {
+        handler_value: Arc<crate::value::HandlerValue>,
+    },
+}
+
+/// An installed ability handler that can intercept ability operations.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // normal_completion_ip may be used for future optimizations
+pub(super) struct HandlerFrame {
+    /// The ability ID this handler handles.
+    pub ability_id: u16,
+
+    /// The handler implementation (inline function or handler value).
+    pub handler: HandlerKind,
+
+    /// The call frame index where this handler was installed.
+    pub call_frame_idx: usize,
+
+    /// The stack height when the handler was installed.
+    pub stack_height: usize,
+
+    /// The instruction pointer to jump to for normal completion.
+    pub normal_completion_ip: usize,
+}
+
+/// A host-provided ability handler callback.
+///
+/// Must be Send + Sync to allow the VM to be used across threads.
+pub type HostHandler = Box<dyn Fn(&SuspendedAbility) -> Result<Value, VmError> + Send + Sync>;
+
+/// The Ambient virtual machine.
+pub struct Vm {
+    /// The value stack.
+    pub(super) stack: Vec<Value>,
+
+    /// The call stack.
+    pub(super) frames: Vec<CallFrame>,
+
+    /// The handler stack for installed ability handlers.
+    pub(super) handlers: Vec<HandlerFrame>,
+
+    /// Host-provided ability handlers (for abilities like Console, Filesystem).
+    /// Maps `(ability_id, method_id)` to handler functions.
+    pub(super) host_handlers: HashMap<(u16, u16), HostHandler>,
+
+    /// Content-addressed function store.
+    pub(super) functions: HashMap<blake3::Hash, Arc<CompiledFunction>>,
+
+    /// Maximum call stack depth to prevent infinite recursion.
+    pub(super) max_call_depth: usize,
+}
+
+impl Default for Vm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Vm {
+    /// Create a new VM instance.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            stack: Vec::with_capacity(256),
+            frames: Vec::with_capacity(64),
+            handlers: Vec::with_capacity(16),
+            host_handlers: HashMap::new(),
+            functions: HashMap::new(),
+            max_call_depth: 1000,
+        }
+    }
+
+    /// Load a compiled function into the VM.
+    pub fn load_function(&mut self, func: CompiledFunction) {
+        let hash = func.hash;
+        self.functions.insert(hash, Arc::new(func));
+    }
+
+    /// Register a host-provided ability handler.
+    ///
+    /// Host handlers are called synchronously when an ability is performed
+    /// and no bytecode handler is installed.
+    pub fn register_host_handler(&mut self, ability_id: u16, method_id: u16, handler: HostHandler) {
+        self.host_handlers.insert((ability_id, method_id), handler);
+    }
+
+    /// Call a function by its hash with the given arguments.
+    pub fn call(&mut self, hash: &blake3::Hash, args: Vec<Value>) -> Result<Value, VmError> {
+        // Reset state
+        self.stack.clear();
+        self.frames.clear();
+        self.handlers.clear();
+
+        let arg_count = args.len() as u8;
+
+        // Push arguments onto stack
+        for arg in args {
+            self.stack.push(arg);
+        }
+
+        // Set up initial call frame
+        self.push_frame(hash, arg_count)?;
+
+        // Run the execution loop
+        self.run()
+    }
+
+    /// Push a new call frame for the given function.
+    pub(super) fn push_frame(&mut self, hash: &blake3::Hash, arg_count: u8) -> Result<(), VmError> {
+        self.push_frame_with_captures(hash, arg_count, Vec::new())
+    }
+
+    /// Push a new call frame for a closure call with captured environment.
+    pub(super) fn push_frame_with_captures(
+        &mut self,
+        hash: &blake3::Hash,
+        arg_count: u8,
+        captures: Vec<Value>,
+    ) -> Result<(), VmError> {
+        if self.frames.len() >= self.max_call_depth {
+            return Err(VmError::StackOverflow);
+        }
+
+        let function = self
+            .functions
+            .get(hash)
+            .ok_or(VmError::UnknownFunction(*hash))?
+            .clone();
+
+        if arg_count != function.param_count {
+            return Err(VmError::ArityMismatch {
+                expected: function.param_count,
+                got: arg_count,
+            });
+        }
+
+        // Base pointer is where arguments start on the stack
+        let bp = self.stack.len() - arg_count as usize;
+
+        // Reserve space for locals (args are already there, just need remaining slots)
+        let extra_locals = function.local_count as usize - arg_count as usize;
+        for _ in 0..extra_locals {
+            self.stack.push(Value::Unit);
+        }
+
+        self.frames.push(CallFrame {
+            function,
+            ip: 0,
+            bp,
+            captures,
+        });
+
+        Ok(())
+    }
+
+    /// Perform a single suspended ability using a host handler.
+    ///
+    /// Returns an error if no host handler is registered for this ability.
+    /// Note: This does not support bytecode handlers - only host handlers.
+    pub(super) fn perform_ability_host(
+        &self,
+        ability: &SuspendedAbility,
+    ) -> Result<Value, VmError> {
+        if let Some(handler) = self
+            .host_handlers
+            .get(&(ability.ability_id, ability.method_id))
+        {
+            handler(ability)
+        } else {
+            Err(VmError::UnhandledAbility {
+                ability_id: ability.ability_id,
+                method_id: ability.method_id,
+            })
+        }
+    }
+
+    /// Perform all abilities concurrently and collect results.
+    ///
+    /// Uses `std::thread::scope` for safe parallelism. Each ability is executed
+    /// in its own thread, and results are collected in order.
+    pub(super) fn perform_all_abilities(
+        &self,
+        abilities: &[Arc<SuspendedAbility>],
+    ) -> Result<Vec<Value>, VmError> {
+        if abilities.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // For a single ability, no need for threading overhead
+        if abilities.len() == 1 {
+            return Ok(vec![self.perform_ability_host(&abilities[0])?]);
+        }
+
+        // Use thread::scope for safe concurrent execution
+        std::thread::scope(|s| {
+            // Spawn a thread for each ability
+            let handles: Vec<_> = abilities
+                .iter()
+                .map(|ability| s.spawn(|| self.perform_ability_host(ability)))
+                .collect();
+
+            // Collect results in order
+            let mut results = Vec::with_capacity(handles.len());
+            for handle in handles {
+                let result = handle.join().map_err(|_| VmError::StackOverflow)?;
+                results.push(result?);
+            }
+            Ok(results)
+        })
+    }
+
+    /// Race abilities concurrently and return the first result.
+    ///
+    /// Uses `std::thread::scope` with channels for true racing. The first
+    /// ability to complete wins, and its result is returned. Other threads
+    /// continue to completion but their results are discarded.
+    ///
+    /// Note: True cancellation would require cooperative cancellation tokens
+    /// in the ability handlers. For now, we let threads complete but only
+    /// use the first result.
+    pub(super) fn perform_race_abilities(
+        &self,
+        abilities: &[Arc<SuspendedAbility>],
+    ) -> Result<Value, VmError> {
+        if abilities.is_empty() {
+            return Err(VmError::StackUnderflow);
+        }
+
+        // For a single ability, no need for threading overhead
+        if abilities.len() == 1 {
+            return self.perform_ability_host(&abilities[0]);
+        }
+
+        // Use a channel to receive the first result
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        std::thread::scope(|s| {
+            // Spawn a thread for each ability
+            for (idx, ability) in abilities.iter().enumerate() {
+                let tx = tx.clone();
+                s.spawn(move || {
+                    let result = self.perform_ability_host(ability);
+                    // Send result with index (for debugging/ordering if needed)
+                    let _ = tx.send((idx, result));
+                });
+            }
+
+            // Drop our sender so the channel closes when all threads complete
+            drop(tx);
+
+            // Return the first result we receive
+            match rx.recv() {
+                Ok((_idx, result)) => result,
+                Err(_) => Err(VmError::StackUnderflow), // All threads failed to send
+            }
+        })
+    }
+
+    /// Fetch the next opcode from the current frame's bytecode.
+    pub(super) fn fetch_opcode(&mut self) -> Result<Opcode, VmError> {
+        let frame = self.current_frame_mut()?;
+        if frame.ip >= frame.function.bytecode.len() {
+            return Err(VmError::InstructionOutOfBounds);
+        }
+        let byte = frame.function.bytecode[frame.ip];
+        frame.ip += 1;
+        Opcode::from_byte(byte).ok_or(VmError::InvalidOpcode(byte))
+    }
+
+    /// Read a u8 operand from the bytecode.
+    pub(super) fn read_u8(&mut self) -> Result<u8, VmError> {
+        let frame = self.current_frame_mut()?;
+        if frame.ip >= frame.function.bytecode.len() {
+            return Err(VmError::InstructionOutOfBounds);
+        }
+        let byte = frame.function.bytecode[frame.ip];
+        frame.ip += 1;
+        Ok(byte)
+    }
+
+    /// Read a u16 operand from the bytecode (little-endian).
+    pub(super) fn read_u16(&mut self) -> Result<u16, VmError> {
+        let frame = self.current_frame_mut()?;
+        if frame.ip + 1 >= frame.function.bytecode.len() {
+            return Err(VmError::InstructionOutOfBounds);
+        }
+        let lo = frame.function.bytecode[frame.ip];
+        let hi = frame.function.bytecode[frame.ip + 1];
+        frame.ip += 2;
+        Ok(u16::from_le_bytes([lo, hi]))
+    }
+
+    /// Read an i16 operand from the bytecode (little-endian).
+    pub(super) fn read_i16(&mut self) -> Result<i16, VmError> {
+        let frame = self.current_frame_mut()?;
+        if frame.ip + 1 >= frame.function.bytecode.len() {
+            return Err(VmError::InstructionOutOfBounds);
+        }
+        let lo = frame.function.bytecode[frame.ip];
+        let hi = frame.function.bytecode[frame.ip + 1];
+        frame.ip += 2;
+        Ok(i16::from_le_bytes([lo, hi]))
+    }
+
+    /// Get the current call frame.
+    pub(super) fn current_frame(&self) -> Result<&CallFrame, VmError> {
+        self.frames.last().ok_or(VmError::StackUnderflow)
+    }
+
+    /// Get the current call frame mutably.
+    pub(super) fn current_frame_mut(&mut self) -> Result<&mut CallFrame, VmError> {
+        self.frames.last_mut().ok_or(VmError::StackUnderflow)
+    }
+
+    /// Get a constant from the current function's constant pool.
+    pub(super) fn get_constant(&self, idx: u16) -> Result<Value, VmError> {
+        let frame = self.current_frame()?;
+        frame
+            .function
+            .constants
+            .get(idx as usize)
+            .cloned()
+            .ok_or(VmError::InvalidConstant(idx))
+    }
+
+    /// Get a local variable from the current frame.
+    pub(super) fn get_local(&self, slot: u16) -> Result<Value, VmError> {
+        let frame = self.current_frame()?;
+        let idx = frame.bp + slot as usize;
+        self.stack
+            .get(idx)
+            .cloned()
+            .ok_or(VmError::InvalidLocal(slot))
+    }
+
+    /// Set a local variable in the current frame.
+    pub(super) fn set_local(&mut self, slot: u16, value: Value) -> Result<(), VmError> {
+        let frame = self.current_frame()?;
+        let idx = frame.bp + slot as usize;
+        if idx >= self.stack.len() {
+            return Err(VmError::InvalidLocal(slot));
+        }
+        self.stack[idx] = value;
+        Ok(())
+    }
+
+    /// Pop a value from the stack.
+    pub(super) fn pop(&mut self) -> Result<Value, VmError> {
+        self.stack.pop().ok_or(VmError::StackUnderflow)
+    }
+
+    /// Peek at the top of the stack without popping.
+    pub(super) fn peek(&self) -> Result<&Value, VmError> {
+        self.stack.last().ok_or(VmError::StackUnderflow)
+    }
+
+    /// Pop a number from the stack or return a type error.
+    pub(super) fn pop_number(&mut self, operation: &'static str) -> Result<f64, VmError> {
+        match self.pop()? {
+            Value::Number(n) => Ok(n),
+            other => Err(VmError::TypeError {
+                expected: "number",
+                got: other.type_name(),
+                operation,
+            }),
+        }
+    }
+
+    /// Pop a bool from the stack or return a type error.
+    pub(super) fn pop_bool(&mut self, operation: &'static str) -> Result<bool, VmError> {
+        match self.pop()? {
+            Value::Bool(b) => Ok(b),
+            other => Err(VmError::TypeError {
+                expected: "bool",
+                got: other.type_name(),
+                operation,
+            }),
+        }
+    }
+
+    /// Pop a string from the stack or return a type error.
+    pub(super) fn pop_string(&mut self, operation: &'static str) -> Result<Arc<String>, VmError> {
+        match self.pop()? {
+            Value::String(s) => Ok(s),
+            other => Err(VmError::TypeError {
+                expected: "string",
+                got: other.type_name(),
+                operation,
+            }),
+        }
+    }
+
+    /// Execute a binary operation on numbers.
+    pub(super) fn binary_number_op(
+        &mut self,
+        op: impl FnOnce(f64, f64) -> f64,
+        name: &'static str,
+    ) -> Result<(), VmError> {
+        let b = self.pop_number(name)?;
+        let a = self.pop_number(name)?;
+        self.stack.push(Value::Number(op(a, b)));
+        Ok(())
+    }
+
+    /// Execute a comparison operation on numbers.
+    pub(super) fn comparison_op(
+        &mut self,
+        op: impl FnOnce(f64, f64) -> bool,
+        name: &'static str,
+    ) -> Result<(), VmError> {
+        let b = self.pop_number(name)?;
+        let a = self.pop_number(name)?;
+        self.stack.push(Value::Bool(op(a, b)));
+        Ok(())
+    }
+
+    /// Jump relative to current instruction pointer.
+    pub(super) fn jump_relative(&mut self, offset: i16) -> Result<(), VmError> {
+        let frame = self.current_frame_mut()?;
+        let new_ip = frame.ip as isize + offset as isize;
+        if new_ip < 0 || new_ip > frame.function.bytecode.len() as isize {
+            return Err(VmError::InstructionOutOfBounds);
+        }
+        frame.ip = new_ip as usize;
+        Ok(())
+    }
+}
