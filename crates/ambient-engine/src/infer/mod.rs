@@ -3348,4 +3348,318 @@ mod tests {
         let ability = Infer::infer_ability_from_methods(&methods);
         assert_eq!(ability, Some(0x0003)); // Time
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Error case coverage tests (CQ-012)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_error_undefined_variable() {
+        let mut infer = Infer::new();
+        let env = TypeEnv::new();
+
+        // Reference to a variable that doesn't exist
+        let mut expr = Expr::variable("undefined_var");
+        let result = infer.infer_expr(&env, &mut expr);
+
+        assert!(result.is_err());
+        if let Err(err) = result {
+            assert!(
+                matches!(err.kind, TypeErrorKind::UndefinedVariable { .. }),
+                "Expected UndefinedVariable, got {:?}",
+                err.kind
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_field_not_found() {
+        let mut infer = Infer::new();
+        let env = TypeEnv::new();
+
+        // Access a field that doesn't exist on a record
+        let record = Expr::record([("x", Expr::number(1.0)), ("y", Expr::number(2.0))]);
+        let mut expr = Expr::field_access(record, "z");
+        let result = infer.infer_expr(&env, &mut expr);
+
+        assert!(result.is_err());
+        if let Err(err) = result {
+            assert!(
+                matches!(err.kind, TypeErrorKind::FieldNotFound { .. }),
+                "Expected FieldNotFound, got {:?}",
+                err.kind
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_tuple_index_out_of_bounds() {
+        let mut infer = Infer::new();
+        let env = TypeEnv::new();
+
+        // Access index 5 on a 2-element tuple
+        let tuple = Expr::tuple(vec![Expr::number(1.0), Expr::number(2.0)]);
+        let mut expr = Expr::tuple_index(tuple, 5);
+        let result = infer.infer_expr(&env, &mut expr);
+
+        assert!(result.is_err());
+        if let Err(err) = result {
+            assert!(
+                matches!(err.kind, TypeErrorKind::TupleIndexOutOfBounds { .. }),
+                "Expected TupleIndexOutOfBounds, got {:?}",
+                err.kind
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_calling_non_function() {
+        let mut infer = Infer::new();
+        let env = TypeEnv::new();
+
+        // Try to call a number as a function - type inference will produce TypeMismatch
+        // because it tries to unify Number with Function type
+        let mut expr = Expr::call(Expr::number(42.0), vec![Expr::number(1.0)]);
+        let result = infer.infer_expr(&env, &mut expr);
+
+        assert!(result.is_err());
+        if let Err(err) = result {
+            // The error is TypeMismatch because unification fails when trying
+            // to match Number with a function type
+            assert!(
+                matches!(err.kind, TypeErrorKind::TypeMismatch { .. }),
+                "Expected TypeMismatch when calling non-function, got {:?}",
+                err.kind
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_non_boolean_if_condition() {
+        let mut infer = Infer::new();
+        let env = TypeEnv::new();
+
+        // if with a number condition instead of bool - produces TypeMismatch
+        // when unifying condition type (Number) with Bool
+        let mut expr = Expr::if_then_else(
+            Expr::number(1.0),
+            Expr::number(2.0),
+            Some(Expr::number(3.0)),
+        );
+        let result = infer.infer_expr(&env, &mut expr);
+
+        assert!(result.is_err());
+        if let Err(err) = result {
+            // Unification error: expected Number (condition type), actual Bool (target type)
+            assert!(
+                matches!(err.kind, TypeErrorKind::TypeMismatch { .. }),
+                "Expected TypeMismatch for non-bool condition, got {:?}",
+                err.kind
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_match_arms_different_types() {
+        let mut infer = Infer::new();
+        let env = TypeEnv::new();
+
+        // Match with arms returning different types - produces TypeMismatch
+        // when unifying first arm type with subsequent arm types
+        use crate::ast::{MatchArm, Pattern};
+        let mut expr = Expr::match_expr(
+            Expr::number(1.0),
+            vec![
+                MatchArm::new(Pattern::wildcard(), Expr::number(1.0)),
+                MatchArm::new(Pattern::wildcard(), Expr::string("hello")),
+            ],
+        );
+        let result = infer.infer_expr(&env, &mut expr);
+
+        assert!(result.is_err());
+        if let Err(err) = result {
+            assert!(
+                matches!(
+                    err.kind,
+                    TypeErrorKind::TypeMismatch {
+                        expected: Type::Number,
+                        actual: Type::String
+                    }
+                ),
+                "Expected TypeMismatch between Number and String, got {:?}",
+                err.kind
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_wrong_argument_count() {
+        let mut infer = Infer::new();
+        let env = TypeEnv::new();
+
+        // Call a function with wrong number of arguments - produces TypeMismatch
+        // because function types don't match
+        let lambda = Expr::lambda(
+            vec![Param::new(0, "x"), Param::new(1, "y")],
+            Expr::binary(BinaryOp::Add, Expr::local(0), Expr::local(1)),
+        );
+        let mut expr = Expr::call(lambda, vec![Expr::number(1.0)]); // Only 1 arg, needs 2
+        let result = infer.infer_expr(&env, &mut expr);
+
+        assert!(result.is_err());
+        // This produces a TypeMismatch because the inferred function type
+        // doesn't match the application
+        if let Err(err) = result {
+            assert!(
+                matches!(err.kind, TypeErrorKind::TypeMismatch { .. }),
+                "Expected TypeMismatch for wrong argument count, got {:?}",
+                err.kind
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_display_field_not_found() {
+        let err = TypeError::new(
+            TypeErrorKind::FieldNotFound {
+                field: "missing".into(),
+                record_ty: Type::record([("x", Type::Number)]),
+            },
+            (0, 10),
+        );
+        let msg = format!("{err}");
+        assert!(msg.contains("missing") || msg.contains("field"));
+    }
+
+    #[test]
+    fn test_error_display_tuple_index_out_of_bounds() {
+        let err = TypeError::new(
+            TypeErrorKind::TupleIndexOutOfBounds {
+                index: 5,
+                tuple_ty: Type::Tuple(vec![Type::Number, Type::String]),
+            },
+            (0, 10),
+        );
+        let msg = format!("{err}");
+        assert!(msg.contains("5") || msg.contains("out of bounds") || msg.contains("index"));
+    }
+
+    #[test]
+    fn test_error_display_not_a_function() {
+        let err = TypeError::new(TypeErrorKind::NotAFunction { ty: Type::Number }, (0, 10));
+        let msg = format!("{err}");
+        assert!(msg.contains("not a function") || msg.contains("number"));
+    }
+
+    #[test]
+    fn test_error_display_non_boolean_condition() {
+        let err = TypeError::new(
+            TypeErrorKind::NonBooleanCondition { ty: Type::Number },
+            (0, 10),
+        );
+        let msg = format!("{err}");
+        assert!(msg.contains("condition") || msg.contains("bool"));
+    }
+
+    #[test]
+    fn test_error_display_arity_mismatch() {
+        let err = TypeError::new(
+            TypeErrorKind::ArityMismatch {
+                expected: 2,
+                actual: 1,
+            },
+            (0, 10),
+        );
+        let msg = format!("{err}");
+        assert!(msg.contains("2") && msg.contains("1"));
+    }
+
+    #[test]
+    fn test_error_display_match_arm_type_mismatch() {
+        let err = TypeError::new(
+            TypeErrorKind::MatchArmTypeMismatch {
+                first: Type::Number,
+                arm: Type::String,
+            },
+            (0, 10),
+        );
+        let msg = format!("{err}");
+        assert!(msg.contains("match") || msg.contains("arm"));
+    }
+
+    #[test]
+    fn test_error_display_undefined_variable() {
+        let err = TypeError::new(
+            TypeErrorKind::UndefinedVariable { name: "foo".into() },
+            (0, 10),
+        );
+        let msg = format!("{err}");
+        assert!(msg.contains("foo") || msg.contains("undefined"));
+    }
+
+    #[test]
+    fn test_error_display_missing_ability() {
+        let err = TypeError::new(
+            TypeErrorKind::MissingAbility {
+                required: 1,
+                available: AbilitySet::Empty,
+            },
+            (0, 10),
+        );
+        let msg = format!("{err}");
+        assert!(msg.contains("ability") || msg.contains("missing") || msg.contains("require"));
+    }
+
+    #[test]
+    fn test_error_display_sandbox_ability_violation() {
+        let err = TypeError::new(
+            TypeErrorKind::SandboxAbilityViolation {
+                ability: "FileSystem".into(),
+                allowed: vec!["Console".into()],
+            },
+            (0, 10),
+        );
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("sandbox") || msg.contains("FileSystem") || msg.contains("not allowed")
+        );
+    }
+
+    #[test]
+    fn test_error_display_handler_missing_method() {
+        let err = TypeError::new(
+            TypeErrorKind::HandlerMissingMethod {
+                ability: "Console".into(),
+                method: "print".into(),
+            },
+            (0, 10),
+        );
+        let msg = format!("{err}");
+        assert!(msg.contains("print") || msg.contains("missing") || msg.contains("Console"));
+    }
+
+    #[test]
+    fn test_error_display_infinite_type() {
+        let err = TypeError::new(
+            TypeErrorKind::InfiniteType {
+                var: 0,
+                ty: Type::function(vec![Type::var(0)], Type::var(0)),
+            },
+            (0, 10),
+        );
+        let msg = format!("{err}");
+        assert!(msg.contains("infinite") || msg.contains("recursive") || msg.contains("occurs"));
+    }
+
+    #[test]
+    fn test_error_display_cannot_infer() {
+        let err = TypeError::new(
+            TypeErrorKind::CannotInfer {
+                hint: "ambiguous record field access".into(),
+            },
+            (0, 10),
+        );
+        let msg = format!("{err}");
+        assert!(msg.contains("cannot") || msg.contains("infer") || msg.contains("ambiguous"));
+    }
 }

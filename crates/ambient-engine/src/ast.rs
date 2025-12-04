@@ -301,6 +301,28 @@ pub struct MatchArm {
     pub body: Expr,
 }
 
+impl MatchArm {
+    /// Create a new match arm without a guard.
+    #[must_use]
+    pub fn new(pattern: Pattern, body: Expr) -> Self {
+        Self {
+            pattern,
+            guard: None,
+            body,
+        }
+    }
+
+    /// Create a new match arm with a guard.
+    #[must_use]
+    pub fn with_guard(pattern: Pattern, guard: Expr, body: Expr) -> Self {
+        Self {
+            pattern,
+            guard: Some(guard),
+            body,
+        }
+    }
+}
+
 /// A pattern for destructuring.
 #[derive(Debug, Clone)]
 pub struct Pattern {
@@ -315,6 +337,18 @@ impl Pattern {
     #[must_use]
     pub const fn new(kind: PatternKind, span: Span) -> Self {
         Self { kind, span }
+    }
+
+    /// Create a wildcard pattern.
+    #[must_use]
+    pub fn wildcard() -> Self {
+        Self::new(PatternKind::Wildcard, Span::default())
+    }
+
+    /// Create a binding pattern.
+    #[must_use]
+    pub fn binding(id: BindingId, name: impl Into<Arc<str>>) -> Self {
+        Self::new(PatternKind::Binding(id, name.into()), Span::default())
     }
 }
 
@@ -798,6 +832,36 @@ impl Expr {
             }),
             Span::default(),
         )
+    }
+
+    /// Create a tuple index expression.
+    #[must_use]
+    pub fn tuple_index(tuple: Expr, index: u32) -> Self {
+        Self::new(
+            ExprKind::TupleIndex(Box::new(tuple), index),
+            Span::default(),
+        )
+    }
+
+    /// Create a field access expression.
+    #[must_use]
+    pub fn field_access(record: Expr, field: impl Into<Arc<str>>) -> Self {
+        Self::new(
+            ExprKind::RecordField(Box::new(record), field.into()),
+            Span::default(),
+        )
+    }
+
+    /// Create a match expression.
+    #[must_use]
+    pub fn match_expr(scrutinee: Expr, arms: Vec<MatchArm>) -> Self {
+        Self::new(ExprKind::Match(Box::new(scrutinee), arms), Span::default())
+    }
+
+    /// Create a variable reference (named reference).
+    #[must_use]
+    pub fn variable(name: impl Into<Arc<str>>) -> Self {
+        Self::name(name)
     }
 }
 
