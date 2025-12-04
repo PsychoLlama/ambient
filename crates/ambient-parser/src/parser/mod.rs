@@ -2,6 +2,18 @@
 //!
 //! The parser consumes tokens from the lexer and builds a CST.
 //! It implements error recovery to continue parsing after errors.
+//!
+//! # Module Organization
+//!
+//! The parser is organized into logical sections:
+//!
+//! - **Module parsing** - Top-level module and item parsing
+//! - **Function parsing** - Function definitions and parameters
+//! - **Other definitions** - Constants, type aliases, enums, abilities
+//! - **Type parsing** - Type expressions and annotations
+//! - **Expression parsing** - All expression forms (precedence climbing)
+//! - **Pattern parsing** - Pattern matching syntax
+//! - **Helpers** - Token consumption and error recovery utilities
 
 // Allow expect() for internal invariants (e.g., segments.last() on non-empty vectors)
 #![allow(clippy::expect_used)]
