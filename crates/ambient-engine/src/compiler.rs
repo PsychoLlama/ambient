@@ -98,6 +98,9 @@ pub enum CompileErrorKind {
 
     /// Unknown ability method.
     UnknownAbilityMethod { ability: Arc<str>, method: Arc<str> },
+
+    /// Internal compiler error (invariant violation).
+    Internal { message: &'static str },
 }
 
 impl std::fmt::Display for CompileErrorKind {
@@ -116,6 +119,7 @@ impl std::fmt::Display for CompileErrorKind {
             Self::UnknownAbilityMethod { ability, method } => {
                 write!(f, "unknown ability method: `{ability}.{method}`")
             }
+            Self::Internal { message } => write!(f, "internal compiler error: {message}"),
         }
     }
 }
@@ -486,13 +490,19 @@ fn finalize_module_hashes(
                 .iter()
                 .find(|(n, _, _)| n == name)
                 .map(|(_, f, _)| f)
-                .expect("function should exist");
+                .ok_or_else(|| {
+                    CompileError::new(
+                        CompileErrorKind::Internal {
+                            message: "function should exist in compiled_functions",
+                        },
+                        (0, 0),
+                    )
+                })?;
 
             // Check if it's self-recursive
             let is_self_recursive = call_graph
                 .get(name)
-                .map(|calls| calls.contains(name))
-                .unwrap_or(false);
+                .is_some_and(|calls| calls.contains(name));
 
             if is_self_recursive {
                 // Self-recursive: compute hash excluding self-reference
@@ -547,10 +557,14 @@ fn finalize_module_hashes(
             .collect();
 
         // Get the final hash for this function
-        let final_hash = final_hashes
-            .get(&name)
-            .copied()
-            .expect("all functions should have final hashes");
+        let final_hash = final_hashes.get(&name).copied().ok_or_else(|| {
+            CompileError::new(
+                CompileErrorKind::Internal {
+                    message: "all functions should have final hashes",
+                },
+                (0, 0),
+            )
+        })?;
 
         // Update the function's hash field
         func.hash = final_hash;
@@ -649,6 +663,8 @@ fn compute_scc_hash(
     sorted_scc.sort();
 
     for name in &sorted_scc {
+        // SAFETY: All functions in the SCC must exist in compiled_functions
+        #[allow(clippy::expect_used)]
         let func = compiled_functions
             .iter()
             .find(|(n, _, _)| n == name)
