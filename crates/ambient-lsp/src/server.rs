@@ -101,6 +101,15 @@ fn main_loop(connection: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Parse request parameters, returning an error response on failure.
+fn parse_params<P: serde::de::DeserializeOwned>(
+    params: &Value,
+    id: &RequestId,
+) -> Result<P, Response> {
+    serde_json::from_value(params.clone())
+        .map_err(|e| Response::new_err(id.clone(), -32602, format!("Invalid params: {e}")))
+}
+
 /// Handle an incoming request.
 fn handle_request(
     req: &Request,
@@ -111,29 +120,23 @@ fn handle_request(
 
     match req.method.as_str() {
         HoverRequest::METHOD => {
-            let params: HoverParams = match serde_json::from_value(req.params.clone()) {
+            let params = match parse_params(&req.params, &id) {
                 Ok(p) => p,
-                Err(e) => {
-                    return Response::new_err(id, -32602, format!("Invalid params: {e}"));
-                }
+                Err(e) => return e,
             };
             handle_hover(id, &params, documents, analysis_cache)
         }
         GotoDefinition::METHOD => {
-            let params: GotoDefinitionParams = match serde_json::from_value(req.params.clone()) {
+            let params = match parse_params(&req.params, &id) {
                 Ok(p) => p,
-                Err(e) => {
-                    return Response::new_err(id, -32602, format!("Invalid params: {e}"));
-                }
+                Err(e) => return e,
             };
             handle_goto_definition(id, &params, documents, analysis_cache)
         }
         Completion::METHOD => {
-            let params: CompletionParams = match serde_json::from_value(req.params.clone()) {
+            let params = match parse_params(&req.params, &id) {
                 Ok(p) => p,
-                Err(e) => {
-                    return Response::new_err(id, -32602, format!("Invalid params: {e}"));
-                }
+                Err(e) => return e,
             };
             handle_completion(id, &params, documents, analysis_cache)
         }
