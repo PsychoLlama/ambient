@@ -49,19 +49,29 @@ impl<'src> Parser<'src> {
     ///
     /// # Panics
     ///
-    /// Panics if lexing fails (use `Parser::try_new` for fallible construction).
+    /// Panics if lexing fails. Use [`Parser::try_new`] for fallible construction.
     #[must_use]
     pub fn new(source: &'src str) -> Self {
+        Self::try_new(source).expect("lexer error")
+    }
+
+    /// Create a new parser for the given source, returning an error if lexing fails.
+    ///
+    /// This is the fallible version of [`Parser::new`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ParseError` if the source contains invalid tokens (e.g., unterminated
+    /// strings, invalid escape sequences).
+    pub fn try_new(source: &'src str) -> Result<Self, ParseError> {
         let mut lexer = Lexer::new(source);
-        // For now, panic on lex errors. In a full implementation,
-        // we'd want to recover and continue.
-        let tokens = lexer.tokenize().expect("lexer error");
-        Self {
+        let tokens = lexer.tokenize()?;
+        Ok(Self {
             source,
             tokens,
             pos: 0,
             errors: Vec::new(),
-        }
+        })
     }
 
     /// Get the current token.
