@@ -6,6 +6,41 @@
 //! - Let-polymorphism (generalization at let bindings)
 //! - Type environment with lexical scoping
 //!
+//! # Algorithm W Overview
+//!
+//! The inference algorithm works in two phases:
+//!
+//! 1. **Constraint Generation**: Traverse the AST, assigning fresh type variables
+//!    to expressions and collecting equality constraints between types.
+//!
+//! 2. **Unification**: Solve constraints by finding a most general unifier (MGU).
+//!    Uses substitution to replace type variables with concrete types.
+//!
+//! ## Key Operations
+//!
+//! - **`infer_expr`**: Infers the type of an expression, returning constraints
+//! - **`unify`**: Unifies two types, updating the substitution map
+//! - **`generalize`**: Converts a type to a polymorphic scheme (∀-quantified)
+//! - **`instantiate`**: Creates fresh type variables for a polymorphic scheme
+//!
+//! ## Example: Let Polymorphism
+//!
+//! ```text
+//! let id = |x| x;    // id : ∀a. a -> a
+//! let a = id(42);    // instantiate: number -> number
+//! let b = id(true);  // instantiate: bool -> bool
+//! ```
+//!
+//! The identity function `id` is generalized at its binding site, allowing
+//! it to be used at different types.
+//!
+//! # Ability Tracking
+//!
+//! The type system tracks algebraic effects through ability sets on function
+//! types. A function `fn(): number / Console` can perform Console operations.
+//! The inference engine propagates these ability requirements and checks that
+//! all abilities are handled.
+//!
 //! # Module Organization
 //!
 //! This module is organized into logical sections:
