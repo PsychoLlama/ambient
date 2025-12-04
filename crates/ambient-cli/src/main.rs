@@ -720,9 +720,10 @@ fn cmd_dev(file: &Path, entry: &str, watch_dirs: Option<&[PathBuf]>) -> Result<(
         match rx.recv_timeout(Duration::from_millis(500)) {
             Ok(event) => {
                 // Filter to only .ab file changes.
-                let is_ab_change = event.paths.iter().any(|p| {
-                    p.extension().is_some_and(|ext| ext == "ab")
-                });
+                let is_ab_change = event
+                    .paths
+                    .iter()
+                    .any(|p| p.extension().is_some_and(|ext| ext == "ab"));
 
                 if is_ab_change && last_run.elapsed() > debounce {
                     last_run = Instant::now();
@@ -752,7 +753,11 @@ fn run_dev_iteration(file: &Path, entry: &str) {
     let source = match fs::read_to_string(file) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("\x1b[1;31merror\x1b[0m: failed to read {}: {}", file.display(), e);
+            eprintln!(
+                "\x1b[1;31merror\x1b[0m: failed to read {}: {}",
+                file.display(),
+                e
+            );
             return;
         }
     };

@@ -96,6 +96,7 @@ fn str_to_value(s: &Arc<str>) -> Value {
 /// Convert a span to (line, column) numbers.
 ///
 /// Line and column are 1-indexed.
+#[allow(dead_code)]
 fn span_to_line_col(source: &str, span: crate::ast::Span) -> (u32, u32) {
     let offset = span.start as usize;
     let mut line = 1u32;
@@ -299,6 +300,7 @@ impl FunctionCompiler {
     }
 
     /// Create a new function compiler with debug info source context.
+    #[allow(dead_code)]
     fn new_with_source(
         function_hashes: HashMap<Arc<str>, blake3::Hash>,
         source_file: Option<String>,
@@ -365,6 +367,7 @@ impl FunctionCompiler {
     /// Finalize debug info with source context.
     ///
     /// This computes line and column numbers from the stored spans.
+    #[allow(dead_code)]
     fn finalize_debug_info(
         mut self,
         source: Option<&str>,
@@ -377,8 +380,10 @@ impl FunctionCompiler {
         // Compute line/column numbers if source is available
         if let Some(src) = source {
             for mapping in &mut self.debug_info.source_map {
-                let (line, col) =
-                    span_to_line_col(src, crate::ast::Span::new(mapping.source_start as u32, mapping.source_end as u32));
+                let (line, col) = span_to_line_col(
+                    src,
+                    crate::ast::Span::new(mapping.source_start as u32, mapping.source_end as u32),
+                );
                 mapping.line = line;
                 mapping.column = col;
             }
@@ -549,8 +554,8 @@ pub fn compile_module_with_source(
 /// Implementation of module compilation with optional debug info.
 fn compile_module_impl(
     module: &Module,
-    source: Option<&str>,
-    source_file: Option<&str>,
+    _source: Option<&str>,
+    _source_file: Option<&str>,
 ) -> Result<CompiledModule, CompileError> {
     // Collect function definitions.
     let functions: Vec<&FunctionDef> = module
