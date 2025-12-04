@@ -3,6 +3,9 @@
 //! The parser consumes tokens from the lexer and builds a CST.
 //! It implements error recovery to continue parsing after errors.
 
+// Allow expect() for internal invariants (e.g., segments.last() on non-empty vectors)
+#![allow(clippy::expect_used)]
+
 use std::sync::Arc;
 
 use ambient_engine::ast::Span;
