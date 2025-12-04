@@ -4,6 +4,7 @@
 //! - Diagnostics (parse and type errors)
 //! - Hover information (type annotations)
 //! - Go-to-definition navigation
+//! - Code completion (keywords, types, functions, variables)
 //!
 //! # Architecture
 //!
@@ -18,6 +19,8 @@
 //!       |<-- diagnostics --------|
 //!       |-- textDocument/hover ->|
 //!       |<-- type info ----------|
+//!       |-- completion --------->|
+//!       |<-- completions --------|
 //!       |-- shutdown ----------->|
 //!       |                        |
 //! ```
@@ -47,6 +50,7 @@
 #![allow(clippy::module_name_repetitions)]
 
 mod analysis;
+mod completions;
 mod convert;
 mod documents;
 mod server;

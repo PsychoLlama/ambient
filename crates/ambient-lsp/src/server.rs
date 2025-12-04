@@ -8,9 +8,10 @@ use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, Notification as _,
     PublishDiagnostics,
 };
-use lsp_types::request::{GotoDefinition, HoverRequest, Request as _};
+use lsp_types::request::{Completion, GotoDefinition, HoverRequest, Request as _};
 use lsp_types::{
-    Diagnostic, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
     HoverProviderCapability, InitializeParams, InitializeResult, Location, MarkedString, OneOf,
     PublishDiagnosticsParams, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
@@ -19,6 +20,7 @@ use lsp_types::{
 use serde_json::Value;
 
 use crate::analysis::{analyze, find_definition, find_expr_at_offset, format_type};
+use crate::completions::{get_completions, CompletionContext};
 use crate::convert::{
     offset_range_to_lsp_range, parse_error_to_diagnostic, type_error_to_diagnostic,
 };
@@ -46,6 +48,11 @@ where
         text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         definition_provider: Some(OneOf::Left(true)),
+        completion_provider: Some(CompletionOptions {
+            trigger_characters: Some(vec![".".to_string()]),
+            resolve_provider: Some(false),
+            ..Default::default()
+        }),
         ..Default::default()
     };
 
@@ -120,6 +127,15 @@ fn handle_request(
                 }
             };
             handle_goto_definition(id, &params, documents, analysis_cache)
+        }
+        Completion::METHOD => {
+            let params: CompletionParams = match serde_json::from_value(req.params.clone()) {
+                Ok(p) => p,
+                Err(e) => {
+                    return Response::new_err(id, -32602, format!("Invalid params: {e}"));
+                }
+            };
+            handle_completion(id, &params, documents, analysis_cache)
         }
         _ => Response::new_err(id, -32601, format!("Unknown method: {}", req.method)),
     }
@@ -236,6 +252,36 @@ fn handle_goto_definition(
     };
 
     let response = GotoDefinitionResponse::Scalar(location);
+    Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
+}
+
+/// Handle completion request.
+fn handle_completion(
+    id: RequestId,
+    params: &CompletionParams,
+    documents: &DocumentStore,
+    analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
+) -> Response {
+    let uri = &params.text_document_position.text_document.uri;
+    let position = params.text_document_position.position;
+
+    let Some(doc) = documents.get(uri) else {
+        return Response::new_ok(id, Value::Null);
+    };
+
+    let offset = doc.position_to_offset(position.line, position.character);
+
+    // Get the module from the analysis cache (if available).
+    let uri_str = uri.as_str();
+    let module = analysis_cache
+        .get(uri_str)
+        .and_then(|analysis| analysis.module.as_ref());
+
+    // Create completion context and get completions.
+    let ctx = CompletionContext::new(&doc.text, offset);
+    let items = get_completions(&ctx, module);
+
+    let response = CompletionResponse::Array(items);
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
 }
 

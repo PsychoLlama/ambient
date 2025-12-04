@@ -1211,7 +1211,7 @@ sandbox with Log {
 - [x] Error messages with source context
 - [ ] Debug info generation (source maps)
 - [ ] `ambient dev` with hot reload
-- [x] Basic LSP server (hover, go-to-definition, diagnostics)
+- [x] Basic LSP server (hover, go-to-definition, diagnostics, completions)
 
 **Test case**: Interactive development workflow.
 
@@ -1233,6 +1233,7 @@ The LSP server (`ambient-lsp` crate) provides IDE support:
 - Diagnostics: Parse errors and type errors published on document changes
 - Hover: Type information for expressions
 - Go-to-definition: Navigation to function and variable definitions
+- Completions: Auto-completion for keywords, types, abilities, functions, and local variables
 - Full document sync for real-time analysis
 
 ---

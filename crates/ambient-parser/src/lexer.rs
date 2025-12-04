@@ -237,6 +237,57 @@ impl TokenKind {
             _ => None,
         }
     }
+
+    /// Get the string representation of a keyword token.
+    #[must_use]
+    pub const fn as_keyword_str(self) -> Option<&'static str> {
+        match self {
+            Self::Fn => Some("fn"),
+            Self::Pub => Some("pub"),
+            Self::Let => Some("let"),
+            Self::Const => Some("const"),
+            Self::If => Some("if"),
+            Self::Else => Some("else"),
+            Self::Match => Some("match"),
+            Self::True => Some("true"),
+            Self::False => Some("false"),
+            Self::Enum => Some("enum"),
+            Self::Type => Some("type"),
+            Self::Ability => Some("ability"),
+            Self::Use => Some("use"),
+            Self::With => Some("with"),
+            Self::Handle => Some("handle"),
+            Self::Resume => Some("resume"),
+            Self::Sandbox => Some("sandbox"),
+            Self::Unique => Some("unique"),
+            _ => None,
+        }
+    }
+
+    /// Get all keyword strings.
+    #[must_use]
+    pub const fn all_keywords() -> &'static [&'static str] {
+        &[
+            "fn", "pub", "let", "const", "if", "else", "match", "true", "false", "enum", "type",
+            "ability", "use", "with", "handle", "resume", "sandbox", "unique",
+        ]
+    }
+
+    /// Get all built-in type names.
+    #[must_use]
+    pub const fn builtin_types() -> &'static [&'static str] {
+        &[
+            "number", "string", "bool", "List", "Map", "Set", "Option", "Result",
+        ]
+    }
+
+    /// Get all built-in ability names.
+    #[must_use]
+    pub const fn builtin_abilities() -> &'static [&'static str] {
+        &[
+            "Console", "Exception", "Time", "Random", "Async", "Log", "Filesystem", "Network",
+        ]
+    }
 }
 
 /// The lexer converts source text into tokens.
