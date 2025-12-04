@@ -37,6 +37,8 @@ module.exports = grammar({
     [$.handler_method, $._expression],
     // Pattern ambiguities: `x` could be binding or variant pattern
     [$.variant_pattern, $._pattern],
+    // Match guard with () could be lambda params or unit
+    [$.lambda_parameters, $.unit],
   ],
 
   rules: {
@@ -74,7 +76,6 @@ module.exports = grammar({
 
     const_definition: ($) =>
       seq(
-        optional($.visibility),
         "const",
         field("name", $.identifier),
         ":",
@@ -188,8 +189,14 @@ module.exports = grammar({
         $.record_type,
         $.ability_type,
         $.handler_type,
-        $.unit_type
+        $.unit_type,
+        $.never_type,
+        $.infer_type
       ),
+
+    never_type: ($) => "!",
+
+    infer_type: ($) => "_",
 
     generic_type: ($) =>
       seq($.identifier, "<", $._type_list, ">"),
@@ -245,6 +252,7 @@ module.exports = grammar({
         $.call_expression,
         $.perform_expression,
         $.member_expression,
+        $.tuple_index_expression,
         $.index_expression,
         $.if_expression,
         $.match_expression,
@@ -298,6 +306,9 @@ module.exports = grammar({
     member_expression: ($) =>
       prec(PREC.MEMBER, seq($._expression, ".", $.identifier)),
 
+    tuple_index_expression: ($) =>
+      prec(PREC.MEMBER, seq($._expression, ".", $.number)),
+
     index_expression: ($) =>
       prec(PREC.MEMBER, seq($._expression, "[", $._expression, "]")),
 
@@ -313,7 +324,13 @@ module.exports = grammar({
       seq("match", field("value", $._expression), "{", repeat($.match_arm), "}"),
 
     match_arm: ($) =>
-      seq(field("pattern", $._pattern), "=>", field("body", $._expression), ","),
+      seq(
+        field("pattern", $._pattern),
+        optional(seq("if", field("guard", $._expression))),
+        "=>",
+        field("body", $._expression),
+        optional(",")
+      ),
 
     _pattern: ($) =>
       choice(
@@ -419,7 +436,7 @@ module.exports = grammar({
       seq(
         "{",
         repeat($.handler_arm),
-        optional(seq("else", "{", "(", $.identifier, ")", "=>", $._expression, "}")),
+        optional(seq("else", "{", $._expression, "}")),
         "}"
       ),
 
@@ -476,7 +493,7 @@ module.exports = grammar({
 
     string_content: ($) => /[^"\\$]+|(\$[^{])/,
 
-    escape_sequence: ($) => /\\[nrt\\'"0]/,
+    escape_sequence: ($) => /\\[nrt\\"$]/,
 
     string_interpolation: ($) =>
       seq("${", $._expression, "}"),

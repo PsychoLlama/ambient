@@ -218,3 +218,50 @@ fn test(): ()
         (perform_expression
           (member_expression (identifier) (identifier)))
         (argument_list (string (string_content)))))))
+
+================================================================================
+Tuple index expression
+================================================================================
+
+fn test(): number {
+  pair.0
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (tuple_index_expression (identifier) (number)))))
+
+================================================================================
+Match with guard
+================================================================================
+
+fn test(): number {
+  match x {
+    n if n > 0 => n,
+    _ => 0
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (match_expression
+        value: (identifier)
+        (match_arm
+          pattern: (identifier)
+          guard: (binary_expression (identifier) (number))
+          body: (identifier))
+        (match_arm
+          pattern: (wildcard_pattern)
+          body: (number))))))

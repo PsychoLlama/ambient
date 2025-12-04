@@ -165,3 +165,38 @@ unique(d098767b-4093-4d5c-ba37-ad92aa7b5d98) type UserId {
     (record_type_body
       (record_type_fields
         (record_type_field name: (identifier) type: (identifier))))))
+
+================================================================================
+Never type
+================================================================================
+
+fn diverge(): ! {
+  panic()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (never_type)
+    body: (block
+      (call_expression (identifier) (argument_list)))))
+
+================================================================================
+Infer type
+================================================================================
+
+fn test(): _ {
+  42
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (infer_type)
+    body: (block (number))))
