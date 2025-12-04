@@ -1,0 +1,16 @@
+{
+  "grammars": [
+    {
+      "name": "ambient",
+      "scope": "source.ambient",
+      "path": ".",
+      "file-types": ["ab"],
+      "highlights": "queries/highlights.scm",
+      "injection-regex": "^ambient$"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT"
+  }
+}

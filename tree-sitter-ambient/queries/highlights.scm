@@ -1,7 +1,6 @@
 ; Keywords
 [
   "fn"
-  "pub"
   "let"
   "const"
   "if"
@@ -13,10 +12,11 @@
   "use"
   "with"
   "handle"
-  "resume"
   "sandbox"
   "unique"
 ] @keyword
+
+(visibility) @keyword
 
 ; Literals
 (boolean) @constant.builtin

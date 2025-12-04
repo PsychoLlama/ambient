@@ -13,12 +13,15 @@
     "nan": "^2.17.0"
   },
   "devDependencies": {
-    "tree-sitter-cli": "^0.20.8"
+    "@types/node": "^24.10.1",
+    "tree-sitter-cli": "^0.24.0",
+    "typescript": "^5.0.0"
   },
   "scripts": {
     "build": "tree-sitter generate",
     "test": "tree-sitter test",
-    "parse": "tree-sitter parse"
+    "parse": "tree-sitter parse",
+    "typecheck": "tsc --noEmit"
   },
   "tree-sitter": [
     {

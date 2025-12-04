@@ -56,10 +56,10 @@ fn read_file(path: string): string
     return_type: (identifier)
     (ability_clause (identifier))
     body: (block
-      (perform_expression
-        (call_expression
-          (member_expression (identifier) (identifier))
-          (argument_list (identifier)))))))
+      (call_expression
+        (perform_expression
+          (member_expression (identifier) (identifier)))
+        (argument_list (identifier))))))
 
 ================================================================================
 Const definition

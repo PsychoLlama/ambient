@@ -16,8 +16,9 @@ const PREC = {
   ADD: 4,
   MULT: 5,
   UNARY: 6,
-  CALL: 7,
-  MEMBER: 8,
+  PERFORM: 7, // ! operator (lower than call so it wraps the call)
+  CALL: 8,
+  MEMBER: 9,
 };
 
 module.exports = grammar({
@@ -28,10 +29,14 @@ module.exports = grammar({
   word: ($) => $.identifier,
 
   conflicts: ($) => [
-    // Handler literal vs block - both start with `{`
-    [$.handler_literal, $.block],
-    // Record literal vs block
-    [$.record_literal, $.block],
+    // Brace-delimited constructs: {} could be empty block, record, or handler
+    [$.handler_literal, $.record_literal, $.block],
+    // Lambda parameters vs parenthesized expression: (x) could be either
+    [$.lambda_parameter, $._expression],
+    // Handler method starts with identifier, conflicts with expression
+    [$.handler_method, $._expression],
+    // Pattern ambiguities: `x` could be binding or variant pattern
+    [$.variant_pattern, $._pattern],
   ],
 
   rules: {
@@ -170,7 +175,7 @@ module.exports = grammar({
     ability_clause: ($) => seq("with", $._ability_list),
 
     _ability_list: ($) =>
-      seq($._ability_ref, repeat(seq(",", $._ability_ref))),
+      prec.left(seq($._ability_ref, repeat(seq(",", $._ability_ref)))),
 
     _ability_ref: ($) => choice($.identifier, "_"),
 
@@ -187,19 +192,21 @@ module.exports = grammar({
       ),
 
     generic_type: ($) =>
-      seq($.identifier, "<", $._type, repeat(seq(",", $._type)), ">"),
+      seq($.identifier, "<", $._type_list, ">"),
 
     function_type: ($) =>
-      seq(
-        "(",
-        optional($._type_list),
-        ")",
-        "->",
-        $._type,
-        optional($.ability_clause)
+      prec.left(
+        seq(
+          "(",
+          optional($._type_list),
+          ")",
+          "->",
+          $._type,
+          optional($.ability_clause)
+        )
       ),
 
-    tuple_type: ($) => seq("(", $._type, ",", $._type_list, ")"),
+    tuple_type: ($) => seq("(", $._type_list, ")"),
 
     record_type: ($) => seq("{", optional($.record_type_fields), "}"),
 
@@ -286,7 +293,7 @@ module.exports = grammar({
         ")"
       ),
 
-    perform_expression: ($) => prec(PREC.CALL, seq($._expression, "!")),
+    perform_expression: ($) => prec(PREC.PERFORM, seq($._expression, "!")),
 
     member_expression: ($) =>
       prec(PREC.MEMBER, seq($._expression, ".", $.identifier)),
@@ -361,7 +368,7 @@ module.exports = grammar({
     expression_statement: ($) => seq($._expression, ";"),
 
     lambda: ($) =>
-      seq($.lambda_parameters, "=>", choice($.block, $._expression)),
+      prec.right(seq($.lambda_parameters, "=>", $._expression)),
 
     lambda_parameters: ($) =>
       seq(

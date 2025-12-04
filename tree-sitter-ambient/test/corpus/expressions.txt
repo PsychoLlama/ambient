@@ -214,7 +214,7 @@ fn test(): ()
     return_type: (unit_type)
     (ability_clause (identifier))
     body: (block
-      (perform_expression
-        (call_expression
-          (member_expression (identifier) (identifier))
-          (argument_list (string (string_content))))))))
+      (call_expression
+        (perform_expression
+          (member_expression (identifier) (identifier)))
+        (argument_list (string (string_content)))))))
