@@ -926,13 +926,11 @@ fn compile_expr(
                             names.iter().find(|(_, &slot)| {
                                 fc.parent_locals
                                     .as_ref()
-                                    .map(|pl| pl.get(id).copied() == Some(slot))
-                                    .unwrap_or(false)
+                                    .is_some_and(|pl| pl.get(id).copied() == Some(slot))
                             })
                         })
                     })
-                    .map(|(n, _)| Arc::clone(n))
-                    .unwrap_or_else(|| format!("__binding_{id}").into());
+                    .map_or_else(|| format!("__binding_{id}").into(), |(n, _)| Arc::clone(n));
                 let capture_slot = fc.get_or_create_capture(*id, name);
                 fc.builder.emit_load_capture(capture_slot);
             } else {
@@ -1277,13 +1275,12 @@ fn compile_expr(
                 let capture_names = method_fc.get_capture_names_in_order();
                 let captures_info: Vec<(BindingId, Arc<str>)> = capture_names
                     .iter()
-                    .map(|(name, _slot)| {
+                    .map(|(name, slot)| {
                         let id = method_fc
                             .captures
                             .iter()
-                            .find(|(_, &s)| s == *_slot)
-                            .map(|(&id, _)| id)
-                            .unwrap_or(0);
+                            .find(|(_, &s)| s == *slot)
+                            .map_or(0, |(&id, _)| id);
                         (id, Arc::clone(name))
                     })
                     .collect();
@@ -1391,14 +1388,13 @@ fn compile_lambda(
     // Build capture info for debugging/metadata.
     let captures_info: Vec<(BindingId, Arc<str>)> = capture_names
         .iter()
-        .map(|(name, _slot)| {
+        .map(|(name, slot)| {
             // Try to find the binding ID from the captures map, or use 0 as placeholder.
             let id = lambda_fc
                 .captures
                 .iter()
-                .find(|(_, &s)| s == *_slot)
-                .map(|(&id, _)| id)
-                .unwrap_or(0);
+                .find(|(_, &s)| s == *slot)
+                .map_or(0, |(&id, _)| id);
             (id, Arc::clone(name))
         })
         .collect();
