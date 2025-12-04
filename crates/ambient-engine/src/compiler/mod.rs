@@ -336,18 +336,6 @@ impl FunctionCompiler {
         }
     }
 
-    /// Get the list of captured binding IDs in capture slot order.
-    #[allow(dead_code)] // May be useful for debugging
-    fn get_captures_in_order(&self) -> Vec<(BindingId, u16)> {
-        let mut captures: Vec<_> = self
-            .captures
-            .iter()
-            .map(|(&id, &slot)| (id, slot))
-            .collect();
-        captures.sort_by_key(|(_, slot)| *slot);
-        captures
-    }
-
     /// Get the list of captured names in capture slot order.
     fn get_capture_names_in_order(&self) -> Vec<(Arc<str>, u16)> {
         let mut captures: Vec<_> = self
@@ -360,20 +348,11 @@ impl FunctionCompiler {
     }
 }
 
-/// A compiled lambda function with its metadata.
-#[allow(dead_code)] // captures is used for debugging/future use
-struct CompiledLambda {
-    /// The compiled function.
-    function: CompiledFunction,
-    /// Capture info: list of (`binding_id`, name) pairs in capture slot order.
-    captures: Vec<(BindingId, Arc<str>)>,
-}
-
 /// Context for module compilation that accumulates lambda functions.
 struct ModuleContext {
     /// Lambda functions discovered during compilation.
-    /// Maps temporary hash to compiled lambda info.
-    lambdas: Vec<(blake3::Hash, CompiledLambda)>,
+    /// Maps temporary hash to compiled function.
+    lambdas: Vec<(blake3::Hash, CompiledFunction)>,
     /// Counter for generating unique lambda names.
     lambda_counter: u32,
 }
@@ -396,9 +375,9 @@ impl ModuleContext {
     }
 
     /// Register a compiled lambda and return its temporary hash.
-    fn register_lambda(&mut self, lambda: CompiledLambda) -> blake3::Hash {
+    fn register_lambda(&mut self, function: CompiledFunction) -> blake3::Hash {
         let hash = self.next_lambda_hash();
-        self.lambdas.push((hash, lambda));
+        self.lambdas.push((hash, function));
         hash
     }
 }
@@ -455,10 +434,10 @@ pub fn compile_module(module: &Module) -> Result<CompiledModule, CompileError> {
 
     // Add lambda functions discovered during compilation.
     // Generate synthetic names for them in temp_hashes.
-    for (lambda_hash, compiled_lambda) in ctx.lambdas {
+    for (lambda_hash, compiled_func) in ctx.lambdas {
         let lambda_name: Arc<str> = format!("__lambda_{lambda_hash}").into();
         temp_hashes.insert(Arc::clone(&lambda_name), lambda_hash);
-        compiled_functions.push((lambda_name, compiled_lambda.function, false));
+        compiled_functions.push((lambda_name, compiled_func, false));
     }
 
     // Phase 3: Compute content-addressed hashes and finalize the module.
@@ -1335,23 +1314,9 @@ fn compile_expr(
 
                 // Get capture info for the handler method.
                 let capture_names = method_fc.get_capture_names_in_order();
-                let captures_info: Vec<(BindingId, Arc<str>)> = capture_names
-                    .iter()
-                    .map(|(name, slot)| {
-                        let id = method_fc
-                            .captures
-                            .iter()
-                            .find(|(_, &s)| s == *slot)
-                            .map_or(0, |(&id, _)| id);
-                        (id, Arc::clone(name))
-                    })
-                    .collect();
 
                 // Register the handler method function.
-                let final_hash = ctx.register_lambda(CompiledLambda {
-                    function: method_func,
-                    captures: captures_info.clone(),
-                });
+                let final_hash = ctx.register_lambda(method_func);
 
                 // If handler method captures variables, emit code to load them.
                 // This is similar to closure compilation.
@@ -1448,25 +1413,8 @@ fn compile_lambda(
     let capture_names = lambda_fc.get_capture_names_in_order();
     let capture_count = capture_names.len();
 
-    // Build capture info for debugging/metadata.
-    let captures_info: Vec<(BindingId, Arc<str>)> = capture_names
-        .iter()
-        .map(|(name, slot)| {
-            // Try to find the binding ID from the captures map, or use 0 as placeholder.
-            let id = lambda_fc
-                .captures
-                .iter()
-                .find(|(_, &s)| s == *slot)
-                .map_or(0, |(&id, _)| id);
-            (id, Arc::clone(name))
-        })
-        .collect();
-
     // Register the lambda with the module context.
-    let lambda_hash = ctx.register_lambda(CompiledLambda {
-        function: compiled_func,
-        captures: captures_info,
-    });
+    let lambda_hash = ctx.register_lambda(compiled_func);
 
     // Now emit code in the enclosing function to create the closure.
     // Push captured values onto the stack in capture slot order.
@@ -1595,13 +1543,7 @@ fn compile_handle_expr(
         let handler_hash = handler_func.hash;
 
         // Register the handler function.
-        ctx.lambdas.push((
-            handler_hash,
-            CompiledLambda {
-                function: handler_func,
-                captures: Vec::new(), // Handlers don't capture (for now).
-            },
-        ));
+        ctx.lambdas.push((handler_hash, handler_func));
 
         handler_hashes.push(handler_hash);
         handler_ability_ids.push(ability_id);
