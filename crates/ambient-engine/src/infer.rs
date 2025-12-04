@@ -2832,7 +2832,6 @@ mod tests {
 
     #[test]
     fn test_ability_name_to_id() {
-        let infer = Infer::new();
         assert_eq!(Infer::ability_name_to_id("Console"), Some(1));
         assert_eq!(Infer::ability_name_to_id("Exception"), Some(2));
         assert_eq!(Infer::ability_name_to_id("Time"), Some(3));
@@ -3217,8 +3216,6 @@ mod tests {
 
     #[test]
     fn test_infer_ability_from_methods_uniqueness() {
-        let infer = Infer::new();
-
         // "print" exists in Console
         let methods: Vec<Arc<str>> = vec!["print".into()];
         let ability = Infer::infer_ability_from_methods(&methods);
