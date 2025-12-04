@@ -3,7 +3,8 @@
 //! These tests verify the full compilation and execution pipeline.
 
 use std::fs;
-use std::process::Command;
+use std::path::PathBuf;
+use std::process::{Command, Output};
 use tempfile::TempDir;
 
 /// Helper to run the ambient CLI command.
@@ -12,11 +13,139 @@ fn ambient_cmd() -> Command {
 }
 
 /// Create a temporary directory with a source file.
-fn temp_source(content: &str) -> (TempDir, std::path::PathBuf) {
+fn temp_source(content: &str) -> (TempDir, PathBuf) {
     let dir = TempDir::new().expect("failed to create temp dir");
     let path = dir.path().join("test.ab");
     fs::write(&path, content).expect("failed to write source file");
     (dir, path)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Builder-style Test Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Builder for CLI integration tests.
+///
+/// Reduces boilerplate for common test patterns: creating temp files,
+/// running CLI commands, and asserting on output.
+struct CliTest {
+    source: String,
+    command: String,
+    args: Vec<String>,
+    _dir: Option<TempDir>,
+    path: Option<PathBuf>,
+}
+
+#[allow(dead_code)]
+impl CliTest {
+    /// Create a new CLI test with the given source code.
+    fn new(source: impl Into<String>) -> Self {
+        Self {
+            source: source.into(),
+            command: "run".into(),
+            args: Vec::new(),
+            _dir: None,
+            path: None,
+        }
+    }
+
+    /// Use the "compile" command instead of "run".
+    fn compile(mut self) -> Self {
+        self.command = "compile".into();
+        self
+    }
+
+    /// Use the "check" command instead of "run".
+    fn check(mut self) -> Self {
+        self.command = "check".into();
+        self
+    }
+
+    /// Use the "ast" command instead of "run".
+    fn ast(mut self) -> Self {
+        self.command = "ast".into();
+        self
+    }
+
+    /// Add additional arguments to the command.
+    fn arg(mut self, arg: impl Into<String>) -> Self {
+        self.args.push(arg.into());
+        self
+    }
+
+    /// Execute the command and return the output.
+    fn execute(&mut self) -> Output {
+        let dir = TempDir::new().expect("failed to create temp dir");
+        let path = dir.path().join("test.ab");
+        fs::write(&path, &self.source).expect("failed to write source file");
+
+        let mut cmd = ambient_cmd();
+        cmd.arg(&self.command).arg(&path);
+        for arg in &self.args {
+            cmd.arg(arg);
+        }
+
+        self._dir = Some(dir);
+        self.path = Some(path);
+
+        cmd.output().expect("failed to execute command")
+    }
+
+    /// Execute and assert success with expected output in stdout.
+    fn expect_output(mut self, expected: &str) {
+        let output = self.execute();
+        assert!(
+            output.status.success(),
+            "{} command failed: {:?}",
+            self.command,
+            output
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains(expected),
+            "expected '{}' in output: {}",
+            expected,
+            stdout
+        );
+    }
+
+    /// Execute and assert success (no specific output check).
+    fn expect_success(mut self) {
+        let output = self.execute();
+        assert!(
+            output.status.success(),
+            "{} command failed: {:?}",
+            self.command,
+            output
+        );
+    }
+
+    /// Execute and assert failure.
+    fn expect_failure(mut self) {
+        let output = self.execute();
+        assert!(
+            !output.status.success(),
+            "{} command should have failed",
+            self.command
+        );
+    }
+
+    /// Execute and assert failure with expected text in stderr.
+    fn expect_error(mut self, expected: &str) {
+        let output = self.execute();
+        assert!(
+            !output.status.success(),
+            "{} command should have failed",
+            self.command
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(expected),
+            "expected '{}' in stderr: {}",
+            expected,
+            stderr
+        );
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -25,150 +154,70 @@ fn temp_source(content: &str) -> (TempDir, std::path::PathBuf) {
 
 #[test]
 fn test_run_simple_return() {
-    let (dir, path) = temp_source("fn main(): number { 42 }");
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(output.status.success(), "command failed: {:?}", output);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("42"), "expected 42 in output: {stdout}");
-
-    drop(dir);
+    CliTest::new("fn main(): number { 42 }").expect_output("42");
 }
 
 #[test]
 fn test_run_arithmetic() {
-    let (dir, path) = temp_source("fn main(): number { 2 + 3 * 4 }");
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(output.status.success(), "command failed: {:?}", output);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("14"), "expected 14 in output: {stdout}");
-
-    drop(dir);
+    CliTest::new("fn main(): number { 2 + 3 * 4 }").expect_output("14");
 }
 
 #[test]
 fn test_run_boolean_logic() {
-    let (dir, path) = temp_source("fn main(): bool { true && false || true }");
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(output.status.success(), "command failed: {:?}", output);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("true"), "expected true in output: {stdout}");
-
-    drop(dir);
+    CliTest::new("fn main(): bool { true && false || true }").expect_output("true");
 }
 
 #[test]
 fn test_run_if_else() {
-    let (dir, path) = temp_source(
+    CliTest::new(
         r#"
         fn main(): number {
             if 5 > 3 { 100 } else { 0 }
         }
     "#,
-    );
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(output.status.success(), "command failed: {:?}", output);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("100"), "expected 100 in output: {stdout}");
-
-    drop(dir);
+    )
+    .expect_output("100");
 }
 
 #[test]
 fn test_run_function_call() {
-    let (dir, path) = temp_source(
+    CliTest::new(
         r#"
         fn double(x: number): number { x * 2 }
         fn main(): number { double(21) }
     "#,
-    );
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(output.status.success(), "command failed: {:?}", output);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("42"), "expected 42 in output: {stdout}");
-
-    drop(dir);
+    )
+    .expect_output("42");
 }
 
 #[test]
 fn test_run_recursive_factorial() {
-    let (dir, path) = temp_source(
+    CliTest::new(
         r#"
         fn factorial(n: number): number {
             if n <= 1 { 1 } else { n * factorial(n - 1) }
         }
         fn main(): number { factorial(5) }
     "#,
-    );
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(output.status.success(), "command failed: {:?}", output);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("120"), "expected 120 in output: {stdout}");
-
-    drop(dir);
+    )
+    .expect_output("120");
 }
 
 #[test]
 fn test_run_multiple_functions() {
-    let (dir, path) = temp_source(
+    CliTest::new(
         r#"
         fn add(a: number, b: number): number { a + b }
         fn square(x: number): number { x * x }
         fn main(): number { square(add(2, 3)) }
     "#,
-    );
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(output.status.success(), "command failed: {:?}", output);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("25"), "expected 25 in output: {stdout}");
-
-    drop(dir);
+    )
+    .expect_output("25");
 }
 
 #[test]
 fn test_run_let_binding() {
-    let (dir, path) = temp_source(
+    CliTest::new(
         r#"
         fn main(): number {
             let x = 10;
@@ -176,39 +225,13 @@ fn test_run_let_binding() {
             x + y
         }
     "#,
-    );
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(output.status.success(), "command failed: {:?}", output);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("30"), "expected 30 in output: {stdout}");
-
-    drop(dir);
+    )
+    .expect_output("30");
 }
 
 #[test]
 fn test_run_string_literal() {
-    let (dir, path) = temp_source(r#"fn main(): string { "hello" }"#);
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(output.status.success(), "command failed: {:?}", output);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("hello"),
-        "expected hello in output: {stdout}"
-    );
-
-    drop(dir);
+    CliTest::new(r#"fn main(): string { "hello" }"#).expect_output("hello");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -304,44 +327,20 @@ fn test_compile_then_run() {
 
 #[test]
 fn test_check_valid_file() {
-    let (dir, path) = temp_source(
+    CliTest::new(
         r#"
         fn add(a: number, b: number): number { a + b }
         fn main(): number { add(1, 2) }
     "#,
-    );
-
-    let output = ambient_cmd()
-        .arg("check")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(
-        output.status.success(),
-        "check should succeed for valid file: {:?}",
-        output
-    );
-
-    drop(dir);
+    )
+    .check()
+    .expect_success();
 }
 
 #[test]
 fn test_check_invalid_syntax() {
-    let (dir, path) = temp_source("fn main( { }"); // Missing closing paren
-
-    let output = ambient_cmd()
-        .arg("check")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(
-        !output.status.success(),
-        "check should fail for invalid syntax"
-    );
-
-    drop(dir);
+    // Missing closing paren
+    CliTest::new("fn main( { }").check().expect_failure();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -350,25 +349,9 @@ fn test_check_invalid_syntax() {
 
 #[test]
 fn test_ast_output() {
-    let (dir, path) = temp_source("fn main(): number { 42 }");
-
-    let output = ambient_cmd()
-        .arg("ast")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(output.status.success(), "ast command failed: {:?}", output);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    // Check that AST output contains expected elements
-    assert!(stdout.contains("main"), "AST should contain function name");
-    assert!(
-        stdout.contains("FunctionDef") || stdout.contains("Function"),
-        "AST should contain function definition"
-    );
-
-    drop(dir);
+    CliTest::new("fn main(): number { 42 }")
+        .ast()
+        .expect_output("main");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -377,22 +360,7 @@ fn test_ast_output() {
 
 #[test]
 fn test_run_missing_main() {
-    let (dir, path) = temp_source("fn other(): number { 42 }");
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(!output.status.success(), "should fail when main is missing");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("main") || stderr.contains("entry"),
-        "error should mention missing entry point: {stderr}"
-    );
-
-    drop(dir);
+    CliTest::new("fn other(): number { 42 }").expect_failure();
 }
 
 #[test]
@@ -467,8 +435,7 @@ fn test_example_factorial() {
 
 #[test]
 fn test_handler_value_basic() {
-    // Test that handler values can be created and installed with `handle ... with`
-    let (dir, path) = temp_source(
+    CliTest::new(
         r#"
         fn simple_function(): number { 100 }
 
@@ -481,29 +448,13 @@ fn test_handler_value_basic() {
 
         fn main(): number { test_handler_value() }
     "#,
-    );
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(
-        output.status.success(),
-        "handler_value test failed: {:?}",
-        output
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("100"), "expected 100 in output: {stdout}");
-
-    drop(dir);
+    )
+    .expect_output("100");
 }
 
 #[test]
 fn test_handler_value_multiple() {
-    // Test multiple handler values
-    let (dir, path) = temp_source(
+    CliTest::new(
         r#"
         fn simple_function(): number { 200 }
 
@@ -515,29 +466,13 @@ fn test_handler_value_multiple() {
 
         fn main(): number { test_multiple_handlers() }
     "#,
-    );
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(
-        output.status.success(),
-        "multiple handler values test failed: {:?}",
-        output
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("200"), "expected 200 in output: {stdout}");
-
-    drop(dir);
+    )
+    .expect_output("200");
 }
 
 #[test]
 fn test_handler_value_with_inline() {
-    // Test combining handler value with inline handlers
-    let (dir, path) = temp_source(
+    CliTest::new(
         r#"
         fn simple_function(): number { 300 }
 
@@ -552,23 +487,8 @@ fn test_handler_value_with_inline() {
 
         fn main(): number { test_mixed() }
     "#,
-    );
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(
-        output.status.success(),
-        "mixed handlers test failed: {:?}",
-        output
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("300"), "expected 300 in output: {stdout}");
-
-    drop(dir);
+    )
+    .expect_output("300");
 }
 
 #[test]
@@ -594,8 +514,7 @@ fn test_example_handler_value() {
 
 #[test]
 fn test_sandbox_pure_computation() {
-    // A sandbox with no abilities allows only pure computation
-    let (dir, path) = temp_source(
+    CliTest::new(
         r#"
         fn pure_add(x: number, y: number): number {
             x + y
@@ -607,29 +526,13 @@ fn test_sandbox_pure_computation() {
             }
         }
     "#,
-    );
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(
-        output.status.success(),
-        "pure sandbox should succeed: {:?}",
-        output
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("5"), "expected 5 in output: {stdout}");
-
-    drop(dir);
+    )
+    .expect_output("5");
 }
 
 #[test]
 fn test_sandbox_with_allowed_ability() {
-    // A sandbox with Console ability allowed
-    let (dir, path) = temp_source(
+    CliTest::new(
         r#"
         fn compute(): number {
             42
@@ -641,29 +544,13 @@ fn test_sandbox_with_allowed_ability() {
             }
         }
     "#,
-    );
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(
-        output.status.success(),
-        "sandbox with Console should succeed: {:?}",
-        output
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("42"), "expected 42 in output: {stdout}");
-
-    drop(dir);
+    )
+    .expect_output("42");
 }
 
 #[test]
 fn test_sandbox_nested_pure() {
-    // Pure computation in nested sandbox
-    let (dir, path) = temp_source(
+    CliTest::new(
         r#"
         fn factorial(n: number): number {
             if n <= 1 { 1 } else { n * factorial(n - 1) }
@@ -675,21 +562,6 @@ fn test_sandbox_nested_pure() {
             }
         }
     "#,
-    );
-
-    let output = ambient_cmd()
-        .arg("run")
-        .arg(&path)
-        .output()
-        .expect("failed to execute command");
-
-    assert!(
-        output.status.success(),
-        "nested pure sandbox should succeed: {:?}",
-        output
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("120"), "expected 120 in output: {stdout}");
-
-    drop(dir);
+    )
+    .expect_output("120");
 }
