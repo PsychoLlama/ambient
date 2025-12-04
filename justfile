@@ -1,11 +1,50 @@
+# Default: list available commands
 _:
   just --list
 
-build:
-  cargo build --release --workspace
+# Check code formatting
+format-check:
+  cargo fmt --all -- --check
 
-test:
-  cargo test --workspace
+# Apply code formatting
+format:
+  cargo fmt --all
 
+# Run clippy lints
 lint:
   cargo clippy --workspace
+
+# Build all crates (debug)
+build:
+  cargo build --workspace
+
+# Build all crates (release)
+build-release:
+  cargo build --workspace --release
+
+# Run unit tests
+unit-test:
+  cargo test --workspace
+
+# Run all checks (format, lint, build, test) - continues on failure, exits non-zero if any failed
+test:
+  #!/usr/bin/env bash
+  failed=0
+  echo "=== Format Check ==="
+  just format-check || failed=1
+  echo ""
+  echo "=== Lint ==="
+  just lint || failed=1
+  echo ""
+  echo "=== Build ==="
+  just build || failed=1
+  echo ""
+  echo "=== Unit Tests ==="
+  just unit-test || failed=1
+  echo ""
+  if [ $failed -eq 1 ]; then
+    echo "=== SOME CHECKS FAILED ==="
+    exit 1
+  else
+    echo "=== ALL CHECKS PASSED ==="
+  fi

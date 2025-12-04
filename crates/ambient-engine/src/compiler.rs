@@ -451,6 +451,7 @@ pub fn compile_module(module: &Module) -> Result<CompiledModule, CompileError> {
 /// This handles:
 /// 1. Non-recursive functions: compute hash from bytecode content
 /// 2. Recursive functions (SCCs): compute group hash for mutual recursion
+#[allow(clippy::too_many_lines)]
 fn finalize_module_hashes(
     compiled_functions: Vec<(Arc<str>, CompiledFunction, bool)>,
     temp_hashes: &HashMap<Arc<str>, blake3::Hash>,

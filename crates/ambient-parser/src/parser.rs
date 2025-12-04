@@ -1119,6 +1119,7 @@ impl<'src> Parser<'src> {
         Ok(expr)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn parse_primary_expr(&mut self) -> Result<CstExpr, ParseError> {
         let start = self.current().span.start;
 
