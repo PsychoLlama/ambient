@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::bytecode::Opcode;
 use crate::value::{CapturedFrame, Value};
 
-use super::core::{CallFrame, HandlerFrame, HandlerKind, Vm};
+use super::core::{CallFrame, HandlerFrame, HandlerKind, ReturnAction, Vm};
 use super::error::VmError;
 
 impl Vm {
@@ -141,13 +141,21 @@ impl Vm {
                     // Pop locals and arguments from stack
                     self.stack.truncate(frame.bp);
 
+                    // Apply return action to transform the result
+                    let final_result = match frame.return_action {
+                        ReturnAction::None | ReturnAction::PassThrough => result,
+                        ReturnAction::WrapSome => Value::some(result),
+                        ReturnAction::WrapOk => Value::ok(result),
+                        ReturnAction::WrapErr => Value::err(result),
+                    };
+
                     if self.frames.is_empty() {
                         // Returning from top-level function
-                        return Ok(result);
+                        return Ok(final_result);
                     }
 
                     // Push result for caller
-                    self.stack.push(result);
+                    self.stack.push(final_result);
                 }
 
                 Opcode::MakeTuple => {
@@ -409,6 +417,7 @@ impl Vm {
                             ip: captured.ip,
                             bp: captured.bp,
                             captures: Vec::new(), // Continuations don't preserve closure captures
+                            return_action: ReturnAction::None, // Restored frames have no special action
                         });
                     }
 
@@ -1285,21 +1294,250 @@ impl Vm {
                     }
                 }
 
-                Opcode::OptionMap
-                | Opcode::OptionAndThen
-                | Opcode::ResultMap
-                | Opcode::ResultMapErr
-                | Opcode::ResultAndThen => {
-                    // These operations require calling closures and wrapping results.
-                    // They need special VM support (continuation frames) to properly
-                    // handle the closure return and wrap it in the appropriate enum.
-                    // For now, return an error indicating these are not yet implemented.
-                    //
-                    // TODO: Implement using continuation frames or trampolining.
-                    return Err(VmError::Unsupported {
-                        operation:
-                            "map/and_then operations require closure calls (not yet implemented)",
-                    });
+                Opcode::OptionMap => {
+                    // Stack: [option, closure] -> [mapped_option]
+                    // If Some(x), call f(x) and wrap result in Some
+                    // If None, return None
+                    let closure = match self.pop()? {
+                        Value::Closure(c) => c,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "closure",
+                                got: other.type_name(),
+                                operation: "option_map",
+                            })
+                        }
+                    };
+                    let option = self.pop()?;
+
+                    match option {
+                        Value::Enum(e) if &*e.type_name == "Option" => {
+                            if e.tag == 1 {
+                                // Some(x) - call f(x) and wrap in Some
+                                if let Some(payload) = e.payload.as_deref() {
+                                    // Push the argument and call closure with WrapSome action
+                                    self.stack.push(payload.clone());
+                                    self.push_frame_with_return_action(
+                                        &closure.function_hash,
+                                        1,
+                                        closure.environment.clone(),
+                                        ReturnAction::WrapSome,
+                                    )?;
+                                } else {
+                                    return Err(VmError::EnumPayloadMissing {
+                                        type_name: "Option".to_string(),
+                                        variant_name: "Some".to_string(),
+                                    });
+                                }
+                            } else {
+                                // None - return None
+                                self.stack.push(Value::none());
+                            }
+                        }
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "Option",
+                                got: other.type_name(),
+                                operation: "option_map",
+                            })
+                        }
+                    }
+                }
+
+                Opcode::OptionAndThen => {
+                    // Stack: [option, closure] -> [resulting_option]
+                    // If Some(x), call f(x) which returns Option<U>, pass through
+                    // If None, return None
+                    let closure = match self.pop()? {
+                        Value::Closure(c) => c,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "closure",
+                                got: other.type_name(),
+                                operation: "option_and_then",
+                            })
+                        }
+                    };
+                    let option = self.pop()?;
+
+                    match option {
+                        Value::Enum(e) if &*e.type_name == "Option" => {
+                            if e.tag == 1 {
+                                // Some(x) - call f(x), result is already Option<U>
+                                if let Some(payload) = e.payload.as_deref() {
+                                    self.stack.push(payload.clone());
+                                    self.push_frame_with_return_action(
+                                        &closure.function_hash,
+                                        1,
+                                        closure.environment.clone(),
+                                        ReturnAction::PassThrough,
+                                    )?;
+                                } else {
+                                    return Err(VmError::EnumPayloadMissing {
+                                        type_name: "Option".to_string(),
+                                        variant_name: "Some".to_string(),
+                                    });
+                                }
+                            } else {
+                                // None - return None
+                                self.stack.push(Value::none());
+                            }
+                        }
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "Option",
+                                got: other.type_name(),
+                                operation: "option_and_then",
+                            })
+                        }
+                    }
+                }
+
+                Opcode::ResultMap => {
+                    // Stack: [result, closure] -> [mapped_result]
+                    // If Ok(x), call f(x) and wrap in Ok
+                    // If Err(e), return Err(e)
+                    let closure = match self.pop()? {
+                        Value::Closure(c) => c,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "closure",
+                                got: other.type_name(),
+                                operation: "result_map",
+                            })
+                        }
+                    };
+                    let result_val = self.pop()?;
+
+                    match result_val {
+                        Value::Enum(e) if &*e.type_name == "Result" => {
+                            if e.tag == 0 {
+                                // Ok(x) - call f(x) and wrap in Ok
+                                if let Some(payload) = e.payload.as_deref() {
+                                    self.stack.push(payload.clone());
+                                    self.push_frame_with_return_action(
+                                        &closure.function_hash,
+                                        1,
+                                        closure.environment.clone(),
+                                        ReturnAction::WrapOk,
+                                    )?;
+                                } else {
+                                    return Err(VmError::EnumPayloadMissing {
+                                        type_name: "Result".to_string(),
+                                        variant_name: "Ok".to_string(),
+                                    });
+                                }
+                            } else {
+                                // Err(e) - return Err(e) unchanged
+                                self.stack.push(Value::Enum(e));
+                            }
+                        }
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "Result",
+                                got: other.type_name(),
+                                operation: "result_map",
+                            })
+                        }
+                    }
+                }
+
+                Opcode::ResultMapErr => {
+                    // Stack: [result, closure] -> [mapped_result]
+                    // If Ok(x), return Ok(x)
+                    // If Err(e), call f(e) and wrap in Err
+                    let closure = match self.pop()? {
+                        Value::Closure(c) => c,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "closure",
+                                got: other.type_name(),
+                                operation: "result_map_err",
+                            })
+                        }
+                    };
+                    let result_val = self.pop()?;
+
+                    match result_val {
+                        Value::Enum(e) if &*e.type_name == "Result" => {
+                            if e.tag == 1 {
+                                // Err(e) - call f(e) and wrap in Err
+                                if let Some(payload) = e.payload.as_deref() {
+                                    self.stack.push(payload.clone());
+                                    self.push_frame_with_return_action(
+                                        &closure.function_hash,
+                                        1,
+                                        closure.environment.clone(),
+                                        ReturnAction::WrapErr,
+                                    )?;
+                                } else {
+                                    return Err(VmError::EnumPayloadMissing {
+                                        type_name: "Result".to_string(),
+                                        variant_name: "Err".to_string(),
+                                    });
+                                }
+                            } else {
+                                // Ok(x) - return Ok(x) unchanged
+                                self.stack.push(Value::Enum(e));
+                            }
+                        }
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "Result",
+                                got: other.type_name(),
+                                operation: "result_map_err",
+                            })
+                        }
+                    }
+                }
+
+                Opcode::ResultAndThen => {
+                    // Stack: [result, closure] -> [resulting_result]
+                    // If Ok(x), call f(x) which returns Result<U, E>, pass through
+                    // If Err(e), return Err(e)
+                    let closure = match self.pop()? {
+                        Value::Closure(c) => c,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "closure",
+                                got: other.type_name(),
+                                operation: "result_and_then",
+                            })
+                        }
+                    };
+                    let result_val = self.pop()?;
+
+                    match result_val {
+                        Value::Enum(e) if &*e.type_name == "Result" => {
+                            if e.tag == 0 {
+                                // Ok(x) - call f(x), result is already Result<U, E>
+                                if let Some(payload) = e.payload.as_deref() {
+                                    self.stack.push(payload.clone());
+                                    self.push_frame_with_return_action(
+                                        &closure.function_hash,
+                                        1,
+                                        closure.environment.clone(),
+                                        ReturnAction::PassThrough,
+                                    )?;
+                                } else {
+                                    return Err(VmError::EnumPayloadMissing {
+                                        type_name: "Result".to_string(),
+                                        variant_name: "Ok".to_string(),
+                                    });
+                                }
+                            } else {
+                                // Err(e) - return Err(e) unchanged
+                                self.stack.push(Value::Enum(e));
+                            }
+                        }
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "Result",
+                                got: other.type_name(),
+                                operation: "result_and_then",
+                            })
+                        }
+                    }
                 }
             }
         }

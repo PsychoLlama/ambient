@@ -59,4 +59,21 @@ pub enum Command {
     /// This command starts an LSP server that communicates via stdin/stdout.
     /// It is typically invoked by an editor or IDE, not run manually.
     Lsp,
+
+    /// Run an Ambient program with hot reload.
+    ///
+    /// Watches for file changes and automatically recompiles and restarts.
+    Dev {
+        /// The source file to run (.ab).
+        #[arg(value_name = "FILE")]
+        file: PathBuf,
+
+        /// Function to execute (defaults to "main").
+        #[arg(long, default_value = "main")]
+        entry: String,
+
+        /// Directories to watch for changes (defaults to file's directory).
+        #[arg(long, value_name = "DIR")]
+        watch: Option<Vec<PathBuf>>,
+    },
 }

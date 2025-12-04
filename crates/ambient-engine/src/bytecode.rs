@@ -14,6 +14,118 @@ use std::sync::Arc;
 
 use crate::value::Value;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Debug Information
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Debug information for a compiled function.
+///
+/// This allows mapping bytecode locations back to source code for
+/// error messages and stack traces.
+#[derive(Debug, Clone, Default)]
+pub struct DebugInfo {
+    /// Path to the source file (if available).
+    pub source_file: Option<String>,
+
+    /// Name of the function (for display in stack traces).
+    pub function_name: Option<String>,
+
+    /// Maps bytecode offsets to source spans.
+    ///
+    /// Each entry maps a bytecode byte offset to a source span.
+    /// The spans refer to byte offsets in the source file.
+    pub source_map: Vec<SourceMapping>,
+
+    /// Maps local variable slots to their names.
+    ///
+    /// This helps with debugging output by showing meaningful variable names.
+    pub local_names: HashMap<u16, String>,
+}
+
+/// A single mapping from bytecode offset to source location.
+#[derive(Debug, Clone)]
+pub struct SourceMapping {
+    /// Byte offset in the bytecode.
+    pub bytecode_offset: usize,
+
+    /// Start byte offset in the source file.
+    pub source_start: usize,
+
+    /// End byte offset in the source file.
+    pub source_end: usize,
+
+    /// Line number (1-indexed) in the source file.
+    pub line: u32,
+
+    /// Column number (1-indexed) in the source file.
+    pub column: u32,
+}
+
+impl DebugInfo {
+    /// Create empty debug info.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create debug info with a source file and function name.
+    #[must_use]
+    pub fn with_source(source_file: impl Into<String>, function_name: impl Into<String>) -> Self {
+        Self {
+            source_file: Some(source_file.into()),
+            function_name: Some(function_name.into()),
+            ..Self::default()
+        }
+    }
+
+    /// Add a source mapping.
+    pub fn add_mapping(
+        &mut self,
+        bytecode_offset: usize,
+        source_start: usize,
+        source_end: usize,
+        line: u32,
+        column: u32,
+    ) {
+        self.source_map.push(SourceMapping {
+            bytecode_offset,
+            source_start,
+            source_end,
+            line,
+            column,
+        });
+    }
+
+    /// Add a local variable name mapping.
+    pub fn add_local_name(&mut self, slot: u16, name: impl Into<String>) {
+        self.local_names.insert(slot, name.into());
+    }
+
+    /// Find the source location for a bytecode offset.
+    ///
+    /// Returns the mapping with the highest bytecode offset that is <= the given offset.
+    #[must_use]
+    pub fn find_source_location(&self, bytecode_offset: usize) -> Option<&SourceMapping> {
+        // Binary search for the largest offset <= bytecode_offset
+        // Since mappings are added in order, we can search efficiently
+        let mut result: Option<&SourceMapping> = None;
+        for mapping in &self.source_map {
+            if mapping.bytecode_offset <= bytecode_offset {
+                result = Some(mapping);
+            } else {
+                break;
+            }
+        }
+        result
+    }
+
+    /// Get the name of a local variable, if known.
+    #[must_use]
+    pub fn get_local_name(&self, slot: u16) -> Option<&str> {
+        self.local_names.get(&slot).map(String::as_str)
+    }
+}
+
 /// Bytecode opcodes for the Ambient VM.
 ///
 /// Instructions are encoded as a single byte opcode followed by operands specific
@@ -671,6 +783,13 @@ pub struct CompiledFunction {
 
     /// Hashes of functions this one calls (dependencies).
     pub dependencies: Vec<blake3::Hash>,
+
+    /// Debug information for error messages and stack traces.
+    ///
+    /// This is optional and only generated when debug info is requested.
+    /// It does NOT affect the function's content hash, so functions with
+    /// and without debug info are considered equivalent.
+    pub debug_info: Option<DebugInfo>,
 }
 
 impl CompiledFunction {
@@ -709,7 +828,45 @@ impl CompiledFunction {
             local_count,
             param_count,
             dependencies,
+            debug_info: None,
         }
+    }
+
+    /// Create a new compiled function with debug information.
+    #[must_use]
+    pub fn with_debug_info(
+        bytecode: Vec<u8>,
+        constants: Vec<Value>,
+        local_count: u16,
+        param_count: u8,
+        dependencies: Vec<blake3::Hash>,
+        debug_info: DebugInfo,
+    ) -> Self {
+        let hash = Self::compute_hash(
+            &bytecode,
+            &constants,
+            local_count,
+            param_count,
+            &dependencies,
+        );
+        Self {
+            hash,
+            bytecode,
+            constants,
+            local_count,
+            param_count,
+            dependencies,
+            debug_info: Some(debug_info),
+        }
+    }
+
+    /// Attach debug information to this function.
+    ///
+    /// This creates a new function with the same hash but with debug info attached.
+    #[must_use]
+    pub fn attach_debug_info(mut self, debug_info: DebugInfo) -> Self {
+        self.debug_info = Some(debug_info);
+        self
     }
 
     /// Compute the content hash for this function.
@@ -1485,6 +1642,24 @@ impl BytecodeBuilder {
             local_count,
             param_count,
             dependencies,
+        )
+    }
+
+    /// Build the final compiled function with debug information.
+    #[must_use]
+    pub fn build_with_debug_info(
+        self,
+        local_count: u16,
+        param_count: u8,
+        debug_info: DebugInfo,
+    ) -> CompiledFunction {
+        CompiledFunction::with_debug_info(
+            self.code,
+            self.constants,
+            local_count,
+            param_count,
+            self.dependencies,
+            debug_info,
         )
     }
 

@@ -1201,11 +1201,19 @@ sandbox with Log {
 - [x] Result type (`Type::result()`, convenience constructors `Value::ok()`, `Value::err()`)
 - [x] Pattern matching compilation for enum variants (`PatternKind::Variant`)
 - [x] `Option.unwrap_or` utility function (`OptionUnwrapOr` opcode)
-- [ ] Option/Result utility functions requiring closures (map, and_then - need continuation frames)
+- [x] Option/Result utility functions with closures (`OptionMap`, `OptionAndThen`, `ResultMap`, `ResultMapErr`, `ResultAndThen`)
 
 **Test case**: Write useful programs using standard library.
 
 **Implementation notes**: The standard library is implemented as bytecode opcodes for performance-critical operations (lists, strings, type conversion, enums) and as host-provided ability handlers for I/O operations (Time, Random, Log). The `register_all_standard_abilities()` function registers Console, Exception (fallback), Time, Random, and Log abilities on a VM.
+
+The Option/Result map operations are implemented using "return actions" on call frames:
+- `ReturnAction::WrapSome` - wraps closure result in `Some`
+- `ReturnAction::WrapOk` - wraps closure result in `Ok`
+- `ReturnAction::WrapErr` - wraps closure result in `Err`
+- `ReturnAction::PassThrough` - returns closure result as-is (for `and_then`)
+
+When the VM returns from a closure call, it checks the frame's return action and applies the appropriate transformation. This enables efficient closure-based operations without additional bytecode or explicit continuation capture.
 
 Enum support enables algebraic data types like Option and Result:
 - `EnumValue` stores type name, variant tag, variant name, and optional payload
@@ -1238,8 +1246,8 @@ The compiler handles proper stack cleanup on both match and fail paths to ensure
 
 - [x] REPL with ability handlers
 - [x] Error messages with source context
-- [ ] Debug info generation (source maps)
-- [ ] `ambient dev` with hot reload
+- [x] Debug info generation (source maps) - infrastructure added
+- [x] `ambient dev` with hot reload
 - [x] Basic LSP server (hover, go-to-definition, diagnostics, completions)
 
 **Test case**: Interactive development workflow.
@@ -1264,6 +1272,22 @@ The LSP server (`ambient-lsp` crate) provides IDE support:
 - Go-to-definition: Navigation to function and variable definitions
 - Completions: Auto-completion for keywords, types, abilities, functions, and local variables
 - Full document sync for real-time analysis
+
+Debug info generation (`ambient-engine/src/bytecode.rs` and `compiler/mod.rs`):
+- `DebugInfo` struct stores source file path, function name, source mappings, and local names
+- `SourceMapping` maps bytecode offsets to source spans with line/column info
+- `CompiledFunction.debug_info` optionally holds debug info
+- `FunctionCompiler.record_span()` records source locations during compilation
+- `FunctionCompiler.record_local_name()` tracks variable names for debug output
+- `compile_module_with_source()` enables debug info generation with source context
+
+Hot reload (`ambient dev`) provides a development server that:
+- Watches `.ab` files for changes using the `notify` crate
+- Automatically recompiles and re-executes on file changes
+- Shows compile time and runtime metrics after each iteration
+- Supports custom watch directories via `--watch` flag
+- Debounces rapid changes to avoid multiple recompiles
+- Displays colorized output for better visibility
 
 ---
 

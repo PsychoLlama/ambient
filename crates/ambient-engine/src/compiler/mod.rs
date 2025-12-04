@@ -75,7 +75,7 @@ use crate::ast::{
     BinaryOp, BindingId, ConstDef, Expr, ExprKind, FunctionDef, ItemKind, LetBinding, Literal,
     MatchArm, Module, Pattern, PatternKind, Stmt, StmtKind, UnaryOp,
 };
-use crate::bytecode::{BytecodeBuilder, CompiledFunction, Opcode};
+use crate::bytecode::{BytecodeBuilder, CompiledFunction, DebugInfo, Opcode};
 use crate::value::Value;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -91,6 +91,27 @@ const HANDLER_PARAM_SUSPENDED_ABILITY: &str = "__suspended_ability";
 /// Helper to convert `Arc<str>` to `Value::String` (which uses `Arc<String>`).
 fn str_to_value(s: &Arc<str>) -> Value {
     Value::String(Arc::new(s.to_string()))
+}
+
+/// Convert a span to (line, column) numbers.
+///
+/// Line and column are 1-indexed.
+fn span_to_line_col(source: &str, span: crate::ast::Span) -> (u32, u32) {
+    let offset = span.start as usize;
+    let mut line = 1u32;
+    let mut col = 1u32;
+    for (i, c) in source.char_indices() {
+        if i >= offset {
+            break;
+        }
+        if c == '\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
+    }
+    (line, col)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -255,6 +276,9 @@ struct FunctionCompiler {
 
     /// Parent's local names - for name-based lookups during closure compilation.
     parent_local_names: Option<HashMap<Arc<str>, u16>>,
+
+    /// Debug information being built.
+    debug_info: DebugInfo,
 }
 
 impl FunctionCompiler {
@@ -270,6 +294,30 @@ impl FunctionCompiler {
             capture_names: HashMap::new(),
             parent_locals: None,
             parent_local_names: None,
+            debug_info: DebugInfo::new(),
+        }
+    }
+
+    /// Create a new function compiler with debug info source context.
+    fn new_with_source(
+        function_hashes: HashMap<Arc<str>, blake3::Hash>,
+        source_file: Option<String>,
+        function_name: Option<String>,
+    ) -> Self {
+        let mut debug_info = DebugInfo::new();
+        debug_info.source_file = source_file;
+        debug_info.function_name = function_name;
+        Self {
+            builder: BytecodeBuilder::new(),
+            locals: HashMap::new(),
+            local_names: HashMap::new(),
+            next_local: 0,
+            function_hashes,
+            captures: HashMap::new(),
+            capture_names: HashMap::new(),
+            parent_locals: None,
+            parent_local_names: None,
+            debug_info,
         }
     }
 
@@ -289,14 +337,61 @@ impl FunctionCompiler {
             capture_names: HashMap::new(),
             parent_locals: Some(parent_locals),
             parent_local_names: Some(parent_local_names),
+            debug_info: DebugInfo::new(),
         }
+    }
+
+    /// Record a source mapping for the current bytecode position.
+    ///
+    /// This associates the current bytecode offset with the given source span.
+    /// Line and column are set to 0 initially; they can be computed later when
+    /// the source code is available.
+    fn record_span(&mut self, span: crate::ast::Span) {
+        let bytecode_offset = self.builder.bytecode().len();
+        self.debug_info.add_mapping(
+            bytecode_offset,
+            span.start as usize,
+            span.end as usize,
+            0, // Line will be computed later if source is provided
+            0, // Column will be computed later if source is provided
+        );
+    }
+
+    /// Record a local variable name for debug output.
+    fn record_local_name(&mut self, slot: u16, name: &str) {
+        self.debug_info.add_local_name(slot, name);
+    }
+
+    /// Finalize debug info with source context.
+    ///
+    /// This computes line and column numbers from the stored spans.
+    fn finalize_debug_info(
+        mut self,
+        source: Option<&str>,
+        source_file: Option<&str>,
+        function_name: &str,
+    ) -> (BytecodeBuilder, u16, DebugInfo) {
+        self.debug_info.function_name = Some(function_name.to_string());
+        self.debug_info.source_file = source_file.map(String::from);
+
+        // Compute line/column numbers if source is available
+        if let Some(src) = source {
+            for mapping in &mut self.debug_info.source_map {
+                let (line, col) =
+                    span_to_line_col(src, crate::ast::Span::new(mapping.source_start as u32, mapping.source_end as u32));
+                mapping.line = line;
+                mapping.column = col;
+            }
+        }
+
+        (self.builder, self.next_local, self.debug_info)
     }
 
     /// Allocate a local slot for a binding with a name.
     fn alloc_local_with_name(
         &mut self,
         id: BindingId,
-        name: Arc<str>,
+        name: &Arc<str>,
     ) -> Result<u16, CompileError> {
         if self.next_local == u16::MAX {
             return Err(CompileError::new(
@@ -309,7 +404,9 @@ impl FunctionCompiler {
         let slot = self.next_local;
         self.next_local += 1;
         self.locals.insert(id, slot);
-        self.local_names.insert(name, slot);
+        self.local_names.insert(Arc::clone(name), slot);
+        // Record the name for debug info
+        self.record_local_name(slot, name);
         Ok(slot)
     }
 
@@ -424,6 +521,37 @@ impl ModuleContext {
 ///
 /// Returns a `CompileError` if compilation fails.
 pub fn compile_module(module: &Module) -> Result<CompiledModule, CompileError> {
+    compile_module_impl(module, None, None)
+}
+
+/// Compile a module to bytecode with debug information.
+///
+/// When `source` and `source_file` are provided, the compiled functions will
+/// include debug info mapping bytecode offsets to source locations.
+///
+/// # Arguments
+///
+/// * `module` - The module to compile
+/// * `source` - The original source code (for computing line/column info)
+/// * `source_file` - The path to the source file (for display in stack traces)
+///
+/// # Errors
+///
+/// Returns a `CompileError` if compilation fails.
+pub fn compile_module_with_source(
+    module: &Module,
+    source: &str,
+    source_file: &str,
+) -> Result<CompiledModule, CompileError> {
+    compile_module_impl(module, Some(source), Some(source_file))
+}
+
+/// Implementation of module compilation with optional debug info.
+fn compile_module_impl(
+    module: &Module,
+    source: Option<&str>,
+    source_file: Option<&str>,
+) -> Result<CompiledModule, CompileError> {
     // Collect function definitions.
     let functions: Vec<&FunctionDef> = module
         .items
@@ -919,7 +1047,7 @@ fn compile_function_with_hash(
 
     // Allocate slots for parameters (with names for lookup).
     for param in &func.params {
-        fc.alloc_local_with_name(param.id, Arc::clone(&param.name))?;
+        fc.alloc_local_with_name(param.id, &param.name)?;
     }
 
     // Compile the function body.
@@ -945,6 +1073,7 @@ fn compile_function_with_hash(
         local_count: fc.next_local,
         param_count,
         dependencies,
+        debug_info: None, // TODO: Generate debug info from source spans
     })
 }
 
@@ -976,6 +1105,9 @@ fn compile_expr(
     expr: &Expr,
     ctx: &mut ModuleContext,
 ) -> Result<(), CompileError> {
+    // Record source location for debugging
+    fc.record_span(expr.span);
+
     match &expr.kind {
         // ─────────────────────────────────────────────────────────────────────
         // Literals
@@ -1322,13 +1454,13 @@ fn compile_expr(
 
                 // Allocate implicit slots for continuation and suspended ability.
                 let _continuation_slot =
-                    method_fc.alloc_local_with_name(0, Arc::from(HANDLER_PARAM_CONTINUATION))?;
+                    method_fc.alloc_local_with_name(0, &Arc::from(HANDLER_PARAM_CONTINUATION))?;
                 let _ability_slot = method_fc
-                    .alloc_local_with_name(0, Arc::from(HANDLER_PARAM_SUSPENDED_ABILITY))?;
+                    .alloc_local_with_name(0, &Arc::from(HANDLER_PARAM_SUSPENDED_ABILITY))?;
 
                 // Extract ability arguments and store to param slots.
                 for (i, param) in method.params.iter().enumerate() {
-                    method_fc.alloc_local_with_name(param.id, Arc::clone(&param.name))?;
+                    method_fc.alloc_local_with_name(param.id, &param.name)?;
 
                     // Load suspended ability from slot 1.
                     method_fc.builder.emit_u16(Opcode::LoadLocal, 1);
@@ -1361,6 +1493,7 @@ fn compile_expr(
                     local_count,
                     param_count,
                     dependencies,
+                    debug_info: None,
                 };
 
                 // Get capture info for the handler method.
@@ -1432,7 +1565,7 @@ fn compile_lambda(
 
     // Allocate slots for lambda parameters.
     for param in &lambda.params {
-        lambda_fc.alloc_local_with_name(param.id, Arc::clone(&param.name))?;
+        lambda_fc.alloc_local_with_name(param.id, &param.name)?;
     }
 
     // Compile the lambda body.
@@ -1458,6 +1591,7 @@ fn compile_lambda(
         local_count,
         param_count,
         dependencies,
+        debug_info: None,
     };
 
     // Get the captures in order (by name, since that's how ExprKind::Name captures work).
@@ -1555,9 +1689,9 @@ fn compile_handle_expr(
 
         // Allocate implicit slots for continuation and suspended ability.
         let _continuation_slot =
-            handler_fc.alloc_local_with_name(0, Arc::from(HANDLER_PARAM_CONTINUATION))?;
+            handler_fc.alloc_local_with_name(0, &Arc::from(HANDLER_PARAM_CONTINUATION))?;
         let _ability_slot =
-            handler_fc.alloc_local_with_name(0, Arc::from(HANDLER_PARAM_SUSPENDED_ABILITY))?;
+            handler_fc.alloc_local_with_name(0, &Arc::from(HANDLER_PARAM_SUSPENDED_ABILITY))?;
 
         // At the start of the handler, extract ability arguments and store to param slots.
         // For each param, we need to:
@@ -1566,7 +1700,7 @@ fn compile_handle_expr(
         // 3. Store to the param's slot
         for (i, param) in handler.params.iter().enumerate() {
             // Allocate slot for this param.
-            handler_fc.alloc_local_with_name(param.id, Arc::clone(&param.name))?;
+            handler_fc.alloc_local_with_name(param.id, &param.name)?;
 
             // Load suspended ability from slot 1.
             handler_fc.builder.emit_u16(Opcode::LoadLocal, 1);
@@ -1823,7 +1957,7 @@ fn compile_let(
     compile_expr(fc, &binding.init, ctx)?;
 
     // Allocate a local slot and store the value.
-    let slot = fc.alloc_local_with_name(binding.id, Arc::clone(&binding.name))?;
+    let slot = fc.alloc_local_with_name(binding.id, &binding.name)?;
     fc.builder.emit_u16(Opcode::StoreLocal, slot);
 
     Ok(())
@@ -1928,7 +2062,7 @@ fn compile_pattern_match(
 
         PatternKind::Binding(id, name) => {
             // Binding always matches, store in local.
-            let slot = fc.alloc_local_with_name(*id, Arc::clone(name))?;
+            let slot = fc.alloc_local_with_name(*id, name)?;
             fc.builder.emit_u16(Opcode::StoreLocal, slot);
             if !is_last {
                 // Consume the duplicated scrutinee.

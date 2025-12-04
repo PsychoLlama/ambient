@@ -8,6 +8,30 @@ use crate::value::{SuspendedAbility, Value};
 
 use super::error::VmError;
 
+/// Action to perform when a call frame returns.
+///
+/// This enables "continuation frames" for operations like `Option.map` that need
+/// to call a closure and then wrap the result in an enum.
+#[derive(Debug, Clone, Default)]
+pub(super) enum ReturnAction {
+    /// Normal return - just push the result onto the caller's stack.
+    #[default]
+    None,
+
+    /// Wrap the result in `Some(result)` for `Option.map`.
+    WrapSome,
+
+    /// For `Option.and_then` - the closure returns `Option<U>`, pass through as-is.
+    /// This is essentially the same as `None` but documents intent.
+    PassThrough,
+
+    /// Wrap the result in `Ok(result)` for `Result.map`.
+    WrapOk,
+
+    /// Wrap the result in `Err(result)` for `Result.map_err`.
+    WrapErr,
+}
+
 /// A single stack frame representing an active function call.
 #[derive(Debug, Clone)]
 pub(super) struct CallFrame {
@@ -23,6 +47,10 @@ pub(super) struct CallFrame {
     /// Captured environment for closures.
     /// Empty for regular function calls, contains captured values for closure calls.
     pub captures: Vec<Value>,
+
+    /// Action to perform when this frame returns.
+    /// Used by operations like `Option.map` that call a closure and wrap the result.
+    pub return_action: ReturnAction,
 }
 
 /// The kind of handler installed in a handler frame.
@@ -180,6 +208,55 @@ impl Vm {
             ip: 0,
             bp,
             captures,
+            return_action: ReturnAction::None,
+        });
+
+        Ok(())
+    }
+
+    /// Push a new call frame for a closure call with a return action.
+    ///
+    /// The return action specifies what to do with the closure's return value,
+    /// e.g., wrap it in `Some` for `Option.map`.
+    pub(super) fn push_frame_with_return_action(
+        &mut self,
+        hash: &blake3::Hash,
+        arg_count: u8,
+        captures: Vec<Value>,
+        return_action: ReturnAction,
+    ) -> Result<(), VmError> {
+        if self.frames.len() >= self.max_call_depth {
+            return Err(VmError::StackOverflow);
+        }
+
+        let function = self
+            .functions
+            .get(hash)
+            .ok_or(VmError::UnknownFunction(*hash))?
+            .clone();
+
+        if arg_count != function.param_count {
+            return Err(VmError::ArityMismatch {
+                expected: function.param_count,
+                got: arg_count,
+            });
+        }
+
+        // Base pointer is where arguments start on the stack
+        let bp = self.stack.len() - arg_count as usize;
+
+        // Reserve space for locals (args are already there, just need remaining slots)
+        let extra_locals = function.local_count as usize - arg_count as usize;
+        for _ in 0..extra_locals {
+            self.stack.push(Value::Unit);
+        }
+
+        self.frames.push(CallFrame {
+            function,
+            ip: 0,
+            bp,
+            captures,
+            return_action,
         });
 
         Ok(())
