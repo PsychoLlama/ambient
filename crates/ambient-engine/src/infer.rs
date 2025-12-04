@@ -170,6 +170,7 @@ pub enum TypeErrorKind {
 }
 
 impl std::fmt::Display for TypeErrorKind {
+    #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::TypeMismatch { expected, actual } => {
@@ -440,6 +441,7 @@ impl TypeEnv {
 /// # Errors
 ///
 /// Returns a `TypeError` if the types cannot be unified.
+#[allow(clippy::too_many_lines)]
 pub fn unify(t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
     let t1 = t1.resolve();
     let t2 = t2.resolve();
@@ -842,6 +844,7 @@ impl Infer {
     /// # Errors
     ///
     /// Returns a `TypeError` if the types cannot be unified.
+    #[allow(clippy::too_many_lines)]
     pub fn unify(&mut self, t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
         let t1 = self.apply(t1);
         let t2 = self.apply(t2);
@@ -1008,6 +1011,7 @@ impl Infer {
     /// # Errors
     ///
     /// Returns a `TypeError` if the ability sets cannot be unified.
+    #[allow(clippy::too_many_lines)]
     pub fn unify_abilities(
         &mut self,
         a1: &AbilitySet,
@@ -1457,6 +1461,7 @@ impl Infer {
     /// # Errors
     ///
     /// Returns a `TypeError` if type inference fails.
+    #[allow(clippy::too_many_lines)]
     pub fn infer_expr(&mut self, env: &TypeEnv, expr: &mut Expr) -> Result<Type, TypeError> {
         let span = (expr.span.start, expr.span.end);
         let ty = match &mut expr.kind {

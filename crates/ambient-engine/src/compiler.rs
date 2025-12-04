@@ -882,6 +882,7 @@ fn compile_const(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Compile an expression, pushing its value onto the stack.
+#[allow(clippy::too_many_lines)]
 fn compile_expr(
     fc: &mut FunctionCompiler,
     expr: &Expr,
