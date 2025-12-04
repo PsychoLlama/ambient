@@ -180,9 +180,8 @@ impl AbilitySet {
     #[must_use]
     pub fn contains(&self, ability: AbilityId) -> bool {
         match self {
-            Self::Empty => false,
+            Self::Empty | Self::Var(_) => false, // Variable might contain it, but we don't know
             Self::Concrete(abilities) => abilities.contains(&ability),
-            Self::Var(_) => false, // Variable might contain it, but we don't know
             Self::Row { concrete, .. } => concrete.contains(&ability),
         }
     }
@@ -243,9 +242,10 @@ impl AbilitySet {
             }
             // Two variables or two rows - we can't merge them without unification
             // Return self for now, unification will handle this
-            (Self::Var(_), Self::Var(_)) => self.clone(),
-            (Self::Row { .. }, Self::Row { .. }) => self.clone(),
-            (Self::Var(_), Self::Row { .. }) | (Self::Row { .. }, Self::Var(_)) => self.clone(),
+            (Self::Var(_), Self::Var(_))
+            | (Self::Row { .. }, Self::Row { .. })
+            | (Self::Var(_), Self::Row { .. })
+            | (Self::Row { .. }, Self::Var(_)) => self.clone(),
         }
     }
 }
@@ -771,7 +771,7 @@ impl Type {
             Self::Nominal(n) => n.inner.is_concrete(),
             Self::Forall(f) => f.body.is_concrete(),
             Self::AbilityValue(av) => av.result.is_concrete() && av.ability.ability_var().is_none(),
-            Self::Handler(_) => true, // Handler types are always concrete
+            // Handler types and all other types are concrete by default
             _ => true,
         }
     }

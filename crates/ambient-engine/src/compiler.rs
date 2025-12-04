@@ -1661,8 +1661,7 @@ fn get_method_id_for_ability(ability_id: u16, method_name: &str) -> Option<u16> 
         id if id == console::ABILITY_ID => match method_name {
             "print" => Some(console::METHOD_PRINT),
             "eprint" => Some(console::METHOD_EPRINT),
-            "println" => Some(console::METHOD_PRINTLN),
-            "eprintln" => Some(console::METHOD_PRINTLN), // Alias
+            "println" | "eprintln" => Some(console::METHOD_PRINTLN),
             _ => None,
         },
         id if id == exception::ABILITY_ID => match method_name {

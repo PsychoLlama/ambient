@@ -442,14 +442,14 @@ pub fn unify(t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
 
     match (&t1, &t2) {
         // Same types unify trivially
+        // Primitive types and error types
         (Type::Unit, Type::Unit)
         | (Type::Bool, Type::Bool)
         | (Type::Number, Type::Number)
         | (Type::String, Type::String)
-        | (Type::Never, Type::Never) => Ok(()),
-
-        // Error types unify with anything (for error recovery)
-        (Type::Error, _) | (_, Type::Error) => Ok(()),
+        | (Type::Never, Type::Never)
+        | (Type::Error, _)
+        | (_, Type::Error) => Ok(()),
 
         // Type variables
         (Type::Var(TypeVar::Unbound(id)), _) => bind_var(*id, &t2, span),
@@ -838,14 +838,14 @@ impl Infer {
 
         match (&t1, &t2) {
             // Same primitive types
+            // Primitive types and error types
             (Type::Unit, Type::Unit)
             | (Type::Bool, Type::Bool)
             | (Type::Number, Type::Number)
             | (Type::String, Type::String)
-            | (Type::Never, Type::Never) => Ok(()),
-
-            // Error types
-            (Type::Error, _) | (_, Type::Error) => Ok(()),
+            | (Type::Never, Type::Never)
+            | (Type::Error, _)
+            | (_, Type::Error) => Ok(()),
 
             // Type variables
             (Type::Var(TypeVar::Unbound(id1)), Type::Var(TypeVar::Unbound(id2))) if id1 == id2 => {
@@ -1274,19 +1274,18 @@ impl Infer {
 
         // Look up method signature based on ability and method name
         let (result_ty, additional_abilities) = match (ability_name, method_name) {
-            // Console ability methods
-            ("Console", "print" | "println" | "eprint" | "eprintln") => (Type::Unit, AbilitySet::Empty),
+            // Console and Time.wait ability methods - return Unit
+            ("Console", "print" | "println" | "eprint" | "eprintln") | ("Time", "wait") => {
+                (Type::Unit, AbilitySet::Empty)
+            }
 
             // Exception ability methods
             ("Exception", "throw") => (Type::Never, AbilitySet::Empty),
 
-            // Time ability methods
-            ("Time", "now") => (Type::Number, AbilitySet::Empty),
-            ("Time", "wait") => (Type::Unit, AbilitySet::Empty),
-
-            // Random ability methods
-            ("Random", "seed") => (Type::Number, AbilitySet::Empty),
-            ("Random", "in_range") => (Type::Number, AbilitySet::Empty),
+            // Time.now and Random ability methods - return Number
+            ("Time", "now") | ("Random", "seed") | ("Random", "in_range") => {
+                (Type::Number, AbilitySet::Empty)
+            }
 
             // Async ability methods - polymorphic over result type and underlying ability
             ("Async", "all") => {
@@ -1965,37 +1964,29 @@ impl Infer {
                 let body_abilities = self.current_abilities.clone();
 
                 // Verify that the body only uses allowed abilities
-                match &body_abilities {
-                    AbilitySet::Empty => {
-                        // Pure computation - always allowed
-                    }
-                    AbilitySet::Concrete(required_abilities) => {
-                        // Check each required ability is in the allowed list
-                        for ability_id in required_abilities {
-                            if !allowed_ability_ids.contains(ability_id) {
-                                let ability_name = self
-                                    .ability_id_to_name(*ability_id)
-                                    .unwrap_or("unknown");
-                                return Err(TypeError::new(
-                                    TypeErrorKind::SandboxAbilityViolation {
-                                        ability: ability_name.into(),
-                                        allowed: sandbox_expr
-                                            .allowed_abilities
-                                            .iter()
-                                            .map(|n| n.name.clone())
-                                            .collect(),
-                                    },
-                                    span,
-                                ));
-                            }
+                if let AbilitySet::Concrete(required_abilities) = &body_abilities {
+                    // Check each required ability is in the allowed list
+                    for ability_id in required_abilities {
+                        if !allowed_ability_ids.contains(ability_id) {
+                            let ability_name = self
+                                .ability_id_to_name(*ability_id)
+                                .unwrap_or("unknown");
+                            return Err(TypeError::new(
+                                TypeErrorKind::SandboxAbilityViolation {
+                                    ability: ability_name.into(),
+                                    allowed: sandbox_expr
+                                        .allowed_abilities
+                                        .iter()
+                                        .map(|n| n.name.clone())
+                                        .collect(),
+                                },
+                                span,
+                            ));
                         }
                     }
-                    AbilitySet::Var(_) | AbilitySet::Row { .. } => {
-                        // Polymorphic abilities - we can't statically determine if they're allowed
-                        // For now, we'll allow this but it could fail at runtime
-                        // A more sophisticated implementation would propagate constraints
-                    }
                 }
+                // Note: AbilitySet::Empty (pure), Var, and Row are allowed
+                // Polymorphic abilities can't be statically checked
 
                 // Restore saved abilities (sandbox doesn't add any abilities to the outer context)
                 self.current_abilities = saved_abilities;
@@ -2019,8 +2010,9 @@ impl Infer {
         let mut new_env = env.extend();
 
         match &pattern.kind {
-            PatternKind::Wildcard => {
+            PatternKind::Wildcard | PatternKind::Variant(_, _) => {
                 // Wildcard matches anything
+                // Variant patterns require enum type definitions (future work)
             }
 
             PatternKind::Binding(id, name) => {
@@ -2069,11 +2061,6 @@ impl Infer {
                         }
                     }
                 }
-            }
-
-            PatternKind::Variant(_, _) => {
-                // Enum patterns require enum type definitions (future work)
-                // For now, just return the environment unchanged
             }
         }
 
