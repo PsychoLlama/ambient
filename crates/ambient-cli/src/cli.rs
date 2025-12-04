@@ -50,4 +50,7 @@ pub enum Command {
         #[arg(value_name = "FILE")]
         file: PathBuf,
     },
+
+    /// Start an interactive REPL session.
+    Repl,
 }

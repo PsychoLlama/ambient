@@ -1919,6 +1919,32 @@ fn compile_pattern_match(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// REPL Support
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Compile a standalone expression for REPL evaluation.
+///
+/// This wraps the expression in an anonymous function and compiles it.
+/// The function takes no parameters and returns the expression's value.
+///
+/// # Errors
+///
+/// Returns a `CompileError` if compilation fails.
+pub fn compile_expression(expr: &Expr) -> Result<CompiledFunction, CompileError> {
+    let mut fc = FunctionCompiler::new(HashMap::new());
+    let mut ctx = ModuleContext::new();
+
+    // Compile the expression (leaves result on stack).
+    compile_expr(&mut fc, expr, &mut ctx)?;
+
+    // Emit return instruction.
+    fc.builder.emit(Opcode::Return);
+
+    // Build with no parameters.
+    Ok(fc.builder.build(fc.next_local, 0))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
 

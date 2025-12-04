@@ -1206,13 +1206,27 @@ sandbox with Log {
 
 **Deliverables**:
 
-- [ ] REPL with ability handlers
-- [ ] Error messages with source context
+- [x] REPL with ability handlers
+- [x] Error messages with source context
 - [ ] Debug info generation (source maps)
 - [ ] `ambient dev` with hot reload
 - [ ] Basic LSP server (hover, go-to-definition, diagnostics)
 
 **Test case**: Interactive development workflow.
+
+**Implementation notes**: The REPL (`ambient repl`) provides an interactive evaluation environment with:
+
+- Line editing support via rustyline
+- Expression evaluation with immediate results
+- All standard abilities registered (Console, Time, Random, Log, Exception)
+- REPL commands (`:help`, `:quit`, `:clear`)
+- Formatted error display with source context and caret underlining
+
+Error messages now include source context for both parse and type errors:
+- Line numbers and column positions
+- Source line display with error underlining
+- Context notes where applicable
+- Consistent formatting across CLI commands and REPL
 
 ---
 
