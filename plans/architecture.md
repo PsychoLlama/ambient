@@ -1186,13 +1186,19 @@ sandbox with Log {
 
 **Deliverables**:
 
-- [ ] Collection functions (List, Map, Set)
-- [ ] Option/Result utilities
-- [ ] String functions
-- [ ] Core ability implementations (Console, Time, Random)
-- [ ] Log ability (built on Console)
+- [x] List value type and operations (`MakeList`, `ListGet`, `ListLength`, `ListConcat`, `ListAppend`, `ListHead`, `ListTail`)
+- [x] String functions (`StringLength`, `StringSplit`, `StringJoin`, `StringTrim`, `StringContains`, `StringConcat`)
+- [x] Type conversion (`ToString`, `ParseNumber`, `ParseBool`)
+- [x] Time ability implementation (`now`, `wait`)
+- [x] Random ability implementation (`seed`, `in_range`)
+- [x] Log ability (debug, info, warn, error with level filtering)
+- [x] `register_all_standard_abilities()` convenience function
+- [ ] Map and Set collection types (future)
+- [ ] Option/Result utilities (future)
 
 **Test case**: Write useful programs using standard library.
+
+**Implementation notes**: The standard library is implemented as bytecode opcodes for performance-critical operations (lists, strings, type conversion) and as host-provided ability handlers for I/O operations (Time, Random, Log). The `register_all_standard_abilities()` function registers Console, Exception (fallback), Time, Random, and Log abilities on a VM.
 
 ### Milestone 16: Developer Experience
 

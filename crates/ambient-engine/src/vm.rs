@@ -1064,6 +1064,231 @@ impl Vm {
                         normal_completion_ip,
                     });
                 }
+
+                // ─────────────────────────────────────────────────────────────
+                // Lists (Milestone 15)
+                // ─────────────────────────────────────────────────────────────
+                Opcode::MakeList => {
+                    let count = self.read_u16()?;
+                    let mut elements = Vec::with_capacity(count as usize);
+                    for _ in 0..count {
+                        elements.push(self.pop()?);
+                    }
+                    elements.reverse(); // Stack order is reversed
+                    self.stack.push(Value::list(elements));
+                }
+
+                Opcode::ListGet => {
+                    let index = self.pop_number("list_get")? as usize;
+                    let list = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "list_get",
+                            })
+                        }
+                    };
+                    let result = list.get(index).cloned().unwrap_or(Value::Unit);
+                    self.stack.push(result);
+                }
+
+                Opcode::ListLength => {
+                    let list = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "list_length",
+                            })
+                        }
+                    };
+                    #[allow(clippy::cast_precision_loss)]
+                    self.stack.push(Value::Number(list.len() as f64));
+                }
+
+                Opcode::ListConcat => {
+                    let list2 = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "list_concat",
+                            })
+                        }
+                    };
+                    let list1 = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "list_concat",
+                            })
+                        }
+                    };
+                    let mut result = (*list1).clone();
+                    result.extend((*list2).iter().cloned());
+                    self.stack.push(Value::list(result));
+                }
+
+                Opcode::ListAppend => {
+                    let value = self.pop()?;
+                    let list = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "list_append",
+                            })
+                        }
+                    };
+                    let mut result = (*list).clone();
+                    result.push(value);
+                    self.stack.push(Value::list(result));
+                }
+
+                Opcode::ListHead => {
+                    let list = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "list_head",
+                            })
+                        }
+                    };
+                    let result = list.first().cloned().unwrap_or(Value::Unit);
+                    self.stack.push(result);
+                }
+
+                Opcode::ListTail => {
+                    let list = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "list_tail",
+                            })
+                        }
+                    };
+                    let result = if list.len() <= 1 {
+                        Vec::new()
+                    } else {
+                        list[1..].to_vec()
+                    };
+                    self.stack.push(Value::list(result));
+                }
+
+                // ─────────────────────────────────────────────────────────────
+                // String operations (Milestone 15)
+                // ─────────────────────────────────────────────────────────────
+                Opcode::StringLength => {
+                    let s = self.pop_string("string_length")?;
+                    #[allow(clippy::cast_precision_loss)]
+                    self.stack.push(Value::Number(s.len() as f64));
+                }
+
+                Opcode::StringSplit => {
+                    let delimiter = self.pop_string("string_split")?;
+                    let s = self.pop_string("string_split")?;
+                    let parts: Vec<Value> = s
+                        .split(&*delimiter)
+                        .map(|part| Value::string(part.to_string()))
+                        .collect();
+                    self.stack.push(Value::list(parts));
+                }
+
+                Opcode::StringJoin => {
+                    let delimiter = self.pop_string("string_join")?;
+                    let list = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "string_join",
+                            })
+                        }
+                    };
+                    let parts: Vec<String> = list
+                        .iter()
+                        .filter_map(|v| match v {
+                            Value::String(s) => Some((**s).clone()),
+                            _ => None,
+                        })
+                        .collect();
+                    self.stack.push(Value::string(parts.join(&*delimiter)));
+                }
+
+                Opcode::StringTrim => {
+                    let s = self.pop_string("string_trim")?;
+                    self.stack.push(Value::string(s.trim().to_string()));
+                }
+
+                Opcode::StringContains => {
+                    let substring = self.pop_string("string_contains")?;
+                    let s = self.pop_string("string_contains")?;
+                    self.stack.push(Value::Bool(s.contains(&*substring)));
+                }
+
+                Opcode::StringConcat => {
+                    let s2 = self.pop_string("string_concat")?;
+                    let s1 = self.pop_string("string_concat")?;
+                    let mut result = (*s1).clone();
+                    result.push_str(&s2);
+                    self.stack.push(Value::string(result));
+                }
+
+                // ─────────────────────────────────────────────────────────────
+                // Type conversion (Milestone 15)
+                // ─────────────────────────────────────────────────────────────
+                Opcode::ToString => {
+                    let value = self.pop()?;
+                    let s = crate::abilities::format_value(&value);
+                    self.stack.push(Value::string(s));
+                }
+
+                Opcode::ParseNumber => {
+                    let s = self.pop_string("parse_number")?;
+                    let result = s.trim().parse::<f64>();
+                    match result {
+                        Ok(n) => {
+                            self.stack
+                                .push(Value::tuple(vec![Value::Bool(true), Value::Number(n)]));
+                        }
+                        Err(_) => {
+                            self.stack
+                                .push(Value::tuple(vec![Value::Bool(false), Value::Number(0.0)]));
+                        }
+                    }
+                }
+
+                Opcode::ParseBool => {
+                    let s = self.pop_string("parse_bool")?;
+                    let trimmed = s.trim().to_lowercase();
+                    let result = match trimmed.as_str() {
+                        "true" | "1" | "yes" => Some(true),
+                        "false" | "0" | "no" => Some(false),
+                        _ => None,
+                    };
+                    match result {
+                        Some(b) => {
+                            self.stack
+                                .push(Value::tuple(vec![Value::Bool(true), Value::Bool(b)]));
+                        }
+                        None => {
+                            self.stack
+                                .push(Value::tuple(vec![Value::Bool(false), Value::Bool(false)]));
+                        }
+                    }
+                }
             }
         }
     }
@@ -1184,6 +1409,18 @@ impl Vm {
             Value::Bool(b) => Ok(b),
             other => Err(VmError::TypeError {
                 expected: "bool",
+                got: other.type_name(),
+                operation,
+            }),
+        }
+    }
+
+    /// Pop a string from the stack or return a type error.
+    fn pop_string(&mut self, operation: &'static str) -> Result<Arc<String>, VmError> {
+        match self.pop()? {
+            Value::String(s) => Ok(s),
+            other => Err(VmError::TypeError {
+                expected: "string",
                 got: other.type_name(),
                 operation,
             }),
@@ -2570,6 +2807,472 @@ mod tests {
             assert_eq!(handler.methods.len(), 2);
         } else {
             panic!("Expected Handler value, got {:?}", result);
+        }
+    }
+
+    // =========================================================================
+    // List Operations (Milestone 15)
+    // =========================================================================
+
+    #[test]
+    fn test_make_list() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_const(Value::Number(3.0));
+        builder.emit_make_list(3);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert!(result.is_ok());
+        if let Ok(Value::List(elements)) = result {
+            assert_eq!(elements.len(), 3);
+            assert_eq!(elements[0], Value::Number(1.0));
+            assert_eq!(elements[1], Value::Number(2.0));
+            assert_eq!(elements[2], Value::Number(3.0));
+        } else {
+            panic!("Expected List, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_list_get() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(10.0));
+        builder.emit_const(Value::Number(20.0));
+        builder.emit_const(Value::Number(30.0));
+        builder.emit_make_list(3);
+        builder.emit_const(Value::Number(1.0)); // index
+        builder.emit_list_get();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(20.0)));
+    }
+
+    #[test]
+    fn test_list_length() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_const(Value::Number(3.0));
+        builder.emit_const(Value::Number(4.0));
+        builder.emit_make_list(4);
+        builder.emit_list_length();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(4.0)));
+    }
+
+    #[test]
+    fn test_list_concat() {
+        let mut builder = BytecodeBuilder::new();
+        // First list [1, 2]
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_make_list(2);
+        // Second list [3, 4]
+        builder.emit_const(Value::Number(3.0));
+        builder.emit_const(Value::Number(4.0));
+        builder.emit_make_list(2);
+        // Concat
+        builder.emit_list_concat();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert!(result.is_ok());
+        if let Ok(Value::List(elements)) = result {
+            assert_eq!(elements.len(), 4);
+            assert_eq!(elements[0], Value::Number(1.0));
+            assert_eq!(elements[1], Value::Number(2.0));
+            assert_eq!(elements[2], Value::Number(3.0));
+            assert_eq!(elements[3], Value::Number(4.0));
+        } else {
+            panic!("Expected List, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_list_append() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_make_list(2);
+        builder.emit_const(Value::Number(3.0));
+        builder.emit_list_append();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert!(result.is_ok());
+        if let Ok(Value::List(elements)) = result {
+            assert_eq!(elements.len(), 3);
+            assert_eq!(elements[2], Value::Number(3.0));
+        } else {
+            panic!("Expected List, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_list_head() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_const(Value::Number(3.0));
+        builder.emit_make_list(3);
+        builder.emit_list_head();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(1.0)));
+    }
+
+    #[test]
+    fn test_list_tail() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_const(Value::Number(3.0));
+        builder.emit_make_list(3);
+        builder.emit_list_tail();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert!(result.is_ok());
+        if let Ok(Value::List(elements)) = result {
+            assert_eq!(elements.len(), 2);
+            assert_eq!(elements[0], Value::Number(2.0));
+            assert_eq!(elements[1], Value::Number(3.0));
+        } else {
+            panic!("Expected List, got {:?}", result);
+        }
+    }
+
+    // =========================================================================
+    // String Operations (Milestone 15)
+    // =========================================================================
+
+    #[test]
+    fn test_string_length() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("hello"));
+        builder.emit_string_length();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Number(5.0)));
+    }
+
+    #[test]
+    fn test_string_split() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("a,b,c"));
+        builder.emit_const(Value::string(","));
+        builder.emit_string_split();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert!(result.is_ok());
+        if let Ok(Value::List(elements)) = result {
+            assert_eq!(elements.len(), 3);
+            assert_eq!(elements[0], Value::string("a"));
+            assert_eq!(elements[1], Value::string("b"));
+            assert_eq!(elements[2], Value::string("c"));
+        } else {
+            panic!("Expected List, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_string_join() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("a"));
+        builder.emit_const(Value::string("b"));
+        builder.emit_const(Value::string("c"));
+        builder.emit_make_list(3);
+        builder.emit_const(Value::string("-"));
+        builder.emit_string_join();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::string("a-b-c")));
+    }
+
+    #[test]
+    fn test_string_trim() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("  hello world  "));
+        builder.emit_string_trim();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::string("hello world")));
+    }
+
+    #[test]
+    fn test_string_contains() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("hello world"));
+        builder.emit_const(Value::string("world"));
+        builder.emit_string_contains();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_string_contains_false() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("hello world"));
+        builder.emit_const(Value::string("foo"));
+        builder.emit_string_contains();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_string_concat() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("hello"));
+        builder.emit_const(Value::string(" world"));
+        builder.emit_string_concat();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::string("hello world")));
+    }
+
+    // =========================================================================
+    // Type Conversion (Milestone 15)
+    // =========================================================================
+
+    #[test]
+    fn test_to_string_number() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(42.0));
+        builder.emit_to_string();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::string("42")));
+    }
+
+    #[test]
+    fn test_to_string_bool() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Bool(true));
+        builder.emit_to_string();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::string("true")));
+    }
+
+    #[test]
+    fn test_to_string_list() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(1.0));
+        builder.emit_const(Value::Number(2.0));
+        builder.emit_make_list(2);
+        builder.emit_to_string();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::string("[1, 2]")));
+    }
+
+    #[test]
+    fn test_parse_number_success() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("42.5"));
+        builder.emit_parse_number();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert!(result.is_ok());
+        if let Ok(Value::Tuple(elements)) = result {
+            assert_eq!(elements[0], Value::Bool(true));
+            assert_eq!(elements[1], Value::Number(42.5));
+        } else {
+            panic!("Expected Tuple, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_parse_number_failure() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("not a number"));
+        builder.emit_parse_number();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert!(result.is_ok());
+        if let Ok(Value::Tuple(elements)) = result {
+            assert_eq!(elements[0], Value::Bool(false));
+        } else {
+            panic!("Expected Tuple, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_parse_bool_success() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("true"));
+        builder.emit_parse_bool();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert!(result.is_ok());
+        if let Ok(Value::Tuple(elements)) = result {
+            assert_eq!(elements[0], Value::Bool(true));
+            assert_eq!(elements[1], Value::Bool(true));
+        } else {
+            panic!("Expected Tuple, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_parse_bool_failure() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("maybe"));
+        builder.emit_parse_bool();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert!(result.is_ok());
+        if let Ok(Value::Tuple(elements)) = result {
+            assert_eq!(elements[0], Value::Bool(false));
+        } else {
+            panic!("Expected Tuple, got {:?}", result);
         }
     }
 }

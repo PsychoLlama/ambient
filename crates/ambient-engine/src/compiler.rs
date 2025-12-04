@@ -820,6 +820,14 @@ fn hash_value_for_content(hasher: &mut blake3::Hasher, value: &Value) {
                 hash_value_for_content(hasher, val);
             }
         }
+        Value::List(elements) => {
+            const TYPE_LIST: u8 = 11;
+            hasher.update(&[TYPE_LIST]);
+            hasher.update(&(elements.len() as u32).to_le_bytes());
+            for elem in elements.iter() {
+                hash_value_for_content(hasher, elem);
+            }
+        }
     }
 }
 

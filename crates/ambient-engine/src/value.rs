@@ -57,6 +57,10 @@ pub enum Value {
     /// Handler values can be passed around, stored, composed with other handlers,
     /// and used in `handle ... with handler_value` expressions.
     Handler(Arc<HandlerValue>),
+
+    /// A list: variable-length, homogeneous collection.
+    /// `List<T>`
+    List(Arc<Vec<Value>>),
 }
 
 /// A suspended ability operation waiting to be performed.
@@ -292,7 +296,14 @@ impl Value {
             Self::Continuation(_) => "continuation",
             Self::Closure(_) => "closure",
             Self::Handler(_) => "handler",
+            Self::List(_) => "list",
         }
+    }
+
+    /// Create a new list value.
+    #[must_use]
+    pub fn list(values: Vec<Value>) -> Self {
+        Self::List(Arc::new(values))
     }
 
     /// Create a new suspended ability value.
@@ -340,7 +351,8 @@ impl PartialEq for Value {
             // NaN != NaN per IEEE 754, but we want structural equality for values
             (Self::Number(a), Self::Number(b)) => a.to_bits() == b.to_bits(),
             (Self::String(a), Self::String(b)) => a == b,
-            (Self::Tuple(a), Self::Tuple(b)) => a == b,
+            // Tuples and lists are structurally equal
+            (Self::Tuple(a), Self::Tuple(b)) | (Self::List(a), Self::List(b)) => a == b,
             (Self::Record(a), Self::Record(b)) => a == b,
             (Self::FunctionRef(a), Self::FunctionRef(b)) => a == b,
             // Suspended abilities are equal if they have the same ability/method/args

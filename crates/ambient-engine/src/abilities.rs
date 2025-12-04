@@ -247,6 +247,227 @@ pub fn register_exception_fallback(vm: &mut Vm) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Log Ability
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Log ability - for structured logging with levels.
+pub mod log {
+    /// Ability ID for Log.
+    pub const ABILITY_ID: u16 = 0x0006;
+
+    /// Method: log a debug message.
+    pub const METHOD_DEBUG: u16 = 0x0000;
+
+    /// Method: log an info message.
+    pub const METHOD_INFO: u16 = 0x0001;
+
+    /// Method: log a warning message.
+    pub const METHOD_WARN: u16 = 0x0002;
+
+    /// Method: log an error message.
+    pub const METHOD_ERROR: u16 = 0x0003;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Time Ability Implementation
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Register the Time ability handlers on a VM.
+///
+/// Provides `now()` for getting current timestamp and `wait(ms)` for sleeping.
+pub fn register_time(vm: &mut Vm) {
+    // Time.now() -> returns current timestamp in milliseconds since Unix epoch
+    vm.register_host_handler(
+        time::ABILITY_ID,
+        time::METHOD_NOW,
+        Box::new(|_ability: &SuspendedAbility| {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            // Precision loss is acceptable for timestamps (won't exceed 52 bits for centuries)
+            #[allow(clippy::cast_precision_loss)]
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as f64)
+                .unwrap_or(0.0);
+            Ok(Value::Number(now))
+        }),
+    );
+
+    // Time.wait(duration) -> sleeps for the given number of milliseconds
+    vm.register_host_handler(
+        time::ABILITY_ID,
+        time::METHOD_WAIT,
+        Box::new(|ability: &SuspendedAbility| {
+            if let Some(Value::Number(ms)) = ability.args.first() {
+                // Negative durations are clamped to 0
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let ms_u64 = if *ms < 0.0 { 0 } else { *ms as u64 };
+                let duration = std::time::Duration::from_millis(ms_u64);
+                std::thread::sleep(duration);
+            }
+            Ok(Value::Unit)
+        }),
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Random Ability Implementation
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Register the Random ability handlers on a VM.
+///
+/// Provides `seed()` for random 0.0-1.0 and `in_range(range)` for random in range.
+pub fn register_random(vm: &mut Vm) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    // Simple xorshift64 PRNG state - good enough for most purposes
+    // Seeded from system time on first use
+    static SEED: AtomicU64 = AtomicU64::new(0);
+
+    fn next_random() -> f64 {
+        // Initialize seed if needed (using system time)
+        let mut state = SEED.load(Ordering::Relaxed);
+        if state == 0 {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            // Truncation is intentional - we only need 64 bits of entropy
+            #[allow(clippy::cast_possible_truncation)]
+            let time_seed = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0x853c_49e6_748f_ea9b);
+            state = time_seed;
+            if state == 0 {
+                state = 0x853c_49e6_748f_ea9b; // fallback seed
+            }
+        }
+
+        // xorshift64
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        SEED.store(state, Ordering::Relaxed);
+
+        // Convert to 0.0-1.0 range
+        // Cast precision loss is acceptable for random number generation
+        #[allow(clippy::cast_precision_loss)]
+        let result = (state as f64) / (u64::MAX as f64);
+        result
+    }
+
+    // Random.seed() -> returns random number between 0.0 and 1.0
+    vm.register_host_handler(
+        random::ABILITY_ID,
+        random::METHOD_SEED,
+        Box::new(|_ability: &SuspendedAbility| Ok(Value::Number(next_random()))),
+    );
+
+    // Random.in_range(range) -> returns random number in the given range
+    // Range is expected as a record { start: number, end: number }
+    vm.register_host_handler(
+        random::ABILITY_ID,
+        random::METHOD_IN_RANGE,
+        Box::new(|ability: &SuspendedAbility| {
+            if let Some(Value::Record(fields)) = ability.args.first() {
+                let start = fields
+                    .get(&std::sync::Arc::from("start"))
+                    .and_then(|v| match v {
+                        Value::Number(n) => Some(*n),
+                        _ => None,
+                    })
+                    .unwrap_or(0.0);
+                let end = fields
+                    .get(&std::sync::Arc::from("end"))
+                    .and_then(|v| match v {
+                        Value::Number(n) => Some(*n),
+                        _ => None,
+                    })
+                    .unwrap_or(1.0);
+
+                let random = next_random();
+                let result = start + random * (end - start);
+                Ok(Value::Number(result))
+            } else {
+                // If not a record, treat as single number for upper bound
+                let upper = ability
+                    .args
+                    .first()
+                    .and_then(|v| match v {
+                        Value::Number(n) => Some(*n),
+                        _ => None,
+                    })
+                    .unwrap_or(1.0);
+                Ok(Value::Number(next_random() * upper))
+            }
+        }),
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Log Ability Implementation
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Configuration for the Log ability.
+#[derive(Default)]
+pub struct LogConfig {
+    /// Minimum log level to output (0 = debug, 1 = info, 2 = warn, 3 = error)
+    pub min_level: u8,
+    /// Custom log handler. If None, uses default formatting to stdout.
+    pub handler: Option<Box<dyn Fn(&str, &str) + Send + Sync>>,
+}
+
+/// Register the Log ability handlers on a VM.
+///
+/// Provides structured logging with debug, info, warn, and error levels.
+pub fn register_log(vm: &mut Vm, config: LogConfig) {
+    let min_level = config.min_level;
+    let handler = std::sync::Arc::new(config.handler);
+
+    // Helper to create log handlers
+    macro_rules! log_handler {
+        ($level:expr, $prefix:expr) => {{
+            let handler = handler.clone();
+            Box::new(move |ability: &SuspendedAbility| {
+                if $level >= min_level {
+                    let message =
+                        format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
+                    if let Some(ref h) = *handler {
+                        h($prefix, &message);
+                    } else {
+                        #[cfg(not(test))]
+                        {
+                            #[allow(clippy::print_stdout)]
+                            {
+                                println!("[{}] {}", $prefix, message);
+                            }
+                        }
+                    }
+                }
+                Ok(Value::Unit)
+            })
+        }};
+    }
+
+    vm.register_host_handler(log::ABILITY_ID, log::METHOD_DEBUG, log_handler!(0, "DEBUG"));
+    vm.register_host_handler(log::ABILITY_ID, log::METHOD_INFO, log_handler!(1, "INFO"));
+    vm.register_host_handler(log::ABILITY_ID, log::METHOD_WARN, log_handler!(2, "WARN"));
+    vm.register_host_handler(log::ABILITY_ID, log::METHOD_ERROR, log_handler!(3, "ERROR"));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Convenience function to register all standard abilities
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Register all standard ability handlers on a VM.
+///
+/// This includes Console, Exception (fallback), Time, Random, and Log.
+pub fn register_all_standard_abilities(vm: &mut Vm) {
+    register_console(vm, ConsoleConfig::default());
+    register_exception_fallback(vm);
+    register_time(vm);
+    register_random(vm);
+    register_log(vm, LogConfig::default());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Helper Functions
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -301,6 +522,11 @@ pub fn format_value(value: &Value) -> String {
             let ability_id = handler.ability_id;
             let method_count = handler.methods.len();
             format!("<handler #{ability_id} [{method_count} methods]>")
+        }
+        Value::List(elements) => {
+            let parts: Vec<String> = elements.iter().map(format_value).collect();
+            let joined = parts.join(", ");
+            format!("[{joined}]")
         }
     }
 }
@@ -403,5 +629,259 @@ mod tests {
         let result = vm.call(&hash, vec![]);
         assert_eq!(result, Ok(Value::Unit));
         assert_eq!(*output.lock().expect("lock"), vec!["one", "two", "three"]);
+    }
+
+    // =========================================================================
+    // Time Ability Tests
+    // =========================================================================
+
+    #[test]
+    fn test_time_now() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_suspend(time::ABILITY_ID, time::METHOD_NOW, 0);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+        register_time(&mut vm);
+
+        let result = vm.call(&hash, vec![]);
+        assert!(result.is_ok());
+        if let Ok(Value::Number(timestamp)) = result {
+            // Timestamp should be a positive number representing milliseconds since epoch
+            assert!(timestamp > 0.0);
+            // Should be after year 2020 (1577836800000 ms)
+            assert!(timestamp > 1_577_836_800_000.0);
+        } else {
+            panic!("Expected Number, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_time_wait() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(10.0)); // Wait 10ms
+        builder.emit_suspend(time::ABILITY_ID, time::METHOD_WAIT, 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+        register_time(&mut vm);
+
+        let start = std::time::Instant::now();
+        let result = vm.call(&hash, vec![]);
+        let elapsed = start.elapsed();
+
+        assert_eq!(result, Ok(Value::Unit));
+        // Should have waited at least 10ms (with some tolerance)
+        assert!(elapsed.as_millis() >= 9);
+    }
+
+    // =========================================================================
+    // Random Ability Tests
+    // =========================================================================
+
+    #[test]
+    fn test_random_seed() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_suspend(random::ABILITY_ID, random::METHOD_SEED, 0);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+        register_random(&mut vm);
+
+        let result = vm.call(&hash, vec![]);
+        assert!(result.is_ok());
+        if let Ok(Value::Number(n)) = result {
+            assert!(n >= 0.0 && n <= 1.0, "Random should be in [0, 1]: {n}");
+        } else {
+            panic!("Expected Number, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_random_in_range() {
+        let mut builder = BytecodeBuilder::new();
+        // Create a range record { start: 10, end: 20 }
+        builder.emit_const(Value::string("start"));
+        builder.emit_const(Value::Number(10.0));
+        builder.emit_const(Value::string("end"));
+        builder.emit_const(Value::Number(20.0));
+        builder.emit_u8(Opcode::MakeRecord, 2);
+        builder.emit_suspend(random::ABILITY_ID, random::METHOD_IN_RANGE, 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+        register_random(&mut vm);
+
+        let result = vm.call(&hash, vec![]);
+        assert!(result.is_ok());
+        if let Ok(Value::Number(n)) = result {
+            assert!(n >= 10.0 && n <= 20.0, "Random should be in [10, 20]: {n}");
+        } else {
+            panic!("Expected Number, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_random_produces_different_values() {
+        let mut builder = BytecodeBuilder::new();
+        // Generate two random numbers and return them as a tuple
+        builder.emit_suspend(random::ABILITY_ID, random::METHOD_SEED, 0);
+        builder.emit(Opcode::Perform);
+        builder.emit_suspend(random::ABILITY_ID, random::METHOD_SEED, 0);
+        builder.emit(Opcode::Perform);
+        builder.emit_u8(Opcode::MakeTuple, 2);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+        register_random(&mut vm);
+
+        let result = vm.call(&hash, vec![]);
+        assert!(result.is_ok());
+        if let Ok(Value::Tuple(elements)) = result {
+            assert_eq!(elements.len(), 2);
+            // Two consecutive random numbers should (usually) be different
+            // This could theoretically fail, but with 64-bit state, probability is negligible
+            if let (Value::Number(a), Value::Number(b)) = (&elements[0], &elements[1]) {
+                assert_ne!(a, b, "Two random numbers should be different");
+            }
+        } else {
+            panic!("Expected Tuple, got {:?}", result);
+        }
+    }
+
+    // =========================================================================
+    // Log Ability Tests
+    // =========================================================================
+
+    #[test]
+    fn test_log_info() {
+        let output: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+        let output_clone = output.clone();
+
+        let config = LogConfig {
+            min_level: 0,
+            handler: Some(Box::new(move |level: &str, msg: &str| {
+                output_clone
+                    .lock()
+                    .expect("lock")
+                    .push((level.to_string(), msg.to_string()));
+            })),
+        };
+
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("test message"));
+        builder.emit_suspend(log::ABILITY_ID, log::METHOD_INFO, 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+        register_log(&mut vm, config);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Unit));
+
+        let logs = output.lock().expect("lock");
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0], ("INFO".to_string(), "test message".to_string()));
+    }
+
+    #[test]
+    fn test_log_min_level_filters() {
+        let output: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+        let output_clone = output.clone();
+
+        // Set min level to WARN (2), so DEBUG and INFO should be filtered
+        let config = LogConfig {
+            min_level: 2,
+            handler: Some(Box::new(move |level: &str, msg: &str| {
+                output_clone
+                    .lock()
+                    .expect("lock")
+                    .push((level.to_string(), msg.to_string()));
+            })),
+        };
+
+        let mut builder = BytecodeBuilder::new();
+
+        // Log debug (should be filtered)
+        builder.emit_const(Value::string("debug msg"));
+        builder.emit_suspend(log::ABILITY_ID, log::METHOD_DEBUG, 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Pop);
+
+        // Log warn (should pass)
+        builder.emit_const(Value::string("warn msg"));
+        builder.emit_suspend(log::ABILITY_ID, log::METHOD_WARN, 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Pop);
+
+        // Log error (should pass)
+        builder.emit_const(Value::string("error msg"));
+        builder.emit_suspend(log::ABILITY_ID, log::METHOD_ERROR, 1);
+        builder.emit(Opcode::Perform);
+
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+        register_log(&mut vm, config);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Unit));
+
+        let logs = output.lock().expect("lock");
+        assert_eq!(logs.len(), 2);
+        assert_eq!(logs[0], ("WARN".to_string(), "warn msg".to_string()));
+        assert_eq!(logs[1], ("ERROR".to_string(), "error msg".to_string()));
+    }
+
+    #[test]
+    fn test_register_all_standard_abilities() {
+        let mut vm = Vm::new();
+        register_all_standard_abilities(&mut vm);
+
+        // Verify we can call Time.now
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_suspend(time::ABILITY_ID, time::METHOD_NOW, 0);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert!(result.is_ok());
     }
 }

@@ -259,6 +259,99 @@ pub enum Opcode {
     HandleWithValue = 0xB1,
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Lists (Milestone 15 - Standard Library)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Create a list from N values on the stack.
+    /// Operand: u16 (number of elements)
+    ///
+    /// Pops N values from the stack and creates a List value.
+    MakeList = 0xC0,
+
+    /// Get an element from a list by index.
+    ///
+    /// Stack: `[list, index] -> [element]`
+    /// Returns Unit if index is out of bounds.
+    ListGet = 0xC1,
+
+    /// Get the length of a list.
+    ///
+    /// Stack: `[list] -> [length]`
+    ListLength = 0xC2,
+
+    /// Concatenate two lists.
+    ///
+    /// Stack: `[list1, list2] -> [result]`
+    ListConcat = 0xC3,
+
+    /// Append a value to the end of a list.
+    ///
+    /// Stack: `[list, value] -> [new_list]`
+    ListAppend = 0xC4,
+
+    /// Get the first element of a list (head).
+    ///
+    /// Stack: `[list] -> [element]`
+    /// Returns Unit if list is empty.
+    ListHead = 0xC5,
+
+    /// Get all elements except the first (tail).
+    ///
+    /// Stack: `[list] -> [rest]`
+    /// Returns empty list if list has 0 or 1 elements.
+    ListTail = 0xC6,
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // String operations (Milestone 15 - Standard Library)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Get the length of a string.
+    ///
+    /// Stack: `[string] -> [length]`
+    StringLength = 0xD0,
+
+    /// Split a string by delimiter.
+    ///
+    /// Stack: `[string, delimiter] -> [list]`
+    StringSplit = 0xD1,
+
+    /// Join a list of strings with delimiter.
+    ///
+    /// Stack: `[list, delimiter] -> [string]`
+    StringJoin = 0xD2,
+
+    /// Trim whitespace from both ends of a string.
+    ///
+    /// Stack: `[string] -> [trimmed]`
+    StringTrim = 0xD3,
+
+    /// Check if a string contains a substring.
+    ///
+    /// Stack: `[string, substring] -> [bool]`
+    StringContains = 0xD4,
+
+    /// Concatenate two strings.
+    ///
+    /// Stack: `[string1, string2] -> [result]`
+    StringConcat = 0xD5,
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Type conversion (Milestone 15 - Standard Library)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Convert any value to its string representation.
+    ///
+    /// Stack: `[value] -> [string]`
+    ToString = 0xE0,
+
+    /// Parse a string to a number. Returns a tuple (success: bool, value: number).
+    ///
+    /// Stack: `[string] -> [(bool, number)]`
+    ParseNumber = 0xE1,
+
+    /// Parse a string to a boolean. Returns a tuple (success: bool, value: bool).
+    ///
+    /// Stack: `[string] -> [(bool, bool)]`
+    ParseBool = 0xE2,
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Special
     // ─────────────────────────────────────────────────────────────────────────
     /// Halt execution (end of program).
@@ -316,6 +409,25 @@ impl Opcode {
             // Handler literals
             0xB0 => Some(Self::MakeHandler),
             0xB1 => Some(Self::HandleWithValue),
+            // Lists
+            0xC0 => Some(Self::MakeList),
+            0xC1 => Some(Self::ListGet),
+            0xC2 => Some(Self::ListLength),
+            0xC3 => Some(Self::ListConcat),
+            0xC4 => Some(Self::ListAppend),
+            0xC5 => Some(Self::ListHead),
+            0xC6 => Some(Self::ListTail),
+            // Strings
+            0xD0 => Some(Self::StringLength),
+            0xD1 => Some(Self::StringSplit),
+            0xD2 => Some(Self::StringJoin),
+            0xD3 => Some(Self::StringTrim),
+            0xD4 => Some(Self::StringContains),
+            0xD5 => Some(Self::StringConcat),
+            // Type conversion
+            0xE0 => Some(Self::ToString),
+            0xE1 => Some(Self::ParseNumber),
+            0xE2 => Some(Self::ParseBool),
             0xFF => Some(Self::Halt),
             _ => None,
         }
@@ -521,6 +633,14 @@ fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
             hasher.update(&(handler.captures.len() as u32).to_le_bytes());
             for val in &handler.captures {
                 hash_value(hasher, val);
+            }
+        }
+        Value::List(elements) => {
+            const TYPE_LIST: u8 = 11;
+            hasher.update(&[TYPE_LIST]);
+            hasher.update(&(elements.len() as u32).to_le_bytes());
+            for elem in elements.iter() {
+                hash_value(hasher, elem);
             }
         }
     }
@@ -775,6 +895,113 @@ impl BytecodeBuilder {
         self.code.push(arg_index);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // List operations (Milestone 15)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Emit a `MakeList` instruction.
+    ///
+    /// Creates a list from `count` values on the stack.
+    pub fn emit_make_list(&mut self, count: u16) {
+        self.code.push(Opcode::MakeList as u8);
+        self.code.extend_from_slice(&count.to_le_bytes());
+    }
+
+    /// Emit a `ListGet` instruction.
+    ///
+    /// Pops a list and index, pushes the element at that index.
+    pub fn emit_list_get(&mut self) {
+        self.code.push(Opcode::ListGet as u8);
+    }
+
+    /// Emit a `ListLength` instruction.
+    ///
+    /// Pops a list and pushes its length.
+    pub fn emit_list_length(&mut self) {
+        self.code.push(Opcode::ListLength as u8);
+    }
+
+    /// Emit a `ListConcat` instruction.
+    ///
+    /// Pops two lists and pushes their concatenation.
+    pub fn emit_list_concat(&mut self) {
+        self.code.push(Opcode::ListConcat as u8);
+    }
+
+    /// Emit a `ListAppend` instruction.
+    ///
+    /// Pops a list and value, pushes a new list with the value appended.
+    pub fn emit_list_append(&mut self) {
+        self.code.push(Opcode::ListAppend as u8);
+    }
+
+    /// Emit a `ListHead` instruction.
+    ///
+    /// Pops a list and pushes the first element.
+    pub fn emit_list_head(&mut self) {
+        self.code.push(Opcode::ListHead as u8);
+    }
+
+    /// Emit a `ListTail` instruction.
+    ///
+    /// Pops a list and pushes a list without the first element.
+    pub fn emit_list_tail(&mut self) {
+        self.code.push(Opcode::ListTail as u8);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // String operations (Milestone 15)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Emit a `StringLength` instruction.
+    pub fn emit_string_length(&mut self) {
+        self.code.push(Opcode::StringLength as u8);
+    }
+
+    /// Emit a `StringSplit` instruction.
+    pub fn emit_string_split(&mut self) {
+        self.code.push(Opcode::StringSplit as u8);
+    }
+
+    /// Emit a `StringJoin` instruction.
+    pub fn emit_string_join(&mut self) {
+        self.code.push(Opcode::StringJoin as u8);
+    }
+
+    /// Emit a `StringTrim` instruction.
+    pub fn emit_string_trim(&mut self) {
+        self.code.push(Opcode::StringTrim as u8);
+    }
+
+    /// Emit a `StringContains` instruction.
+    pub fn emit_string_contains(&mut self) {
+        self.code.push(Opcode::StringContains as u8);
+    }
+
+    /// Emit a `StringConcat` instruction.
+    pub fn emit_string_concat(&mut self) {
+        self.code.push(Opcode::StringConcat as u8);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Type conversion (Milestone 15)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Emit a `ToString` instruction.
+    pub fn emit_to_string(&mut self) {
+        self.code.push(Opcode::ToString as u8);
+    }
+
+    /// Emit a `ParseNumber` instruction.
+    pub fn emit_parse_number(&mut self) {
+        self.code.push(Opcode::ParseNumber as u8);
+    }
+
+    /// Emit a `ParseBool` instruction.
+    pub fn emit_parse_bool(&mut self) {
+        self.code.push(Opcode::ParseBool as u8);
+    }
+
     /// Build the final compiled function.
     ///
     /// Dependencies are automatically collected from `emit_call` invocations.
@@ -876,6 +1103,28 @@ mod tests {
             Opcode::MakeClosure,
             Opcode::CallClosure,
             Opcode::LoadCapture,
+            // Handler literals
+            Opcode::MakeHandler,
+            Opcode::HandleWithValue,
+            // Lists
+            Opcode::MakeList,
+            Opcode::ListGet,
+            Opcode::ListLength,
+            Opcode::ListConcat,
+            Opcode::ListAppend,
+            Opcode::ListHead,
+            Opcode::ListTail,
+            // Strings
+            Opcode::StringLength,
+            Opcode::StringSplit,
+            Opcode::StringJoin,
+            Opcode::StringTrim,
+            Opcode::StringContains,
+            Opcode::StringConcat,
+            // Type conversion
+            Opcode::ToString,
+            Opcode::ParseNumber,
+            Opcode::ParseBool,
             Opcode::Halt,
         ];
 
