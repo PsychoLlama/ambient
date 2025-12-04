@@ -436,6 +436,10 @@ impl TypeEnv {
 /// Unify two types, making them equal.
 ///
 /// Returns `Ok(())` if successful, or a `TypeError` if the types cannot be unified.
+///
+/// # Errors
+///
+/// Returns a `TypeError` if the types cannot be unified.
 pub fn unify(t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
     let t1 = t1.resolve();
     let t2 = t2.resolve();
@@ -732,11 +736,13 @@ impl Infer {
     }
 
     /// Apply substitution to a type.
+    #[must_use]
     pub fn apply(&self, ty: &Type) -> Type {
         self.apply_impl(ty, &mut Vec::new())
     }
 
     /// Apply ability substitution to an ability set.
+    #[must_use]
     pub fn apply_abilities(&self, abilities: &AbilitySet) -> AbilitySet {
         match abilities {
             AbilitySet::Empty | AbilitySet::Concrete(_) => abilities.clone(),
@@ -832,6 +838,10 @@ impl Infer {
     }
 
     /// Unify two types and update the substitution.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `TypeError` if the types cannot be unified.
     pub fn unify(&mut self, t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
         let t1 = self.apply(t1);
         let t2 = self.apply(t2);
@@ -994,6 +1004,10 @@ impl Infer {
     }
 
     /// Unify two ability sets.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `TypeError` if the ability sets cannot be unified.
     pub fn unify_abilities(
         &mut self,
         a1: &AbilitySet,
@@ -1414,6 +1428,7 @@ impl Infer {
 
     /// Generalize a type to a scheme by quantifying free variables
     /// not in the environment.
+    #[must_use]
     pub fn generalize(&self, env: &TypeEnv, ty: &Type) -> Scheme {
         let ty = self.apply(ty);
         let ty_vars = ty.free_vars();
@@ -1440,6 +1455,10 @@ impl Infer {
     }
 
     /// Infer the type of an expression.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `TypeError` if type inference fails.
     pub fn infer_expr(&mut self, env: &TypeEnv, expr: &mut Expr) -> Result<Type, TypeError> {
         let span = (expr.span.start, expr.span.end);
         let ty = match &mut expr.kind {
@@ -2114,6 +2133,7 @@ impl CheckResult {
 ///     }
 /// }
 /// ```
+#[must_use]
 pub fn check_module(mut module: crate::ast::Module) -> CheckResult {
     let mut infer = Infer::new();
     let mut errors = Vec::new();

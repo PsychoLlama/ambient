@@ -311,12 +311,14 @@ impl AbilityInfo {
     }
 
     /// Add a dependency.
+    #[must_use]
     pub fn with_dependency(mut self, dep: AbilityId) -> Self {
         self.dependencies.push(dep);
         self
     }
 
     /// Add a method.
+    #[must_use]
     pub fn with_method(mut self, name: impl Into<Arc<str>>, params: Vec<Type>, ret: Type) -> Self {
         self.methods.insert(name.into(), (params, ret));
         self
