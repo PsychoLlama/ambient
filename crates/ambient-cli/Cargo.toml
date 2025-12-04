@@ -15,7 +15,8 @@ anyhow = "1.0.100"
 blake3 = "1.5.4"
 clap = { version = "4.5.53", features = ["cargo", "derive", "string", "env"] }
 notify = "6.1"
-rustyline = { version = "14.0", default-features = false }
+rustyline = { version = "14.0", features = ["with-file-history"] }
+dirs = "5.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
