@@ -170,6 +170,10 @@ impl DocumentStore {
 mod tests {
     use super::*;
 
+    fn test_uri() -> Uri {
+        "file:///test.ab".parse().expect("valid uri")
+    }
+
     #[test]
     fn test_line_offsets() {
         let text = "line1\nline2\nline3";
@@ -178,9 +182,22 @@ mod tests {
     }
 
     #[test]
+    fn test_line_offsets_empty() {
+        let text = "";
+        let offsets = compute_line_offsets(text);
+        assert_eq!(offsets, vec![0]);
+    }
+
+    #[test]
+    fn test_line_offsets_no_newlines() {
+        let text = "single line";
+        let offsets = compute_line_offsets(text);
+        assert_eq!(offsets, vec![0]);
+    }
+
+    #[test]
     fn test_offset_to_position() {
-        let uri: Uri = "file:///test.ab".parse().expect("valid uri");
-        let doc = Document::new(uri, 1, "fn foo() {\n  42\n}".to_string());
+        let doc = Document::new(test_uri(), 1, "fn foo() {\n  42\n}".to_string());
 
         // Start of file
         assert_eq!(doc.offset_to_position(0), (0, 0));
@@ -193,9 +210,15 @@ mod tests {
     }
 
     #[test]
+    fn test_offset_to_position_end_of_file() {
+        let doc = Document::new(test_uri(), 1, "abc".to_string());
+        // Offset beyond file length should clamp
+        assert_eq!(doc.offset_to_position(100), (0, 3));
+    }
+
+    #[test]
     fn test_position_to_offset() {
-        let uri: Uri = "file:///test.ab".parse().expect("valid uri");
-        let doc = Document::new(uri, 1, "fn foo() {\n  42\n}".to_string());
+        let doc = Document::new(test_uri(), 1, "fn foo() {\n  42\n}".to_string());
 
         // Start of file
         assert_eq!(doc.position_to_offset(0, 0), 0);
@@ -205,6 +228,13 @@ mod tests {
 
         // "42" on second line
         assert_eq!(doc.position_to_offset(1, 2), 13);
+    }
+
+    #[test]
+    fn test_position_to_offset_past_end() {
+        let doc = Document::new(test_uri(), 1, "abc\ndef".to_string());
+        // Line beyond file should return end
+        assert_eq!(doc.position_to_offset(100, 0), 7);
     }
 
     #[test]
@@ -219,5 +249,83 @@ mod tests {
         // Convert back
         let back = utf16_to_utf8_offset(line, utf16_offset);
         assert_eq!(back, utf8_offset);
+    }
+
+    #[test]
+    fn test_utf16_conversion_emoji() {
+        // Emoji that requires surrogate pairs in UTF-16
+        let line = "x 😀 y";
+        // 'x' is 1 byte, ' ' is 1 byte, 😀 is 4 bytes in UTF-8
+        let utf8_offset = 6; // After the emoji
+        let utf16_offset = utf8_to_utf16_offset(line, utf8_offset);
+        // 'x' = 1, ' ' = 1, 😀 = 2 (surrogate pair)
+        assert_eq!(utf16_offset, 4);
+    }
+
+    #[test]
+    fn test_document_update() {
+        let mut doc = Document::new(test_uri(), 1, "initial".to_string());
+        assert_eq!(doc.version, 1);
+        assert_eq!(doc.text, "initial");
+
+        doc.update(2, "updated\ncontent".to_string());
+        assert_eq!(doc.version, 2);
+        assert_eq!(doc.text, "updated\ncontent");
+        assert_eq!(doc.line_offsets, vec![0, 8]);
+    }
+
+    #[test]
+    fn test_document_store_open_close() {
+        let mut store = DocumentStore::new();
+        let uri = test_uri();
+
+        assert!(store.get(&uri).is_none());
+
+        store.open(uri.clone(), 1, "content".to_string());
+        assert!(store.get(&uri).is_some());
+        assert_eq!(store.get(&uri).unwrap().text, "content");
+
+        store.close(&uri);
+        assert!(store.get(&uri).is_none());
+    }
+
+    #[test]
+    fn test_document_store_update() {
+        let mut store = DocumentStore::new();
+        let uri = test_uri();
+
+        store.open(uri.clone(), 1, "original".to_string());
+        store.update(&uri, 2, "modified".to_string());
+
+        let doc = store.get(&uri).unwrap();
+        assert_eq!(doc.version, 2);
+        assert_eq!(doc.text, "modified");
+    }
+
+    #[test]
+    fn test_document_store_update_nonexistent() {
+        let mut store = DocumentStore::new();
+        let uri = test_uri();
+
+        // Update on non-existent document should be a no-op
+        store.update(&uri, 1, "content".to_string());
+        assert!(store.get(&uri).is_none());
+    }
+
+    #[test]
+    fn test_document_store_multiple_documents() {
+        let mut store = DocumentStore::new();
+        let uri1: Uri = "file:///test1.ab".parse().unwrap();
+        let uri2: Uri = "file:///test2.ab".parse().unwrap();
+
+        store.open(uri1.clone(), 1, "doc1".to_string());
+        store.open(uri2.clone(), 1, "doc2".to_string());
+
+        assert_eq!(store.get(&uri1).unwrap().text, "doc1");
+        assert_eq!(store.get(&uri2).unwrap().text, "doc2");
+
+        store.close(&uri1);
+        assert!(store.get(&uri1).is_none());
+        assert!(store.get(&uri2).is_some());
     }
 }
