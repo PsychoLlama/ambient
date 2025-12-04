@@ -69,6 +69,11 @@ pub enum Value {
     /// A set: collection of unique values.
     /// `Set<T>` - elements are compared by value equality.
     Set(Arc<SetValue>),
+
+    /// An enum variant instance.
+    /// Contains the variant tag (index) and optional payload value.
+    /// Used for types like `Option<T>` and `Result<T, E>`.
+    Enum(Arc<EnumValue>),
 }
 
 /// A map value with string keys.
@@ -275,6 +280,101 @@ impl SetValue {
 impl Default for SetValue {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// An enum variant instance.
+///
+/// Represents a specific variant of an enum type at runtime.
+/// The variant is identified by its tag (index) and may have a payload.
+///
+/// ## Well-known enum types
+///
+/// The standard library provides these built-in enum types:
+///
+/// - `Option<T>`: `None` (tag 0) or `Some(T)` (tag 1)
+/// - `Result<T, E>`: `Ok(T)` (tag 0) or `Err(E)` (tag 1)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EnumValue {
+    /// The name of the enum type (e.g., "Option", "Result").
+    /// Used for type checking and display.
+    pub type_name: Arc<str>,
+
+    /// The variant tag (index into the enum's variant list).
+    /// For Option: 0 = None, 1 = Some
+    /// For Result: 0 = Ok, 1 = Err
+    pub tag: u16,
+
+    /// The name of the variant (e.g., "Some", "None", "Ok", "Err").
+    pub variant_name: Arc<str>,
+
+    /// Optional payload value. `None` for unit variants (like `Option::None`).
+    pub payload: Option<Box<Value>>,
+}
+
+impl EnumValue {
+    /// Create a new enum variant.
+    #[must_use]
+    pub fn new(
+        type_name: impl Into<Arc<str>>,
+        tag: u16,
+        variant_name: impl Into<Arc<str>>,
+        payload: Option<Value>,
+    ) -> Self {
+        Self {
+            type_name: type_name.into(),
+            tag,
+            variant_name: variant_name.into(),
+            payload: payload.map(Box::new),
+        }
+    }
+
+    /// Create an `Option::None` value.
+    #[must_use]
+    pub fn none() -> Self {
+        Self::new("Option", 0, "None", None)
+    }
+
+    /// Create an `Option::Some(value)` value.
+    #[must_use]
+    pub fn some(value: Value) -> Self {
+        Self::new("Option", 1, "Some", Some(value))
+    }
+
+    /// Create a `Result::Ok(value)` value.
+    #[must_use]
+    pub fn ok(value: Value) -> Self {
+        Self::new("Result", 0, "Ok", Some(value))
+    }
+
+    /// Create a `Result::Err(error)` value.
+    #[must_use]
+    pub fn err(error: Value) -> Self {
+        Self::new("Result", 1, "Err", Some(error))
+    }
+
+    /// Check if this is a specific variant by tag.
+    #[must_use]
+    pub fn is_variant(&self, tag: u16) -> bool {
+        self.tag == tag
+    }
+
+    /// Check if this is a specific variant by name.
+    #[must_use]
+    pub fn is_variant_named(&self, name: &str) -> bool {
+        &*self.variant_name == name
+    }
+
+    /// Get the payload, if any.
+    #[must_use]
+    pub fn payload(&self) -> Option<&Value> {
+        self.payload.as_deref()
+    }
+
+    /// Take the payload, consuming self.
+    #[must_use]
+    pub fn into_payload(self) -> Option<Value> {
+        self.payload.map(|b| *b)
     }
 }
 
@@ -514,6 +614,7 @@ impl Value {
             Self::List(_) => "list",
             Self::Map(_) => "map",
             Self::Set(_) => "set",
+            Self::Enum(_) => "enum",
         }
     }
 
@@ -583,6 +684,46 @@ impl Value {
         Self::Set(Arc::new(SetValue::from_values(values)))
     }
 
+    /// Create a new enum variant value.
+    #[must_use]
+    pub fn enum_variant(
+        type_name: impl Into<Arc<str>>,
+        tag: u16,
+        variant_name: impl Into<Arc<str>>,
+        payload: Option<Value>,
+    ) -> Self {
+        Self::Enum(Arc::new(EnumValue::new(
+            type_name,
+            tag,
+            variant_name,
+            payload,
+        )))
+    }
+
+    /// Create an `Option::None` value.
+    #[must_use]
+    pub fn none() -> Self {
+        Self::Enum(Arc::new(EnumValue::none()))
+    }
+
+    /// Create an `Option::Some(value)` value.
+    #[must_use]
+    pub fn some(value: Value) -> Self {
+        Self::Enum(Arc::new(EnumValue::some(value)))
+    }
+
+    /// Create a `Result::Ok(value)` value.
+    #[must_use]
+    pub fn ok(value: Value) -> Self {
+        Self::Enum(Arc::new(EnumValue::ok(value)))
+    }
+
+    /// Create a `Result::Err(error)` value.
+    #[must_use]
+    pub fn err(error: Value) -> Self {
+        Self::Enum(Arc::new(EnumValue::err(error)))
+    }
+
     // ─────────────────────────────────────────────────────────────────────────────
     // Type accessors
     // ─────────────────────────────────────────────────────────────────────────────
@@ -645,6 +786,8 @@ impl PartialEq for Value {
             (Self::Handler(a), Self::Handler(b)) => {
                 a.ability_id == b.ability_id && a.methods == b.methods && a.captures == b.captures
             }
+            // Enum values are structurally equal
+            (Self::Enum(a), Self::Enum(b)) => a == b,
             _ => false,
         }
     }
@@ -818,5 +961,126 @@ mod tests {
         } else {
             panic!("Expected SuspendedAbility, got something else");
         }
+    }
+
+    // =========================================================================
+    // Enum Value Tests
+    // =========================================================================
+
+    #[test]
+    fn test_option_none() {
+        let none = Value::none();
+        if let Value::Enum(e) = &none {
+            assert_eq!(&*e.type_name, "Option");
+            assert_eq!(e.tag, 0);
+            assert_eq!(&*e.variant_name, "None");
+            assert!(e.payload.is_none());
+        } else {
+            panic!("Expected Enum value");
+        }
+    }
+
+    #[test]
+    fn test_option_some() {
+        let some = Value::some(Value::Number(42.0));
+        if let Value::Enum(e) = &some {
+            assert_eq!(&*e.type_name, "Option");
+            assert_eq!(e.tag, 1);
+            assert_eq!(&*e.variant_name, "Some");
+            assert_eq!(e.payload.as_deref(), Some(&Value::Number(42.0)));
+        } else {
+            panic!("Expected Enum value");
+        }
+    }
+
+    #[test]
+    fn test_result_ok() {
+        let ok = Value::ok(Value::string("success"));
+        if let Value::Enum(e) = &ok {
+            assert_eq!(&*e.type_name, "Result");
+            assert_eq!(e.tag, 0);
+            assert_eq!(&*e.variant_name, "Ok");
+            assert_eq!(e.payload.as_deref(), Some(&Value::string("success")));
+        } else {
+            panic!("Expected Enum value");
+        }
+    }
+
+    #[test]
+    fn test_result_err() {
+        let err = Value::err(Value::string("error message"));
+        if let Value::Enum(e) = &err {
+            assert_eq!(&*e.type_name, "Result");
+            assert_eq!(e.tag, 1);
+            assert_eq!(&*e.variant_name, "Err");
+            assert_eq!(e.payload.as_deref(), Some(&Value::string("error message")));
+        } else {
+            panic!("Expected Enum value");
+        }
+    }
+
+    #[test]
+    fn test_enum_equality() {
+        assert_eq!(Value::none(), Value::none());
+        assert_eq!(
+            Value::some(Value::Number(42.0)),
+            Value::some(Value::Number(42.0))
+        );
+        assert_ne!(Value::none(), Value::some(Value::Unit));
+        assert_ne!(Value::ok(Value::Unit), Value::err(Value::Unit));
+    }
+
+    #[test]
+    fn test_serialize_enum() {
+        let none = Value::none();
+        let json = serde_json::to_string(&none).unwrap();
+        let back: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(none, back);
+
+        let some = Value::some(Value::Number(42.0));
+        let json = serde_json::to_string(&some).unwrap();
+        let back: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(some, back);
+
+        let ok = Value::ok(Value::string("data"));
+        let json = serde_json::to_string(&ok).unwrap();
+        let back: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(ok, back);
+    }
+
+    #[test]
+    fn test_nested_enum() {
+        // Option<Option<number>>
+        let nested = Value::some(Value::some(Value::Number(42.0)));
+        if let Value::Enum(outer) = &nested {
+            assert_eq!(&*outer.variant_name, "Some");
+            if let Some(inner) = outer.payload.as_deref() {
+                if let Value::Enum(inner_enum) = inner {
+                    assert_eq!(&*inner_enum.variant_name, "Some");
+                    assert_eq!(inner_enum.payload.as_deref(), Some(&Value::Number(42.0)));
+                } else {
+                    panic!("Expected inner Enum value");
+                }
+            } else {
+                panic!("Expected payload");
+            }
+        } else {
+            panic!("Expected outer Enum value");
+        }
+    }
+
+    #[test]
+    fn test_enum_value_helpers() {
+        let e = EnumValue::none();
+        assert!(e.is_variant(0));
+        assert!(!e.is_variant(1));
+        assert!(e.is_variant_named("None"));
+        assert!(!e.is_variant_named("Some"));
+        assert!(e.payload().is_none());
+
+        let e = EnumValue::some(Value::Number(1.0));
+        assert!(e.is_variant(1));
+        assert!(e.is_variant_named("Some"));
+        assert_eq!(e.payload(), Some(&Value::Number(1.0)));
     }
 }

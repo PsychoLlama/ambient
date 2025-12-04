@@ -727,6 +727,47 @@ impl Type {
         Self::Named(NamedType::simple(name))
     }
 
+    /// Create an `Option<T>` type.
+    #[must_use]
+    pub fn option(inner: Type) -> Self {
+        Self::named("Option", vec![inner])
+    }
+
+    /// Create a `Result<T, E>` type.
+    #[must_use]
+    pub fn result(ok: Type, err: Type) -> Self {
+        Self::named("Result", vec![ok, err])
+    }
+
+    /// Check if this type is `Option<T>` and return the inner type.
+    #[must_use]
+    pub fn as_option(&self) -> Option<&Type> {
+        match self {
+            Self::Named(n) if n.name.as_ref() == "Option" && n.args.len() == 1 => Some(&n.args[0]),
+            _ => None,
+        }
+    }
+
+    /// Check if this type is `Result<T, E>` and return the ok and error types.
+    #[must_use]
+    pub fn as_result(&self) -> Option<(&Type, &Type)> {
+        match self {
+            Self::Named(n) if n.name.as_ref() == "Result" && n.args.len() == 2 => {
+                Some((&n.args[0], &n.args[1]))
+            }
+            _ => None,
+        }
+    }
+
+    /// Check if this type is a `List<T>` and return the element type.
+    #[must_use]
+    pub fn as_list(&self) -> Option<&Type> {
+        match self {
+            Self::Named(n) if n.name.as_ref() == "List" && n.args.len() == 1 => Some(&n.args[0]),
+            _ => None,
+        }
+    }
+
     /// Create an unbound type variable.
     #[must_use]
     pub fn var(id: TypeVarId) -> Self {
@@ -1513,6 +1554,65 @@ mod tests {
             assert!(abilities.contains(&2));
         } else {
             panic!("Expected concrete ability set");
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Option and Result type tests (Milestone 15)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_option_type() {
+        let opt_num = Type::option(Type::Number);
+        assert_eq!(opt_num.to_string(), "Option<number>");
+
+        // Check as_option works
+        assert_eq!(opt_num.as_option(), Some(&Type::Number));
+
+        // Non-option types return None
+        assert_eq!(Type::Number.as_option(), None);
+        assert_eq!(Type::named("List", vec![Type::Number]).as_option(), None);
+    }
+
+    #[test]
+    fn test_result_type() {
+        let res = Type::result(Type::String, Type::Number);
+        assert_eq!(res.to_string(), "Result<string, number>");
+
+        // Check as_result works
+        assert_eq!(res.as_result(), Some((&Type::String, &Type::Number)));
+
+        // Non-result types return None
+        assert_eq!(Type::Number.as_result(), None);
+        assert_eq!(Type::option(Type::Number).as_result(), None);
+    }
+
+    #[test]
+    fn test_as_list() {
+        let list = Type::named("List", vec![Type::Number]);
+        assert_eq!(list.as_list(), Some(&Type::Number));
+
+        // Non-list types return None
+        assert_eq!(Type::Number.as_list(), None);
+        assert_eq!(Type::option(Type::Number).as_list(), None);
+    }
+
+    #[test]
+    fn test_nested_option_result() {
+        // Option<Result<number, string>>
+        let nested = Type::option(Type::result(Type::Number, Type::String));
+        assert_eq!(nested.to_string(), "Option<Result<number, string>>");
+
+        // Check we can extract inner types
+        if let Some(inner) = nested.as_option() {
+            if let Some((ok, err)) = inner.as_result() {
+                assert_eq!(ok, &Type::Number);
+                assert_eq!(err, &Type::String);
+            } else {
+                panic!("Expected Result inside Option");
+            }
+        } else {
+            panic!("Expected Option type");
         }
     }
 }

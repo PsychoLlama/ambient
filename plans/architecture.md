@@ -1195,11 +1195,40 @@ sandbox with Log {
 - [x] `register_all_standard_abilities()` convenience function
 - [x] Map collection type and operations (`MakeEmptyMap`, `MapGet`, `MapInsert`, `MapRemove`, `MapContains`, `MapLength`, `MapKeys`, `MapValues`)
 - [x] Set collection type and operations (`MakeEmptySet`, `MakeSet`, `SetInsert`, `SetRemove`, `SetContains`, `SetLength`, `SetUnion`, `SetIntersection`, `SetDifference`, `SetToList`)
-- [ ] Option/Result utilities (future)
+- [x] Enum runtime value type (`Value::Enum`, `EnumValue`)
+- [x] Enum bytecode operations (`MakeEnum`, `EnumIs`, `EnumPayload`, `EnumTag`)
+- [x] Option type (`Type::option()`, convenience constructors `Value::none()`, `Value::some()`)
+- [x] Result type (`Type::result()`, convenience constructors `Value::ok()`, `Value::err()`)
+- [x] Pattern matching compilation for enum variants (`PatternKind::Variant`)
+- [x] `Option.unwrap_or` utility function (`OptionUnwrapOr` opcode)
+- [ ] Option/Result utility functions requiring closures (map, and_then - need continuation frames)
 
 **Test case**: Write useful programs using standard library.
 
-**Implementation notes**: The standard library is implemented as bytecode opcodes for performance-critical operations (lists, strings, type conversion) and as host-provided ability handlers for I/O operations (Time, Random, Log). The `register_all_standard_abilities()` function registers Console, Exception (fallback), Time, Random, and Log abilities on a VM.
+**Implementation notes**: The standard library is implemented as bytecode opcodes for performance-critical operations (lists, strings, type conversion, enums) and as host-provided ability handlers for I/O operations (Time, Random, Log). The `register_all_standard_abilities()` function registers Console, Exception (fallback), Time, Random, and Log abilities on a VM.
+
+Enum support enables algebraic data types like Option and Result:
+- `EnumValue` stores type name, variant tag, variant name, and optional payload
+- `MakeEnum` opcode creates enum variants at runtime
+- `EnumIs` checks if a value matches a specific variant tag (for pattern matching)
+- `EnumPayload` extracts the inner value from variants like `Some(x)` or `Ok(x)`
+- `EnumTag` gets the numeric variant tag for dispatch in match expressions
+
+Pattern matching for enums is compiled to efficient bytecode:
+```ambient
+match option_value {
+    Some(x) => x + 1,
+    None => 0,
+}
+```
+Compiles to:
+1. `EnumIs` to check variant tag against expected value
+2. `JumpIfNot` to next arm if tag doesn't match
+3. On match: `EnumPayload` to extract the inner value, bind to pattern
+4. Execute arm body
+5. `Jump` to end of match
+
+The compiler handles proper stack cleanup on both match and fail paths to ensure correct behavior with multiple match arms and nested patterns.
 
 ### Milestone 16: Developer Experience
 

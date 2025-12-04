@@ -57,6 +57,15 @@ pub enum VmError {
 
     /// Ability argument index out of bounds.
     AbilityArgOutOfBounds { index: usize, length: usize },
+
+    /// Tried to extract payload from a unit enum variant.
+    EnumPayloadMissing {
+        type_name: String,
+        variant_name: String,
+    },
+
+    /// Feature not yet implemented.
+    Unsupported { operation: &'static str },
 }
 
 impl std::fmt::Display for VmError {
@@ -113,6 +122,18 @@ impl std::fmt::Display for VmError {
                     f,
                     "ability argument index {index} out of bounds (length {length})"
                 )
+            }
+            Self::EnumPayloadMissing {
+                type_name,
+                variant_name,
+            } => {
+                write!(
+                    f,
+                    "attempted to extract payload from unit variant {type_name}::{variant_name}"
+                )
+            }
+            Self::Unsupported { operation } => {
+                write!(f, "unsupported operation: {operation}")
             }
         }
     }

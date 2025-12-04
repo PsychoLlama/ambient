@@ -546,6 +546,18 @@ pub fn format_value(value: &Value) -> String {
             let joined = parts.join(", ");
             format!("Set {{ {joined} }}")
         }
+        Value::Enum(e) => {
+            if let Some(payload) = e.payload.as_deref() {
+                format!(
+                    "{}::{}({})",
+                    e.type_name,
+                    e.variant_name,
+                    format_value(payload)
+                )
+            } else {
+                format!("{}::{}", e.type_name, e.variant_name)
+            }
+        }
     }
 }
 

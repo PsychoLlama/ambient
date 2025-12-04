@@ -2147,4 +2147,248 @@ mod tests {
         let result = vm.call(&hash, vec![]);
         assert_eq!(result, Ok(Value::Number(2.0)));
     }
+
+    // =========================================================================
+    // Enum Operations
+    // =========================================================================
+
+    #[test]
+    fn test_make_enum_none() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_none(); // Option::None
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]).unwrap();
+        assert_eq!(result, Value::none());
+    }
+
+    #[test]
+    fn test_make_enum_some() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(42.0));
+        builder.emit_some(); // Option::Some(42.0)
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]).unwrap();
+        assert_eq!(result, Value::some(Value::Number(42.0)));
+    }
+
+    #[test]
+    fn test_make_enum_result_ok() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("success"));
+        builder.emit_ok(); // Result::Ok("success")
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]).unwrap();
+        assert_eq!(result, Value::ok(Value::string("success")));
+    }
+
+    #[test]
+    fn test_make_enum_result_err() {
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("error"));
+        builder.emit_err(); // Result::Err("error")
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]).unwrap();
+        assert_eq!(result, Value::err(Value::string("error")));
+    }
+
+    #[test]
+    fn test_enum_is() {
+        // Check if Option::Some(42) is tag 1 (Some)
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(42.0));
+        builder.emit_some();
+        builder.emit_enum_is(1); // Check if it's Some (tag 1)
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_enum_is_false() {
+        // Check if Option::None is tag 1 (Some) - should be false
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_none();
+        builder.emit_enum_is(1); // Check if it's Some (tag 1)
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]).unwrap();
+        assert_eq!(result, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_enum_payload() {
+        // Extract payload from Option::Some(42)
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(42.0));
+        builder.emit_some();
+        builder.emit_enum_payload();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]).unwrap();
+        assert_eq!(result, Value::Number(42.0));
+    }
+
+    #[test]
+    fn test_enum_payload_missing() {
+        // Try to extract payload from Option::None - should error
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_none();
+        builder.emit_enum_payload();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]);
+        assert!(matches!(result, Err(VmError::EnumPayloadMissing { .. })));
+    }
+
+    #[test]
+    fn test_enum_tag() {
+        // Get tag from Option::Some(42) - should be 1
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(42.0));
+        builder.emit_some();
+        builder.emit_enum_tag();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]).unwrap();
+        assert_eq!(result, Value::Number(1.0)); // Some is tag 1
+    }
+
+    #[test]
+    fn test_enum_tag_none() {
+        // Get tag from Option::None - should be 0
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_none();
+        builder.emit_enum_tag();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]).unwrap();
+        assert_eq!(result, Value::Number(0.0)); // None is tag 0
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Option/Result utility tests
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_option_unwrap_or_some() {
+        // Some(42).unwrap_or(0) should return 42
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(42.0));
+        builder.emit_some();
+        builder.emit_const(Value::Number(0.0)); // default
+        builder.emit_option_unwrap_or();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]).unwrap();
+        assert_eq!(result, Value::Number(42.0));
+    }
+
+    #[test]
+    fn test_option_unwrap_or_none() {
+        // None.unwrap_or(99) should return 99
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_none();
+        builder.emit_const(Value::Number(99.0)); // default
+        builder.emit_option_unwrap_or();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]).unwrap();
+        assert_eq!(result, Value::Number(99.0));
+    }
+
+    #[test]
+    fn test_option_unwrap_or_string() {
+        // None.unwrap_or("default") should return "default"
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_none();
+        builder.emit_const(Value::string("default"));
+        builder.emit_option_unwrap_or();
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+
+        let result = vm.call(&hash, vec![]).unwrap();
+        assert_eq!(result, Value::string("default"));
+    }
 }

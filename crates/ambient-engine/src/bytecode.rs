@@ -450,6 +450,93 @@ pub enum Opcode {
     SetToList = 0xF9,
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Enum operations (Milestone 15 - Option/Result)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Create an enum variant value.
+    /// Operand: u16 (constant pool index for type name string)
+    /// Operand: u16 (variant tag)
+    /// Operand: u16 (constant pool index for variant name string)
+    /// Operand: u8 (1 if has payload, 0 if unit variant)
+    ///
+    /// Stack (with payload): `[payload] -> [enum_value]`
+    /// Stack (unit variant): `[] -> [enum_value]`
+    MakeEnum = 0xFA,
+
+    /// Check if an enum value matches a specific variant tag.
+    /// Operand: u16 (expected variant tag)
+    ///
+    /// Stack: `[enum_value] -> [bool]`
+    /// Does NOT consume the enum value from the stack.
+    EnumIs = 0xFB,
+
+    /// Extract the payload from an enum value.
+    /// The enum must have a payload (not a unit variant).
+    ///
+    /// Stack: `[enum_value] -> [payload]`
+    /// Errors if the enum is a unit variant.
+    EnumPayload = 0xFC,
+
+    /// Get the variant tag from an enum value.
+    ///
+    /// Stack: `[enum_value] -> [tag_number]`
+    EnumTag = 0xFD,
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Option/Result utilities
+    // ─────────────────────────────────────────────────────────────────────────
+    /// `Option.unwrap_or`: Get inner value or default.
+    ///
+    /// Stack: `[option, default] -> [value]`
+    /// - If `Some(x)`: returns x
+    /// - If None: returns default
+    OptionUnwrapOr = 0xE3,
+
+    /// `Option.map`: Apply a function to the inner value if Some.
+    ///
+    /// Stack: `[option, closure] -> [option]`
+    /// - If `Some(x)`: calls closure with x, returns `Some(result)`
+    /// - If None: returns None
+    ///
+    /// Not yet implemented (requires continuation frames).
+    OptionMap = 0xE4,
+
+    /// `Option.and_then`: Chain Option-returning functions.
+    ///
+    /// Stack: `[option, closure] -> [option]`
+    /// - If `Some(x)`: calls closure with x (closure returns Option), returns that
+    /// - If None: returns None
+    ///
+    /// Not yet implemented (requires continuation frames).
+    OptionAndThen = 0xE5,
+
+    /// `Result.map`: Apply a function to the Ok value.
+    ///
+    /// Stack: `[result, closure] -> [result]`
+    /// - If `Ok(x)`: calls closure with x, returns `Ok(result)`
+    /// - If `Err(e)`: returns `Err(e)`
+    ///
+    /// Not yet implemented (requires continuation frames).
+    ResultMap = 0xE6,
+
+    /// `Result.map_err`: Apply a function to the Err value.
+    ///
+    /// Stack: `[result, closure] -> [result]`
+    /// - If `Ok(x)`: returns `Ok(x)`
+    /// - If `Err(e)`: calls closure with e, returns `Err(result)`
+    ///
+    /// Not yet implemented (requires continuation frames).
+    ResultMapErr = 0xE7,
+
+    /// `Result.and_then`: Chain Result-returning functions.
+    ///
+    /// Stack: `[result, closure] -> [result]`
+    /// - If `Ok(x)`: calls closure with x (closure returns Result), returns that
+    /// - If `Err(e)`: returns `Err(e)`
+    ///
+    /// Not yet implemented (requires continuation frames).
+    ResultAndThen = 0x5A,
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Special
     // ─────────────────────────────────────────────────────────────────────────
     /// Halt execution (end of program).
@@ -546,6 +633,18 @@ impl Opcode {
             0xF7 => Some(Self::SetIntersection),
             0xF8 => Some(Self::SetDifference),
             0xF9 => Some(Self::SetToList),
+            // Enums
+            0xFA => Some(Self::MakeEnum),
+            0xFB => Some(Self::EnumIs),
+            0xFC => Some(Self::EnumPayload),
+            0xFD => Some(Self::EnumTag),
+            // Option/Result utilities
+            0xE3 => Some(Self::OptionUnwrapOr),
+            0xE4 => Some(Self::OptionMap),
+            0xE5 => Some(Self::OptionAndThen),
+            0xE6 => Some(Self::ResultMap),
+            0xE7 => Some(Self::ResultMapErr),
+            0x5A => Some(Self::ResultAndThen),
             0xFF => Some(Self::Halt),
             _ => None,
         }
@@ -779,6 +878,25 @@ fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
             hasher.update(&(set.elements.len() as u32).to_le_bytes());
             for elem in &set.elements {
                 hash_value(hasher, elem);
+            }
+        }
+        Value::Enum(e) => {
+            const TYPE_ENUM: u8 = 14;
+            hasher.update(&[TYPE_ENUM]);
+            // Hash type name
+            hasher.update(&(e.type_name.len() as u32).to_le_bytes());
+            hasher.update(e.type_name.as_bytes());
+            // Hash tag
+            hasher.update(&e.tag.to_le_bytes());
+            // Hash variant name
+            hasher.update(&(e.variant_name.len() as u32).to_le_bytes());
+            hasher.update(e.variant_name.as_bytes());
+            // Hash payload (if any)
+            if let Some(payload) = e.payload.as_deref() {
+                hasher.update(&[1u8]); // has payload marker
+                hash_value(hasher, payload);
+            } else {
+                hasher.update(&[0u8]); // no payload marker
             }
         }
     }
@@ -1215,6 +1333,128 @@ impl BytecodeBuilder {
         self.code.push(Opcode::SetToList as u8);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Enum operations (Milestone 15 - Option/Result)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Emit a `MakeEnum` instruction.
+    ///
+    /// Creates an enum variant value. If `has_payload` is true, expects a payload
+    /// value on the stack which will be consumed. Otherwise creates a unit variant.
+    pub fn emit_make_enum(
+        &mut self,
+        type_name: &str,
+        tag: u16,
+        variant_name: &str,
+        has_payload: bool,
+    ) {
+        let type_name_idx = self.add_constant(Value::string(type_name));
+        let variant_name_idx = self.add_constant(Value::string(variant_name));
+        self.code.push(Opcode::MakeEnum as u8);
+        self.code.extend_from_slice(&type_name_idx.to_le_bytes());
+        self.code.extend_from_slice(&tag.to_le_bytes());
+        self.code.extend_from_slice(&variant_name_idx.to_le_bytes());
+        self.code.push(u8::from(has_payload));
+    }
+
+    /// Emit a `EnumIs` instruction.
+    ///
+    /// Checks if the enum on top of stack matches the given tag.
+    /// Does NOT consume the enum from the stack.
+    pub fn emit_enum_is(&mut self, expected_tag: u16) {
+        self.code.push(Opcode::EnumIs as u8);
+        self.code.extend_from_slice(&expected_tag.to_le_bytes());
+    }
+
+    /// Emit a `EnumPayload` instruction.
+    ///
+    /// Extracts the payload from an enum value on the stack.
+    pub fn emit_enum_payload(&mut self) {
+        self.code.push(Opcode::EnumPayload as u8);
+    }
+
+    /// Emit a `EnumTag` instruction.
+    ///
+    /// Gets the tag (variant index) from an enum value as a number.
+    pub fn emit_enum_tag(&mut self) {
+        self.code.push(Opcode::EnumTag as u8);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Convenience methods for Option and Result
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Emit code to create `Option::None`.
+    pub fn emit_none(&mut self) {
+        self.emit_make_enum("Option", 0, "None", false);
+    }
+
+    /// Emit code to create `Option::Some(value)`.
+    /// Expects the payload value to already be on the stack.
+    pub fn emit_some(&mut self) {
+        self.emit_make_enum("Option", 1, "Some", true);
+    }
+
+    /// Emit code to create `Result::Ok(value)`.
+    /// Expects the payload value to already be on the stack.
+    pub fn emit_ok(&mut self) {
+        self.emit_make_enum("Result", 0, "Ok", true);
+    }
+
+    /// Emit code to create `Result::Err(error)`.
+    /// Expects the error value to already be on the stack.
+    pub fn emit_err(&mut self) {
+        self.emit_make_enum("Result", 1, "Err", true);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Option/Result utility operations
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Emit `OptionUnwrapOr` instruction.
+    /// Stack: `[option, default] -> [value]`
+    pub fn emit_option_unwrap_or(&mut self) {
+        self.code.push(Opcode::OptionUnwrapOr as u8);
+    }
+
+    // The following emit methods are defined but the VM operations are not yet
+    // fully implemented (they require continuation frames for closure calls).
+
+    /// Emit `OptionMap` instruction.
+    /// Stack: `[option, closure] -> [option]`
+    /// NOTE: Not yet implemented in VM.
+    pub fn emit_option_map(&mut self) {
+        self.code.push(Opcode::OptionMap as u8);
+    }
+
+    /// Emit `OptionAndThen` instruction.
+    /// Stack: `[option, closure] -> [option]`
+    /// NOTE: Not yet implemented in VM.
+    pub fn emit_option_and_then(&mut self) {
+        self.code.push(Opcode::OptionAndThen as u8);
+    }
+
+    /// Emit `ResultMap` instruction.
+    /// Stack: `[result, closure] -> [result]`
+    /// NOTE: Not yet implemented in VM.
+    pub fn emit_result_map(&mut self) {
+        self.code.push(Opcode::ResultMap as u8);
+    }
+
+    /// Emit `ResultMapErr` instruction.
+    /// Stack: `[result, closure] -> [result]`
+    /// NOTE: Not yet implemented in VM.
+    pub fn emit_result_map_err(&mut self) {
+        self.code.push(Opcode::ResultMapErr as u8);
+    }
+
+    /// Emit `ResultAndThen` instruction.
+    /// Stack: `[result, closure] -> [result]`
+    /// NOTE: Not yet implemented in VM.
+    pub fn emit_result_and_then(&mut self) {
+        self.code.push(Opcode::ResultAndThen as u8);
+    }
+
     /// Build the final compiled function.
     ///
     /// Dependencies are automatically collected from `emit_call` invocations.
@@ -1358,6 +1598,11 @@ mod tests {
             Opcode::SetIntersection,
             Opcode::SetDifference,
             Opcode::SetToList,
+            // Enums
+            Opcode::MakeEnum,
+            Opcode::EnumIs,
+            Opcode::EnumPayload,
+            Opcode::EnumTag,
             Opcode::Halt,
         ];
 

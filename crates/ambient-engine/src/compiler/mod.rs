@@ -874,6 +874,25 @@ fn hash_value_for_content(hasher: &mut blake3::Hasher, value: &Value) {
                 hash_value_for_content(hasher, elem);
             }
         }
+        Value::Enum(e) => {
+            const TYPE_ENUM: u8 = 14;
+            hasher.update(&[TYPE_ENUM]);
+            // Hash type name
+            hasher.update(&(e.type_name.len() as u32).to_le_bytes());
+            hasher.update(e.type_name.as_bytes());
+            // Hash tag
+            hasher.update(&e.tag.to_le_bytes());
+            // Hash variant name
+            hasher.update(&(e.variant_name.len() as u32).to_le_bytes());
+            hasher.update(e.variant_name.as_bytes());
+            // Hash payload (if any)
+            if let Some(payload) = e.payload.as_deref() {
+                hasher.update(&[1u8]); // has payload marker
+                hash_value_for_content(hasher, payload);
+            } else {
+                hasher.update(&[0u8]); // no payload marker
+            }
+        }
     }
 }
 
@@ -1752,6 +1771,25 @@ fn get_ability_name(ability_id: u16) -> Option<&'static str> {
     }
 }
 
+/// Get the variant tag for a well-known enum variant name.
+///
+/// Tags for Option:
+/// - None = 0
+/// - Some = 1
+///
+/// Tags for Result:
+/// - Ok = 0
+/// - Err = 1
+fn get_variant_tag(variant_name: &str) -> Option<u16> {
+    match variant_name {
+        // Tag 0: unit/success variants
+        "None" | "Ok" => Some(0),
+        // Tag 1: payload/error variants
+        "Some" | "Err" => Some(1),
+        _ => None,
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Statement Compilation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1916,14 +1954,122 @@ fn compile_pattern_match(
             Ok(Some(fail_jump))
         }
 
-        PatternKind::Tuple(_) | PatternKind::Record(_) | PatternKind::Variant(_, _) => {
-            Err(CompileError::new(
-                CompileErrorKind::Unsupported {
-                    feature: "complex patterns".to_string(),
-                },
-                (pattern.span.start, pattern.span.end),
-            ))
+        PatternKind::Variant(variant_name, inner_pattern) => {
+            // Enum variant pattern matching: `Some(x)`, `None`, `Ok(v)`, `Err(e)`
+            //
+            // Stack behavior (from VM dispatch.rs):
+            // - EnumIs: uses peek(), pushes bool -> [enum] becomes [enum, bool]
+            // - EnumPayload: pops enum, pushes payload -> [enum] becomes [payload]
+            //
+            // For non-last arms, compile_match does Dup first, so we have [orig, dup].
+            // For last arm, we just have [orig].
+            //
+            // The challenge: EnumIs doesn't consume the enum, so on the fail path
+            // we have [orig, dup, bool] -> JumpIfNot -> [orig, dup].
+            // But the next arm expects [orig] to Dup from.
+            //
+            // Solution: On fail path, pop the dup before continuing to next arm.
+            // We emit:
+            //   EnumIs           -> [orig, dup, bool] or [orig, bool]
+            //   JumpIfNot cleanup_and_fail
+            //   <success code>
+            //   Jump past_cleanup
+            //   cleanup_and_fail: Pop  (remove dup on fail path)
+            //   past_cleanup: <returned as fail_jump for compile_match to patch>
+
+            let tag = get_variant_tag(&variant_name.name).ok_or_else(|| {
+                CompileError::new(
+                    CompileErrorKind::Unsupported {
+                        feature: format!("unknown variant: {}", variant_name.name),
+                    },
+                    (pattern.span.start, pattern.span.end),
+                )
+            })?;
+
+            // Check if the enum matches this variant tag.
+            // EnumIs: [enum] -> [enum, bool]
+            fc.builder.emit_enum_is(tag);
+
+            // Jump to cleanup on fail
+            let cleanup_jump = fc.builder.emit_jump_placeholder(Opcode::JumpIfNot);
+
+            // === SUCCESS PATH ===
+            // Stack after JumpIfNot (not taken): [orig, dup] or [orig]
+            // (JumpIfNot consumed the bool)
+
+            if let Some(inner) = inner_pattern {
+                // Extract payload: [orig, dup] -> [orig, payload]
+                fc.builder.emit_enum_payload();
+
+                // Recursively match the inner pattern against the payload.
+                // is_last=true because we want inner match to consume the payload.
+                compile_pattern_match(fc, inner, true)?;
+                // Stack: [orig] (non-last) or [] (last)
+            } else {
+                // Unit variant (like None) - pop the matched enum
+                fc.builder.emit(Opcode::Pop);
+                // Stack: [orig] (non-last) or [] (last)
+            }
+
+            // For non-last arms, pop the original scrutinee (compile_match expects [])
+            if !is_last {
+                fc.builder.emit(Opcode::Pop);
+            }
+            // Stack: []
+
+            // Jump past the cleanup code
+            let past_cleanup_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
+
+            // === FAIL PATH (cleanup) ===
+            fc.builder.patch_jump(cleanup_jump);
+            // Stack here: [orig, dup] (non-last) or [orig] (last)
+            // JumpIfNot consumed the bool
+
+            // Pop the enum that EnumIs left on stack
+            fc.builder.emit(Opcode::Pop);
+            // Stack: [orig] (non-last) or [] (last)
+
+            // For non-last: we now have [orig] which is correct for next arm's Dup
+            // For last: we have [] but there's no next arm anyway
+
+            // Patch the success path's jump to skip over the fail cleanup
+            fc.builder.patch_jump(past_cleanup_jump);
+
+            // Return the fail target for compile_match to use
+            // But wait - we need to return a jump placeholder, not an offset.
+            // The issue is compile_match expects a jump that IT will patch.
+            //
+            // Actually looking at compile_match:
+            //   let fail_jump = compile_pattern_match(...)?;
+            //   ...compile body...
+            //   fc.builder.patch_jump(fj);  // patches to HERE
+            //
+            // So fail_jump should point to AFTER the body. But we've already
+            // handled the fail path cleanup inline. We need a different approach.
+            //
+            // New approach: Don't return a fail_jump. Instead, emit a Jump
+            // placeholder that we return, which compile_match will patch.
+            // On fail, we clean up and then fall through to this Jump.
+
+            // Actually, let me re-read how this works. Looking at the patching:
+            //   fc.builder.patch_jump(fj);
+            // This patches fj to the current bytecode position.
+            //
+            // So if I return a Jump placeholder here, compile_match will patch
+            // it to point to after the arm body. That's what we want!
+
+            // Emit a jump that compile_match will patch to the right place
+            let fail_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
+
+            Ok(Some(fail_jump))
         }
+
+        PatternKind::Tuple(_) | PatternKind::Record(_) => Err(CompileError::new(
+            CompileErrorKind::Unsupported {
+                feature: "complex patterns (tuple/record)".to_string(),
+            },
+            (pattern.span.start, pattern.span.end),
+        )),
     }
 }
 
@@ -2220,5 +2366,143 @@ mod tests {
             func.hash, func2.hash,
             "Recursive function hash should be deterministic"
         );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Enum Pattern Matching Tests
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_compile_match_none_pattern() {
+        use crate::ast::{MatchArm, Pattern};
+
+        // fn test(x) {
+        //   match x {
+        //     None => 0,
+        //     _ => 1,
+        //   }
+        // }
+        let func = FunctionDef {
+            name: Arc::from("test"),
+            is_public: false,
+            type_params: vec![],
+            params: vec![Param::new(0, "x")],
+            ret_ty: None,
+            abilities: vec![],
+            body: Expr::match_expr(
+                Expr::local(0),
+                vec![
+                    MatchArm::new(Pattern::variant("None", None), Expr::number(0.0)),
+                    MatchArm::new(Pattern::wildcard(), Expr::number(1.0)),
+                ],
+            ),
+        };
+
+        let compiled = compile_test_function(&func).expect("compilation failed");
+        assert_eq!(compiled.param_count, 1);
+    }
+
+    #[test]
+    fn test_compile_match_some_pattern() {
+        use crate::ast::{MatchArm, Pattern};
+
+        // fn test(x) {
+        //   match x {
+        //     Some(v) => v,
+        //     None => 0,
+        //   }
+        // }
+        let func = FunctionDef {
+            name: Arc::from("test"),
+            is_public: false,
+            type_params: vec![],
+            params: vec![Param::new(0, "x")],
+            ret_ty: None,
+            abilities: vec![],
+            body: Expr::match_expr(
+                Expr::local(0),
+                vec![
+                    MatchArm::new(
+                        Pattern::variant("Some", Some(Pattern::binding(1, "v"))),
+                        Expr::local(1),
+                    ),
+                    MatchArm::new(Pattern::variant("None", None), Expr::number(0.0)),
+                ],
+            ),
+        };
+
+        let compiled = compile_test_function(&func).expect("compilation failed");
+        assert_eq!(compiled.param_count, 1);
+        // Should have at least 2 locals (param x and binding v)
+        assert!(compiled.local_count >= 2);
+    }
+
+    #[test]
+    fn test_compile_match_result_patterns() {
+        use crate::ast::{MatchArm, Pattern};
+
+        // fn test(x) {
+        //   match x {
+        //     Ok(v) => v,
+        //     Err(e) => e,
+        //   }
+        // }
+        let func = FunctionDef {
+            name: Arc::from("test"),
+            is_public: false,
+            type_params: vec![],
+            params: vec![Param::new(0, "x")],
+            ret_ty: None,
+            abilities: vec![],
+            body: Expr::match_expr(
+                Expr::local(0),
+                vec![
+                    MatchArm::new(
+                        Pattern::variant("Ok", Some(Pattern::binding(1, "v"))),
+                        Expr::local(1),
+                    ),
+                    MatchArm::new(
+                        Pattern::variant("Err", Some(Pattern::binding(2, "e"))),
+                        Expr::local(2),
+                    ),
+                ],
+            ),
+        };
+
+        let compiled = compile_test_function(&func).expect("compilation failed");
+        assert_eq!(compiled.param_count, 1);
+    }
+
+    #[test]
+    fn test_compile_match_variant_with_wildcard_inner() {
+        use crate::ast::{MatchArm, Pattern};
+
+        // fn test(x) {
+        //   match x {
+        //     Some(_) => true,
+        //     None => false,
+        //   }
+        // }
+        let func = FunctionDef {
+            name: Arc::from("test"),
+            is_public: false,
+            type_params: vec![],
+            params: vec![Param::new(0, "x")],
+            ret_ty: None,
+            abilities: vec![],
+            body: Expr::match_expr(
+                Expr::local(0),
+                vec![
+                    MatchArm::new(
+                        Pattern::variant("Some", Some(Pattern::wildcard())),
+                        Expr::bool(true),
+                    ),
+                    MatchArm::new(Pattern::variant("None", None), Expr::bool(false)),
+                ],
+            ),
+        };
+
+        let compiled = compile_test_function(&func).expect("compilation failed");
+        assert_eq!(compiled.param_count, 1);
     }
 }

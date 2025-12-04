@@ -1151,6 +1151,156 @@ impl Vm {
                     };
                     self.stack.push(Value::list(set.to_list()));
                 }
+
+                // ─────────────────────────────────────────────────────────────
+                // Enum operations
+                // ─────────────────────────────────────────────────────────────
+                Opcode::MakeEnum => {
+                    let type_name_idx = self.read_u16()?;
+                    let tag = self.read_u16()?;
+                    let variant_name_idx = self.read_u16()?;
+                    let has_payload = self.read_u8()? != 0;
+
+                    // Get the type name string from constants
+                    let type_name = match self.get_constant(type_name_idx)? {
+                        Value::String(s) => (*s).clone(),
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "string",
+                                got: other.type_name(),
+                                operation: "make_enum type_name",
+                            })
+                        }
+                    };
+
+                    // Get the variant name string from constants
+                    let variant_name = match self.get_constant(variant_name_idx)? {
+                        Value::String(s) => (*s).clone(),
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "string",
+                                got: other.type_name(),
+                                operation: "make_enum variant_name",
+                            })
+                        }
+                    };
+
+                    let payload = if has_payload { Some(self.pop()?) } else { None };
+
+                    let enum_val = Value::enum_variant(&*type_name, tag, &*variant_name, payload);
+                    self.stack.push(enum_val);
+                }
+
+                Opcode::EnumIs => {
+                    let expected_tag = self.read_u16()?;
+                    let enum_val = self.peek()?;
+
+                    let result = match enum_val {
+                        Value::Enum(e) => e.tag == expected_tag,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "enum",
+                                got: other.type_name(),
+                                operation: "enum_is",
+                            })
+                        }
+                    };
+
+                    self.stack.push(Value::Bool(result));
+                }
+
+                Opcode::EnumPayload => {
+                    let enum_val = self.pop()?;
+
+                    match enum_val {
+                        Value::Enum(e) => {
+                            if let Some(payload) = e.payload.as_deref() {
+                                self.stack.push(payload.clone());
+                            } else {
+                                return Err(VmError::EnumPayloadMissing {
+                                    type_name: e.type_name.to_string(),
+                                    variant_name: e.variant_name.to_string(),
+                                });
+                            }
+                        }
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "enum",
+                                got: other.type_name(),
+                                operation: "enum_payload",
+                            })
+                        }
+                    }
+                }
+
+                Opcode::EnumTag => {
+                    let enum_val = self.pop()?;
+
+                    match enum_val {
+                        Value::Enum(e) => {
+                            self.stack.push(Value::Number(f64::from(e.tag)));
+                        }
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "enum",
+                                got: other.type_name(),
+                                operation: "enum_tag",
+                            })
+                        }
+                    }
+                }
+
+                // ─────────────────────────────────────────────────────────────
+                // Option/Result utilities
+                // ─────────────────────────────────────────────────────────────
+                Opcode::OptionUnwrapOr => {
+                    // Stack: [option, default] -> [value]
+                    let default = self.pop()?;
+                    let option = self.pop()?;
+
+                    match option {
+                        Value::Enum(e) if &*e.type_name == "Option" => {
+                            if e.tag == 1 {
+                                // Some(x) - return the payload
+                                if let Some(payload) = e.payload.as_deref() {
+                                    self.stack.push(payload.clone());
+                                } else {
+                                    return Err(VmError::EnumPayloadMissing {
+                                        type_name: "Option".to_string(),
+                                        variant_name: "Some".to_string(),
+                                    });
+                                }
+                            } else {
+                                // None - return the default
+                                self.stack.push(default);
+                            }
+                        }
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "Option",
+                                got: other.type_name(),
+                                operation: "option_unwrap_or",
+                            })
+                        }
+                    }
+                }
+
+                Opcode::OptionMap
+                | Opcode::OptionAndThen
+                | Opcode::ResultMap
+                | Opcode::ResultMapErr
+                | Opcode::ResultAndThen => {
+                    // These operations require calling closures and wrapping results.
+                    // They need special VM support (continuation frames) to properly
+                    // handle the closure return and wrap it in the appropriate enum.
+                    // For now, return an error indicating these are not yet implemented.
+                    //
+                    // TODO: Implement using continuation frames or trampolining.
+                    return Err(VmError::Unsupported {
+                        operation:
+                            "map/and_then operations require closure calls (not yet implemented)",
+                    });
+                }
             }
         }
     }

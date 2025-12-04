@@ -350,6 +350,21 @@ impl Pattern {
     pub fn binding(id: BindingId, name: impl Into<Arc<str>>) -> Self {
         Self::new(PatternKind::Binding(id, name.into()), Span::default())
     }
+
+    /// Create a variant pattern with an optional inner pattern.
+    #[must_use]
+    pub fn variant(name: impl Into<Arc<str>>, inner: Option<Pattern>) -> Self {
+        Self::new(
+            PatternKind::Variant(QualifiedName::simple(name), inner.map(Box::new)),
+            Span::default(),
+        )
+    }
+
+    /// Create a literal pattern.
+    #[must_use]
+    pub fn literal(lit: Literal) -> Self {
+        Self::new(PatternKind::Literal(lit), Span::default())
+    }
 }
 
 /// The kind of pattern.
