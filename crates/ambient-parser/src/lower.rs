@@ -676,9 +676,11 @@ fn lower_record_pattern_field(
     Ok((field.field.name.clone(), pattern))
 }
 
+#[allow(clippy::expect_used)]
 fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
     match &ty.kind {
         CstTypeExprKind::Name(qn) => {
+            // SAFETY: Qualified names always have at least one segment by construction
             let name = &qn.segments.last().expect("qualified name must have segments").name;
             match &**name {
                 "number" => Ok(Type::Number),
@@ -800,7 +802,9 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
     }
 }
 
+#[allow(clippy::expect_used)]
 fn lower_qualified_name(qn: &CstQualifiedName) -> QualifiedName {
+    // SAFETY: Qualified names always have at least one segment by construction
     let segments: Vec<Arc<str>> = qn.segments.iter().map(|i| i.name.clone()).collect();
     if segments.len() == 1 {
         QualifiedName::simple(segments.into_iter().next().expect("segments not empty"))
