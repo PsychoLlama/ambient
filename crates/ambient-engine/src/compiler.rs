@@ -251,7 +251,7 @@ impl FunctionCompiler {
         id: BindingId,
         name: Arc<str>,
     ) -> Result<u16, CompileError> {
-        if self.next_local >= u16::MAX {
+        if self.next_local == u16::MAX {
             return Err(CompileError::new(
                 CompileErrorKind::TooManyLocals {
                     count: self.next_local as usize + 1,
@@ -437,13 +437,13 @@ pub fn compile_module(module: &Module) -> Result<CompiledModule, CompileError> {
     // Add lambda functions discovered during compilation.
     // Generate synthetic names for them in temp_hashes.
     for (lambda_hash, compiled_lambda) in ctx.lambdas {
-        let lambda_name: Arc<str> = format!("__lambda_{}", lambda_hash).into();
+        let lambda_name: Arc<str> = format!("__lambda_{lambda_hash}").into();
         temp_hashes.insert(Arc::clone(&lambda_name), lambda_hash);
         compiled_functions.push((lambda_name, compiled_lambda.function, false));
     }
 
     // Phase 3: Compute content-addressed hashes and finalize the module.
-    finalize_module_hashes(compiled_functions, temp_hashes)
+    finalize_module_hashes(compiled_functions, &temp_hashes)
 }
 
 /// Finalize content-addressed hashes for all compiled functions.
@@ -453,7 +453,7 @@ pub fn compile_module(module: &Module) -> Result<CompiledModule, CompileError> {
 /// 2. Recursive functions (SCCs): compute group hash for mutual recursion
 fn finalize_module_hashes(
     compiled_functions: Vec<(Arc<str>, CompiledFunction, bool)>,
-    temp_hashes: HashMap<Arc<str>, blake3::Hash>,
+    temp_hashes: &HashMap<Arc<str>, blake3::Hash>,
 ) -> Result<CompiledModule, CompileError> {
     // Build reverse mapping: temp_hash -> name
     let temp_to_name: HashMap<blake3::Hash, Arc<str>> = temp_hashes
@@ -506,17 +506,17 @@ fn finalize_module_hashes(
 
             if is_self_recursive {
                 // Self-recursive: compute hash excluding self-reference
-                let hash = compute_scc_hash(&scc.members, &compiled_functions, &final_hashes, &temp_hashes);
+                let hash = compute_scc_hash(&scc.members, &compiled_functions, &final_hashes, temp_hashes);
                 final_hashes.insert(Arc::clone(name), hash);
             } else {
                 // Non-recursive: compute hash with resolved dependencies
-                let hash = compute_content_hash(func, &final_hashes, &temp_hashes);
+                let hash = compute_content_hash(func, &final_hashes, temp_hashes);
                 final_hashes.insert(Arc::clone(name), hash);
             }
         } else {
             // Multiple functions in SCC - mutual recursion
             // Compute a group hash for the entire SCC
-            let scc_hash = compute_scc_hash(&scc.members, &compiled_functions, &final_hashes, &temp_hashes);
+            let scc_hash = compute_scc_hash(&scc.members, &compiled_functions, &final_hashes, temp_hashes);
 
             // Each function in the SCC gets a derived hash
             for (idx, name) in scc.members.iter().enumerate() {
@@ -1269,7 +1269,6 @@ fn compile_expr(
                     param_count,
                     dependencies,
                 };
-                let _method_hash = method_func.hash;
 
                 // Get capture info for the handler method.
                 let capture_names = method_fc.get_capture_names_in_order();

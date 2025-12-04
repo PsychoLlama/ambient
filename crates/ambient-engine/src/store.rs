@@ -241,7 +241,9 @@ impl<T: std::hash::Hash + Eq + Clone> GenericSccAnalysis<T> {
 ///
 /// # Type Parameters
 /// * `T` - Node type, must be hashable and cloneable. If `T: Ord`, results are deterministically sorted.
-pub fn compute_sccs<T>(graph: &HashMap<T, Vec<T>>) -> GenericSccAnalysis<T>
+pub fn compute_sccs<T, S: std::hash::BuildHasher>(
+    graph: &HashMap<T, Vec<T>, S>,
+) -> GenericSccAnalysis<T>
 where
     T: std::hash::Hash + Eq + Clone,
 {
@@ -259,8 +261,8 @@ where
 }
 
 /// Compute SCCs with a custom comparison function for deterministic ordering.
-pub fn compute_sccs_with_cmp<T, F>(
-    graph: &HashMap<T, Vec<T>>,
+pub fn compute_sccs_with_cmp<T, F, S: std::hash::BuildHasher>(
+    graph: &HashMap<T, Vec<T>, S>,
     cmp: F,
 ) -> GenericSccAnalysis<T>
 where
@@ -276,8 +278,12 @@ where
         sccs: Vec<GenericScc<T>>,
     }
 
-    fn visit<T, F>(node: &T, graph: &HashMap<T, Vec<T>>, state: &mut TarjanState<T>, cmp: F)
-    where
+    fn visit<T, F, S: std::hash::BuildHasher>(
+        node: &T,
+        graph: &HashMap<T, Vec<T>, S>,
+        state: &mut TarjanState<T>,
+        cmp: F,
+    ) where
         T: std::hash::Hash + Eq + Clone,
         F: Fn(&T, &T) -> std::cmp::Ordering + Copy,
     {

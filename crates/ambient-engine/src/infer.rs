@@ -241,7 +241,7 @@ impl std::fmt::Display for TypeErrorKind {
             Self::HandlerAbilityAmbiguous { method_names } => {
                 let methods = method_names
                     .iter()
-                    .map(|s| s.as_ref())
+                    .map(AsRef::as_ref)
                     .collect::<Vec<_>>()
                     .join(", ");
                 write!(
@@ -1297,9 +1297,7 @@ impl Infer {
             ("Exception", "throw") => (Type::Never, AbilitySet::Empty),
 
             // Time.now and Random ability methods - return Number
-            ("Time", "now") | ("Random", "seed") | ("Random", "in_range") => {
-                (Type::Number, AbilitySet::Empty)
-            }
+            ("Time", "now") | ("Random", "seed" | "in_range") => (Type::Number, AbilitySet::Empty),
 
             // Async ability methods - polymorphic over result type and underlying ability
             ("Async", "all") => {
@@ -2264,6 +2262,7 @@ fn build_function_scheme(infer: &mut Infer, func: &crate::ast::FunctionDef) -> S
     let mut quantified_vars = Vec::new();
 
     for (idx, tp) in func.type_params.iter().enumerate() {
+        #[allow(clippy::cast_possible_truncation)]
         let var_id = idx as TypeVarId;
         type_var_map.insert(Arc::clone(&tp.name), var_id);
         quantified_vars.push(var_id);

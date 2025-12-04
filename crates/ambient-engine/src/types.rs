@@ -242,10 +242,7 @@ impl AbilitySet {
             }
             // Two variables or two rows - we can't merge them without unification
             // Return self for now, unification will handle this
-            (Self::Var(_), Self::Var(_))
-            | (Self::Row { .. }, Self::Row { .. })
-            | (Self::Var(_), Self::Row { .. })
-            | (Self::Row { .. }, Self::Var(_)) => self.clone(),
+            (Self::Var(_) | Self::Row { .. }, Self::Var(_) | Self::Row { .. }) => self.clone(),
         }
     }
 }
