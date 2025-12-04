@@ -19,6 +19,38 @@
 //! CompiledModule { functions, entry_point }
 //! ```
 //!
+//! # Bytecode Emission Patterns
+//!
+//! ## Expressions
+//!
+//! Each expression type compiles to a sequence of bytecode that leaves
+//! one value on the stack:
+//!
+//! - **Literals**: `PushConst index` - push constant from pool
+//! - **Binary ops**: compile left, compile right, emit op (e.g., `Add`)
+//! - **Variables**: `LoadLocal slot` or `LoadCapture slot` for closures
+//! - **Function calls**: push args, `Call arity`, result on stack
+//!
+//! ## Control Flow
+//!
+//! - **If/else**: compile cond, `JumpIfFalse else_label`, compile then,
+//!   `Jump end_label`, `else_label:`, compile else, `end_label:`
+//! - **Block**: compile each statement, final expression result on stack
+//!
+//! ## Closures
+//!
+//! Closures capture variables from enclosing scopes:
+//! 1. Push captured values onto stack in slot order
+//! 2. `MakeClosure func_hash capture_count`
+//! 3. At call site: `LoadCapture slot` to access captured values
+//!
+//! ## Content-Addressed Functions
+//!
+//! Functions are identified by their `blake3::Hash`. The compiler:
+//! 1. Assigns temporary hashes during compilation
+//! 2. Computes final content-addressed hashes after all functions compiled
+//! 3. Handles mutual recursion via strongly-connected component analysis
+//!
 //! # Internal Organization
 //!
 //! This file is organized into the following sections:
