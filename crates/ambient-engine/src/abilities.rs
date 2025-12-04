@@ -105,7 +105,12 @@ pub fn register_console(vm: &mut Vm, config: ConsoleConfig) {
             } else {
                 // In production, we'd use print! but tests don't want stdout
                 #[cfg(not(test))]
-                print!("{message}");
+                {
+                    #[allow(clippy::print_stdout)]
+                    {
+                        print!("{message}");
+                    }
+                }
             }
             Ok(Value::Unit)
         }),
@@ -118,7 +123,12 @@ pub fn register_console(vm: &mut Vm, config: ConsoleConfig) {
         Box::new(|ability: &SuspendedAbility| {
             let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
             #[cfg(not(test))]
-            println!("{message}");
+            {
+                #[allow(clippy::print_stdout)]
+                {
+                    println!("{message}");
+                }
+            }
             let _ = message; // Suppress unused warning in test mode
             Ok(Value::Unit)
         }),
@@ -135,7 +145,12 @@ pub fn register_console(vm: &mut Vm, config: ConsoleConfig) {
                 handler(&message);
             } else {
                 #[cfg(not(test))]
-                eprint!("{message}");
+                {
+                    #[allow(clippy::print_stderr)]
+                    {
+                        eprint!("{message}");
+                    }
+                }
             }
             Ok(Value::Unit)
         }),

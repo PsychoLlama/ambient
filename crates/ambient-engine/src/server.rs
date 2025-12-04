@@ -142,7 +142,10 @@ impl Server {
             // Spawn a task to handle this connection
             tokio::spawn(async move {
                 if let Err(e) = handle_connection(stream, executor).await {
-                    eprintln!("Error handling connection from {peer_addr}: {e}");
+                    #[allow(clippy::print_stderr)]
+                    {
+                        eprintln!("Error handling connection from {peer_addr}: {e}");
+                    }
                 }
             });
         }
