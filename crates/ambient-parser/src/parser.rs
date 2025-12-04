@@ -310,7 +310,7 @@ impl<'src> Parser<'src> {
                 span,
             });
 
-            if !self.consume(TokenKind::Comma).is_some() {
+            if self.consume(TokenKind::Comma).is_none() {
                 break;
             }
         }
@@ -344,7 +344,7 @@ impl<'src> Parser<'src> {
                 span: Span::new(start, end),
             });
 
-            if !self.consume(TokenKind::Comma).is_some() {
+            if self.consume(TokenKind::Comma).is_none() {
                 break;
             }
         }
@@ -358,7 +358,7 @@ impl<'src> Parser<'src> {
         loop {
             abilities.push(self.parse_qualified_name()?);
 
-            if !self.consume(TokenKind::Comma).is_some() {
+            if self.consume(TokenKind::Comma).is_none() {
                 break;
             }
 
@@ -442,7 +442,7 @@ impl<'src> Parser<'src> {
 
             fields.push((field_name, field_ty));
 
-            if !self.consume(TokenKind::Comma).is_some() {
+            if self.consume(TokenKind::Comma).is_none() {
                 break;
             }
         }
@@ -492,7 +492,7 @@ impl<'src> Parser<'src> {
                 span: Span::new(start, end),
             });
 
-            if !self.consume(TokenKind::Comma).is_some() {
+            if self.consume(TokenKind::Comma).is_none() {
                 break;
             }
         }
@@ -563,7 +563,7 @@ impl<'src> Parser<'src> {
 
             params.push((param_name, param_ty));
 
-            if !self.consume(TokenKind::Comma).is_some() {
+            if self.consume(TokenKind::Comma).is_none() {
                 break;
             }
         }
@@ -611,7 +611,7 @@ impl<'src> Parser<'src> {
 
                     items.push(self.parse_ident()?);
 
-                    if !self.consume(TokenKind::Comma).is_some() {
+                    if self.consume(TokenKind::Comma).is_none() {
                         break;
                     }
                 }
@@ -691,7 +691,7 @@ impl<'src> Parser<'src> {
 
                 args.push(self.parse_type()?);
 
-                if !self.consume(TokenKind::Comma).is_some() {
+                if self.consume(TokenKind::Comma).is_none() {
                     break;
                 }
             }
@@ -722,7 +722,7 @@ impl<'src> Parser<'src> {
 
             elements.push(self.parse_type()?);
 
-            if !self.consume(TokenKind::Comma).is_some() {
+            if self.consume(TokenKind::Comma).is_none() {
                 break;
             }
         }
@@ -1324,7 +1324,7 @@ impl<'src> Parser<'src> {
 
                 elements.push(self.parse_expression()?);
 
-                if !self.consume(TokenKind::Comma).is_some() {
+                if self.consume(TokenKind::Comma).is_none() {
                     break;
                 }
             }
@@ -1430,7 +1430,7 @@ impl<'src> Parser<'src> {
 
             elements.push(self.parse_expression()?);
 
-            if !self.consume(TokenKind::Comma).is_some() {
+            if self.consume(TokenKind::Comma).is_none() {
                 break;
             }
         }
@@ -1500,7 +1500,7 @@ impl<'src> Parser<'src> {
 
             fields.push((name, value));
 
-            if !self.consume(TokenKind::Comma).is_some() {
+            if self.consume(TokenKind::Comma).is_none() {
                 break;
             }
         }
@@ -1544,7 +1544,7 @@ impl<'src> Parser<'src> {
             });
 
             // Optional comma between methods
-            if !self.consume(TokenKind::Comma).is_some() {
+            if self.consume(TokenKind::Comma).is_none() {
                 break;
             }
         }
@@ -1718,7 +1718,7 @@ impl<'src> Parser<'src> {
                 let handler_expr = self.parse_primary_expr()?;
                 handler_values.push(handler_expr);
 
-                if !self.consume(TokenKind::Comma).is_some() {
+                if self.consume(TokenKind::Comma).is_none() {
                     break;
                 }
             }
@@ -1860,7 +1860,7 @@ impl<'src> Parser<'src> {
 
             args.push(self.parse_expression()?);
 
-            if !self.consume(TokenKind::Comma).is_some() {
+            if self.consume(TokenKind::Comma).is_none() {
                 break;
             }
         }
@@ -1942,7 +1942,7 @@ impl<'src> Parser<'src> {
 
                 elements.push(self.parse_pattern()?);
 
-                if !self.consume(TokenKind::Comma).is_some() {
+                if self.consume(TokenKind::Comma).is_none() {
                     break;
                 }
             }
@@ -1981,7 +1981,7 @@ impl<'src> Parser<'src> {
                     span: Span::new(field_start, field_end),
                 });
 
-                if !self.consume(TokenKind::Comma).is_some() {
+                if self.consume(TokenKind::Comma).is_none() {
                     break;
                 }
             }
