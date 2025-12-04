@@ -435,7 +435,7 @@ impl TypeEnv {
 
 /// Unify two types, making them equal.
 ///
-/// Returns Ok(()) if successful, or a TypeError if the types cannot be unified.
+/// Returns `Ok(())` if successful, or a `TypeError` if the types cannot be unified.
 pub fn unify(t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
     let t1 = t1.resolve();
     let t2 = t2.resolve();
@@ -1181,7 +1181,7 @@ impl Infer {
 
     /// Get the method signatures for an ability.
     ///
-    /// Returns a list of (method_name, param_count, return_type) tuples.
+    /// Returns a list of (`method_name`, `param_count`, `return_type`) tuples.
     /// Parameter types are inferred as fresh type variables during type checking.
     fn get_ability_method_signatures(&self, ability_id: AbilityId) -> Vec<(&'static str, usize, Type)> {
         match ability_id {

@@ -142,11 +142,11 @@ struct CallFrame {
 #[derive(Debug, Clone)]
 enum HandlerKind {
     /// An inline handler with a single function for all methods.
-    /// The function receives (continuation, suspended_ability) and must dispatch by method.
+    /// The function receives (continuation, `suspended_ability`) and must dispatch by method.
     Inline { handler_func: blake3::Hash },
 
     /// A handler value with separate functions for each method.
-    /// When an ability is performed, the method_id is used to look up the function.
+    /// When an ability is performed, the `method_id` is used to look up the function.
     Value { handler_value: Arc<crate::value::HandlerValue> },
 }
 

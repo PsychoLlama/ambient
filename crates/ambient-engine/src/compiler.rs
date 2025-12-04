@@ -41,7 +41,7 @@ const HANDLER_PARAM_CONTINUATION: &str = "__continuation";
 /// Name for the implicit suspended ability parameter in handler functions (slot 1).
 const HANDLER_PARAM_SUSPENDED_ABILITY: &str = "__suspended_ability";
 
-/// Helper to convert Arc<str> to Value::String (which uses Arc<String>).
+/// Helper to convert `Arc<str>` to `Value::String` (which uses `Arc<String>`).
 fn str_to_value(s: &Arc<str>) -> Value {
     Value::String(Arc::new(s.to_string()))
 }
@@ -342,7 +342,7 @@ impl FunctionCompiler {
 struct CompiledLambda {
     /// The compiled function.
     function: CompiledFunction,
-    /// Capture info: list of (binding_id, name) pairs in capture slot order.
+    /// Capture info: list of (`binding_id`, name) pairs in capture slot order.
     captures: Vec<(BindingId, Arc<str>)>,
 }
 

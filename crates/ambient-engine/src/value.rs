@@ -129,8 +129,8 @@ pub struct HandlerValue {
     /// The ability that this handler handles.
     pub ability_id: u16,
 
-    /// Method implementations: method_id -> function hash that implements the handler.
-    /// Each handler function receives implicit parameters: (continuation, suspended_ability)
+    /// Method implementations: `method_id` -> function hash that implements the handler.
+    /// Each handler function receives implicit parameters: (continuation, `suspended_ability`)
     /// and can extract ability arguments from the suspended ability.
     pub methods: HashMap<u16, blake3::Hash>,
 

@@ -186,7 +186,7 @@ pub enum Opcode {
     /// Get an argument from a suspended ability value.
     /// Operand: u8 (argument index)
     ///
-    /// Pops a SuspendedAbility from the stack and pushes the argument at the given index.
+    /// Pops a `SuspendedAbility` from the stack and pushes the argument at the given index.
     /// Used in handler functions to extract ability method arguments.
     GetAbilityArg = 0x85,
 
@@ -242,18 +242,18 @@ pub enum Opcode {
     /// Operand: u8 (method count)
     /// Operand: u8 (capture count - values to capture from stack)
     ///
-    /// Following the operands, method_count pairs of:
+    /// Following the operands, `method_count` pairs of:
     ///   - u16 (method ID)
     ///   - u16 (constant pool index for function hash)
     ///
     /// Pops `capture_count` values from the stack (captures), then pushes
-    /// a HandlerValue containing the ability ID, methods map, and captures.
+    /// a `HandlerValue` containing the ability ID, methods map, and captures.
     MakeHandler = 0xB0,
 
-    /// Install a handler from a HandlerValue on the stack.
+    /// Install a handler from a `HandlerValue` on the stack.
     /// Operand: i16 (offset to jump to after handled expression completes normally)
     ///
-    /// Pops a HandlerValue from the stack and installs it as the current handler
+    /// Pops a `HandlerValue` from the stack and installs it as the current handler
     /// for the ability. When an ability operation is performed, the handler's
     /// method functions will be called based on the method ID.
     HandleWithValue = 0xB1,
@@ -673,7 +673,7 @@ impl BytecodeBuilder {
         self.code[handle_jump_offset + 1] = bytes[1];
     }
 
-    /// Emit a MakeClosure instruction.
+    /// Emit a `MakeClosure` instruction.
     ///
     /// Creates a closure from a function hash and captured values on the stack.
     pub fn emit_make_closure(&mut self, func_hash: blake3::Hash, capture_count: u8) {
@@ -688,7 +688,7 @@ impl BytecodeBuilder {
         self.code.push(capture_count);
     }
 
-    /// Emit a CallClosure instruction.
+    /// Emit a `CallClosure` instruction.
     ///
     /// Calls a closure on the stack with the given number of arguments.
     pub fn emit_call_closure(&mut self, arg_count: u8) {
@@ -696,10 +696,10 @@ impl BytecodeBuilder {
         self.code.push(arg_count);
     }
 
-    /// Emit a MakeHandler instruction.
+    /// Emit a `MakeHandler` instruction.
     ///
     /// Creates a handler value from method implementations.
-    /// Methods is a list of (method_id, function_hash) pairs.
+    /// Methods is a list of (`method_id`, `function_hash`) pairs.
     pub fn emit_make_handler(
         &mut self,
         ability_id: u16,
@@ -726,9 +726,9 @@ impl BytecodeBuilder {
         }
     }
 
-    /// Emit a HandleWithValue instruction.
+    /// Emit a `HandleWithValue` instruction.
     ///
-    /// Expects a HandlerValue on the stack. Pops it and installs as the handler
+    /// Expects a `HandlerValue` on the stack. Pops it and installs as the handler
     /// for the ability. Returns the offset for patching the normal completion jump.
     pub fn emit_handle_with_value(&mut self) -> usize {
         self.code.push(Opcode::HandleWithValue as u8);
@@ -737,7 +737,7 @@ impl BytecodeBuilder {
         jump_offset
     }
 
-    /// Patch the normal completion jump offset for a HandleWithValue instruction.
+    /// Patch the normal completion jump offset for a `HandleWithValue` instruction.
     pub fn patch_handle_with_value(&mut self, handle_jump_offset: usize) {
         let target = self.code.len();
         // The offset is from right after the HandleWithValue opcode
@@ -748,7 +748,7 @@ impl BytecodeBuilder {
         self.code[handle_jump_offset + 1] = bytes[1];
     }
 
-    /// Emit a LoadCapture instruction.
+    /// Emit a `LoadCapture` instruction.
     ///
     /// Loads a captured variable from the current closure's environment.
     pub fn emit_load_capture(&mut self, capture_slot: u16) {
@@ -756,9 +756,9 @@ impl BytecodeBuilder {
         self.code.extend_from_slice(&capture_slot.to_le_bytes());
     }
 
-    /// Emit a GetAbilityArg instruction.
+    /// Emit a `GetAbilityArg` instruction.
     ///
-    /// Extracts an argument at the given index from a SuspendedAbility on the stack.
+    /// Extracts an argument at the given index from a `SuspendedAbility` on the stack.
     pub fn emit_get_ability_arg(&mut self, arg_index: u8) {
         self.code.push(Opcode::GetAbilityArg as u8);
         self.code.push(arg_index);
