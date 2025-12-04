@@ -19,12 +19,13 @@ use lsp_types::{
 };
 use serde_json::Value;
 
-use crate::analysis::{analyze, find_definition, find_expr_at_offset, format_type};
+use crate::analysis::{analyze, find_definition_cross_file, find_expr_at_offset, format_type};
 use crate::completions::{get_completions, CompletionContext};
 use crate::convert::{
     offset_range_to_lsp_range, parse_error_to_diagnostic, type_error_to_diagnostic,
 };
 use crate::documents::DocumentStore;
+use crate::workspace::WorkspaceIndex;
 
 /// Run the LSP server.
 ///
@@ -78,6 +79,8 @@ fn main_loop(connection: &Connection) -> anyhow::Result<()> {
     let mut documents = DocumentStore::new();
     // Use String keys instead of Uri to avoid mutable_key_type warning (Uri has interior mutability).
     let mut analysis_cache: HashMap<String, crate::analysis::AnalysisResult> = HashMap::new();
+    // Workspace index for cross-file navigation
+    let mut workspace_index = WorkspaceIndex::new();
 
     for msg in &connection.receiver {
         match msg {
@@ -86,11 +89,17 @@ fn main_loop(connection: &Connection) -> anyhow::Result<()> {
                     return Ok(());
                 }
 
-                let response = handle_request(&req, &documents, &analysis_cache);
+                let response = handle_request(&req, &documents, &analysis_cache, &workspace_index);
                 connection.sender.send(Message::Response(response))?;
             }
             Message::Notification(notif) => {
-                handle_notification(&notif, &mut documents, &mut analysis_cache, connection)?;
+                handle_notification(
+                    &notif,
+                    &mut documents,
+                    &mut analysis_cache,
+                    &mut workspace_index,
+                    connection,
+                )?;
             }
             Message::Response(_) => {
                 // We don't send requests, so we don't expect responses.
@@ -115,6 +124,7 @@ fn handle_request(
     req: &Request,
     documents: &DocumentStore,
     analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
+    workspace_index: &WorkspaceIndex,
 ) -> Response {
     let id = req.id.clone();
 
@@ -131,7 +141,7 @@ fn handle_request(
                 Ok(p) => p,
                 Err(e) => return e,
             };
-            handle_goto_definition(id, &params, documents, analysis_cache)
+            handle_goto_definition(id, &params, documents, analysis_cache, workspace_index)
         }
         Completion::METHOD => {
             let params = match parse_params(&req.params, &id) {
@@ -221,6 +231,7 @@ fn handle_goto_definition(
     params: &GotoDefinitionParams,
     documents: &DocumentStore,
     analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
+    workspace_index: &WorkspaceIndex,
 ) -> Response {
     let uri = &params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
@@ -241,17 +252,48 @@ fn handle_goto_definition(
     let offset = doc.position_to_offset(position.line, position.character);
 
     #[allow(clippy::cast_possible_truncation)]
-    let Some(def_result) = find_definition(module, offset as u32) else {
+    let Some(def_result) = find_definition_cross_file(module, offset as u32, uri, workspace_index) else {
         return Response::new_ok(id, Value::Null);
     };
 
-    let location = Location {
-        uri: uri.clone(),
-        range: offset_range_to_lsp_range(
-            doc,
+    // Determine target URI and document
+    let (target_uri, target_doc) = if let Some(ref def_uri) = def_result.uri {
+        // Cross-file definition - try to get the target document
+        if let Some(target_doc) = documents.get(def_uri) {
+            (def_uri.clone(), Some(target_doc))
+        } else {
+            // Document not open, still return location with zero range for now
+            (def_uri.clone(), None)
+        }
+    } else {
+        // Local definition
+        (uri.clone(), Some(doc))
+    };
+
+    let range = if let Some(target_doc) = target_doc {
+        offset_range_to_lsp_range(
+            target_doc,
             def_result.span.start as usize,
             def_result.span.end as usize,
-        ),
+        )
+    } else {
+        // If target document isn't open, we can't compute line/column properly.
+        // Return a zero-width range at the byte offset (client will open the file).
+        lsp_types::Range {
+            start: lsp_types::Position {
+                line: 0,
+                character: 0,
+            },
+            end: lsp_types::Position {
+                line: 0,
+                character: 0,
+            },
+        }
+    };
+
+    let location = Location {
+        uri: target_uri,
+        range,
     };
 
     let response = GotoDefinitionResponse::Scalar(location);
@@ -293,6 +335,7 @@ fn handle_notification(
     notif: &Notification,
     documents: &mut DocumentStore,
     analysis_cache: &mut HashMap<String, crate::analysis::AnalysisResult>,
+    workspace_index: &mut WorkspaceIndex,
     connection: &Connection,
 ) -> anyhow::Result<()> {
     match notif.method.as_str() {
@@ -308,6 +351,12 @@ fn handle_notification(
             let result = analyze(&text);
             let diagnostics = collect_diagnostics(documents.get(&uri), &result);
             publish_diagnostics(connection, uri.clone(), diagnostics, version)?;
+
+            // Update workspace index if we have a valid module
+            if let Some(ref module) = result.module {
+                workspace_index.update(uri.clone(), module);
+            }
+
             analysis_cache.insert(uri.as_str().to_string(), result);
         }
         DidChangeTextDocument::METHOD => {
@@ -324,6 +373,12 @@ fn handle_notification(
                     let result = analyze(&doc.text);
                     let diagnostics = collect_diagnostics(Some(doc), &result);
                     publish_diagnostics(connection, uri.clone(), diagnostics, version)?;
+
+                    // Update workspace index if we have a valid module
+                    if let Some(ref module) = result.module {
+                        workspace_index.update(uri.clone(), module);
+                    }
+
                     analysis_cache.insert(uri.as_str().to_string(), result);
                 }
             }
@@ -334,6 +389,7 @@ fn handle_notification(
 
             documents.close(&uri);
             analysis_cache.remove(uri.as_str());
+            workspace_index.remove(&uri);
 
             // Clear diagnostics.
             publish_diagnostics(connection, uri, Vec::new(), 0)?;

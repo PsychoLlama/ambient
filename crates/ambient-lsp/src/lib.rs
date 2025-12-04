@@ -54,9 +54,11 @@ mod completions;
 mod convert;
 mod documents;
 mod server;
+mod workspace;
 
 pub use server::run_server;
 
 // Re-export key types for testing
 pub use analysis::AnalysisResult;
 pub use documents::Document;
+pub use workspace::WorkspaceIndex;

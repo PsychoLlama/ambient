@@ -1269,9 +1269,10 @@ Error messages now include source context for both parse and type errors:
 The LSP server (`ambient-lsp` crate) provides IDE support:
 - Diagnostics: Parse errors and type errors published on document changes
 - Hover: Type information for expressions
-- Go-to-definition: Navigation to function and variable definitions
+- Go-to-definition: Navigation to function and variable definitions (supports cross-file navigation via workspace index)
 - Completions: Auto-completion for keywords, types, abilities, functions, and local variables
 - Full document sync for real-time analysis
+- Workspace indexing: Tracks module exports and use/import relationships for cross-file navigation
 
 Debug info generation (`ambient-engine/src/bytecode.rs` and `compiler/mod.rs`):
 - `DebugInfo` struct stores source file path, function name, source mappings, and local names
@@ -1299,10 +1300,10 @@ Completed:
 - [x] REPL enhancements: syntax highlighting and persistent history
 - [x] Source map integration (debug info generation in compiler pipeline)
 - [x] Source maps in VM error messages (show file:line:col in stack traces)
+- [x] LSP integration with source maps (better go-to-definition across files)
 
 Future developer experience improvements:
 
-- LSP integration with source maps (better go-to-definition across files)
 - Debugger support using source maps
 
 ## Future Work (Out of Scope)

@@ -3,7 +3,7 @@
 //! This module handles parsing and type checking, producing diagnostics
 //! and type information for the LSP server.
 
-use ambient_engine::ast::{Expr, ExprKind, ItemKind, Module, Span, StmtKind};
+use ambient_engine::ast::{Expr, ExprKind, ItemKind, Module, QualifiedName, Span, StmtKind};
 use ambient_engine::infer::{check_module, BoxedTypeError};
 use ambient_engine::types::Type;
 use ambient_parser::{parse, ParseError};
@@ -224,6 +224,9 @@ fn format_ability_set(abilities: &ambient_engine::types::AbilitySet) -> String {
 }
 
 /// Find definition location for a variable at the given offset.
+///
+/// This function only searches within the current module. For cross-file
+/// definitions, use [`find_definition_cross_file`] with a [`WorkspaceIndex`].
 #[must_use]
 pub fn find_definition(module: &Module, offset: u32) -> Option<DefinitionResult> {
     // First, find what's at the offset.
@@ -235,23 +238,13 @@ pub fn find_definition(module: &Module, offset: u32) -> Option<DefinitionResult>
             for item in &module.items {
                 if let ItemKind::Function(func) = &item.kind {
                     if let Some(def_span) = find_binding_definition(func, *binding_id) {
-                        return Some(DefinitionResult { span: def_span });
+                        return Some(DefinitionResult::local(def_span));
                     }
                 }
             }
             None
         }
-        ExprKind::Name(qname) => {
-            // Check if it's a top-level function name.
-            for item in &module.items {
-                if let ItemKind::Function(func) = &item.kind {
-                    if func.name.as_ref() == qname.name.as_ref() {
-                        return Some(DefinitionResult { span: item.span });
-                    }
-                }
-            }
-            None
-        }
+        ExprKind::Name(qname) => find_name_definition(module, qname),
         ExprKind::Call(callee, _) => {
             // Recurse into the callee.
             find_definition_in_expr(module, callee)
@@ -260,19 +253,81 @@ pub fn find_definition(module: &Module, offset: u32) -> Option<DefinitionResult>
     }
 }
 
-fn find_definition_in_expr(module: &Module, expr: &Expr) -> Option<DefinitionResult> {
+/// Find definition for a qualified name in the current module.
+fn find_name_definition(module: &Module, qname: &QualifiedName) -> Option<DefinitionResult> {
+    // If there's a path, this is a cross-file reference - return None
+    // (needs workspace index to resolve)
+    if !qname.path.is_empty() {
+        return None;
+    }
+
+    // Check top-level items
+    for item in &module.items {
+        let name = match &item.kind {
+            ItemKind::Function(f) => &f.name,
+            ItemKind::Const(c) => &c.name,
+            ItemKind::TypeAlias(t) => &t.name,
+            ItemKind::Enum(e) => &e.name,
+            ItemKind::Ability(a) => &a.name,
+            ItemKind::Use(_) => continue,
+        };
+
+        if name.as_ref() == qname.name.as_ref() {
+            return Some(DefinitionResult::local(item.span));
+        }
+    }
+
+    None
+}
+
+/// Find definition with cross-file support using the workspace index.
+#[must_use]
+pub fn find_definition_cross_file(
+    module: &Module,
+    offset: u32,
+    current_uri: &lsp_types::Uri,
+    workspace: &crate::workspace::WorkspaceIndex,
+) -> Option<DefinitionResult> {
+    // First try local definition
+    if let Some(result) = find_definition(module, offset) {
+        return Some(result);
+    }
+
+    // If not found locally, check if it's a cross-file reference
+    let expr = find_expr_at_offset(module, offset)?;
+
     match &expr.kind {
         ExprKind::Name(qname) => {
-            // Check if it's a top-level function name.
-            for item in &module.items {
-                if let ItemKind::Function(func) = &item.kind {
-                    if func.name.as_ref() == qname.name.as_ref() {
-                        return Some(DefinitionResult { span: item.span });
-                    }
-                }
-            }
-            None
+            // Try to resolve using the workspace index
+            let (target_module, symbol) =
+                workspace.resolve_name(current_uri, &qname.path, &qname.name)?;
+
+            Some(DefinitionResult::cross_file(
+                Span::new(symbol.offset, symbol.end_offset),
+                target_module.uri.clone(),
+            ))
         }
+        ExprKind::Call(callee, _) => {
+            // Check if the callee is a cross-file reference
+            if let ExprKind::Name(qname) = &callee.kind {
+                let (target_module, symbol) =
+                    workspace.resolve_name(current_uri, &qname.path, &qname.name)?;
+
+                Some(DefinitionResult::cross_file(
+                    Span::new(symbol.offset, symbol.end_offset),
+                    target_module.uri.clone(),
+                ))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn find_definition_in_expr(module: &Module, expr: &Expr) -> Option<DefinitionResult> {
+    match &expr.kind {
+        ExprKind::Name(qname) => find_name_definition(module, qname),
         _ => None,
     }
 }
@@ -398,6 +453,26 @@ fn find_binding_in_pattern(
 pub struct DefinitionResult {
     /// The source span of the definition.
     pub span: Span,
+    /// The file URI if the definition is in a different file.
+    /// None means the definition is in the current file.
+    pub uri: Option<lsp_types::Uri>,
+}
+
+impl DefinitionResult {
+    /// Create a local definition result (same file).
+    #[must_use]
+    pub fn local(span: Span) -> Self {
+        Self { span, uri: None }
+    }
+
+    /// Create a cross-file definition result.
+    #[must_use]
+    pub fn cross_file(span: Span, uri: lsp_types::Uri) -> Self {
+        Self {
+            span,
+            uri: Some(uri),
+        }
+    }
 }
 
 #[cfg(test)]
