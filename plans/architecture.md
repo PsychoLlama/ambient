@@ -1193,7 +1193,8 @@ sandbox with Log {
 - [x] Random ability implementation (`seed`, `in_range`)
 - [x] Log ability (debug, info, warn, error with level filtering)
 - [x] `register_all_standard_abilities()` convenience function
-- [ ] Map and Set collection types (future)
+- [x] Map collection type and operations (`MakeEmptyMap`, `MapGet`, `MapInsert`, `MapRemove`, `MapContains`, `MapLength`, `MapKeys`, `MapValues`)
+- [ ] Set collection type (future)
 - [ ] Option/Result utilities (future)
 
 **Test case**: Write useful programs using standard library.
@@ -1210,7 +1211,7 @@ sandbox with Log {
 - [x] Error messages with source context
 - [ ] Debug info generation (source maps)
 - [ ] `ambient dev` with hot reload
-- [ ] Basic LSP server (hover, go-to-definition, diagnostics)
+- [x] Basic LSP server (hover, go-to-definition, diagnostics)
 
 **Test case**: Interactive development workflow.
 
@@ -1227,6 +1228,12 @@ Error messages now include source context for both parse and type errors:
 - Source line display with error underlining
 - Context notes where applicable
 - Consistent formatting across CLI commands and REPL
+
+The LSP server (`ambient-lsp` crate) provides IDE support:
+- Diagnostics: Parse errors and type errors published on document changes
+- Hover: Type information for expressions
+- Go-to-definition: Navigation to function and variable definitions
+- Full document sync for real-time analysis
 
 ---
 

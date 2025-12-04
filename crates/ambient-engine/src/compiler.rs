@@ -732,6 +732,7 @@ fn compute_scc_hash(
 }
 
 /// Hash a value for content-addressing (mirrors bytecode.rs but accessible here).
+#[allow(clippy::too_many_lines)]
 fn hash_value_for_content(hasher: &mut blake3::Hasher, value: &Value) {
     const TYPE_UNIT: u8 = 0;
     const TYPE_BOOL: u8 = 1;
@@ -826,6 +827,17 @@ fn hash_value_for_content(hasher: &mut blake3::Hasher, value: &Value) {
             hasher.update(&(elements.len() as u32).to_le_bytes());
             for elem in elements.iter() {
                 hash_value_for_content(hasher, elem);
+            }
+        }
+        Value::Map(map) => {
+            const TYPE_MAP: u8 = 12;
+            hasher.update(&[TYPE_MAP]);
+            // BTreeMap is already sorted, so iteration order is deterministic
+            hasher.update(&(map.entries.len() as u32).to_le_bytes());
+            for (key, val) in &map.entries {
+                hasher.update(&(key.len() as u32).to_le_bytes());
+                hasher.update(key.as_bytes());
+                hash_value_for_content(hasher, val);
             }
         }
     }
@@ -1489,7 +1501,7 @@ fn compile_handle_expr(
                 // Skip if not a handler type - type checking should have caught this
                 continue;
             }
-        };
+        }
 
         // Compile the handler value expression - this leaves a HandlerValue on the stack.
         compile_expr(fc, handler_value, ctx)?;

@@ -61,6 +61,95 @@ pub enum Value {
     /// A list: variable-length, homogeneous collection.
     /// `List<T>`
     List(Arc<Vec<Value>>),
+
+    /// A map: key-value collection with string keys.
+    /// `Map<K, V>` where K is always string for now (simplifies hashing).
+    Map(Arc<MapValue>),
+}
+
+/// A map value with string keys.
+///
+/// Uses a `BTreeMap` internally for deterministic ordering during
+/// serialization and equality comparisons.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MapValue {
+    /// The key-value pairs, stored in a sorted map for deterministic ordering.
+    pub entries: std::collections::BTreeMap<Arc<str>, Value>,
+}
+
+impl MapValue {
+    /// Create a new empty map.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            entries: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// Create a map from an iterator of key-value pairs.
+    pub fn from_entries(iter: impl IntoIterator<Item = (impl Into<Arc<str>>, Value)>) -> Self {
+        Self {
+            entries: iter.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+        }
+    }
+
+    /// Get a value by key.
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&Value> {
+        self.entries.get(key)
+    }
+
+    /// Insert a key-value pair, returning a new map.
+    #[must_use]
+    pub fn insert(&self, key: impl Into<Arc<str>>, value: Value) -> Self {
+        let mut entries = self.entries.clone();
+        entries.insert(key.into(), value);
+        Self { entries }
+    }
+
+    /// Remove a key, returning a new map.
+    #[must_use]
+    pub fn remove(&self, key: &str) -> Self {
+        let mut entries = self.entries.clone();
+        entries.remove(key);
+        Self { entries }
+    }
+
+    /// Check if the map contains a key.
+    #[must_use]
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.entries.contains_key(key)
+    }
+
+    /// Get the number of entries.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Check if the map is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Get all keys as a list.
+    #[must_use]
+    pub fn keys(&self) -> Vec<Arc<str>> {
+        self.entries.keys().cloned().collect()
+    }
+
+    /// Get all values as a list.
+    #[must_use]
+    pub fn values(&self) -> Vec<Value> {
+        self.entries.values().cloned().collect()
+    }
+}
+
+impl Default for MapValue {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// A suspended ability operation waiting to be performed.
@@ -297,6 +386,7 @@ impl Value {
             Self::Closure(_) => "closure",
             Self::Handler(_) => "handler",
             Self::List(_) => "list",
+            Self::Map(_) => "map",
         }
     }
 
@@ -341,6 +431,18 @@ impl Value {
             ability_id, methods, captures,
         )))
     }
+
+    /// Create a new empty map value.
+    #[must_use]
+    pub fn empty_map() -> Self {
+        Self::Map(Arc::new(MapValue::new()))
+    }
+
+    /// Create a new map value from key-value pairs.
+    #[must_use]
+    pub fn map(entries: impl IntoIterator<Item = (impl Into<Arc<str>>, Value)>) -> Self {
+        Self::Map(Arc::new(MapValue::from_entries(entries)))
+    }
 }
 
 impl PartialEq for Value {
@@ -354,6 +456,8 @@ impl PartialEq for Value {
             // Tuples and lists are structurally equal
             (Self::Tuple(a), Self::Tuple(b)) | (Self::List(a), Self::List(b)) => a == b,
             (Self::Record(a), Self::Record(b)) => a == b,
+            // Maps are structurally equal
+            (Self::Map(a), Self::Map(b)) => a == b,
             (Self::FunctionRef(a), Self::FunctionRef(b)) => a == b,
             // Suspended abilities are equal if they have the same ability/method/args
             (Self::SuspendedAbility(a), Self::SuspendedAbility(b)) => {

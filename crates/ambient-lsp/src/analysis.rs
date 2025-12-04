@@ -4,7 +4,7 @@
 //! and type information for the LSP server.
 
 use ambient_engine::ast::{Expr, ExprKind, ItemKind, Module, Span, StmtKind};
-use ambient_engine::infer::{check_module, TypeError};
+use ambient_engine::infer::{check_module, BoxedTypeError};
 use ambient_engine::types::Type;
 use ambient_parser::{parse, ParseError};
 
@@ -14,7 +14,7 @@ pub struct AnalysisResult {
     /// Parse error, if any.
     pub parse_error: Option<ParseError>,
     /// Type errors (empty if parsing failed).
-    pub type_errors: Vec<TypeError>,
+    pub type_errors: Vec<BoxedTypeError>,
     /// The typed AST module (None if parsing failed).
     pub module: Option<Module>,
 }

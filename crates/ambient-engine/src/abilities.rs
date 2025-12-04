@@ -528,6 +528,19 @@ pub fn format_value(value: &Value) -> String {
             let joined = parts.join(", ");
             format!("[{joined}]")
         }
+        Value::Map(map) => {
+            let mut parts: Vec<String> = map
+                .entries
+                .iter()
+                .map(|(k, v)| {
+                    let v_str = format_value(v);
+                    format!("{k}: {v_str}")
+                })
+                .collect();
+            parts.sort(); // Consistent ordering
+            let joined = parts.join(", ");
+            format!("Map {{ {joined} }}")
+        }
     }
 }
 

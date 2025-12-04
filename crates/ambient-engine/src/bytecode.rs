@@ -352,6 +352,50 @@ pub enum Opcode {
     ParseBool = 0xE2,
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Map operations (Milestone 15 - Standard Library)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Create an empty map.
+    ///
+    /// Stack: `[] -> [map]`
+    MakeEmptyMap = 0xE8,
+
+    /// Get a value from a map by key.
+    ///
+    /// Stack: `[map, key] -> [value]`
+    /// Returns Unit if key is not found.
+    MapGet = 0xE9,
+
+    /// Insert a key-value pair into a map (returns new map).
+    ///
+    /// Stack: `[map, key, value] -> [new_map]`
+    MapInsert = 0xEA,
+
+    /// Remove a key from a map (returns new map).
+    ///
+    /// Stack: `[map, key] -> [new_map]`
+    MapRemove = 0xEB,
+
+    /// Check if a map contains a key.
+    ///
+    /// Stack: `[map, key] -> [bool]`
+    MapContains = 0xEC,
+
+    /// Get the number of entries in a map.
+    ///
+    /// Stack: `[map] -> [number]`
+    MapLength = 0xED,
+
+    /// Get all keys from a map as a list.
+    ///
+    /// Stack: `[map] -> [list]`
+    MapKeys = 0xEE,
+
+    /// Get all values from a map as a list.
+    ///
+    /// Stack: `[map] -> [list]`
+    MapValues = 0xEF,
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Special
     // ─────────────────────────────────────────────────────────────────────────
     /// Halt execution (end of program).
@@ -428,6 +472,15 @@ impl Opcode {
             0xE0 => Some(Self::ToString),
             0xE1 => Some(Self::ParseNumber),
             0xE2 => Some(Self::ParseBool),
+            // Maps
+            0xE8 => Some(Self::MakeEmptyMap),
+            0xE9 => Some(Self::MapGet),
+            0xEA => Some(Self::MapInsert),
+            0xEB => Some(Self::MapRemove),
+            0xEC => Some(Self::MapContains),
+            0xED => Some(Self::MapLength),
+            0xEE => Some(Self::MapKeys),
+            0xEF => Some(Self::MapValues),
             0xFF => Some(Self::Halt),
             _ => None,
         }
@@ -543,6 +596,7 @@ impl CompiledFunction {
 /// Hash a Value using a stable binary representation.
 ///
 /// This is used for content addressing and must be deterministic.
+#[allow(clippy::too_many_lines)]
 fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
     // Type discriminant for stable hashing
     const TYPE_UNIT: u8 = 0;
@@ -641,6 +695,17 @@ fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
             hasher.update(&(elements.len() as u32).to_le_bytes());
             for elem in elements.iter() {
                 hash_value(hasher, elem);
+            }
+        }
+        Value::Map(map) => {
+            const TYPE_MAP: u8 = 12;
+            hasher.update(&[TYPE_MAP]);
+            // BTreeMap is already sorted, so iteration order is deterministic
+            hasher.update(&(map.entries.len() as u32).to_le_bytes());
+            for (key, val) in &map.entries {
+                hasher.update(&(key.len() as u32).to_le_bytes());
+                hasher.update(key.as_bytes());
+                hash_value(hasher, val);
             }
         }
     }

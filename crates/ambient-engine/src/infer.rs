@@ -61,6 +61,30 @@ impl std::fmt::Display for TypeError {
 
 impl std::error::Error for TypeError {}
 
+/// A boxed type error for efficient error passing (reduces stack size).
+pub type BoxedTypeError = Box<TypeError>;
+
+/// Result type alias for type inference operations.
+pub type InferResult<T> = Result<T, BoxedTypeError>;
+
+/// Helper to create a boxed type error.
+fn type_error(kind: TypeErrorKind, span: (u32, u32)) -> BoxedTypeError {
+    Box::new(TypeError::new(kind, span))
+}
+
+/// Extension trait for adding context to boxed type errors.
+pub trait BoxedTypeErrorExt {
+    /// Add context to a boxed type error.
+    fn with_context(self, context: impl Into<String>) -> BoxedTypeError;
+}
+
+impl BoxedTypeErrorExt for BoxedTypeError {
+    fn with_context(mut self, context: impl Into<String>) -> BoxedTypeError {
+        self.context = Some(context.into());
+        self
+    }
+}
+
 /// The kind of type error.
 #[derive(Debug, Clone)]
 pub enum TypeErrorKind {
@@ -433,7 +457,7 @@ impl TypeEnv {
 ///
 /// Returns a `TypeError` if the types cannot be unified.
 #[allow(clippy::too_many_lines)]
-pub fn unify(t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
+pub fn unify(t1: &Type, t2: &Type, span: (u32, u32)) -> InferResult<()> {
     let t1 = t1.resolve();
     let t2 = t2.resolve();
 
@@ -455,7 +479,7 @@ pub fn unify(t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
         // Tuples: same length, unify element-wise
         (Type::Tuple(elems1), Type::Tuple(elems2)) => {
             if elems1.len() != elems2.len() {
-                return Err(TypeError::new(
+                return Err(type_error(
                     TypeErrorKind::TypeMismatch {
                         expected: t1.clone(),
                         actual: t2.clone(),
@@ -472,7 +496,7 @@ pub fn unify(t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
         // Records: same fields, unify field-wise
         (Type::Record(r1), Type::Record(r2)) => {
             if r1.fields.len() != r2.fields.len() {
-                return Err(TypeError::new(
+                return Err(type_error(
                     TypeErrorKind::TypeMismatch {
                         expected: t1.clone(),
                         actual: t2.clone(),
@@ -483,7 +507,7 @@ pub fn unify(t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
             // Fields are sorted, so we can zip directly
             for ((n1, ty1), (n2, ty2)) in r1.fields.iter().zip(r2.fields.iter()) {
                 if n1 != n2 {
-                    return Err(TypeError::new(
+                    return Err(type_error(
                         TypeErrorKind::TypeMismatch {
                             expected: t1.clone(),
                             actual: t2.clone(),
@@ -499,7 +523,7 @@ pub fn unify(t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
         // Functions: same arity, unify params and return types
         (Type::Function(f1), Type::Function(f2)) => {
             if f1.params.len() != f2.params.len() {
-                return Err(TypeError::new(
+                return Err(type_error(
                     TypeErrorKind::TypeMismatch {
                         expected: t1.clone(),
                         actual: t2.clone(),
@@ -516,7 +540,7 @@ pub fn unify(t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
         // Named types: same name and arity, unify arguments
         (Type::Named(n1), Type::Named(n2)) => {
             if n1.name != n2.name || n1.args.len() != n2.args.len() {
-                return Err(TypeError::new(
+                return Err(type_error(
                     TypeErrorKind::TypeMismatch {
                         expected: t1.clone(),
                         actual: t2.clone(),
@@ -533,7 +557,7 @@ pub fn unify(t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
         // Nominal types: must have same UUID
         (Type::Nominal(n1), Type::Nominal(n2)) => {
             if n1.uuid != n2.uuid {
-                return Err(TypeError::new(
+                return Err(type_error(
                     TypeErrorKind::TypeMismatch {
                         expected: t1.clone(),
                         actual: t2.clone(),
@@ -546,7 +570,7 @@ pub fn unify(t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
         }
 
         // Anything else doesn't unify
-        _ => Err(TypeError::new(
+        _ => Err(type_error(
             TypeErrorKind::TypeMismatch {
                 expected: t1.clone(),
                 actual: t2.clone(),
@@ -557,10 +581,10 @@ pub fn unify(t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
 }
 
 /// Bind a type variable to a type.
-fn bind_var(var: TypeVarId, ty: &Type, span: (u32, u32)) -> Result<(), TypeError> {
+fn bind_var(var: TypeVarId, ty: &Type, span: (u32, u32)) -> InferResult<()> {
     // Occurs check: prevent infinite types
     if occurs(var, ty) {
-        return Err(TypeError::new(
+        return Err(type_error(
             TypeErrorKind::InfiniteType {
                 var,
                 ty: ty.clone(),
@@ -834,7 +858,7 @@ impl Infer {
     ///
     /// Returns a `TypeError` if the types cannot be unified.
     #[allow(clippy::too_many_lines)]
-    pub fn unify(&mut self, t1: &Type, t2: &Type, span: (u32, u32)) -> Result<(), TypeError> {
+    pub fn unify(&mut self, t1: &Type, t2: &Type, span: (u32, u32)) -> InferResult<()> {
         let t1 = self.apply(t1);
         let t2 = self.apply(t2);
 
@@ -856,7 +880,7 @@ impl Infer {
             (Type::Var(TypeVar::Unbound(id)), ty) | (ty, Type::Var(TypeVar::Unbound(id))) => {
                 // Occurs check
                 if self.occurs(*id, ty) {
-                    return Err(TypeError::new(
+                    return Err(type_error(
                         TypeErrorKind::InfiniteType {
                             var: *id,
                             ty: ty.clone(),
@@ -871,7 +895,7 @@ impl Infer {
             // Tuples
             (Type::Tuple(elems1), Type::Tuple(elems2)) => {
                 if elems1.len() != elems2.len() {
-                    return Err(TypeError::new(
+                    return Err(type_error(
                         TypeErrorKind::TypeMismatch {
                             expected: t1.clone(),
                             actual: t2.clone(),
@@ -888,7 +912,7 @@ impl Infer {
             // Records
             (Type::Record(r1), Type::Record(r2)) => {
                 if r1.fields.len() != r2.fields.len() {
-                    return Err(TypeError::new(
+                    return Err(type_error(
                         TypeErrorKind::TypeMismatch {
                             expected: t1.clone(),
                             actual: t2.clone(),
@@ -898,7 +922,7 @@ impl Infer {
                 }
                 for ((n1, ty1), (n2, ty2)) in r1.fields.iter().zip(r2.fields.iter()) {
                     if n1 != n2 {
-                        return Err(TypeError::new(
+                        return Err(type_error(
                             TypeErrorKind::TypeMismatch {
                                 expected: t1.clone(),
                                 actual: t2.clone(),
@@ -914,7 +938,7 @@ impl Infer {
             // Functions
             (Type::Function(f1), Type::Function(f2)) => {
                 if f1.params.len() != f2.params.len() {
-                    return Err(TypeError::new(
+                    return Err(type_error(
                         TypeErrorKind::TypeMismatch {
                             expected: t1.clone(),
                             actual: t2.clone(),
@@ -939,7 +963,7 @@ impl Infer {
             // Named types
             (Type::Named(n1), Type::Named(n2)) => {
                 if n1.name != n2.name || n1.args.len() != n2.args.len() {
-                    return Err(TypeError::new(
+                    return Err(type_error(
                         TypeErrorKind::TypeMismatch {
                             expected: t1.clone(),
                             actual: t2.clone(),
@@ -956,7 +980,7 @@ impl Infer {
             // Nominal types
             (Type::Nominal(n1), Type::Nominal(n2)) => {
                 if n1.uuid != n2.uuid {
-                    return Err(TypeError::new(
+                    return Err(type_error(
                         TypeErrorKind::TypeMismatch {
                             expected: t1.clone(),
                             actual: t2.clone(),
@@ -968,7 +992,7 @@ impl Infer {
             }
 
             // Mismatch
-            _ => Err(TypeError::new(
+            _ => Err(type_error(
                 TypeErrorKind::TypeMismatch {
                     expected: t1.clone(),
                     actual: t2.clone(),
@@ -1006,7 +1030,7 @@ impl Infer {
         a1: &AbilitySet,
         a2: &AbilitySet,
         span: (u32, u32),
-    ) -> Result<(), TypeError> {
+    ) -> InferResult<()> {
         let a1 = self.apply_abilities(a1);
         let a2 = self.apply_abilities(a2);
 
@@ -1019,7 +1043,7 @@ impl Infer {
                 if c1 == c2 {
                     Ok(())
                 } else {
-                    Err(TypeError::new(
+                    Err(type_error(
                         TypeErrorKind::AbilityMismatch {
                             expected: a1.clone(),
                             actual: a2.clone(),
@@ -1036,7 +1060,7 @@ impl Infer {
             (AbilitySet::Var(id), other) | (other, AbilitySet::Var(id)) => {
                 // Occurs check for ability variables
                 if self.ability_occurs(*id, other) {
-                    return Err(TypeError::new(
+                    return Err(type_error(
                         TypeErrorKind::InfiniteAbility {
                             var: *id,
                             abilities: other.clone(),
@@ -1054,7 +1078,7 @@ impl Infer {
                 if c.is_empty() {
                     Ok(())
                 } else {
-                    Err(TypeError::new(
+                    Err(type_error(
                         TypeErrorKind::AbilityMismatch {
                             expected: a1.clone(),
                             actual: a2.clone(),
@@ -1080,7 +1104,7 @@ impl Infer {
                     if c1 == c2 {
                         Ok(())
                     } else {
-                        Err(TypeError::new(
+                        Err(type_error(
                             TypeErrorKind::AbilityMismatch {
                                 expected: a1.clone(),
                                 actual: a2.clone(),
@@ -1127,7 +1151,7 @@ impl Infer {
                 // Check that all row_concrete abilities are in c
                 for ability in row_concrete {
                     if !c.contains(ability) {
-                        return Err(TypeError::new(
+                        return Err(type_error(
                             TypeErrorKind::AbilityMismatch {
                                 expected: a1.clone(),
                                 actual: a2.clone(),
@@ -1154,7 +1178,7 @@ impl Infer {
                     self.ability_subst.insert(*tail, AbilitySet::Empty);
                     Ok(())
                 } else {
-                    Err(TypeError::new(
+                    Err(type_error(
                         TypeErrorKind::AbilityMismatch {
                             expected: a1.clone(),
                             actual: a2.clone(),
@@ -1286,9 +1310,9 @@ impl Infer {
         method_name: &str,
         arg_tys: &[Type],
         span: (u32, u32),
-    ) -> Result<(AbilityId, Type, AbilitySet), TypeError> {
+    ) -> InferResult<(AbilityId, Type, AbilitySet)> {
         let ability_id = Self::ability_name_to_id(ability_name).ok_or_else(|| {
-            TypeError::new(
+            type_error(
                 TypeErrorKind::UnknownAbility {
                     name: ability_name.into(),
                 },
@@ -1323,7 +1347,7 @@ impl Infer {
 
             // Unknown method
             _ => {
-                return Err(TypeError::new(
+                return Err(type_error(
                     TypeErrorKind::UnknownAbilityMethod {
                         ability: ability_name.into(),
                         method: method_name.into(),
@@ -1342,10 +1366,10 @@ impl Infer {
         &mut self,
         arg_tys: &[Type],
         span: (u32, u32),
-    ) -> Result<(Type, AbilitySet), TypeError> {
+    ) -> InferResult<(Type, AbilitySet)> {
         // Async.all takes exactly one argument
         if arg_tys.len() != 1 {
-            return Err(TypeError::new(
+            return Err(type_error(
                 TypeErrorKind::ArityMismatch {
                     expected: 1,
                     actual: arg_tys.len(),
@@ -1369,10 +1393,10 @@ impl Infer {
         &mut self,
         arg_tys: &[Type],
         span: (u32, u32),
-    ) -> Result<(Type, AbilitySet), TypeError> {
+    ) -> InferResult<(Type, AbilitySet)> {
         // Async.race takes exactly one argument
         if arg_tys.len() != 1 {
-            return Err(TypeError::new(
+            return Err(type_error(
                 TypeErrorKind::ArityMismatch {
                     expected: 1,
                     actual: arg_tys.len(),
@@ -1396,7 +1420,7 @@ impl Infer {
         &mut self,
         ty: &Type,
         span: (u32, u32),
-    ) -> Result<(Type, AbilitySet), TypeError> {
+    ) -> InferResult<(Type, AbilitySet)> {
         let ty = self.apply(ty);
 
         // Create fresh type variables for T and A
@@ -1468,7 +1492,7 @@ impl Infer {
     ///
     /// Returns a `TypeError` if type inference fails.
     #[allow(clippy::too_many_lines)]
-    pub fn infer_expr(&mut self, env: &TypeEnv, expr: &mut Expr) -> Result<Type, TypeError> {
+    pub fn infer_expr(&mut self, env: &TypeEnv, expr: &mut Expr) -> InferResult<Type> {
         let span = (expr.span.start, expr.span.end);
         let ty = match &mut expr.kind {
             ExprKind::Unit => Type::Unit,
@@ -1477,15 +1501,15 @@ impl Infer {
             ExprKind::String(_) => Type::String,
 
             ExprKind::Local(id) => {
-                let scheme = env.get(*id).ok_or_else(|| {
-                    TypeError::new(TypeErrorKind::UndefinedBinding { id: *id }, span)
-                })?;
+                let scheme = env
+                    .get(*id)
+                    .ok_or_else(|| type_error(TypeErrorKind::UndefinedBinding { id: *id }, span))?;
                 self.instantiate(scheme)
             }
 
             ExprKind::Name(name) => {
                 let scheme = env.get_by_name(&name.name).ok_or_else(|| {
-                    TypeError::new(
+                    type_error(
                         TypeErrorKind::UndefinedVariable {
                             name: name.name.clone(),
                         },
@@ -1510,7 +1534,7 @@ impl Infer {
                     Type::Tuple(elems) => {
                         let idx_usize = *idx as usize;
                         if idx_usize >= elems.len() {
-                            return Err(TypeError::new(
+                            return Err(type_error(
                                 TypeErrorKind::TupleIndexOutOfBounds {
                                     index: *idx,
                                     tuple_ty: tuple_ty.clone(),
@@ -1522,7 +1546,7 @@ impl Infer {
                     }
                     Type::Var(_) => {
                         // Unknown tuple type, need more context
-                        return Err(TypeError::new(
+                        return Err(type_error(
                             TypeErrorKind::CannotInfer {
                                 hint: "tuple type".to_string(),
                             },
@@ -1530,7 +1554,7 @@ impl Infer {
                         ));
                     }
                     _ => {
-                        return Err(TypeError::new(
+                        return Err(type_error(
                             TypeErrorKind::TypeMismatch {
                                 expected: Type::Tuple(vec![]),
                                 actual: tuple_ty,
@@ -1564,7 +1588,7 @@ impl Infer {
                         )
                     })?,
                     Type::Var(_) => {
-                        return Err(TypeError::new(
+                        return Err(type_error(
                             TypeErrorKind::CannotInfer {
                                 hint: "record type".to_string(),
                             },
@@ -1572,7 +1596,7 @@ impl Infer {
                         ));
                     }
                     _ => {
-                        return Err(TypeError::new(
+                        return Err(type_error(
                             TypeErrorKind::FieldNotFound {
                                 field: field.clone(),
                                 record_ty: record_ty.clone(),
@@ -1648,7 +1672,7 @@ impl Infer {
                 let scrutinee_ty = self.infer_expr(env, scrutinee)?;
 
                 if arms.is_empty() {
-                    return Err(TypeError::new(
+                    return Err(type_error(
                         TypeErrorKind::CannotInfer {
                             hint: "match expression has no arms".to_string(),
                         },
@@ -1785,7 +1809,7 @@ impl Infer {
                     if let Type::Handler(handler_type) = handler_ty {
                         handled_abilities.push(handler_type.ability);
                     } else {
-                        return Err(TypeError::new(
+                        return Err(type_error(
                             TypeErrorKind::TypeMismatch {
                                 expected: Type::handler(0), // Generic Handler type
                                 actual: handler_ty,
@@ -1901,7 +1925,7 @@ impl Infer {
                     if let Some((_, expected_param_count, expected_return_ty)) = sig {
                         // Check arity (excluding implicit continuation parameter)
                         if method.params.len() != *expected_param_count {
-                            return Err(TypeError::new(
+                            return Err(type_error(
                                 TypeErrorKind::HandlerMethodArityMismatch {
                                     ability: ability_name.clone(),
                                     method: method.method.clone(),
@@ -1935,7 +1959,7 @@ impl Infer {
                         }
                     } else {
                         // Method not found in ability
-                        return Err(TypeError::new(
+                        return Err(type_error(
                             TypeErrorKind::HandlerUnknownMethod {
                                 ability: ability_name.clone(),
                                 method: method.method.clone(),
@@ -1980,7 +2004,7 @@ impl Infer {
                 // Check for unknown abilities
                 for ability_name in &sandbox_expr.allowed_abilities {
                     if Self::ability_name_to_id(&ability_name.name).is_none() {
-                        return Err(TypeError::new(
+                        return Err(type_error(
                             TypeErrorKind::UnknownAbility {
                                 name: ability_name.name.clone(),
                             },
@@ -2002,7 +2026,7 @@ impl Infer {
                         if !allowed_ability_ids.contains(ability_id) {
                             let ability_name =
                                 Self::ability_id_to_name(*ability_id).unwrap_or("unknown");
-                            return Err(TypeError::new(
+                            return Err(type_error(
                                 TypeErrorKind::SandboxAbilityViolation {
                                     ability: ability_name.into(),
                                     allowed: sandbox_expr
@@ -2036,7 +2060,7 @@ impl Infer {
         env: &TypeEnv,
         pattern: &Pattern,
         expected: &Type,
-    ) -> Result<TypeEnv, TypeError> {
+    ) -> InferResult<TypeEnv> {
         let span = (pattern.span.start, pattern.span.end);
         let mut new_env = env.extend();
 
@@ -2117,7 +2141,7 @@ impl Infer {
 #[derive(Debug)]
 pub struct CheckResult {
     /// Type errors found during checking.
-    pub errors: Vec<TypeError>,
+    pub errors: Vec<BoxedTypeError>,
     /// The typed module (with types filled in on expressions).
     pub module: crate::ast::Module,
 }
@@ -2131,7 +2155,7 @@ impl CheckResult {
 
     /// Returns the errors, consuming the result.
     #[must_use]
-    pub fn into_errors(self) -> Vec<TypeError> {
+    pub fn into_errors(self) -> Vec<BoxedTypeError> {
         self.errors
     }
 }
@@ -2235,7 +2259,7 @@ pub fn check_module(mut module: crate::ast::Module) -> CheckResult {
                             for ability_id in inferred_ids {
                                 if !declared_set.contains(*ability_id) {
                                     let span = (item.span.start, item.span.end);
-                                    errors.push(
+                                    errors.push(Box::new(
                                         TypeError::new(
                                             TypeErrorKind::MissingAbility {
                                                 required: *ability_id,
@@ -2249,7 +2273,7 @@ pub fn check_module(mut module: crate::ast::Module) -> CheckResult {
                                         func.name, ability_id
                                     ),
                                         ),
-                                    );
+                                    ));
                                 }
                             }
                         }

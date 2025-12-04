@@ -98,9 +98,10 @@ pub enum TypeVar {
 /// - Concrete: A specific set of ability IDs
 /// - Variable: A polymorphic ability variable (for `E!` syntax)
 /// - Row: A concrete set plus a polymorphic tail (for `Filesystem, E!` syntax)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum AbilitySet {
     /// Empty set of abilities (pure function).
+    #[default]
     Empty,
 
     /// A concrete set of ability IDs.
@@ -244,12 +245,6 @@ impl AbilitySet {
             // Return self for now, unification will handle this
             (Self::Var(_) | Self::Row { .. }, Self::Var(_) | Self::Row { .. }) => self.clone(),
         }
-    }
-}
-
-impl Default for AbilitySet {
-    fn default() -> Self {
-        Self::Empty
     }
 }
 

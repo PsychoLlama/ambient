@@ -1289,6 +1289,126 @@ impl Vm {
                         }
                     }
                 }
+
+                // ─────────────────────────────────────────────────────────────
+                // Maps (Milestone 15)
+                // ─────────────────────────────────────────────────────────────
+                Opcode::MakeEmptyMap => {
+                    self.stack.push(Value::empty_map());
+                }
+
+                Opcode::MapGet => {
+                    let key = self.pop_string("map_get")?;
+                    let map = match self.pop()? {
+                        Value::Map(m) => m,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "map",
+                                got: other.type_name(),
+                                operation: "map_get",
+                            })
+                        }
+                    };
+                    let result = map.get(&key).cloned().unwrap_or(Value::Unit);
+                    self.stack.push(result);
+                }
+
+                Opcode::MapInsert => {
+                    let value = self.pop()?;
+                    let key = self.pop_string("map_insert")?;
+                    let map = match self.pop()? {
+                        Value::Map(m) => m,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "map",
+                                got: other.type_name(),
+                                operation: "map_insert",
+                            })
+                        }
+                    };
+                    let new_map = map.insert(&**key, value);
+                    self.stack.push(Value::Map(Arc::new(new_map)));
+                }
+
+                Opcode::MapRemove => {
+                    let key = self.pop_string("map_remove")?;
+                    let map = match self.pop()? {
+                        Value::Map(m) => m,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "map",
+                                got: other.type_name(),
+                                operation: "map_remove",
+                            })
+                        }
+                    };
+                    let new_map = map.remove(&key);
+                    self.stack.push(Value::Map(Arc::new(new_map)));
+                }
+
+                Opcode::MapContains => {
+                    let key = self.pop_string("map_contains")?;
+                    let map = match self.pop()? {
+                        Value::Map(m) => m,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "map",
+                                got: other.type_name(),
+                                operation: "map_contains",
+                            })
+                        }
+                    };
+                    self.stack.push(Value::Bool(map.contains_key(&key)));
+                }
+
+                Opcode::MapLength => {
+                    let map = match self.pop()? {
+                        Value::Map(m) => m,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "map",
+                                got: other.type_name(),
+                                operation: "map_length",
+                            })
+                        }
+                    };
+                    #[allow(clippy::cast_precision_loss)]
+                    self.stack.push(Value::Number(map.len() as f64));
+                }
+
+                Opcode::MapKeys => {
+                    let map = match self.pop()? {
+                        Value::Map(m) => m,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "map",
+                                got: other.type_name(),
+                                operation: "map_keys",
+                            })
+                        }
+                    };
+                    let keys: Vec<Value> = map
+                        .keys()
+                        .into_iter()
+                        .map(|k| Value::String(Arc::new((*k).to_string())))
+                        .collect();
+                    self.stack.push(Value::list(keys));
+                }
+
+                Opcode::MapValues => {
+                    let map = match self.pop()? {
+                        Value::Map(m) => m,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "map",
+                                got: other.type_name(),
+                                operation: "map_values",
+                            })
+                        }
+                    };
+                    let values = map.values();
+                    self.stack.push(Value::list(values));
+                }
             }
         }
     }

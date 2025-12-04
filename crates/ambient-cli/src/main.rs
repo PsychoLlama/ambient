@@ -584,7 +584,8 @@ fn serialize_value(value: &ambient_engine::value::Value) -> SerializedValue {
         | Value::Continuation(_)
         | Value::Closure(_)
         | Value::Handler(_)
-        | Value::List(_) => SerializedValue::Unit,
+        | Value::List(_)
+        | Value::Map(_) => SerializedValue::Unit,
     }
 }
 
