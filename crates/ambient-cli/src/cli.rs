@@ -53,4 +53,10 @@ pub enum Command {
 
     /// Start an interactive REPL session.
     Repl,
+
+    /// Start the Language Server Protocol (LSP) server.
+    ///
+    /// This command starts an LSP server that communicates via stdin/stdout.
+    /// It is typically invoked by an editor or IDE, not run manually.
+    Lsp,
 }

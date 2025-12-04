@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 ambient-engine = { path = "../ambient-engine" }
 ambient-parser = { path = "../ambient-parser" }
+ambient-lsp = { path = "../ambient-lsp" }
 anyhow = "1.0.100"
 blake3 = "1.5.4"
 clap = { version = "4.5.53", features = ["cargo", "derive", "string", "env"] }

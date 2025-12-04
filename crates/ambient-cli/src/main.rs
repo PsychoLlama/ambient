@@ -30,6 +30,7 @@ pub fn main() -> Result<()> {
         Command::Check { file } => cmd_check(&file)?,
         Command::Ast { file } => cmd_ast(&file)?,
         Command::Repl => cmd_repl()?,
+        Command::Lsp => cmd_lsp()?,
     }
 
     Ok(())
@@ -154,6 +155,12 @@ fn cmd_ast(file: &Path) -> Result<()> {
     println!("{module:#?}");
 
     Ok(())
+}
+
+/// Run the LSP server.
+fn cmd_lsp() -> Result<()> {
+    use std::io::{stdin, stdout};
+    ambient_lsp::run_server(stdin().lock(), stdout().lock()).context("LSP server error")
 }
 
 /// Run the interactive REPL.

@@ -1,0 +1,29 @@
+[package]
+name = "ambient-lsp"
+version = "0.1.0"
+edition = "2021"
+description = "Language Server Protocol implementation for the Ambient programming language"
+
+[dependencies]
+ambient-engine = { path = "../ambient-engine" }
+ambient-parser = { path = "../ambient-parser" }
+
+# LSP dependencies
+lsp-server = "0.7"
+lsp-types = "0.97"
+
+# Async runtime for the server
+crossbeam-channel = "0.5"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging
+log = "0.4"
+
+# Error handling
+anyhow = "1.0"
+
+[dev-dependencies]
+tempfile = "3.14"
