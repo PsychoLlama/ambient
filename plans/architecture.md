@@ -1293,11 +1293,17 @@ Hot reload (`ambient dev`) provides a development server that:
 
 ## Roadmap
 
-Near-term improvements to developer experience and tooling:
+Completed:
 
-- Tree-sitter grammar for editor support (syntax highlighting, code folding, structural editing)
-- REPL enhancements: syntax highlighting and persistent history
-- Finish source map integration (wire up debug info generation in compiler pipeline)
+- [x] Tree-sitter grammar for editor support (syntax highlighting, code folding, structural editing)
+- [x] REPL enhancements: syntax highlighting and persistent history
+- [x] Source map integration (debug info generation in compiler pipeline)
+
+Future developer experience improvements:
+
+- Use source maps in VM error messages (show file:line:col in stack traces)
+- LSP integration with source maps (better go-to-definition across files)
+- Debugger support using source maps
 
 ## Future Work (Out of Scope)
 

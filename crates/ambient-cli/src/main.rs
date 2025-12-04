@@ -323,15 +323,15 @@ fn highlight_ambient(input: &str) -> String {
             // Handle two-character operators
             if i + 1 < len {
                 let next = chars[i + 1];
-                if (c == '=' && next == '=')
-                    || (c == '!' && next == '=')
-                    || (c == '<' && next == '=')
-                    || (c == '>' && next == '=')
-                    || (c == '&' && next == '&')
-                    || (c == '|' && next == '|')
-                    || (c == '=' && next == '>')
-                    || (c == '-' && next == '>')
-                {
+                let is_two_char = matches!(
+                    (c, next),
+                    ('=' | '!' | '<' | '>', '=')
+                        | ('&', '&')
+                        | ('|', '|')
+                        | ('=', '>')
+                        | ('-', '>')
+                );
+                if is_two_char {
                     result.push(next);
                     i += 1;
                 }

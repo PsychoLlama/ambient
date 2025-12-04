@@ -96,7 +96,6 @@ fn str_to_value(s: &Arc<str>) -> Value {
 /// Convert a span to (line, column) numbers.
 ///
 /// Line and column are 1-indexed.
-#[allow(dead_code)]
 fn span_to_line_col(source: &str, span: crate::ast::Span) -> (u32, u32) {
     let offset = span.start as usize;
     let mut line = 1u32;
@@ -554,8 +553,8 @@ pub fn compile_module_with_source(
 /// Implementation of module compilation with optional debug info.
 fn compile_module_impl(
     module: &Module,
-    _source: Option<&str>,
-    _source_file: Option<&str>,
+    source: Option<&str>,
+    source_file: Option<&str>,
 ) -> Result<CompiledModule, CompileError> {
     // Collect function definitions.
     let functions: Vec<&FunctionDef> = module
@@ -584,7 +583,8 @@ fn compile_module_impl(
     // Phase 2: Compile each function using temporary hashes.
     let mut compiled_functions: Vec<(Arc<str>, CompiledFunction, bool)> = Vec::new();
     for func in &functions {
-        let compiled = compile_function_with_hash(func, &temp_hashes, &mut ctx)?;
+        let compiled =
+            compile_function_with_hash(func, &temp_hashes, &mut ctx, source, source_file)?;
         let is_main = &*func.name == "main";
         compiled_functions.push((Arc::clone(&func.name), compiled, is_main));
     }
@@ -592,7 +592,7 @@ fn compile_module_impl(
     // Compile constants.
     for item in &module.items {
         if let ItemKind::Const(const_def) = &item.kind {
-            let compiled = compile_const(const_def, &temp_hashes, &mut ctx)?;
+            let compiled = compile_const(const_def, &temp_hashes, &mut ctx, source, source_file)?;
             compiled_functions.push((Arc::clone(&const_def.name), compiled, false));
         }
     }
@@ -1047,6 +1047,8 @@ fn compile_function_with_hash(
     func: &FunctionDef,
     function_hashes: &HashMap<Arc<str>, blake3::Hash>,
     ctx: &mut ModuleContext,
+    source: Option<&str>,
+    source_file: Option<&str>,
 ) -> Result<CompiledFunction, CompileError> {
     let mut fc = FunctionCompiler::new(function_hashes.clone());
 
@@ -1071,6 +1073,29 @@ fn compile_function_with_hash(
     // Get the pre-computed hash for this function
     let hash = function_hashes[&func.name];
 
+    // Build debug info if source is available
+    let debug_info = if source.is_some() || source_file.is_some() {
+        let mut debug_info = fc.debug_info;
+        debug_info.function_name = Some(func.name.to_string());
+        debug_info.source_file = source_file.map(String::from);
+
+        // Compute line/column numbers from source spans
+        if let Some(src) = source {
+            for mapping in &mut debug_info.source_map {
+                let (line, col) = span_to_line_col(
+                    src,
+                    crate::ast::Span::new(mapping.source_start as u32, mapping.source_end as u32),
+                );
+                mapping.line = line;
+                mapping.column = col;
+            }
+        }
+
+        Some(debug_info)
+    } else {
+        None
+    };
+
     Ok(CompiledFunction {
         hash,
         bytecode,
@@ -1078,7 +1103,7 @@ fn compile_function_with_hash(
         local_count: fc.next_local,
         param_count,
         dependencies,
-        debug_info: None, // TODO: Generate debug info from source spans
+        debug_info,
     })
 }
 
@@ -1087,6 +1112,8 @@ fn compile_const(
     const_def: &ConstDef,
     function_hashes: &HashMap<Arc<str>, blake3::Hash>,
     ctx: &mut ModuleContext,
+    source: Option<&str>,
+    source_file: Option<&str>,
 ) -> Result<CompiledFunction, CompileError> {
     let mut fc = FunctionCompiler::new(function_hashes.clone());
 
@@ -1096,7 +1123,30 @@ fn compile_const(
     // Return the value.
     fc.builder.emit(Opcode::Return);
 
-    Ok(fc.builder.build(fc.next_local, 0))
+    let mut compiled = fc.builder.build(fc.next_local, 0);
+
+    // Build debug info if source is available
+    if source.is_some() || source_file.is_some() {
+        let mut debug_info = fc.debug_info;
+        debug_info.function_name = Some(const_def.name.to_string());
+        debug_info.source_file = source_file.map(String::from);
+
+        // Compute line/column numbers from source spans
+        if let Some(src) = source {
+            for mapping in &mut debug_info.source_map {
+                let (line, col) = span_to_line_col(
+                    src,
+                    crate::ast::Span::new(mapping.source_start as u32, mapping.source_end as u32),
+                );
+                mapping.line = line;
+                mapping.column = col;
+            }
+        }
+
+        compiled.debug_info = Some(debug_info);
+    }
+
+    Ok(compiled)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2257,7 +2307,7 @@ mod tests {
         let hash = compute_temporary_hash(&func.name);
         hashes.insert(Arc::clone(&func.name), hash);
         let mut ctx = ModuleContext::new();
-        compile_function_with_hash(func, &hashes, &mut ctx)
+        compile_function_with_hash(func, &hashes, &mut ctx, None, None)
     }
 
     #[test]
@@ -2643,5 +2693,94 @@ mod tests {
 
         let compiled = compile_test_function(&func).expect("compilation failed");
         assert_eq!(compiled.param_count, 1);
+    }
+
+    #[test]
+    fn test_debug_info_generation() {
+        // Test that source maps are generated when source is provided
+        let source = r#"fn add(x, y) { x + y }"#;
+        let source_file = "test.ab";
+
+        // Create a function with spans that match the source
+        let func = FunctionDef {
+            name: Arc::from("add"),
+            is_public: false,
+            type_params: vec![],
+            params: vec![Param::new(0, "x"), Param::new(1, "y")],
+            ret_ty: None,
+            abilities: vec![],
+            // The body expression has a span covering "x + y"
+            body: Expr::new(
+                ExprKind::Binary(
+                    BinaryOp::Add,
+                    Box::new(Expr::local(0)),
+                    Box::new(Expr::local(1)),
+                ),
+                Span::new(15, 20), // "x + y" in the source
+            ),
+        };
+
+        let mut hashes = HashMap::new();
+        let hash = compute_temporary_hash(&func.name);
+        hashes.insert(Arc::clone(&func.name), hash);
+        let mut ctx = ModuleContext::new();
+
+        let compiled =
+            compile_function_with_hash(&func, &hashes, &mut ctx, Some(source), Some(source_file))
+                .expect("compilation failed");
+
+        // Debug info should be present
+        let debug_info = compiled.debug_info.expect("debug info should be generated");
+
+        // Check function name
+        assert_eq!(debug_info.function_name.as_deref(), Some("add"));
+
+        // Check source file
+        assert_eq!(debug_info.source_file.as_deref(), Some(source_file));
+
+        // Check that source mappings were generated
+        assert!(
+            !debug_info.source_map.is_empty(),
+            "source map should not be empty"
+        );
+
+        // Check that line/column were computed (line 1 since it's a single line)
+        let first_mapping = &debug_info.source_map[0];
+        assert_eq!(first_mapping.line, 1, "should be on line 1");
+        assert!(
+            first_mapping.column > 0,
+            "column should be positive (1-indexed)"
+        );
+
+        // Check that local variable names were recorded
+        assert!(
+            debug_info.local_names.contains_key(&0),
+            "local 'x' should be recorded"
+        );
+        assert!(
+            debug_info.local_names.contains_key(&1),
+            "local 'y' should be recorded"
+        );
+    }
+
+    #[test]
+    fn test_span_to_line_col() {
+        let source = "line one\nline two\nline three";
+
+        // Line 1, column 1
+        let (line, col) = span_to_line_col(source, Span::new(0, 1));
+        assert_eq!((line, col), (1, 1));
+
+        // Line 1, column 5 ("one")
+        let (line, col) = span_to_line_col(source, Span::new(5, 8));
+        assert_eq!((line, col), (1, 6));
+
+        // Line 2, column 1
+        let (line, col) = span_to_line_col(source, Span::new(9, 10));
+        assert_eq!((line, col), (2, 1));
+
+        // Line 3, column 6 ("three")
+        let (line, col) = span_to_line_col(source, Span::new(23, 28));
+        assert_eq!((line, col), (3, 6));
     }
 }
