@@ -70,8 +70,9 @@ mod resolve;
 pub use cst::{
     CstAbilityDef, CstAbilityMethod, CstConstDef, CstEnumDef, CstEnumVariant, CstExpr, CstExprKind,
     CstFunctionDef, CstHandleExpr, CstHandler, CstItem, CstItemKind, CstLambda, CstLetBinding,
-    CstMatchArm, CstModule, CstParam, CstPattern, CstPatternKind, CstStmt, CstStmtKind,
-    CstTypeAliasDef, CstTypeExpr, CstTypeExprKind, CstUseDef, CstUseImports, Trivia, TriviaKind,
+    CstMatchArm, CstModule, CstParam, CstPattern, CstPatternKind, CstReplInput, CstStmt,
+    CstStmtKind, CstTypeAliasDef, CstTypeExpr, CstTypeExprKind, CstUseDef, CstUseImports, Trivia,
+    TriviaKind,
 };
 pub use error::{ParseError, ParseErrorKind};
 pub use lexer::{Lexer, Token, TokenKind};
@@ -79,7 +80,16 @@ pub use lower::lower_module;
 pub use parser::Parser;
 pub use resolve::{DefId, Resolver};
 
-use ambient_engine::ast::{Expr, Module};
+use ambient_engine::ast::{Expr, Item, Module};
+
+/// REPL input after lowering from CST to AST.
+#[derive(Debug, Clone)]
+pub enum ReplInput {
+    /// An item definition (function, const, type, etc.).
+    Item(Item),
+    /// An expression to evaluate.
+    Expr(Expr),
+}
 
 /// Parse source code into an AST module.
 ///
@@ -133,4 +143,21 @@ pub fn parse_expr_to_cst(source: &str) -> Result<CstExpr, ParseError> {
 pub fn parse_type(source: &str) -> Result<CstTypeExpr, ParseError> {
     let mut parser = Parser::new(source);
     parser.parse_type()
+}
+
+/// Parse REPL input (either an item definition or an expression).
+///
+/// This is used by the REPL to support interactive definition of functions,
+/// constants, types, and abilities as well as expression evaluation.
+///
+/// # Errors
+///
+/// Returns a `ParseError` if the source is not a valid item or expression.
+pub fn parse_repl_input(source: &str) -> Result<ReplInput, ParseError> {
+    let mut parser = Parser::new(source);
+    let cst = parser.parse_repl_input()?;
+    match cst {
+        CstReplInput::Item(item) => Ok(ReplInput::Item(lower::lower_item(&item)?)),
+        CstReplInput::Expr(expr) => Ok(ReplInput::Expr(lower::lower_expr(&expr)?)),
+    }
 }

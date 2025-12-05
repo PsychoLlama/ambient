@@ -61,6 +61,19 @@ pub enum TriviaKind {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// REPL Input
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Input to the REPL, which may be either an item definition or an expression.
+#[derive(Debug, Clone)]
+pub enum CstReplInput {
+    /// An item definition (function, const, type, etc.).
+    Item(CstItem),
+    /// An expression to evaluate.
+    Expr(CstExpr),
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Module and Items
 // ─────────────────────────────────────────────────────────────────────────────
 

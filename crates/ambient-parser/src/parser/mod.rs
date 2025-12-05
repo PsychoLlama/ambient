@@ -27,9 +27,9 @@ use crate::cst::{
     CstExprKind, CstFunctionDef, CstHandleExpr, CstHandler, CstHandlerLiteralExpr,
     CstHandlerLiteralMethod, CstIdent, CstItem, CstItemKind, CstLambda, CstLetBinding, CstLiteral,
     CstMatchArm, CstModule, CstParam, CstPattern, CstPatternKind, CstQualifiedName,
-    CstRecordPatternField, CstSandboxExpr, CstStmt, CstStmtKind, CstTypeAliasDef, CstTypeExpr,
-    CstTypeExprKind, CstTypeParam, CstUnaryOp, CstUseDef, CstUseImports, StringPart, Trivia,
-    TriviaItem, TriviaKind,
+    CstRecordPatternField, CstReplInput, CstSandboxExpr, CstStmt, CstStmtKind, CstTypeAliasDef,
+    CstTypeExpr, CstTypeExprKind, CstTypeParam, CstUnaryOp, CstUseDef, CstUseImports, StringPart,
+    Trivia, TriviaItem, TriviaKind,
 };
 use crate::error::{ParseError, ParseErrorKind};
 use crate::lexer::{Lexer, Token, TokenKind};
@@ -806,6 +806,51 @@ impl<'src> Parser<'src> {
     /// Returns a `ParseError` if the source is not a valid expression.
     pub fn parse_expression(&mut self) -> Result<CstExpr, ParseError> {
         self.parse_or_expr()
+    }
+
+    /// Parse REPL input, which may be either an item (function, const, etc.) or an expression.
+    ///
+    /// This is used by the REPL to support defining functions and constants interactively.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ParseError` if the source is not a valid item or expression.
+    pub fn parse_repl_input(&mut self) -> Result<CstReplInput, ParseError> {
+        self.skip_trivia();
+
+        // Check if this looks like an item definition
+        let is_item = matches!(
+            self.current_kind(),
+            TokenKind::Fn
+                | TokenKind::Pub
+                | TokenKind::Const
+                | TokenKind::Type
+                | TokenKind::Unique
+                | TokenKind::Enum
+                | TokenKind::Ability
+        );
+
+        if is_item {
+            let item = self.parse_item()?;
+            self.skip_trivia();
+            if !self.at_end() {
+                return Err(ParseError::new(
+                    ParseErrorKind::UnexpectedToken(format!("{:?}", self.current_kind())),
+                    self.current().span,
+                ));
+            }
+            Ok(CstReplInput::Item(item))
+        } else {
+            let expr = self.parse_expression()?;
+            self.skip_trivia();
+            if !self.at_end() {
+                return Err(ParseError::new(
+                    ParseErrorKind::UnexpectedToken(format!("{:?}", self.current_kind())),
+                    self.current().span,
+                ));
+            }
+            Ok(CstReplInput::Expr(expr))
+        }
     }
 
     fn parse_or_expr(&mut self) -> Result<CstExpr, ParseError> {

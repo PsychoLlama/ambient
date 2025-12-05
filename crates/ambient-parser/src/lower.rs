@@ -50,7 +50,7 @@ pub fn lower_module(cst: &CstModule) -> Result<Module, ParseError> {
 
     let mut items = Vec::new();
     for cst_item in &cst.items {
-        items.push(lower_item(&mut ctx, cst_item)?);
+        items.push(lower_item_impl(&mut ctx, cst_item)?);
     }
 
     Ok(Module {
@@ -65,7 +65,13 @@ pub fn lower_expr(cst: &CstExpr) -> Result<Expr, ParseError> {
     lower_expression(&mut ctx, cst)
 }
 
-fn lower_item(ctx: &mut LoweringContext, item: &CstItem) -> Result<Item, ParseError> {
+/// Lower a single item.
+pub fn lower_item(item: &CstItem) -> Result<Item, ParseError> {
+    let mut ctx = LoweringContext::new();
+    lower_item_impl(&mut ctx, item)
+}
+
+fn lower_item_impl(ctx: &mut LoweringContext, item: &CstItem) -> Result<Item, ParseError> {
     let kind = match &item.kind {
         CstItemKind::Function(f) => ItemKind::Function(lower_function(ctx, f)?),
         CstItemKind::Const(c) => ItemKind::Const(lower_const(ctx, c)?),

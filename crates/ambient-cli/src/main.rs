@@ -20,8 +20,13 @@ use rustyline::{Config as RustylineConfig, Editor, Helper};
 use ambient_engine::abilities::{
     format_value, register_all_standard_abilities, register_console, ConsoleConfig,
 };
-use ambient_engine::compiler::{compile_expression, compile_module_with_source, CompiledModule};
+use ambient_engine::compiler::{
+    compile_expression_with_context, compile_module_with_source, compile_repl_item,
+    CompiledModule, ReplContext, ReplItemKind,
+};
 use ambient_engine::vm::Vm;
+
+use ambient_parser::ReplInput;
 
 mod cli;
 
@@ -421,8 +426,8 @@ fn cmd_repl() -> Result<()> {
     // Register standard abilities for the REPL.
     register_all_standard_abilities(&mut vm);
 
-    // Track REPL evaluation count for unique function names.
-    let mut eval_count: u64 = 0;
+    // Context for tracking defined functions and constants.
+    let mut repl_ctx = ReplContext::new();
 
     loop {
         // Flush stdout before reading (in case any output is buffered).
@@ -450,7 +455,7 @@ fn cmd_repl() -> Result<()> {
                             // Clear the VM state by creating a fresh VM.
                             vm = Vm::new();
                             register_all_standard_abilities(&mut vm);
-                            eval_count = 0;
+                            repl_ctx = ReplContext::new();
                             eprintln!("State cleared.");
                         }
                         ReplCommand::Unknown(cmd) => {
@@ -461,14 +466,13 @@ fn cmd_repl() -> Result<()> {
                     continue;
                 }
 
-                // Evaluate the expression.
-                eval_count += 1;
-                match eval_repl_line(&mut vm, line, eval_count) {
+                // Parse and evaluate the input.
+                match eval_repl_input(&mut vm, &mut repl_ctx, line) {
                     Ok(Some(value)) => {
                         println!("{}", format_value(&value));
                     }
                     Ok(None) => {
-                        // Unit result, don't print.
+                        // Unit result or definition, don't print.
                     }
                     Err(e) => {
                         eprintln!("\x1b[1;31merror\x1b[0m: {e}");
@@ -524,47 +528,79 @@ fn print_repl_help() {
     eprintln!("  :quit, :q, :exit Exit the REPL");
     eprintln!("  :clear, :reset   Clear all defined functions and variables");
     eprintln!();
-    eprintln!("Examples:");
+    eprintln!("Definitions:");
+    eprintln!("  fn add(x, y) {{ x + y }}   Define a function");
+    eprintln!("  const PI = 3.14159        Define a constant");
+    eprintln!();
+    eprintln!("Expressions:");
     eprintln!("  1 + 2 * 3        Evaluate an expression");
+    eprintln!("  add(1, 2)        Call a defined function");
     eprintln!("  \"hello\"          String literal");
     eprintln!("  (1, 2, 3)        Tuple");
     eprintln!("  {{ x: 1, y: 2 }}   Record");
 }
 
-/// Evaluate a REPL line.
-fn eval_repl_line(
+/// Evaluate REPL input (either an expression or a definition).
+fn eval_repl_input(
     vm: &mut Vm,
+    ctx: &mut ReplContext,
     line: &str,
-    eval_count: u64,
 ) -> Result<Option<ambient_engine::value::Value>, String> {
-    // Try to parse as an expression.
-    let expr = match ambient_parser::parse_expr(line) {
-        Ok(e) => e,
+    // Parse the input as either an item or an expression.
+    let input = match ambient_parser::parse_repl_input(line) {
+        Ok(i) => i,
         Err(e) => {
             return Err(format_repl_parse_error(line, &e));
         }
     };
 
-    // Compile the expression.
-    let func = compile_expression(&expr).map_err(|e| format!("compile error: {e}"))?;
+    match input {
+        ReplInput::Item(item) => {
+            // Compile the item.
+            let compiled = compile_repl_item(&item, ctx)
+                .map_err(|e| format!("compile error: {e}"))?;
 
-    // Create a unique name for this evaluation.
-    let _func_name = format!("__repl_eval_{eval_count}");
-    let func_hash = func.hash;
+            let name = compiled.name.clone();
+            let hash = compiled.function.hash;
+            let kind = compiled.kind;
 
-    // Load the function into the VM.
-    vm.load_function(func);
+            // Load the function into the VM.
+            vm.load_function(compiled.function);
 
-    // Execute the function with stack trace support.
-    let result = vm
-        .call_with_trace(&func_hash, Vec::new())
-        .map_err(|e| format!("{e}"))?;
+            // Register the name in the context for future references.
+            match kind {
+                ReplItemKind::Function => ctx.register_function(name.clone(), hash),
+                ReplItemKind::Constant => ctx.register_constant(name.clone(), hash),
+            }
 
-    // Return the result (None for Unit).
-    if matches!(result, ambient_engine::value::Value::Unit) {
-        Ok(None)
-    } else {
-        Ok(Some(result))
+            // Print confirmation of the definition.
+            eprintln!("Defined: {name}");
+
+            // Definitions don't produce a value.
+            Ok(None)
+        }
+        ReplInput::Expr(expr) => {
+            // Compile the expression with the current context.
+            let func = compile_expression_with_context(&expr, ctx)
+                .map_err(|e| format!("compile error: {e}"))?;
+
+            let func_hash = func.hash;
+
+            // Load the function into the VM.
+            vm.load_function(func);
+
+            // Execute the function with stack trace support.
+            let result = vm
+                .call_with_trace(&func_hash, Vec::new())
+                .map_err(|e| format!("{e}"))?;
+
+            // Return the result (None for Unit).
+            if matches!(result, ambient_engine::value::Value::Unit) {
+                Ok(None)
+            } else {
+                Ok(Some(result))
+            }
+        }
     }
 }
 
