@@ -1,7 +1,6 @@
 //! LSP server implementation for the Ambient language.
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types::notification::{
@@ -32,11 +31,7 @@ use crate::workspace::WorkspaceIndex;
 /// # Errors
 ///
 /// Returns an error if the server fails to start or communicate with the client.
-pub fn run_server<R, W>(_reader: R, _writer: W) -> anyhow::Result<()>
-where
-    R: Read,
-    W: Write,
-{
+pub fn run_server() -> anyhow::Result<()> {
     let (connection, io_threads) = Connection::stdio();
 
     // Wait for initialize request.

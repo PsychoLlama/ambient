@@ -839,7 +839,7 @@ impl<'src> Parser<'src> {
                     self.current().span,
                 ));
             }
-            Ok(CstReplInput::Item(item))
+            Ok(CstReplInput::Item(Box::new(item)))
         } else {
             let expr = self.parse_expression()?;
             self.skip_trivia();

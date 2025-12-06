@@ -68,7 +68,7 @@ pub enum TriviaKind {
 #[derive(Debug, Clone)]
 pub enum CstReplInput {
     /// An item definition (function, const, type, etc.).
-    Item(CstItem),
+    Item(Box<CstItem>),
     /// An expression to evaluate.
     Expr(CstExpr),
 }

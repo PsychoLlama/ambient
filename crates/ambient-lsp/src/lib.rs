@@ -29,10 +29,9 @@
 //!
 //! ```no_run
 //! use ambient_lsp::run_server;
-//! use std::io::{stdin, stdout};
 //!
 //! fn main() -> anyhow::Result<()> {
-//!     run_server(stdin().lock(), stdout().lock())
+//!     run_server()
 //! }
 //! ```
 

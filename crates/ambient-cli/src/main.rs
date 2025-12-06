@@ -177,8 +177,7 @@ fn cmd_ast(file: &Path) -> Result<()> {
 
 /// Run the LSP server.
 fn cmd_lsp() -> Result<()> {
-    use std::io::{stdin, stdout};
-    ambient_lsp::run_server(stdin().lock(), stdout().lock()).context("LSP server error")
+    ambient_lsp::run_server().context("LSP server error")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
