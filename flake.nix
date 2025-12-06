@@ -91,6 +91,7 @@
               pkgs.just
               pkgs.tree-sitter
               pkgs.nodejs
+              self.packages.${system}.ambient
             ];
           };
         }
