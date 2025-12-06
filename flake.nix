@@ -64,20 +64,48 @@
 
             buildPhase = ''
               tree-sitter generate
+              mkdir -p parser
+              $CC -shared -fPIC -o parser/ambient.so -I src src/parser.c
             '';
 
             installPhase = ''
-              mkdir -p $out
+              mkdir -p $out $out/parser
               cp -r src $out/
               cp -r queries $out/
               cp grammar.js $out/
               cp package.json $out/
+              cp parser/ambient.so $out/parser/
             '';
 
             meta = {
               description = "Tree-sitter grammar for the Ambient programming language";
             };
           };
+
+          ambient-nvim =
+            let
+              tree-sitter-grammar = self.packages.${system}.tree-sitter-ambient;
+            in
+            pkgs.vimUtils.buildVimPlugin {
+              pname = "ambient.nvim";
+              version = "0.1.0";
+              src = ./ambient.nvim;
+
+              nativeBuildInputs = [ pkgs.gcc ];
+
+              postInstall = ''
+                # Build the tree-sitter parser shared library
+                mkdir -p $out/parser
+                $CC -shared -fPIC -o $out/parser/ambient.so \
+                  -I${tree-sitter-grammar}/src \
+                  ${tree-sitter-grammar}/src/parser.c
+              '';
+
+              meta = {
+                description = "Neovim plugin for the Ambient programming language";
+                homepage = "https://github.com/psychollama/ambient";
+              };
+            };
 
           default = self.packages.${system}.ambient;
         }
@@ -89,10 +117,13 @@
             packages = [
               (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
               pkgs.just
-              pkgs.tree-sitter
               pkgs.nodejs
+              pkgs.stylua
+              pkgs.tree-sitter
               self.packages.${system}.ambient
             ];
+
+            TREE_SITTER_AMBIENT = self.packages.${system}.tree-sitter-ambient;
           };
         }
       );
