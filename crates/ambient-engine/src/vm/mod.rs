@@ -2453,17 +2453,6 @@ mod tests {
         (func, hash)
     }
 
-    /// Helper to create a closure that wraps its argument in Err.
-    fn make_err_closure() -> (crate::bytecode::CompiledFunction, blake3::Hash) {
-        let mut builder = BytecodeBuilder::new();
-        builder.emit_u16(Opcode::LoadLocal, 0);
-        builder.emit_err();
-        builder.emit(Opcode::Return);
-        let func = builder.build(1, 1);
-        let hash = func.hash;
-        (func, hash)
-    }
-
     #[test]
     fn test_option_map_some() {
         // Some(10).map(|x| x + 32) should return Some(42)
@@ -2727,9 +2716,8 @@ mod tests {
     #[test]
     fn test_result_and_then_ok_to_err() {
         // Ok(42).and_then(|_| Err("oops")) should return Err("oops")
-        let (closure_func, closure_hash) = make_err_closure();
 
-        // Modify to return a constant error
+        // Build a closure that returns a constant error
         let mut closure_builder = BytecodeBuilder::new();
         closure_builder.emit_const(Value::string("oops"));
         closure_builder.emit_err();
