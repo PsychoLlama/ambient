@@ -9,7 +9,9 @@
 
 use ambient_engine::ast::{Expr, ExprKind, FunctionDef, ItemKind, Module, Param, StmtKind};
 use ambient_parser::TokenKind;
-use lsp_types::{CompletionItem, CompletionItemKind, CompletionItemLabelDetails};
+use lsp_types::{
+    CompletionItem, CompletionItemKind, CompletionItemLabelDetails, InsertTextFormat,
+};
 
 use crate::analysis::format_type;
 
@@ -156,83 +158,187 @@ fn get_ability_completions(prefix: &str) -> Vec<CompletionItem> {
         .collect()
 }
 
-/// Get ability method completions.
-fn get_ability_method_completions(ability_name: &str, prefix: &str) -> Vec<CompletionItem> {
-    let methods: &[(&str, &str, &str)] = match ability_name {
+/// Ability method descriptor for completions.
+struct AbilityMethod {
+    /// Method name.
+    name: &'static str,
+    /// Type signature (e.g., "(message: string): ()").
+    signature: &'static str,
+    /// Documentation string.
+    doc: &'static str,
+    /// Parameter names for snippet placeholders.
+    params: &'static [&'static str],
+}
+
+/// Get the methods for a given ability.
+fn get_ability_methods(ability_name: &str) -> &'static [AbilityMethod] {
+    match ability_name {
         "Console" => &[
-            (
-                "print",
-                "(message: string): ()",
-                "Print a message to stdout",
-            ),
-            (
-                "eprint",
-                "(message: string): ()",
-                "Print a message to stderr",
-            ),
-            (
-                "println",
-                "(message: string): ()",
-                "Print a message with newline",
-            ),
+            AbilityMethod {
+                name: "print",
+                signature: "(message: string): ()",
+                doc: "Print a message to stdout",
+                params: &["message"],
+            },
+            AbilityMethod {
+                name: "eprint",
+                signature: "(message: string): ()",
+                doc: "Print a message to stderr",
+                params: &["message"],
+            },
+            AbilityMethod {
+                name: "println",
+                signature: "(message: string): ()",
+                doc: "Print a message with newline",
+                params: &["message"],
+            },
         ],
-        "Exception" => &[("throw", "(error: E): !", "Throw an exception")],
+        "Exception" => &[AbilityMethod {
+            name: "throw",
+            signature: "(error: E): !",
+            doc: "Throw an exception",
+            params: &["error"],
+        }],
         "Time" => &[
-            ("now", "(): Timestamp", "Get current timestamp"),
-            ("wait", "(duration: Duration): ()", "Wait for a duration"),
+            AbilityMethod {
+                name: "now",
+                signature: "(): Timestamp",
+                doc: "Get current timestamp",
+                params: &[],
+            },
+            AbilityMethod {
+                name: "wait",
+                signature: "(duration: Duration): ()",
+                doc: "Wait for a duration",
+                params: &["duration"],
+            },
         ],
         "Random" => &[
-            ("seed", "(): number", "Get a random number 0.0 to 1.0"),
-            (
-                "in_range",
-                "(range: Range): number",
-                "Get random number in range",
-            ),
+            AbilityMethod {
+                name: "seed",
+                signature: "(): number",
+                doc: "Get a random number 0.0 to 1.0",
+                params: &[],
+            },
+            AbilityMethod {
+                name: "in_range",
+                signature: "(range: Range): number",
+                doc: "Get random number in range",
+                params: &["range"],
+            },
         ],
         "Async" => &[
-            (
-                "all",
-                "<T, A!>(ops: List<Ability<T, A!>>): List<T>",
-                "Wait for all operations",
-            ),
-            (
-                "race",
-                "<T, A!>(ops: List<Ability<T, A!>>): T",
-                "Race operations, first wins",
-            ),
+            AbilityMethod {
+                name: "all",
+                signature: "<T, A!>(ops: List<Ability<T, A!>>): List<T>",
+                doc: "Wait for all operations",
+                params: &["ops"],
+            },
+            AbilityMethod {
+                name: "race",
+                signature: "<T, A!>(ops: List<Ability<T, A!>>): T",
+                doc: "Race operations, first wins",
+                params: &["ops"],
+            },
         ],
         "Log" => &[
-            ("debug", "(message: string): ()", "Log debug message"),
-            ("info", "(message: string): ()", "Log info message"),
-            ("warn", "(message: string): ()", "Log warning message"),
-            ("error", "(message: string): ()", "Log error message"),
+            AbilityMethod {
+                name: "debug",
+                signature: "(message: string): ()",
+                doc: "Log debug message",
+                params: &["message"],
+            },
+            AbilityMethod {
+                name: "info",
+                signature: "(message: string): ()",
+                doc: "Log info message",
+                params: &["message"],
+            },
+            AbilityMethod {
+                name: "warn",
+                signature: "(message: string): ()",
+                doc: "Log warning message",
+                params: &["message"],
+            },
+            AbilityMethod {
+                name: "error",
+                signature: "(message: string): ()",
+                doc: "Log error message",
+                params: &["message"],
+            },
         ],
         "Filesystem" => &[
-            ("read", "(path: Path): string", "Read file contents"),
-            (
-                "write",
-                "(path: Path, content: string): ()",
-                "Write file contents",
-            ),
-            ("exists", "(path: Path): bool", "Check if file exists"),
+            AbilityMethod {
+                name: "read",
+                signature: "(path: Path): string",
+                doc: "Read file contents",
+                params: &["path"],
+            },
+            AbilityMethod {
+                name: "write",
+                signature: "(path: Path, content: string): ()",
+                doc: "Write file contents",
+                params: &["path", "content"],
+            },
+            AbilityMethod {
+                name: "exists",
+                signature: "(path: Path): bool",
+                doc: "Check if file exists",
+                params: &["path"],
+            },
         ],
-        "Network" => &[("fetch", "(request: Request): Response", "Fetch a URL")],
+        "Network" => &[AbilityMethod {
+            name: "fetch",
+            signature: "(request: Request): Response",
+            doc: "Fetch a URL",
+            params: &["request"],
+        }],
         _ => &[],
-    };
+    }
+}
+
+/// Build a snippet string for an ability method call.
+///
+/// For methods with no parameters: `!()`
+/// For methods with parameters: `!(${1:param1}, ${2:param2})`
+fn build_method_snippet(method: &AbilityMethod) -> String {
+    if method.params.is_empty() {
+        format!("{}!()", method.name)
+    } else {
+        let placeholders: Vec<String> = method
+            .params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| format!("${{{}:{}}}", i + 1, p))
+            .collect();
+        format!("{}!({})", method.name, placeholders.join(", "))
+    }
+}
+
+/// Get ability method completions.
+fn get_ability_method_completions(ability_name: &str, prefix: &str) -> Vec<CompletionItem> {
+    let methods = get_ability_methods(ability_name);
 
     methods
         .iter()
-        .filter(|(name, _, _)| name.starts_with(prefix))
-        .map(|(name, sig, doc)| CompletionItem {
-            label: (*name).to_string(),
-            kind: Some(CompletionItemKind::METHOD),
-            detail: Some(format!("{name}{sig}")),
-            label_details: Some(CompletionItemLabelDetails {
-                detail: Some((*sig).to_string()),
-                description: None,
-            }),
-            documentation: Some(lsp_types::Documentation::String((*doc).to_string())),
-            ..Default::default()
+        .filter(|m| m.name.starts_with(prefix))
+        .map(|m| {
+            let snippet = build_method_snippet(m);
+            CompletionItem {
+                // Show the method name with ! in the completion list
+                label: format!("{}!", m.name),
+                kind: Some(CompletionItemKind::METHOD),
+                detail: Some(format!("{}!{}", m.name, m.signature)),
+                label_details: Some(CompletionItemLabelDetails {
+                    detail: Some(m.signature.to_string()),
+                    description: None,
+                }),
+                documentation: Some(lsp_types::Documentation::String(m.doc.to_string())),
+                // Use snippet format for parameter placeholders
+                insert_text: Some(snippet),
+                insert_text_format: Some(InsertTextFormat::SNIPPET),
+                ..Default::default()
+            }
         })
         .collect()
 }
@@ -602,8 +708,26 @@ mod tests {
     fn test_ability_method_completions() {
         let items = get_ability_method_completions("Console", "pr");
         assert_eq!(items.len(), 2); // print and println
-        assert!(items.iter().any(|i| i.label == "print"));
-        assert!(items.iter().any(|i| i.label == "println"));
+        assert!(items.iter().any(|i| i.label == "print!"));
+        assert!(items.iter().any(|i| i.label == "println!"));
+
+        // Check that insert_text includes the ! and snippet placeholders
+        let print_item = items.iter().find(|i| i.label == "print!").unwrap();
+        assert_eq!(
+            print_item.insert_text.as_deref(),
+            Some("print!(${1:message})")
+        );
+        assert_eq!(
+            print_item.insert_text_format,
+            Some(InsertTextFormat::SNIPPET)
+        );
+
+        // Check zero-param methods
+        let random_items = get_ability_method_completions("Random", "se");
+        assert_eq!(random_items.len(), 1);
+        let seed_item = &random_items[0];
+        assert_eq!(seed_item.label, "seed!");
+        assert_eq!(seed_item.insert_text.as_deref(), Some("seed!()"));
     }
 
     #[test]
