@@ -1983,8 +1983,113 @@ fn try_compile_intrinsic(
     args: &[Expr],
     ctx: &mut ModuleContext,
 ) -> Result<Option<()>, CompileError> {
-    // List intrinsics
     match name {
+        // Math intrinsics
+        "sqrt" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Sqrt);
+            return Ok(Some(()));
+        }
+        "abs" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Abs);
+            return Ok(Some(()));
+        }
+        "floor" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Floor);
+            return Ok(Some(()));
+        }
+        "ceil" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Ceil);
+            return Ok(Some(()));
+        }
+        "round" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Round);
+            return Ok(Some(()));
+        }
+        "trunc" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Trunc);
+            return Ok(Some(()));
+        }
+        "sin" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Sin);
+            return Ok(Some(()));
+        }
+        "cos" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Cos);
+            return Ok(Some(()));
+        }
+        "tan" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Tan);
+            return Ok(Some(()));
+        }
+        "ln" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Ln);
+            return Ok(Some(()));
+        }
+        "exp" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Exp);
+            return Ok(Some(()));
+        }
+        "pow" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit(Opcode::Pow);
+            return Ok(Some(()));
+        }
+        "min" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit(Opcode::Min);
+            return Ok(Some(()));
+        }
+        "max" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit(Opcode::Max);
+            return Ok(Some(()));
+        }
+        "asin" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Asin);
+            return Ok(Some(()));
+        }
+        "acos" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Acos);
+            return Ok(Some(()));
+        }
+        "atan" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Atan);
+            return Ok(Some(()));
+        }
+        "atan2" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit(Opcode::Atan2);
+            return Ok(Some(()));
+        }
+        "log10" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Log10);
+            return Ok(Some(()));
+        }
+        "log2" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::Log2);
+            return Ok(Some(()));
+        }
+
         // List operations
         "list_length" if args.len() == 1 => {
             compile_expr(fc, &args[0], ctx)?;
@@ -2023,9 +2128,24 @@ fn try_compile_intrinsic(
         }
         "list_is_empty" if args.len() == 1 => {
             compile_expr(fc, &args[0], ctx)?;
-            fc.builder.emit_list_length();
-            fc.builder.emit_const(Value::Number(0.0));
-            fc.builder.emit(Opcode::Eq);
+            fc.builder.emit(Opcode::ListIsEmpty);
+            return Ok(Some(()));
+        }
+        "list_reverse" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::ListReverse);
+            return Ok(Some(()));
+        }
+        "list_sort" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::ListSort);
+            return Ok(Some(()));
+        }
+        "list_slice" if args.len() == 3 => {
+            compile_expr(fc, &args[0], ctx)?; // list
+            compile_expr(fc, &args[1], ctx)?; // start
+            compile_expr(fc, &args[2], ctx)?; // end
+            fc.builder.emit(Opcode::ListSlice);
             return Ok(Some(()));
         }
 
@@ -2062,6 +2182,64 @@ fn try_compile_intrinsic(
         "string_trim" if args.len() == 1 => {
             compile_expr(fc, &args[0], ctx)?;
             fc.builder.emit_string_trim();
+            return Ok(Some(()));
+        }
+        "string_slice" if args.len() == 3 => {
+            compile_expr(fc, &args[0], ctx)?; // string
+            compile_expr(fc, &args[1], ctx)?; // start
+            compile_expr(fc, &args[2], ctx)?; // end
+            fc.builder.emit(Opcode::StringSlice);
+            return Ok(Some(()));
+        }
+        "string_chars" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::StringChars);
+            return Ok(Some(()));
+        }
+        "string_replace" if args.len() == 3 => {
+            compile_expr(fc, &args[0], ctx)?; // string
+            compile_expr(fc, &args[1], ctx)?; // pattern
+            compile_expr(fc, &args[2], ctx)?; // replacement
+            fc.builder.emit(Opcode::StringReplace);
+            return Ok(Some(()));
+        }
+        "string_starts_with" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit(Opcode::StringStartsWith);
+            return Ok(Some(()));
+        }
+        "string_ends_with" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit(Opcode::StringEndsWith);
+            return Ok(Some(()));
+        }
+        "string_to_upper" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::StringToUpper);
+            return Ok(Some(()));
+        }
+        "string_to_lower" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::StringToLower);
+            return Ok(Some(()));
+        }
+        "string_index_of" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit(Opcode::StringIndexOf);
+            return Ok(Some(()));
+        }
+        "string_repeat" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit(Opcode::StringRepeat);
+            return Ok(Some(()));
+        }
+        "string_reverse" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::StringReverse);
             return Ok(Some(()));
         }
 

@@ -1313,6 +1313,24 @@ impl Infer {
         let list_of = |elem: Type| Type::named("List", vec![elem]);
 
         match name {
+            // Math intrinsics (single number -> number)
+            "sqrt" | "abs" | "floor" | "ceil" | "round" | "trunc" | "sin" | "cos" | "tan"
+            | "ln" | "exp" | "asin" | "acos" | "atan" | "log10" | "log2"
+                if args.len() == 1 =>
+            {
+                let arg_ty = self.infer_expr(env, &mut args[0])?;
+                self.unify(&arg_ty, &Type::Number, span)?;
+                Ok(Some(Type::Number))
+            }
+            // Math intrinsics (two numbers -> number)
+            "pow" | "min" | "max" | "atan2" if args.len() == 2 => {
+                let a_ty = self.infer_expr(env, &mut args[0])?;
+                let b_ty = self.infer_expr(env, &mut args[1])?;
+                self.unify(&a_ty, &Type::Number, span)?;
+                self.unify(&b_ty, &Type::Number, span)?;
+                Ok(Some(Type::Number))
+            }
+
             // List operations
             "list_length" if args.len() == 1 => {
                 let list_ty = self.infer_expr(env, &mut args[0])?;
@@ -1365,6 +1383,28 @@ impl Infer {
                 self.unify(&list_ty, &list_of(elem_ty), span)?;
                 Ok(Some(Type::Bool))
             }
+            "list_reverse" if args.len() == 1 => {
+                let list_ty = self.infer_expr(env, &mut args[0])?;
+                let elem_ty = self.fresh();
+                self.unify(&list_ty, &list_of(elem_ty.clone()), span)?;
+                Ok(Some(list_of(elem_ty)))
+            }
+            "list_sort" if args.len() == 1 => {
+                let list_ty = self.infer_expr(env, &mut args[0])?;
+                let elem_ty = self.fresh();
+                self.unify(&list_ty, &list_of(elem_ty.clone()), span)?;
+                Ok(Some(list_of(elem_ty)))
+            }
+            "list_slice" if args.len() == 3 => {
+                let list_ty = self.infer_expr(env, &mut args[0])?;
+                let start_ty = self.infer_expr(env, &mut args[1])?;
+                let end_ty = self.infer_expr(env, &mut args[2])?;
+                let elem_ty = self.fresh();
+                self.unify(&list_ty, &list_of(elem_ty.clone()), span)?;
+                self.unify(&start_ty, &Type::Number, span)?;
+                self.unify(&end_ty, &Type::Number, span)?;
+                Ok(Some(list_of(elem_ty)))
+            }
 
             // String operations
             "string_length" if args.len() == 1 => {
@@ -1403,6 +1443,55 @@ impl Infer {
             "string_trim" if args.len() == 1 => {
                 let str_ty = self.infer_expr(env, &mut args[0])?;
                 self.unify(&str_ty, &Type::String, span)?;
+                Ok(Some(Type::String))
+            }
+            "string_slice" if args.len() == 3 => {
+                let str_ty = self.infer_expr(env, &mut args[0])?;
+                let start_ty = self.infer_expr(env, &mut args[1])?;
+                let end_ty = self.infer_expr(env, &mut args[2])?;
+                self.unify(&str_ty, &Type::String, span)?;
+                self.unify(&start_ty, &Type::Number, span)?;
+                self.unify(&end_ty, &Type::Number, span)?;
+                Ok(Some(Type::String))
+            }
+            "string_chars" if args.len() == 1 => {
+                let str_ty = self.infer_expr(env, &mut args[0])?;
+                self.unify(&str_ty, &Type::String, span)?;
+                Ok(Some(list_of(Type::String)))
+            }
+            "string_replace" if args.len() == 3 => {
+                let str_ty = self.infer_expr(env, &mut args[0])?;
+                let pattern_ty = self.infer_expr(env, &mut args[1])?;
+                let replacement_ty = self.infer_expr(env, &mut args[2])?;
+                self.unify(&str_ty, &Type::String, span)?;
+                self.unify(&pattern_ty, &Type::String, span)?;
+                self.unify(&replacement_ty, &Type::String, span)?;
+                Ok(Some(Type::String))
+            }
+            "string_starts_with" | "string_ends_with" if args.len() == 2 => {
+                let str_ty = self.infer_expr(env, &mut args[0])?;
+                let prefix_ty = self.infer_expr(env, &mut args[1])?;
+                self.unify(&str_ty, &Type::String, span)?;
+                self.unify(&prefix_ty, &Type::String, span)?;
+                Ok(Some(Type::Bool))
+            }
+            "string_to_upper" | "string_to_lower" | "string_reverse" if args.len() == 1 => {
+                let str_ty = self.infer_expr(env, &mut args[0])?;
+                self.unify(&str_ty, &Type::String, span)?;
+                Ok(Some(Type::String))
+            }
+            "string_index_of" if args.len() == 2 => {
+                let str_ty = self.infer_expr(env, &mut args[0])?;
+                let substr_ty = self.infer_expr(env, &mut args[1])?;
+                self.unify(&str_ty, &Type::String, span)?;
+                self.unify(&substr_ty, &Type::String, span)?;
+                Ok(Some(Type::Number))
+            }
+            "string_repeat" if args.len() == 2 => {
+                let str_ty = self.infer_expr(env, &mut args[0])?;
+                let count_ty = self.infer_expr(env, &mut args[1])?;
+                self.unify(&str_ty, &Type::String, span)?;
+                self.unify(&count_ty, &Type::Number, span)?;
                 Ok(Some(Type::String))
             }
 

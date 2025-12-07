@@ -35,43 +35,19 @@ fn contains(s: string, substr: string): bool {
     string_contains(s, substr)
 }
 
-// Check if string starts with a prefix
+// Check if string starts with a prefix (native intrinsic)
 fn starts_with(s: string, prefix: string): bool {
-    let prefix_len = string_length(prefix);
-    let s_len = string_length(s);
-    if prefix_len > s_len {
-        false
-    } else if prefix_len == 0 {
-        true
-    } else {
-        // Use split and check first part
-        let parts = string_split(s, prefix);
-        if list_length(parts) > 0 {
-            string_length(list_head(parts)) == 0
-        } else {
-            false
-        }
-    }
+    string_starts_with(s, prefix)
 }
 
-// Check if string ends with a suffix
+// Check if string ends with a suffix (native intrinsic)
 fn ends_with(s: string, suffix: string): bool {
-    let suffix_len = string_length(suffix);
-    let s_len = string_length(s);
-    if suffix_len > s_len {
-        false
-    } else if suffix_len == 0 {
-        true
-    } else {
-        // Use split and check last part
-        let parts = string_split(s, suffix);
-        if list_length(parts) > 0 {
-            let last_idx = list_length(parts) - 1;
-            string_length(list_get(parts, last_idx)) == 0
-        } else {
-            false
-        }
-    }
+    string_ends_with(s, suffix)
+}
+
+// Find the index of a substring (-1 if not found)
+fn index_of(s: string, substr: string): number {
+    string_index_of(s, substr)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,7 +71,6 @@ fn lines(s: string): List<string> {
 
 // Split a string into words (by single space)
 fn words(s: string): List<string> {
-    // Simple split by space - doesn't handle multiple spaces
     string_split(string_trim(s), " ")
 }
 
@@ -113,12 +88,112 @@ fn concat_all(parts: List<string>): string {
     string_join(parts, "")
 }
 
-// Repeat a string n times
+// Repeat a string n times (native intrinsic)
 fn repeat(s: string, n: number): string {
-    if n <= 0 {
+    string_repeat(s, n)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Slicing and Characters
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Get a substring (start inclusive, end exclusive)
+fn slice(s: string, start: number, end: number): string {
+    string_slice(s, start, end)
+}
+
+// Get a character at an index (as single-character string)
+fn char_at(s: string, index: number): string {
+    string_slice(s, index, index + 1)
+}
+
+// Get all characters as a list of single-character strings
+fn chars(s: string): List<string> {
+    string_chars(s)
+}
+
+// Get the first n characters
+fn take(s: string, n: number): string {
+    string_slice(s, 0, n)
+}
+
+// Drop the first n characters
+fn drop(s: string, n: number): string {
+    string_slice(s, n, string_length(s))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Case Conversion (native intrinsics)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Convert to uppercase
+fn to_upper(s: string): string {
+    string_to_upper(s)
+}
+
+// Convert to lowercase
+fn to_lower(s: string): string {
+    string_to_lower(s)
+}
+
+// Capitalize first character
+fn capitalize(s: string): string {
+    if string_length(s) == 0 {
         ""
     } else {
-        string_concat(s, repeat(s, n - 1))
+        string_concat(
+            string_to_upper(string_slice(s, 0, 1)),
+            string_slice(s, 1, string_length(s))
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Replace
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Replace all occurrences of a pattern with a replacement
+fn replace(s: string, pattern: string, replacement: string): string {
+    string_replace(s, pattern, replacement)
+}
+
+// Remove all occurrences of a pattern
+fn remove(s: string, pattern: string): string {
+    string_replace(s, pattern, "")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reverse (native intrinsic)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Reverse a string
+fn reverse(s: string): string {
+    string_reverse(s)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Padding
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Pad a string on the left to reach desired length
+fn pad_left(s: string, length: number, pad_char: string): string {
+    let current_len = string_length(s);
+    if current_len >= length {
+        s
+    } else {
+        let padding = string_repeat(pad_char, length - current_len);
+        string_concat(padding, s)
+    }
+}
+
+// Pad a string on the right to reach desired length
+fn pad_right(s: string, length: number, pad_char: string): string {
+    let current_len = string_length(s);
+    if current_len >= length {
+        s
+    } else {
+        let padding = string_repeat(pad_char, length - current_len);
+        string_concat(s, padding)
     }
 }
 
@@ -153,7 +228,7 @@ fn to_number(s: string): (bool, number) {
 
 // Parse a string as a boolean
 // Returns (success: bool, value: bool)
-fn to_bool(s: string): (bool, bool) {
+fn str_to_bool(s: string): (bool, bool) {
     parse_bool(s)
 }
 
@@ -186,13 +261,27 @@ fn equals(a: string, b: string): bool {
     a == b
 }
 
-// Check if two strings are equal ignoring case (simple ASCII only)
-// Note: This is a simplified implementation
+// Check if two strings are equal ignoring case
 fn equals_ignore_case(a: string, b: string): bool {
-    // Compare lengths first
-    if string_length(a) != string_length(b) {
+    string_to_lower(a) == string_to_lower(b)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Predicates
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Check if string is all whitespace
+fn is_whitespace(s: string): bool {
+    string_length(string_trim(s)) == 0
+}
+
+// Check if string contains only digits
+fn is_numeric(s: string): bool {
+    if string_length(s) == 0 {
         false
     } else {
-        a == b  // Simplified - proper impl would normalize case
+        let result = parse_number(s);
+        result.0
     }
 }
+

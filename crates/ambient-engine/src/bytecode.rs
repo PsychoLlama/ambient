@@ -178,6 +178,106 @@ pub enum Opcode {
     /// Negate top of stack.
     Neg = 0x25,
 
+    /// Square root.
+    ///
+    /// Stack: `[number] -> [sqrt]`
+    Sqrt = 0x26,
+
+    /// Absolute value.
+    ///
+    /// Stack: `[number] -> [abs]`
+    Abs = 0x27,
+
+    /// Floor (round towards negative infinity).
+    ///
+    /// Stack: `[number] -> [floor]`
+    Floor = 0x28,
+
+    /// Ceiling (round towards positive infinity).
+    ///
+    /// Stack: `[number] -> [ceil]`
+    Ceil = 0x29,
+
+    /// Round to nearest integer.
+    ///
+    /// Stack: `[number] -> [rounded]`
+    Round = 0x2A,
+
+    /// Truncate (round towards zero).
+    ///
+    /// Stack: `[number] -> [truncated]`
+    Trunc = 0x2B,
+
+    /// Sine (radians).
+    ///
+    /// Stack: `[number] -> [sin]`
+    Sin = 0x2C,
+
+    /// Cosine (radians).
+    ///
+    /// Stack: `[number] -> [cos]`
+    Cos = 0x2D,
+
+    /// Tangent (radians).
+    ///
+    /// Stack: `[number] -> [tan]`
+    Tan = 0x2E,
+
+    /// Natural logarithm.
+    ///
+    /// Stack: `[number] -> [ln]`
+    Ln = 0x2F,
+
+    /// Exponential (e^x).
+    ///
+    /// Stack: `[number] -> [exp]`
+    Exp = 0x36,
+
+    /// Power (base^exponent).
+    ///
+    /// Stack: `[base, exponent] -> [result]`
+    Pow = 0x37,
+
+    /// Minimum of two numbers.
+    ///
+    /// Stack: `[a, b] -> [min]`
+    Min = 0x38,
+
+    /// Maximum of two numbers.
+    ///
+    /// Stack: `[a, b] -> [max]`
+    Max = 0x39,
+
+    /// Arc sine (radians).
+    ///
+    /// Stack: `[number] -> [asin]`
+    Asin = 0x3A,
+
+    /// Arc cosine (radians).
+    ///
+    /// Stack: `[number] -> [acos]`
+    Acos = 0x3B,
+
+    /// Arc tangent (radians).
+    ///
+    /// Stack: `[number] -> [atan]`
+    Atan = 0x3C,
+
+    /// Two-argument arc tangent (radians).
+    ///
+    /// Stack: `[y, x] -> [atan2]`
+    Atan2 = 0x3D,
+
+    /// Log base 10.
+    ///
+    /// Stack: `[number] -> [log10]`
+    Log10 = 0x3E,
+
+    /// Log base 2.
+    ///
+    /// Stack: `[number] -> [log2]`
+    Log2 = 0x3F,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Comparison (number operands)
     // ─────────────────────────────────────────────────────────────────────────
@@ -412,6 +512,27 @@ pub enum Opcode {
     /// Returns empty list if list has 0 or 1 elements.
     ListTail = 0xC6,
 
+    /// Reverse a list.
+    ///
+    /// Stack: `[list] -> [reversed_list]`
+    ListReverse = 0xC7,
+
+    /// Sort a list (elements must be comparable).
+    ///
+    /// Stack: `[list] -> [sorted_list]`
+    ListSort = 0xC8,
+
+    /// Get a slice of a list.
+    ///
+    /// Stack: `[list, start, end] -> [slice]`
+    /// Indices are inclusive start, exclusive end.
+    ListSlice = 0xC9,
+
+    /// Check if list is empty.
+    ///
+    /// Stack: `[list] -> [bool]`
+    ListIsEmpty = 0xCA,
+
     // ─────────────────────────────────────────────────────────────────────────
     // String operations (Milestone 15 - Standard Library)
     // ─────────────────────────────────────────────────────────────────────────
@@ -444,6 +565,58 @@ pub enum Opcode {
     ///
     /// Stack: `[string1, string2] -> [result]`
     StringConcat = 0xD5,
+
+    /// Get a substring (slice).
+    ///
+    /// Stack: `[string, start, end] -> [substring]`
+    /// Indices are character positions (inclusive start, exclusive end).
+    StringSlice = 0xD6,
+
+    /// Convert string to list of characters.
+    ///
+    /// Stack: `[string] -> [list<string>]`
+    /// Each character is a single-character string.
+    StringChars = 0xD7,
+
+    /// Replace occurrences of a pattern with replacement.
+    ///
+    /// Stack: `[string, pattern, replacement] -> [result]`
+    StringReplace = 0xD8,
+
+    /// Check if string starts with prefix.
+    ///
+    /// Stack: `[string, prefix] -> [bool]`
+    StringStartsWith = 0xD9,
+
+    /// Check if string ends with suffix.
+    ///
+    /// Stack: `[string, suffix] -> [bool]`
+    StringEndsWith = 0xDA,
+
+    /// Convert string to uppercase.
+    ///
+    /// Stack: `[string] -> [uppercase_string]`
+    StringToUpper = 0xDB,
+
+    /// Convert string to lowercase.
+    ///
+    /// Stack: `[string] -> [lowercase_string]`
+    StringToLower = 0xDC,
+
+    /// Find index of substring, returns -1 if not found.
+    ///
+    /// Stack: `[string, substring] -> [index]`
+    StringIndexOf = 0xDD,
+
+    /// Repeat a string N times.
+    ///
+    /// Stack: `[string, count] -> [repeated_string]`
+    StringRepeat = 0xDE,
+
+    /// Reverse a string.
+    ///
+    /// Stack: `[string] -> [reversed_string]`
+    StringReverse = 0xDF,
 
     // ─────────────────────────────────────────────────────────────────────────
     // Type conversion (Milestone 15 - Standard Library)
@@ -671,6 +844,27 @@ impl Opcode {
             0x23 => Some(Self::Div),
             0x24 => Some(Self::Mod),
             0x25 => Some(Self::Neg),
+            // Math functions
+            0x26 => Some(Self::Sqrt),
+            0x27 => Some(Self::Abs),
+            0x28 => Some(Self::Floor),
+            0x29 => Some(Self::Ceil),
+            0x2A => Some(Self::Round),
+            0x2B => Some(Self::Trunc),
+            0x2C => Some(Self::Sin),
+            0x2D => Some(Self::Cos),
+            0x2E => Some(Self::Tan),
+            0x2F => Some(Self::Ln),
+            0x36 => Some(Self::Exp),
+            0x37 => Some(Self::Pow),
+            0x38 => Some(Self::Min),
+            0x39 => Some(Self::Max),
+            0x3A => Some(Self::Asin),
+            0x3B => Some(Self::Acos),
+            0x3C => Some(Self::Atan),
+            0x3D => Some(Self::Atan2),
+            0x3E => Some(Self::Log10),
+            0x3F => Some(Self::Log2),
             0x30 => Some(Self::Eq),
             0x31 => Some(Self::Ne),
             0x32 => Some(Self::Lt),
@@ -714,6 +908,10 @@ impl Opcode {
             0xC4 => Some(Self::ListAppend),
             0xC5 => Some(Self::ListHead),
             0xC6 => Some(Self::ListTail),
+            0xC7 => Some(Self::ListReverse),
+            0xC8 => Some(Self::ListSort),
+            0xC9 => Some(Self::ListSlice),
+            0xCA => Some(Self::ListIsEmpty),
             // Strings
             0xD0 => Some(Self::StringLength),
             0xD1 => Some(Self::StringSplit),
@@ -721,6 +919,16 @@ impl Opcode {
             0xD3 => Some(Self::StringTrim),
             0xD4 => Some(Self::StringContains),
             0xD5 => Some(Self::StringConcat),
+            0xD6 => Some(Self::StringSlice),
+            0xD7 => Some(Self::StringChars),
+            0xD8 => Some(Self::StringReplace),
+            0xD9 => Some(Self::StringStartsWith),
+            0xDA => Some(Self::StringEndsWith),
+            0xDB => Some(Self::StringToUpper),
+            0xDC => Some(Self::StringToLower),
+            0xDD => Some(Self::StringIndexOf),
+            0xDE => Some(Self::StringRepeat),
+            0xDF => Some(Self::StringReverse),
             // Type conversion
             0xE0 => Some(Self::ToString),
             0xE1 => Some(Self::ParseNumber),

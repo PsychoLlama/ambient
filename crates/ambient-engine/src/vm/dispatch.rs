@@ -66,6 +66,92 @@ impl Vm {
                     self.stack.push(Value::Number(-n));
                 }
 
+                // Math functions
+                Opcode::Sqrt => {
+                    let n = self.pop_number("sqrt")?;
+                    self.stack.push(Value::Number(n.sqrt()));
+                }
+                Opcode::Abs => {
+                    let n = self.pop_number("abs")?;
+                    self.stack.push(Value::Number(n.abs()));
+                }
+                Opcode::Floor => {
+                    let n = self.pop_number("floor")?;
+                    self.stack.push(Value::Number(n.floor()));
+                }
+                Opcode::Ceil => {
+                    let n = self.pop_number("ceil")?;
+                    self.stack.push(Value::Number(n.ceil()));
+                }
+                Opcode::Round => {
+                    let n = self.pop_number("round")?;
+                    self.stack.push(Value::Number(n.round()));
+                }
+                Opcode::Trunc => {
+                    let n = self.pop_number("trunc")?;
+                    self.stack.push(Value::Number(n.trunc()));
+                }
+                Opcode::Sin => {
+                    let n = self.pop_number("sin")?;
+                    self.stack.push(Value::Number(n.sin()));
+                }
+                Opcode::Cos => {
+                    let n = self.pop_number("cos")?;
+                    self.stack.push(Value::Number(n.cos()));
+                }
+                Opcode::Tan => {
+                    let n = self.pop_number("tan")?;
+                    self.stack.push(Value::Number(n.tan()));
+                }
+                Opcode::Ln => {
+                    let n = self.pop_number("ln")?;
+                    self.stack.push(Value::Number(n.ln()));
+                }
+                Opcode::Exp => {
+                    let n = self.pop_number("exp")?;
+                    self.stack.push(Value::Number(n.exp()));
+                }
+                Opcode::Pow => {
+                    let exp = self.pop_number("pow")?;
+                    let base = self.pop_number("pow")?;
+                    self.stack.push(Value::Number(base.powf(exp)));
+                }
+                Opcode::Min => {
+                    let b = self.pop_number("min")?;
+                    let a = self.pop_number("min")?;
+                    self.stack.push(Value::Number(a.min(b)));
+                }
+                Opcode::Max => {
+                    let b = self.pop_number("max")?;
+                    let a = self.pop_number("max")?;
+                    self.stack.push(Value::Number(a.max(b)));
+                }
+                Opcode::Asin => {
+                    let n = self.pop_number("asin")?;
+                    self.stack.push(Value::Number(n.asin()));
+                }
+                Opcode::Acos => {
+                    let n = self.pop_number("acos")?;
+                    self.stack.push(Value::Number(n.acos()));
+                }
+                Opcode::Atan => {
+                    let n = self.pop_number("atan")?;
+                    self.stack.push(Value::Number(n.atan()));
+                }
+                Opcode::Atan2 => {
+                    let x = self.pop_number("atan2")?;
+                    let y = self.pop_number("atan2")?;
+                    self.stack.push(Value::Number(y.atan2(x)));
+                }
+                Opcode::Log10 => {
+                    let n = self.pop_number("log10")?;
+                    self.stack.push(Value::Number(n.log10()));
+                }
+                Opcode::Log2 => {
+                    let n = self.pop_number("log2")?;
+                    self.stack.push(Value::Number(n.log2()));
+                }
+
                 Opcode::Eq => {
                     let b = self.pop()?;
                     let a = self.pop()?;
@@ -769,6 +855,84 @@ impl Vm {
                     self.stack.push(Value::list(result));
                 }
 
+                Opcode::ListReverse => {
+                    let list = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "list_reverse",
+                            })
+                        }
+                    };
+                    let mut result: Vec<Value> = (*list).clone();
+                    result.reverse();
+                    self.stack.push(Value::list(result));
+                }
+
+                Opcode::ListSort => {
+                    let list = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "list_sort",
+                            })
+                        }
+                    };
+                    let mut result: Vec<Value> = (*list).clone();
+                    result.sort_by(|a, b| {
+                        match (a, b) {
+                            (Value::Number(na), Value::Number(nb)) => {
+                                na.partial_cmp(nb).unwrap_or(std::cmp::Ordering::Equal)
+                            }
+                            (Value::String(sa), Value::String(sb)) => sa.cmp(sb),
+                            _ => std::cmp::Ordering::Equal,
+                        }
+                    });
+                    self.stack.push(Value::list(result));
+                }
+
+                Opcode::ListSlice => {
+                    let end = self.pop_number("list_slice")? as usize;
+                    let start = self.pop_number("list_slice")? as usize;
+                    let list = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "list_slice",
+                            })
+                        }
+                    };
+                    let len = list.len();
+                    let start = start.min(len);
+                    let end = end.min(len);
+                    let result = if start >= end {
+                        Vec::new()
+                    } else {
+                        list[start..end].to_vec()
+                    };
+                    self.stack.push(Value::list(result));
+                }
+
+                Opcode::ListIsEmpty => {
+                    let list = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "list_is_empty",
+                            })
+                        }
+                    };
+                    self.stack.push(Value::Bool(list.is_empty()));
+                }
+
                 // ─────────────────────────────────────────────────────────────
                 // String operations (Milestone 15)
                 // ─────────────────────────────────────────────────────────────
@@ -826,6 +990,88 @@ impl Vm {
                     let s1 = self.pop_string("string_concat")?;
                     let mut result = (*s1).clone();
                     result.push_str(&s2);
+                    self.stack.push(Value::string(result));
+                }
+
+                Opcode::StringSlice => {
+                    let end = self.pop_number("string_slice")? as usize;
+                    let start = self.pop_number("string_slice")? as usize;
+                    let s = self.pop_string("string_slice")?;
+                    let chars: Vec<char> = s.chars().collect();
+                    let len = chars.len();
+                    let start = start.min(len);
+                    let end = end.min(len);
+                    let result: String = if start >= end {
+                        String::new()
+                    } else {
+                        chars[start..end].iter().collect()
+                    };
+                    self.stack.push(Value::string(result));
+                }
+
+                Opcode::StringChars => {
+                    let s = self.pop_string("string_chars")?;
+                    let chars: Vec<Value> = s
+                        .chars()
+                        .map(|c| Value::string(c.to_string()))
+                        .collect();
+                    self.stack.push(Value::list(chars));
+                }
+
+                Opcode::StringReplace => {
+                    let replacement = self.pop_string("string_replace")?;
+                    let pattern = self.pop_string("string_replace")?;
+                    let s = self.pop_string("string_replace")?;
+                    let result = s.replace(&*pattern, &*replacement);
+                    self.stack.push(Value::string(result));
+                }
+
+                Opcode::StringStartsWith => {
+                    let prefix = self.pop_string("string_starts_with")?;
+                    let s = self.pop_string("string_starts_with")?;
+                    self.stack.push(Value::Bool(s.starts_with(&*prefix)));
+                }
+
+                Opcode::StringEndsWith => {
+                    let suffix = self.pop_string("string_ends_with")?;
+                    let s = self.pop_string("string_ends_with")?;
+                    self.stack.push(Value::Bool(s.ends_with(&*suffix)));
+                }
+
+                Opcode::StringToUpper => {
+                    let s = self.pop_string("string_to_upper")?;
+                    self.stack.push(Value::string(s.to_uppercase()));
+                }
+
+                Opcode::StringToLower => {
+                    let s = self.pop_string("string_to_lower")?;
+                    self.stack.push(Value::string(s.to_lowercase()));
+                }
+
+                Opcode::StringIndexOf => {
+                    let substring = self.pop_string("string_index_of")?;
+                    let s = self.pop_string("string_index_of")?;
+                    let result = match s.find(&*substring) {
+                        Some(idx) => {
+                            // Convert byte index to character index
+                            #[allow(clippy::cast_precision_loss)]
+                            let char_idx = s[..idx].chars().count() as f64;
+                            char_idx
+                        }
+                        None => -1.0,
+                    };
+                    self.stack.push(Value::Number(result));
+                }
+
+                Opcode::StringRepeat => {
+                    let count = self.pop_number("string_repeat")? as usize;
+                    let s = self.pop_string("string_repeat")?;
+                    self.stack.push(Value::string(s.repeat(count)));
+                }
+
+                Opcode::StringReverse => {
+                    let s = self.pop_string("string_reverse")?;
+                    let result: String = s.chars().rev().collect();
                     self.stack.push(Value::string(result));
                 }
 

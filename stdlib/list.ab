@@ -331,26 +331,23 @@ fn drop_while(xs: List<a>, pred: (a) -> bool): List<a> {
     }
 }
 
-// Get elements from start to end (exclusive)
+// Get elements from start to end (exclusive) - native intrinsic
 fn slice(xs: List<a>, start: number, end_idx: number): List<a> {
-    take(drop(xs, start), end_idx - start)
+    list_slice(xs, start, end_idx)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Transform
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Reverse the list
+// Reverse the list - native intrinsic
 fn reverse(xs: List<a>): List<a> {
-    reverse_helper(xs, [])
+    list_reverse(xs)
 }
 
-fn reverse_helper(xs: List<a>, acc: List<a>): List<a> {
-    if list_is_empty(xs) {
-        acc
-    } else {
-        reverse_helper(list_tail(xs), list_concat([list_head(xs)], acc))
-    }
+// Sort a list (elements must be comparable) - native intrinsic
+fn sort(xs: List<a>): List<a> {
+    list_sort(xs)
 }
 
 // Insert separator between each element
