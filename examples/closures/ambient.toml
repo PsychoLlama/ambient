@@ -1,5 +1,5 @@
 [package]
-name = "factorial"
+name = "closures"
 version = "0.1.0"
 
 [build]

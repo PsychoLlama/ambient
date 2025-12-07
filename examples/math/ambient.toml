@@ -1,5 +1,5 @@
 [package]
-name = "factorial"
+name = "math"
 version = "0.1.0"
 
 [build]
