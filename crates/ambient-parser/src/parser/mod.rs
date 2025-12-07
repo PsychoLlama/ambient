@@ -700,8 +700,11 @@ impl<'src> Parser<'src> {
     }
 
     pub(crate) fn unescape_string(text: &str) -> String {
-        // Remove quotes
-        let content = text.trim_start_matches('"').trim_end_matches('"');
+        // Remove the opening and closing quotes (exactly one from each end)
+        let content = text
+            .strip_prefix('"')
+            .and_then(|s| s.strip_suffix('"'))
+            .unwrap_or(text);
         Self::unescape_string_part(content)
     }
 

@@ -1,0 +1,83 @@
+// JSON Builder Example
+//
+// Builds JSON strings from Ambient data structures.
+// Demonstrates string manipulation and recursive data processing.
+
+// Escape special characters in a JSON string
+fn escape_string(s: string): string {
+    // Replace backslashes first (before adding more), then quotes
+    let s1 = string_replace(s, "\\", "\\\\");
+    string_replace(s1, "\"", "\\\"")
+}
+
+// Format a string as a JSON string (with quotes)
+fn json_string(s: string): string {
+    string_concat("\"", string_concat(escape_string(s), "\""))
+}
+
+// Format a number as JSON
+fn json_number(n: number): string {
+    to_string(n)
+}
+
+// Format a boolean as JSON
+fn json_bool(b: bool): string {
+    if b { "true" } else { "false" }
+}
+
+// Build a JSON array from a list of pre-formatted JSON values
+fn json_array(items: List<string>): string {
+    string_concat("[", string_concat(string_join(items, ", "), "]"))
+}
+
+// Build a JSON object from key-value pairs (values pre-formatted)
+fn json_object(pairs: List<(string, string)>): string {
+    let formatted = format_pairs(pairs, []);
+    string_concat("{", string_concat(string_join(formatted, ", "), "}"))
+}
+
+fn format_pairs(pairs: List<(string, string)>, acc: List<string>): List<string> {
+    if list_is_empty(pairs) {
+        acc
+    } else {
+        let pair = list_head(pairs);
+        let key = json_string(pair.0);
+        let value = pair.1;
+        let formatted = string_concat(key, string_concat(": ", value));
+        format_pairs(list_tail(pairs), list_append(acc, formatted))
+    }
+}
+
+// Helper to build a key-value pair for an object
+fn field(key: string, value: string): (string, string) {
+    (key, value)
+}
+
+pub fn main(): string {
+    // Build a user profile as JSON
+    let user = json_object([
+        field("name", json_string("Alice")),
+        field("age", json_number(30)),
+        field("active", json_bool(true)),
+        field("email", json_string("alice@example.com"))
+    ]);
+
+    // Build a list of tags
+    let tags = json_array([
+        json_string("developer"),
+        json_string("rust"),
+        json_string("ambient")
+    ]);
+
+    // Build a nested structure
+    let profile = json_object([
+        field("user", user),
+        field("tags", tags),
+        field("settings", json_object([
+            field("theme", json_string("dark")),
+            field("notifications", json_bool(false))
+        ]))
+    ]);
+
+    profile
+}
