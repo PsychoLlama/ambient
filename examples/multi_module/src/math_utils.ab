@@ -1,0 +1,43 @@
+// Math utility functions
+//
+// This module provides common mathematical operations that can be
+// imported into other modules using `use pkg.math_utils.*;`
+
+// Absolute value
+pub fn abs(x: number): number {
+    if x < 0 { 0 - x } else { x }
+}
+
+// Minimum of two numbers
+pub fn min(a: number, b: number): number {
+    if a < b { a } else { b }
+}
+
+// Maximum of two numbers
+pub fn max(a: number, b: number): number {
+    if a > b { a } else { b }
+}
+
+// Clamp a value between bounds
+pub fn clamp(value: number, lower: number, upper: number): number {
+    min(max(value, lower), upper)
+}
+
+// Check if approximately equal (within epsilon)
+pub fn approx_eq(a: number, b: number): bool {
+    abs(a - b) < 0.0001
+}
+
+// Greatest common divisor (Euclidean algorithm)
+pub fn gcd(a: number, b: number): number {
+    gcd_helper(abs(a), abs(b))
+}
+
+fn gcd_helper(a: number, b: number): number {
+    if b == 0 { a } else { gcd_helper(b, a % b) }
+}
+
+// Least common multiple
+pub fn lcm(a: number, b: number): number {
+    abs(a * b) / gcd(a, b)
+}

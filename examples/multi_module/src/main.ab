@@ -1,0 +1,69 @@
+// Multi-module example (single-module version)
+//
+// This package demonstrates the basic package structure.
+// Full multi-module imports will work once the CLI is updated
+// to use the cross-module compilation infrastructure.
+//
+// Package structure:
+//   multi_module/
+//     ambient.toml      - Package manifest
+//     src/
+//       main.ab         - Entry point (this file)
+//       math_utils.ab   - Math utilities (not yet imported)
+//       list_utils.ab   - List utilities (not yet imported)
+//       statistics.ab   - Statistics (not yet imported)
+
+// For now, we demonstrate basic package functionality
+// by including math utilities directly.
+
+// Absolute value
+fn abs(x: number): number {
+    if x < 0 { 0 - x } else { x }
+}
+
+// Minimum of two numbers
+fn min(a: number, b: number): number {
+    if a < b { a } else { b }
+}
+
+// Maximum of two numbers
+fn max(a: number, b: number): number {
+    if a > b { a } else { b }
+}
+
+// Greatest common divisor
+fn gcd(a: number, b: number): number {
+    gcd_helper(abs(a), abs(b))
+}
+
+fn gcd_helper(a: number, b: number): number {
+    if b == 0 { a } else { gcd_helper(b, a % b) }
+}
+
+// Sum of a list
+fn sum(xs: List<number>): number {
+    sum_helper(xs, 0)
+}
+
+fn sum_helper(xs: List<number>, acc: number): number {
+    if list_length(xs) == 0 {
+        acc
+    } else {
+        sum_helper(list_tail(xs), acc + list_head(xs))
+    }
+}
+
+pub fn main(): number {
+    // Test math functions
+    let a = abs(0 - 42);        // 42
+    let b = min(10, 5);         // 5
+    let c = max(10, 5);         // 10
+    let d = gcd(48, 18);        // 6
+
+    // Test list functions
+    let numbers = [1, 2, 3, 4, 5];
+    let s = sum(numbers);       // 15
+
+    // Combine results: 42 + 5 + 10 + 6 + 15 = 78
+    a + b + c + d + s
+}
