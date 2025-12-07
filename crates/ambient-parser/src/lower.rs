@@ -519,45 +519,102 @@ fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, P
 }
 
 fn lower_interpolated_string(
-    _ctx: &mut LoweringContext,
+    ctx: &mut LoweringContext,
     parts: &[StringPart],
-    span: Span,
+    _span: Span,
 ) -> Result<ExprKind, ParseError> {
-    // For now, we'll convert interpolated strings to a series of
-    // string concatenations using to_string and string interpolation
-    // In a full implementation, this would be handled specially
+    // Desugar interpolated strings to nested string_concat calls.
+    // For example: "hello ${name}!" becomes:
+    //   string_concat(string_concat("hello ", to_string(name)), "!")
+    //
+    // Each expression part is wrapped in to_string() to ensure it becomes a string.
 
-    // Simple case: just combine into a single string expression
-    // This is a placeholder - real implementation would need runtime support
-    let mut combined = String::new();
-    for part in parts {
-        match part {
-            StringPart::Literal(s, _) => combined.push_str(s),
-            StringPart::Expr(_) => combined.push_str("${...}"), // Placeholder
-        }
+    // Handle empty case (shouldn't happen, but be safe)
+    if parts.is_empty() {
+        return Ok(ExprKind::String(Arc::from("")));
     }
 
-    // For now, return a placeholder. In a full implementation,
-    // we'd generate proper AST for string concatenation
+    // Handle single literal case - no concatenation needed
     if parts.len() == 1 {
         if let StringPart::Literal(s, _) = &parts[0] {
             return Ok(ExprKind::String(s.clone()));
         }
     }
 
-    // Create a more sophisticated representation for interpolation
-    // For now, we'll use the Call syntax to represent this
-    // In a real implementation, you'd want a dedicated InterpolatedString variant
-    // or desugar to function calls
+    // Convert each part to an expression
+    let mut exprs: Vec<Expr> = Vec::with_capacity(parts.len());
+    for part in parts {
+        let expr = match part {
+            StringPart::Literal(s, part_span) => {
+                // String literals are already strings
+                Expr::new(ExprKind::String(s.clone()), *part_span)
+            }
+            StringPart::Expr(cst_expr) => {
+                // Wrap expressions in to_string() call
+                let inner = lower_expression(ctx, cst_expr)?;
+                let inner_span = inner.span;
+                make_to_string_call(inner, inner_span)
+            }
+        };
+        exprs.push(expr);
+    }
 
-    // Simplified: just return the first string part or create a record
-    // representing the interpolation. This is a placeholder.
-    Err(ParseError::new(
-        ParseErrorKind::LoweringError(
-            "interpolated strings not fully implemented in lowering".into(),
-        ),
+    // Filter out empty string literals (optimization)
+    let exprs: Vec<Expr> = exprs
+        .into_iter()
+        .filter(|e| {
+            if let ExprKind::String(s) = &e.kind {
+                !s.is_empty()
+            } else {
+                true
+            }
+        })
+        .collect();
+
+    // Handle case where filtering left us with nothing
+    if exprs.is_empty() {
+        return Ok(ExprKind::String(Arc::from("")));
+    }
+
+    // Handle case where filtering left us with one item
+    if exprs.len() == 1 {
+        // SAFETY: We just checked len == 1, so next() will succeed
+        return Ok(exprs
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| unreachable!())
+            .kind);
+    }
+
+    // Chain all parts together with string_concat
+    // We fold left-to-right: concat(concat(concat(a, b), c), d)
+    let mut iter = exprs.into_iter();
+    // SAFETY: We checked len >= 2, so next() will succeed
+    let first = iter.next().unwrap_or_else(|| unreachable!());
+    let result = iter.fold(first, |acc, next| {
+        let result_span = Span::new(acc.span.start, next.span.end);
+        make_string_concat_call(acc, next, result_span)
+    });
+
+    Ok(result.kind)
+}
+
+/// Create a `to_string(expr)` call expression.
+fn make_to_string_call(expr: Expr, span: Span) -> Expr {
+    let callee = Expr::new(
+        ExprKind::Name(QualifiedName::simple(Arc::from("to_string"))),
         span,
-    ))
+    );
+    Expr::new(ExprKind::Call(Box::new(callee), vec![expr]), span)
+}
+
+/// Create a `string_concat(left, right)` call expression.
+fn make_string_concat_call(left: Expr, right: Expr, span: Span) -> Expr {
+    let callee = Expr::new(
+        ExprKind::Name(QualifiedName::simple(Arc::from("string_concat"))),
+        span,
+    );
+    Expr::new(ExprKind::Call(Box::new(callee), vec![left, right]), span)
 }
 
 fn lower_stmt(ctx: &mut LoweringContext, stmt: &CstStmt) -> Result<Stmt, ParseError> {

@@ -553,11 +553,12 @@ impl Parser<'_> {
         let start = self.current().span.start;
         let mut parts = Vec::new();
 
-        // First part (StringStart)
+        // First part (StringStart) - token text includes leading `"` but not trailing `${`
         let token = self.advance();
-        if !token.text.is_empty() {
-            let content = Self::unescape_string_part(&token.text);
-            parts.push(StringPart::Literal(content.into(), token.span));
+        let content = Self::extract_string_start_content(&token.text);
+        if !content.is_empty() {
+            let unescaped = Self::unescape_string_part(content);
+            parts.push(StringPart::Literal(unescaped.into(), token.span));
         }
 
         loop {
@@ -568,17 +569,21 @@ impl Parser<'_> {
             // Check what comes next
             match self.current_kind() {
                 TokenKind::StringMiddle => {
+                    // Token text includes leading `}` but not trailing `${`
                     let token = self.advance();
-                    if !token.text.is_empty() {
-                        let content = Self::unescape_string_part(&token.text);
-                        parts.push(StringPart::Literal(content.into(), token.span));
+                    let content = Self::extract_string_middle_content(&token.text);
+                    if !content.is_empty() {
+                        let unescaped = Self::unescape_string_part(content);
+                        parts.push(StringPart::Literal(unescaped.into(), token.span));
                     }
                 }
                 TokenKind::StringEnd => {
+                    // Token text includes leading `}` and trailing `"`
                     let token = self.advance();
-                    if !token.text.is_empty() {
-                        let content = Self::unescape_string_part(&token.text);
-                        parts.push(StringPart::Literal(content.into(), token.span));
+                    let content = Self::extract_string_end_content(&token.text);
+                    if !content.is_empty() {
+                        let unescaped = Self::unescape_string_part(content);
+                        parts.push(StringPart::Literal(unescaped.into(), token.span));
                     }
                     break;
                 }
@@ -596,6 +601,23 @@ impl Parser<'_> {
             kind: CstExprKind::InterpolatedString(parts),
             span: Span::new(start, end),
         })
+    }
+
+    /// Extract content from `StringStart` token (strip leading `"`).
+    fn extract_string_start_content(text: &str) -> &str {
+        text.strip_prefix('"').unwrap_or(text)
+    }
+
+    /// Extract content from `StringMiddle` token (strip leading `}`).
+    fn extract_string_middle_content(text: &str) -> &str {
+        text.strip_prefix('}').unwrap_or(text)
+    }
+
+    /// Extract content from `StringEnd` token (strip leading `}` and trailing `"`).
+    fn extract_string_end_content(text: &str) -> &str {
+        text.strip_prefix('}')
+            .and_then(|s| s.strip_suffix('"'))
+            .unwrap_or(text)
     }
 
     fn parse_paren_expr(&mut self) -> Result<CstExpr, ParseError> {
