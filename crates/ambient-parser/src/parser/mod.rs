@@ -29,7 +29,8 @@ use ambient_engine::ast::Span;
 use crate::cst::{
     CstAbilityDef, CstAbilityMethod, CstConstDef, CstEnumDef, CstEnumVariant, CstFunctionDef,
     CstIdent, CstItem, CstItemKind, CstModule, CstParam, CstQualifiedName, CstReplInput,
-    CstTypeAliasDef, CstTypeParam, CstUseDef, CstUseImports, Trivia, TriviaItem, TriviaKind,
+    CstTypeAliasDef, CstTypeParam, CstUseDef, CstUseKind, CstUsePrefix, Trivia, TriviaItem,
+    TriviaKind,
 };
 use crate::error::{ParseError, ParseErrorKind};
 use crate::lexer::{Lexer, Token, TokenKind};
@@ -237,10 +238,11 @@ impl<'src> Parser<'src> {
                 self.skip_trivia();
                 match self.current_kind() {
                     TokenKind::Fn => CstItemKind::Function(self.parse_function(true)?),
+                    TokenKind::Use => CstItemKind::Use(self.parse_use(true)?),
                     _ => {
                         return Err(ParseError::new(
                             ParseErrorKind::Expected {
-                                expected: "fn after pub".into(),
+                                expected: "fn or use after pub".into(),
                                 found: format!("{:?}", self.current_kind()),
                             },
                             self.current().span,
@@ -253,7 +255,7 @@ impl<'src> Parser<'src> {
             TokenKind::Type | TokenKind::Unique => CstItemKind::TypeAlias(self.parse_type_alias()?),
             TokenKind::Enum => CstItemKind::Enum(self.parse_enum()?),
             TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def()?),
-            TokenKind::Use => CstItemKind::Use(self.parse_use()?),
+            TokenKind::Use => CstItemKind::Use(self.parse_use(false)?),
             _ => {
                 return Err(ParseError::new(
                     ParseErrorKind::UnexpectedToken(format!("{:?}", self.current_kind())),
@@ -610,24 +612,43 @@ impl<'src> Parser<'src> {
         })
     }
 
-    fn parse_use(&mut self) -> Result<CstUseDef, ParseError> {
+    /// Parse a use/import statement.
+    ///
+    /// Grammar:
+    /// ```text
+    /// use_def = ["pub"] "use" use_prefix "." path_rest ";"
+    /// use_prefix = "pkg" | "core" | "self" | super_chain
+    /// super_chain = "super" ("." "super")*
+    /// path_rest = (ident ".")* (ident | "*" | "{" ident_list "}")
+    /// ident_list = ident ("," ident)* [","]
+    /// ```
+    fn parse_use(&mut self, is_public: bool) -> Result<CstUseDef, ParseError> {
         let start = self.current().span.start;
         self.expect(TokenKind::Use)?;
 
-        let mut path = Vec::new();
-        path.push(self.parse_ident()?);
+        // Parse the prefix (pkg, core, self, super)
+        let prefix = self.parse_use_prefix()?;
 
-        while self.consume(TokenKind::Dot).is_some() {
-            // Check for glob or nested imports
+        // Expect dot after prefix
+        self.expect(TokenKind::Dot)?;
+
+        // Parse the rest of the path
+        let mut path = Vec::new();
+
+        loop {
+            // Check for glob import: `use pkg.module.*;`
             if self.consume(TokenKind::Star).is_some() {
                 let end = self.expect(TokenKind::Semi)?.span.end;
                 return Ok(CstUseDef {
+                    is_public,
+                    prefix,
                     path,
-                    imports: CstUseImports::All,
+                    kind: CstUseKind::Glob,
                     span: Span::new(start, end),
                 });
             }
 
+            // Check for grouped imports: `use pkg.module.{a, b};`
             if self.check(TokenKind::LBrace) {
                 self.advance();
                 let mut items = Vec::new();
@@ -648,21 +669,110 @@ impl<'src> Parser<'src> {
                 let end = self.expect(TokenKind::Semi)?.span.end;
 
                 return Ok(CstUseDef {
+                    is_public,
+                    prefix,
                     path,
-                    imports: CstUseImports::Items(items),
+                    kind: CstUseKind::Items(items),
                     span: Span::new(start, end),
                 });
             }
 
+            // Parse an identifier in the path
             path.push(self.parse_ident()?);
+
+            // Check if there's more path to parse
+            if self.consume(TokenKind::Dot).is_none() {
+                break;
+            }
         }
 
         let end = self.expect(TokenKind::Semi)?.span.end;
         Ok(CstUseDef {
+            is_public,
+            prefix,
             path,
-            imports: CstUseImports::Single,
+            kind: CstUseKind::Module,
             span: Span::new(start, end),
         })
+    }
+
+    /// Parse the prefix of a use path (pkg, core, self, super).
+    fn parse_use_prefix(&mut self) -> Result<CstUsePrefix, ParseError> {
+        self.skip_trivia();
+        match self.current_kind() {
+            TokenKind::Pkg => {
+                let token = self.current().clone();
+                let ident = CstIdent {
+                    name: token.text.into(),
+                    span: token.span,
+                    trailing_trivia: Trivia::default(),
+                };
+                self.advance();
+                self.skip_trivia();
+                Ok(CstUsePrefix::Pkg(ident))
+            }
+            TokenKind::Core => {
+                let token = self.current().clone();
+                let ident = CstIdent {
+                    name: token.text.into(),
+                    span: token.span,
+                    trailing_trivia: Trivia::default(),
+                };
+                self.advance();
+                self.skip_trivia();
+                Ok(CstUsePrefix::Core(ident))
+            }
+            TokenKind::Self_ => {
+                let token = self.current().clone();
+                let ident = CstIdent {
+                    name: token.text.into(),
+                    span: token.span,
+                    trailing_trivia: Trivia::default(),
+                };
+                self.advance();
+                self.skip_trivia();
+                Ok(CstUsePrefix::Self_(ident))
+            }
+            TokenKind::Super => {
+                // Parse chain of super.super.super...
+                let mut supers = Vec::new();
+                while self.check(TokenKind::Super) {
+                    let token = self.current().clone();
+                    let ident = CstIdent {
+                        name: token.text.into(),
+                        span: token.span,
+                        trailing_trivia: Trivia::default(),
+                    };
+                    supers.push(ident);
+                    self.advance();
+                    self.skip_trivia();
+
+                    // Check for another super after dot
+                    if self.check(TokenKind::Dot) {
+                        // Peek ahead to see if it's followed by super
+                        // We need to commit to the dot only if next is super
+                        let next_pos = self.pos + 1;
+                        if next_pos < self.tokens.len() {
+                            let next_kind = self.tokens[next_pos].kind;
+                            if next_kind == TokenKind::Super {
+                                self.advance(); // consume the dot
+                                self.skip_trivia();
+                                continue;
+                            }
+                        }
+                    }
+                    break;
+                }
+                Ok(CstUsePrefix::Super(supers))
+            }
+            _ => Err(ParseError::new(
+                ParseErrorKind::Expected {
+                    expected: "pkg, core, self, or super".into(),
+                    found: format!("{:?}", self.current_kind()),
+                },
+                self.current().span,
+            )),
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1077,6 +1187,164 @@ mod tests {
                 assert_eq!(&*sandbox.allowed_abilities[0].segments[0].name, "Log");
             }
             _ => panic!("Expected sandbox expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_pkg_module() {
+        let source = "use pkg.utils;";
+        let mut parser = Parser::new(source);
+        let module = parser.parse_module().expect("parse error");
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0].kind {
+            CstItemKind::Use(u) => {
+                assert!(!u.is_public);
+                assert!(matches!(&u.prefix, CstUsePrefix::Pkg(_)));
+                assert_eq!(u.path.len(), 1);
+                assert_eq!(&*u.path[0].name, "utils");
+                assert!(matches!(u.kind, CstUseKind::Module));
+            }
+            _ => panic!("Expected use"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_pkg_nested() {
+        let source = "use pkg.utils.format;";
+        let mut parser = Parser::new(source);
+        let module = parser.parse_module().expect("parse error");
+        match &module.items[0].kind {
+            CstItemKind::Use(u) => {
+                assert!(matches!(&u.prefix, CstUsePrefix::Pkg(_)));
+                assert_eq!(u.path.len(), 2);
+                assert_eq!(&*u.path[0].name, "utils");
+                assert_eq!(&*u.path[1].name, "format");
+                assert!(matches!(u.kind, CstUseKind::Module));
+            }
+            _ => panic!("Expected use"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_pkg_glob() {
+        let source = "use pkg.utils.*;";
+        let mut parser = Parser::new(source);
+        let module = parser.parse_module().expect("parse error");
+        match &module.items[0].kind {
+            CstItemKind::Use(u) => {
+                assert!(matches!(&u.prefix, CstUsePrefix::Pkg(_)));
+                assert_eq!(u.path.len(), 1);
+                assert_eq!(&*u.path[0].name, "utils");
+                assert!(matches!(u.kind, CstUseKind::Glob));
+            }
+            _ => panic!("Expected use"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_pkg_items() {
+        let source = "use pkg.utils.{format, parse};";
+        let mut parser = Parser::new(source);
+        let module = parser.parse_module().expect("parse error");
+        match &module.items[0].kind {
+            CstItemKind::Use(u) => {
+                assert!(matches!(&u.prefix, CstUsePrefix::Pkg(_)));
+                assert_eq!(u.path.len(), 1);
+                assert_eq!(&*u.path[0].name, "utils");
+                match &u.kind {
+                    CstUseKind::Items(items) => {
+                        assert_eq!(items.len(), 2);
+                        assert_eq!(&*items[0].name, "format");
+                        assert_eq!(&*items[1].name, "parse");
+                    }
+                    _ => panic!("Expected items import"),
+                }
+            }
+            _ => panic!("Expected use"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_core() {
+        let source = "use core.io;";
+        let mut parser = Parser::new(source);
+        let module = parser.parse_module().expect("parse error");
+        match &module.items[0].kind {
+            CstItemKind::Use(u) => {
+                assert!(matches!(&u.prefix, CstUsePrefix::Core(_)));
+                assert_eq!(u.path.len(), 1);
+                assert_eq!(&*u.path[0].name, "io");
+            }
+            _ => panic!("Expected use"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_self() {
+        let source = "use self.sibling;";
+        let mut parser = Parser::new(source);
+        let module = parser.parse_module().expect("parse error");
+        match &module.items[0].kind {
+            CstItemKind::Use(u) => {
+                assert!(matches!(&u.prefix, CstUsePrefix::Self_(_)));
+                assert_eq!(u.path.len(), 1);
+                assert_eq!(&*u.path[0].name, "sibling");
+            }
+            _ => panic!("Expected use"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_super() {
+        let source = "use super.parent;";
+        let mut parser = Parser::new(source);
+        let module = parser.parse_module().expect("parse error");
+        match &module.items[0].kind {
+            CstItemKind::Use(u) => {
+                match &u.prefix {
+                    CstUsePrefix::Super(supers) => {
+                        assert_eq!(supers.len(), 1);
+                    }
+                    _ => panic!("Expected super prefix"),
+                }
+                assert_eq!(u.path.len(), 1);
+                assert_eq!(&*u.path[0].name, "parent");
+            }
+            _ => panic!("Expected use"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_super_super() {
+        let source = "use super.super.grandparent;";
+        let mut parser = Parser::new(source);
+        let module = parser.parse_module().expect("parse error");
+        match &module.items[0].kind {
+            CstItemKind::Use(u) => {
+                match &u.prefix {
+                    CstUsePrefix::Super(supers) => {
+                        assert_eq!(supers.len(), 2);
+                    }
+                    _ => panic!("Expected super prefix"),
+                }
+                assert_eq!(u.path.len(), 1);
+                assert_eq!(&*u.path[0].name, "grandparent");
+            }
+            _ => panic!("Expected use"),
+        }
+    }
+
+    #[test]
+    fn test_parse_pub_use() {
+        let source = "pub use pkg.utils;";
+        let mut parser = Parser::new(source);
+        let module = parser.parse_module().expect("parse error");
+        match &module.items[0].kind {
+            CstItemKind::Use(u) => {
+                assert!(u.is_public);
+                assert!(matches!(&u.prefix, CstUsePrefix::Pkg(_)));
+            }
+            _ => panic!("Expected use"),
         }
     }
 }

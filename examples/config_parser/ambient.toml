@@ -1,0 +1,6 @@
+[package]
+name = "config_parser"
+version = "0.1.0"
+
+[build]
+src = "./"

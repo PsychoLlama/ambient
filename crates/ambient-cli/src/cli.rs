@@ -15,6 +15,18 @@ pub struct Args {
 /// Available commands.
 #[derive(Subcommand, Debug)]
 pub enum Command {
+    /// Initialize a new Ambient package.
+    Init {
+        /// Directory to initialize. Creates it if it doesn't exist.
+        /// Defaults to the current directory.
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
+
+        /// Package name. Defaults to directory name.
+        #[arg(long)]
+        name: Option<String>,
+    },
+
     /// Compile an Ambient source file to bytecode.
     Compile {
         /// The source file to compile (.ab).
@@ -26,11 +38,11 @@ pub enum Command {
         output: Option<PathBuf>,
     },
 
-    /// Run an Ambient program.
+    /// Run an Ambient package.
     Run {
-        /// The file to run (.ab source or .ambient bytecode).
-        #[arg(value_name = "FILE")]
-        file: PathBuf,
+        /// Path to package directory or .ambient bytecode file.
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
 
         /// Function to execute (defaults to "main").
         #[arg(long, default_value = "main")]

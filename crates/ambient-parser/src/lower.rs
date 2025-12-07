@@ -11,7 +11,7 @@ use ambient_engine::ast::{
     Expr, ExprKind, FunctionDef, HandleExpr, Handler, HandlerLiteralExpr, HandlerLiteralMethod,
     Item, ItemKind, Lambda, LetBinding, Literal, MatchArm, Module, Param, Pattern, PatternKind,
     QualifiedName, SandboxExpr, Span, Stmt, StmtKind, TypeAliasDef, TypeParam, UnaryOp, UseDef,
-    UseImports,
+    UseKind, UsePrefix,
 };
 use ambient_engine::types::Type;
 
@@ -19,7 +19,7 @@ use crate::cst::{
     CstAbilityDef, CstBinaryOp, CstConstDef, CstEnumDef, CstExpr, CstExprKind, CstFunctionDef,
     CstItem, CstItemKind, CstLambda, CstLiteral, CstMatchArm, CstModule, CstParam, CstPattern,
     CstPatternKind, CstQualifiedName, CstRecordPatternField, CstStmt, CstStmtKind, CstTypeAliasDef,
-    CstTypeExpr, CstTypeExprKind, CstUnaryOp, CstUseDef, StringPart,
+    CstTypeExpr, CstTypeExprKind, CstUnaryOp, CstUseDef, CstUseKind, CstUsePrefix, StringPart,
 };
 use crate::error::{ParseError, ParseErrorKind};
 
@@ -234,22 +234,25 @@ fn lower_ability_def(a: &CstAbilityDef) -> Result<AbilityDef, ParseError> {
 fn lower_use(u: &CstUseDef) -> Result<UseDef, ParseError> {
     let path = u.path.iter().map(|i| i.name.clone()).collect();
 
-    let imports = match &u.imports {
-        crate::cst::CstUseImports::All => UseImports::All,
-        crate::cst::CstUseImports::Items(items) => {
-            UseImports::Items(items.iter().map(|i| i.name.clone()).collect())
-        }
-        crate::cst::CstUseImports::Single => {
-            // For single imports, the last path segment is the imported name
-            UseImports::Items(vec![u
-                .path
-                .last()
-                .map(|i| i.name.clone())
-                .unwrap_or_default()])
-        }
+    let prefix = match &u.prefix {
+        CstUsePrefix::Pkg(_) => UsePrefix::Pkg,
+        CstUsePrefix::Core(_) => UsePrefix::Core,
+        CstUsePrefix::Self_(_) => UsePrefix::Self_,
+        CstUsePrefix::Super(supers) => UsePrefix::Super(supers.len()),
     };
 
-    Ok(UseDef { path, imports })
+    let kind = match &u.kind {
+        CstUseKind::Module => UseKind::Module,
+        CstUseKind::Glob => UseKind::Glob,
+        CstUseKind::Items(items) => UseKind::Items(items.iter().map(|i| i.name.clone()).collect()),
+    };
+
+    Ok(UseDef {
+        is_public: u.is_public,
+        prefix,
+        path,
+        kind,
+    })
 }
 
 fn lower_param(ctx: &mut LoweringContext, p: &CstParam) -> Result<Param, ParseError> {

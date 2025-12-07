@@ -1,0 +1,28 @@
+// Core library: String utilities
+//
+// Common operations on strings.
+
+// Get the length of a string
+pub fn len(s: string): number {
+    s.len()
+}
+
+// Check if a string is empty
+pub fn is_empty(s: string): bool {
+    len(s) == 0
+}
+
+// Concatenate two strings
+pub fn concat(a: string, b: string): string {
+    a ++ b
+}
+
+// Convert a number to string
+pub fn from_number(n: number): string {
+    to_string(n)
+}
+
+// Convert a bool to string
+pub fn from_bool(b: bool): string {
+    if b { "true" } else { "false" }
+}

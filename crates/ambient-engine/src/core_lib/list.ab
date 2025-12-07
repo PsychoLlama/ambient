@@ -1,0 +1,67 @@
+// Core library: List utilities
+//
+// Common operations on lists.
+
+// Get the length of a list
+pub fn len<T>(list: List<T>): number {
+    // Built-in operation
+    list.len()
+}
+
+// Check if a list is empty
+pub fn is_empty<T>(list: List<T>): bool {
+    len(list) == 0
+}
+
+// Get the first element
+pub fn first<T>(list: List<T>): Option<T> {
+    if is_empty(list) {
+        None
+    } else {
+        Some(list[0])
+    }
+}
+
+// Get the last element
+pub fn last<T>(list: List<T>): Option<T> {
+    if is_empty(list) {
+        None
+    } else {
+        Some(list[len(list) - 1])
+    }
+}
+
+// Map a function over a list
+pub fn map<T, U>(list: List<T>, f: (T) -> U): List<U> {
+    let result = [];
+    let i = 0;
+    while i < len(list) {
+        result = result ++ [f(list[i])];
+        i = i + 1;
+    };
+    result
+}
+
+// Filter a list
+pub fn filter<T>(list: List<T>, pred: (T) -> bool): List<T> {
+    let result = [];
+    let i = 0;
+    while i < len(list) {
+        if pred(list[i]) {
+            result = result ++ [list[i]];
+        };
+        i = i + 1;
+    };
+    result
+}
+
+// Fold a list from the left
+pub fn fold<T, A>(list: List<T>, init: A, f: (A, T) -> A): A {
+    let acc = init;
+    let i = 0;
+    while i < len(list) {
+        acc = f(acc, list[i]);
+        i = i + 1;
+    };
+    acc
+}

@@ -13,7 +13,8 @@ use std::sync::Arc;
 
 use lsp_types::Uri;
 
-use ambient_engine::ast::{ItemKind, Module, UseImports};
+use ambient_engine::ast::{ItemKind, Module, UseKind, UsePrefix};
+use ambient_engine::core_library::CoreLibrary;
 
 /// Information about a symbol exported from a module.
 #[derive(Debug, Clone)]
@@ -54,28 +55,57 @@ pub struct ModuleInfo {
 /// Information about a use statement.
 #[derive(Debug, Clone)]
 pub struct UseInfo {
+    /// The prefix of the import (pkg, core, self, super).
+    pub prefix: UsePrefixInfo,
     /// The module path being imported.
     pub path: Vec<Arc<str>>,
     /// What is imported.
-    pub imports: UseImportsInfo,
+    pub kind: UseKindInfo,
     /// Byte offset of the use statement.
     pub offset: u32,
 }
 
+/// The prefix of a use path for the LSP.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UsePrefixInfo {
+    /// `pkg.module` - Local package
+    Pkg,
+    /// `core.module` - Core library
+    Core,
+    /// `self.sibling` - Same directory
+    Self_,
+    /// `super.module` - Parent directory with level count
+    Super(usize),
+}
+
+impl From<&UsePrefix> for UsePrefixInfo {
+    fn from(prefix: &UsePrefix) -> Self {
+        match prefix {
+            UsePrefix::Pkg => Self::Pkg,
+            UsePrefix::Core => Self::Core,
+            UsePrefix::Self_ => Self::Self_,
+            UsePrefix::Super(n) => Self::Super(*n),
+        }
+    }
+}
+
 /// What is imported from a use path.
 #[derive(Debug, Clone)]
-pub enum UseImportsInfo {
-    /// Import everything: `use module.*`.
-    All,
-    /// Import specific items: `use module.{a, b}`.
+pub enum UseKindInfo {
+    /// Import the module itself: `use pkg.module;`.
+    Module,
+    /// Import everything: `use pkg.module.*;`.
+    Glob,
+    /// Import specific items: `use pkg.module.{a, b}`.
     Items(Vec<Arc<str>>),
 }
 
-impl From<&UseImports> for UseImportsInfo {
-    fn from(imports: &UseImports) -> Self {
-        match imports {
-            UseImports::All => Self::All,
-            UseImports::Items(items) => Self::Items(items.clone()),
+impl From<&UseKind> for UseKindInfo {
+    fn from(kind: &UseKind) -> Self {
+        match kind {
+            UseKind::Module => Self::Module,
+            UseKind::Glob => Self::Glob,
+            UseKind::Items(items) => Self::Items(items.clone()),
         }
     }
 }
@@ -203,17 +233,25 @@ impl WorkspaceIndex {
         let current_module = self.modules.get(current_uri.as_str())?;
 
         for use_info in &current_module.uses {
-            match &use_info.imports {
-                UseImportsInfo::All => {
+            // Skip core library imports for now (they're not in the workspace index)
+            if matches!(use_info.prefix, UsePrefixInfo::Core) {
+                continue;
+            }
+
+            // Resolve the actual path based on prefix
+            let resolved_path = self.resolve_use_path(current_uri, use_info)?;
+
+            match &use_info.kind {
+                UseKindInfo::Module | UseKindInfo::Glob => {
                     // Check if this module exports the name
-                    if let Some(result) = self.find_symbol(&use_info.path, name) {
+                    if let Some(result) = self.find_symbol(&resolved_path, name) {
                         return Some(result);
                     }
                 }
-                UseImportsInfo::Items(items) => {
+                UseKindInfo::Items(items) => {
                     // Check if this specific name is imported
                     if items.iter().any(|i| i.as_ref() == name) {
-                        if let Some(result) = self.find_symbol(&use_info.path, name) {
+                        if let Some(result) = self.find_symbol(&resolved_path, name) {
                             return Some(result);
                         }
                     }
@@ -222,6 +260,44 @@ impl WorkspaceIndex {
         }
 
         None
+    }
+
+    /// Resolve a use statement path based on its prefix and the current file.
+    fn resolve_use_path(&self, current_uri: &Uri, use_info: &UseInfo) -> Option<Vec<Arc<str>>> {
+        match use_info.prefix {
+            UsePrefixInfo::Pkg => {
+                // Absolute path from package root
+                Some(use_info.path.clone())
+            }
+            UsePrefixInfo::Core => {
+                // Core library - not in workspace index
+                None
+            }
+            UsePrefixInfo::Self_ => {
+                // Relative to current module's parent directory
+                let current_module = self.modules.get(current_uri.as_str())?;
+                let mut resolved = current_module.module_path.clone();
+                // Remove the current module name
+                resolved.pop();
+                // Add the import path
+                resolved.extend(use_info.path.iter().cloned());
+                Some(resolved)
+            }
+            UsePrefixInfo::Super(levels) => {
+                // Go up n levels from current module
+                let current_module = self.modules.get(current_uri.as_str())?;
+                let mut resolved = current_module.module_path.clone();
+                // Remove the current module name
+                resolved.pop();
+                // Go up additional levels
+                for _ in 0..levels {
+                    resolved.pop();
+                }
+                // Add the import path
+                resolved.extend(use_info.path.iter().cloned());
+                Some(resolved)
+            }
+        }
     }
 
     /// Resolve a module path to a file URI.
@@ -284,6 +360,24 @@ impl WorkspaceIndex {
     /// Get all indexed modules.
     pub fn all_modules(&self) -> impl Iterator<Item = &ModuleInfo> {
         self.modules.values()
+    }
+
+    /// Check if a use info refers to a core library import.
+    #[must_use]
+    pub fn is_core_import(use_info: &UseInfo) -> bool {
+        matches!(use_info.prefix, UsePrefixInfo::Core)
+    }
+
+    /// Get the available core library modules.
+    #[must_use]
+    pub fn available_core_modules() -> Vec<&'static str> {
+        CoreLibrary::available_modules()
+    }
+
+    /// Check if a core module path exists.
+    #[must_use]
+    pub fn core_module_exists(path: &[Arc<str>]) -> bool {
+        CoreLibrary::has_module(path)
     }
 }
 
@@ -427,8 +521,9 @@ fn extract_uses(module: &Module) -> Vec<UseInfo> {
     for item in &module.items {
         if let ItemKind::Use(use_def) = &item.kind {
             uses.push(UseInfo {
+                prefix: UsePrefixInfo::from(&use_def.prefix),
                 path: use_def.path.clone(),
-                imports: UseImportsInfo::from(&use_def.imports),
+                kind: UseKindInfo::from(&use_def.kind),
                 offset: item.span.start,
             });
         }
@@ -538,5 +633,52 @@ mod tests {
     fn test_symbol_kind() {
         assert_eq!(SymbolKind::Function, SymbolKind::Function);
         assert_ne!(SymbolKind::Function, SymbolKind::Const);
+    }
+
+    #[test]
+    fn test_use_prefix_info_from() {
+        assert_eq!(UsePrefixInfo::from(&UsePrefix::Pkg), UsePrefixInfo::Pkg);
+        assert_eq!(UsePrefixInfo::from(&UsePrefix::Core), UsePrefixInfo::Core);
+        assert_eq!(UsePrefixInfo::from(&UsePrefix::Self_), UsePrefixInfo::Self_);
+        assert_eq!(
+            UsePrefixInfo::from(&UsePrefix::Super(2)),
+            UsePrefixInfo::Super(2)
+        );
+    }
+
+    #[test]
+    fn test_is_core_import() {
+        let core_use = UseInfo {
+            prefix: UsePrefixInfo::Core,
+            path: vec![Arc::from("list")],
+            kind: UseKindInfo::Module,
+            offset: 0,
+        };
+        let pkg_use = UseInfo {
+            prefix: UsePrefixInfo::Pkg,
+            path: vec![Arc::from("utils")],
+            kind: UseKindInfo::Module,
+            offset: 0,
+        };
+
+        assert!(WorkspaceIndex::is_core_import(&core_use));
+        assert!(!WorkspaceIndex::is_core_import(&pkg_use));
+    }
+
+    #[test]
+    fn test_available_core_modules() {
+        let modules = WorkspaceIndex::available_core_modules();
+        assert!(modules.contains(&"option"));
+        assert!(modules.contains(&"list"));
+        assert!(modules.contains(&"math"));
+    }
+
+    #[test]
+    fn test_core_module_exists() {
+        assert!(WorkspaceIndex::core_module_exists(&[Arc::from("option")]));
+        assert!(WorkspaceIndex::core_module_exists(&[Arc::from("math")]));
+        assert!(!WorkspaceIndex::core_module_exists(&[Arc::from(
+            "nonexistent"
+        )]));
     }
 }

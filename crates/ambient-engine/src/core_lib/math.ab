@@ -1,0 +1,50 @@
+// Core library: Math utilities
+//
+// Common mathematical operations.
+
+// Mathematical constants
+const PI: number = 3.141592653589793;
+const E: number = 2.718281828459045;
+const TAU: number = 6.283185307179586;
+
+// Absolute value
+pub fn abs(x: number): number {
+    if x < 0 { 0 - x } else { x }
+}
+
+// Minimum of two numbers
+pub fn min(a: number, b: number): number {
+    if a < b { a } else { b }
+}
+
+// Maximum of two numbers
+pub fn max(a: number, b: number): number {
+    if a > b { a } else { b }
+}
+
+// Clamp a value between min and max
+pub fn clamp(value: number, min_val: number, max_val: number): number {
+    min(max(value, min_val), max_val)
+}
+
+// Check if a number is negative
+pub fn is_negative(x: number): bool {
+    x < 0
+}
+
+// Check if a number is positive
+pub fn is_positive(x: number): bool {
+    x > 0
+}
+
+// Check if a number is zero
+pub fn is_zero(x: number): bool {
+    x == 0
+}
+
+// Sign of a number (-1, 0, or 1)
+pub fn sign(x: number): number {
+    if x < 0 { 0 - 1 }
+    else if x > 0 { 1 }
+    else { 0 }
+}

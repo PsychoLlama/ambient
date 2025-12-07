@@ -35,7 +35,7 @@ pub use repl::{
     ReplContext, ReplItemKind,
 };
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::ast::{
@@ -121,6 +121,25 @@ impl CompiledModule {
     #[must_use]
     pub fn get_function_by_hash(&self, hash: &blake3::Hash) -> Option<&CompiledFunction> {
         self.functions.get(hash)
+    }
+
+    /// Merge another compiled module into this one.
+    ///
+    /// All functions from `other` are added to this module. If there are
+    /// hash collisions (same function compiled identically), the existing
+    /// function is kept. Name collisions are handled by keeping the first
+    /// occurrence.
+    pub fn merge(&mut self, other: &CompiledModule) {
+        for (hash, func) in &other.functions {
+            self.functions.entry(*hash).or_insert_with(|| func.clone());
+        }
+        for (name, hash) in &other.function_names {
+            self.function_names.entry(Arc::clone(name)).or_insert(*hash);
+        }
+        // Don't overwrite entry point if we already have one
+        if self.entry_point.is_none() {
+            self.entry_point = other.entry_point;
+        }
     }
 }
 
@@ -432,7 +451,28 @@ impl ModuleContext {
 ///
 /// Returns a `CompileError` if compilation fails.
 pub fn compile_module(module: &Module) -> Result<CompiledModule, CompileError> {
-    compile_module_impl(module, None, None)
+    compile_module_impl(module, None, None, None)
+}
+
+/// Compile a module with imported function references.
+///
+/// This is used for cross-module compilation where the module imports
+/// functions from other already-compiled modules.
+///
+/// # Arguments
+///
+/// * `module` - The module to compile
+/// * `imported_hashes` - Map from imported function names to their content-addressed hashes
+///
+/// # Errors
+///
+/// Returns a `CompileError` if compilation fails.
+#[allow(clippy::implicit_hasher)]
+pub fn compile_module_with_imports(
+    module: &Module,
+    imported_hashes: HashMap<Arc<str>, blake3::Hash>,
+) -> Result<CompiledModule, CompileError> {
+    compile_module_impl(module, None, None, Some(imported_hashes))
 }
 
 /// Compile a module to bytecode with debug information.
@@ -454,7 +494,36 @@ pub fn compile_module_with_source(
     source: &str,
     source_file: &str,
 ) -> Result<CompiledModule, CompileError> {
-    compile_module_impl(module, Some(source), Some(source_file))
+    compile_module_impl(module, Some(source), Some(source_file), None)
+}
+
+/// Compile a module with imported function references and debug information.
+///
+/// This combines cross-module compilation with debug info.
+///
+/// # Arguments
+///
+/// * `module` - The module to compile
+/// * `source` - The original source code (for computing line/column info)
+/// * `source_file` - The path to the source file (for display in stack traces)
+/// * `imported_hashes` - Map from imported function names to their content-addressed hashes
+///
+/// # Errors
+///
+/// Returns a `CompileError` if compilation fails.
+#[allow(clippy::implicit_hasher)]
+pub fn compile_module_with_imports_and_source(
+    module: &Module,
+    source: &str,
+    source_file: &str,
+    imported_hashes: HashMap<Arc<str>, blake3::Hash>,
+) -> Result<CompiledModule, CompileError> {
+    compile_module_impl(
+        module,
+        Some(source),
+        Some(source_file),
+        Some(imported_hashes),
+    )
 }
 
 /// Implementation of module compilation with optional debug info.
@@ -462,6 +531,7 @@ fn compile_module_impl(
     module: &Module,
     source: Option<&str>,
     source_file: Option<&str>,
+    imported_hashes: Option<HashMap<Arc<str>, blake3::Hash>>,
 ) -> Result<CompiledModule, CompileError> {
     // Collect function definitions.
     let functions: Vec<&FunctionDef> = module
@@ -478,7 +548,10 @@ fn compile_module_impl(
 
     // Phase 1: Create temporary hashes for name-based lookup during compilation.
     // These will be replaced with content-addressed hashes after compilation.
-    let mut temp_hashes: HashMap<Arc<str>, blake3::Hash> = HashMap::new();
+    // Start with imported hashes (these are already content-addressed).
+    let mut temp_hashes: HashMap<Arc<str>, blake3::Hash> = imported_hashes.unwrap_or_default();
+
+    // Add temporary hashes for local functions.
     for func in &functions {
         let hash = compute_temporary_hash(&func.name);
         temp_hashes.insert(Arc::clone(&func.name), hash);
@@ -553,10 +626,27 @@ fn finalize_module_hashes(
     // Compute final hashes in topological order (dependencies before dependents)
     let mut final_hashes: HashMap<Arc<str>, blake3::Hash> = HashMap::new();
 
+    // Pre-populate with imported function hashes.
+    // Imported functions are already content-addressed, so we can use them directly.
+    // They're in temp_hashes but not in compiled_functions.
+    let local_names: HashSet<&Arc<str>> = compiled_functions.iter().map(|(n, _, _)| n).collect();
+    for (name, hash) in temp_hashes {
+        if !local_names.contains(name) {
+            // This is an imported function - use its hash directly
+            final_hashes.insert(Arc::clone(name), *hash);
+        }
+    }
+
     for scc in &scc_analysis.components {
         if scc.is_singleton() {
             // Single function - might be self-recursive or not
             let name = &scc.members[0];
+
+            // Skip if this is an imported function (already in final_hashes)
+            if final_hashes.contains_key(name) {
+                continue;
+            }
+
             let func = compiled_functions
                 .iter()
                 .find(|(n, _, _)| n == name)
@@ -591,6 +681,18 @@ fn finalize_module_hashes(
             }
         } else {
             // Multiple functions in SCC - mutual recursion
+            // Filter out imported functions (already in final_hashes)
+            let local_members: Vec<&Arc<str>> = scc
+                .members
+                .iter()
+                .filter(|name| !final_hashes.contains_key(*name))
+                .collect();
+
+            if local_members.is_empty() {
+                // All members are imported - skip
+                continue;
+            }
+
             // Compute a group hash for the entire SCC
             let scc_hash = compute_scc_hash(
                 &scc.members,
@@ -599,8 +701,8 @@ fn finalize_module_hashes(
                 temp_hashes,
             );
 
-            // Each function in the SCC gets a derived hash
-            for (idx, name) in scc.members.iter().enumerate() {
+            // Each local function in the SCC gets a derived hash
+            for (idx, name) in local_members.iter().enumerate() {
                 let mut hasher = blake3::Hasher::new();
                 hasher.update(scc_hash.as_bytes());
                 hasher.update(&(idx as u32).to_le_bytes());

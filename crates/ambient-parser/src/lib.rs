@@ -71,8 +71,8 @@ pub use cst::{
     CstAbilityDef, CstAbilityMethod, CstConstDef, CstEnumDef, CstEnumVariant, CstExpr, CstExprKind,
     CstFunctionDef, CstHandleExpr, CstHandler, CstItem, CstItemKind, CstLambda, CstLetBinding,
     CstMatchArm, CstModule, CstParam, CstPattern, CstPatternKind, CstReplInput, CstStmt,
-    CstStmtKind, CstTypeAliasDef, CstTypeExpr, CstTypeExprKind, CstUseDef, CstUseImports, Trivia,
-    TriviaKind,
+    CstStmtKind, CstTypeAliasDef, CstTypeExpr, CstTypeExprKind, CstUseDef, CstUseKind,
+    CstUsePrefix, Trivia, TriviaKind,
 };
 pub use error::{ParseError, ParseErrorKind};
 pub use lexer::{Lexer, Token, TokenKind};

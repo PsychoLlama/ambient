@@ -1,0 +1,40 @@
+// Statistics module
+//
+// Demonstrates importing from sibling modules using `self.`
+
+use self.math_utils.{abs, approx_eq};
+use self.list_utils.{sum, average, maximum, minimum};
+
+// Calculate variance
+pub fn variance(xs: List<number>): number {
+    let len = list_length(xs);
+    if len == 0 {
+        0
+    } else {
+        let avg = average(xs);
+        sum_squared_diff(xs, avg, 0) / len
+    }
+}
+
+fn sum_squared_diff(xs: List<number>, mean: number, acc: number): number {
+    if list_length(xs) == 0 {
+        acc
+    } else {
+        let diff = list_head(xs) - mean;
+        sum_squared_diff(list_tail(xs), mean, acc + diff * diff)
+    }
+}
+
+// Calculate range (max - min)
+pub fn range(xs: List<number>): number {
+    if list_length(xs) == 0 {
+        0
+    } else {
+        maximum(xs) - minimum(xs)
+    }
+}
+
+// Check if two lists have the same sum
+pub fn same_sum(xs: List<number>, ys: List<number>): bool {
+    approx_eq(sum(xs), sum(ys))
+}

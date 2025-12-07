@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::ast::BindingId;
+use crate::module_path::ModulePath;
+use crate::module_registry::{ExportKind, ModuleRegistry, ResolvedImport};
 use crate::types::{AbilityId, AbilitySet, Type, TypeVarId};
 
 use super::env::{Scheme, TypeEnv};
@@ -276,4 +278,253 @@ fn substitute_type_params(ty: &Type, type_var_map: &HashMap<Arc<str>, TypeVarId>
         // Primitives and other types pass through unchanged
         _ => ty.clone(),
     }
+}
+
+/// Check a module with cross-module imports resolved.
+///
+/// This is the main entry point for cross-module type checking. It resolves
+/// imports from the registry and includes their types in the initial environment.
+///
+/// # Arguments
+///
+/// * `module` - The module to type check
+/// * `module_path` - The path of this module in the package
+/// * `registry` - The module registry containing all loaded modules
+#[must_use]
+pub fn check_module_with_registry(
+    mut module: crate::ast::Module,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> CheckResult {
+    let mut infer = Infer::new();
+    let mut errors = Vec::new();
+
+    // Build initial environment from imports
+    let mut env = build_import_env(&mut infer, module_path, registry, &mut errors);
+
+    // Phase 1: Collect all function signatures into the environment.
+    let mut function_schemes: Vec<(BindingId, Arc<str>, Scheme)> = Vec::new();
+    let mut next_binding_id: BindingId = 1_000_000;
+
+    for item in &module.items {
+        if let crate::ast::ItemKind::Function(func) = &item.kind {
+            let binding_id = next_binding_id;
+            next_binding_id += 1;
+            let scheme = build_function_scheme(&mut infer, func);
+            function_schemes.push((binding_id, Arc::clone(&func.name), scheme));
+        }
+    }
+
+    for (id, name, scheme) in &function_schemes {
+        env.insert(*id, Arc::clone(name), scheme.clone());
+    }
+
+    // Phase 2: Type-check each function body (same as check_module)
+    for item in &mut module.items {
+        if let crate::ast::ItemKind::Function(func) = &mut item.kind {
+            infer.reset_abilities();
+
+            let mut func_env = env.extend();
+            let expected_ret_ty = func.ret_ty.clone().map(|ty| infer.resolve_holes(&ty));
+
+            let mut param_types = Vec::new();
+            for param in &func.params {
+                let param_ty = match &param.ty {
+                    Some(ty) => infer.resolve_holes(ty),
+                    None => infer.fresh(),
+                };
+                param_types.push(param_ty.clone());
+                func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
+            }
+
+            match infer.infer_expr(&func_env, &mut func.body) {
+                Ok(body_ty) => {
+                    if let Some(ref expected) = expected_ret_ty {
+                        let span = (func.body.span.start, func.body.span.end);
+                        if let Err(e) = infer.unify(expected, &body_ty, span) {
+                            errors.push(e.with_context(format!(
+                                "in function `{}`: return type mismatch",
+                                func.name
+                            )));
+                        }
+                    }
+
+                    let inferred_abilities = infer.current_abilities().clone();
+                    if !func.abilities.is_empty() {
+                        let declared: Vec<AbilityId> = func
+                            .abilities
+                            .iter()
+                            .filter_map(|qn| infer.ability_name_to_id(&qn.name))
+                            .collect();
+                        let declared_set = AbilitySet::from_abilities(declared);
+
+                        if let AbilitySet::Concrete(inferred_ids) = &inferred_abilities {
+                            for ability_id in inferred_ids {
+                                if !declared_set.contains(*ability_id) {
+                                    let span = (item.span.start, item.span.end);
+                                    errors.push(Box::new(
+                                        TypeError::new(
+                                            TypeErrorKind::MissingAbility {
+                                                required: *ability_id,
+                                                available: declared_set.clone(),
+                                            },
+                                            span,
+                                        )
+                                        .with_context(
+                                            format!(
+                                            "function `{}` uses ability #{} but doesn't declare it",
+                                            func.name, ability_id
+                                        ),
+                                        ),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    errors.push(e.with_context(format!("in function `{}`", func.name)));
+                }
+            }
+        }
+
+        if let crate::ast::ItemKind::Const(const_def) = &mut item.kind {
+            infer.reset_abilities();
+            let expected_ty = infer.resolve_holes(&const_def.ty);
+
+            match infer.infer_expr(&env, &mut const_def.value) {
+                Ok(actual_ty) => {
+                    let span = (const_def.value.span.start, const_def.value.span.end);
+                    if let Err(e) = infer.unify(&expected_ty, &actual_ty, span) {
+                        errors.push(e.with_context(format!(
+                            "in constant `{}`: type mismatch",
+                            const_def.name
+                        )));
+                    }
+                }
+                Err(e) => {
+                    errors.push(e.with_context(format!("in constant `{}`", const_def.name)));
+                }
+            }
+        }
+    }
+
+    CheckResult { errors, module }
+}
+
+/// Build a type environment from imported modules.
+///
+/// This processes the imports in the module and adds type schemes for
+/// each imported symbol to the environment.
+fn build_import_env(
+    infer: &mut Infer,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+    errors: &mut Vec<BoxedTypeError>,
+) -> TypeEnv {
+    let mut env = TypeEnv::new();
+    let mut next_binding_id: BindingId = 2_000_000; // Start high to avoid collisions
+
+    // Get resolved imports for this module
+    let imports = match registry.resolve_imports(module_path) {
+        Ok(imports) => imports,
+        Err(e) => {
+            // Module not in registry - return empty env
+            // This can happen for the root module being checked
+            errors.push(Box::new(TypeError::new(
+                TypeErrorKind::CannotInfer {
+                    hint: format!("import resolution failed: {e}"),
+                },
+                (0, 0),
+            )));
+            return env;
+        }
+    };
+
+    for (name, resolved_import) in imports {
+        match resolved_import {
+            ResolvedImport::Module(target_path) => {
+                // For module imports, we create a synthetic module type
+                // For now, we skip this as it requires qualified name resolution
+                // TODO: Support `utils.helper()` syntax
+                let _ = target_path;
+            }
+            ResolvedImport::Symbol {
+                from_module,
+                export_kind,
+            } => {
+                // Look up the symbol's type from the source module
+                if let Some(module_info) = registry.get(&from_module) {
+                    if let Some(scheme) =
+                        get_symbol_scheme(infer, &module_info.module, &name, export_kind)
+                    {
+                        let binding_id = next_binding_id;
+                        next_binding_id += 1;
+                        env.insert(binding_id, name, scheme);
+                    }
+                }
+            }
+        }
+    }
+
+    env
+}
+
+/// Get the type scheme for a symbol from a module's AST.
+fn get_symbol_scheme(
+    infer: &mut Infer,
+    module: &crate::ast::Module,
+    name: &str,
+    kind: ExportKind,
+) -> Option<Scheme> {
+    for item in &module.items {
+        match (&item.kind, kind) {
+            (crate::ast::ItemKind::Function(func), ExportKind::Function) => {
+                if func.name.as_ref() == name {
+                    return Some(build_function_scheme(infer, func));
+                }
+            }
+            (crate::ast::ItemKind::Const(const_def), ExportKind::Const) => {
+                if const_def.name.as_ref() == name {
+                    return Some(Scheme::mono(const_def.ty.clone()));
+                }
+            }
+            (crate::ast::ItemKind::Enum(enum_def), ExportKind::Enum) => {
+                if enum_def.name.as_ref() == name {
+                    // For enum types, we return the type itself
+                    // This is simplified - a full implementation would handle generic enums
+                    let ty = Type::Named(crate::types::NamedType::new(
+                        Arc::clone(&enum_def.name),
+                        vec![],
+                    ));
+                    return Some(Scheme::mono(ty));
+                }
+            }
+            (crate::ast::ItemKind::Enum(enum_def), ExportKind::EnumVariant) => {
+                // Look for the variant in the enum
+                for variant in &enum_def.variants {
+                    if variant.name.as_ref() == name {
+                        // Return the variant constructor type
+                        // For Some(T) -> (T) -> Option<T>
+                        // For None -> Option<T>
+                        let enum_ty = Type::Named(crate::types::NamedType::new(
+                            Arc::clone(&enum_def.name),
+                            vec![], // TODO: handle generic enum parameters
+                        ));
+
+                        let scheme = if let Some(ref payload) = variant.payload {
+                            // Constructor function: (payload) -> Enum
+                            Scheme::mono(Type::function(vec![payload.clone()], enum_ty))
+                        } else {
+                            // Constant: Enum
+                            Scheme::mono(enum_ty)
+                        };
+                        return Some(scheme);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
