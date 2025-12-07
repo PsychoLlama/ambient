@@ -8,20 +8,12 @@ pub fn main(): number {
     // Handler that intercepts Console output
     // The ability call is made directly in the handle body
     let result = handle {
-        Console.print!("Hello, ");
-        Console.print!("World!");
-        Console.println!("");
+        Console.print!("Hello, World!");
         42  // Return value
     } {
         Console.print(msg) => {
             // Handler intercepts the print call
             // In a real implementation, this would output to stdout
-            resume(())
-        },
-        Console.println(msg) => {
-            resume(())
-        },
-        Console.eprint(msg) => {
             resume(())
         }
     };

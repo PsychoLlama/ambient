@@ -59,7 +59,7 @@ pub struct ConsoleConfig {
 ///
 /// By default, this prints to stdout/stderr. Use `ConsoleConfig` to customize.
 pub fn register_console(vm: &mut Vm, config: ConsoleConfig) {
-    // Console.print
+    // Console.print - prints with newline
     let print_handler = config.print_handler;
     vm.register_host_handler(
         console::ABILITY_ID,
@@ -69,12 +69,11 @@ pub fn register_console(vm: &mut Vm, config: ConsoleConfig) {
             if let Some(ref handler) = print_handler {
                 handler(&message);
             } else {
-                // In production, we'd use print! but tests don't want stdout
                 #[cfg(not(test))]
                 {
                     #[allow(clippy::print_stdout)]
                     {
-                        print!("{message}");
+                        println!("{message}");
                     }
                 }
             }
@@ -82,7 +81,7 @@ pub fn register_console(vm: &mut Vm, config: ConsoleConfig) {
         }),
     );
 
-    // Console.println
+    // Console.println - same as print (both add newline)
     vm.register_host_handler(
         console::ABILITY_ID,
         console::METHOD_PRINTLN,
@@ -100,7 +99,7 @@ pub fn register_console(vm: &mut Vm, config: ConsoleConfig) {
         }),
     );
 
-    // Console.eprint
+    // Console.eprint - prints to stderr with newline
     let eprint_handler = config.eprint_handler;
     vm.register_host_handler(
         console::ABILITY_ID,
@@ -114,7 +113,7 @@ pub fn register_console(vm: &mut Vm, config: ConsoleConfig) {
                 {
                     #[allow(clippy::print_stderr)]
                     {
-                        eprint!("{message}");
+                        eprintln!("{message}");
                     }
                 }
             }
