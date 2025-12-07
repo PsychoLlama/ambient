@@ -8,10 +8,11 @@ use anyhow::{bail, Context, Result};
 use ambient_engine::abilities::register_all_standard_abilities;
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::format::format_value_colored;
-use ambient_engine::manifest::Manifest;
+use ambient_engine::module_path::ModulePath;
+use ambient_engine::package::{LoadedModule, Package};
 use ambient_engine::vm::Vm;
 
-use super::{compile_source, read_source};
+use crate::diagnostic::print_diagnostic;
 use crate::serialize::deserialize_module;
 
 /// Run an Ambient package or pre-compiled bytecode.
@@ -49,22 +50,68 @@ fn load_compiled(path: &Path) -> Result<CompiledModule> {
 
 /// Compile a package from its root directory.
 fn compile_package(path: &Path) -> Result<CompiledModule> {
-    // Find manifest
-    let (manifest, root) =
-        Manifest::find(path).with_context(|| format!("no package found at {}", path.display()))?;
+    // Open package (validates manifest and entry point).
+    let mut pkg = Package::open(path)
+        .with_context(|| format!("failed to open package at {}", path.display()))?;
 
-    // Find main.ab
-    let main_path = root.join(&manifest.src_dir).join("main.ab");
-    if !main_path.exists() {
+    // Load and compile the main module.
+    let main_path = ModulePath::root();
+    let loaded = load_module(&pkg, &main_path)?;
+    pkg.add_module(loaded);
+
+    // Get the loaded module and compile it.
+    let loaded = pkg
+        .get_module(&main_path)
+        .ok_or_else(|| anyhow::anyhow!("main module not loaded"))?;
+
+    compile_loaded_module(loaded, &pkg.module_file_path(&main_path))
+}
+
+/// Load a single module from a package.
+fn load_module(pkg: &Package, path: &ModulePath) -> Result<LoadedModule> {
+    let source = pkg.read_module_source(path)?;
+    let file_path = pkg.module_file_path(path);
+
+    // Parse the module.
+    let ast = match ambient_parser::parse(&source) {
+        Ok(m) => m,
+        Err(e) => {
+            print_diagnostic(&source, &file_path, &e);
+            bail!("parse error in {}", file_path.display());
+        }
+    };
+
+    Ok(LoadedModule {
+        path: path.clone(),
+        source,
+        ast,
+    })
+}
+
+/// Compile a loaded module to bytecode.
+fn compile_loaded_module(loaded: &LoadedModule, file_path: &Path) -> Result<CompiledModule> {
+    // Type check.
+    let check_result = ambient_engine::infer::check_module(loaded.ast.clone());
+    if !check_result.is_ok() {
+        for error in &check_result.errors {
+            print_diagnostic(&loaded.source, file_path, error);
+        }
         bail!(
-            "entry point not found: {}\nPackages must have a main.ab file in the src directory.",
-            main_path.display()
+            "Found {} type error(s) in {}",
+            check_result.errors.len(),
+            file_path.display()
         );
     }
 
-    // For now, just compile main.ab (Phase 2 will add multi-file support)
-    let source = read_source(&main_path)?;
-    compile_source(&source, &main_path)
+    // Compile with debug info.
+    let compiled = ambient_engine::compiler::compile_module_with_source(
+        &check_result.module,
+        &loaded.source,
+        &file_path.display().to_string(),
+    )
+    .map_err(|e| anyhow::anyhow!("compile error at {}: {e}", file_path.display()))?;
+
+    Ok(compiled)
 }
 
 /// Run a compiled module.
