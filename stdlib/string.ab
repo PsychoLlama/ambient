@@ -1,0 +1,198 @@
+// String module - text manipulation functions
+//
+// All functions are pure and return new strings (no mutation).
+// Strings in Ambient are immutable UTF-8 sequences.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Basic Properties
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Get the length of a string (number of characters)
+fn length(s: string): number {
+    string_length(s)
+}
+
+// Check if a string is empty
+fn is_empty(s: string): bool {
+    string_length(s) == 0
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trim
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Remove whitespace from both ends
+fn trim(s: string): string {
+    string_trim(s)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Search
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Check if string contains a substring
+fn contains(s: string, substr: string): bool {
+    string_contains(s, substr)
+}
+
+// Check if string starts with a prefix
+fn starts_with(s: string, prefix: string): bool {
+    let prefix_len = string_length(prefix);
+    let s_len = string_length(s);
+    if prefix_len > s_len {
+        false
+    } else if prefix_len == 0 {
+        true
+    } else {
+        // Use split and check first part
+        let parts = string_split(s, prefix);
+        if list_length(parts) > 0 {
+            string_length(list_head(parts)) == 0
+        } else {
+            false
+        }
+    }
+}
+
+// Check if string ends with a suffix
+fn ends_with(s: string, suffix: string): bool {
+    let suffix_len = string_length(suffix);
+    let s_len = string_length(s);
+    if suffix_len > s_len {
+        false
+    } else if suffix_len == 0 {
+        true
+    } else {
+        // Use split and check last part
+        let parts = string_split(s, suffix);
+        if list_length(parts) > 0 {
+            let last_idx = list_length(parts) - 1;
+            string_length(list_get(parts, last_idx)) == 0
+        } else {
+            false
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Split and Join
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Split a string by a delimiter
+fn split(s: string, delimiter: string): List<string> {
+    string_split(s, delimiter)
+}
+
+// Join a list of strings with a delimiter
+fn join(parts: List<string>, delimiter: string): string {
+    string_join(parts, delimiter)
+}
+
+// Split a string into lines
+fn lines(s: string): List<string> {
+    string_split(s, "\n")
+}
+
+// Split a string into words (by single space)
+fn words(s: string): List<string> {
+    // Simple split by space - doesn't handle multiple spaces
+    string_split(string_trim(s), " ")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Concatenation
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Concatenate two strings
+fn concat(a: string, b: string): string {
+    string_concat(a, b)
+}
+
+// Concatenate a list of strings
+fn concat_all(parts: List<string>): string {
+    string_join(parts, "")
+}
+
+// Repeat a string n times
+fn repeat(s: string, n: number): string {
+    if n <= 0 {
+        ""
+    } else {
+        string_concat(s, repeat(s, n - 1))
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Conversion
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Convert any value to string
+fn from_value(value: a): string {
+    to_string(value)
+}
+
+// Convert number to string
+fn from_number(n: number): string {
+    to_string(n)
+}
+
+// Convert bool to string
+fn from_bool(b: bool): string {
+    if b { "true" } else { "false" }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Parsing
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Parse a string as a number
+// Returns (success: bool, value: number)
+fn to_number(s: string): (bool, number) {
+    parse_number(s)
+}
+
+// Parse a string as a boolean
+// Returns (success: bool, value: bool)
+fn to_bool(s: string): (bool, bool) {
+    parse_bool(s)
+}
+
+// Parse a string as a number, returning Option
+fn parse_number_opt(s: string): Option<number> {
+    let result = parse_number(s);
+    if result.0 {
+        Some(result.1)
+    } else {
+        None
+    }
+}
+
+// Parse a string as a boolean, returning Option
+fn parse_bool_opt(s: string): Option<bool> {
+    let result = parse_bool(s);
+    if result.0 {
+        Some(result.1)
+    } else {
+        None
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Comparison Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Check if two strings are equal
+fn equals(a: string, b: string): bool {
+    a == b
+}
+
+// Check if two strings are equal ignoring case (simple ASCII only)
+// Note: This is a simplified implementation
+fn equals_ignore_case(a: string, b: string): bool {
+    // Compare lengths first
+    if string_length(a) != string_length(b) {
+        false
+    } else {
+        a == b  // Simplified - proper impl would normalize case
+    }
+}

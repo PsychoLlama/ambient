@@ -1,0 +1,107 @@
+// Function module - function utilities and combinators
+//
+// Higher-order functions for function composition and manipulation.
+// All functions are pure with no side effects.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Identity and Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Return the input unchanged
+fn identity(x: a): a {
+    x
+}
+
+// Create a function that always returns the same value
+fn constant(x: a): (b) -> a {
+    (y) => x
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Composition
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Compose two functions: compose(f, g)(x) = f(g(x))
+fn compose(f: (b) -> c, g: (a) -> b): (a) -> c {
+    (x) => f(g(x))
+}
+
+// Pipe a value through a function
+fn pipe(x: a, f: (a) -> b): b {
+    f(x)
+}
+
+// Pipe through two functions
+fn pipe2(x: a, f: (a) -> b, g: (b) -> c): c {
+    g(f(x))
+}
+
+// Pipe through three functions
+fn pipe3(x: a, f: (a) -> b, g: (b) -> c, h: (c) -> d): d {
+    h(g(f(x)))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Argument Manipulation
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Flip the arguments of a binary function
+fn flip(f: (a, b) -> c): (b, a) -> c {
+    (b, a) => f(a, b)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Application
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Apply a function to an argument
+fn apply(f: (a) -> b, x: a): b {
+    f(x)
+}
+
+// Apply a function twice
+fn apply_twice(f: (a) -> a, x: a): a {
+    f(f(x))
+}
+
+// Apply a function n times
+fn apply_n(f: (a) -> a, n: number, x: a): a {
+    if n <= 0 {
+        x
+    } else {
+        apply_n(f, n - 1, f(x))
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Predicate Combinators
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Negate a predicate
+fn negate(pred: (a) -> bool): (a) -> bool {
+    (x) => !pred(x)
+}
+
+// Combine predicates with AND
+fn both(pred1: (a) -> bool, pred2: (a) -> bool): (a) -> bool {
+    (x) => pred1(x) && pred2(x)
+}
+
+// Combine predicates with OR
+fn either(pred1: (a) -> bool, pred2: (a) -> bool): (a) -> bool {
+    (x) => pred1(x) || pred2(x)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Conditional
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Create a function that branches based on a predicate
+fn if_else(pred: (a) -> bool, then_fn: (a) -> b, else_fn: (a) -> b): (a) -> b {
+    (x) => if pred(x) { then_fn(x) } else { else_fn(x) }
+}
+
+// Create a function that applies fn only when predicate is true
+fn when(pred: (a) -> bool, f: (a) -> a): (a) -> a {
+    (x) => if pred(x) { f(x) } else { x }
+}

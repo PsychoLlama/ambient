@@ -1,0 +1,244 @@
+// Number module - mathematical operations
+//
+// All functions are pure with no side effects.
+// Ambient uses 64-bit floating point (f64) for all numbers.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Basic Math
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Absolute value
+fn abs(n: number): number {
+    if n < 0 { 0 - n } else { n }
+}
+
+// Negate a number
+fn neg(n: number): number {
+    0 - n
+}
+
+// Sign of a number (-1, 0, or 1)
+fn sign(n: number): number {
+    if n < 0 {
+        0 - 1
+    } else if n > 0 {
+        1
+    } else {
+        0
+    }
+}
+
+// Minimum of two numbers
+fn min(a: number, b: number): number {
+    if a < b { a } else { b }
+}
+
+// Maximum of two numbers
+fn max(a: number, b: number): number {
+    if a > b { a } else { b }
+}
+
+// Clamp a number to a range
+fn clamp(n: number, low: number, high: number): number {
+    if n < low {
+        low
+    } else if n > high {
+        high
+    } else {
+        n
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rounding
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Floor - largest integer not greater than n
+fn floor(n: number): number {
+    let truncated = n - (n % 1);
+    if n < 0 && n != truncated {
+        truncated - 1
+    } else {
+        truncated
+    }
+}
+
+// Ceiling - smallest integer not less than n
+fn ceil(n: number): number {
+    let truncated = n - (n % 1);
+    if n > 0 && n != truncated {
+        truncated + 1
+    } else {
+        truncated
+    }
+}
+
+// Round to nearest integer
+fn round(n: number): number {
+    let f = floor(n);
+    if n - f >= 0.5 {
+        f + 1
+    } else {
+        f
+    }
+}
+
+// Truncate towards zero
+fn trunc(n: number): number {
+    n - (n % 1)
+}
+
+// Get the fractional part
+fn fract(n: number): number {
+    n % 1
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Comparison
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Check if a number is positive
+fn is_positive(n: number): bool {
+    n > 0
+}
+
+// Check if a number is negative
+fn is_negative(n: number): bool {
+    n < 0
+}
+
+// Check if a number is zero
+fn is_zero(n: number): bool {
+    n == 0
+}
+
+// Check if a number is even (integer)
+fn is_even(n: number): bool {
+    n % 2 == 0
+}
+
+// Check if a number is odd (integer)
+fn is_odd(n: number): bool {
+    n % 2 != 0
+}
+
+// Check if a number is an integer
+fn is_integer(n: number): bool {
+    n == n - (n % 1)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Arithmetic
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Integer division (floor division)
+fn div(a: number, b: number): number {
+    floor(a / b)
+}
+
+// Modulo (always positive for positive divisor)
+fn modulo(a: number, b: number): number {
+    let r = a % b;
+    if r < 0 && b > 0 {
+        r + b
+    } else if r > 0 && b < 0 {
+        r + b
+    } else {
+        r
+    }
+}
+
+// Power function (integer exponent only)
+fn pow(base: number, exp: number): number {
+    if exp == 0 {
+        1
+    } else if exp < 0 {
+        1 / pow(base, 0 - exp)
+    } else {
+        pow_helper(base, exp, 1)
+    }
+}
+
+fn pow_helper(base: number, exp: number, acc: number): number {
+    if exp == 0 {
+        acc
+    } else {
+        pow_helper(base, exp - 1, acc * base)
+    }
+}
+
+// Square of a number
+fn square(n: number): number {
+    n * n
+}
+
+// Cube of a number
+fn cube(n: number): number {
+    n * n * n
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Conversion
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Convert to string
+fn to_str(n: number): string {
+    to_string(n)
+}
+
+// Convert to boolean (0 is false, anything else is true)
+fn to_bool(n: number): bool {
+    n != 0
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants (as functions since there are no const declarations)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Mathematical constant pi
+fn pi(): number {
+    3.141592653589793
+}
+
+// Mathematical constant e (Euler's number)
+fn e(): number {
+    2.718281828459045
+}
+
+// Golden ratio
+fn phi(): number {
+    1.618033988749895
+}
+
+// Square root of 2
+fn sqrt2(): number {
+    1.4142135623730951
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Range Checking
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Check if a number is in a range (inclusive)
+fn in_range(n: number, low: number, high: number): bool {
+    n >= low && n <= high
+}
+
+// Check if a number is in a range (exclusive)
+fn in_range_exclusive(n: number, low: number, high: number): bool {
+    n > low && n < high
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Approximate Comparison
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Check if two numbers are approximately equal
+fn approx_eq(a: number, b: number, epsilon: number): bool {
+    abs(a - b) < epsilon
+}
+
+// Default epsilon for approximate equality
+fn epsilon(): number {
+    0.0000001
+}

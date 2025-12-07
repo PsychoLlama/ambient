@@ -1,0 +1,70 @@
+// Bool module - boolean operations
+//
+// All functions are pure with no side effects.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Basic Operations
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Logical NOT
+fn not(b: bool): bool {
+    !b
+}
+
+// Logical AND
+fn and(a: bool, b: bool): bool {
+    a && b
+}
+
+// Logical OR
+fn or(a: bool, b: bool): bool {
+    a || b
+}
+
+// Logical XOR (exclusive or)
+fn xor(a: bool, b: bool): bool {
+    (a || b) && !(a && b)
+}
+
+// Logical NAND
+fn nand(a: bool, b: bool): bool {
+    !(a && b)
+}
+
+// Logical NOR
+fn nor(a: bool, b: bool): bool {
+    !(a || b)
+}
+
+// Logical implication (a implies b)
+fn implies(a: bool, b: bool): bool {
+    !a || b
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Conversion
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Convert to string
+fn to_str(b: bool): string {
+    if b { "true" } else { "false" }
+}
+
+// Convert to number (0 or 1)
+fn to_num(b: bool): number {
+    if b { 1 } else { 0 }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Conditional
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Select one of two values based on boolean
+fn select(condition: bool, if_true: a, if_false: a): a {
+    if condition { if_true } else { if_false }
+}
+
+// Lazy select - evaluates only the needed branch
+fn select_lazy(condition: bool, if_true: () -> a, if_false: () -> a): a {
+    if condition { if_true() } else { if_false() }
+}
