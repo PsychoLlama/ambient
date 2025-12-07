@@ -446,6 +446,23 @@ fn param_to_completion(param: &Param) -> CompletionItem {
     }
 }
 
+/// Add parameters as completions if we're inside the given body span.
+fn collect_params_if_in_scope(
+    params: &[Param],
+    body_span: ambient_engine::ast::Span,
+    offset: u32,
+    prefix: &str,
+    items: &mut Vec<CompletionItem>,
+) {
+    if offset >= body_span.start && offset <= body_span.end {
+        for param in params {
+            if param.name.starts_with(prefix) {
+                items.push(param_to_completion(param));
+            }
+        }
+    }
+}
+
 /// Collect local variables that are in scope at the given offset.
 fn collect_locals_in_scope(
     expr: &Expr,
@@ -588,14 +605,7 @@ fn collect_lambda_locals(
     prefix: &str,
     items: &mut Vec<CompletionItem>,
 ) {
-    // Add lambda parameters if we're inside the lambda body.
-    if offset >= lambda.body.span.start && offset <= lambda.body.span.end {
-        for param in &lambda.params {
-            if param.name.starts_with(prefix) {
-                items.push(param_to_completion(param));
-            }
-        }
-    }
+    collect_params_if_in_scope(&lambda.params, lambda.body.span, offset, prefix, items);
     collect_locals_in_scope(&lambda.body, offset, prefix, items);
 }
 
@@ -608,14 +618,7 @@ fn collect_handle_locals(
 ) {
     collect_locals_in_scope(&handle.body, offset, prefix, items);
     for handler in &handle.handlers {
-        // Add handler parameters if we're inside the handler body.
-        if offset >= handler.body.span.start && offset <= handler.body.span.end {
-            for param in &handler.params {
-                if param.name.starts_with(prefix) {
-                    items.push(param_to_completion(param));
-                }
-            }
-        }
+        collect_params_if_in_scope(&handler.params, handler.body.span, offset, prefix, items);
         collect_locals_in_scope(&handler.body, offset, prefix, items);
     }
     if let Some(else_clause) = &handle.else_clause {
