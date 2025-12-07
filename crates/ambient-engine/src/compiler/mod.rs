@@ -1923,17 +1923,21 @@ fn get_method_id_for_ability(ability_id: u16, method_name: &str) -> Option<u16> 
 
 /// Get ability name from ability ID using the ability resolver.
 fn get_ability_name(ability_id: u16) -> Option<&'static str> {
-    // We can't return a reference from the resolver since it returns &str
-    // from dynamically allocated data. For now, match the known abilities.
-    use crate::abilities::{async_ability, console, exception, log, random, time};
+    // Use static names from the ability crates for known abilities.
+    // The resolver returns &str from dynamic data, but these are compile-time constants.
+    use ambient_core::exception::ExceptionAbility;
+    use ambient_runtime::{
+        async_ability::AsyncAbility, console::ConsoleAbility, log::LogAbility,
+        random::RandomAbility, time::TimeAbility,
+    };
 
     match ability_id {
-        id if id == console::ABILITY_ID => Some("Console"),
-        id if id == exception::ABILITY_ID => Some("Exception"),
-        id if id == time::ABILITY_ID => Some("Time"),
-        id if id == random::ABILITY_ID => Some("Random"),
-        id if id == async_ability::ABILITY_ID => Some("Async"),
-        id if id == log::ABILITY_ID => Some("Log"),
+        id if id == ConsoleAbility::ABILITY_ID => Some(ConsoleAbility::NAME),
+        id if id == ExceptionAbility::ABILITY_ID => Some(ExceptionAbility::NAME),
+        id if id == TimeAbility::ABILITY_ID => Some(TimeAbility::NAME),
+        id if id == RandomAbility::ABILITY_ID => Some(RandomAbility::NAME),
+        id if id == AsyncAbility::ABILITY_ID => Some(AsyncAbility::NAME),
+        id if id == LogAbility::ABILITY_ID => Some(LogAbility::NAME),
         _ => None,
     }
 }
