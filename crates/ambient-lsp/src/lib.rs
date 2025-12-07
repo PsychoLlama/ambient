@@ -54,6 +54,7 @@ mod convert;
 mod documents;
 mod package;
 mod server;
+mod util;
 mod workspace;
 
 pub use server::run_server;

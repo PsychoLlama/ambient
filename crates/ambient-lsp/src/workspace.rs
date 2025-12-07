@@ -16,6 +16,8 @@ use lsp_types::Uri;
 use ambient_engine::ast::{ItemKind, Module, UseKind, UsePrefix};
 use ambient_engine::core_library::CoreLibrary;
 
+use crate::util::{path_to_uri, percent_decode, uri_to_path};
+
 /// Information about a symbol exported from a module.
 #[derive(Debug, Clone)]
 pub struct ExportedSymbol {
@@ -321,7 +323,7 @@ impl WorkspaceIndex {
 
             if file_path.exists() {
                 // Convert to URI
-                return file_path_to_uri(&file_path);
+                return path_to_uri(&file_path);
             }
         }
 
@@ -336,7 +338,7 @@ impl WorkspaceIndex {
 
     /// Convert a file URI to a module path.
     fn uri_to_module_path(&self, uri: &Uri) -> Vec<Arc<str>> {
-        let Some(file_path) = uri_to_file_path(uri) else {
+        let Some(file_path) = uri_to_path(uri) else {
             return Vec::new();
         };
 
@@ -379,92 +381,6 @@ impl WorkspaceIndex {
     pub fn core_module_exists(path: &[Arc<str>]) -> bool {
         CoreLibrary::has_module(path)
     }
-}
-
-/// Convert a file:// URI to a file path.
-fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
-    let uri_str = uri.as_str();
-
-    // Only handle file:// URIs
-    if !uri_str.starts_with("file://") {
-        return None;
-    }
-
-    // Extract the path part (after file://)
-    // On Unix: file:///path/to/file -> /path/to/file
-    // On Windows: file:///C:/path/to/file -> C:/path/to/file
-    let path_str = uri_str.strip_prefix("file://")?;
-
-    // Handle percent-encoding in URIs
-    let decoded = percent_decode(path_str);
-
-    Some(PathBuf::from(decoded))
-}
-
-/// Convert a file path to a file:// URI.
-fn file_path_to_uri(path: &Path) -> Option<Uri> {
-    let path_str = path.to_str()?;
-
-    // Percent-encode the path for URI
-    let encoded = percent_encode(path_str);
-
-    let uri_str = format!("file://{encoded}");
-    uri_str.parse().ok()
-}
-
-/// Decode percent-encoded characters in a URI path.
-fn percent_decode(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '%' {
-            // Try to decode a percent-encoded byte
-            let hex: String = chars.by_ref().take(2).collect();
-            if hex.len() == 2 {
-                if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                    result.push(byte as char);
-                    continue;
-                }
-            }
-            // If decoding failed, keep the original
-            result.push('%');
-            result.push_str(&hex);
-        } else {
-            result.push(c);
-        }
-    }
-
-    result
-}
-
-/// Percent-encode special characters in a path for URI.
-fn percent_encode(s: &str) -> String {
-    use std::fmt::Write;
-
-    let mut result = String::with_capacity(s.len());
-
-    for c in s.chars() {
-        match c {
-            // Reserved characters that should be encoded
-            ' ' => result.push_str("%20"),
-            '#' => result.push_str("%23"),
-            '?' => result.push_str("%3F"),
-            // Keep common path characters as-is
-            '/' | ':' | '-' | '_' | '.' | '~' => result.push(c),
-            // Keep alphanumeric characters as-is
-            c if c.is_ascii_alphanumeric() => result.push(c),
-            // Encode everything else
-            c => {
-                for byte in c.to_string().as_bytes() {
-                    // Using write! is recommended over format! for appending
-                    let _ = write!(result, "%{byte:02X}");
-                }
-            }
-        }
-    }
-
-    result
 }
 
 /// Convert a file path to module segments.

@@ -1,7 +1,6 @@
 //! LSP server implementation for the Ambient language.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types::notification::{
@@ -28,6 +27,7 @@ use crate::convert::{
 };
 use crate::documents::DocumentStore;
 use crate::package::PackageInfo;
+use crate::util::uri_to_path;
 use crate::workspace::WorkspaceIndex;
 
 /// Run the LSP server.
@@ -280,7 +280,7 @@ fn handle_goto_definition(
         )
     } else {
         // Document not open - try to read the file to compute proper range
-        if let Some(file_path) = uri_to_file_path(&target_uri) {
+        if let Some(file_path) = uri_to_path(&target_uri) {
             if let Ok(content) = std::fs::read_to_string(&file_path) {
                 let temp_doc = crate::documents::Document::new(target_uri.clone(), 0, content);
                 offset_range_to_lsp_range(
@@ -488,39 +488,4 @@ fn publish_diagnostics(
         .sender
         .send(Message::Notification(notification))?;
     Ok(())
-}
-
-/// Convert a file:// URI to a file path.
-fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
-    let uri_str = uri.as_str();
-    if !uri_str.starts_with("file://") {
-        return None;
-    }
-
-    let path_str = uri_str.strip_prefix("file://")?;
-    Some(PathBuf::from(percent_decode(path_str)))
-}
-
-/// Decode percent-encoded characters in a URI path.
-fn percent_decode(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '%' {
-            let hex: String = chars.by_ref().take(2).collect();
-            if hex.len() == 2 {
-                if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                    result.push(byte as char);
-                    continue;
-                }
-            }
-            result.push('%');
-            result.push_str(&hex);
-        } else {
-            result.push(c);
-        }
-    }
-
-    result
 }
