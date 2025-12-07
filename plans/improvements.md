@@ -28,12 +28,6 @@ The compiler module should be split into:
 - `compiler/patterns.rs` - Pattern compilation
 - `compiler/abilities.rs` - Ability-related compilation
 
-### 1.3 Extract Error Formatting Abstraction
-**COMPLETED** - See `crates/ambient-cli/src/diagnostic.rs`
-
-Created a `Diagnostic` trait implemented by `ParseError` and `TypeError`,
-with a unified `print_diagnostic` function. Reduced ~90 lines of duplicated
-error formatting logic.
 
 ## Priority 2: Medium Impact
 
@@ -44,12 +38,6 @@ The parser should be split into:
 - `parser/expr.rs` - Expression parsing with precedence climbing
 - `parser/patterns.rs` - Pattern parsing
 
-### 2.2 Refactor Completions Duplication
-**COMPLETED** - Extracted `collect_params_if_in_scope()` helper function.
-
-Reduces duplication in `collect_lambda_locals` and `collect_handle_locals`
-by consolidating the common pattern of checking if cursor is in scope and
-adding matching parameters.
 
 ### 2.3 Split `bytecode.rs` (2,080 lines)
 Split into:
@@ -95,11 +83,5 @@ Create a shared utility for byte offset to line/column calculations, used by:
 
 ## Completed
 
-### Extract Error Formatting Abstraction (Priority 1.3)
-Created `Diagnostic` trait in `crates/ambient-cli/src/diagnostic.rs` to unify
-error formatting for `ParseError` and `TypeError`. Reduced ~90 lines of
-duplicated code.
-
-### Refactor Completions Duplication (Priority 2.2)
-Extracted `collect_params_if_in_scope()` helper in LSP completions module to
-consolidate the common pattern of scope-based parameter completion.
+- Extract Error Formatting Abstraction - See `crates/ambient-cli/src/diagnostic.rs`
+- Refactor Completions Duplication - See `collect_params_if_in_scope()` in LSP
