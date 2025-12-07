@@ -5,14 +5,23 @@ This document tracks code quality improvements identified during a feature freez
 ## Priority 1: High Impact
 
 ### 1.1 Split `infer/mod.rs` (4,004 lines)
-The type inference module is monolithic and should be split into:
+**Status:** Future work - substantial refactoring required
+
+The type inference module is monolithic but well-organized internally with
+clear section separators. Consider splitting into:
 - `infer/error.rs` - TypeError and display implementations
 - `infer/env.rs` - Type environment and schemes
 - `infer/unify.rs` - Unification algorithm
 - `infer/checker.rs` - Main inference logic
 - `infer/module.rs` - Module-level checking
 
+Note: The module has tight coupling between sections, sharing many types
+and imports. Tests exercise all parts together. Splitting would require
+careful import management.
+
 ### 1.2 Split `compiler/mod.rs` (3,397 lines)
+**Status:** Future work - substantial refactoring required
+
 The compiler module should be split into:
 - `compiler/error.rs` - CompileError types
 - `compiler/expr.rs` - Expression compilation (extract from compile_expr)
@@ -20,11 +29,11 @@ The compiler module should be split into:
 - `compiler/abilities.rs` - Ability-related compilation
 
 ### 1.3 Extract Error Formatting Abstraction
-`ambient-cli/src/main.rs` has duplicated error formatting logic in:
-- `print_parse_error()` (lines 632-675)
-- `print_type_error()` (lines 678-720+)
+**COMPLETED** - See `crates/ambient-cli/src/diagnostic.rs`
 
-Extract a common `ErrorFormatter` or `DiagnosticFormatter` trait.
+Created a `Diagnostic` trait implemented by `ParseError` and `TypeError`,
+with a unified `print_diagnostic` function. Reduced ~90 lines of duplicated
+error formatting logic.
 
 ## Priority 2: Medium Impact
 
@@ -36,13 +45,11 @@ The parser should be split into:
 - `parser/patterns.rs` - Pattern parsing
 
 ### 2.2 Refactor Completions Duplication
-`ambient-lsp/src/completions.rs` has similar functions:
-- `collect_block_locals` (lines 524-564)
-- `collect_match_locals` (lines 567-582)
-- `collect_lambda_locals` (lines 585-600)
-- `collect_handle_locals` (lines 603-625)
+**COMPLETED** - Extracted `collect_params_if_in_scope()` helper function.
 
-Extract a generic `collect_params_in_scope()` helper or use a trait-based approach.
+Reduces duplication in `collect_lambda_locals` and `collect_handle_locals`
+by consolidating the common pattern of checking if cursor is in scope and
+adding matching parameters.
 
 ### 2.3 Split `bytecode.rs` (2,080 lines)
 Split into:
@@ -88,4 +95,11 @@ Create a shared utility for byte offset to line/column calculations, used by:
 
 ## Completed
 
-(Items will be moved here as they are completed)
+### Extract Error Formatting Abstraction (Priority 1.3)
+Created `Diagnostic` trait in `crates/ambient-cli/src/diagnostic.rs` to unify
+error formatting for `ParseError` and `TypeError`. Reduced ~90 lines of
+duplicated code.
+
+### Refactor Completions Duplication (Priority 2.2)
+Extracted `collect_params_if_in_scope()` helper in LSP completions module to
+consolidate the common pattern of scope-based parameter completion.
