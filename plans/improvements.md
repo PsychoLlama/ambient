@@ -56,11 +56,13 @@ Split into:
 - `bytecode/mod.rs` - CompiledFunction (510 lines)
 
 ### 2.4 Split `vm/dispatch.rs` (1,787 lines)
-Split by opcode category:
-- `dispatch/stack_ops.rs`
-- `dispatch/arithmetic.rs`
-- `dispatch/control_flow.rs`
-- `dispatch/data_structures.rs`
+**Status:** Deferred - requires architectural consideration
+
+The file is a single match statement in `run()`. Splitting would require either:
+- Extracting helper methods per category (still one big match)
+- Converting to a dispatch table pattern (significant refactor)
+
+Consider for a future architectural review rather than simple extraction.
 
 ## Priority 3: Organization & Cleanup
 
