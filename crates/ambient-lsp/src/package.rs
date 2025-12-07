@@ -157,6 +157,54 @@ impl PackageInfo {
             );
         }
     }
+
+    /// Populate a workspace index with all discovered modules.
+    ///
+    /// This enables go-to-definition for cross-module imports without
+    /// requiring all files to be opened in the editor.
+    pub fn populate_workspace_index(&self, index: &mut crate::workspace::WorkspaceIndex) {
+        // Set the workspace root to the src directory
+        index.set_workspace_root(self.src_dir.clone());
+
+        // Add all discovered modules to the index
+        for module in self.modules.values() {
+            let file_path = self.src_dir.join(module.path.to_file_path());
+            if let Some(uri) = file_path_to_uri(&file_path) {
+                index.update(uri, &module.ast);
+            }
+        }
+    }
+}
+
+/// Convert a file path to a file:// URI.
+fn file_path_to_uri(path: &Path) -> Option<Uri> {
+    let path_str = path.to_str()?;
+    let encoded = percent_encode(path_str);
+    let uri_str = format!("file://{encoded}");
+    uri_str.parse().ok()
+}
+
+/// Percent-encode special characters in a path for URI.
+fn percent_encode(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+
+    for c in s.chars() {
+        match c {
+            ' ' => result.push_str("%20"),
+            '#' => result.push_str("%23"),
+            '?' => result.push_str("%3F"),
+            '/' | ':' | '-' | '_' | '.' | '~' => result.push(c),
+            c if c.is_ascii_alphanumeric() => result.push(c),
+            c => {
+                for byte in c.to_string().as_bytes() {
+                    use std::fmt::Write;
+                    let _ = write!(result, "%{byte:02X}");
+                }
+            }
+        }
+    }
+
+    result
 }
 
 /// Recursively discover all .ab files in a directory.

@@ -353,6 +353,9 @@ fn handle_notification(
             if package_info.is_none() {
                 if let Some(mut pkg) = PackageInfo::discover(&uri) {
                     pkg.discover_modules();
+                    // Populate workspace index with all discovered modules
+                    // This enables go-to-definition for imports
+                    pkg.populate_workspace_index(workspace_index);
                     *package_info = Some(pkg);
                 }
             }
