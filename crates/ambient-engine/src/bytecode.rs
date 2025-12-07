@@ -831,6 +831,7 @@ pub enum Opcode {
 impl Opcode {
     /// Decode an opcode from a byte. Returns None for invalid opcodes.
     #[must_use]
+    #[allow(clippy::too_many_lines)]
     pub fn from_byte(byte: u8) -> Option<Self> {
         match byte {
             0x00 => Some(Self::PushConst),

@@ -1294,7 +1294,8 @@ impl Infer {
     ///
     /// Returns the ability ID if all methods belong to exactly one ability.
     fn infer_ability_from_methods(&self, method_names: &[Arc<str>]) -> Option<AbilityId> {
-        self.ability_resolver.infer_ability_from_methods(method_names)
+        self.ability_resolver
+            .infer_ability_from_methods(method_names)
     }
 
     /// Try to infer the type of an intrinsic function call.
@@ -1355,7 +1356,7 @@ impl Infer {
                 // Returns the element or Unit for empty list
                 Ok(Some(elem_ty))
             }
-            "list_tail" if args.len() == 1 => {
+            "list_tail" | "list_reverse" | "list_sort" if args.len() == 1 => {
                 let list_ty = self.infer_expr(env, &mut args[0])?;
                 let elem_ty = self.fresh();
                 self.unify(&list_ty, &list_of(elem_ty.clone()), span)?;
@@ -1383,18 +1384,6 @@ impl Infer {
                 self.unify(&list_ty, &list_of(elem_ty), span)?;
                 Ok(Some(Type::Bool))
             }
-            "list_reverse" if args.len() == 1 => {
-                let list_ty = self.infer_expr(env, &mut args[0])?;
-                let elem_ty = self.fresh();
-                self.unify(&list_ty, &list_of(elem_ty.clone()), span)?;
-                Ok(Some(list_of(elem_ty)))
-            }
-            "list_sort" if args.len() == 1 => {
-                let list_ty = self.infer_expr(env, &mut args[0])?;
-                let elem_ty = self.fresh();
-                self.unify(&list_ty, &list_of(elem_ty.clone()), span)?;
-                Ok(Some(list_of(elem_ty)))
-            }
             "list_slice" if args.len() == 3 => {
                 let list_ty = self.infer_expr(env, &mut args[0])?;
                 let start_ty = self.infer_expr(env, &mut args[1])?;
@@ -1419,7 +1408,7 @@ impl Infer {
                 self.unify(&str2_ty, &Type::String, span)?;
                 Ok(Some(Type::String))
             }
-            "string_contains" if args.len() == 2 => {
+            "string_contains" | "string_starts_with" | "string_ends_with" if args.len() == 2 => {
                 let str_ty = self.infer_expr(env, &mut args[0])?;
                 let substr_ty = self.infer_expr(env, &mut args[1])?;
                 self.unify(&str_ty, &Type::String, span)?;
@@ -1440,7 +1429,9 @@ impl Infer {
                 self.unify(&delim_ty, &Type::String, span)?;
                 Ok(Some(Type::String))
             }
-            "string_trim" if args.len() == 1 => {
+            "string_trim" | "string_to_upper" | "string_to_lower" | "string_reverse"
+                if args.len() == 1 =>
+            {
                 let str_ty = self.infer_expr(env, &mut args[0])?;
                 self.unify(&str_ty, &Type::String, span)?;
                 Ok(Some(Type::String))
@@ -1466,18 +1457,6 @@ impl Infer {
                 self.unify(&str_ty, &Type::String, span)?;
                 self.unify(&pattern_ty, &Type::String, span)?;
                 self.unify(&replacement_ty, &Type::String, span)?;
-                Ok(Some(Type::String))
-            }
-            "string_starts_with" | "string_ends_with" if args.len() == 2 => {
-                let str_ty = self.infer_expr(env, &mut args[0])?;
-                let prefix_ty = self.infer_expr(env, &mut args[1])?;
-                self.unify(&str_ty, &Type::String, span)?;
-                self.unify(&prefix_ty, &Type::String, span)?;
-                Ok(Some(Type::Bool))
-            }
-            "string_to_upper" | "string_to_lower" | "string_reverse" if args.len() == 1 => {
-                let str_ty = self.infer_expr(env, &mut args[0])?;
-                self.unify(&str_ty, &Type::String, span)?;
                 Ok(Some(Type::String))
             }
             "string_index_of" if args.len() == 2 => {
@@ -1525,7 +1504,11 @@ impl Infer {
                 let key_arg_ty = self.infer_expr(env, &mut args[1])?;
                 let key_ty = self.fresh();
                 let val_ty = self.fresh();
-                self.unify(&map_ty, &Type::named("Map", vec![key_ty.clone(), val_ty.clone()]), span)?;
+                self.unify(
+                    &map_ty,
+                    &Type::named("Map", vec![key_ty.clone(), val_ty.clone()]),
+                    span,
+                )?;
                 self.unify(&key_arg_ty, &key_ty, span)?;
                 // Returns Unit if key not found (should return Option)
                 Ok(Some(val_ty))
@@ -1536,7 +1519,11 @@ impl Infer {
                 let val_arg_ty = self.infer_expr(env, &mut args[2])?;
                 let key_ty = self.fresh();
                 let val_ty = self.fresh();
-                self.unify(&map_ty, &Type::named("Map", vec![key_ty.clone(), val_ty.clone()]), span)?;
+                self.unify(
+                    &map_ty,
+                    &Type::named("Map", vec![key_ty.clone(), val_ty.clone()]),
+                    span,
+                )?;
                 self.unify(&key_arg_ty, &key_ty, span)?;
                 self.unify(&val_arg_ty, &val_ty.clone(), span)?;
                 Ok(Some(Type::named("Map", vec![key_ty, val_ty])))
@@ -1546,7 +1533,11 @@ impl Infer {
                 let key_arg_ty = self.infer_expr(env, &mut args[1])?;
                 let key_ty = self.fresh();
                 let val_ty = self.fresh();
-                self.unify(&map_ty, &Type::named("Map", vec![key_ty.clone(), val_ty.clone()]), span)?;
+                self.unify(
+                    &map_ty,
+                    &Type::named("Map", vec![key_ty.clone(), val_ty.clone()]),
+                    span,
+                )?;
                 self.unify(&key_arg_ty, &key_ty, span)?;
                 Ok(Some(Type::named("Map", vec![key_ty, val_ty])))
             }
@@ -1555,7 +1546,11 @@ impl Infer {
                 let key_arg_ty = self.infer_expr(env, &mut args[1])?;
                 let key_ty = self.fresh();
                 let val_ty = self.fresh();
-                self.unify(&map_ty, &Type::named("Map", vec![key_ty.clone(), val_ty]), span)?;
+                self.unify(
+                    &map_ty,
+                    &Type::named("Map", vec![key_ty.clone(), val_ty]),
+                    span,
+                )?;
                 self.unify(&key_arg_ty, &key_ty, span)?;
                 Ok(Some(Type::Bool))
             }
@@ -1570,14 +1565,22 @@ impl Infer {
                 let map_ty = self.infer_expr(env, &mut args[0])?;
                 let key_ty = self.fresh();
                 let val_ty = self.fresh();
-                self.unify(&map_ty, &Type::named("Map", vec![key_ty.clone(), val_ty]), span)?;
+                self.unify(
+                    &map_ty,
+                    &Type::named("Map", vec![key_ty.clone(), val_ty]),
+                    span,
+                )?;
                 Ok(Some(list_of(key_ty)))
             }
             "map_values" if args.len() == 1 => {
                 let map_ty = self.infer_expr(env, &mut args[0])?;
                 let key_ty = self.fresh();
                 let val_ty = self.fresh();
-                self.unify(&map_ty, &Type::named("Map", vec![key_ty, val_ty.clone()]), span)?;
+                self.unify(
+                    &map_ty,
+                    &Type::named("Map", vec![key_ty, val_ty.clone()]),
+                    span,
+                )?;
                 Ok(Some(list_of(val_ty)))
             }
 
@@ -1586,15 +1589,7 @@ impl Infer {
                 let elem_ty = self.fresh();
                 Ok(Some(Type::named("Set", vec![elem_ty])))
             }
-            "set_insert" if args.len() == 2 => {
-                let set_ty = self.infer_expr(env, &mut args[0])?;
-                let elem_arg_ty = self.infer_expr(env, &mut args[1])?;
-                let elem_ty = self.fresh();
-                self.unify(&set_ty, &Type::named("Set", vec![elem_ty.clone()]), span)?;
-                self.unify(&elem_arg_ty, &elem_ty.clone(), span)?;
-                Ok(Some(Type::named("Set", vec![elem_ty])))
-            }
-            "set_remove" if args.len() == 2 => {
+            "set_insert" | "set_remove" if args.len() == 2 => {
                 let set_ty = self.infer_expr(env, &mut args[0])?;
                 let elem_arg_ty = self.infer_expr(env, &mut args[1])?;
                 let elem_ty = self.fresh();
@@ -2283,16 +2278,18 @@ impl Infer {
 
                 // Try to infer the target ability from method names
                 let ability_id =
-                    self.infer_ability_from_methods(&method_names).ok_or_else(|| {
-                        TypeError::new(
-                            TypeErrorKind::HandlerAbilityAmbiguous {
-                                method_names: method_names.clone(),
-                            },
-                            span,
-                        )
-                    })?;
+                    self.infer_ability_from_methods(&method_names)
+                        .ok_or_else(|| {
+                            TypeError::new(
+                                TypeErrorKind::HandlerAbilityAmbiguous {
+                                    method_names: method_names.clone(),
+                                },
+                                span,
+                            )
+                        })?;
 
-                let ability_name: Arc<str> = self.ability_id_to_name(ability_id)
+                let ability_name: Arc<str> = self
+                    .ability_id_to_name(ability_id)
                     .unwrap_or("unknown")
                     .into();
 

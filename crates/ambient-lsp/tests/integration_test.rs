@@ -31,8 +31,12 @@ fn test_lsp_initialize() {
     let init_msg = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"capabilities":{},"rootUri":"file:///tmp"}}"#;
     let header = format!("Content-Length: {}\r\n\r\n", init_msg.len());
 
-    stdin.write_all(header.as_bytes()).expect("Failed to write header");
-    stdin.write_all(init_msg.as_bytes()).expect("Failed to write message");
+    stdin
+        .write_all(header.as_bytes())
+        .expect("Failed to write header");
+    stdin
+        .write_all(init_msg.as_bytes())
+        .expect("Failed to write message");
     stdin.flush().expect("Failed to flush");
 
     eprintln!("Sent initialize request, waiting for response...");
@@ -44,14 +48,19 @@ fn test_lsp_initialize() {
     // Set a timeout by using a thread
     let (tx, rx) = std::sync::mpsc::channel();
     let handle = std::thread::spawn(move || {
-        reader.read_line(&mut header_line).expect("Failed to read header");
+        reader
+            .read_line(&mut header_line)
+            .expect("Failed to read header");
         tx.send(header_line).ok();
     });
 
     match rx.recv_timeout(std::time::Duration::from_secs(5)) {
         Ok(header) => {
             eprintln!("Got header: {}", header);
-            assert!(header.starts_with("Content-Length:"), "Expected Content-Length header");
+            assert!(
+                header.starts_with("Content-Length:"),
+                "Expected Content-Length header"
+            );
         }
         Err(_) => {
             // Check stderr for errors

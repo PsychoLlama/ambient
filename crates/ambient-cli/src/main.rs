@@ -19,8 +19,8 @@ use rustyline::{Config as RustylineConfig, Editor, Helper};
 
 use ambient_engine::abilities::{format_value, register_all_standard_abilities};
 use ambient_engine::compiler::{
-    compile_expression_with_context, compile_module_with_source, compile_repl_item,
-    CompiledModule, ReplContext, ReplItemKind,
+    compile_expression_with_context, compile_module_with_source, compile_repl_item, CompiledModule,
+    ReplContext, ReplItemKind,
 };
 use ambient_engine::vm::Vm;
 
@@ -554,8 +554,8 @@ fn eval_repl_input(
     match input {
         ReplInput::Item(item) => {
             // Compile the item.
-            let compiled = compile_repl_item(&item, ctx)
-                .map_err(|e| format!("compile error: {e}"))?;
+            let compiled =
+                compile_repl_item(&item, ctx).map_err(|e| format!("compile error: {e}"))?;
 
             let name = compiled.name.clone();
             let hash = compiled.function.hash;

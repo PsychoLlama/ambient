@@ -9,9 +9,7 @@
 
 use ambient_engine::ast::{Expr, ExprKind, FunctionDef, ItemKind, Module, Param, StmtKind};
 use ambient_parser::TokenKind;
-use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionItemLabelDetails, InsertTextFormat,
-};
+use lsp_types::{CompletionItem, CompletionItemKind, CompletionItemLabelDetails, InsertTextFormat};
 
 use crate::analysis::format_type;
 
@@ -171,6 +169,7 @@ struct AbilityMethod {
 }
 
 /// Get the methods for a given ability.
+#[allow(clippy::too_many_lines)]
 fn get_ability_methods(ability_name: &str) -> &'static [AbilityMethod] {
     match ability_name {
         "Console" => &[

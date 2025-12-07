@@ -1404,48 +1404,45 @@ fn compile_expr(
 
         ExprKind::Call(callee, args) => {
             // Check if this is a direct call to a known function or an indirect call.
-            match &callee.kind {
-                ExprKind::Name(name) => {
-                    // Check for intrinsic functions first
-                    if try_compile_intrinsic(fc, &name.name, args, ctx)?.is_some() {
-                        // Intrinsic was compiled, nothing more to do
-                    } else if fc.function_hashes.contains_key(&name.name) {
-                        // Direct function call to a known function.
-                        // Compile arguments first (left to right).
-                        for arg in args {
-                            compile_expr(fc, arg, ctx)?;
-                        }
-                        let hash = fc.function_hashes[&name.name];
-                        fc.builder.emit_call(hash, args.len() as u8);
-                    } else if fc.get_local_by_name(&name.name).is_some()
-                        || fc.capture_names.contains_key(&name.name)
-                        || fc.is_parent_name(&name.name)
-                    {
-                        // Indirect call through a closure stored in a variable.
-                        // First compile the closure (callee), then arguments.
-                        compile_expr(fc, callee, ctx)?;
-                        for arg in args {
-                            compile_expr(fc, arg, ctx)?;
-                        }
-                        fc.builder.emit_call_closure(args.len() as u8);
-                    } else {
-                        // Unknown function - will error at runtime
-                        compile_expr(fc, callee, ctx)?;
-                        for arg in args {
-                            compile_expr(fc, arg, ctx)?;
-                        }
-                        fc.builder.emit_call_closure(args.len() as u8);
+            if let ExprKind::Name(name) = &callee.kind {
+                // Check for intrinsic functions first
+                if try_compile_intrinsic(fc, &name.name, args, ctx)?.is_some() {
+                    // Intrinsic was compiled, nothing more to do
+                } else if fc.function_hashes.contains_key(&name.name) {
+                    // Direct function call to a known function.
+                    // Compile arguments first (left to right).
+                    for arg in args {
+                        compile_expr(fc, arg, ctx)?;
                     }
-                }
-                _ => {
-                    // General indirect call (e.g., calling a lambda inline or result of expression).
-                    // Compile callee first, then arguments.
+                    let hash = fc.function_hashes[&name.name];
+                    fc.builder.emit_call(hash, args.len() as u8);
+                } else if fc.get_local_by_name(&name.name).is_some()
+                    || fc.capture_names.contains_key(&name.name)
+                    || fc.is_parent_name(&name.name)
+                {
+                    // Indirect call through a closure stored in a variable.
+                    // First compile the closure (callee), then arguments.
+                    compile_expr(fc, callee, ctx)?;
+                    for arg in args {
+                        compile_expr(fc, arg, ctx)?;
+                    }
+                    fc.builder.emit_call_closure(args.len() as u8);
+                } else {
+                    // Unknown function - will error at runtime
                     compile_expr(fc, callee, ctx)?;
                     for arg in args {
                         compile_expr(fc, arg, ctx)?;
                     }
                     fc.builder.emit_call_closure(args.len() as u8);
                 }
+            } else {
+                // General indirect call (e.g., calling a lambda inline or result of expression).
+                // Compile callee first, then arguments.
+                compile_expr(fc, callee, ctx)?;
+                for arg in args {
+                    compile_expr(fc, arg, ctx)?;
+                }
+                fc.builder.emit_call_closure(args.len() as u8);
             }
         }
 
@@ -1977,6 +1974,7 @@ fn get_variant_tag(variant_name: &str) -> Option<u16> {
 ///
 /// Returns `Some(())` if the function was compiled as an intrinsic,
 /// `None` if it should be handled as a regular function call.
+#[allow(clippy::too_many_lines)]
 fn try_compile_intrinsic(
     fc: &mut FunctionCompiler,
     name: &str,

@@ -1,6 +1,6 @@
 //! Ability resolver for looking up abilities from registered providers.
 //!
-//! The AbilityResolver aggregates abilities from multiple providers (core, runtime,
+//! The `AbilityResolver` aggregates abilities from multiple providers (core, runtime,
 //! and any user-defined providers) and provides lookup methods for the type checker
 //! and compiler.
 
@@ -23,6 +23,7 @@ pub struct AbilityResolver {
 
 impl AbilityResolver {
     /// Create a new empty ability resolver.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             by_name: HashMap::new(),
@@ -40,26 +41,31 @@ impl AbilityResolver {
     }
 
     /// Look up an ability by name.
+    #[must_use]
     pub fn get_by_name(&self, name: &str) -> Option<&AbilityDescriptor<Type>> {
         self.by_name.get(name)
     }
 
     /// Look up an ability by ID.
+    #[must_use]
     pub fn get_by_id(&self, id: AbilityId) -> Option<&AbilityDescriptor<Type>> {
         self.by_id.get(&id)
     }
 
     /// Convert an ability name to its ID.
+    #[must_use]
     pub fn name_to_id(&self, name: &str) -> Option<AbilityId> {
         self.by_name.get(name).map(|a| a.id)
     }
 
     /// Convert an ability ID to its name.
+    #[must_use]
     pub fn id_to_name(&self, id: AbilityId) -> Option<&str> {
         self.by_id.get(&id).map(|a| a.name)
     }
 
     /// Look up a method by ability name and method name.
+    #[must_use]
     pub fn get_method(
         &self,
         ability_name: &str,
@@ -71,6 +77,7 @@ impl AbilityResolver {
     }
 
     /// Look up a method by ability ID and method name.
+    #[must_use]
     pub fn get_method_by_ability_id(
         &self,
         ability_id: AbilityId,
@@ -83,8 +90,9 @@ impl AbilityResolver {
 
     /// Get all method signatures for an ability.
     ///
-    /// Returns a list of (method_name, param_count, return_type).
+    /// Returns a list of tuples containing method name, parameter count, and return type.
     /// Method names are cloned to avoid lifetime issues.
+    #[must_use]
     pub fn get_method_signatures(
         &self,
         ability_id: AbilityId,
@@ -107,6 +115,7 @@ impl AbilityResolver {
     /// Try to infer which ability a handler literal is for based on method names.
     ///
     /// Returns the ability ID if all methods belong to exactly one ability.
+    #[must_use]
     pub fn infer_ability_from_methods(&self, method_names: &[Arc<str>]) -> Option<AbilityId> {
         if method_names.is_empty() {
             return None;
@@ -142,6 +151,7 @@ impl AbilityResolver {
     /// Get the return type for a method.
     ///
     /// Returns the return type constructed using the provided type factory.
+    #[must_use]
     pub fn get_method_return_type(
         &self,
         ability_name: &str,
@@ -154,10 +164,11 @@ impl AbilityResolver {
     }
 
     /// Check if a method exists for an ability.
+    #[must_use]
     pub fn has_method(&self, ability_name: &str, method_name: &str) -> bool {
         self.by_name
             .get(ability_name)
-            .map_or(false, |a| a.get_method(method_name).is_some())
+            .is_some_and(|a| a.get_method(method_name).is_some())
     }
 }
 
@@ -203,7 +214,8 @@ impl TypeFactory<Type> for EngineTypeFactory {
     }
 }
 
-/// Create an AbilityResolver with the standard abilities (core + runtime).
+/// Create an `AbilityResolver` with the standard abilities (core + runtime).
+#[must_use]
 pub fn standard_abilities() -> AbilityResolver {
     let factory = EngineTypeFactory;
     let mut resolver = AbilityResolver::new();
@@ -262,9 +274,6 @@ mod tests {
         // Methods that match Exception
         let methods = vec![Arc::from("throw")];
         let result = resolver.infer_ability_from_methods(&methods);
-        assert_eq!(
-            result,
-            Some(ambient_core::exception::ABILITY_ID)
-        );
+        assert_eq!(result, Some(ambient_core::exception::ABILITY_ID));
     }
 }

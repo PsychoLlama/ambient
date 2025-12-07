@@ -7,17 +7,17 @@
 //! Core abilities that the language depends on (like Exception) are defined
 //! in `ambient-core` instead.
 
-pub mod console;
-pub mod time;
-pub mod random;
 pub mod async_ability;
+pub mod console;
 pub mod log;
+pub mod random;
+pub mod time;
 
-pub use console::{ConsoleAbility, CONSOLE};
-pub use time::{TimeAbility, TIME};
-pub use random::{RandomAbility, RANDOM};
 pub use async_ability::{AsyncAbility, ASYNC};
+pub use console::{ConsoleAbility, CONSOLE};
 pub use log::{LogAbility, LOG};
+pub use random::{RandomAbility, RANDOM};
+pub use time::{TimeAbility, TIME};
 
 use ambient_core::{
     AbilityDescriptor, AbilityProvider, MethodDescriptor, MethodSignature, TypeFactory,

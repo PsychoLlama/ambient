@@ -883,14 +883,12 @@ impl Vm {
                         }
                     };
                     let mut result: Vec<Value> = (*list).clone();
-                    result.sort_by(|a, b| {
-                        match (a, b) {
-                            (Value::Number(na), Value::Number(nb)) => {
-                                na.partial_cmp(nb).unwrap_or(std::cmp::Ordering::Equal)
-                            }
-                            (Value::String(sa), Value::String(sb)) => sa.cmp(sb),
-                            _ => std::cmp::Ordering::Equal,
+                    result.sort_by(|a, b| match (a, b) {
+                        (Value::Number(na), Value::Number(nb)) => {
+                            na.partial_cmp(nb).unwrap_or(std::cmp::Ordering::Equal)
                         }
+                        (Value::String(sa), Value::String(sb)) => sa.cmp(sb),
+                        _ => std::cmp::Ordering::Equal,
                     });
                     self.stack.push(Value::list(result));
                 }
@@ -1011,10 +1009,8 @@ impl Vm {
 
                 Opcode::StringChars => {
                     let s = self.pop_string("string_chars")?;
-                    let chars: Vec<Value> = s
-                        .chars()
-                        .map(|c| Value::string(c.to_string()))
-                        .collect();
+                    let chars: Vec<Value> =
+                        s.chars().map(|c| Value::string(c.to_string())).collect();
                     self.stack.push(Value::list(chars));
                 }
 
@@ -1022,7 +1018,7 @@ impl Vm {
                     let replacement = self.pop_string("string_replace")?;
                     let pattern = self.pop_string("string_replace")?;
                     let s = self.pop_string("string_replace")?;
-                    let result = s.replace(&*pattern, &*replacement);
+                    let result = s.replace(&*pattern, &replacement);
                     self.stack.push(Value::string(result));
                 }
 

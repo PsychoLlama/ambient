@@ -4,7 +4,9 @@
 //! semantics. It provides the `throw` method for raising errors that can
 //! be caught by handlers.
 
-use crate::descriptor::{AbilityDescriptor, AbilityProvider, MethodDescriptor, MethodSignature, TypeFactory};
+use crate::descriptor::{
+    AbilityDescriptor, AbilityProvider, MethodDescriptor, MethodSignature, TypeFactory,
+};
 use crate::AbilityId;
 
 /// Exception ability ID.
