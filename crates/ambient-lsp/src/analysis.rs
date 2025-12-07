@@ -4,7 +4,9 @@
 //! and type information for the LSP server.
 
 use ambient_engine::ast::{Expr, ExprKind, ItemKind, Module, QualifiedName, Span, StmtKind};
-use ambient_engine::infer::{check_module, BoxedTypeError};
+use ambient_engine::infer::{check_module, check_module_with_registry, BoxedTypeError};
+use ambient_engine::module_path::ModulePath;
+use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::types::Type;
 use ambient_parser::{parse, ParseError};
 
@@ -32,6 +34,18 @@ impl AnalysisResult {
 /// Performs parsing and type checking, returning all diagnostics found.
 #[must_use]
 pub fn analyze(source: &str) -> AnalysisResult {
+    analyze_with_registry(source, None, None)
+}
+
+/// Analyze a document's source code with cross-module support.
+///
+/// If a registry is provided, imports from other modules will be resolved.
+#[must_use]
+pub fn analyze_with_registry(
+    source: &str,
+    module_path: Option<&ModulePath>,
+    registry: Option<&ModuleRegistry>,
+) -> AnalysisResult {
     // Parse the source.
     let module = match parse(source) {
         Ok(m) => m,
@@ -44,8 +58,11 @@ pub fn analyze(source: &str) -> AnalysisResult {
         }
     };
 
-    // Type check the module.
-    let check_result = check_module(module);
+    // Type check the module - use registry if available.
+    let check_result = match (module_path, registry) {
+        (Some(path), Some(reg)) => check_module_with_registry(module, path, reg),
+        _ => check_module(module),
+    };
 
     AnalysisResult {
         parse_error: None,

@@ -52,6 +52,7 @@ mod analysis;
 mod completions;
 mod convert;
 mod documents;
+mod package;
 mod server;
 mod workspace;
 

@@ -18,12 +18,15 @@ use lsp_types::{
 };
 use serde_json::Value;
 
-use crate::analysis::{analyze, find_definition_cross_file, find_expr_at_offset, format_type};
+use crate::analysis::{
+    analyze_with_registry, find_definition_cross_file, find_expr_at_offset, format_type,
+};
 use crate::completions::{get_completions, CompletionContext};
 use crate::convert::{
     offset_range_to_lsp_range, parse_error_to_diagnostic, type_error_to_diagnostic,
 };
 use crate::documents::DocumentStore;
+use crate::package::PackageInfo;
 use crate::workspace::WorkspaceIndex;
 
 /// Run the LSP server.
@@ -76,6 +79,8 @@ fn main_loop(connection: &Connection) -> anyhow::Result<()> {
     let mut analysis_cache: HashMap<String, crate::analysis::AnalysisResult> = HashMap::new();
     // Workspace index for cross-file navigation
     let mut workspace_index = WorkspaceIndex::new();
+    // Package info for cross-module type checking
+    let mut package_info: Option<PackageInfo> = None;
 
     for msg in &connection.receiver {
         match msg {
@@ -93,6 +98,7 @@ fn main_loop(connection: &Connection) -> anyhow::Result<()> {
                     &mut documents,
                     &mut analysis_cache,
                     &mut workspace_index,
+                    &mut package_info,
                     connection,
                 )?;
             }
@@ -331,6 +337,7 @@ fn handle_notification(
     documents: &mut DocumentStore,
     analysis_cache: &mut HashMap<String, crate::analysis::AnalysisResult>,
     workspace_index: &mut WorkspaceIndex,
+    package_info: &mut Option<PackageInfo>,
     connection: &Connection,
 ) -> anyhow::Result<()> {
     match notif.method.as_str() {
@@ -342,14 +349,34 @@ fn handle_notification(
 
             documents.open(uri.clone(), version, text.clone());
 
-            // Analyze and publish diagnostics.
-            let result = analyze(&text);
+            // Discover package if not already discovered
+            if package_info.is_none() {
+                if let Some(mut pkg) = PackageInfo::discover(&uri) {
+                    pkg.discover_modules();
+                    *package_info = Some(pkg);
+                }
+            }
+
+            // Analyze with cross-module support if we have a package
+            let result = if let Some(pkg) = package_info.as_ref() {
+                let module_path = pkg.uri_to_module_path(&uri);
+                let registry = pkg.build_registry();
+                analyze_with_registry(&text, module_path.as_ref(), Some(&registry))
+            } else {
+                analyze_with_registry(&text, None, None)
+            };
+
             let diagnostics = collect_diagnostics(documents.get(&uri), &result);
             publish_diagnostics(connection, uri.clone(), diagnostics, version)?;
 
             // Update workspace index if we have a valid module
             if let Some(ref module) = result.module {
                 workspace_index.update(uri.clone(), module);
+
+                // Update package info with the newly parsed module
+                if let Some(pkg) = package_info.as_mut() {
+                    pkg.update_module(&uri, &text, module.clone());
+                }
             }
 
             analysis_cache.insert(uri.as_str().to_string(), result);
@@ -363,15 +390,27 @@ fn handle_notification(
             if let Some(change) = params.content_changes.into_iter().next() {
                 documents.update(&uri, version, change.text.clone());
 
-                // Re-analyze and publish diagnostics.
+                // Re-analyze with cross-module support
                 if let Some(doc) = documents.get(&uri) {
-                    let result = analyze(&doc.text);
+                    let result = if let Some(pkg) = package_info.as_ref() {
+                        let module_path = pkg.uri_to_module_path(&uri);
+                        let registry = pkg.build_registry();
+                        analyze_with_registry(&doc.text, module_path.as_ref(), Some(&registry))
+                    } else {
+                        analyze_with_registry(&doc.text, None, None)
+                    };
+
                     let diagnostics = collect_diagnostics(Some(doc), &result);
                     publish_diagnostics(connection, uri.clone(), diagnostics, version)?;
 
                     // Update workspace index if we have a valid module
                     if let Some(ref module) = result.module {
                         workspace_index.update(uri.clone(), module);
+
+                        // Update package info with the newly parsed module
+                        if let Some(pkg) = package_info.as_mut() {
+                            pkg.update_module(&uri, &doc.text, module.clone());
+                        }
                     }
 
                     analysis_cache.insert(uri.as_str().to_string(), result);
