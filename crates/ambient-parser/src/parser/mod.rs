@@ -1297,6 +1297,44 @@ impl<'src> Parser<'src> {
                 }
 
                 if segments.len() > 1 {
+                    // Check for ability method call pattern: Ability.method(args) or Ability.method!(args)
+                    if self.check(TokenKind::Bang) || self.check(TokenKind::LParen) {
+                        // This is an ability call pattern
+                        let is_perform = self.consume(TokenKind::Bang).is_some();
+                        self.expect(TokenKind::LParen)?;
+                        let args = self.parse_args()?;
+                        let end = self.expect(TokenKind::RParen)?.span.end;
+
+                        // Last segment is the method, everything else is the ability
+                        let method = segments.pop().expect("at least 2 segments");
+                        let ability_span = Span::new(
+                            segments[0].span.start,
+                            segments.last().expect("at least 1 segment").span.end,
+                        );
+                        let ability = CstQualifiedName {
+                            segments,
+                            span: ability_span,
+                        };
+                        let span = Span::new(ability_span.start, end);
+
+                        return Ok(CstExpr {
+                            kind: if is_perform {
+                                CstExprKind::Perform {
+                                    ability,
+                                    method,
+                                    args,
+                                }
+                            } else {
+                                CstExprKind::Suspend {
+                                    ability,
+                                    method,
+                                    args,
+                                }
+                            },
+                            span,
+                        });
+                    }
+
                     let span = Span::new(
                         segments[0].span.start,
                         segments.last().expect("segments not empty").span.end,

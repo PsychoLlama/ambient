@@ -1,0 +1,52 @@
+// Error handling example with Exception effects
+//
+// Demonstrates the Exception ability for error handling.
+// Shows how to catch and handle errors using handlers.
+
+// Main function demonstrating error handling
+pub fn main(): number {
+    // Test 1: Success case - no exception thrown
+    let success_result = handle {
+        // No error here, just return a value
+        42
+    } {
+        Exception.throw(msg) => {
+            // On error, return -1
+            0 - 1
+        }
+    };
+    // Expected: 42 (success path)
+
+    // Test 2: Sequential operations without error
+    let seq_result = handle {
+        let step1 = 10;
+        let step2 = step1 * 2;  // 20
+        let step3 = step2 + 5;  // 25
+        step3
+    } {
+        Exception.throw(msg) => {
+            0 - 1
+        }
+    };
+    // Expected: 25 (no errors)
+
+    // Test 3: Nested handle expressions
+    let nested_result = handle {
+        let inner = handle {
+            100
+        } {
+            Exception.throw(msg) => {
+                0 - 50
+            }
+        };
+        inner + 23  // 123
+    } {
+        Exception.throw(msg) => {
+            0 - 999
+        }
+    };
+    // Expected: 123 (no errors in either layer)
+
+    // Sum the results: 42 + 25 + 123 = 190
+    success_result + seq_result + nested_result
+}

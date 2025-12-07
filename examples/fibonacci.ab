@@ -1,0 +1,80 @@
+// Fibonacci sequence examples
+//
+// Demonstrates recursion and different algorithmic approaches.
+
+// Classic recursive fibonacci (exponential time)
+fn fib_recursive(n: number): number {
+    if n <= 1 {
+        n
+    } else {
+        fib_recursive(n - 1) + fib_recursive(n - 2)
+    }
+}
+
+// Tail-recursive fibonacci with accumulator (linear time)
+fn fib_tail(n: number): number {
+    fib_tail_helper(n, 0, 1)
+}
+
+fn fib_tail_helper(n: number, a: number, b: number): number {
+    if n == 0 {
+        a
+    } else {
+        fib_tail_helper(n - 1, b, a + b)
+    }
+}
+
+// Generate first n fibonacci numbers as a list
+fn fib_list(n: number): List<number> {
+    if n <= 0 {
+        []
+    } else if n == 1 {
+        [0]
+    } else {
+        fib_list_helper(n - 2, [0, 1])
+    }
+}
+
+fn fib_list_helper(remaining: number, acc: List<number>): List<number> {
+    if remaining <= 0 {
+        acc
+    } else {
+        let len = list_length(acc);
+        let next = list_get(acc, len - 1) + list_get(acc, len - 2);
+        fib_list_helper(remaining - 1, list_append(acc, next))
+    }
+}
+
+// Check if a number is a fibonacci number
+fn is_fibonacci(n: number): bool {
+    is_fib_helper(n, 0, 1)
+}
+
+fn is_fib_helper(target: number, a: number, b: number): bool {
+    if a == target {
+        true
+    } else if a > target {
+        false
+    } else {
+        is_fib_helper(target, b, a + b)
+    }
+}
+
+pub fn main(): number {
+    // Test recursive fib (small n due to exponential time)
+    let r1 = fib_recursive(10);  // Expected: 55
+
+    // Test tail-recursive fib (can handle larger n)
+    let r2 = fib_tail(20);  // Expected: 6765
+
+    // Test fib list generation
+    let fibs = fib_list(10);
+    let r3 = list_length(fibs);  // Expected: 10
+
+    // Test is_fibonacci
+    let r4 = if is_fibonacci(13) { 1 } else { 0 };  // Expected: 1 (13 is fib)
+    let r5 = if is_fibonacci(14) { 1 } else { 0 };  // Expected: 0 (14 is not fib)
+
+    // Return a combined result
+    r1 + r3 + r4 - r5  // 55 + 10 + 1 - 0 = 66
+}

@@ -1,0 +1,155 @@
+// List operations example
+//
+// Demonstrates functional list manipulation using stdlib intrinsics.
+
+// Sum all numbers in a list
+fn sum(xs: List<number>): number {
+    sum_helper(xs, 0)
+}
+
+fn sum_helper(xs: List<number>, acc: number): number {
+    if list_length(xs) == 0 {
+        acc
+    } else {
+        sum_helper(list_tail(xs), acc + list_head(xs))
+    }
+}
+
+// Product of all numbers
+fn product(xs: List<number>): number {
+    product_helper(xs, 1)
+}
+
+fn product_helper(xs: List<number>, acc: number): number {
+    if list_length(xs) == 0 {
+        acc
+    } else {
+        product_helper(list_tail(xs), acc * list_head(xs))
+    }
+}
+
+// Map: apply a function to each element
+fn double_all(xs: List<number>): List<number> {
+    map_double(xs)
+}
+
+fn map_double(xs: List<number>): List<number> {
+    if list_length(xs) == 0 {
+        []
+    } else {
+        list_concat([list_head(xs) * 2], map_double(list_tail(xs)))
+    }
+}
+
+// Filter: keep elements matching a predicate
+fn filter_positive(xs: List<number>): List<number> {
+    if list_length(xs) == 0 {
+        []
+    } else {
+        let h = list_head(xs);
+        let rest = filter_positive(list_tail(xs));
+        if h > 0 {
+            list_concat([h], rest)
+        } else {
+            rest
+        }
+    }
+}
+
+// Find maximum element
+fn maximum(xs: List<number>): number {
+    if list_length(xs) == 0 {
+        0  // Default for empty list
+    } else {
+        max_helper(list_tail(xs), list_head(xs))
+    }
+}
+
+fn max_helper(xs: List<number>, current_max: number): number {
+    if list_length(xs) == 0 {
+        current_max
+    } else {
+        let h = list_head(xs);
+        let new_max = if h > current_max { h } else { current_max };
+        max_helper(list_tail(xs), new_max)
+    }
+}
+
+// Count elements matching a condition
+fn count_even(xs: List<number>): number {
+    count_even_helper(xs, 0)
+}
+
+fn count_even_helper(xs: List<number>, acc: number): number {
+    if list_length(xs) == 0 {
+        acc
+    } else {
+        let h = list_head(xs);
+        let increment = if h % 2 == 0 { 1 } else { 0 };
+        count_even_helper(list_tail(xs), acc + increment)
+    }
+}
+
+// Take first n elements
+fn take_n(xs: List<number>, n: number): List<number> {
+    list_slice(xs, 0, n)
+}
+
+// Drop first n elements
+fn drop_n(xs: List<number>, n: number): List<number> {
+    list_slice(xs, n, list_length(xs))
+}
+
+// Zip two lists into pairs (truncates to shorter length)
+fn zip_lists(xs: List<number>, ys: List<number>): List<(number, number)> {
+    if list_length(xs) == 0 {
+        []
+    } else if list_length(ys) == 0 {
+        []
+    } else {
+        let pair = (list_head(xs), list_head(ys));
+        list_concat([pair], zip_lists(list_tail(xs), list_tail(ys)))
+    }
+}
+
+pub fn main(): number {
+    let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let mixed = [0 - 3, 0 - 1, 0, 2, 5, 0 - 2, 8];
+
+    // Test sum and product
+    let s = sum(numbers);       // 55
+    let p = product([1, 2, 3, 4, 5]);  // 120
+
+    // Test map (double all)
+    let doubled = double_all([1, 2, 3]);
+    let doubled_sum = sum(doubled);  // 12 (2 + 4 + 6)
+
+    // Test filter
+    let positives = filter_positive(mixed);
+    let pos_count = list_length(positives);  // 3 (2, 5, 8)
+
+    // Test maximum
+    let max_val = maximum(numbers);  // 10
+
+    // Test count
+    let even_count = count_even(numbers);  // 5 (2, 4, 6, 8, 10)
+
+    // Test take/drop
+    let first_three = take_n(numbers, 3);
+    let rest = drop_n(numbers, 3);
+    let take_len = list_length(first_three);  // 3
+    let drop_len = list_length(rest);  // 7
+
+    // Test reverse and sort (native intrinsics)
+    let reversed = list_reverse(numbers);
+    let first_reversed = list_head(reversed);  // 10
+
+    let unsorted = [5, 2, 8, 1, 9, 3];
+    let sorted = list_sort(unsorted);
+    let first_sorted = list_head(sorted);  // 1
+    let last_sorted = list_get(sorted, 5);  // 9
+
+    // Combine results for verification
+    // 55 + 12 + 3 + 10 + 5 + 3 + 7 + 10 + 1 + 9 = 115
+    s + doubled_sum + pos_count + max_val + even_count + take_len + drop_len + first_reversed + first_sorted + last_sorted
+}

@@ -1,0 +1,30 @@
+// Console I/O example with effects
+//
+// Demonstrates the Console ability for output.
+// Effects are handled using handler expressions.
+
+// Main function demonstrating Console ability
+pub fn main(): number {
+    // Handler that intercepts Console output
+    // The ability call is made directly in the handle body
+    let result = handle {
+        Console.print("Hello, ");
+        Console.print("World!");
+        Console.println("");
+        42  // Return value
+    } {
+        Console.print(msg) => {
+            // Handler intercepts the print call
+            // In a real implementation, this would output to stdout
+            resume(())
+        },
+        Console.println(msg) => {
+            resume(())
+        },
+        Console.eprint(msg) => {
+            resume(())
+        }
+    };
+
+    result
+}
