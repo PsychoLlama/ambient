@@ -12,7 +12,33 @@ fn ambient_cmd() -> Command {
     Command::new(env!("CARGO_BIN_EXE_ambient"))
 }
 
-/// Create a temporary directory with a source file.
+/// Create a temporary package with the given source as main.ab.
+fn temp_package(content: &str) -> (TempDir, PathBuf) {
+    let dir = TempDir::new().expect("failed to create temp dir");
+    let pkg_dir = dir.path().to_path_buf();
+
+    // Create ambient.toml
+    fs::write(
+        pkg_dir.join("ambient.toml"),
+        r#"[package]
+name = "test_pkg"
+version = "0.1.0"
+
+[build]
+src = "src"
+"#,
+    )
+    .expect("failed to write manifest");
+
+    // Create src/main.ab
+    let src_dir = pkg_dir.join("src");
+    fs::create_dir_all(&src_dir).expect("failed to create src dir");
+    fs::write(src_dir.join("main.ab"), content).expect("failed to write source file");
+
+    (dir, pkg_dir)
+}
+
+/// Create a temporary directory with a single source file (for check/compile/ast).
 fn temp_source(content: &str) -> (TempDir, PathBuf) {
     let dir = TempDir::new().expect("failed to create temp dir");
     let path = dir.path().join("test.ab");
@@ -26,7 +52,7 @@ fn temp_source(content: &str) -> (TempDir, PathBuf) {
 
 /// Builder for CLI integration tests.
 ///
-/// Reduces boilerplate for common test patterns: creating temp files,
+/// Reduces boilerplate for common test patterns: creating temp packages,
 /// running CLI commands, and asserting on output.
 struct CliTest {
     source: String,
@@ -75,18 +101,25 @@ impl CliTest {
 
     /// Execute the command and return the output.
     fn execute(&mut self) -> Output {
-        let dir = TempDir::new().expect("failed to create temp dir");
-        let path = dir.path().join("test.ab");
-        fs::write(&path, &self.source).expect("failed to write source file");
-
         let mut cmd = ambient_cmd();
-        cmd.arg(&self.command).arg(&path);
+
+        // For run command, create a full package
+        // For other commands, create just a source file
+        if self.command == "run" {
+            let (dir, pkg_path) = temp_package(&self.source);
+            cmd.arg(&self.command).arg(&pkg_path);
+            self._dir = Some(dir);
+            self.path = Some(pkg_path);
+        } else {
+            let (dir, file_path) = temp_source(&self.source);
+            cmd.arg(&self.command).arg(&file_path);
+            self._dir = Some(dir);
+            self.path = Some(file_path);
+        }
+
         for arg in &self.args {
             cmd.arg(arg);
         }
-
-        self._dir = Some(dir);
-        self.path = Some(path);
 
         cmd.output().expect("failed to execute command")
     }
@@ -96,9 +129,10 @@ impl CliTest {
         let output = self.execute();
         assert!(
             output.status.success(),
-            "{} command failed: {:?}",
+            "{} command failed: {:?}\nstderr: {}",
             self.command,
-            output
+            output,
+            String::from_utf8_lossy(&output.stderr)
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
@@ -114,9 +148,10 @@ impl CliTest {
         let output = self.execute();
         assert!(
             output.status.success(),
-            "{} command failed: {:?}",
+            "{} command failed: {:?}\nstderr: {}",
             self.command,
-            output
+            output,
+            String::from_utf8_lossy(&output.stderr)
         );
     }
 
@@ -359,23 +394,28 @@ fn test_ast_output() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn test_run_missing_main() {
+fn test_run_missing_main_function() {
+    // Package with no main function
     CliTest::new("fn other(): number { 42 }").expect_failure();
 }
 
 #[test]
-fn test_run_nonexistent_file() {
+fn test_run_nonexistent_package() {
     let output = ambient_cmd()
         .arg("run")
-        .arg("/nonexistent/path/file.ab")
+        .arg("/nonexistent/path/")
         .output()
         .expect("failed to execute command");
 
-    assert!(!output.status.success(), "should fail for nonexistent file");
+    assert!(
+        !output.status.success(),
+        "should fail for nonexistent package"
+    );
 }
 
 #[test]
-fn test_run_wrong_extension() {
+fn test_run_non_package_file() {
+    // Trying to run a regular file that's not a .ambient bytecode file
     let dir = TempDir::new().expect("failed to create temp dir");
     let path = dir.path().join("test.txt");
     fs::write(&path, "fn main(): number { 42 }").expect("failed to write");
@@ -386,27 +426,28 @@ fn test_run_wrong_extension() {
         .output()
         .expect("failed to execute command");
 
-    assert!(!output.status.success(), "should fail for wrong extension");
+    assert!(!output.status.success(), "should fail for non-package file");
 
     drop(dir);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Integration: Example Files
+// Integration: Example Packages
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_example_hello() {
     let output = ambient_cmd()
         .arg("run")
-        .arg("../../examples/hello.ab")
+        .arg("../../examples/hello")
         .output()
         .expect("failed to execute command");
 
     assert!(
         output.status.success(),
-        "hello.ab should run successfully: {:?}",
-        output
+        "hello package should run successfully: {:?}\nstderr: {}",
+        output,
+        String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("42"), "expected 42 in output: {stdout}");
@@ -416,14 +457,15 @@ fn test_example_hello() {
 fn test_example_factorial() {
     let output = ambient_cmd()
         .arg("run")
-        .arg("../../examples/factorial.ab")
+        .arg("../../examples/factorial")
         .output()
         .expect("failed to execute command");
 
     assert!(
         output.status.success(),
-        "factorial.ab should run successfully: {:?}",
-        output
+        "factorial package should run successfully: {:?}\nstderr: {}",
+        output,
+        String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("120"), "expected 120 in output: {stdout}");
@@ -495,14 +537,15 @@ fn test_handler_value_with_inline() {
 fn test_example_handler_value() {
     let output = ambient_cmd()
         .arg("run")
-        .arg("../../examples/handler_value_test.ab")
+        .arg("../../examples/handler_value_test")
         .output()
         .expect("failed to execute command");
 
     assert!(
         output.status.success(),
-        "handler_value_test.ab should run successfully: {:?}",
-        output
+        "handler_value_test package should run successfully: {:?}\nstderr: {}",
+        output,
+        String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("100"), "expected 100 in output: {stdout}");

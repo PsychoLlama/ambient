@@ -38,11 +38,11 @@ pub enum Command {
         output: Option<PathBuf>,
     },
 
-    /// Run an Ambient program.
+    /// Run an Ambient package.
     Run {
-        /// The file to run (.ab source or .ambient bytecode).
-        #[arg(value_name = "FILE")]
-        file: PathBuf,
+        /// Path to package directory or .ambient bytecode file.
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
 
         /// Function to execute (defaults to "main").
         #[arg(long, default_value = "main")]
