@@ -1,0 +1,316 @@
+// Set module - operations on sets
+//
+// Set<T> is an immutable set of unique values.
+// All functions are pure with no side effects.
+// Functions that take a lambda place it last for pleasant line wrapping.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Construction
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Create an empty set
+fn empty(): Set<a> {
+    set_empty()
+}
+
+// Create a set with a single element
+fn singleton(x: a): Set<a> {
+    set_insert(set_empty(), x)
+}
+
+// Create a set from a list (duplicates are removed)
+fn from_list(xs: List<a>): Set<a> {
+    from_list_helper(xs, set_empty())
+}
+
+fn from_list_helper(xs: List<a>, acc: Set<a>): Set<a> {
+    if list_length(xs) == 0 {
+        acc
+    } else {
+        from_list_helper(list_tail(xs), set_insert(acc, list_head(xs)))
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Query
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Get the number of elements in the set
+fn length(s: Set<a>): number {
+    set_length(s)
+}
+
+// Check if the set is empty
+fn is_empty(s: Set<a>): bool {
+    set_length(s) == 0
+}
+
+// Check if the set contains an element
+fn contains(s: Set<a>, x: a): bool {
+    set_contains(s, x)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Modify
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Insert an element (returns new set)
+fn insert(s: Set<a>, x: a): Set<a> {
+    set_insert(s, x)
+}
+
+// Remove an element (returns new set)
+fn remove(s: Set<a>, x: a): Set<a> {
+    set_remove(s, x)
+}
+
+// Toggle an element (insert if absent, remove if present)
+fn toggle(s: Set<a>, x: a): Set<a> {
+    if set_contains(s, x) {
+        set_remove(s, x)
+    } else {
+        set_insert(s, x)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Set Operations
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Union of two sets (elements in either)
+fn union(s1: Set<a>, s2: Set<a>): Set<a> {
+    set_union(s1, s2)
+}
+
+// Intersection of two sets (elements in both)
+fn intersection(s1: Set<a>, s2: Set<a>): Set<a> {
+    set_intersection(s1, s2)
+}
+
+// Difference of two sets (elements in first but not second)
+fn difference(s1: Set<a>, s2: Set<a>): Set<a> {
+    set_difference(s1, s2)
+}
+
+// Symmetric difference (elements in one but not both)
+fn symmetric_difference(s1: Set<a>, s2: Set<a>): Set<a> {
+    set_union(
+        set_difference(s1, s2),
+        set_difference(s2, s1)
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subset Relations
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Check if s1 is a subset of s2 (all elements of s1 are in s2)
+fn is_subset(s1: Set<a>, s2: Set<a>): bool {
+    is_subset_helper(set_to_list(s1), s2)
+}
+
+fn is_subset_helper(xs: List<a>, s2: Set<a>): bool {
+    if list_length(xs) == 0 {
+        true
+    } else if !set_contains(s2, list_head(xs)) {
+        false
+    } else {
+        is_subset_helper(list_tail(xs), s2)
+    }
+}
+
+// Check if s1 is a superset of s2 (s1 contains all elements of s2)
+fn is_superset(s1: Set<a>, s2: Set<a>): bool {
+    is_subset(s2, s1)
+}
+
+// Check if s1 is a proper subset of s2 (subset but not equal)
+fn is_proper_subset(s1: Set<a>, s2: Set<a>): bool {
+    is_subset(s1, s2) && set_length(s1) < set_length(s2)
+}
+
+// Check if two sets are disjoint (no common elements)
+fn is_disjoint(s1: Set<a>, s2: Set<a>): bool {
+    set_length(set_intersection(s1, s2)) == 0
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Transform (lambda last)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Apply a function to all elements
+fn map(s: Set<a>, f: (a) -> b): Set<b> {
+    map_helper(set_to_list(s), set_empty(), f)
+}
+
+fn map_helper(xs: List<a>, acc: Set<b>, f: (a) -> b): Set<b> {
+    if list_length(xs) == 0 {
+        acc
+    } else {
+        map_helper(list_tail(xs), set_insert(acc, f(list_head(xs))), f)
+    }
+}
+
+// Filter elements by a predicate
+fn filter(s: Set<a>, pred: (a) -> bool): Set<a> {
+    filter_helper(set_to_list(s), set_empty(), pred)
+}
+
+fn filter_helper(xs: List<a>, acc: Set<a>, pred: (a) -> bool): Set<a> {
+    if list_length(xs) == 0 {
+        acc
+    } else {
+        let h = list_head(xs);
+        if pred(h) {
+            filter_helper(list_tail(xs), set_insert(acc, h), pred)
+        } else {
+            filter_helper(list_tail(xs), acc, pred)
+        }
+    }
+}
+
+// Partition elements by a predicate
+fn partition(s: Set<a>, pred: (a) -> bool): (Set<a>, Set<a>) {
+    partition_helper(set_to_list(s), set_empty(), set_empty(), pred)
+}
+
+fn partition_helper(xs: List<a>, yes: Set<a>, no: Set<a>, pred: (a) -> bool): (Set<a>, Set<a>) {
+    if list_length(xs) == 0 {
+        (yes, no)
+    } else {
+        let h = list_head(xs);
+        if pred(h) {
+            partition_helper(list_tail(xs), set_insert(yes, h), no, pred)
+        } else {
+            partition_helper(list_tail(xs), yes, set_insert(no, h), pred)
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fold (lambda last)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Fold over all elements with an accumulator
+fn fold(s: Set<a>, init: b, f: (b, a) -> b): b {
+    fold_helper(set_to_list(s), init, f)
+}
+
+fn fold_helper(xs: List<a>, acc: b, f: (b, a) -> b): b {
+    if list_length(xs) == 0 {
+        acc
+    } else {
+        fold_helper(list_tail(xs), f(acc, list_head(xs)), f)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Search
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Check if any element satisfies a predicate
+fn any(s: Set<a>, pred: (a) -> bool): bool {
+    any_helper(set_to_list(s), pred)
+}
+
+fn any_helper(xs: List<a>, pred: (a) -> bool): bool {
+    if list_length(xs) == 0 {
+        false
+    } else if pred(list_head(xs)) {
+        true
+    } else {
+        any_helper(list_tail(xs), pred)
+    }
+}
+
+// Check if all elements satisfy a predicate
+fn all(s: Set<a>, pred: (a) -> bool): bool {
+    all_helper(set_to_list(s), pred)
+}
+
+fn all_helper(xs: List<a>, pred: (a) -> bool): bool {
+    if list_length(xs) == 0 {
+        true
+    } else if !pred(list_head(xs)) {
+        false
+    } else {
+        all_helper(list_tail(xs), pred)
+    }
+}
+
+// Find an element satisfying a predicate
+fn find(s: Set<a>, pred: (a) -> bool): Option<a> {
+    find_helper(set_to_list(s), pred)
+}
+
+fn find_helper(xs: List<a>, pred: (a) -> bool): Option<a> {
+    if list_length(xs) == 0 {
+        None
+    } else {
+        let h = list_head(xs);
+        if pred(h) {
+            Some(h)
+        } else {
+            find_helper(list_tail(xs), pred)
+        }
+    }
+}
+
+// Count elements satisfying a predicate
+fn count(s: Set<a>, pred: (a) -> bool): number {
+    count_helper(set_to_list(s), 0, pred)
+}
+
+fn count_helper(xs: List<a>, acc: number, pred: (a) -> bool): number {
+    if list_length(xs) == 0 {
+        acc
+    } else if pred(list_head(xs)) {
+        count_helper(list_tail(xs), acc + 1, pred)
+    } else {
+        count_helper(list_tail(xs), acc, pred)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Conversion
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Convert to a list
+fn to_list(s: Set<a>): List<a> {
+    set_to_list(s)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Combine Multiple Sets
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Union of a list of sets
+fn union_all(sets: List<Set<a>>): Set<a> {
+    union_all_helper(sets, set_empty())
+}
+
+fn union_all_helper(sets: List<Set<a>>, acc: Set<a>): Set<a> {
+    if list_length(sets) == 0 {
+        acc
+    } else {
+        union_all_helper(list_tail(sets), set_union(acc, list_head(sets)))
+    }
+}
+
+// Intersection of a list of sets (empty list returns empty set)
+fn intersection_all(sets: List<Set<a>>): Set<a> {
+    if list_length(sets) == 0 {
+        set_empty()
+    } else {
+        intersection_all_helper(list_tail(sets), list_head(sets))
+    }
+}
+
+fn intersection_all_helper(sets: List<Set<a>>, acc: Set<a>): Set<a> {
+    if list_length(sets) == 0 {
+        acc
+    } else {
+        intersection_all_helper(list_tail(sets), set_intersection(acc, list_head(sets)))
+    }
+}
+
