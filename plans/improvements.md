@@ -67,21 +67,22 @@ Consider for a future architectural review rather than simple extraction.
 ## Priority 3: Organization & Cleanup
 
 ### 3.1 CLI Module Organization
-`main.rs` (1,093 lines) should be split:
+**Status:** Complete
+
+Split `main.rs` (977 lines) into:
 ```
 src/
-├── main.rs         (routing only)
+├── main.rs           (57 lines - routing only)
 ├── commands/
-│   ├── compile.rs
-│   ├── run.rs
-│   ├── check.rs
-│   └── ...
+│   ├── mod.rs        (67 lines - shared helpers)
+│   ├── compile.rs    (31 lines)
+│   ├── run.rs        (64 lines)
+│   ├── check.rs      (40 lines)
+│   └── dev.rs        (154 lines)
 ├── repl/
-│   ├── mod.rs
-│   ├── highlighter.rs
-│   └── evaluator.rs
-└── diagnostics/
-    └── formatter.rs
+│   ├── mod.rs        (258 lines - REPL logic)
+│   └── highlighter.rs (216 lines - syntax highlighting)
+└── serialize.rs      (153 lines - module serialization)
 ```
 
 ### 3.2 Standardize Module Patterns
@@ -101,3 +102,4 @@ Create a shared utility for byte offset to line/column calculations, used by:
 - Split compiler module - Extracted error.rs, repl.rs (300 lines total)
 - Split parser module - Extracted expr.rs, patterns.rs, types.rs (1,563 lines total)
 - Split bytecode module - Extracted opcode.rs, builder.rs, debug.rs (1,599 lines total)
+- Split CLI main.rs - Extracted commands/, repl/, serialize.rs (920 lines extracted)
