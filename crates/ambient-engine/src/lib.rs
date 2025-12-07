@@ -16,6 +16,7 @@ pub mod ability_resolver;
 pub mod ast;
 pub mod bytecode;
 pub mod client;
+pub mod compilation_cache;
 pub mod compiler;
 pub mod format;
 pub mod infer;
