@@ -53,6 +53,7 @@ fn load_compiled(path: &Path) -> Result<CompiledModule> {
 }
 
 /// Compile a package from its root directory.
+#[allow(clippy::arc_with_non_send_sync)]
 fn compile_package(path: &Path) -> Result<CompiledModule> {
     // Open package (validates manifest and entry point).
     let mut pkg = Package::open(path)

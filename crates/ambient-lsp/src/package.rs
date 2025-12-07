@@ -20,6 +20,7 @@ use crate::util::{path_to_uri, uri_to_path};
 #[derive(Debug)]
 pub struct PackageInfo {
     /// The package root directory (where ambient.toml is).
+    #[allow(dead_code)]
     pub root: PathBuf,
     /// The source directory.
     pub src_dir: PathBuf,
@@ -32,7 +33,8 @@ pub struct PackageInfo {
 pub struct ParsedModule {
     /// The module path.
     pub path: ModulePath,
-    /// The source code.
+    /// The source code (retained for error messages).
+    #[allow(dead_code)]
     pub source: String,
     /// The parsed AST.
     pub ast: Module,

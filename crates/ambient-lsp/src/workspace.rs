@@ -16,7 +16,7 @@ use lsp_types::Uri;
 use ambient_engine::ast::{ItemKind, Module, UseKind, UsePrefix};
 use ambient_engine::core_library::CoreLibrary;
 
-use crate::util::{path_to_uri, percent_decode, uri_to_path};
+use crate::util::{path_to_uri, uri_to_path};
 
 /// Information about a symbol exported from a module.
 #[derive(Debug, Clone)]
