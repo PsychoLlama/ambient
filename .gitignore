@@ -1,4 +1,6 @@
 /target
 /.direnv
 /fuzz/target
-result*
+# Nix build result symlinks
+/result
+/result-*
