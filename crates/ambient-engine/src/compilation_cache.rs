@@ -4,8 +4,6 @@
 //! compilation. Only modules whose source has changed are recompiled.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
 
 use crate::compiler::CompiledModule;
 use crate::module_path::ModulePath;

@@ -18,6 +18,7 @@ pub mod bytecode;
 pub mod client;
 pub mod compilation_cache;
 pub mod compiler;
+pub mod core_library;
 pub mod format;
 pub mod infer;
 pub mod manifest;
