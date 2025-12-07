@@ -117,6 +117,7 @@ fn lower_function(
 
     Ok(FunctionDef {
         name: f.name.name.clone(),
+        name_span: f.name.span,
         is_public: f.is_public,
         type_params,
         params,
@@ -132,6 +133,7 @@ fn lower_const(ctx: &mut LoweringContext, c: &CstConstDef) -> Result<ConstDef, P
 
     Ok(ConstDef {
         name: c.name.name.clone(),
+        name_span: c.name.span,
         ty,
         value,
     })
@@ -151,6 +153,7 @@ fn lower_type_alias(t: &CstTypeAliasDef) -> Result<TypeAliasDef, ParseError> {
 
     Ok(TypeAliasDef {
         name: t.name.name.clone(),
+        name_span: t.name.span,
         type_params,
         ty,
     })
@@ -181,6 +184,7 @@ fn lower_enum(e: &CstEnumDef) -> Result<EnumDef, ParseError> {
 
     Ok(EnumDef {
         name: e.name.name.clone(),
+        name_span: e.name.span,
         type_params,
         variants,
     })
@@ -225,6 +229,7 @@ fn lower_ability_def(a: &CstAbilityDef) -> Result<AbilityDef, ParseError> {
 
     Ok(AbilityDef {
         name: a.name.name.clone(),
+        name_span: a.name.span,
         dependencies,
         methods,
     })

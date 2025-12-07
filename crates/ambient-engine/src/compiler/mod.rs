@@ -2704,6 +2704,7 @@ mod tests {
         // fn add(x, y) { x + y }
         let func = FunctionDef {
             name: Arc::from("add"),
+            name_span: Span::default(),
             is_public: false,
             type_params: vec![],
             params: vec![Param::new(0, "x"), Param::new(1, "y")],
@@ -2722,6 +2723,7 @@ mod tests {
     fn test_compile_literals() {
         let func = FunctionDef {
             name: Arc::from("test"),
+            name_span: Span::default(),
             is_public: false,
             type_params: vec![],
             params: vec![],
@@ -2744,6 +2746,7 @@ mod tests {
         // fn test(x) { if x { 1 } else { 2 } }
         let func = FunctionDef {
             name: Arc::from("test"),
+            name_span: Span::default(),
             is_public: false,
             type_params: vec![],
             params: vec![Param::new(0, "x")],
@@ -2765,6 +2768,7 @@ mod tests {
                 Item::new(
                     ItemKind::Function(FunctionDef {
                         name: Arc::from("double"),
+                        name_span: Span::default(),
                         is_public: false,
                         type_params: vec![],
                         params: vec![Param::new(0, "x")],
@@ -2777,6 +2781,7 @@ mod tests {
                 Item::new(
                     ItemKind::Function(FunctionDef {
                         name: Arc::from("main"),
+                        name_span: Span::default(),
                         is_public: true,
                         type_params: vec![],
                         params: vec![],
@@ -2805,6 +2810,7 @@ mod tests {
             items: vec![Item::new(
                 ItemKind::Function(FunctionDef {
                     name: Arc::from("add_one"),
+                    name_span: Span::default(),
                     is_public: false,
                     type_params: vec![],
                     params: vec![Param::new(0, "x")],
@@ -2821,6 +2827,7 @@ mod tests {
             items: vec![Item::new(
                 ItemKind::Function(FunctionDef {
                     name: Arc::from("increment"), // Different name, same implementation
+                    name_span: Span::default(),
                     is_public: false,
                     type_params: vec![],
                     params: vec![Param::new(0, "x")],
@@ -2858,6 +2865,7 @@ mod tests {
                 Item::new(
                     ItemKind::Function(FunctionDef {
                         name: Arc::from("add_one"),
+                        name_span: Span::default(),
                         is_public: false,
                         type_params: vec![],
                         params: vec![Param::new(0, "x")],
@@ -2870,6 +2878,7 @@ mod tests {
                 Item::new(
                     ItemKind::Function(FunctionDef {
                         name: Arc::from("add_two"),
+                        name_span: Span::default(),
                         is_public: false,
                         type_params: vec![],
                         params: vec![Param::new(0, "x")],
@@ -2902,6 +2911,7 @@ mod tests {
             items: vec![Item::new(
                 ItemKind::Function(FunctionDef {
                     name: Arc::from("factorial"),
+                    name_span: Span::default(),
                     is_public: false,
                     type_params: vec![],
                     params: vec![Param::new(0, "n")],
@@ -2962,6 +2972,7 @@ mod tests {
         // }
         let func = FunctionDef {
             name: Arc::from("test"),
+            name_span: Span::default(),
             is_public: false,
             type_params: vec![],
             params: vec![Param::new(0, "x")],
@@ -2992,6 +3003,7 @@ mod tests {
         // }
         let func = FunctionDef {
             name: Arc::from("test"),
+            name_span: Span::default(),
             is_public: false,
             type_params: vec![],
             params: vec![Param::new(0, "x")],
@@ -3027,6 +3039,7 @@ mod tests {
         // }
         let func = FunctionDef {
             name: Arc::from("test"),
+            name_span: Span::default(),
             is_public: false,
             type_params: vec![],
             params: vec![Param::new(0, "x")],
@@ -3063,6 +3076,7 @@ mod tests {
         // }
         let func = FunctionDef {
             name: Arc::from("test"),
+            name_span: Span::default(),
             is_public: false,
             type_params: vec![],
             params: vec![Param::new(0, "x")],
@@ -3093,6 +3107,7 @@ mod tests {
         // Create a function with spans that match the source
         let func = FunctionDef {
             name: Arc::from("add"),
+            name_span: Span::default(),
             is_public: false,
             type_params: vec![],
             params: vec![Param::new(0, "x"), Param::new(1, "y")],

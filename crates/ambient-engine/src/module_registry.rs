@@ -444,6 +444,7 @@ mod tests {
         Item::new(
             ItemKind::Function(FunctionDef {
                 name: Arc::from(name),
+                name_span: Span::default(),
                 is_public,
                 type_params: vec![],
                 params: vec![],
@@ -460,6 +461,7 @@ mod tests {
         Item::new(
             ItemKind::Const(ConstDef {
                 name: Arc::from(name),
+                name_span: Span::default(),
                 ty: Type::Number,
                 value: Expr::number(value),
             }),

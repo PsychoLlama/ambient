@@ -603,6 +603,8 @@ pub enum ItemKind {
 pub struct FunctionDef {
     /// Function name.
     pub name: Arc<str>,
+    /// Span of the function name (for go-to-definition).
+    pub name_span: Span,
     /// Whether this function is public.
     pub is_public: bool,
     /// Type parameters (generics).
@@ -631,6 +633,8 @@ pub struct TypeParam {
 pub struct ConstDef {
     /// Constant name.
     pub name: Arc<str>,
+    /// Span of the constant name (for go-to-definition).
+    pub name_span: Span,
     /// Type annotation (required).
     pub ty: Type,
     /// The value expression.
@@ -642,6 +646,8 @@ pub struct ConstDef {
 pub struct TypeAliasDef {
     /// Type name.
     pub name: Arc<str>,
+    /// Span of the type name (for go-to-definition).
+    pub name_span: Span,
     /// Type parameters (generics).
     pub type_params: Vec<TypeParam>,
     /// The aliased type.
@@ -653,6 +659,8 @@ pub struct TypeAliasDef {
 pub struct EnumDef {
     /// Enum name.
     pub name: Arc<str>,
+    /// Span of the enum name (for go-to-definition).
+    pub name_span: Span,
     /// Type parameters (generics).
     pub type_params: Vec<TypeParam>,
     /// Enum variants.
@@ -675,6 +683,8 @@ pub struct EnumVariant {
 pub struct AbilityDef {
     /// Ability name.
     pub name: Arc<str>,
+    /// Span of the ability name (for go-to-definition).
+    pub name_span: Span,
     /// Dependencies (other abilities this one requires).
     pub dependencies: Vec<QualifiedName>,
     /// Methods defined by this ability.

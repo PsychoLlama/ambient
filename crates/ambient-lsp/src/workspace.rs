@@ -491,12 +491,17 @@ fn extract_exports(module: &Module) -> Vec<ExportedSymbol> {
     let mut exports = Vec::new();
 
     for item in &module.items {
-        let (name, kind, is_public) = match &item.kind {
-            ItemKind::Function(f) => (f.name.clone(), SymbolKind::Function, f.is_public),
-            ItemKind::Const(c) => (c.name.clone(), SymbolKind::Const, true), // consts are always public for now
-            ItemKind::TypeAlias(t) => (t.name.clone(), SymbolKind::TypeAlias, true),
-            ItemKind::Enum(e) => (e.name.clone(), SymbolKind::Enum, true),
-            ItemKind::Ability(a) => (a.name.clone(), SymbolKind::Ability, true),
+        let (name, kind, name_span, is_public) = match &item.kind {
+            ItemKind::Function(f) => (
+                f.name.clone(),
+                SymbolKind::Function,
+                f.name_span,
+                f.is_public,
+            ),
+            ItemKind::Const(c) => (c.name.clone(), SymbolKind::Const, c.name_span, true),
+            ItemKind::TypeAlias(t) => (t.name.clone(), SymbolKind::TypeAlias, t.name_span, true),
+            ItemKind::Enum(e) => (e.name.clone(), SymbolKind::Enum, e.name_span, true),
+            ItemKind::Ability(a) => (a.name.clone(), SymbolKind::Ability, a.name_span, true),
             ItemKind::Use(_) => continue,
         };
 
@@ -505,8 +510,8 @@ fn extract_exports(module: &Module) -> Vec<ExportedSymbol> {
             exports.push(ExportedSymbol {
                 name,
                 kind,
-                offset: item.span.start,
-                end_offset: item.span.end,
+                offset: name_span.start,
+                end_offset: name_span.end,
             });
         }
     }
@@ -547,6 +552,7 @@ mod tests {
         Item::new(
             ItemKind::Function(FunctionDef {
                 name: Arc::from(name),
+                name_span: span,
                 is_public,
                 type_params: vec![],
                 params: vec![],
