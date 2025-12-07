@@ -47,10 +47,13 @@ Remaining in mod.rs (1,079 lines):
 - Tests
 
 ### 2.3 Split `bytecode.rs` (2,080 lines)
+**Status:** Complete
+
 Split into:
-- `bytecode/debug.rs` - Debug information structures
-- `bytecode/opcode.rs` - Opcode definitions
-- `bytecode/builder.rs` - BytecodeBuilder implementation
+- `bytecode/opcode.rs` - Opcode enum (850 lines)
+- `bytecode/builder.rs` - BytecodeBuilder (635 lines)
+- `bytecode/debug.rs` - Debug information (114 lines)
+- `bytecode/mod.rs` - CompiledFunction (510 lines)
 
 ### 2.4 Split `vm/dispatch.rs` (1,787 lines)
 Split by opcode category:
@@ -95,3 +98,4 @@ Create a shared utility for byte offset to line/column calculations, used by:
 - Split infer module - Extracted error.rs, env.rs, check.rs (735 lines total)
 - Split compiler module - Extracted error.rs, repl.rs (300 lines total)
 - Split parser module - Extracted expr.rs, patterns.rs, types.rs (1,563 lines total)
+- Split bytecode module - Extracted opcode.rs, builder.rs, debug.rs (1,599 lines total)
