@@ -17,9 +17,7 @@ use rustyline::history::DefaultHistory;
 use rustyline::validate::Validator;
 use rustyline::{Config as RustylineConfig, Editor, Helper};
 
-use ambient_engine::abilities::{
-    format_value, register_all_standard_abilities, register_console, ConsoleConfig,
-};
+use ambient_engine::abilities::{format_value, register_all_standard_abilities};
 use ambient_engine::compiler::{
     compile_expression_with_context, compile_module_with_source, compile_repl_item,
     CompiledModule, ReplContext, ReplItemKind,
@@ -94,7 +92,7 @@ fn cmd_run(file: &Path, entry: &str) -> Result<()> {
     let mut vm = Vm::new();
 
     // Register standard ability handlers.
-    register_console(&mut vm, ConsoleConfig::default());
+    register_all_standard_abilities(&mut vm);
 
     // Load all functions into the VM.
     for func in compiled.functions.values() {
