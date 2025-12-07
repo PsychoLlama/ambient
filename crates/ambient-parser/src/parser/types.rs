@@ -7,7 +7,7 @@ use crate::cst::{CstQualifiedName, CstTypeExpr, CstTypeExprKind};
 use crate::error::ParseError;
 use crate::lexer::TokenKind;
 
-impl<'src> Parser<'src> {
+impl Parser<'_> {
     /// Parse a type expression.
     ///
     /// # Errors

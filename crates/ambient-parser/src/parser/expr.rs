@@ -11,7 +11,7 @@ use crate::cst::{
 use crate::error::{ParseError, ParseErrorKind};
 use crate::lexer::TokenKind;
 
-impl<'src> Parser<'src> {
+impl Parser<'_> {
     /// Parse an expression.
     ///
     /// # Errors
@@ -537,9 +537,7 @@ impl<'src> Parser<'src> {
             }
             // Only one segment, return as ident
             return Ok(CstExpr {
-                kind: CstExprKind::Ident(
-                    segments.into_iter().next().expect("segments not empty"),
-                ),
+                kind: CstExprKind::Ident(segments.into_iter().next().expect("segments not empty")),
                 span: Span::new(start, self.current().span.start),
             });
         }

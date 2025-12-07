@@ -3,13 +3,11 @@
 use ambient_engine::ast::Span;
 
 use super::Parser;
-use crate::cst::{
-    CstLiteral, CstPattern, CstPatternKind, CstQualifiedName, CstRecordPatternField,
-};
+use crate::cst::{CstLiteral, CstPattern, CstPatternKind, CstQualifiedName, CstRecordPatternField};
 use crate::error::{ParseError, ParseErrorKind};
 use crate::lexer::TokenKind;
 
-impl<'src> Parser<'src> {
+impl Parser<'_> {
     #[allow(clippy::too_many_lines)]
     pub(super) fn parse_pattern(&mut self) -> Result<CstPattern, ParseError> {
         let start = self.current().span.start;

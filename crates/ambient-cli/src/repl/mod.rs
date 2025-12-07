@@ -14,10 +14,10 @@ use rustyline::history::DefaultHistory;
 use rustyline::{Config as RustylineConfig, Editor};
 
 use ambient_engine::abilities::register_all_standard_abilities;
-use ambient_engine::format::format_value_colored;
 use ambient_engine::compiler::{
     compile_expression_with_context, compile_repl_item, ReplContext, ReplItemKind,
 };
+use ambient_engine::format::format_value_colored;
 use ambient_engine::vm::Vm;
 use ambient_parser::ReplInput;
 
