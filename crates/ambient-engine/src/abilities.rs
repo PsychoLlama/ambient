@@ -8,6 +8,9 @@
 
 #![allow(clippy::type_complexity)] // Handler types are inherently complex
 
+// Re-export format_value for backward compatibility
+pub use crate::format::format_value;
+
 use crate::value::{SuspendedAbility, Value};
 use crate::vm::{Vm, VmError};
 
@@ -413,100 +416,6 @@ pub fn register_all_standard_abilities(vm: &mut Vm) {
     register_time(vm);
     register_random(vm);
     register_log(vm, LogConfig::default());
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Helper Functions
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Format a value as a string for display.
-#[must_use]
-pub fn format_value(value: &Value) -> String {
-    match value {
-        Value::Unit => "()".to_string(),
-        Value::Bool(b) => b.to_string(),
-        Value::Number(n) => {
-            if n.fract() == 0.0 && n.abs() < 1e15 {
-                format!("{n:.0}")
-            } else {
-                n.to_string()
-            }
-        }
-        Value::String(s) => s.to_string(),
-        Value::Tuple(elements) => {
-            let parts: Vec<String> = elements.iter().map(format_value).collect();
-            let joined = parts.join(", ");
-            format!("({joined})")
-        }
-        Value::Record(fields) => {
-            let mut parts: Vec<String> = fields
-                .iter()
-                .map(|(k, v)| {
-                    let v_str = format_value(v);
-                    format!("{k}: {v_str}")
-                })
-                .collect();
-            parts.sort(); // Consistent ordering
-            let joined = parts.join(", ");
-            format!("{{ {joined} }}")
-        }
-        Value::FunctionRef(hash) => {
-            let hash_str = &hash.to_string()[..8];
-            format!("<fn {hash_str}>")
-        }
-        Value::SuspendedAbility(ability) => {
-            let ability_id = ability.ability_id;
-            let method_id = ability.method_id;
-            let arg_count = ability.args.len();
-            format!("<ability {ability_id}:{method_id} with {arg_count} args>")
-        }
-        Value::Continuation(_) => "<continuation>".to_string(),
-        Value::Closure(closure) => {
-            let hash_str = &closure.function_hash.to_string()[..8];
-            let capture_count = closure.environment.len();
-            format!("<closure {hash_str} [{capture_count} captures]>")
-        }
-        Value::Handler(handler) => {
-            let ability_id = handler.ability_id;
-            let method_count = handler.methods.len();
-            format!("<handler #{ability_id} [{method_count} methods]>")
-        }
-        Value::List(elements) => {
-            let parts: Vec<String> = elements.iter().map(format_value).collect();
-            let joined = parts.join(", ");
-            format!("[{joined}]")
-        }
-        Value::Map(map) => {
-            let mut parts: Vec<String> = map
-                .entries
-                .iter()
-                .map(|(k, v)| {
-                    let v_str = format_value(v);
-                    format!("{k}: {v_str}")
-                })
-                .collect();
-            parts.sort(); // Consistent ordering
-            let joined = parts.join(", ");
-            format!("Map {{ {joined} }}")
-        }
-        Value::Set(set) => {
-            let parts: Vec<String> = set.elements.iter().map(format_value).collect();
-            let joined = parts.join(", ");
-            format!("Set {{ {joined} }}")
-        }
-        Value::Enum(e) => {
-            if let Some(payload) = e.payload.as_deref() {
-                format!(
-                    "{}::{}({})",
-                    e.type_name,
-                    e.variant_name,
-                    format_value(payload)
-                )
-            } else {
-                format!("{}::{}", e.type_name, e.variant_name)
-            }
-        }
-    }
 }
 
 #[cfg(test)]

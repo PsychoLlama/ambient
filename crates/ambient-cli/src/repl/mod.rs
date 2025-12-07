@@ -13,7 +13,8 @@ use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
 use rustyline::{Config as RustylineConfig, Editor};
 
-use ambient_engine::abilities::{format_value, register_all_standard_abilities};
+use ambient_engine::abilities::register_all_standard_abilities;
+use ambient_engine::format::format_value_colored;
 use ambient_engine::compiler::{
     compile_expression_with_context, compile_repl_item, ReplContext, ReplItemKind,
 };
@@ -94,7 +95,7 @@ pub fn cmd_repl() -> Result<()> {
                 // Parse and evaluate the input.
                 match eval_repl_input(&mut vm, &mut repl_ctx, line) {
                     Ok(Some(value)) => {
-                        println!("{}", format_value(&value));
+                        println!("{}", format_value_colored(&value));
                     }
                     Ok(None) => {
                         // Unit result or definition, don't print.

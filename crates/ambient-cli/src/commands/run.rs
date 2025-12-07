@@ -6,6 +6,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 
 use ambient_engine::abilities::register_all_standard_abilities;
+use ambient_engine::format::format_value_colored;
 use ambient_engine::vm::Vm;
 
 use super::{compile_source, read_source};
@@ -51,7 +52,7 @@ pub fn cmd_run(file: &Path, entry: &str) -> Result<()> {
         Ok(value) => {
             // Print result if not unit.
             if !matches!(value, ambient_engine::value::Value::Unit) {
-                println!("{value:?}");
+                println!("{}", format_value_colored(&value));
             }
             Ok(())
         }
