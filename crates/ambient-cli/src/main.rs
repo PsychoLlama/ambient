@@ -27,8 +27,10 @@ use ambient_engine::vm::Vm;
 use ambient_parser::ReplInput;
 
 mod cli;
+mod diagnostic;
 
 use cli::{Args, Command};
+use diagnostic::print_diagnostic;
 
 pub fn main() -> Result<()> {
     let args = Args::parse();
@@ -132,7 +134,7 @@ fn cmd_check(file: &Path) -> Result<()> {
     let module = match ambient_parser::parse(&source) {
         Ok(m) => m,
         Err(e) => {
-            print_parse_error(&source, file, &e);
+            print_diagnostic(&source, file, &e);
             bail!("parse error in {}", file.display());
         }
     };
@@ -146,7 +148,7 @@ fn cmd_check(file: &Path) -> Result<()> {
     } else {
         // Format and print errors
         for error in &result.errors {
-            print_type_error(&source, file, error);
+            print_diagnostic(&source, file, error);
         }
         bail!(
             "Found {} type error(s) in {}",
@@ -163,7 +165,7 @@ fn cmd_ast(file: &Path) -> Result<()> {
     let module = match ambient_parser::parse(&source) {
         Ok(m) => m,
         Err(e) => {
-            print_parse_error(&source, file, &e);
+            print_diagnostic(&source, file, &e);
             bail!("parse error in {}", file.display());
         }
     };
@@ -625,125 +627,6 @@ fn format_repl_parse_error(line: &str, error: &ambient_parser::ParseError) -> St
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Error Formatting
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Print a parse error with source context.
-fn print_parse_error(source: &str, file: &Path, error: &ambient_parser::ParseError) {
-    let start = error.span.start;
-    let end = error.span.end;
-
-    // Find line and column from byte offset
-    let (line_num, col, line_start, line_end) = find_line_info(source, start as usize);
-
-    // Extract the line content
-    let line_content = &source[line_start..line_end];
-
-    // Print error header
-    eprintln!("\x1b[1;31merror\x1b[0m: {}", error.kind);
-
-    // Print location
-    eprintln!(
-        "  \x1b[1;34m-->\x1b[0m {}:{}:{}",
-        file.display(),
-        line_num,
-        col
-    );
-
-    // Print the source line with line number
-    let line_num_str = format!("{line_num}");
-    let padding = " ".repeat(line_num_str.len());
-    eprintln!("   {padding} \x1b[1;34m|\x1b[0m");
-    eprintln!(" {line_num_str} \x1b[1;34m|\x1b[0m {line_content}");
-
-    // Print the error underline
-    let underline_start = col.saturating_sub(1);
-    let underline_len = ((end - start) as usize)
-        .min(line_content.len().saturating_sub(underline_start))
-        .max(1);
-    let spaces = " ".repeat(underline_start);
-    let carets = "^".repeat(underline_len);
-    eprintln!("   {padding} \x1b[1;34m|\x1b[0m {spaces}\x1b[1;31m{carets}\x1b[0m");
-
-    // Print context if available
-    if let Some(ctx) = &error.context {
-        eprintln!("   {padding} \x1b[1;34m|\x1b[0m");
-        eprintln!("   {padding} \x1b[1;34m= note:\x1b[0m {ctx}");
-    }
-
-    eprintln!();
-}
-
-/// Print a type error with source context.
-fn print_type_error(source: &str, file: &Path, error: &ambient_engine::infer::TypeError) {
-    let (start, end) = error.span;
-
-    // Find line and column from byte offset
-    let (line_num, col, line_start, line_end) = find_line_info(source, start as usize);
-
-    // Extract the line content
-    let line_content = &source[line_start..line_end];
-
-    // Print error header
-    eprintln!("\x1b[1;31merror\x1b[0m: {}", error.kind);
-
-    // Print location
-    eprintln!(
-        "  \x1b[1;34m-->\x1b[0m {}:{}:{}",
-        file.display(),
-        line_num,
-        col
-    );
-
-    // Print the source line with line number
-    let line_num_str = format!("{line_num}");
-    let padding = " ".repeat(line_num_str.len());
-    eprintln!("   {padding} \x1b[1;34m|\x1b[0m");
-    eprintln!(" {line_num_str} \x1b[1;34m|\x1b[0m {line_content}");
-
-    // Print the error underline
-    let underline_start = col.saturating_sub(1);
-    let underline_len = ((end - start) as usize)
-        .min(line_content.len() - underline_start)
-        .max(1);
-    let spaces = " ".repeat(underline_start);
-    let carets = "^".repeat(underline_len);
-    eprintln!("   {padding} \x1b[1;34m|\x1b[0m {spaces}\x1b[1;31m{carets}\x1b[0m");
-
-    // Print context if available
-    if let Some(ctx) = &error.context {
-        eprintln!("   {padding} \x1b[1;34m|\x1b[0m");
-        eprintln!("   {padding} \x1b[1;34m= note:\x1b[0m {ctx}");
-    }
-
-    eprintln!();
-}
-
-/// Find line number, column, and line bounds for a byte offset.
-fn find_line_info(source: &str, offset: usize) -> (usize, usize, usize, usize) {
-    let mut line_num = 1;
-    let mut line_start = 0;
-
-    for (i, ch) in source.char_indices() {
-        if i >= offset {
-            break;
-        }
-        if ch == '\n' {
-            line_num += 1;
-            line_start = i + 1;
-        }
-    }
-
-    // Find end of line
-    let line_end = source[line_start..]
-        .find('\n')
-        .map_or(source.len(), |i| line_start + i);
-
-    let col = offset - line_start + 1;
-    (line_num, col, line_start, line_end)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Pipeline Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -762,7 +645,7 @@ fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
     let module = match ambient_parser::parse(source) {
         Ok(m) => m,
         Err(e) => {
-            print_parse_error(source, file, &e);
+            print_diagnostic(source, file, &e);
             bail!("parse error in {}", file.display());
         }
     };
@@ -772,7 +655,7 @@ fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
     if !check_result.is_ok() {
         // Print type errors
         for error in &check_result.errors {
-            print_type_error(source, file, error);
+            print_diagnostic(source, file, error);
         }
         bail!(
             "Found {} type error(s) in {}",
