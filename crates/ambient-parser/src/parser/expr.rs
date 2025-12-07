@@ -459,20 +459,32 @@ impl<'src> Parser<'src> {
         let start = self.current().span.start;
         let ident = self.parse_ident()?;
 
-        // Check for qualified name
+        // Check for qualified name (but not tuple index - let postfix handle that)
         if self.check(TokenKind::Dot) {
+            // Peek ahead to see if this is a tuple index (Dot followed by Number)
+            // If so, don't consume the dot - let parse_postfix_expr handle it
+            let saved_pos = self.pos;
+            self.skip_trivia();
+            self.pos += 1; // skip the dot token
+            self.skip_trivia();
+            let is_tuple_index = self.current_kind() == TokenKind::Number;
+            self.pos = saved_pos;
+
+            if is_tuple_index {
+                // Return just the identifier, let postfix parsing handle the .0
+                let span = ident.span;
+                return Ok(CstExpr {
+                    kind: CstExprKind::Ident(ident),
+                    span,
+                });
+            }
+
             let mut segments = vec![ident];
             while self.consume(TokenKind::Dot).is_some() {
-                if !self.check(TokenKind::Ident) && !self.check(TokenKind::Number) {
+                if !self.check(TokenKind::Ident) {
                     break;
                 }
-                if self.check(TokenKind::Ident) {
-                    segments.push(self.parse_ident()?);
-                } else {
-                    // Tuple index - backtrack
-                    // Put the dot back conceptually by returning what we have
-                    break;
-                }
+                segments.push(self.parse_ident()?);
             }
 
             if segments.len() > 1 {
