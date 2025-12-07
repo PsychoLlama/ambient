@@ -1,0 +1,1178 @@
+//! Expression parsing with precedence climbing.
+
+use ambient_engine::ast::Span;
+
+use super::Parser;
+use crate::cst::{
+    CstBinaryOp, CstExpr, CstExprKind, CstHandleExpr, CstHandler, CstHandlerLiteralExpr,
+    CstHandlerLiteralMethod, CstLambda, CstLetBinding, CstMatchArm, CstQualifiedName,
+    CstSandboxExpr, CstStmt, CstStmtKind, CstUnaryOp, StringPart,
+};
+use crate::error::{ParseError, ParseErrorKind};
+use crate::lexer::TokenKind;
+
+impl<'src> Parser<'src> {
+    /// Parse an expression.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ParseError` if the source is not a valid expression.
+    pub fn parse_expression(&mut self) -> Result<CstExpr, ParseError> {
+        self.parse_or_expr()
+    }
+
+    pub(super) fn parse_or_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let mut left = self.parse_and_expr()?;
+
+        while self.consume(TokenKind::OrOr).is_some() {
+            let right = self.parse_and_expr()?;
+            let span = Span::new(left.span.start, right.span.end);
+            left = CstExpr {
+                kind: CstExprKind::Binary {
+                    op: CstBinaryOp::Or,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+                span,
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_and_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let mut left = self.parse_equality_expr()?;
+
+        while self.consume(TokenKind::AndAnd).is_some() {
+            let right = self.parse_equality_expr()?;
+            let span = Span::new(left.span.start, right.span.end);
+            left = CstExpr {
+                kind: CstExprKind::Binary {
+                    op: CstBinaryOp::And,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+                span,
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_equality_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let mut left = self.parse_comparison_expr()?;
+
+        loop {
+            let op = if self.consume(TokenKind::EqEq).is_some() {
+                CstBinaryOp::Eq
+            } else if self.consume(TokenKind::Ne).is_some() {
+                CstBinaryOp::Ne
+            } else {
+                break;
+            };
+
+            let right = self.parse_comparison_expr()?;
+            let span = Span::new(left.span.start, right.span.end);
+            left = CstExpr {
+                kind: CstExprKind::Binary {
+                    op,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+                span,
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_comparison_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let mut left = self.parse_additive_expr()?;
+
+        loop {
+            let op = if self.consume(TokenKind::Lt).is_some() {
+                CstBinaryOp::Lt
+            } else if self.consume(TokenKind::Le).is_some() {
+                CstBinaryOp::Le
+            } else if self.consume(TokenKind::Gt).is_some() {
+                CstBinaryOp::Gt
+            } else if self.consume(TokenKind::Ge).is_some() {
+                CstBinaryOp::Ge
+            } else {
+                break;
+            };
+
+            let right = self.parse_additive_expr()?;
+            let span = Span::new(left.span.start, right.span.end);
+            left = CstExpr {
+                kind: CstExprKind::Binary {
+                    op,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+                span,
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_additive_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let mut left = self.parse_multiplicative_expr()?;
+
+        loop {
+            let op = if self.consume(TokenKind::Plus).is_some() {
+                CstBinaryOp::Add
+            } else if self.consume(TokenKind::Minus).is_some() {
+                CstBinaryOp::Sub
+            } else {
+                break;
+            };
+
+            let right = self.parse_multiplicative_expr()?;
+            let span = Span::new(left.span.start, right.span.end);
+            left = CstExpr {
+                kind: CstExprKind::Binary {
+                    op,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+                span,
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_multiplicative_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let mut left = self.parse_unary_expr()?;
+
+        loop {
+            let op = if self.consume(TokenKind::Star).is_some() {
+                CstBinaryOp::Mul
+            } else if self.consume(TokenKind::Slash).is_some() {
+                CstBinaryOp::Div
+            } else if self.consume(TokenKind::Percent).is_some() {
+                CstBinaryOp::Mod
+            } else {
+                break;
+            };
+
+            let right = self.parse_unary_expr()?;
+            let span = Span::new(left.span.start, right.span.end);
+            left = CstExpr {
+                kind: CstExprKind::Binary {
+                    op,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+                span,
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_unary_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let start = self.current().span.start;
+
+        if self.consume(TokenKind::Minus).is_some() {
+            let operand = self.parse_unary_expr()?;
+            let span = Span::new(start, operand.span.end);
+            return Ok(CstExpr {
+                kind: CstExprKind::Unary {
+                    op: CstUnaryOp::Neg,
+                    operand: Box::new(operand),
+                },
+                span,
+            });
+        }
+
+        if self.consume(TokenKind::Bang).is_some() {
+            let operand = self.parse_unary_expr()?;
+            let span = Span::new(start, operand.span.end);
+            return Ok(CstExpr {
+                kind: CstExprKind::Unary {
+                    op: CstUnaryOp::Not,
+                    operand: Box::new(operand),
+                },
+                span,
+            });
+        }
+
+        self.parse_postfix_expr()
+    }
+
+    #[allow(clippy::too_many_lines)]
+    pub(super) fn parse_postfix_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let mut expr = self.parse_primary_expr()?;
+
+        loop {
+            if self.consume(TokenKind::Dot).is_some() {
+                // Field access or tuple index
+                if self.check(TokenKind::Number) {
+                    let token = self.advance();
+                    let index: u32 = token.text.parse().map_err(|_| {
+                        ParseError::new(ParseErrorKind::InvalidExpression, token.span)
+                    })?;
+                    let span = Span::new(expr.span.start, token.span.end);
+                    expr = CstExpr {
+                        kind: CstExprKind::TupleIndex {
+                            tuple: Box::new(expr),
+                            index,
+                        },
+                        span,
+                    };
+                } else {
+                    let field = self.parse_ident()?;
+
+                    // Check for ability method call
+                    if self.check(TokenKind::Bang) || self.check(TokenKind::LParen) {
+                        let is_perform = self.consume(TokenKind::Bang).is_some();
+                        self.expect(TokenKind::LParen)?;
+                        let args = self.parse_args()?;
+                        let end = self.expect(TokenKind::RParen)?.span.end;
+
+                        // Reconstruct ability name from the expression
+                        let ability = match &expr.kind {
+                            CstExprKind::Ident(ident) => CstQualifiedName {
+                                segments: vec![ident.clone()],
+                                span: expr.span,
+                            },
+                            CstExprKind::QualifiedName(qn) => qn.clone(),
+                            _ => {
+                                return Err(ParseError::new(
+                                    ParseErrorKind::InvalidAbilitySyntax(
+                                        "expected ability name before method".into(),
+                                    ),
+                                    expr.span,
+                                ));
+                            }
+                        };
+
+                        let span = Span::new(expr.span.start, end);
+                        expr = if is_perform {
+                            CstExpr {
+                                kind: CstExprKind::Perform {
+                                    ability,
+                                    method: field,
+                                    args,
+                                },
+                                span,
+                            }
+                        } else {
+                            CstExpr {
+                                kind: CstExprKind::Suspend {
+                                    ability,
+                                    method: field,
+                                    args,
+                                },
+                                span,
+                            }
+                        };
+                    } else {
+                        let span = Span::new(expr.span.start, field.span.end);
+                        expr = CstExpr {
+                            kind: CstExprKind::Field {
+                                record: Box::new(expr),
+                                field,
+                            },
+                            span,
+                        };
+                    }
+                }
+            } else if self.check(TokenKind::LParen) {
+                // Function call
+                self.advance();
+                let args = self.parse_args()?;
+                let end = self.expect(TokenKind::RParen)?.span.end;
+                let span = Span::new(expr.span.start, end);
+                expr = CstExpr {
+                    kind: CstExprKind::Call {
+                        callee: Box::new(expr),
+                        args,
+                    },
+                    span,
+                };
+            } else if self.consume(TokenKind::Bang).is_some() {
+                // Standalone perform on suspended ability
+                // This handles: `suspended_value!`
+                let span = Span::new(expr.span.start, self.current().span.start);
+
+                // Check if this is an ability method call pattern
+                // For pattern like `Ability.method!(args)`, we would have already
+                // handled it above. This branch handles `value!` where value
+                // is a suspended ability.
+                match &expr.kind {
+                    CstExprKind::Field { record, field } => {
+                        // Convert Field + Bang into Perform
+                        let ability = match &record.kind {
+                            CstExprKind::Ident(ident) => CstQualifiedName {
+                                segments: vec![ident.clone()],
+                                span: record.span,
+                            },
+                            CstExprKind::QualifiedName(qn) => qn.clone(),
+                            _ => {
+                                return Err(ParseError::new(
+                                    ParseErrorKind::InvalidAbilitySyntax(
+                                        "expected ability name".into(),
+                                    ),
+                                    record.span,
+                                ));
+                            }
+                        };
+
+                        // Expect arguments
+                        self.expect(TokenKind::LParen)?;
+                        let args = self.parse_args()?;
+                        let end = self.expect(TokenKind::RParen)?.span.end;
+
+                        expr = CstExpr {
+                            kind: CstExprKind::Perform {
+                                ability,
+                                method: field.clone(),
+                                args,
+                            },
+                            span: Span::new(record.span.start, end),
+                        };
+                    }
+                    _ => {
+                        // Generic perform on a value - wrap it
+                        // For now, treat as error since we need proper ability call syntax
+                        return Err(ParseError::new(
+                            ParseErrorKind::InvalidAbilitySyntax(
+                                "standalone ! requires ability.method! syntax".into(),
+                            ),
+                            span,
+                        ));
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(expr)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    pub(super) fn parse_primary_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let start = self.current().span.start;
+
+        // Literals
+        if self.check(TokenKind::True) {
+            self.advance();
+            return Ok(CstExpr {
+                kind: CstExprKind::Bool(true),
+                span: Span::new(start, self.current().span.start),
+            });
+        }
+
+        if self.check(TokenKind::False) {
+            self.advance();
+            return Ok(CstExpr {
+                kind: CstExprKind::Bool(false),
+                span: Span::new(start, self.current().span.start),
+            });
+        }
+
+        if self.check(TokenKind::Number) {
+            let token = self.advance();
+            let value: f64 = token.text.parse().map_err(|_| {
+                ParseError::new(
+                    ParseErrorKind::InvalidNumber(token.text.clone()),
+                    token.span,
+                )
+            })?;
+            return Ok(CstExpr {
+                kind: CstExprKind::Number(value),
+                span: token.span,
+            });
+        }
+
+        if self.check(TokenKind::String) {
+            let token = self.advance();
+            let value = Self::unescape_string(&token.text);
+            return Ok(CstExpr {
+                kind: CstExprKind::String(value.into()),
+                span: token.span,
+            });
+        }
+
+        // Interpolated string
+        if self.check(TokenKind::StringStart) {
+            return self.parse_interpolated_string();
+        }
+
+        // Parenthesized expression, tuple, or lambda
+        if self.check(TokenKind::LParen) {
+            return self.parse_paren_expr();
+        }
+
+        // List literal
+        if self.check(TokenKind::LBracket) {
+            return self.parse_list_expr();
+        }
+
+        // Block or record literal
+        if self.check(TokenKind::LBrace) {
+            return self.parse_brace_expr();
+        }
+
+        // If expression
+        if self.check(TokenKind::If) {
+            return self.parse_if_expr();
+        }
+
+        // Match expression
+        if self.check(TokenKind::Match) {
+            return self.parse_match_expr();
+        }
+
+        // Handle expression
+        if self.check(TokenKind::Handle) {
+            return self.parse_handle_expr();
+        }
+
+        // Resume expression: resume(value)
+        if self.check(TokenKind::Resume) {
+            return self.parse_resume_expr();
+        }
+
+        // Sandbox expression: sandbox with Ability { ... } or sandbox { ... }
+        if self.check(TokenKind::Sandbox) {
+            return self.parse_sandbox_expr();
+        }
+
+        // Identifier or qualified name
+        if self.check(TokenKind::Ident) {
+            return self.parse_ident_or_qualified();
+        }
+
+        Err(ParseError::new(
+            ParseErrorKind::UnexpectedToken(format!("{:?}", self.current_kind())),
+            self.current().span,
+        ))
+    }
+
+    fn parse_ident_or_qualified(&mut self) -> Result<CstExpr, ParseError> {
+        let start = self.current().span.start;
+        let ident = self.parse_ident()?;
+
+        // Check for qualified name
+        if self.check(TokenKind::Dot) {
+            let mut segments = vec![ident];
+            while self.consume(TokenKind::Dot).is_some() {
+                if !self.check(TokenKind::Ident) && !self.check(TokenKind::Number) {
+                    break;
+                }
+                if self.check(TokenKind::Ident) {
+                    segments.push(self.parse_ident()?);
+                } else {
+                    // Tuple index - backtrack
+                    // Put the dot back conceptually by returning what we have
+                    break;
+                }
+            }
+
+            if segments.len() > 1 {
+                // Check for ability method call pattern: Ability.method(args) or Ability.method!(args)
+                if self.check(TokenKind::Bang) || self.check(TokenKind::LParen) {
+                    // This is an ability call pattern
+                    let is_perform = self.consume(TokenKind::Bang).is_some();
+                    self.expect(TokenKind::LParen)?;
+                    let args = self.parse_args()?;
+                    let end = self.expect(TokenKind::RParen)?.span.end;
+
+                    // Last segment is the method, everything else is the ability
+                    let method = segments.pop().expect("at least 2 segments");
+                    let ability_span = Span::new(
+                        segments[0].span.start,
+                        segments.last().expect("at least 1 segment").span.end,
+                    );
+                    let ability = CstQualifiedName {
+                        segments,
+                        span: ability_span,
+                    };
+                    let span = Span::new(ability_span.start, end);
+
+                    return Ok(CstExpr {
+                        kind: if is_perform {
+                            CstExprKind::Perform {
+                                ability,
+                                method,
+                                args,
+                            }
+                        } else {
+                            CstExprKind::Suspend {
+                                ability,
+                                method,
+                                args,
+                            }
+                        },
+                        span,
+                    });
+                }
+
+                let span = Span::new(
+                    segments[0].span.start,
+                    segments.last().expect("segments not empty").span.end,
+                );
+                return Ok(CstExpr {
+                    kind: CstExprKind::QualifiedName(CstQualifiedName { segments, span }),
+                    span,
+                });
+            }
+            // Only one segment, return as ident
+            return Ok(CstExpr {
+                kind: CstExprKind::Ident(
+                    segments.into_iter().next().expect("segments not empty"),
+                ),
+                span: Span::new(start, self.current().span.start),
+            });
+        }
+
+        let span = ident.span;
+        Ok(CstExpr {
+            kind: CstExprKind::Ident(ident),
+            span,
+        })
+    }
+
+    fn parse_interpolated_string(&mut self) -> Result<CstExpr, ParseError> {
+        let start = self.current().span.start;
+        let mut parts = Vec::new();
+
+        // First part (StringStart)
+        let token = self.advance();
+        if !token.text.is_empty() {
+            let content = Self::unescape_string_part(&token.text);
+            parts.push(StringPart::Literal(content.into(), token.span));
+        }
+
+        loop {
+            // Parse interpolated expression
+            let expr = self.parse_expression()?;
+            parts.push(StringPart::Expr(expr));
+
+            // Check what comes next
+            match self.current_kind() {
+                TokenKind::StringMiddle => {
+                    let token = self.advance();
+                    if !token.text.is_empty() {
+                        let content = Self::unescape_string_part(&token.text);
+                        parts.push(StringPart::Literal(content.into(), token.span));
+                    }
+                }
+                TokenKind::StringEnd => {
+                    let token = self.advance();
+                    if !token.text.is_empty() {
+                        let content = Self::unescape_string_part(&token.text);
+                        parts.push(StringPart::Literal(content.into(), token.span));
+                    }
+                    break;
+                }
+                _ => {
+                    return Err(ParseError::new(
+                        ParseErrorKind::UnterminatedInterpolation,
+                        self.current().span,
+                    ));
+                }
+            }
+        }
+
+        let end = self.current().span.start;
+        Ok(CstExpr {
+            kind: CstExprKind::InterpolatedString(parts),
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_paren_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::LParen)?;
+
+        // Empty parens = unit
+        if self.check(TokenKind::RParen) {
+            self.advance();
+            return Ok(CstExpr {
+                kind: CstExprKind::Unit,
+                span: Span::new(start, self.current().span.start),
+            });
+        }
+
+        // Check for lambda: (params) => body
+        // We need to peek ahead to see if this looks like a lambda
+        if self.is_lambda_start() {
+            return self.parse_lambda(start);
+        }
+
+        // Parse first expression
+        let first = self.parse_expression()?;
+
+        // Single expression in parens
+        if self.check(TokenKind::RParen) {
+            self.advance();
+            return Ok(first);
+        }
+
+        // Tuple
+        if self.consume(TokenKind::Comma).is_some() {
+            let mut elements = vec![first];
+
+            loop {
+                if self.check(TokenKind::RParen) {
+                    break;
+                }
+
+                elements.push(self.parse_expression()?);
+
+                if self.consume(TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+
+            let end = self.expect(TokenKind::RParen)?.span.end;
+            return Ok(CstExpr {
+                kind: CstExprKind::Tuple(elements),
+                span: Span::new(start, end),
+            });
+        }
+
+        self.expect(TokenKind::RParen)?;
+        Ok(first)
+    }
+
+    fn is_lambda_start(&mut self) -> bool {
+        // Save position
+        let saved_pos = self.pos;
+
+        // Skip trivia and look ahead
+        self.skip_trivia();
+
+        // Lambda patterns:
+        // () => ...
+        // (x) => ...
+        // (x, y) => ...
+        // (x: Type) => ...
+
+        let result = self.peek_for_lambda();
+
+        // Restore position
+        self.pos = saved_pos;
+        result
+    }
+
+    fn peek_for_lambda(&mut self) -> bool {
+        // We're at the opening paren
+        let mut depth = 1;
+        let saved = self.pos;
+
+        self.advance(); // consume (
+
+        while depth > 0 && !self.at_end() {
+            self.skip_trivia();
+            match self.current_kind() {
+                TokenKind::LParen => depth += 1,
+                TokenKind::RParen => depth -= 1,
+                _ => {}
+            }
+            self.advance();
+        }
+
+        self.skip_trivia();
+        let is_arrow = self.check(TokenKind::FatArrow);
+        self.pos = saved;
+        is_arrow
+    }
+
+    fn parse_lambda(&mut self, start: u32) -> Result<CstExpr, ParseError> {
+        // Parse parameters
+        let params = self.parse_params()?;
+        self.expect(TokenKind::RParen)?;
+
+        // Optional return type
+        let ret_ty = if self.consume(TokenKind::Colon).is_some() {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        self.expect(TokenKind::FatArrow)?;
+
+        // Body can be a block or a single expression
+        let body = if self.check(TokenKind::LBrace) {
+            self.parse_block_expr()?
+        } else {
+            self.parse_expression()?
+        };
+
+        let end = body.span.end;
+        let span = Span::new(start, end);
+
+        Ok(CstExpr {
+            kind: CstExprKind::Lambda(CstLambda {
+                params,
+                ret_ty,
+                body: Box::new(body),
+                span,
+            }),
+            span,
+        })
+    }
+
+    fn parse_list_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::LBracket)?;
+
+        let mut elements = Vec::new();
+        loop {
+            if self.check(TokenKind::RBracket) {
+                break;
+            }
+
+            elements.push(self.parse_expression()?);
+
+            if self.consume(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+
+        let end = self.expect(TokenKind::RBracket)?.span.end;
+        Ok(CstExpr {
+            kind: CstExprKind::List(elements),
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_brace_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::LBrace)?;
+
+        // Empty block
+        if self.check(TokenKind::RBrace) {
+            let end = self.advance().span.end;
+            return Ok(CstExpr {
+                kind: CstExprKind::Block {
+                    stmts: Vec::new(),
+                    result: None,
+                },
+                span: Span::new(start, end),
+            });
+        }
+
+        // Check if this is a record literal (starts with ident:) or
+        // a handler literal (starts with ident()
+        if self.check(TokenKind::Ident) {
+            let saved = self.pos;
+            self.skip_trivia();
+            let _ident = self.advance();
+            self.skip_trivia();
+
+            if self.check(TokenKind::Colon) {
+                // It's a record
+                self.pos = saved;
+                return self.parse_record_literal(start);
+            }
+
+            if self.check(TokenKind::LParen) {
+                // It's a handler literal: { method(params) => body, ... }
+                self.pos = saved;
+                return self.parse_handler_literal(start);
+            }
+
+            // It's a block, restore position
+            self.pos = saved;
+        }
+
+        // Parse as block
+        self.parse_block_contents(start)
+    }
+
+    fn parse_record_literal(&mut self, start: u32) -> Result<CstExpr, ParseError> {
+        let mut fields = Vec::new();
+
+        loop {
+            if self.check(TokenKind::RBrace) {
+                break;
+            }
+
+            let name = self.parse_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let value = self.parse_expression()?;
+
+            fields.push((name, value));
+
+            if self.consume(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span.end;
+        Ok(CstExpr {
+            kind: CstExprKind::Record(fields),
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Parse a handler literal: `{ method(params) => body, ... }`
+    fn parse_handler_literal(&mut self, start: u32) -> Result<CstExpr, ParseError> {
+        let mut methods = Vec::new();
+
+        loop {
+            if self.check(TokenKind::RBrace) {
+                break;
+            }
+
+            let method_start = self.current().span.start;
+            let method = self.parse_ident()?;
+
+            // Parse parameters
+            self.expect(TokenKind::LParen)?;
+            let params = self.parse_params()?;
+            self.expect(TokenKind::RParen)?;
+
+            // Parse =>
+            self.expect(TokenKind::FatArrow)?;
+
+            // Parse body
+            let body = self.parse_expression()?;
+            let method_end = body.span.end;
+
+            methods.push(CstHandlerLiteralMethod {
+                method,
+                params,
+                body,
+                span: Span::new(method_start, method_end),
+            });
+
+            // Optional comma between methods
+            if self.consume(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span.end;
+        Ok(CstExpr {
+            kind: CstExprKind::HandlerLiteral(Box::new(CstHandlerLiteralExpr {
+                methods,
+                span: Span::new(start, end),
+            })),
+            span: Span::new(start, end),
+        })
+    }
+
+    pub(super) fn parse_block_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::LBrace)?;
+        self.parse_block_contents(start)
+    }
+
+    fn parse_block_contents(&mut self, start: u32) -> Result<CstExpr, ParseError> {
+        let mut stmts = Vec::new();
+        let mut result = None;
+
+        while !self.check(TokenKind::RBrace) && !self.at_end() {
+            let leading_trivia = self.skip_trivia();
+            let stmt_start = self.current().span.start;
+
+            // Let statement
+            if self.check(TokenKind::Let) {
+                self.advance();
+                let name = self.parse_ident()?;
+
+                let ty = if self.consume(TokenKind::Colon).is_some() {
+                    Some(self.parse_type()?)
+                } else {
+                    None
+                };
+
+                self.expect(TokenKind::Eq)?;
+                let init = self.parse_expression()?;
+                let end = self.expect(TokenKind::Semi)?.span.end;
+
+                stmts.push(CstStmt {
+                    leading_trivia,
+                    kind: CstStmtKind::Let(CstLetBinding { name, ty, init }),
+                    span: Span::new(stmt_start, end),
+                });
+            } else {
+                // Expression (statement or result)
+                let expr = self.parse_expression()?;
+
+                // Check if this is a statement (has semicolon) or result
+                if self.consume(TokenKind::Semi).is_some() {
+                    let end = self.current().span.start;
+                    stmts.push(CstStmt {
+                        leading_trivia,
+                        kind: CstStmtKind::Expr(expr),
+                        span: Span::new(stmt_start, end),
+                    });
+                } else {
+                    // Final expression (result)
+                    result = Some(Box::new(expr));
+                    break;
+                }
+            }
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span.end;
+        Ok(CstExpr {
+            kind: CstExprKind::Block { stmts, result },
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_if_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::If)?;
+
+        let condition = self.parse_expression()?;
+        let then_branch = self.parse_block_expr()?;
+
+        let else_branch = if self.consume(TokenKind::Else).is_some() {
+            if self.check(TokenKind::If) {
+                // else if
+                Some(Box::new(self.parse_if_expr()?))
+            } else {
+                Some(Box::new(self.parse_block_expr()?))
+            }
+        } else {
+            None
+        };
+
+        let end = else_branch
+            .as_ref()
+            .map_or(then_branch.span.end, |e| e.span.end);
+
+        Ok(CstExpr {
+            kind: CstExprKind::If {
+                condition: Box::new(condition),
+                then_branch: Box::new(then_branch),
+                else_branch,
+            },
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_match_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::Match)?;
+
+        let scrutinee = self.parse_expression()?;
+        self.expect(TokenKind::LBrace)?;
+
+        let mut arms = Vec::new();
+        loop {
+            if self.check(TokenKind::RBrace) {
+                break;
+            }
+
+            arms.push(self.parse_match_arm()?);
+
+            // Optional comma between arms
+            self.consume(TokenKind::Comma);
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span.end;
+
+        Ok(CstExpr {
+            kind: CstExprKind::Match {
+                scrutinee: Box::new(scrutinee),
+                arms,
+            },
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_match_arm(&mut self) -> Result<CstMatchArm, ParseError> {
+        let start = self.current().span.start;
+        let pattern = self.parse_pattern()?;
+
+        let guard = if self.consume(TokenKind::If).is_some() {
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
+
+        self.expect(TokenKind::FatArrow)?;
+        let body = self.parse_expression()?;
+        let end = body.span.end;
+
+        Ok(CstMatchArm {
+            pattern,
+            guard,
+            body,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_handle_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::Handle)?;
+
+        let body = self.parse_expression()?;
+
+        // Parse optional `with` clause for handler values
+        let mut handler_values = Vec::new();
+        if self.consume(TokenKind::With).is_some() {
+            // Parse comma-separated handler expressions until we see `{`
+            loop {
+                let handler_expr = self.parse_primary_expr()?;
+                handler_values.push(handler_expr);
+
+                if self.consume(TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+        }
+
+        self.expect(TokenKind::LBrace)?;
+
+        let mut handlers = Vec::new();
+        let mut else_clause = None;
+
+        loop {
+            if self.check(TokenKind::RBrace) {
+                break;
+            }
+
+            // Check for else clause
+            if self.consume(TokenKind::Else).is_some() {
+                self.expect(TokenKind::LBrace)?;
+                // The else clause binds the result value
+                // Syntax: else { (result) => expr }
+                let else_body = self.parse_expression()?;
+                self.expect(TokenKind::RBrace)?;
+                else_clause = Some(else_body);
+                break;
+            }
+
+            // Parse handler: Ability.method(params) => body
+            // parse_qualified_name consumes all segments, so we need to split off the method
+            let mut full_name = self.parse_qualified_name()?;
+
+            // The last segment is the method name
+            if full_name.segments.len() < 2 {
+                return Err(ParseError::new(
+                    ParseErrorKind::InvalidAbilitySyntax(
+                        "handler must specify Ability.method".into(),
+                    ),
+                    full_name.span,
+                ));
+            }
+
+            let method = full_name.segments.pop().expect("checked length above");
+            let ability = CstQualifiedName {
+                span: if full_name.segments.len() == 1 {
+                    full_name.segments[0].span
+                } else {
+                    Span::new(
+                        full_name.segments[0].span.start,
+                        full_name
+                            .segments
+                            .last()
+                            .expect("segments not empty")
+                            .span
+                            .end,
+                    )
+                },
+                segments: full_name.segments,
+            };
+
+            self.expect(TokenKind::LParen)?;
+            let params = self.parse_params()?;
+            self.expect(TokenKind::RParen)?;
+            self.expect(TokenKind::FatArrow)?;
+
+            let handler_body = if self.check(TokenKind::LBrace) {
+                self.parse_block_expr()?
+            } else {
+                self.parse_expression()?
+            };
+
+            let end = handler_body.span.end;
+
+            handlers.push(CstHandler {
+                ability,
+                method,
+                params,
+                body: handler_body,
+                span: Span::new(start, end),
+            });
+
+            // Optional comma/newline between handlers
+            self.consume(TokenKind::Comma);
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span.end;
+
+        Ok(CstExpr {
+            kind: CstExprKind::Handle(Box::new(CstHandleExpr {
+                body,
+                handler_values,
+                handlers,
+                else_clause,
+                span: Span::new(start, end),
+            })),
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_resume_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::Resume)?;
+        self.expect(TokenKind::LParen)?;
+        let value = self.parse_expression()?;
+        let end = self.expect(TokenKind::RParen)?.span.end;
+
+        Ok(CstExpr {
+            kind: CstExprKind::Resume(Box::new(value)),
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Parse a sandbox expression: `sandbox with Ability { body }` or `sandbox { body }`
+    fn parse_sandbox_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::Sandbox)?;
+
+        // Parse optional `with` clause for allowed abilities
+        let allowed_abilities = if self.consume(TokenKind::With).is_some() {
+            self.parse_ability_list()?
+        } else {
+            Vec::new()
+        };
+
+        // Parse the body block
+        let body = self.parse_block_expr()?;
+        let end = body.span.end;
+
+        Ok(CstExpr {
+            kind: CstExprKind::Sandbox(Box::new(CstSandboxExpr {
+                allowed_abilities,
+                body,
+                span: Span::new(start, end),
+            })),
+            span: Span::new(start, end),
+        })
+    }
+
+    pub(super) fn parse_args(&mut self) -> Result<Vec<CstExpr>, ParseError> {
+        let mut args = Vec::new();
+
+        loop {
+            if self.check(TokenKind::RParen) {
+                break;
+            }
+
+            args.push(self.parse_expression()?);
+
+            if self.consume(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+
+        Ok(args)
+    }
+}

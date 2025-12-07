@@ -33,12 +33,18 @@ Remaining in mod.rs (3,073 lines):
 ## Priority 2: Medium Impact
 
 ### 2.1 Split `parser/mod.rs` (2,612 lines)
-The parser should be split into:
-- `parser/module.rs` - Module/item parsing
-- `parser/types.rs` - Type expression parsing
-- `parser/expr.rs` - Expression parsing with precedence climbing
-- `parser/patterns.rs` - Pattern parsing
+**Status:** Complete
 
+Extracted:
+- `parser/expr.rs` - Expression parsing (1,178 lines)
+- `parser/patterns.rs` - Pattern parsing (204 lines)
+- `parser/types.rs` - Type expression parsing (181 lines)
+
+Remaining in mod.rs (1,079 lines):
+- Parser struct and core methods
+- Module/item parsing
+- Function/definition parsing
+- Tests
 
 ### 2.3 Split `bytecode.rs` (2,080 lines)
 Split into:
@@ -88,3 +94,4 @@ Create a shared utility for byte offset to line/column calculations, used by:
 - Refactor Completions Duplication - See `collect_params_if_in_scope()` in LSP
 - Split infer module - Extracted error.rs, env.rs, check.rs (735 lines total)
 - Split compiler module - Extracted error.rs, repl.rs (300 lines total)
+- Split parser module - Extracted expr.rs, patterns.rs, types.rs (1,563 lines total)
