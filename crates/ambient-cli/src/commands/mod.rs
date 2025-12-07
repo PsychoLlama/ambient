@@ -5,11 +5,13 @@
 mod check;
 mod compile;
 mod dev;
+mod init;
 mod run;
 
 pub use check::cmd_check;
 pub use compile::cmd_compile;
 pub use dev::cmd_dev;
+pub use init::cmd_init;
 pub use run::cmd_run;
 
 use std::fs;

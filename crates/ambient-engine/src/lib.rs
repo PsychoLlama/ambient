@@ -19,6 +19,7 @@ pub mod client;
 pub mod compiler;
 pub mod format;
 pub mod infer;
+pub mod manifest;
 pub mod protocol;
 pub mod remote;
 pub mod server;

@@ -14,7 +14,7 @@ mod repl;
 mod serialize;
 
 use cli::{Args, Command};
-use commands::{cmd_check, cmd_compile, cmd_dev, cmd_run};
+use commands::{cmd_check, cmd_compile, cmd_dev, cmd_init, cmd_run};
 use diagnostic::print_diagnostic;
 use repl::cmd_repl;
 
@@ -22,6 +22,7 @@ pub fn main() -> Result<()> {
     let args = Args::parse();
 
     match args.command {
+        Command::Init { path, name } => cmd_init(&path, name.as_deref())?,
         Command::Compile { file, output } => cmd_compile(&file, output.as_deref())?,
         Command::Run { file, entry } => cmd_run(&file, &entry)?,
         Command::Check { file } => cmd_check(&file)?,
