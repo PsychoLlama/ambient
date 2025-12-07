@@ -5,19 +5,16 @@ This document tracks code quality improvements identified during a feature freez
 ## Priority 1: High Impact
 
 ### 1.1 Split `infer/mod.rs` (4,004 lines)
-**Status:** Future work - substantial refactoring required
+**Status:** Partially complete
 
-The type inference module is monolithic but well-organized internally with
-clear section separators. Consider splitting into:
-- `infer/error.rs` - TypeError and display implementations
-- `infer/env.rs` - Type environment and schemes
-- `infer/unify.rs` - Unification algorithm
-- `infer/checker.rs` - Main inference logic
-- `infer/module.rs` - Module-level checking
+Extracted:
+- `infer/error.rs` - TypeError and TypeErrorKind (299 lines)
+- `infer/env.rs` - TypeEnv and Scheme (157 lines)
+- `infer/check.rs` - Module-level type checking (279 lines)
 
-Note: The module has tight coupling between sections, sharing many types
-and imports. Tests exercise all parts together. Splitting would require
-careful import management.
+Remaining in mod.rs (3,115 lines):
+- Infer struct and all inference methods
+- Unification code could be extracted to `infer/unify.rs` in future
 
 ### 1.2 Split `compiler/mod.rs` (3,397 lines)
 **Status:** Future work - substantial refactoring required
@@ -85,3 +82,4 @@ Create a shared utility for byte offset to line/column calculations, used by:
 
 - Extract Error Formatting Abstraction - See `crates/ambient-cli/src/diagnostic.rs`
 - Refactor Completions Duplication - See `collect_params_if_in_scope()` in LSP
+- Split infer module - Extracted error.rs, env.rs, check.rs (735 lines total)
