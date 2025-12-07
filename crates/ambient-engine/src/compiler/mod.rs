@@ -1296,12 +1296,10 @@ fn compile_expr(
         }
 
         ExprKind::List(elements) => {
-            // Lists are represented as tuples for now.
-            // TODO: Implement proper List type.
             for elem in elements {
                 compile_expr(fc, elem, ctx)?;
             }
-            fc.builder.emit_u8(Opcode::MakeTuple, elements.len() as u8);
+            fc.builder.emit_make_list(elements.len() as u16);
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -1407,27 +1405,37 @@ fn compile_expr(
         ExprKind::Call(callee, args) => {
             // Check if this is a direct call to a known function or an indirect call.
             match &callee.kind {
-                ExprKind::Name(name) if fc.function_hashes.contains_key(&name.name) => {
-                    // Direct function call to a known function.
-                    // Compile arguments first (left to right).
-                    for arg in args {
-                        compile_expr(fc, arg, ctx)?;
-                    }
-                    let hash = fc.function_hashes[&name.name];
-                    fc.builder.emit_call(hash, args.len() as u8);
-                }
-                ExprKind::Name(name)
-                    if fc.get_local_by_name(&name.name).is_some()
+                ExprKind::Name(name) => {
+                    // Check for intrinsic functions first
+                    if try_compile_intrinsic(fc, &name.name, args, ctx)?.is_some() {
+                        // Intrinsic was compiled, nothing more to do
+                    } else if fc.function_hashes.contains_key(&name.name) {
+                        // Direct function call to a known function.
+                        // Compile arguments first (left to right).
+                        for arg in args {
+                            compile_expr(fc, arg, ctx)?;
+                        }
+                        let hash = fc.function_hashes[&name.name];
+                        fc.builder.emit_call(hash, args.len() as u8);
+                    } else if fc.get_local_by_name(&name.name).is_some()
                         || fc.capture_names.contains_key(&name.name)
-                        || fc.is_parent_name(&name.name) =>
-                {
-                    // Indirect call through a closure stored in a variable.
-                    // First compile the closure (callee), then arguments.
-                    compile_expr(fc, callee, ctx)?;
-                    for arg in args {
-                        compile_expr(fc, arg, ctx)?;
+                        || fc.is_parent_name(&name.name)
+                    {
+                        // Indirect call through a closure stored in a variable.
+                        // First compile the closure (callee), then arguments.
+                        compile_expr(fc, callee, ctx)?;
+                        for arg in args {
+                            compile_expr(fc, arg, ctx)?;
+                        }
+                        fc.builder.emit_call_closure(args.len() as u8);
+                    } else {
+                        // Unknown function - will error at runtime
+                        compile_expr(fc, callee, ctx)?;
+                        for arg in args {
+                            compile_expr(fc, arg, ctx)?;
+                        }
+                        fc.builder.emit_call_closure(args.len() as u8);
                     }
-                    fc.builder.emit_call_closure(args.len() as u8);
                 }
                 _ => {
                     // General indirect call (e.g., calling a lambda inline or result of expression).
@@ -1959,6 +1967,265 @@ fn get_variant_tag(variant_name: &str) -> Option<u16> {
         "Some" | "Err" => Some(1),
         _ => None,
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Intrinsic Functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Check if a function name is an intrinsic and compile it if so.
+///
+/// Returns `Some(())` if the function was compiled as an intrinsic,
+/// `None` if it should be handled as a regular function call.
+fn try_compile_intrinsic(
+    fc: &mut FunctionCompiler,
+    name: &str,
+    args: &[Expr],
+    ctx: &mut ModuleContext,
+) -> Result<Option<()>, CompileError> {
+    // List intrinsics
+    match name {
+        // List operations
+        "list_length" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::ListLength);
+            return Ok(Some(()));
+        }
+        "list_get" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit_list_get();
+            // list_get returns Unit for out of bounds - wrap in Option
+            // For now, just return the raw value (Unit or element)
+            return Ok(Some(()));
+        }
+        "list_head" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_list_head();
+            return Ok(Some(()));
+        }
+        "list_tail" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_list_tail();
+            return Ok(Some(()));
+        }
+        "list_concat" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit_list_concat();
+            return Ok(Some(()));
+        }
+        "list_append" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit_list_append();
+            return Ok(Some(()));
+        }
+        "list_is_empty" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_list_length();
+            fc.builder.emit_const(Value::Number(0.0));
+            fc.builder.emit(Opcode::Eq);
+            return Ok(Some(()));
+        }
+
+        // String operations
+        "string_length" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_string_length();
+            return Ok(Some(()));
+        }
+        "string_concat" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit_string_concat();
+            return Ok(Some(()));
+        }
+        "string_contains" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit_string_contains();
+            return Ok(Some(()));
+        }
+        "string_split" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit_string_split();
+            return Ok(Some(()));
+        }
+        "string_join" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?; // list
+            compile_expr(fc, &args[1], ctx)?; // delimiter
+            fc.builder.emit_string_join();
+            return Ok(Some(()));
+        }
+        "string_trim" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_string_trim();
+            return Ok(Some(()));
+        }
+
+        // Type conversion
+        "to_string" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_to_string();
+            return Ok(Some(()));
+        }
+        "parse_number" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_parse_number();
+            return Ok(Some(()));
+        }
+        "parse_bool" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_parse_bool();
+            return Ok(Some(()));
+        }
+
+        // Map operations
+        "map_empty" if args.is_empty() => {
+            fc.builder.emit(Opcode::MakeEmptyMap);
+            return Ok(Some(()));
+        }
+        "map_get" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit(Opcode::MapGet);
+            return Ok(Some(()));
+        }
+        "map_insert" if args.len() == 3 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            compile_expr(fc, &args[2], ctx)?;
+            fc.builder.emit(Opcode::MapInsert);
+            return Ok(Some(()));
+        }
+        "map_remove" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit(Opcode::MapRemove);
+            return Ok(Some(()));
+        }
+        "map_contains" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit(Opcode::MapContains);
+            return Ok(Some(()));
+        }
+        "map_length" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::MapLength);
+            return Ok(Some(()));
+        }
+        "map_keys" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::MapKeys);
+            return Ok(Some(()));
+        }
+        "map_values" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit(Opcode::MapValues);
+            return Ok(Some(()));
+        }
+
+        // Set operations
+        "set_empty" if args.is_empty() => {
+            fc.builder.emit_make_empty_set();
+            return Ok(Some(()));
+        }
+        "set_insert" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit_set_insert();
+            return Ok(Some(()));
+        }
+        "set_remove" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit_set_remove();
+            return Ok(Some(()));
+        }
+        "set_contains" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit_set_contains();
+            return Ok(Some(()));
+        }
+        "set_length" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_set_length();
+            return Ok(Some(()));
+        }
+        "set_union" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit_set_union();
+            return Ok(Some(()));
+        }
+        "set_intersection" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit_set_intersection();
+            return Ok(Some(()));
+        }
+        "set_difference" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit_set_difference();
+            return Ok(Some(()));
+        }
+        "set_to_list" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_set_to_list();
+            return Ok(Some(()));
+        }
+
+        // Option operations
+        "option_unwrap_or" if args.len() == 2 => {
+            compile_expr(fc, &args[0], ctx)?;
+            compile_expr(fc, &args[1], ctx)?;
+            fc.builder.emit_option_unwrap_or();
+            return Ok(Some(()));
+        }
+        "option_is_some" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_enum_is(1); // Some has tag 1
+            return Ok(Some(()));
+        }
+        "option_is_none" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_enum_is(0); // None has tag 0
+            return Ok(Some(()));
+        }
+
+        // Result operations
+        "result_is_ok" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_enum_is(0); // Ok has tag 0
+            return Ok(Some(()));
+        }
+        "result_is_err" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_enum_is(1); // Err has tag 1
+            return Ok(Some(()));
+        }
+
+        // Enum operations (general)
+        "enum_tag" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_enum_tag();
+            return Ok(Some(()));
+        }
+        "enum_payload" if args.len() == 1 => {
+            compile_expr(fc, &args[0], ctx)?;
+            fc.builder.emit_enum_payload();
+            return Ok(Some(()));
+        }
+
+        _ => {}
+    }
+
+    Ok(None)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

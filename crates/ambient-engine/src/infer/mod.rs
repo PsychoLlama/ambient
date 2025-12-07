@@ -1297,6 +1297,295 @@ impl Infer {
         self.ability_resolver.infer_ability_from_methods(method_names)
     }
 
+    /// Try to infer the type of an intrinsic function call.
+    ///
+    /// Returns `Some(return_type)` if the name is a known intrinsic,
+    /// `None` if it should be handled as a regular function call.
+    #[allow(clippy::too_many_lines)]
+    fn try_infer_intrinsic(
+        &mut self,
+        env: &TypeEnv,
+        name: &str,
+        args: &mut [Expr],
+        span: (u32, u32),
+    ) -> InferResult<Option<Type>> {
+        // Helper to create List type
+        let list_of = |elem: Type| Type::named("List", vec![elem]);
+
+        match name {
+            // List operations
+            "list_length" if args.len() == 1 => {
+                let list_ty = self.infer_expr(env, &mut args[0])?;
+                let elem_ty = self.fresh();
+                self.unify(&list_ty, &list_of(elem_ty), span)?;
+                Ok(Some(Type::Number))
+            }
+            "list_get" if args.len() == 2 => {
+                let list_ty = self.infer_expr(env, &mut args[0])?;
+                let index_ty = self.infer_expr(env, &mut args[1])?;
+                let elem_ty = self.fresh();
+                self.unify(&list_ty, &list_of(elem_ty.clone()), span)?;
+                self.unify(&index_ty, &Type::Number, span)?;
+                // Returns the element or Unit for out of bounds
+                // For now, return the element type (assuming in bounds)
+                Ok(Some(elem_ty))
+            }
+            "list_head" if args.len() == 1 => {
+                let list_ty = self.infer_expr(env, &mut args[0])?;
+                let elem_ty = self.fresh();
+                self.unify(&list_ty, &list_of(elem_ty.clone()), span)?;
+                // Returns the element or Unit for empty list
+                Ok(Some(elem_ty))
+            }
+            "list_tail" if args.len() == 1 => {
+                let list_ty = self.infer_expr(env, &mut args[0])?;
+                let elem_ty = self.fresh();
+                self.unify(&list_ty, &list_of(elem_ty.clone()), span)?;
+                Ok(Some(list_of(elem_ty)))
+            }
+            "list_concat" if args.len() == 2 => {
+                let list1_ty = self.infer_expr(env, &mut args[0])?;
+                let list2_ty = self.infer_expr(env, &mut args[1])?;
+                let elem_ty = self.fresh();
+                self.unify(&list1_ty, &list_of(elem_ty.clone()), span)?;
+                self.unify(&list2_ty, &list_of(elem_ty.clone()), span)?;
+                Ok(Some(list_of(elem_ty)))
+            }
+            "list_append" if args.len() == 2 => {
+                let list_ty = self.infer_expr(env, &mut args[0])?;
+                let elem_arg_ty = self.infer_expr(env, &mut args[1])?;
+                let elem_ty = self.fresh();
+                self.unify(&list_ty, &list_of(elem_ty.clone()), span)?;
+                self.unify(&elem_arg_ty, &elem_ty, span)?;
+                Ok(Some(list_of(elem_ty)))
+            }
+            "list_is_empty" if args.len() == 1 => {
+                let list_ty = self.infer_expr(env, &mut args[0])?;
+                let elem_ty = self.fresh();
+                self.unify(&list_ty, &list_of(elem_ty), span)?;
+                Ok(Some(Type::Bool))
+            }
+
+            // String operations
+            "string_length" if args.len() == 1 => {
+                let str_ty = self.infer_expr(env, &mut args[0])?;
+                self.unify(&str_ty, &Type::String, span)?;
+                Ok(Some(Type::Number))
+            }
+            "string_concat" if args.len() == 2 => {
+                let str1_ty = self.infer_expr(env, &mut args[0])?;
+                let str2_ty = self.infer_expr(env, &mut args[1])?;
+                self.unify(&str1_ty, &Type::String, span)?;
+                self.unify(&str2_ty, &Type::String, span)?;
+                Ok(Some(Type::String))
+            }
+            "string_contains" if args.len() == 2 => {
+                let str_ty = self.infer_expr(env, &mut args[0])?;
+                let substr_ty = self.infer_expr(env, &mut args[1])?;
+                self.unify(&str_ty, &Type::String, span)?;
+                self.unify(&substr_ty, &Type::String, span)?;
+                Ok(Some(Type::Bool))
+            }
+            "string_split" if args.len() == 2 => {
+                let str_ty = self.infer_expr(env, &mut args[0])?;
+                let delim_ty = self.infer_expr(env, &mut args[1])?;
+                self.unify(&str_ty, &Type::String, span)?;
+                self.unify(&delim_ty, &Type::String, span)?;
+                Ok(Some(list_of(Type::String)))
+            }
+            "string_join" if args.len() == 2 => {
+                let list_ty = self.infer_expr(env, &mut args[0])?;
+                let delim_ty = self.infer_expr(env, &mut args[1])?;
+                self.unify(&list_ty, &list_of(Type::String), span)?;
+                self.unify(&delim_ty, &Type::String, span)?;
+                Ok(Some(Type::String))
+            }
+            "string_trim" if args.len() == 1 => {
+                let str_ty = self.infer_expr(env, &mut args[0])?;
+                self.unify(&str_ty, &Type::String, span)?;
+                Ok(Some(Type::String))
+            }
+
+            // Type conversion
+            "to_string" if args.len() == 1 => {
+                // Accept any type
+                let _arg_ty = self.infer_expr(env, &mut args[0])?;
+                Ok(Some(Type::String))
+            }
+            "parse_number" if args.len() == 1 => {
+                let str_ty = self.infer_expr(env, &mut args[0])?;
+                self.unify(&str_ty, &Type::String, span)?;
+                // Returns (bool, number) tuple
+                Ok(Some(Type::tuple(vec![Type::Bool, Type::Number])))
+            }
+            "parse_bool" if args.len() == 1 => {
+                let str_ty = self.infer_expr(env, &mut args[0])?;
+                self.unify(&str_ty, &Type::String, span)?;
+                // Returns (bool, bool) tuple
+                Ok(Some(Type::tuple(vec![Type::Bool, Type::Bool])))
+            }
+
+            // Map operations
+            "map_empty" if args.is_empty() => {
+                let key_ty = self.fresh();
+                let val_ty = self.fresh();
+                Ok(Some(Type::named("Map", vec![key_ty, val_ty])))
+            }
+            "map_get" if args.len() == 2 => {
+                let map_ty = self.infer_expr(env, &mut args[0])?;
+                let key_arg_ty = self.infer_expr(env, &mut args[1])?;
+                let key_ty = self.fresh();
+                let val_ty = self.fresh();
+                self.unify(&map_ty, &Type::named("Map", vec![key_ty.clone(), val_ty.clone()]), span)?;
+                self.unify(&key_arg_ty, &key_ty, span)?;
+                // Returns Unit if key not found (should return Option)
+                Ok(Some(val_ty))
+            }
+            "map_insert" if args.len() == 3 => {
+                let map_ty = self.infer_expr(env, &mut args[0])?;
+                let key_arg_ty = self.infer_expr(env, &mut args[1])?;
+                let val_arg_ty = self.infer_expr(env, &mut args[2])?;
+                let key_ty = self.fresh();
+                let val_ty = self.fresh();
+                self.unify(&map_ty, &Type::named("Map", vec![key_ty.clone(), val_ty.clone()]), span)?;
+                self.unify(&key_arg_ty, &key_ty, span)?;
+                self.unify(&val_arg_ty, &val_ty.clone(), span)?;
+                Ok(Some(Type::named("Map", vec![key_ty, val_ty])))
+            }
+            "map_remove" if args.len() == 2 => {
+                let map_ty = self.infer_expr(env, &mut args[0])?;
+                let key_arg_ty = self.infer_expr(env, &mut args[1])?;
+                let key_ty = self.fresh();
+                let val_ty = self.fresh();
+                self.unify(&map_ty, &Type::named("Map", vec![key_ty.clone(), val_ty.clone()]), span)?;
+                self.unify(&key_arg_ty, &key_ty, span)?;
+                Ok(Some(Type::named("Map", vec![key_ty, val_ty])))
+            }
+            "map_contains" if args.len() == 2 => {
+                let map_ty = self.infer_expr(env, &mut args[0])?;
+                let key_arg_ty = self.infer_expr(env, &mut args[1])?;
+                let key_ty = self.fresh();
+                let val_ty = self.fresh();
+                self.unify(&map_ty, &Type::named("Map", vec![key_ty.clone(), val_ty]), span)?;
+                self.unify(&key_arg_ty, &key_ty, span)?;
+                Ok(Some(Type::Bool))
+            }
+            "map_length" if args.len() == 1 => {
+                let map_ty = self.infer_expr(env, &mut args[0])?;
+                let key_ty = self.fresh();
+                let val_ty = self.fresh();
+                self.unify(&map_ty, &Type::named("Map", vec![key_ty, val_ty]), span)?;
+                Ok(Some(Type::Number))
+            }
+            "map_keys" if args.len() == 1 => {
+                let map_ty = self.infer_expr(env, &mut args[0])?;
+                let key_ty = self.fresh();
+                let val_ty = self.fresh();
+                self.unify(&map_ty, &Type::named("Map", vec![key_ty.clone(), val_ty]), span)?;
+                Ok(Some(list_of(key_ty)))
+            }
+            "map_values" if args.len() == 1 => {
+                let map_ty = self.infer_expr(env, &mut args[0])?;
+                let key_ty = self.fresh();
+                let val_ty = self.fresh();
+                self.unify(&map_ty, &Type::named("Map", vec![key_ty, val_ty.clone()]), span)?;
+                Ok(Some(list_of(val_ty)))
+            }
+
+            // Set operations
+            "set_empty" if args.is_empty() => {
+                let elem_ty = self.fresh();
+                Ok(Some(Type::named("Set", vec![elem_ty])))
+            }
+            "set_insert" if args.len() == 2 => {
+                let set_ty = self.infer_expr(env, &mut args[0])?;
+                let elem_arg_ty = self.infer_expr(env, &mut args[1])?;
+                let elem_ty = self.fresh();
+                self.unify(&set_ty, &Type::named("Set", vec![elem_ty.clone()]), span)?;
+                self.unify(&elem_arg_ty, &elem_ty.clone(), span)?;
+                Ok(Some(Type::named("Set", vec![elem_ty])))
+            }
+            "set_remove" if args.len() == 2 => {
+                let set_ty = self.infer_expr(env, &mut args[0])?;
+                let elem_arg_ty = self.infer_expr(env, &mut args[1])?;
+                let elem_ty = self.fresh();
+                self.unify(&set_ty, &Type::named("Set", vec![elem_ty.clone()]), span)?;
+                self.unify(&elem_arg_ty, &elem_ty.clone(), span)?;
+                Ok(Some(Type::named("Set", vec![elem_ty])))
+            }
+            "set_contains" if args.len() == 2 => {
+                let set_ty = self.infer_expr(env, &mut args[0])?;
+                let elem_arg_ty = self.infer_expr(env, &mut args[1])?;
+                let elem_ty = self.fresh();
+                self.unify(&set_ty, &Type::named("Set", vec![elem_ty.clone()]), span)?;
+                self.unify(&elem_arg_ty, &elem_ty, span)?;
+                Ok(Some(Type::Bool))
+            }
+            "set_length" if args.len() == 1 => {
+                let set_ty = self.infer_expr(env, &mut args[0])?;
+                let elem_ty = self.fresh();
+                self.unify(&set_ty, &Type::named("Set", vec![elem_ty]), span)?;
+                Ok(Some(Type::Number))
+            }
+            "set_union" | "set_intersection" | "set_difference" if args.len() == 2 => {
+                let set1_ty = self.infer_expr(env, &mut args[0])?;
+                let set2_ty = self.infer_expr(env, &mut args[1])?;
+                let elem_ty = self.fresh();
+                self.unify(&set1_ty, &Type::named("Set", vec![elem_ty.clone()]), span)?;
+                self.unify(&set2_ty, &Type::named("Set", vec![elem_ty.clone()]), span)?;
+                Ok(Some(Type::named("Set", vec![elem_ty])))
+            }
+            "set_to_list" if args.len() == 1 => {
+                let set_ty = self.infer_expr(env, &mut args[0])?;
+                let elem_ty = self.fresh();
+                self.unify(&set_ty, &Type::named("Set", vec![elem_ty.clone()]), span)?;
+                Ok(Some(list_of(elem_ty)))
+            }
+
+            // Option operations
+            "option_unwrap_or" if args.len() == 2 => {
+                let opt_ty = self.infer_expr(env, &mut args[0])?;
+                let default_ty = self.infer_expr(env, &mut args[1])?;
+                let inner_ty = self.fresh();
+                self.unify(&opt_ty, &Type::option(inner_ty.clone()), span)?;
+                self.unify(&default_ty, &inner_ty.clone(), span)?;
+                Ok(Some(inner_ty))
+            }
+            "option_is_some" | "option_is_none" if args.len() == 1 => {
+                let opt_ty = self.infer_expr(env, &mut args[0])?;
+                let inner_ty = self.fresh();
+                self.unify(&opt_ty, &Type::option(inner_ty), span)?;
+                Ok(Some(Type::Bool))
+            }
+
+            // Result operations
+            "result_is_ok" | "result_is_err" if args.len() == 1 => {
+                let res_ty = self.infer_expr(env, &mut args[0])?;
+                let ok_ty = self.fresh();
+                let err_ty = self.fresh();
+                self.unify(&res_ty, &Type::result(ok_ty, err_ty), span)?;
+                Ok(Some(Type::Bool))
+            }
+
+            // Enum operations
+            "enum_tag" if args.len() == 1 => {
+                // Accept any enum type
+                let _enum_ty = self.infer_expr(env, &mut args[0])?;
+                Ok(Some(Type::Number))
+            }
+            "enum_payload" if args.len() == 1 => {
+                // Accept any enum type, return the payload type
+                // This is tricky - we'd need to know which variant
+                // For now, return a fresh type variable
+                let _enum_ty = self.infer_expr(env, &mut args[0])?;
+                let payload_ty = self.fresh();
+                Ok(Some(payload_ty))
+            }
+
+            _ => Ok(None),
+        }
+    }
+
     /// Look up an ability method and return its ID, result type, and additional abilities to require.
     ///
     /// For most abilities, the additional abilities set is empty. For `Async.all` and `Async.race`,
@@ -1730,6 +2019,13 @@ impl Infer {
             }
 
             ExprKind::Call(callee, args) => {
+                // Check for intrinsic functions first
+                if let ExprKind::Name(name) = &callee.kind {
+                    if let Some(ret_ty) = self.try_infer_intrinsic(env, &name.name, args, span)? {
+                        return Ok(ret_ty);
+                    }
+                }
+
                 let callee_ty = self.infer_expr(env, callee)?;
                 let mut arg_tys = Vec::with_capacity(args.len());
                 for arg in args {
