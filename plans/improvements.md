@@ -86,13 +86,43 @@ src/
 ```
 
 ### 3.2 Standardize Module Patterns
-Adopt consistent `mod.rs` + submodules pattern used by `vm/` across all large modules.
+**Status:** Analyzed - Current state is good
+
+Large modules now follow the `mod.rs + submodules` pattern:
+- `infer/` - mod.rs + error.rs, env.rs, check.rs
+- `compiler/` - mod.rs + error.rs, repl.rs
+- `parser/` - mod.rs + expr.rs, patterns.rs, types.rs
+- `bytecode/` - mod.rs + opcode.rs, builder.rs, debug.rs
+- `vm/` - mod.rs + dispatch.rs, error.rs, core.rs
+- `commands/` - mod.rs + compile.rs, run.rs, check.rs, dev.rs
+- `repl/` - mod.rs + highlighter.rs
+
+Remaining large standalone files are logically cohesive:
+- `types.rs` (1,618 lines) - Type system, highly interrelated
+- `value.rs` (1,086 lines) - Value enum and implementations
+- `lexer.rs` (1,017 lines) - Token definitions and lexing
+- `ast.rs` (1,002 lines) - AST node definitions
+- `abilities.rs` (865 lines) - Standard ability implementations
+
+These don't need splitting - they're single-purpose modules.
 
 ### 3.3 Extract Span/Location Abstraction
-Create a shared utility for byte offset to line/column calculations, used by:
-- Error display in CLI
-- LSP analysis
-- Completions context
+**Status:** Analyzed - Not needed
+
+After analysis, the two implementations serve different purposes:
+- CLI (`diagnostic.rs:find_line_info`) - simple O(n) scan, no UTF-16 support (31 lines)
+- LSP (`documents.rs`) - precomputed line offsets, binary search, UTF-16 for LSP protocol
+
+The implementations are appropriately different:
+- CLI needs one-shot conversion for error messages
+- LSP needs repeated fast lookups with UTF-16 code unit support
+
+Sharing would require either:
+- Adding UTF-16 complexity to CLI (unnecessary)
+- Creating a shared crate between CLI and LSP (more coupling)
+- Duplicating without UTF-16 (no benefit)
+
+Current separation is reasonable.
 
 ## Completed
 
