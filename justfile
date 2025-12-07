@@ -27,7 +27,7 @@ unit-test:
   cargo test --workspace
 
 # Run all checks (format, lint, build, test) - continues on failure, exits non-zero if any failed
-test:
+check:
   #!/usr/bin/env bash
   failed=0
   echo "=== Format Check ==="
