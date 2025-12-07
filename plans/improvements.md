@@ -17,13 +17,17 @@ Remaining in mod.rs (3,115 lines):
 - Unification code could be extracted to `infer/unify.rs` in future
 
 ### 1.2 Split `compiler/mod.rs` (3,397 lines)
-**Status:** Future work - substantial refactoring required
+**Status:** Partially complete
 
-The compiler module should be split into:
-- `compiler/error.rs` - CompileError types
-- `compiler/expr.rs` - Expression compilation (extract from compile_expr)
-- `compiler/patterns.rs` - Pattern compilation
-- `compiler/abilities.rs` - Ability-related compilation
+Extracted:
+- `compiler/error.rs` - CompileError and CompileErrorKind (79 lines)
+- `compiler/repl.rs` - REPL compilation support (221 lines)
+
+Remaining in mod.rs (3,073 lines):
+- Module/function compilation
+- Expression compilation
+- Statement compilation
+- Pattern matching compilation
 
 
 ## Priority 2: Medium Impact
@@ -83,3 +87,4 @@ Create a shared utility for byte offset to line/column calculations, used by:
 - Extract Error Formatting Abstraction - See `crates/ambient-cli/src/diagnostic.rs`
 - Refactor Completions Duplication - See `collect_params_if_in_scope()` in LSP
 - Split infer module - Extracted error.rs, env.rs, check.rs (735 lines total)
+- Split compiler module - Extracted error.rs, repl.rs (300 lines total)
