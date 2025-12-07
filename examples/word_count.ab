@@ -1,0 +1,75 @@
+// Word Count Example
+//
+// Counts words, lines, and characters in text.
+// Demonstrates string processing and accumulator patterns.
+
+fn count_chars(text: string): number {
+    string_length(text)
+}
+
+fn count_lines(text: string): number {
+    if string_length(text) == 0 {
+        0
+    } else {
+        let parts = string_split(text, "\n");
+        list_length(parts)
+    }
+}
+
+fn is_word_char(c: string): bool {
+    // Check if character is alphanumeric (simplified)
+    let code = string_length(c);  // Can't get char code, so use a workaround
+    c != " " && c != "\t" && c != "\n" && c != "\r" &&
+    c != "." && c != "," && c != "!" && c != "?" &&
+    c != ":" && c != ";" && c != "\"" && c != "'"
+}
+
+// Count words by iterating through characters
+fn count_words_impl(text: string, idx: number, in_word: bool, count: number): number {
+    if idx >= string_length(text) {
+        // End of string - add 1 if we were in a word
+        if in_word { count + 1 } else { count }
+    } else {
+        let c = string_slice(text, idx, idx + 1);
+        let is_word = is_word_char(c);
+
+        if in_word && !is_word {
+            // Exiting a word
+            count_words_impl(text, idx + 1, false, count + 1)
+        } else if !in_word && is_word {
+            // Entering a word
+            count_words_impl(text, idx + 1, true, count)
+        } else {
+            // Staying in same state
+            count_words_impl(text, idx + 1, in_word, count)
+        }
+    }
+}
+
+fn count_words(text: string): number {
+    count_words_impl(text, 0, false, 0)
+}
+
+// Build a stats summary
+fn wc(text: string): string {
+    let lines = count_lines(text);
+    let words = count_words(text);
+    let chars = count_chars(text);
+
+    string_concat(to_string(lines), string_concat(" lines, ",
+    string_concat(to_string(words), string_concat(" words, ",
+    string_concat(to_string(chars), " characters")))))
+}
+
+pub fn main(): string {
+    let sample = "Hello, world!
+This is a sample text.
+It has multiple lines.
+
+And some blank lines too.
+Let's count everything!";
+
+    let stats = wc(sample);
+
+    string_concat("Text:\n", string_concat(sample, string_concat("\n\nStats: ", stats)))
+}
