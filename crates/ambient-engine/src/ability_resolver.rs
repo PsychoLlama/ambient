@@ -84,11 +84,12 @@ impl AbilityResolver {
     /// Get all method signatures for an ability.
     ///
     /// Returns a list of (method_name, param_count, return_type).
+    /// Method names are cloned to avoid lifetime issues.
     pub fn get_method_signatures(
         &self,
         ability_id: AbilityId,
         type_factory: &dyn TypeFactory<Type>,
-    ) -> Vec<(&str, usize, Type)> {
+    ) -> Vec<(String, usize, Type)> {
         let Some(ability) = self.by_id.get(&ability_id) else {
             return vec![];
         };
@@ -98,7 +99,7 @@ impl AbilityResolver {
             .iter()
             .map(|m| {
                 let return_type = (m.signature.return_type)(type_factory);
-                (m.name, m.signature.param_count, return_type)
+                (m.name.to_string(), m.signature.param_count, return_type)
             })
             .collect()
     }
@@ -136,6 +137,27 @@ impl AbilityResolver {
     /// Get an iterator over all registered abilities.
     pub fn abilities(&self) -> impl Iterator<Item = &AbilityDescriptor<Type>> {
         self.by_id.values()
+    }
+
+    /// Get the return type for a method.
+    ///
+    /// Returns the return type constructed using the provided type factory.
+    pub fn get_method_return_type(
+        &self,
+        ability_name: &str,
+        method_name: &str,
+        type_factory: &dyn TypeFactory<Type>,
+    ) -> Option<Type> {
+        let ability = self.by_name.get(ability_name)?;
+        let method = ability.get_method(method_name)?;
+        Some((method.signature.return_type)(type_factory))
+    }
+
+    /// Check if a method exists for an ability.
+    pub fn has_method(&self, ability_name: &str, method_name: &str) -> bool {
+        self.by_name
+            .get(ability_name)
+            .map_or(false, |a| a.get_method(method_name).is_some())
     }
 }
 

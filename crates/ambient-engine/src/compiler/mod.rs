@@ -1903,76 +1903,29 @@ fn compile_ability_call(
     Ok(())
 }
 
-/// Get ability and method IDs for well-known abilities.
+/// Get ability and method IDs using the ability resolver.
 fn get_ability_ids(ability: &str, method: &str) -> Option<(u16, u16)> {
-    use crate::abilities::{async_ability, console, exception, random, time};
-
-    match (ability, method) {
-        ("Console", "print") => Some((console::ABILITY_ID, console::METHOD_PRINT)),
-        ("Console", "eprint") => Some((console::ABILITY_ID, console::METHOD_EPRINT)),
-        ("Console", "println") => Some((console::ABILITY_ID, console::METHOD_PRINTLN)),
-        ("Exception", "throw") => Some((exception::ABILITY_ID, exception::METHOD_THROW)),
-        ("Time", "now") => Some((time::ABILITY_ID, time::METHOD_NOW)),
-        ("Time", "wait") => Some((time::ABILITY_ID, time::METHOD_WAIT)),
-        ("Random", "seed") => Some((random::ABILITY_ID, random::METHOD_SEED)),
-        ("Random", "in_range") => Some((random::ABILITY_ID, random::METHOD_IN_RANGE)),
-        ("Async", "all") => Some((async_ability::ABILITY_ID, async_ability::METHOD_ALL)),
-        ("Async", "race") => Some((async_ability::ABILITY_ID, async_ability::METHOD_RACE)),
-        _ => None,
-    }
+    let resolver = crate::ability_resolver::standard_abilities();
+    resolver.get_method(ability, method)
 }
 
-/// Get ability ID for a well-known ability.
+/// Get ability ID using the ability resolver.
 fn get_ability_id(ability: &str) -> Option<u16> {
-    use crate::abilities::{async_ability, console, exception, random, time};
-
-    match ability {
-        "Console" => Some(console::ABILITY_ID),
-        "Exception" => Some(exception::ABILITY_ID),
-        "Time" => Some(time::ABILITY_ID),
-        "Random" => Some(random::ABILITY_ID),
-        "Async" => Some(async_ability::ABILITY_ID),
-        _ => None,
-    }
+    let resolver = crate::ability_resolver::standard_abilities();
+    resolver.name_to_id(ability)
 }
 
-/// Get method ID from ability ID and method name.
+/// Get method ID from ability ID and method name using the ability resolver.
 fn get_method_id_for_ability(ability_id: u16, method_name: &str) -> Option<u16> {
-    use crate::abilities::{async_ability, console, exception, random, time};
-
-    match ability_id {
-        id if id == console::ABILITY_ID => match method_name {
-            "print" => Some(console::METHOD_PRINT),
-            "eprint" => Some(console::METHOD_EPRINT),
-            "println" | "eprintln" => Some(console::METHOD_PRINTLN),
-            _ => None,
-        },
-        id if id == exception::ABILITY_ID => match method_name {
-            "throw" => Some(exception::METHOD_THROW),
-            _ => None,
-        },
-        id if id == time::ABILITY_ID => match method_name {
-            "now" => Some(time::METHOD_NOW),
-            "wait" => Some(time::METHOD_WAIT),
-            _ => None,
-        },
-        id if id == random::ABILITY_ID => match method_name {
-            "seed" => Some(random::METHOD_SEED),
-            "in_range" => Some(random::METHOD_IN_RANGE),
-            _ => None,
-        },
-        id if id == async_ability::ABILITY_ID => match method_name {
-            "all" => Some(async_ability::METHOD_ALL),
-            "race" => Some(async_ability::METHOD_RACE),
-            _ => None,
-        },
-        _ => None,
-    }
+    let resolver = crate::ability_resolver::standard_abilities();
+    resolver.get_method_by_ability_id(ability_id, method_name)
 }
 
-/// Get ability name from ability ID.
+/// Get ability name from ability ID using the ability resolver.
 fn get_ability_name(ability_id: u16) -> Option<&'static str> {
-    use crate::abilities::{async_ability, console, exception, random, time};
+    // We can't return a reference from the resolver since it returns &str
+    // from dynamically allocated data. For now, match the known abilities.
+    use crate::abilities::{async_ability, console, exception, log, random, time};
 
     match ability_id {
         id if id == console::ABILITY_ID => Some("Console"),
@@ -1980,6 +1933,7 @@ fn get_ability_name(ability_id: u16) -> Option<&'static str> {
         id if id == time::ABILITY_ID => Some("Time"),
         id if id == random::ABILITY_ID => Some("Random"),
         id if id == async_ability::ABILITY_ID => Some("Async"),
+        id if id == log::ABILITY_ID => Some("Log"),
         _ => None,
     }
 }
