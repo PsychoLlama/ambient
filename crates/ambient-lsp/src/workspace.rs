@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use lsp_types::Uri;
 
-use ambient_engine::ast::{ItemKind, Module, UseImports};
+use ambient_engine::ast::{ItemKind, Module, UseKind};
 
 /// Information about a symbol exported from a module.
 #[derive(Debug, Clone)]
@@ -57,25 +57,28 @@ pub struct UseInfo {
     /// The module path being imported.
     pub path: Vec<Arc<str>>,
     /// What is imported.
-    pub imports: UseImportsInfo,
+    pub kind: UseKindInfo,
     /// Byte offset of the use statement.
     pub offset: u32,
 }
 
 /// What is imported from a use path.
 #[derive(Debug, Clone)]
-pub enum UseImportsInfo {
-    /// Import everything: `use module.*`.
-    All,
-    /// Import specific items: `use module.{a, b}`.
+pub enum UseKindInfo {
+    /// Import the module itself: `use pkg.module;`.
+    Module,
+    /// Import everything: `use pkg.module.*;`.
+    Glob,
+    /// Import specific items: `use pkg.module.{a, b}`.
     Items(Vec<Arc<str>>),
 }
 
-impl From<&UseImports> for UseImportsInfo {
-    fn from(imports: &UseImports) -> Self {
-        match imports {
-            UseImports::All => Self::All,
-            UseImports::Items(items) => Self::Items(items.clone()),
+impl From<&UseKind> for UseKindInfo {
+    fn from(kind: &UseKind) -> Self {
+        match kind {
+            UseKind::Module => Self::Module,
+            UseKind::Glob => Self::Glob,
+            UseKind::Items(items) => Self::Items(items.clone()),
         }
     }
 }
@@ -203,14 +206,14 @@ impl WorkspaceIndex {
         let current_module = self.modules.get(current_uri.as_str())?;
 
         for use_info in &current_module.uses {
-            match &use_info.imports {
-                UseImportsInfo::All => {
+            match &use_info.kind {
+                UseKindInfo::Module | UseKindInfo::Glob => {
                     // Check if this module exports the name
                     if let Some(result) = self.find_symbol(&use_info.path, name) {
                         return Some(result);
                     }
                 }
-                UseImportsInfo::Items(items) => {
+                UseKindInfo::Items(items) => {
                     // Check if this specific name is imported
                     if items.iter().any(|i| i.as_ref() == name) {
                         if let Some(result) = self.find_symbol(&use_info.path, name) {
@@ -428,7 +431,7 @@ fn extract_uses(module: &Module) -> Vec<UseInfo> {
         if let ItemKind::Use(use_def) = &item.kind {
             uses.push(UseInfo {
                 path: use_def.path.clone(),
-                imports: UseImportsInfo::from(&use_def.imports),
+                kind: UseKindInfo::from(&use_def.kind),
                 offset: item.span.start,
             });
         }

@@ -81,6 +81,14 @@ pub enum TokenKind {
     Sandbox,
     /// `unique`
     Unique,
+    /// `pkg` - local package prefix in imports
+    Pkg,
+    /// `core` - standard library prefix in imports
+    Core,
+    /// `self` - same directory prefix in imports
+    Self_,
+    /// `super` - parent directory prefix in imports
+    Super,
 
     // ─────────────────────────────────────────────────────────────────────────
     // Literals
@@ -209,6 +217,10 @@ impl TokenKind {
                 | Self::Resume
                 | Self::Sandbox
                 | Self::Unique
+                | Self::Pkg
+                | Self::Core
+                | Self::Self_
+                | Self::Super
         )
     }
 
@@ -234,6 +246,10 @@ impl TokenKind {
             "resume" => Some(Self::Resume),
             "sandbox" => Some(Self::Sandbox),
             "unique" => Some(Self::Unique),
+            "pkg" => Some(Self::Pkg),
+            "core" => Some(Self::Core),
+            "self" => Some(Self::Self_),
+            "super" => Some(Self::Super),
             _ => None,
         }
     }
@@ -260,6 +276,10 @@ impl TokenKind {
             Self::Resume => Some("resume"),
             Self::Sandbox => Some("sandbox"),
             Self::Unique => Some("unique"),
+            Self::Pkg => Some("pkg"),
+            Self::Core => Some("core"),
+            Self::Self_ => Some("self"),
+            Self::Super => Some("super"),
             _ => None,
         }
     }
@@ -269,7 +289,8 @@ impl TokenKind {
     pub const fn all_keywords() -> &'static [&'static str] {
         &[
             "fn", "pub", "let", "const", "if", "else", "match", "true", "false", "enum", "type",
-            "ability", "use", "with", "handle", "resume", "sandbox", "unique",
+            "ability", "use", "with", "handle", "resume", "sandbox", "unique", "pkg", "core",
+            "self", "super",
         ]
     }
 

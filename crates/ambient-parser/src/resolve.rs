@@ -204,13 +204,13 @@ impl Resolver {
             if let ItemKind::Use(use_def) = &item.kind {
                 // For now, we'll handle imports within the same module only
                 // Full implementation would need a module registry
-                match &use_def.imports {
-                    ambient_engine::ast::UseImports::All => {
-                        // Import all items from the module
+                match &use_def.kind {
+                    ambient_engine::ast::UseKind::Module | ambient_engine::ast::UseKind::Glob => {
+                        // Import the module itself or all items from it
                         // For now, this is a no-op since we don't have cross-module resolution yet
                         // TODO: implement once we have a module registry
                     }
-                    ambient_engine::ast::UseImports::Items(items) => {
+                    ambient_engine::ast::UseKind::Items(items) => {
                         // Import specific items
                         // For now, check if they exist in the current module
                         for item_name in items {

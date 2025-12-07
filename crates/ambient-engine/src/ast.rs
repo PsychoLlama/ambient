@@ -697,20 +697,51 @@ pub struct AbilityMethod {
 }
 
 /// A use/import statement.
+///
+/// Examples:
+/// - `use pkg.utils;` - Import module
+/// - `use pkg.utils.helper;` - Import specific item
+/// - `use pkg.utils.{helper, format};` - Import multiple items
+/// - `use pkg.utils.*;` - Import all public items
+/// - `use self.sibling;` - Relative import (same directory)
+/// - `use super.parent;` - Parent directory import
+/// - `use core.list;` - Standard library import
+/// - `pub use pkg.other.Thing;` - Re-export
 #[derive(Debug, Clone)]
 pub struct UseDef {
-    /// The path being imported.
+    /// Whether this is a public re-export.
+    pub is_public: bool,
+    /// The import prefix determining the root.
+    pub prefix: UsePrefix,
+    /// Path segments after the prefix.
     pub path: Vec<Arc<str>>,
     /// What to import from the path.
-    pub imports: UseImports,
+    pub kind: UseKind,
+}
+
+/// The prefix of a use path, determining the root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UsePrefix {
+    /// `pkg.module` - Local package
+    Pkg,
+    /// `core.module` - Standard library
+    Core,
+    /// `self.sibling` - Same directory as current module
+    Self_,
+    /// `super.module` - Parent directory (can be chained: super.super)
+    /// The number indicates how many levels up (1 for super, 2 for super.super)
+    Super(usize),
 }
 
 /// What to import from a use path.
 #[derive(Debug, Clone)]
-pub enum UseImports {
-    /// Import everything: `use module.*`.
-    All,
-    /// Import specific items: `use module.{a, b}`.
+pub enum UseKind {
+    /// Import the module itself: `use pkg.utils;`
+    /// Brings the module name into scope.
+    Module,
+    /// Import all public items: `use pkg.utils.*;`
+    Glob,
+    /// Import specific items: `use pkg.utils.{helper, format};`
     Items(Vec<Arc<str>>),
 }
 
