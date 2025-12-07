@@ -1,69 +1,40 @@
-// Multi-module example (single-module version)
+// Multi-module example
 //
-// This package demonstrates the basic package structure.
-// Full multi-module imports will work once the CLI is updated
-// to use the cross-module compilation infrastructure.
-//
-// Package structure:
-//   multi_module/
-//     ambient.toml      - Package manifest
-//     src/
-//       main.ab         - Entry point (this file)
-//       math_utils.ab   - Math utilities (not yet imported)
-//       list_utils.ab   - List utilities (not yet imported)
-//       statistics.ab   - Statistics (not yet imported)
+// Demonstrates the module system with imports:
+// - `use pkg.module;` for package-relative imports
+// - `use self.sibling;` for same-directory imports
+// - `use pkg.module.{item1, item2};` for specific items
+// - `use pkg.module.*;` for glob imports
 
-// For now, we demonstrate basic package functionality
-// by including math utilities directly.
+// Import specific functions from math_utils
+use pkg.math_utils.{abs, min, max, gcd, lcm};
 
-// Absolute value
-fn abs(x: number): number {
-    if x < 0 { 0 - x } else { x }
-}
+// Import all public functions from list_utils
+use pkg.list_utils.*;
 
-// Minimum of two numbers
-fn min(a: number, b: number): number {
-    if a < b { a } else { b }
-}
-
-// Maximum of two numbers
-fn max(a: number, b: number): number {
-    if a > b { a } else { b }
-}
-
-// Greatest common divisor
-fn gcd(a: number, b: number): number {
-    gcd_helper(abs(a), abs(b))
-}
-
-fn gcd_helper(a: number, b: number): number {
-    if b == 0 { a } else { gcd_helper(b, a % b) }
-}
-
-// Sum of a list
-fn sum(xs: List<number>): number {
-    sum_helper(xs, 0)
-}
-
-fn sum_helper(xs: List<number>, acc: number): number {
-    if list_length(xs) == 0 {
-        acc
-    } else {
-        sum_helper(list_tail(xs), acc + list_head(xs))
-    }
-}
+// Import from statistics (which itself imports from siblings)
+use pkg.statistics.{variance, range};
 
 pub fn main(): number {
-    // Test math functions
+    // Test math_utils functions
     let a = abs(0 - 42);        // 42
     let b = min(10, 5);         // 5
     let c = max(10, 5);         // 10
     let d = gcd(48, 18);        // 6
+    let e = lcm(4, 6);          // 12
 
-    // Test list functions
-    let numbers = [1, 2, 3, 4, 5];
-    let s = sum(numbers);       // 15
+    // Test list_utils functions (via glob import)
+    let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let s = sum(numbers);       // 55
+    let p = product([1, 2, 3, 4, 5]);  // 120
+    let mx = maximum(numbers);  // 10
+    let mn = minimum(numbers);  // 1
 
-    // Combine results: 42 + 5 + 10 + 6 + 15 = 78
-    a + b + c + d + s
+    // Test statistics functions
+    let data = [2, 4, 4, 4, 5, 5, 7, 9];
+    let r = range(data);        // 7 (9 - 2)
+
+    // Combine results for verification
+    // 42 + 5 + 10 + 6 + 12 + 55 + 10 + 1 + 7 = 148
+    a + b + c + d + e + s + mx + mn + r
 }

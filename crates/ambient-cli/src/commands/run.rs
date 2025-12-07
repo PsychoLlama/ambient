@@ -1,14 +1,18 @@
 //! Run command implementation.
 
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
 use ambient_engine::abilities::register_all_standard_abilities;
+use ambient_engine::ast::{ItemKind, UsePrefix};
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::format::format_value_colored;
-use ambient_engine::module_path::ModulePath;
+use ambient_engine::module_path::{ImportPrefix, ModulePath};
+use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::package::{LoadedModule, Package};
 use ambient_engine::vm::Vm;
 
@@ -54,17 +58,183 @@ fn compile_package(path: &Path) -> Result<CompiledModule> {
     let mut pkg = Package::open(path)
         .with_context(|| format!("failed to open package at {}", path.display()))?;
 
-    // Load and compile the main module.
+    // Load the main module and all its dependencies.
     let main_path = ModulePath::root();
-    let loaded = load_module(&pkg, &main_path)?;
+    load_module_with_deps(&mut pkg, &main_path)?;
+
+    // Build module registry with all loaded modules.
+    let mut registry = ModuleRegistry::new();
+    for module in pkg.all_modules() {
+        registry.register(&module.path, Arc::new(module.ast.clone()));
+    }
+
+    // Get modules in topological order (dependencies first).
+    let module_order = get_compilation_order(&pkg, &main_path);
+
+    // Compile modules in dependency order, tracking function hashes.
+    let mut all_compiled = CompiledModule::new();
+    let mut module_function_hashes: HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>> =
+        HashMap::new();
+
+    for module_path in module_order {
+        let module = pkg
+            .get_module(&module_path)
+            .ok_or_else(|| anyhow::anyhow!("module not found: {}", module_path))?;
+        let file_path = pkg.module_file_path(&module_path);
+
+        // Build imported function hashes from already-compiled dependencies.
+        let imported_hashes =
+            build_imported_hashes_from_compiled(&module_path, &registry, &module_function_hashes);
+
+        let compiled = compile_loaded_module_with_registry(
+            module,
+            &file_path,
+            &module_path,
+            &registry,
+            imported_hashes,
+        )?;
+
+        // Record this module's function hashes for dependents.
+        let mut func_hashes = HashMap::new();
+        for (name, hash) in &compiled.function_names {
+            func_hashes.insert(Arc::clone(name), *hash);
+        }
+        module_function_hashes.insert(module_path, func_hashes);
+
+        // Merge into the final module.
+        all_compiled.merge(&compiled);
+    }
+
+    Ok(all_compiled)
+}
+
+/// Get modules in topological order (dependencies first).
+fn get_compilation_order(pkg: &Package, main_path: &ModulePath) -> Vec<ModulePath> {
+    let mut order = Vec::new();
+    let mut visited = HashSet::new();
+
+    fn visit(
+        pkg: &Package,
+        path: &ModulePath,
+        visited: &mut HashSet<String>,
+        order: &mut Vec<ModulePath>,
+    ) {
+        let key = path.to_string();
+        if visited.contains(&key) {
+            return;
+        }
+        visited.insert(key);
+
+        // Visit dependencies first.
+        if let Some(module) = pkg.get_module(path) {
+            let deps = extract_dependencies(&module.ast, path);
+            for dep in deps {
+                visit(pkg, &dep, visited, order);
+            }
+        }
+
+        // Add this module after its dependencies.
+        order.push(path.clone());
+    }
+
+    visit(pkg, main_path, &mut visited, &mut order);
+    order
+}
+
+/// Build imported function hashes from already-compiled modules.
+fn build_imported_hashes_from_compiled(
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+    compiled_hashes: &HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>>,
+) -> HashMap<Arc<str>, blake3::Hash> {
+    use ambient_engine::module_registry::ResolvedImport;
+
+    let mut hashes = HashMap::new();
+
+    if let Ok(imports) = registry.resolve_imports(module_path) {
+        for (local_name, resolved) in imports {
+            match resolved {
+                ResolvedImport::Symbol {
+                    from_module,
+                    export_kind: _,
+                } => {
+                    // Look up the actual hash from the compiled source module.
+                    if let Some(module_hashes) = compiled_hashes.get(&from_module) {
+                        // The function might be exported under a different name.
+                        // For now, assume the local name matches the original.
+                        if let Some(hash) = module_hashes.get(&local_name) {
+                            hashes.insert(local_name, *hash);
+                        }
+                    }
+                }
+                ResolvedImport::Module(_) => {
+                    // Module imports don't need hashes
+                }
+            }
+        }
+    }
+
+    hashes
+}
+
+/// Load a module and all its dependencies recursively.
+fn load_module_with_deps(pkg: &mut Package, path: &ModulePath) -> Result<()> {
+    // Skip if already loaded.
+    if pkg.is_loaded(path) {
+        return Ok(());
+    }
+
+    // Load the module.
+    let loaded = load_module(pkg, path)?;
+
+    // Extract dependencies from use statements.
+    let deps = extract_dependencies(&loaded.ast, path);
+
+    // Add module to package.
     pkg.add_module(loaded);
 
-    // Get the loaded module and compile it.
-    let loaded = pkg
-        .get_module(&main_path)
-        .ok_or_else(|| anyhow::anyhow!("main module not loaded"))?;
+    // Recursively load dependencies.
+    for dep_path in deps {
+        load_module_with_deps(pkg, &dep_path)?;
+    }
 
-    compile_loaded_module(loaded, &pkg.module_file_path(&main_path))
+    Ok(())
+}
+
+/// Extract module dependencies from use statements.
+fn extract_dependencies(
+    module: &ambient_engine::ast::Module,
+    current_path: &ModulePath,
+) -> Vec<ModulePath> {
+    let mut deps = Vec::new();
+    let mut seen = HashSet::new();
+
+    for item in &module.items {
+        if let ItemKind::Use(use_def) = &item.kind {
+            // Skip core library imports - they're handled separately.
+            if matches!(use_def.prefix, UsePrefix::Core) {
+                continue;
+            }
+
+            // Resolve the import path.
+            let import_prefix = match use_def.prefix {
+                UsePrefix::Pkg => ImportPrefix::Pkg,
+                UsePrefix::Core => continue, // Already handled above
+                UsePrefix::Self_ => ImportPrefix::Self_,
+                UsePrefix::Super(n) => ImportPrefix::Super(n),
+            };
+
+            if let Ok(resolved) = current_path.resolve_relative(&import_prefix, &use_def.path) {
+                let key = resolved.to_string();
+                if !seen.contains(&key) {
+                    seen.insert(key);
+                    deps.push(resolved);
+                }
+            }
+        }
+    }
+
+    deps
 }
 
 /// Load a single module from a package.
@@ -88,10 +258,21 @@ fn load_module(pkg: &Package, path: &ModulePath) -> Result<LoadedModule> {
     })
 }
 
-/// Compile a loaded module to bytecode.
-fn compile_loaded_module(loaded: &LoadedModule, file_path: &Path) -> Result<CompiledModule> {
-    // Type check.
-    let check_result = ambient_engine::infer::check_module(loaded.ast.clone());
+/// Compile a loaded module to bytecode with cross-module type checking.
+fn compile_loaded_module_with_registry(
+    loaded: &LoadedModule,
+    file_path: &Path,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+    imported_hashes: HashMap<Arc<str>, blake3::Hash>,
+) -> Result<CompiledModule> {
+    // Type check with cross-module support.
+    let check_result = ambient_engine::infer::check_module_with_registry(
+        loaded.ast.clone(),
+        module_path,
+        registry,
+    );
+
     if !check_result.is_ok() {
         for error in &check_result.errors {
             print_diagnostic(&loaded.source, file_path, error);
@@ -103,11 +284,12 @@ fn compile_loaded_module(loaded: &LoadedModule, file_path: &Path) -> Result<Comp
         );
     }
 
-    // Compile with debug info.
-    let compiled = ambient_engine::compiler::compile_module_with_source(
+    // Compile with debug info and imported hashes.
+    let compiled = ambient_engine::compiler::compile_module_with_imports_and_source(
         &check_result.module,
         &loaded.source,
         &file_path.display().to_string(),
+        imported_hashes,
     )
     .map_err(|e| anyhow::anyhow!("compile error at {}: {e}", file_path.display()))?;
 

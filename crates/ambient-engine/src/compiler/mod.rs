@@ -35,7 +35,7 @@ pub use repl::{
     ReplContext, ReplItemKind,
 };
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::ast::{
@@ -121,6 +121,25 @@ impl CompiledModule {
     #[must_use]
     pub fn get_function_by_hash(&self, hash: &blake3::Hash) -> Option<&CompiledFunction> {
         self.functions.get(hash)
+    }
+
+    /// Merge another compiled module into this one.
+    ///
+    /// All functions from `other` are added to this module. If there are
+    /// hash collisions (same function compiled identically), the existing
+    /// function is kept. Name collisions are handled by keeping the first
+    /// occurrence.
+    pub fn merge(&mut self, other: &CompiledModule) {
+        for (hash, func) in &other.functions {
+            self.functions.entry(*hash).or_insert_with(|| func.clone());
+        }
+        for (name, hash) in &other.function_names {
+            self.function_names.entry(Arc::clone(name)).or_insert(*hash);
+        }
+        // Don't overwrite entry point if we already have one
+        if self.entry_point.is_none() {
+            self.entry_point = other.entry_point;
+        }
     }
 }
 
@@ -607,10 +626,27 @@ fn finalize_module_hashes(
     // Compute final hashes in topological order (dependencies before dependents)
     let mut final_hashes: HashMap<Arc<str>, blake3::Hash> = HashMap::new();
 
+    // Pre-populate with imported function hashes.
+    // Imported functions are already content-addressed, so we can use them directly.
+    // They're in temp_hashes but not in compiled_functions.
+    let local_names: HashSet<&Arc<str>> = compiled_functions.iter().map(|(n, _, _)| n).collect();
+    for (name, hash) in temp_hashes {
+        if !local_names.contains(name) {
+            // This is an imported function - use its hash directly
+            final_hashes.insert(Arc::clone(name), *hash);
+        }
+    }
+
     for scc in &scc_analysis.components {
         if scc.is_singleton() {
             // Single function - might be self-recursive or not
             let name = &scc.members[0];
+
+            // Skip if this is an imported function (already in final_hashes)
+            if final_hashes.contains_key(name) {
+                continue;
+            }
+
             let func = compiled_functions
                 .iter()
                 .find(|(n, _, _)| n == name)
@@ -645,6 +681,18 @@ fn finalize_module_hashes(
             }
         } else {
             // Multiple functions in SCC - mutual recursion
+            // Filter out imported functions (already in final_hashes)
+            let local_members: Vec<&Arc<str>> = scc
+                .members
+                .iter()
+                .filter(|name| !final_hashes.contains_key(*name))
+                .collect();
+
+            if local_members.is_empty() {
+                // All members are imported - skip
+                continue;
+            }
+
             // Compute a group hash for the entire SCC
             let scc_hash = compute_scc_hash(
                 &scc.members,
@@ -653,8 +701,8 @@ fn finalize_module_hashes(
                 temp_hashes,
             );
 
-            // Each function in the SCC gets a derived hash
-            for (idx, name) in scc.members.iter().enumerate() {
+            // Each local function in the SCC gets a derived hash
+            for (idx, name) in local_members.iter().enumerate() {
                 let mut hasher = blake3::Hasher::new();
                 hasher.update(scc_hash.as_bytes());
                 hasher.update(&(idx as u32).to_le_bytes());

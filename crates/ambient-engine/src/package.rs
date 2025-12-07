@@ -137,6 +137,11 @@ impl Package {
         &self.modules
     }
 
+    /// Iterate over all loaded modules.
+    pub fn all_modules(&self) -> impl Iterator<Item = &LoadedModule> {
+        self.modules.values()
+    }
+
     /// Check if a module is loaded.
     #[must_use]
     pub fn is_loaded(&self, path: &ModulePath) -> bool {
