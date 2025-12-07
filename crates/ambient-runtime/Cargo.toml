@@ -1,0 +1,8 @@
+[package]
+name = "ambient-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "Host-provided runtime abilities for the Ambient language"
+
+[dependencies]
+ambient-core = { path = "../ambient-core" }

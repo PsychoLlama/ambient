@@ -12,6 +12,7 @@
 #![cfg_attr(not(test), deny(clippy::expect_used))]
 
 pub mod abilities;
+pub mod ability_resolver;
 pub mod ast;
 pub mod bytecode;
 pub mod client;

@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+ambient-core = { path = "../ambient-core" }
+ambient-runtime = { path = "../ambient-runtime" }
 base64 = "0.22"
 blake3 = { version = "1.5.5", features = ["serde"] }
 hex = "0.4"

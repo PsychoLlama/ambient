@@ -1,7 +1,10 @@
 //! Built-in abilities for the Ambient VM.
 //!
-//! This module defines well-known ability IDs and provides host handler
-//! implementations for core abilities like Console and Exception.
+//! This module provides host handler implementations for abilities.
+//! Ability IDs and descriptors are defined in `ambient-core` (for Exception)
+//! and `ambient-runtime` (for Console, Time, Random, Async, Log).
+//!
+//! This module re-exports the ability ID modules for backward compatibility.
 
 #![allow(clippy::type_complexity)] // Handler types are inherently complex
 
@@ -9,69 +12,32 @@ use crate::value::{SuspendedAbility, Value};
 use crate::vm::{Vm, VmError};
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Ability IDs
+// Re-export ability IDs from core and runtime crates
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Console ability - for printing to stdout/stderr.
 pub mod console {
-    /// Ability ID for Console.
-    pub const ABILITY_ID: u16 = 0x0001;
-
-    /// Method: print a message to stdout.
-    pub const METHOD_PRINT: u16 = 0x0000;
-
-    /// Method: print a message to stderr.
-    pub const METHOD_EPRINT: u16 = 0x0001;
-
-    /// Method: print with newline.
-    pub const METHOD_PRINTLN: u16 = 0x0002;
+    pub use ambient_runtime::console::*;
 }
 
 /// Exception ability - for throwing and catching errors.
 pub mod exception {
-    /// Ability ID for Exception.
-    pub const ABILITY_ID: u16 = 0x0002;
-
-    /// Method: throw an error (never returns normally).
-    pub const METHOD_THROW: u16 = 0x0000;
+    pub use ambient_core::exception::*;
 }
 
 /// Time ability - for time-related operations.
 pub mod time {
-    /// Ability ID for Time.
-    pub const ABILITY_ID: u16 = 0x0003;
-
-    /// Method: get current timestamp in milliseconds.
-    pub const METHOD_NOW: u16 = 0x0000;
-
-    /// Method: wait for a duration in milliseconds.
-    pub const METHOD_WAIT: u16 = 0x0001;
+    pub use ambient_runtime::time::*;
 }
 
 /// Random ability - for random number generation.
 pub mod random {
-    /// Ability ID for Random.
-    pub const ABILITY_ID: u16 = 0x0004;
-
-    /// Method: get a random number between 0.0 and 1.0.
-    pub const METHOD_SEED: u16 = 0x0000;
-
-    /// Method: get a random number in a range.
-    pub const METHOD_IN_RANGE: u16 = 0x0001;
+    pub use ambient_runtime::random::*;
 }
 
 /// Async ability - for concurrent execution of abilities.
 pub mod async_ability {
-    /// Ability ID for Async.
-    pub const ABILITY_ID: u16 = 0x0005;
-
-    /// Method: wait for all operations to complete.
-    /// Takes a tuple of suspended abilities, returns a tuple of results.
-    pub const METHOD_ALL: u16 = 0x0000;
-
-    /// Method: wait for first operation to complete, cancel others.
-    /// Takes a tuple of suspended abilities, returns the first result.
-    pub const METHOD_RACE: u16 = 0x0001;
+    pub use ambient_runtime::async_ability::*;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -246,26 +212,9 @@ pub fn register_exception_fallback(vm: &mut Vm) {
     );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Log Ability
-// ═══════════════════════════════════════════════════════════════════════════
-
 /// Log ability - for structured logging with levels.
 pub mod log {
-    /// Ability ID for Log.
-    pub const ABILITY_ID: u16 = 0x0006;
-
-    /// Method: log a debug message.
-    pub const METHOD_DEBUG: u16 = 0x0000;
-
-    /// Method: log an info message.
-    pub const METHOD_INFO: u16 = 0x0001;
-
-    /// Method: log a warning message.
-    pub const METHOD_WARN: u16 = 0x0002;
-
-    /// Method: log an error message.
-    pub const METHOD_ERROR: u16 = 0x0003;
+    pub use ambient_runtime::log::*;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
