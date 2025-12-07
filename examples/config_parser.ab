@@ -1,0 +1,94 @@
+// Config Parser Example
+//
+// Parses a simple key=value config format and extracts values.
+// Demonstrates string manipulation and list operations.
+
+// Parse a single line into a key-value pair, returns empty list on failure
+fn parse_line(line: string): List<(string, string)> {
+    let trimmed = string_trim(line);
+
+    // Skip empty lines and comments
+    if string_length(trimmed) == 0 {
+        []
+    } else if string_starts_with(trimmed, "#") {
+        []
+    } else {
+        // Find the = separator
+        let parts = string_split(trimmed, "=");
+        if list_length(parts) >= 2 {
+            let key = string_trim(list_get(parts, 0));
+            // Join remaining parts in case value contains =
+            let value_parts = list_tail(parts);
+            let value = string_trim(string_join(value_parts, "="));
+            [(key, value)]
+        } else {
+            []
+        }
+    }
+}
+
+// Parse multiple lines of config
+fn parse_config(text: string): List<(string, string)> {
+    let lines = string_split(text, "\n");
+    parse_lines(lines, [])
+}
+
+fn parse_lines(lines: List<string>, acc: List<(string, string)>): List<(string, string)> {
+    if list_is_empty(lines) {
+        acc
+    } else {
+        let line = list_head(lines);
+        let rest = list_tail(lines);
+        let parsed = parse_line(line);
+        if list_is_empty(parsed) {
+            parse_lines(rest, acc)
+        } else {
+            parse_lines(rest, list_concat(acc, parsed))
+        }
+    }
+}
+
+// Look up a value by key, returns default if not found
+fn get_config(config: List<(string, string)>, key: string, default: string): string {
+    if list_is_empty(config) {
+        default
+    } else {
+        let entry = list_head(config);
+        let entry_key = entry.0;
+        if entry_key == key {
+            entry.1
+        } else {
+            get_config(list_tail(config), key, default)
+        }
+    }
+}
+
+pub fn main(): string {
+    // Sample config text
+    let config_text = "# Database settings
+host=localhost
+port=5432
+database=myapp
+
+# Connection pool
+pool_size=10
+timeout=30
+
+# Feature flags
+debug=true
+";
+
+    let config = parse_config(config_text);
+
+    // Extract some values
+    let host = get_config(config, "host", "127.0.0.1");
+    let port = get_config(config, "port", "3000");
+    let debug = get_config(config, "debug", "false");
+    let missing = get_config(config, "nonexistent", "default_value");
+
+    // Build a connection string
+    let conn = string_concat(host, string_concat(":", port));
+
+    // Return summary
+    string_concat("Connection: ", string_concat(conn, string_concat(", debug=", debug)))
+}
