@@ -6,8 +6,10 @@
 //! - Function names from the current module
 //! - Local variables in scope
 //! - Ability names and methods
+//! - Core library modules and functions
 
 use ambient_engine::ast::{Expr, ExprKind, FunctionDef, ItemKind, Module, Param, StmtKind};
+use ambient_engine::core_library::CoreLibrary;
 use ambient_parser::TokenKind;
 use lsp_types::{CompletionItem, CompletionItemKind, CompletionItemLabelDetails, InsertTextFormat};
 
@@ -24,6 +26,10 @@ pub struct CompletionContext<'a> {
     pub after_dot: bool,
     /// Whether we're after an ability name (for method completion).
     pub after_ability_dot: Option<&'a str>,
+    /// Whether we're after `core.` (for core library module completion).
+    pub after_core_dot: bool,
+    /// Whether we're after a use statement prefix (pkg, core, self, super).
+    pub in_use_statement: bool,
 }
 
 impl<'a> CompletionContext<'a> {
@@ -36,6 +42,10 @@ impl<'a> CompletionContext<'a> {
         let line_start = source[..offset].rfind('\n').map_or(0, |i| i + 1);
         let line_prefix = &source[line_start..offset];
 
+        // Check if we're in a use statement
+        let trimmed_line = line_prefix.trim_start();
+        let in_use_statement = trimmed_line.starts_with("use ");
+
         // Find the word being typed.
         let word_start = line_prefix
             .rfind(|c: char| !c.is_alphanumeric() && c != '_')
@@ -46,8 +56,21 @@ impl<'a> CompletionContext<'a> {
         let before_word = &line_prefix[..word_start];
         let after_dot = before_word.trim_end().ends_with('.');
 
+        // Check if we're after `core.` (for core library completions)
+        let after_core_dot = if after_dot {
+            let trimmed = before_word.trim_end();
+            let without_dot = trimmed.strip_suffix('.').unwrap_or(trimmed);
+            let ident_start = without_dot
+                .rfind(|c: char| !c.is_alphanumeric() && c != '_')
+                .map_or(0, |i| i + 1);
+            let ident = &without_dot[ident_start..];
+            ident == "core"
+        } else {
+            false
+        };
+
         // Check if we're after an ability name (e.g., "Console.")
-        let after_ability_dot = if after_dot {
+        let after_ability_dot = if after_dot && !after_core_dot {
             // Look for the identifier before the dot
             let trimmed = before_word.trim_end();
             let without_dot = trimmed.strip_suffix('.').unwrap_or(trimmed);
@@ -69,6 +92,8 @@ impl<'a> CompletionContext<'a> {
             word_prefix,
             after_dot,
             after_ability_dot,
+            after_core_dot,
+            in_use_statement,
         }
     }
 }
@@ -81,6 +106,12 @@ pub fn get_completions(
 ) -> Vec<CompletionItem> {
     let mut items = Vec::new();
 
+    // If we're completing core library modules (after "core.")
+    if ctx.after_core_dot {
+        items.extend(get_core_module_completions(ctx.word_prefix));
+        return items;
+    }
+
     // If we're completing an ability method, show ability methods.
     if let Some(ability_name) = ctx.after_ability_dot {
         items.extend(get_ability_method_completions(
@@ -90,10 +121,15 @@ pub fn get_completions(
         return items;
     }
 
-    // If we're after a dot (but not an ability), we'd show field completions.
+    // If we're after a dot (but not an ability or core), we'd show field completions.
     // For now, we don't have enough type info at the cursor, so skip.
     if ctx.after_dot {
         return items;
+    }
+
+    // If we're in a use statement, add use prefix completions
+    if ctx.in_use_statement {
+        items.extend(get_use_prefix_completions(ctx.word_prefix));
     }
 
     // Add keyword completions.
@@ -151,6 +187,61 @@ fn get_ability_completions(prefix: &str) -> Vec<CompletionItem> {
             label: (*ab).to_string(),
             kind: Some(CompletionItemKind::INTERFACE),
             detail: Some("ability".to_string()),
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// Get core library module completions.
+fn get_core_module_completions(prefix: &str) -> Vec<CompletionItem> {
+    CoreLibrary::available_modules()
+        .into_iter()
+        .filter(|module| module.starts_with(prefix))
+        .map(|module| CompletionItem {
+            label: module.to_string(),
+            kind: Some(CompletionItemKind::MODULE),
+            detail: Some(format!("core library module: {module}")),
+            documentation: Some(lsp_types::Documentation::String(get_core_module_doc(
+                module,
+            ))),
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// Get documentation for a core library module.
+fn get_core_module_doc(module: &str) -> String {
+    match module {
+        "option" => {
+            "Option handling utilities (is_some, is_none, unwrap_or, map, flatten)".to_string()
+        }
+        "result" => {
+            "Result handling utilities (is_ok, is_err, unwrap_or, map, map_err)".to_string()
+        }
+        "list" => "List operations (len, map, filter, fold)".to_string(),
+        "string" => "String utilities (len, concat, from_number)".to_string(),
+        "math" => "Mathematical functions (abs, min, max, clamp, PI, E, TAU)".to_string(),
+        _ => format!("Core library module: {module}"),
+    }
+}
+
+/// Get use statement prefix completions (pkg, core, self, super).
+fn get_use_prefix_completions(prefix: &str) -> Vec<CompletionItem> {
+    let prefixes = [
+        ("pkg", "Package-relative import (from package root)"),
+        ("core", "Core library import"),
+        ("self", "Relative import (same directory)"),
+        ("super", "Parent directory import"),
+    ];
+
+    prefixes
+        .iter()
+        .filter(|(name, _)| name.starts_with(prefix))
+        .map(|(name, doc)| CompletionItem {
+            label: (*name).to_string(),
+            kind: Some(CompletionItemKind::KEYWORD),
+            detail: Some("import prefix".to_string()),
+            documentation: Some(lsp_types::Documentation::String((*doc).to_string())),
             ..Default::default()
         })
         .collect()
@@ -680,6 +771,8 @@ mod tests {
         assert_eq!(ctx.word_prefix, "x");
         assert!(!ctx.after_dot);
         assert!(ctx.after_ability_dot.is_none());
+        assert!(!ctx.after_core_dot);
+        assert!(!ctx.in_use_statement);
     }
 
     #[test]
@@ -690,6 +783,29 @@ mod tests {
         assert_eq!(ctx.word_prefix, "pr");
         assert!(ctx.after_dot);
         assert_eq!(ctx.after_ability_dot, Some("Console"));
+        assert!(!ctx.after_core_dot);
+    }
+
+    #[test]
+    fn test_completion_context_after_core_dot() {
+        let source = "use core.ma";
+        let ctx = CompletionContext::new(source, 11);
+
+        assert_eq!(ctx.word_prefix, "ma");
+        assert!(ctx.after_dot);
+        assert!(ctx.after_ability_dot.is_none());
+        assert!(ctx.after_core_dot);
+        assert!(ctx.in_use_statement);
+    }
+
+    #[test]
+    fn test_completion_context_in_use_statement() {
+        let source = "use pk";
+        let ctx = CompletionContext::new(source, 6);
+
+        assert_eq!(ctx.word_prefix, "pk");
+        assert!(!ctx.after_dot);
+        assert!(ctx.in_use_statement);
     }
 
     #[test]
@@ -736,5 +852,32 @@ mod tests {
     fn test_empty_prefix_returns_all_keywords() {
         let items = get_keyword_completions("");
         assert_eq!(items.len(), TokenKind::all_keywords().len());
+    }
+
+    #[test]
+    fn test_core_module_completions() {
+        let items = get_core_module_completions("ma");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].label, "math");
+        assert_eq!(items[0].kind, Some(CompletionItemKind::MODULE));
+    }
+
+    #[test]
+    fn test_core_module_completions_all() {
+        let items = get_core_module_completions("");
+        assert!(items.len() >= 5); // option, result, list, string, math
+        assert!(items.iter().any(|i| i.label == "option"));
+        assert!(items.iter().any(|i| i.label == "list"));
+        assert!(items.iter().any(|i| i.label == "math"));
+    }
+
+    #[test]
+    fn test_use_prefix_completions() {
+        let items = get_use_prefix_completions("c");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].label, "core");
+
+        let all_items = get_use_prefix_completions("");
+        assert_eq!(all_items.len(), 4); // pkg, core, self, super
     }
 }
