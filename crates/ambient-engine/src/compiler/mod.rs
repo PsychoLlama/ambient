@@ -432,7 +432,28 @@ impl ModuleContext {
 ///
 /// Returns a `CompileError` if compilation fails.
 pub fn compile_module(module: &Module) -> Result<CompiledModule, CompileError> {
-    compile_module_impl(module, None, None)
+    compile_module_impl(module, None, None, None)
+}
+
+/// Compile a module with imported function references.
+///
+/// This is used for cross-module compilation where the module imports
+/// functions from other already-compiled modules.
+///
+/// # Arguments
+///
+/// * `module` - The module to compile
+/// * `imported_hashes` - Map from imported function names to their content-addressed hashes
+///
+/// # Errors
+///
+/// Returns a `CompileError` if compilation fails.
+#[allow(clippy::implicit_hasher)]
+pub fn compile_module_with_imports(
+    module: &Module,
+    imported_hashes: HashMap<Arc<str>, blake3::Hash>,
+) -> Result<CompiledModule, CompileError> {
+    compile_module_impl(module, None, None, Some(imported_hashes))
 }
 
 /// Compile a module to bytecode with debug information.
@@ -454,7 +475,36 @@ pub fn compile_module_with_source(
     source: &str,
     source_file: &str,
 ) -> Result<CompiledModule, CompileError> {
-    compile_module_impl(module, Some(source), Some(source_file))
+    compile_module_impl(module, Some(source), Some(source_file), None)
+}
+
+/// Compile a module with imported function references and debug information.
+///
+/// This combines cross-module compilation with debug info.
+///
+/// # Arguments
+///
+/// * `module` - The module to compile
+/// * `source` - The original source code (for computing line/column info)
+/// * `source_file` - The path to the source file (for display in stack traces)
+/// * `imported_hashes` - Map from imported function names to their content-addressed hashes
+///
+/// # Errors
+///
+/// Returns a `CompileError` if compilation fails.
+#[allow(clippy::implicit_hasher)]
+pub fn compile_module_with_imports_and_source(
+    module: &Module,
+    source: &str,
+    source_file: &str,
+    imported_hashes: HashMap<Arc<str>, blake3::Hash>,
+) -> Result<CompiledModule, CompileError> {
+    compile_module_impl(
+        module,
+        Some(source),
+        Some(source_file),
+        Some(imported_hashes),
+    )
 }
 
 /// Implementation of module compilation with optional debug info.
@@ -462,6 +512,7 @@ fn compile_module_impl(
     module: &Module,
     source: Option<&str>,
     source_file: Option<&str>,
+    imported_hashes: Option<HashMap<Arc<str>, blake3::Hash>>,
 ) -> Result<CompiledModule, CompileError> {
     // Collect function definitions.
     let functions: Vec<&FunctionDef> = module
@@ -478,7 +529,10 @@ fn compile_module_impl(
 
     // Phase 1: Create temporary hashes for name-based lookup during compilation.
     // These will be replaced with content-addressed hashes after compilation.
-    let mut temp_hashes: HashMap<Arc<str>, blake3::Hash> = HashMap::new();
+    // Start with imported hashes (these are already content-addressed).
+    let mut temp_hashes: HashMap<Arc<str>, blake3::Hash> = imported_hashes.unwrap_or_default();
+
+    // Add temporary hashes for local functions.
     for func in &functions {
         let hash = compute_temporary_hash(&func.name);
         temp_hashes.insert(Arc::clone(&func.name), hash);
