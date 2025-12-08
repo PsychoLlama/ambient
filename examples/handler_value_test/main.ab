@@ -13,6 +13,6 @@ fn test_handler_value(): number {
   handle simple_function() with mock_console {}
 }
 
-pub fn main(): number {
+pub fn run(): number {
   test_handler_value()
 }

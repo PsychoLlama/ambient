@@ -598,7 +598,7 @@ mod tests {
 
     #[test]
     fn test_resolve_function_call() {
-        let source = "fn helper(x: number): number { x + 1 } fn main(): number { helper(42) }";
+        let source = "fn helper(x: number): number { x + 1 } fn run(): number { helper(42) }";
         let module = parse(source).expect("parse error");
 
         let mut resolver = Resolver::new();

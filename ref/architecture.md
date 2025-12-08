@@ -154,7 +154,7 @@ pub fn transform(x: Input): Output
 ### Handling Abilities
 
 ```ambient
-fn main(): () {
+fn run(): () {
   handle read_config("config.toml") {
     Filesystem.read(path) => {
       let content = host_read_file(path);
@@ -377,7 +377,7 @@ ambient serve foo.ambient  # Start remote execution server
 ### Hello World
 
 ```ambient
-pub fn main(): () with Console {
+pub fn run(): () with Console {
   Console.print!("Hello, world!");
 }
 ```

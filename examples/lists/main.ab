@@ -112,7 +112,7 @@ fn zip_lists(xs: List<number>, ys: List<number>): List<(number, number)> {
     }
 }
 
-pub fn main(): number {
+pub fn run(): number {
     let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     let mixed = [0 - 3, 0 - 1, 0, 2, 5, 0 - 2, 8];
 

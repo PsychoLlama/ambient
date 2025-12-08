@@ -27,7 +27,7 @@ fn fizzbuzz_range(start: number, end: number, acc: List<string>): List<string> {
     }
 }
 
-pub fn main(): string {
+pub fn run(): string {
     let results = fizzbuzz_range(1, 20, []);
     string_join(results, ", ")
 }

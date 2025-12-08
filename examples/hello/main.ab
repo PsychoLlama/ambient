@@ -1,1 +1,1 @@
-fn main(): number { 42 }
+fn run(): number { 42 }

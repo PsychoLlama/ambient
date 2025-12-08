@@ -94,7 +94,7 @@ pub struct CompiledModule {
     /// Map from function names to their hashes.
     pub function_names: HashMap<Arc<str>, blake3::Hash>,
 
-    /// The entry point function (typically "main").
+    /// The entry point function (typically "run").
     pub entry_point: Option<blake3::Hash>,
 }
 
@@ -565,7 +565,7 @@ fn compile_module_impl(
     for func in &functions {
         let compiled =
             compile_function_with_hash(func, &temp_hashes, &mut ctx, source, source_file)?;
-        let is_main = &*func.name == "main";
+        let is_main = &*func.name == "run";
         compiled_functions.push((Arc::clone(&func.name), compiled, is_main));
     }
 
@@ -2786,7 +2786,7 @@ mod tests {
                 ),
                 Item::new(
                     ItemKind::Function(FunctionDef {
-                        name: Arc::from("main"),
+                        name: Arc::from("run"),
                         name_span: Span::default(),
                         is_public: true,
                         type_params: vec![],
@@ -2804,7 +2804,7 @@ mod tests {
 
         assert!(compiled.entry_point.is_some());
         assert!(compiled.get_function("double").is_some());
-        assert!(compiled.get_function("main").is_some());
+        assert!(compiled.get_function("run").is_some());
     }
 
     #[test]

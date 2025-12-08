@@ -243,7 +243,7 @@ src = "src"
 
     #[test]
     fn test_open_package() {
-        let (_dir, root) = create_test_package(&[("main.ab", "fn main(): number { 42 }")]);
+        let (_dir, root) = create_test_package(&[("main.ab", "fn run(): number { 42 }")]);
 
         let pkg = Package::open(&root).expect("open package");
 
@@ -255,7 +255,7 @@ src = "src"
     #[test]
     fn test_read_module_source() {
         let (_dir, root) = create_test_package(&[
-            ("main.ab", "fn main(): number { 42 }"),
+            ("main.ab", "fn run(): number { 42 }"),
             ("utils.ab", "fn helper(): number { 1 }"),
         ]);
 
@@ -269,7 +269,7 @@ src = "src"
     #[test]
     fn test_read_nested_module_source() {
         let (_dir, root) = create_test_package(&[
-            ("main.ab", "fn main(): number { 42 }"),
+            ("main.ab", "fn run(): number { 42 }"),
             ("utils/format.ab", "fn fmt(): string { \"\" }"),
         ]);
 
@@ -282,7 +282,7 @@ src = "src"
 
     #[test]
     fn test_read_missing_module() {
-        let (_dir, root) = create_test_package(&[("main.ab", "fn main(): number { 42 }")]);
+        let (_dir, root) = create_test_package(&[("main.ab", "fn run(): number { 42 }")]);
 
         let pkg = Package::open(&root).expect("open package");
 
@@ -316,7 +316,7 @@ version = "0.1.0"
     #[test]
     fn test_module_exists() {
         let (_dir, root) = create_test_package(&[
-            ("main.ab", "fn main(): number { 42 }"),
+            ("main.ab", "fn run(): number { 42 }"),
             ("utils.ab", "fn helper(): number { 1 }"),
         ]);
 
@@ -331,7 +331,7 @@ version = "0.1.0"
 
     #[test]
     fn test_add_module() {
-        let (_dir, root) = create_test_package(&[("main.ab", "fn main(): number { 42 }")]);
+        let (_dir, root) = create_test_package(&[("main.ab", "fn run(): number { 42 }")]);
 
         let mut pkg = Package::open(&root).expect("open package");
 
@@ -341,7 +341,7 @@ version = "0.1.0"
         // Add a dummy module (in real usage, this would be parsed by ambient-parser)
         let loaded = LoadedModule {
             path: path.clone(),
-            source: "fn main(): number { 42 }".to_string(),
+            source: "fn run(): number { 42 }".to_string(),
             ast: Module {
                 name: "main".into(),
                 items: vec![],

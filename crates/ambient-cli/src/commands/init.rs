@@ -21,7 +21,7 @@ src = "src"
 }
 
 /// Default content for src/main.ab.
-const MAIN_CONTENT: &str = r#"pub fn main(): () with Console {
+const MAIN_CONTENT: &str = r#"pub fn run(): () with Console {
     Console.print!("Hello, world!");
 }
 "#;
@@ -148,7 +148,7 @@ mod tests {
 
         // Check main.ab content
         let main = fs::read_to_string(pkg_path.join("src/main.ab")).expect("read main");
-        assert!(main.contains("pub fn main()"));
+        assert!(main.contains("pub fn run()"));
     }
 
     #[test]

@@ -3,8 +3,8 @@
 // Demonstrates the Exception ability for error handling.
 // Shows how to catch and handle errors using handlers.
 
-// Main function demonstrating error handling
-pub fn main(): number {
+// Entry point demonstrating error handling
+pub fn run(): number {
     // Test 1: Success case - no exception thrown
     let success_result = handle {
         // No error here, just return a value

@@ -227,7 +227,7 @@ src = "src"
         // Create source files
         let src = root.join("src");
         fs::create_dir_all(&src).expect("create src dir");
-        fs::write(src.join("main.ab"), "fn main(): number { 42 }").expect("write main");
+        fs::write(src.join("main.ab"), "fn run(): number { 42 }").expect("write main");
         fs::write(src.join("utils.ab"), "pub fn helper(): number { 1 }").expect("write utils");
 
         (dir, root)

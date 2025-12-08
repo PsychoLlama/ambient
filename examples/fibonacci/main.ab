@@ -60,7 +60,7 @@ fn is_fib_helper(target: number, a: number, b: number): bool {
     }
 }
 
-pub fn main(): number {
+pub fn run(): number {
     // Test recursive fib (small n due to exponential time)
     let r1 = fib_recursive(10);  // Expected: 55
 

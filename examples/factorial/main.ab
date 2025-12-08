@@ -8,6 +8,6 @@ fn factorial(n: number): number {
   }
 }
 
-fn main(): number {
+fn run(): number {
   factorial(5)
 }

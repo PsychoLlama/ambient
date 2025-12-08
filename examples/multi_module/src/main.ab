@@ -15,7 +15,7 @@ use pkg.list_utils.*;
 // Import from statistics (which itself imports from siblings)
 use pkg.statistics.{variance, range};
 
-pub fn main(): number {
+pub fn run(): number {
     // Test math_utils functions
     let a = abs(0 - 42);        // 42
     let b = min(10, 5);         // 5

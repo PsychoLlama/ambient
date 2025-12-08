@@ -53,7 +53,7 @@ fn field(key: string, value: string): (string, string) {
     (key, value)
 }
 
-pub fn main(): string {
+pub fn run(): string {
     // Build a user profile as JSON
     let user = json_object([
         field("name", json_string("Alice")),

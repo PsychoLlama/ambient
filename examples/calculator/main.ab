@@ -133,7 +133,7 @@ fn calculate(expr: string): number {
     result.0
 }
 
-pub fn main(): string {
+pub fn run(): string {
     // Test various expressions
     let expr1 = "2 + 3";
     let expr2 = "10 - 4";

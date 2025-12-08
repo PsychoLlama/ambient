@@ -7,8 +7,8 @@
 // using the result values due to current type system limitations
 // with ability return types.
 
-// Main function demonstrating Random ability handlers
-pub fn main(): number {
+// Entry point demonstrating Random ability handlers
+pub fn run(): number {
     // The handler intercepts Random.seed!() calls
     // We can verify the handler is invoked by the program completing
     let result = handle {

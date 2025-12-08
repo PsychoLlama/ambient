@@ -189,24 +189,24 @@ impl CliTest {
 
 #[test]
 fn test_run_simple_return() {
-    CliTest::new("fn main(): number { 42 }").expect_output("42");
+    CliTest::new("fn run(): number { 42 }").expect_output("42");
 }
 
 #[test]
 fn test_run_arithmetic() {
-    CliTest::new("fn main(): number { 2 + 3 * 4 }").expect_output("14");
+    CliTest::new("fn run(): number { 2 + 3 * 4 }").expect_output("14");
 }
 
 #[test]
 fn test_run_boolean_logic() {
-    CliTest::new("fn main(): bool { true && false || true }").expect_output("true");
+    CliTest::new("fn run(): bool { true && false || true }").expect_output("true");
 }
 
 #[test]
 fn test_run_if_else() {
     CliTest::new(
         r#"
-        fn main(): number {
+        fn run(): number {
             if 5 > 3 { 100 } else { 0 }
         }
     "#,
@@ -219,7 +219,7 @@ fn test_run_function_call() {
     CliTest::new(
         r#"
         fn double(x: number): number { x * 2 }
-        fn main(): number { double(21) }
+        fn run(): number { double(21) }
     "#,
     )
     .expect_output("42");
@@ -232,7 +232,7 @@ fn test_run_recursive_factorial() {
         fn factorial(n: number): number {
             if n <= 1 { 1 } else { n * factorial(n - 1) }
         }
-        fn main(): number { factorial(5) }
+        fn run(): number { factorial(5) }
     "#,
     )
     .expect_output("120");
@@ -244,7 +244,7 @@ fn test_run_multiple_functions() {
         r#"
         fn add(a: number, b: number): number { a + b }
         fn square(x: number): number { x * x }
-        fn main(): number { square(add(2, 3)) }
+        fn run(): number { square(add(2, 3)) }
     "#,
     )
     .expect_output("25");
@@ -254,7 +254,7 @@ fn test_run_multiple_functions() {
 fn test_run_let_binding() {
     CliTest::new(
         r#"
-        fn main(): number {
+        fn run(): number {
             let x = 10;
             let y = 20;
             x + y
@@ -266,7 +266,7 @@ fn test_run_let_binding() {
 
 #[test]
 fn test_run_string_literal() {
-    CliTest::new(r#"fn main(): string { "hello" }"#).expect_output("hello");
+    CliTest::new(r#"fn run(): string { "hello" }"#).expect_output("hello");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -275,7 +275,7 @@ fn test_run_string_literal() {
 
 #[test]
 fn test_compile_creates_output_file() {
-    let (dir, path) = temp_source("fn main(): number { 42 }");
+    let (dir, path) = temp_source("fn run(): number { 42 }");
     let output_path = dir.path().join("test.ambient");
 
     let output = ambient_cmd()
@@ -296,7 +296,7 @@ fn test_compile_creates_output_file() {
 
 #[test]
 fn test_compile_custom_output_path() {
-    let (dir, path) = temp_source("fn main(): number { 42 }");
+    let (dir, path) = temp_source("fn run(): number { 42 }");
     let output_path = dir.path().join("custom.abc");
 
     let output = ambient_cmd()
@@ -320,7 +320,7 @@ fn test_compile_then_run() {
         fn factorial(n: number): number {
             if n <= 1 { 1 } else { n * factorial(n - 1) }
         }
-        fn main(): number { factorial(6) }
+        fn run(): number { factorial(6) }
     "#,
     );
     let compiled_path = dir.path().join("test.ambient");
@@ -365,7 +365,7 @@ fn test_check_valid_file() {
     CliTest::new(
         r#"
         fn add(a: number, b: number): number { a + b }
-        fn main(): number { add(1, 2) }
+        fn run(): number { add(1, 2) }
     "#,
     )
     .check()
@@ -375,7 +375,7 @@ fn test_check_valid_file() {
 #[test]
 fn test_check_invalid_syntax() {
     // Missing closing paren
-    CliTest::new("fn main( { }").check().expect_failure();
+    CliTest::new("fn run( { }").check().expect_failure();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -384,9 +384,9 @@ fn test_check_invalid_syntax() {
 
 #[test]
 fn test_ast_output() {
-    CliTest::new("fn main(): number { 42 }")
+    CliTest::new("fn run(): number { 42 }")
         .ast()
-        .expect_output("main");
+        .expect_output("run");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -394,8 +394,8 @@ fn test_ast_output() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn test_run_missing_main_function() {
-    // Package with no main function
+fn test_run_missing_run_function() {
+    // Package with no run function
     CliTest::new("fn other(): number { 42 }").expect_failure();
 }
 
@@ -418,7 +418,7 @@ fn test_run_non_package_file() {
     // Trying to run a regular file that's not a .ambient bytecode file
     let dir = TempDir::new().expect("failed to create temp dir");
     let path = dir.path().join("test.txt");
-    fs::write(&path, "fn main(): number { 42 }").expect("failed to write");
+    fs::write(&path, "fn run(): number { 42 }").expect("failed to write");
 
     let output = ambient_cmd()
         .arg("run")
@@ -488,7 +488,7 @@ fn test_handler_value_basic() {
             handle simple_function() with mock_console {}
         }
 
-        fn main(): number { test_handler_value() }
+        fn run(): number { test_handler_value() }
     "#,
     )
     .expect_output("100");
@@ -506,7 +506,7 @@ fn test_handler_value_multiple() {
             handle simple_function() with handler1, handler2 {}
         }
 
-        fn main(): number { test_multiple_handlers() }
+        fn run(): number { test_multiple_handlers() }
     "#,
     )
     .expect_output("200");
@@ -527,7 +527,7 @@ fn test_handler_value_with_inline() {
             }
         }
 
-        fn main(): number { test_mixed() }
+        fn run(): number { test_mixed() }
     "#,
     )
     .expect_output("300");
@@ -563,7 +563,7 @@ fn test_sandbox_pure_computation() {
             x + y
         }
 
-        fn main(): number {
+        fn run(): number {
             sandbox {
                 pure_add(2, 3)
             }
@@ -581,7 +581,7 @@ fn test_sandbox_with_allowed_ability() {
             42
         }
 
-        fn main(): number {
+        fn run(): number {
             sandbox with Console {
                 compute()
             }
@@ -599,7 +599,7 @@ fn test_sandbox_nested_pure() {
             if n <= 1 { 1 } else { n * factorial(n - 1) }
         }
 
-        fn main(): number {
+        fn run(): number {
             sandbox {
                 factorial(5)
             }

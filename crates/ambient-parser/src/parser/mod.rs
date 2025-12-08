@@ -951,13 +951,13 @@ mod tests {
 
     #[test]
     fn test_parse_pub_function() {
-        let source = "pub fn main(): () { () }";
+        let source = "pub fn run(): () { () }";
         let mut parser = Parser::new(source);
         let module = parser.parse_module().expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
             CstItemKind::Function(f) => {
-                assert_eq!(&*f.name.name, "main");
+                assert_eq!(&*f.name.name, "run");
                 assert!(f.is_public);
             }
             _ => panic!("Expected function"),

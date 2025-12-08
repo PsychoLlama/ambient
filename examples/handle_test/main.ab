@@ -25,7 +25,7 @@ fn test_multiple_handlers(): number {
   }
 }
 
-pub fn main(): number {
+pub fn run(): number {
   let r1 = test_simple_handle();
   let r2 = test_multiple_handlers();
   // Both should return 100

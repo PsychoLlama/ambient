@@ -128,24 +128,24 @@ This is a breaking change if existing code uses these as names.
 
 ## Entry Point
 
-The entry point must be `pub fn main(): ()` in `main.ab`:
+The entry point must be `pub fn run()` in `main.ab`:
 
 ```ambient
 // src/main.ab
-pub fn main(): () {
+pub fn run(): () {
     // ...
 }
 
 // With abilities (optional)
-pub fn main(): () with Console, Filesystem {
+pub fn run(): () with Console, Filesystem {
     // ...
 }
 ```
 
 **Requirements:**
-- Must be named `main`
+- Must be named `run`
 - Must be `pub`
-- Must return `()` (unit)
+- Return type is flexible (any type)
 - Abilities are optional (default: none)
 - No parameters
 
@@ -324,7 +324,7 @@ version = "0.1.0"
 src = "src"
 
 $ cat my_project/src/main.ab
-pub fn main(): () with Console {
+pub fn run(): () with Console {
     Console.print!("Hello, world!");
 }
 ```

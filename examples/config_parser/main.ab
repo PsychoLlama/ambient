@@ -63,7 +63,7 @@ fn get_config(config: List<(string, string)>, key: string, default: string): str
     }
 }
 
-pub fn main(): string {
+pub fn run(): string {
     // Sample config text
     let config_text = "# Database settings
 host=localhost

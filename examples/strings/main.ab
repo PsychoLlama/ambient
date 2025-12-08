@@ -116,7 +116,7 @@ fn initials_helper(words: List<string>, acc: string): string {
     }
 }
 
-pub fn main(): number {
+pub fn run(): number {
     // Test palindrome
     let p1 = if is_palindrome("racecar") { 1 } else { 0 };  // 1
     let p2 = if is_palindrome("hello") { 1 } else { 0 };    // 0

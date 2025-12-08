@@ -36,8 +36,8 @@ fn test_closure_factory(): number {
   make_adder(42)
 }
 
-// Main runs all tests
-pub fn main(): number {
+// Entry point runs all tests
+pub fn run(): number {
   let r1 = test_capture();       // Expected: 15
   let r2 = test_multi_capture(); // Expected: 35
   let r3 = test_pass_closure();  // Expected: 21

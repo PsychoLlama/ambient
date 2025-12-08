@@ -116,7 +116,7 @@ fn is_prime_helper(n: number, divisor: number): bool {
     }
 }
 
-pub fn main(): number {
+pub fn run(): number {
     // Test basic math intrinsics
     let sq = sqrt(16);  // 4
     let ab = abs(0 - 5);  // 5

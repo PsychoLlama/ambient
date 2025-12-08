@@ -61,7 +61,7 @@ fn wc(text: string): string {
     string_concat(to_string(chars), " characters")))))
 }
 
-pub fn main(): string {
+pub fn run(): string {
     let sample = "Hello, world!
 This is a sample text.
 It has multiple lines.

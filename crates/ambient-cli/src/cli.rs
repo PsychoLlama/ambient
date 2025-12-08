@@ -44,8 +44,8 @@ pub enum Command {
         #[arg(value_name = "PATH", default_value = ".")]
         path: PathBuf,
 
-        /// Function to execute (defaults to "main").
-        #[arg(long, default_value = "main")]
+        /// Function to execute (defaults to "run").
+        #[arg(long, default_value = "run")]
         entry: String,
     },
 
@@ -85,8 +85,8 @@ pub enum Command {
         #[arg(value_name = "FILE")]
         file: PathBuf,
 
-        /// Function to execute (defaults to "main").
-        #[arg(long, default_value = "main")]
+        /// Function to execute (defaults to "run").
+        #[arg(long, default_value = "run")]
         entry: String,
 
         /// Directories to watch for changes (defaults to file's directory).
