@@ -292,6 +292,7 @@ impl<'src> Parser<'src> {
                 | TokenKind::Unique
                 | TokenKind::Enum
                 | TokenKind::Ability
+                | TokenKind::Use
         );
 
         if is_item {

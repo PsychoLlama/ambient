@@ -6,7 +6,6 @@
 //! - Completion for keywords, types, abilities, modules, and user-defined symbols
 
 use std::borrow::Cow;
-use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -53,21 +52,6 @@ impl Candidate {
     }
 }
 
-/// State for tab-cycling through completions.
-#[derive(Debug, Default)]
-struct CycleState {
-    /// The candidates for the current completion.
-    candidates: Vec<Candidate>,
-    /// Current index in the cycle.
-    index: usize,
-    /// The line content when cycling started.
-    original_line: String,
-    /// The cursor position when cycling started.
-    original_pos: usize,
-    /// The prefix being completed.
-    prefix: String,
-}
-
 /// REPL completer with tab-cycling and ghost text hints.
 pub struct ReplCompleter {
     /// Project root directory (where ambient.toml is, or provided dir).
@@ -82,8 +66,6 @@ pub struct ReplCompleter {
     repl_ctx: Arc<Mutex<ReplContext>>,
     /// Syntax highlighter.
     highlighter: AmbientHighlighter,
-    /// State for tab-cycling.
-    cycle_state: RefCell<CycleState>,
 }
 
 impl ReplCompleter {
@@ -97,7 +79,6 @@ impl ReplCompleter {
             module_paths,
             repl_ctx,
             highlighter: AmbientHighlighter,
-            cycle_state: RefCell::new(CycleState::default()),
         }
     }
 
@@ -118,21 +99,23 @@ impl ReplCompleter {
             let after_dot = &full_prefix[dot_pos + 1..];
 
             // After `pkg.` - complete module paths
-            if before_dot == "pkg" || before_dot.starts_with("pkg.") {
-                let module_prefix = if before_dot == "pkg" {
-                    after_dot
-                } else {
-                    // pkg.foo.bar -> module prefix is "foo.bar" + after_dot
-                    let rest = before_dot.strip_prefix("pkg.").unwrap_or("");
-                    // We need to handle nested paths
-                    if after_dot.is_empty() {
-                        rest
-                    } else {
-                        // This is a bit tricky - for now just use after_dot
-                        after_dot
-                    }
-                };
-                candidates.extend(self.get_module_completions(module_prefix, "pkg."));
+            if before_dot == "pkg" {
+                // Completing `pkg.` with partial module name
+                candidates.extend(self.get_module_completions(after_dot, "pkg."));
+                return self.sort_candidates(candidates, after_dot);
+            }
+
+            // After `pkg.module.` - complete module members (public functions)
+            if before_dot.starts_with("pkg.") {
+                let module_name = before_dot.strip_prefix("pkg.").unwrap_or("");
+                // Check if this is a known module
+                if self.module_paths.contains(&module_name.to_string()) {
+                    candidates.extend(self.get_module_member_completions(
+                        module_name,
+                        after_dot,
+                        before_dot,
+                    ));
+                }
                 return self.sort_candidates(candidates, after_dot);
             }
 
@@ -147,6 +130,12 @@ impl ReplCompleter {
                     ));
                 }
                 return self.sort_candidates(candidates, after_dot);
+            }
+
+            // After `core.module.` - we don't support accessing module members directly
+            if before_dot.starts_with("core.") {
+                // No completions for core.module. - module members aren't accessible this way
+                return candidates;
             }
 
             // After ability name + dot (e.g., "Console.") - complete methods
@@ -222,6 +211,54 @@ impl ReplCompleter {
             .filter(|name| name.starts_with(prefix))
             .map(|name| Candidate::new(name.to_string(), 5)) // User symbols high priority
             .collect()
+    }
+
+    /// Get completions for module members (public functions/constants).
+    fn get_module_member_completions(
+        &self,
+        module_name: &str,
+        prefix: &str,
+        full_qualifier: &str,
+    ) -> Vec<Candidate> {
+        // Try to find and parse the module file
+        let src_dir = match &self.src_dir {
+            Some(dir) => dir,
+            None => return Vec::new(),
+        };
+
+        // Build path to module file (e.g., "math_utils" -> "src/math_utils.ab")
+        let module_file = src_dir.join(format!("{}.ab", module_name));
+        if !module_file.exists() {
+            return Vec::new();
+        }
+
+        // Read and parse the module to extract public function names
+        let source = match std::fs::read_to_string(&module_file) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+
+        // Parse the module
+        let module = match ambient_parser::parse(&source) {
+            Ok(m) => m,
+            Err(_) => return Vec::new(),
+        };
+
+        // Extract public function names
+        let mut candidates = Vec::new();
+        for item in &module.items {
+            if let ambient_engine::ast::ItemKind::Function(f) = &item.kind {
+                if f.is_public && f.name.starts_with(prefix) {
+                    candidates.push(Candidate::with_display(
+                        format!("{}.{}", full_qualifier, f.name),
+                        f.name.to_string(),
+                        15, // Module member priority
+                    ));
+                }
+            }
+        }
+
+        candidates
     }
 }
 
@@ -405,57 +442,24 @@ impl Completer for ReplCompleter {
         pos: usize,
         _ctx: &Context<'_>,
     ) -> rustyline::Result<(usize, Vec<Pair>)> {
-        let mut state = self.cycle_state.borrow_mut();
-
         // Find the word being typed for replacement position.
         let before_cursor = &line[..pos];
         let word_start = before_cursor
             .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
             .map_or(0, |i| i + 1);
-        let prefix = &before_cursor[word_start..];
 
-        // Check if we're continuing a cycle.
-        // We're continuing if:
-        // 1. We have candidates from before
-        // 2. The prefix part of the line matches our stored prefix (before any completion)
-        // 3. The current prefix matches one of our candidates (meaning Tab was pressed after a completion)
-        let is_continuing = !state.candidates.is_empty()
-            && state.prefix == &line[..state.prefix.len().min(line.len())]
-            && state
-                .candidates
-                .iter()
-                .any(|c| c.text == prefix || prefix.is_empty());
+        // Get all candidates and return them for rustyline to handle cycling.
+        let candidates = self.get_candidates(line, pos);
 
-        if is_continuing && !prefix.is_empty() {
-            // Cycle to next candidate.
-            state.index = (state.index + 1) % state.candidates.len();
-        } else {
-            // Start fresh completion.
-            let candidates = self.get_candidates(line, pos);
-            state.candidates = candidates;
-            state.index = 0;
-            state.original_line = line.to_string();
-            state.original_pos = pos;
-            state.prefix = line[..word_start].to_string(); // Store text BEFORE the word being completed
-        }
+        let pairs: Vec<Pair> = candidates
+            .into_iter()
+            .map(|c| Pair {
+                display: c.display,
+                replacement: c.text,
+            })
+            .collect();
 
-        if state.candidates.is_empty() {
-            return Ok((pos, Vec::new()));
-        }
-
-        // Return the current candidate.
-        let candidate = &state.candidates[state.index];
-        let pair = Pair {
-            display: format!(
-                "{} ({}/{})",
-                candidate.display,
-                state.index + 1,
-                state.candidates.len()
-            ),
-            replacement: candidate.text.clone(),
-        };
-
-        Ok((word_start, vec![pair]))
+        Ok((word_start, pairs))
     }
 }
 
@@ -831,9 +835,8 @@ mod tests {
     }
 
     #[test]
-    fn test_cycling_after_completion() {
-        // Test that after completing pkg. -> pkg.list_utils,
-        // pressing Tab again should cycle to math_utils, then statistics, then back to list_utils
+    fn test_complete_returns_all_candidates() {
+        // Test that complete() returns ALL candidates at once for rustyline to cycle through
         use rustyline::completion::Completer;
 
         let project_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -850,37 +853,33 @@ mod tests {
         let completer = ReplCompleter::new(project_dir, Arc::new(Mutex::new(ReplContext::new())));
         let history = rustyline::history::DefaultHistory::new();
 
-        // First Tab on "pkg."
-        let (_, pairs1) = completer
+        // Tab on "pkg." should return all 3 modules
+        let (word_start, pairs) = completer
             .complete("pkg.", 4, &rustyline::Context::new(&history))
             .unwrap();
-        assert!(!pairs1.is_empty(), "Should have completions for pkg.");
-        let c1 = pairs1[0].replacement.clone();
-        eprintln!("Tab 1: {} (display: {})", c1, pairs1[0].display);
 
-        // Second Tab - line is now c1
-        let (_, pairs2) = completer
-            .complete(&c1, c1.len(), &rustyline::Context::new(&history))
-            .unwrap();
-        let c2 = pairs2[0].replacement.clone();
-        eprintln!("Tab 2: {} (display: {})", c2, pairs2[0].display);
-        assert_ne!(c1, c2, "Should cycle to different completion");
+        assert_eq!(word_start, 0, "Should replace from beginning of word");
+        assert_eq!(
+            pairs.len(),
+            3,
+            "Should have 3 completions for pkg.: {:?}",
+            pairs.iter().map(|p| &p.replacement).collect::<Vec<_>>()
+        );
 
-        // Third Tab
-        let (_, pairs3) = completer
-            .complete(&c2, c2.len(), &rustyline::Context::new(&history))
-            .unwrap();
-        let c3 = pairs3[0].replacement.clone();
-        eprintln!("Tab 3: {} (display: {})", c3, pairs3[0].display);
-        assert_ne!(c2, c3, "Should cycle to different completion");
-
-        // Fourth Tab - should wrap back to first
-        let (_, pairs4) = completer
-            .complete(&c3, c3.len(), &rustyline::Context::new(&history))
-            .unwrap();
-        let c4 = pairs4[0].replacement.clone();
-        eprintln!("Tab 4: {} (display: {})", c4, pairs4[0].display);
-        assert_eq!(c1, c4, "Should wrap back to first completion");
+        // Check all modules are present
+        let replacements: Vec<_> = pairs.iter().map(|p| p.replacement.as_str()).collect();
+        assert!(
+            replacements.contains(&"pkg.list_utils"),
+            "Should contain pkg.list_utils"
+        );
+        assert!(
+            replacements.contains(&"pkg.math_utils"),
+            "Should contain pkg.math_utils"
+        );
+        assert!(
+            replacements.contains(&"pkg.statistics"),
+            "Should contain pkg.statistics"
+        );
     }
 
     #[test]

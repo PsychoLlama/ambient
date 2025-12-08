@@ -5,7 +5,7 @@ use ambient_engine::ast::Span;
 use super::Parser;
 use crate::cst::{
     CstBinaryOp, CstExpr, CstExprKind, CstHandleExpr, CstHandler, CstHandlerLiteralExpr,
-    CstHandlerLiteralMethod, CstLambda, CstLetBinding, CstMatchArm, CstQualifiedName,
+    CstHandlerLiteralMethod, CstIdent, CstLambda, CstLetBinding, CstMatchArm, CstQualifiedName,
     CstSandboxExpr, CstStmt, CstStmtKind, CstUnaryOp, StringPart,
 };
 use crate::error::{ParseError, ParseErrorKind};
@@ -447,8 +447,13 @@ impl Parser<'_> {
             return self.parse_sandbox_expr();
         }
 
-        // Identifier or qualified name
-        if self.check(TokenKind::Ident) {
+        // Identifier or qualified name (including pkg.module.function, core.module.function)
+        if self.check(TokenKind::Ident)
+            || matches!(
+                self.current_kind(),
+                TokenKind::Pkg | TokenKind::Core | TokenKind::Self_ | TokenKind::Super
+            )
+        {
             return self.parse_ident_or_qualified();
         }
 
@@ -460,7 +465,23 @@ impl Parser<'_> {
 
     fn parse_ident_or_qualified(&mut self) -> Result<CstExpr, ParseError> {
         let start = self.current().span.start;
-        let ident = self.parse_ident()?;
+
+        // Handle module prefixes (pkg, core, self, super) as the first segment
+        let first_segment = if matches!(
+            self.current_kind(),
+            TokenKind::Pkg | TokenKind::Core | TokenKind::Self_ | TokenKind::Super
+        ) {
+            let token = self.advance();
+            let trailing_trivia = self.skip_trivia();
+            CstIdent {
+                name: token.text.into(),
+                span: token.span,
+                trailing_trivia,
+            }
+        } else {
+            self.parse_ident()?
+        };
+        let ident = first_segment;
 
         // Check for qualified name (but not tuple index - let postfix handle that)
         if self.check(TokenKind::Dot) {
