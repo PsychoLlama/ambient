@@ -111,8 +111,8 @@ ability Log with Console {
 // Perform immediately with !
 let content = Filesystem.read!("file.txt");
 
-// Suspend as value (omit !)
-let read_op = Filesystem.read("file.txt");  // type: Ability<string, Filesystem!>
+// Suspend as value with ~
+let read_op = Filesystem.read~("file.txt");  // type: Ability<string, Filesystem!>
 
 // Perform later
 let content = read_op!;
@@ -205,8 +205,8 @@ ability Async {
 }
 
 // Concurrent execution
-let op1 = Network.fetch(request1);
-let op2 = Network.fetch(request2);
+let op1 = Network.fetch~(request1);
+let op2 = Network.fetch~(request2);
 let [r1, r2] = Async.all!([op1, op2]);
 
 // Race: first to complete wins, others cancelled
@@ -396,7 +396,7 @@ fn factorial(n: number): number {
 pub fn fetch_all(urls: List<Url>): List<Response>
   with Network, Async
 {
-  let ops = List.map(urls, (url) => Network.fetch(Request { url: url, method: Get }));
+  let ops = List.map(urls, (url) => Network.fetch~(Request { url: url, method: Get }));
   Async.all!(ops)
 }
 ```

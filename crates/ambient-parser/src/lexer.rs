@@ -137,6 +137,8 @@ pub enum TokenKind {
     OrOr,
     /// `!`
     Bang,
+    /// `~`
+    Tilde,
     /// `=`
     Eq,
     /// `=>`
@@ -504,6 +506,10 @@ impl<'src> Lexer<'src> {
                 } else {
                     Ok(self.make_token(TokenKind::Bang, start))
                 }
+            }
+            '~' => {
+                self.advance();
+                Ok(self.make_token(TokenKind::Tilde, start))
             }
             '<' => {
                 self.advance();
@@ -917,6 +923,7 @@ mod tests {
         assert_eq!(lex("&&"), vec![TokenKind::AndAnd, TokenKind::Eof]);
         assert_eq!(lex("||"), vec![TokenKind::OrOr, TokenKind::Eof]);
         assert_eq!(lex("!"), vec![TokenKind::Bang, TokenKind::Eof]);
+        assert_eq!(lex("~"), vec![TokenKind::Tilde, TokenKind::Eof]);
         assert_eq!(lex("="), vec![TokenKind::Eq, TokenKind::Eof]);
         assert_eq!(lex("=>"), vec![TokenKind::FatArrow, TokenKind::Eof]);
         assert_eq!(lex("->"), vec![TokenKind::Arrow, TokenKind::Eof]);

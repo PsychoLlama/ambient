@@ -226,9 +226,12 @@ impl Parser<'_> {
                 } else {
                     let field = self.parse_ident()?;
 
-                    // Check for ability method call
-                    if self.check(TokenKind::Bang) || self.check(TokenKind::LParen) {
+                    // Check for ability method call (requires ! or ~ sigil)
+                    if self.check(TokenKind::Bang) || self.check(TokenKind::Tilde) {
                         let is_perform = self.consume(TokenKind::Bang).is_some();
+                        if !is_perform {
+                            self.expect(TokenKind::Tilde)?; // consume the ~
+                        }
                         self.expect(TokenKind::LParen)?;
                         let args = self.parse_args()?;
                         let end = self.expect(TokenKind::RParen)?.span.end;
@@ -488,10 +491,13 @@ impl Parser<'_> {
             }
 
             if segments.len() > 1 {
-                // Check for ability method call pattern: Ability.method(args) or Ability.method!(args)
-                if self.check(TokenKind::Bang) || self.check(TokenKind::LParen) {
+                // Check for ability method call pattern: Ability.method!(args) or Ability.method~(args)
+                if self.check(TokenKind::Bang) || self.check(TokenKind::Tilde) {
                     // This is an ability call pattern
                     let is_perform = self.consume(TokenKind::Bang).is_some();
+                    if !is_perform {
+                        self.expect(TokenKind::Tilde)?; // consume the ~
+                    }
                     self.expect(TokenKind::LParen)?;
                     let args = self.parse_args()?;
                     let end = self.expect(TokenKind::RParen)?.span.end;
