@@ -31,8 +31,8 @@ mod repl;
 
 pub use error::{CompileError, CompileErrorKind};
 pub use repl::{
-    compile_expression, compile_expression_with_context, compile_repl_item, CompiledReplItem,
-    ReplContext, ReplItemKind,
+    compile_expression, compile_expression_with_context, compile_repl_item, parse_module_exports,
+    CompiledReplItem, ReplContext, ReplItemKind,
 };
 
 use std::collections::{HashMap, HashSet};
@@ -1034,6 +1034,12 @@ fn hash_value_for_content(hasher: &mut blake3::Hasher, value: &Value) {
             } else {
                 hasher.update(&[0u8]); // no payload marker
             }
+        }
+        Value::Module(m) => {
+            const TYPE_MODULE: u8 = 15;
+            hasher.update(&[TYPE_MODULE]);
+            hasher.update(&(m.path.len() as u32).to_le_bytes());
+            hasher.update(m.path.as_bytes());
         }
     }
 }

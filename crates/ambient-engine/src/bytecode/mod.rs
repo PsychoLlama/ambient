@@ -318,6 +318,12 @@ fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
                 hasher.update(&[0u8]); // no payload marker
             }
         }
+        Value::Module(m) => {
+            const TYPE_MODULE: u8 = 15;
+            hasher.update(&[TYPE_MODULE]);
+            hasher.update(&(m.path.len() as u32).to_le_bytes());
+            hasher.update(m.path.as_bytes());
+        }
     }
 }
 

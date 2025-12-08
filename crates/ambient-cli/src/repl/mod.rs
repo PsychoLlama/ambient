@@ -20,9 +20,12 @@ use editor::ExternalEditorHandler;
 
 use ambient_engine::abilities::register_all_standard_abilities;
 use ambient_engine::compiler::{
-    compile_expression_with_context, compile_repl_item, ReplContext, ReplItemKind,
+    compile_expression_with_context, compile_repl_item, parse_module_exports, ReplContext,
+    ReplItemKind,
 };
 use ambient_engine::format::format_value_colored;
+use ambient_engine::manifest::Manifest;
+use ambient_engine::value::{ModuleExport, ModuleExportKind, ModuleValue};
 use ambient_engine::vm::Vm;
 use ambient_parser::ReplInput;
 
@@ -40,6 +43,16 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
 
     // Create shared REPL context for completions.
     let repl_ctx = Arc::new(Mutex::new(ReplContext::new()));
+
+    // Register built-in modules for introspection.
+    {
+        let mut ctx = repl_ctx.lock().unwrap();
+        ctx.register_core_modules();
+        ctx.register_ability_modules();
+    }
+
+    // Register project modules for introspection.
+    register_project_modules(&project_dir, &repl_ctx);
 
     // Create the completer with project context.
     let completer = ReplCompleter::new(project_dir.clone(), Arc::clone(&repl_ctx));
@@ -193,6 +206,15 @@ fn eval_repl_input(
     ctx: &mut ReplContext,
     line: &str,
 ) -> Result<Option<ambient_engine::value::Value>, String> {
+    // Check if the input is a module path (e.g., "core", "core.math", "Console").
+    // This allows users to inspect modules by just typing their name.
+    let trimmed = line.trim();
+    if let Some(module) = ctx.get_module(trimmed) {
+        return Ok(Some(ambient_engine::value::Value::Module(
+            std::sync::Arc::clone(module),
+        )));
+    }
+
     // Parse the input as either an item or an expression.
     let input = match ambient_parser::parse_repl_input(line) {
         Ok(i) => i,
@@ -277,4 +299,112 @@ fn format_repl_parse_error(line: &str, error: &ambient_parser::ParseError) -> St
 /// Get the history file path.
 fn get_history_path() -> Option<PathBuf> {
     dirs::data_local_dir().map(|d| d.join("ambient").join("repl_history"))
+}
+
+/// Register project modules for introspection in the REPL.
+fn register_project_modules(project_dir: &Path, repl_ctx: &Arc<Mutex<ReplContext>>) {
+    // Find the manifest by walking up from project_dir
+    let mut current = project_dir;
+    let manifest_path = loop {
+        let candidate = current.join("ambient.toml");
+        if candidate.exists() {
+            break Some(candidate);
+        }
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => break None,
+        }
+    };
+
+    let Some(manifest_path) = manifest_path else {
+        return;
+    };
+
+    let Ok(manifest) = Manifest::from_file(&manifest_path) else {
+        return;
+    };
+
+    let project_root = manifest_path.parent().unwrap();
+    let src_dir = project_root.join(&manifest.src_dir);
+
+    if !src_dir.is_dir() {
+        return;
+    }
+
+    // Discover all .ab files and register them
+    let modules = discover_project_modules(&src_dir, &src_dir);
+
+    let mut ctx = repl_ctx.lock().unwrap();
+
+    // Register "pkg" as the root module containing all project modules
+    let pkg_exports: Vec<ModuleExport> = modules
+        .iter()
+        .filter_map(|(name, _)| {
+            // Only include top-level modules (no dots in name)
+            if !name.contains('.') {
+                Some(ModuleExport::new(name.as_str(), ModuleExportKind::Module))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if !pkg_exports.is_empty() {
+        ctx.register_module("pkg", ModuleValue::new("pkg", pkg_exports));
+    }
+
+    // Register each module with its exports
+    for (module_name, source) in modules {
+        let exports = parse_module_exports(&source);
+        let path = format!("pkg.{module_name}");
+        ctx.register_module(path.clone(), ModuleValue::new(path, exports));
+
+        // Also register without pkg prefix for convenience (e.g., "math_utils" directly)
+        let exports = parse_module_exports(&source);
+        ctx.register_module(module_name.clone(), ModuleValue::new(module_name, exports));
+    }
+}
+
+/// Recursively discover .ab files and return (module_path, source) pairs.
+fn discover_project_modules(dir: &Path, src_root: &Path) -> Vec<(String, String)> {
+    let mut modules = Vec::new();
+
+    let Ok(entries) = fs::read_dir(dir) else {
+        return modules;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        if path.is_dir() {
+            modules.extend(discover_project_modules(&path, src_root));
+        } else if path.extension().is_some_and(|ext| ext == "ab") {
+            if let Some(module_path) = path_to_module_name(&path, src_root) {
+                // Skip "main" as it's the entry point, not a reusable module
+                if module_path != "main" {
+                    if let Ok(source) = fs::read_to_string(&path) {
+                        modules.push((module_path, source));
+                    }
+                }
+            }
+        }
+    }
+
+    modules
+}
+
+/// Convert a file path to a module path string.
+fn path_to_module_name(path: &Path, src_root: &Path) -> Option<String> {
+    let relative = path.strip_prefix(src_root).ok()?;
+    let mut segments = Vec::new();
+
+    for component in relative.components() {
+        if let std::path::Component::Normal(s) = component {
+            let name = s.to_str()?;
+            let name = name.strip_suffix(".ab").unwrap_or(name);
+            segments.push(name);
+        }
+    }
+
+    Some(segments.join("."))
 }

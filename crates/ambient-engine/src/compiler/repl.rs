@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use crate::ast::{ConstDef, Expr, FunctionDef, ItemKind};
 use crate::bytecode::{CompiledFunction, Opcode};
+use crate::value::{ModuleExport, ModuleExportKind, ModuleValue};
 
 use super::error::{CompileError, CompileErrorKind};
 use super::{compile_expr, compute_temporary_hash, FunctionCompiler, ModuleContext};
@@ -28,6 +29,8 @@ pub struct ReplContext {
     pub function_hashes: HashMap<Arc<str>, blake3::Hash>,
     /// Map from names to their kinds (function or constant).
     pub item_kinds: HashMap<Arc<str>, ReplItemKind>,
+    /// Available modules for introspection (path -> module value).
+    pub modules: HashMap<Arc<str>, Arc<ModuleValue>>,
 }
 
 impl ReplContext {
@@ -55,6 +58,218 @@ impl ReplContext {
         self.item_kinds
             .get(name)
             .is_some_and(|k| *k == ReplItemKind::Constant)
+    }
+
+    /// Register a module for introspection.
+    pub fn register_module(&mut self, path: impl Into<Arc<str>>, module: ModuleValue) {
+        let path = path.into();
+        self.modules.insert(path, Arc::new(module));
+    }
+
+    /// Look up a module by path.
+    #[must_use]
+    pub fn get_module(&self, path: &str) -> Option<&Arc<ModuleValue>> {
+        self.modules.get(path)
+    }
+
+    /// Check if a path refers to a module.
+    #[must_use]
+    pub fn is_module(&self, path: &str) -> bool {
+        self.modules.contains_key(path)
+    }
+
+    /// Register core library modules with their exports.
+    pub fn register_core_modules(&mut self) {
+        use crate::core_library::CoreLibrary;
+
+        // Register the "core" parent module
+        let core_modules: Vec<&str> = CoreLibrary::available_modules();
+        let core_exports: Vec<ModuleExport> = core_modules
+            .iter()
+            .map(|name| ModuleExport::new(*name, ModuleExportKind::Module))
+            .collect();
+        self.register_module("core", ModuleValue::new("core", core_exports));
+
+        // Register each core submodule
+        for module_name in core_modules {
+            if let Ok(source) = CoreLibrary::get_source(&[Arc::from(module_name)]) {
+                let exports = parse_module_exports(source);
+                let path = format!("core.{module_name}");
+                self.register_module(path.clone(), ModuleValue::new(path, exports));
+            }
+        }
+    }
+
+    /// Register standard abilities as modules for introspection.
+    pub fn register_ability_modules(&mut self) {
+        // Console ability
+        self.register_module(
+            "Console",
+            ModuleValue::new(
+                "Console",
+                vec![
+                    ModuleExport::new("print!", ModuleExportKind::Function),
+                    ModuleExport::new("println!", ModuleExportKind::Function),
+                    ModuleExport::new("input!", ModuleExportKind::Function),
+                ],
+            ),
+        );
+
+        // Time ability
+        self.register_module(
+            "Time",
+            ModuleValue::new(
+                "Time",
+                vec![
+                    ModuleExport::new("now!", ModuleExportKind::Function),
+                    ModuleExport::new("wait!", ModuleExportKind::Function),
+                ],
+            ),
+        );
+
+        // Random ability
+        self.register_module(
+            "Random",
+            ModuleValue::new(
+                "Random",
+                vec![
+                    ModuleExport::new("random!", ModuleExportKind::Function),
+                    ModuleExport::new("random_range!", ModuleExportKind::Function),
+                    ModuleExport::new("seed!", ModuleExportKind::Function),
+                ],
+            ),
+        );
+
+        // Log ability
+        self.register_module(
+            "Log",
+            ModuleValue::new(
+                "Log",
+                vec![
+                    ModuleExport::new("info!", ModuleExportKind::Function),
+                    ModuleExport::new("debug!", ModuleExportKind::Function),
+                    ModuleExport::new("warn!", ModuleExportKind::Function),
+                    ModuleExport::new("error!", ModuleExportKind::Function),
+                ],
+            ),
+        );
+
+        // Exception ability
+        self.register_module(
+            "Exception",
+            ModuleValue::new(
+                "Exception",
+                vec![ModuleExport::new("throw!", ModuleExportKind::Function)],
+            ),
+        );
+
+        // Async ability
+        self.register_module(
+            "Async",
+            ModuleValue::new(
+                "Async",
+                vec![
+                    ModuleExport::new("all!", ModuleExportKind::Function),
+                    ModuleExport::new("race!", ModuleExportKind::Function),
+                ],
+            ),
+        );
+
+        // Filesystem ability
+        self.register_module(
+            "Filesystem",
+            ModuleValue::new(
+                "Filesystem",
+                vec![
+                    ModuleExport::new("read!", ModuleExportKind::Function),
+                    ModuleExport::new("write!", ModuleExportKind::Function),
+                    ModuleExport::new("exists!", ModuleExportKind::Function),
+                ],
+            ),
+        );
+
+        // Network ability
+        self.register_module(
+            "Network",
+            ModuleValue::new(
+                "Network",
+                vec![
+                    ModuleExport::new("get!", ModuleExportKind::Function),
+                    ModuleExport::new("post!", ModuleExportKind::Function),
+                ],
+            ),
+        );
+    }
+}
+
+/// Parse module exports from source code using simple pattern matching.
+/// This is a lightweight parser that extracts pub fn, const, type, and enum declarations.
+#[must_use]
+pub fn parse_module_exports(source: &str) -> Vec<ModuleExport> {
+    let mut exports = Vec::new();
+
+    for line in source.lines() {
+        let line = line.trim();
+
+        // Skip comments and empty lines
+        if line.starts_with("//") || line.is_empty() {
+            continue;
+        }
+
+        // Match pub fn declarations
+        if let Some(rest) = line.strip_prefix("pub fn ") {
+            if let Some(name) = extract_identifier(rest) {
+                exports.push(ModuleExport::new(name, ModuleExportKind::Function));
+            }
+        }
+        // Match const declarations (they're implicitly public in Ambient)
+        else if let Some(rest) = line.strip_prefix("const ") {
+            if let Some(name) = extract_identifier(rest) {
+                exports.push(ModuleExport::new(name, ModuleExportKind::Const));
+            }
+        }
+        // Match type declarations
+        else if let Some(rest) = line
+            .strip_prefix("pub type ")
+            .or_else(|| line.strip_prefix("type "))
+        {
+            if let Some(name) = extract_identifier(rest) {
+                exports.push(ModuleExport::new(name, ModuleExportKind::Type));
+            }
+        }
+        // Match enum declarations
+        else if let Some(rest) = line
+            .strip_prefix("pub enum ")
+            .or_else(|| line.strip_prefix("enum "))
+        {
+            if let Some(name) = extract_identifier(rest) {
+                exports.push(ModuleExport::new(name, ModuleExportKind::Enum));
+            }
+        }
+        // Match ability declarations
+        else if let Some(rest) = line
+            .strip_prefix("pub ability ")
+            .or_else(|| line.strip_prefix("ability "))
+        {
+            if let Some(name) = extract_identifier(rest) {
+                exports.push(ModuleExport::new(name, ModuleExportKind::Ability));
+            }
+        }
+    }
+
+    exports
+}
+
+/// Extract an identifier from the start of a string.
+fn extract_identifier(s: &str) -> Option<String> {
+    let s = s.trim();
+    let end = s
+        .find(|c: char| !c.is_alphanumeric() && c != '_')
+        .unwrap_or(s.len());
+    if end > 0 {
+        Some(s[..end].to_string())
+    } else {
+        None
     }
 }
 

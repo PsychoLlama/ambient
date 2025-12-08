@@ -74,6 +74,10 @@ pub enum Value {
     /// Contains the variant tag (index) and optional payload value.
     /// Used for types like `Option<T>` and `Result<T, E>`.
     Enum(Arc<EnumValue>),
+
+    /// A module value for REPL introspection.
+    /// Contains the module path and a list of its exports.
+    Module(Arc<ModuleValue>),
 }
 
 /// A map value with string keys.
@@ -378,6 +382,70 @@ impl EnumValue {
     }
 }
 
+/// A module value for REPL introspection.
+///
+/// Represents a module that can be displayed in the REPL, showing its
+/// path and list of exports (functions, constants, types, etc.).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModuleValue {
+    /// The module path (e.g., "pkg.utils" or "core.math").
+    pub path: Arc<str>,
+
+    /// Exported symbols from this module.
+    pub exports: Vec<ModuleExport>,
+}
+
+/// An exported symbol from a module.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModuleExport {
+    /// The name of the exported symbol.
+    pub name: Arc<str>,
+
+    /// The kind of export (function, constant, type, etc.).
+    pub kind: ModuleExportKind,
+}
+
+/// The kind of exported symbol in a module.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ModuleExportKind {
+    /// A function.
+    Function,
+    /// A constant.
+    Const,
+    /// A type alias.
+    Type,
+    /// An enum type.
+    Enum,
+    /// An enum variant.
+    Variant,
+    /// An ability.
+    Ability,
+    /// A submodule.
+    Module,
+}
+
+impl ModuleValue {
+    /// Create a new module value.
+    #[must_use]
+    pub fn new(path: impl Into<Arc<str>>, exports: Vec<ModuleExport>) -> Self {
+        Self {
+            path: path.into(),
+            exports,
+        }
+    }
+}
+
+impl ModuleExport {
+    /// Create a new module export.
+    #[must_use]
+    pub fn new(name: impl Into<Arc<str>>, kind: ModuleExportKind) -> Self {
+        Self {
+            name: name.into(),
+            kind,
+        }
+    }
+}
+
 /// A suspended ability operation waiting to be performed.
 ///
 /// This type is fully serializable, allowing ability values to be stored,
@@ -615,6 +683,7 @@ impl Value {
             Self::Map(_) => "map",
             Self::Set(_) => "set",
             Self::Enum(_) => "enum",
+            Self::Module(_) => "module",
         }
     }
 
@@ -724,6 +793,12 @@ impl Value {
         Self::Enum(Arc::new(EnumValue::err(error)))
     }
 
+    /// Create a module value.
+    #[must_use]
+    pub fn module(path: impl Into<Arc<str>>, exports: Vec<ModuleExport>) -> Self {
+        Self::Module(Arc::new(ModuleValue::new(path, exports)))
+    }
+
     // ─────────────────────────────────────────────────────────────────────────────
     // Type accessors
     // ─────────────────────────────────────────────────────────────────────────────
@@ -788,6 +863,8 @@ impl PartialEq for Value {
             }
             // Enum values are structurally equal
             (Self::Enum(a), Self::Enum(b)) => a == b,
+            // Modules are structurally equal
+            (Self::Module(a), Self::Module(b)) => a == b,
             _ => false,
         }
     }
