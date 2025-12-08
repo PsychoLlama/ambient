@@ -3,6 +3,7 @@
 //! This module provides an interactive environment for evaluating Ambient code.
 
 mod completer;
+mod editor;
 mod highlighter;
 
 use std::fs;
@@ -13,7 +14,9 @@ use std::sync::{Arc, Mutex};
 use anyhow::{bail, Context, Result};
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
-use rustyline::{Config as RustylineConfig, Editor};
+use rustyline::{Config as RustylineConfig, Editor, EventHandler, KeyEvent};
+
+use editor::ExternalEditorHandler;
 
 use ambient_engine::abilities::register_all_standard_abilities;
 use ambient_engine::compiler::{
@@ -51,6 +54,12 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
     let mut rl: Editor<ReplCompleter, DefaultHistory> =
         Editor::with_config(config).context("failed to initialize readline")?;
     rl.set_helper(Some(completer));
+
+    // Bind Ctrl+E to open external editor (like bash's edit-and-execute-command).
+    rl.bind_sequence(
+        KeyEvent::ctrl('E'),
+        EventHandler::Conditional(Box::new(ExternalEditorHandler)),
+    );
 
     // Load history from file.
     if let Some(history_path) = get_history_path() {
@@ -162,6 +171,9 @@ fn print_repl_help() {
     eprintln!("  :help, :h, :?    Show this help message");
     eprintln!("  :quit, :q, :exit Exit the REPL");
     eprintln!("  :clear, :reset   Clear all defined functions and variables");
+    eprintln!();
+    eprintln!("Key Bindings:");
+    eprintln!("  Ctrl+E           Edit current line in $EDITOR");
     eprintln!();
     eprintln!("Definitions:");
     eprintln!("  fn add(x, y) {{ x + y }}   Define a function");
