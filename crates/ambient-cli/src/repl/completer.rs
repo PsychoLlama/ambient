@@ -759,6 +759,111 @@ mod tests {
     }
 
     #[test]
+    fn test_completer_with_real_project() {
+        // Test with the multi_module example project
+        let project_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("examples/multi_module");
+
+        if !project_dir.exists() {
+            // Skip if example doesn't exist
+            return;
+        }
+
+        let completer = ReplCompleter::new(project_dir, Arc::new(Mutex::new(ReplContext::new())));
+
+        // Check that modules were discovered
+        assert!(
+            !completer.module_paths.is_empty(),
+            "Should discover modules in multi_module example"
+        );
+
+        // Should find list_utils, math_utils, statistics
+        assert!(
+            completer
+                .module_paths
+                .iter()
+                .any(|p| p.contains("list_utils")),
+            "Should find list_utils module, found: {:?}",
+            completer.module_paths
+        );
+
+        // Test pkg. completion - should return module names
+        let candidates = get_candidate_texts(&completer, "pkg.", 4);
+        assert!(
+            candidates.iter().any(|c| c.contains("list_utils")),
+            "pkg. should complete to list_utils, got: {:?}",
+            candidates
+        );
+
+        // Test pkg.list completion - filter by prefix
+        let candidates = get_candidate_texts(&completer, "pkg.list", 8);
+        assert!(
+            candidates.iter().any(|c| c.contains("list_utils")),
+            "pkg.list should complete to list_utils, got: {:?}",
+            candidates
+        );
+    }
+
+    #[test]
+    fn test_module_completions_return_full_path() {
+        // Test that module completions include the pkg. prefix for insertion
+        let project_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("examples/multi_module");
+
+        if !project_dir.exists() {
+            return;
+        }
+
+        let completer = ReplCompleter::new(project_dir, Arc::new(Mutex::new(ReplContext::new())));
+
+        eprintln!("Discovered modules: {:?}", completer.module_paths);
+
+        // When completing "pkg.", the returned candidates should work for insertion
+        let candidates = completer.get_candidates("pkg.", 4);
+        eprintln!(
+            "Candidates for 'pkg.': {:?}",
+            candidates.iter().map(|c| &c.text).collect::<Vec<_>>()
+        );
+
+        // Find the list_utils candidate
+        let list_utils = candidates.iter().find(|c| c.text.contains("list_utils"));
+        assert!(
+            list_utils.is_some(),
+            "Should have list_utils candidate, got: {:?}",
+            candidates.iter().map(|c| &c.text).collect::<Vec<_>>()
+        );
+
+        // Test "pkg.list" partial completion
+        let candidates = completer.get_candidates("pkg.list", 8);
+        eprintln!(
+            "Candidates for 'pkg.list': {:?}",
+            candidates.iter().map(|c| &c.text).collect::<Vec<_>>()
+        );
+        assert!(
+            candidates.iter().any(|c| c.text.contains("list_utils")),
+            "pkg.list should complete to pkg.list_utils"
+        );
+
+        // The text should be the full replacement value
+        let candidate = candidates
+            .iter()
+            .find(|c| c.text.contains("list_utils"))
+            .unwrap();
+        assert_eq!(
+            candidate.text, "pkg.list_utils",
+            "Text should be full path for replacement"
+        );
+    }
+
+    #[test]
     fn test_completer_sorting_relevance() {
         let completer = test_completer();
         // When typing "R", Random (ability, priority 10) should come before Result (type, priority 25)
