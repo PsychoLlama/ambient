@@ -138,13 +138,27 @@ impl ReplCompleter {
 
             // After `core.` - complete core library modules
             if before_dot == "core" {
-                candidates.extend(get_core_module_completions(after_dot));
+                // Prepend "core." to each module for full replacement
+                for module in get_core_module_completions(after_dot) {
+                    candidates.push(Candidate::with_display(
+                        format!("core.{}", module.text),
+                        module.display,
+                        module.priority,
+                    ));
+                }
                 return self.sort_candidates(candidates, after_dot);
             }
 
             // After ability name + dot (e.g., "Console.") - complete methods
             if TokenKind::builtin_abilities().contains(&before_dot) {
-                candidates.extend(get_ability_method_completions(before_dot, after_dot));
+                // Prepend "Ability." to each method for full replacement
+                for method in get_ability_method_completions(before_dot, after_dot) {
+                    candidates.push(Candidate::with_display(
+                        format!("{}.{}", before_dot, method.text),
+                        method.display,
+                        method.priority,
+                    ));
+                }
                 return self.sort_candidates(candidates, after_dot);
             }
 
@@ -651,9 +665,10 @@ mod tests {
     fn test_completer_after_console_dot() {
         let completer = test_completer();
         let candidates = get_candidate_texts(&completer, "Console.", 8);
-        // Should show Console methods
-        assert!(candidates.iter().any(|c| c.contains("print!")));
-        assert!(candidates.iter().any(|c| c.contains("println!")));
+        // Should show Console methods with full path
+        assert!(candidates.iter().any(|c| c == "Console.print!"));
+        assert!(candidates.iter().any(|c| c == "Console.println!"));
+        assert!(candidates.iter().any(|c| c == "Console.eprint!"));
         // Should NOT show general completions
         assert!(!candidates.contains(&"fn".to_string()));
         assert!(!candidates.contains(&"let".to_string()));
@@ -663,8 +678,8 @@ mod tests {
     fn test_completer_after_console_dot_with_prefix() {
         let completer = test_completer();
         let candidates = get_candidate_texts(&completer, "Console.pr", 10);
-        assert!(candidates.iter().any(|c| c.contains("print!")));
-        assert!(candidates.iter().any(|c| c.contains("println!")));
+        assert!(candidates.iter().any(|c| c == "Console.print!"));
+        assert!(candidates.iter().any(|c| c == "Console.println!"));
         // eprint! should not match "pr" prefix
         assert!(!candidates.iter().any(|c| c.contains("eprint!")));
     }
@@ -673,9 +688,9 @@ mod tests {
     fn test_completer_after_core_dot() {
         let completer = test_completer();
         let candidates = get_candidate_texts(&completer, "core.", 5);
-        // Should show core modules
-        assert!(candidates.contains(&"math".to_string()));
-        assert!(candidates.contains(&"list".to_string()));
+        // Should show core modules with full path
+        assert!(candidates.contains(&"core.math".to_string()));
+        assert!(candidates.contains(&"core.list".to_string()));
         // Should NOT show general completions
         assert!(!candidates.contains(&"fn".to_string()));
     }
@@ -684,8 +699,8 @@ mod tests {
     fn test_completer_after_core_dot_with_prefix() {
         let completer = test_completer();
         let candidates = get_candidate_texts(&completer, "core.ma", 7);
-        assert!(candidates.contains(&"math".to_string()));
-        assert!(!candidates.contains(&"list".to_string()));
+        assert!(candidates.contains(&"core.math".to_string()));
+        assert!(!candidates.contains(&"core.list".to_string()));
     }
 
     #[test]
