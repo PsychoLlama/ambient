@@ -27,8 +27,7 @@ use completer::ReplCompleter;
 
 /// Run the interactive REPL.
 pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
-    eprintln!("Ambient REPL v0.1.0");
-    eprintln!("Type expressions to evaluate. Type :help for commands, :quit to exit.\n");
+    eprintln!("Type :help for commands.");
 
     // Determine project directory (default to current directory).
     let project_dir = match project_dir {
@@ -70,7 +69,7 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
         // Flush stdout before reading (in case any output is buffered).
         let _ = io::stdout().flush();
 
-        let readline = rl.readline("ambient> ");
+        let readline = rl.readline("> ");
         match readline {
             Ok(line) => {
                 let line = line.trim();
@@ -85,7 +84,6 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
                     match handle_repl_command(line) {
                         ReplCommand::Help => print_repl_help(),
                         ReplCommand::Quit => {
-                            eprintln!("Goodbye!");
                             break;
                         }
                         ReplCommand::Clear => {
@@ -122,7 +120,6 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
                 // Continue the REPL on Ctrl+C.
             }
             Err(ReadlineError::Eof) => {
-                eprintln!("Goodbye!");
                 break;
             }
             Err(err) => {
