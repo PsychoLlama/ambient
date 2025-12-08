@@ -105,36 +105,55 @@ impl ReplCompleter {
     fn get_candidates(&self, line: &str, pos: usize) -> Vec<Candidate> {
         let mut candidates = Vec::new();
 
-        // Find the word being typed.
+        // Find the word being typed (including dots for qualified names).
         let before_cursor = &line[..pos];
         let word_start = before_cursor
             .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
             .map_or(0, |i| i + 1);
-        let prefix = &before_cursor[word_start..];
+        let full_prefix = &before_cursor[word_start..];
 
-        // Check for special contexts.
-        let before_prefix = &before_cursor[..word_start];
-        let trimmed_before = before_prefix.trim_end();
+        // Check if the prefix contains a dot (qualified name like "Console." or "pkg.utils")
+        if let Some(dot_pos) = full_prefix.rfind('.') {
+            let before_dot = &full_prefix[..dot_pos];
+            let after_dot = &full_prefix[dot_pos + 1..];
 
-        // After `pkg.` - complete module paths
-        if trimmed_before.ends_with("pkg.") || prefix.starts_with("pkg.") {
-            let module_prefix = prefix.strip_prefix("pkg.").unwrap_or(prefix);
-            candidates.extend(self.get_module_completions(module_prefix, "pkg."));
-            return self.sort_candidates(candidates, prefix);
+            // After `pkg.` - complete module paths
+            if before_dot == "pkg" || before_dot.starts_with("pkg.") {
+                let module_prefix = if before_dot == "pkg" {
+                    after_dot
+                } else {
+                    // pkg.foo.bar -> module prefix is "foo.bar" + after_dot
+                    let rest = before_dot.strip_prefix("pkg.").unwrap_or("");
+                    // We need to handle nested paths
+                    if after_dot.is_empty() {
+                        rest
+                    } else {
+                        // This is a bit tricky - for now just use after_dot
+                        after_dot
+                    }
+                };
+                candidates.extend(self.get_module_completions(module_prefix, "pkg."));
+                return self.sort_candidates(candidates, after_dot);
+            }
+
+            // After `core.` - complete core library modules
+            if before_dot == "core" {
+                candidates.extend(get_core_module_completions(after_dot));
+                return self.sort_candidates(candidates, after_dot);
+            }
+
+            // After ability name + dot (e.g., "Console.") - complete methods
+            if TokenKind::builtin_abilities().contains(&before_dot) {
+                candidates.extend(get_ability_method_completions(before_dot, after_dot));
+                return self.sort_candidates(candidates, after_dot);
+            }
+
+            // Unknown qualified name - no completions
+            return candidates;
         }
 
-        // After `core.` - complete core library modules
-        if trimmed_before.ends_with("core.") || prefix.starts_with("core.") {
-            let core_prefix = prefix.strip_prefix("core.").unwrap_or(prefix);
-            candidates.extend(get_core_module_completions(core_prefix));
-            return self.sort_candidates(candidates, prefix);
-        }
-
-        // After ability name + dot (e.g., "Console.") - complete methods
-        if let Some(ability) = self.get_ability_before_dot(trimmed_before) {
-            candidates.extend(get_ability_method_completions(&ability, prefix));
-            return self.sort_candidates(candidates, prefix);
-        }
+        // No dot - general completions based on the prefix
+        let prefix = full_prefix;
 
         // General completions
         candidates.extend(get_keyword_completions(prefix));
@@ -164,25 +183,6 @@ impl ReplCompleter {
         });
 
         candidates
-    }
-
-    /// Check if there's an ability name before a dot.
-    fn get_ability_before_dot(&self, before: &str) -> Option<String> {
-        let trimmed = before.trim_end();
-        if !trimmed.ends_with('.') {
-            return None;
-        }
-        let without_dot = &trimmed[..trimmed.len() - 1];
-        let ident_start = without_dot
-            .rfind(|c: char| !c.is_alphanumeric() && c != '_')
-            .map_or(0, |i| i + 1);
-        let ident = &without_dot[ident_start..];
-
-        if TokenKind::builtin_abilities().contains(&ident) {
-            Some(ident.to_string())
-        } else {
-            None
-        }
     }
 
     /// Get module path completions for `pkg.` prefix.
@@ -503,11 +503,46 @@ impl Highlighter for ReplCompleter {
 mod tests {
     use super::*;
 
+    /// Create a test completer with no project.
+    fn test_completer() -> ReplCompleter {
+        ReplCompleter::new(
+            PathBuf::from("/nonexistent"),
+            Arc::new(Mutex::new(ReplContext::new())),
+        )
+    }
+
+    /// Helper to get candidate texts from a completer.
+    fn get_candidate_texts(completer: &ReplCompleter, line: &str, pos: usize) -> Vec<String> {
+        completer
+            .get_candidates(line, pos)
+            .into_iter()
+            .map(|c| c.text)
+            .collect()
+    }
+
+    // === Basic completion tests ===
+
     #[test]
     fn test_keyword_completions() {
         let completions = get_keyword_completions("le");
         assert_eq!(completions.len(), 1);
         assert_eq!(completions[0].text, "let");
+    }
+
+    #[test]
+    fn test_keyword_completions_empty_prefix() {
+        let completions = get_keyword_completions("");
+        // Should return all keywords except pkg, core, self, super
+        assert!(completions.len() > 10);
+        let texts: Vec<_> = completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"fn"));
+        assert!(texts.contains(&"let"));
+        assert!(texts.contains(&"if"));
+        // Import-only keywords should be excluded
+        assert!(!texts.contains(&"self"));
+        assert!(!texts.contains(&"super"));
+        assert!(!texts.contains(&"pkg"));
+        assert!(!texts.contains(&"core"));
     }
 
     #[test]
@@ -518,9 +553,25 @@ mod tests {
     }
 
     #[test]
+    fn test_ability_completions_empty_prefix() {
+        let completions = get_ability_completions("");
+        let texts: Vec<_> = completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"Console"));
+        assert!(texts.contains(&"Filesystem"));
+        assert!(texts.contains(&"Time"));
+        assert!(texts.contains(&"Random"));
+    }
+
+    #[test]
     fn test_ability_method_completions() {
         let completions = get_ability_method_completions("Console", "pr");
         assert_eq!(completions.len(), 2); // print!, println!
+    }
+
+    #[test]
+    fn test_ability_method_completions_empty_prefix() {
+        let completions = get_ability_method_completions("Console", "");
+        assert_eq!(completions.len(), 3); // print!, eprint!, println!
     }
 
     #[test]
@@ -528,5 +579,202 @@ mod tests {
         let completions = get_core_module_completions("ma");
         assert_eq!(completions.len(), 1);
         assert_eq!(completions[0].text, "math");
+    }
+
+    #[test]
+    fn test_core_module_completions_empty_prefix() {
+        let completions = get_core_module_completions("");
+        let texts: Vec<_> = completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"math"));
+        assert!(texts.contains(&"list"));
+        assert!(texts.contains(&"option"));
+        assert!(texts.contains(&"result"));
+        assert!(texts.contains(&"string"));
+    }
+
+    #[test]
+    fn test_import_prefix_completions() {
+        let completions = get_import_prefix_completions("");
+        let texts: Vec<_> = completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"pkg"));
+        assert!(texts.contains(&"core"));
+        // self and super should NOT be in import prefix completions
+        assert!(!texts.contains(&"self"));
+        assert!(!texts.contains(&"super"));
+    }
+
+    // === ReplCompleter integration tests ===
+
+    #[test]
+    fn test_completer_empty_input() {
+        let completer = test_completer();
+        let candidates = get_candidate_texts(&completer, "", 0);
+        // Should have many completions
+        assert!(
+            candidates.len() > 10,
+            "Expected many completions, got {}",
+            candidates.len()
+        );
+        // Should include keywords, types, and abilities
+        assert!(candidates.contains(&"fn".to_string()));
+        assert!(candidates.contains(&"let".to_string()));
+        assert!(candidates.contains(&"Console".to_string()));
+        assert!(candidates.contains(&"number".to_string()));
+    }
+
+    #[test]
+    fn test_completer_partial_keyword() {
+        let completer = test_completer();
+        let candidates = get_candidate_texts(&completer, "le", 2);
+        assert!(candidates.contains(&"let".to_string()));
+    }
+
+    #[test]
+    fn test_completer_partial_ability() {
+        let completer = test_completer();
+        let candidates = get_candidate_texts(&completer, "Con", 3);
+        assert!(candidates.contains(&"Console".to_string()));
+        // Note: "const" does NOT match "Con" (case-sensitive)
+        assert!(!candidates.contains(&"const".to_string()));
+    }
+
+    #[test]
+    fn test_completer_partial_keyword_const() {
+        let completer = test_completer();
+        let candidates = get_candidate_texts(&completer, "con", 3);
+        assert!(candidates.contains(&"const".to_string()));
+        // Console doesn't match "con" (case-sensitive)
+        assert!(!candidates.contains(&"Console".to_string()));
+    }
+
+    #[test]
+    fn test_completer_after_console_dot() {
+        let completer = test_completer();
+        let candidates = get_candidate_texts(&completer, "Console.", 8);
+        // Should show Console methods
+        assert!(candidates.iter().any(|c| c.contains("print!")));
+        assert!(candidates.iter().any(|c| c.contains("println!")));
+        // Should NOT show general completions
+        assert!(!candidates.contains(&"fn".to_string()));
+        assert!(!candidates.contains(&"let".to_string()));
+    }
+
+    #[test]
+    fn test_completer_after_console_dot_with_prefix() {
+        let completer = test_completer();
+        let candidates = get_candidate_texts(&completer, "Console.pr", 10);
+        assert!(candidates.iter().any(|c| c.contains("print!")));
+        assert!(candidates.iter().any(|c| c.contains("println!")));
+        // eprint! should not match "pr" prefix
+        assert!(!candidates.iter().any(|c| c.contains("eprint!")));
+    }
+
+    #[test]
+    fn test_completer_after_core_dot() {
+        let completer = test_completer();
+        let candidates = get_candidate_texts(&completer, "core.", 5);
+        // Should show core modules
+        assert!(candidates.contains(&"math".to_string()));
+        assert!(candidates.contains(&"list".to_string()));
+        // Should NOT show general completions
+        assert!(!candidates.contains(&"fn".to_string()));
+    }
+
+    #[test]
+    fn test_completer_after_core_dot_with_prefix() {
+        let completer = test_completer();
+        let candidates = get_candidate_texts(&completer, "core.ma", 7);
+        assert!(candidates.contains(&"math".to_string()));
+        assert!(!candidates.contains(&"list".to_string()));
+    }
+
+    #[test]
+    fn test_completer_after_pkg_dot() {
+        let completer = test_completer();
+        let candidates = get_candidate_texts(&completer, "pkg.", 4);
+        // With no project, should return empty for pkg completions
+        // (no modules discovered)
+        // But the key is it shouldn't show general completions
+        assert!(!candidates.contains(&"fn".to_string()));
+    }
+
+    #[test]
+    fn test_completer_typing_pkg() {
+        let completer = test_completer();
+        let candidates = get_candidate_texts(&completer, "pk", 2);
+        assert!(candidates.contains(&"pkg".to_string()));
+    }
+
+    #[test]
+    fn test_completer_typing_core() {
+        let completer = test_completer();
+        let candidates = get_candidate_texts(&completer, "cor", 3);
+        assert!(candidates.contains(&"core".to_string()));
+    }
+
+    #[test]
+    fn test_completer_does_not_include_self_super() {
+        let completer = test_completer();
+        let candidates = get_candidate_texts(&completer, "", 0);
+        // self and super should never appear in completions
+        assert!(!candidates.contains(&"self".to_string()));
+        assert!(!candidates.contains(&"super".to_string()));
+
+        // Even when typing "se" or "su"
+        let candidates = get_candidate_texts(&completer, "se", 2);
+        assert!(!candidates.contains(&"self".to_string()));
+
+        let candidates = get_candidate_texts(&completer, "su", 2);
+        assert!(!candidates.contains(&"super".to_string()));
+    }
+
+    #[test]
+    fn test_completer_in_expression_context() {
+        let completer = test_completer();
+        // After typing "let x = ", should get expression completions
+        let candidates = get_candidate_texts(&completer, "let x = ", 8);
+        assert!(candidates.contains(&"Console".to_string()));
+        assert!(candidates.contains(&"true".to_string()));
+        assert!(candidates.contains(&"false".to_string()));
+    }
+
+    #[test]
+    fn test_completer_repl_symbols() {
+        let repl_ctx = Arc::new(Mutex::new(ReplContext::new()));
+        {
+            let mut ctx = repl_ctx.lock().unwrap();
+            ctx.register_function(Arc::from("my_function"), blake3::hash(b"test"));
+            ctx.register_constant(Arc::from("MY_CONST"), blake3::hash(b"test2"));
+        }
+        let completer = ReplCompleter::new(PathBuf::from("/nonexistent"), repl_ctx);
+
+        let candidates = get_candidate_texts(&completer, "", 0);
+        assert!(candidates.contains(&"my_function".to_string()));
+        assert!(candidates.contains(&"MY_CONST".to_string()));
+
+        // Partial match
+        let candidates = get_candidate_texts(&completer, "my_", 3);
+        assert!(candidates.contains(&"my_function".to_string()));
+        assert!(!candidates.contains(&"MY_CONST".to_string()));
+    }
+
+    #[test]
+    fn test_completer_sorting_relevance() {
+        let completer = test_completer();
+        // When typing "R", Random (ability, priority 10) should come before Result (type, priority 25)
+        let candidates = completer.get_candidates("R", 1);
+        let texts: Vec<_> = candidates.iter().map(|c| c.text.as_str()).collect();
+
+        // Find positions
+        let random_pos = texts.iter().position(|t| *t == "Random");
+        let result_pos = texts.iter().position(|t| *t == "Result");
+
+        assert!(random_pos.is_some(), "Random should be in completions");
+        assert!(result_pos.is_some(), "Result should be in completions");
+        // Random (ability, priority 10) should come before Result (type, priority 25)
+        assert!(
+            random_pos.unwrap() < result_pos.unwrap(),
+            "Random should come before Result (abilities have higher priority than types)"
+        );
     }
 }
