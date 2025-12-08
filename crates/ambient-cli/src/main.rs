@@ -27,7 +27,7 @@ pub fn main() -> Result<()> {
         Command::Run { path, entry } => cmd_run(&path, &entry)?,
         Command::Check { file } => cmd_check(&file)?,
         Command::Ast { file } => cmd_ast(&file)?,
-        Command::Repl => cmd_repl()?,
+        Command::Repl { project } => cmd_repl(project.as_deref())?,
         Command::Lsp => cmd_lsp()?,
         Command::Dev { file, entry, watch } => cmd_dev(&file, &entry, watch.as_deref())?,
     }

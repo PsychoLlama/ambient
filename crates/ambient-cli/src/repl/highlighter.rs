@@ -2,11 +2,7 @@
 
 use std::borrow::Cow;
 
-use rustyline::completion::Completer;
 use rustyline::highlight::Highlighter;
-use rustyline::hint::Hinter;
-use rustyline::validate::Validator;
-use rustyline::Helper;
 
 /// ANSI color codes for syntax highlighting.
 mod colors {
@@ -49,7 +45,7 @@ const BUILTINS: &[&str] = &[
 
 /// Syntax highlighter for the Ambient REPL.
 #[derive(Default)]
-struct AmbientHighlighter;
+pub struct AmbientHighlighter;
 
 impl Highlighter for AmbientHighlighter {
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
@@ -181,36 +177,4 @@ fn highlight_ambient(input: &str) -> String {
     }
 
     result
-}
-
-/// Helper that combines all the REPL functionality.
-#[derive(Default)]
-pub struct AmbientHelper {
-    highlighter: AmbientHighlighter,
-}
-
-impl Helper for AmbientHelper {}
-impl Completer for AmbientHelper {
-    type Candidate = String;
-}
-impl Hinter for AmbientHelper {
-    type Hint = String;
-}
-impl Validator for AmbientHelper {}
-impl Highlighter for AmbientHelper {
-    fn highlight<'l>(&self, line: &'l str, pos: usize) -> Cow<'l, str> {
-        self.highlighter.highlight(line, pos)
-    }
-
-    fn highlight_char(&self, line: &str, pos: usize, forced: bool) -> bool {
-        self.highlighter.highlight_char(line, pos, forced)
-    }
-
-    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
-        &'s self,
-        prompt: &'p str,
-        default: bool,
-    ) -> Cow<'b, str> {
-        self.highlighter.highlight_prompt(prompt, default)
-    }
 }

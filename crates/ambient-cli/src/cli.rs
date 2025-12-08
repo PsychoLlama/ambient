@@ -64,7 +64,12 @@ pub enum Command {
     },
 
     /// Start an interactive REPL session.
-    Repl,
+    Repl {
+        /// Project directory for completions (defaults to current directory).
+        /// Can be the package root (containing ambient.toml) or any subdirectory.
+        #[arg(long, value_name = "DIR")]
+        project: Option<PathBuf>,
+    },
 
     /// Start the Language Server Protocol (LSP) server.
     ///

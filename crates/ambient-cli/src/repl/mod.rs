@@ -2,11 +2,13 @@
 //!
 //! This module provides an interactive environment for evaluating Ambient code.
 
+mod completer;
 mod highlighter;
 
 use std::fs;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context, Result};
 use rustyline::error::ReadlineError;
@@ -21,12 +23,24 @@ use ambient_engine::format::format_value_colored;
 use ambient_engine::vm::Vm;
 use ambient_parser::ReplInput;
 
-use highlighter::AmbientHelper;
+use completer::ReplCompleter;
 
 /// Run the interactive REPL.
-pub fn cmd_repl() -> Result<()> {
+pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
     eprintln!("Ambient REPL v0.1.0");
     eprintln!("Type expressions to evaluate. Type :help for commands, :quit to exit.\n");
+
+    // Determine project directory (default to current directory).
+    let project_dir = match project_dir {
+        Some(p) => p.to_path_buf(),
+        None => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+    };
+
+    // Create shared REPL context for completions.
+    let repl_ctx = Arc::new(Mutex::new(ReplContext::new()));
+
+    // Create the completer with project context.
+    let completer = ReplCompleter::new(project_dir.clone(), Arc::clone(&repl_ctx));
 
     // Configure rustyline with our helper.
     let config = RustylineConfig::builder()
@@ -35,9 +49,9 @@ pub fn cmd_repl() -> Result<()> {
         .expect("valid history size")
         .build();
 
-    let mut rl: Editor<AmbientHelper, DefaultHistory> =
+    let mut rl: Editor<ReplCompleter, DefaultHistory> =
         Editor::with_config(config).context("failed to initialize readline")?;
-    rl.set_helper(Some(AmbientHelper::default()));
+    rl.set_helper(Some(completer));
 
     // Load history from file.
     if let Some(history_path) = get_history_path() {
@@ -51,9 +65,6 @@ pub fn cmd_repl() -> Result<()> {
 
     // Register standard abilities for the REPL.
     register_all_standard_abilities(&mut vm);
-
-    // Context for tracking defined functions and constants.
-    let mut repl_ctx = ReplContext::new();
 
     loop {
         // Flush stdout before reading (in case any output is buffered).
@@ -81,7 +92,7 @@ pub fn cmd_repl() -> Result<()> {
                             // Clear the VM state by creating a fresh VM.
                             vm = Vm::new();
                             register_all_standard_abilities(&mut vm);
-                            repl_ctx = ReplContext::new();
+                            *repl_ctx.lock().unwrap() = ReplContext::new();
                             eprintln!("State cleared.");
                         }
                         ReplCommand::Unknown(cmd) => {
@@ -93,7 +104,8 @@ pub fn cmd_repl() -> Result<()> {
                 }
 
                 // Parse and evaluate the input.
-                match eval_repl_input(&mut vm, &mut repl_ctx, line) {
+                let mut ctx = repl_ctx.lock().unwrap();
+                match eval_repl_input(&mut vm, &mut ctx, line) {
                     Ok(Some(value)) => {
                         println!("{}", format_value_colored(&value));
                     }
