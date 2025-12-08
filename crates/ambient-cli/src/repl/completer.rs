@@ -414,12 +414,19 @@ impl Completer for ReplCompleter {
             .map_or(0, |i| i + 1);
         let prefix = &before_cursor[word_start..];
 
-        // Check if we're continuing a cycle or starting fresh.
-        let is_continuing = state.original_line == line
-            && state.original_pos == pos
-            && !state.candidates.is_empty();
+        // Check if we're continuing a cycle.
+        // We're continuing if:
+        // 1. We have candidates from before
+        // 2. The prefix part of the line matches our stored prefix (before any completion)
+        // 3. The current prefix matches one of our candidates (meaning Tab was pressed after a completion)
+        let is_continuing = !state.candidates.is_empty()
+            && state.prefix == &line[..state.prefix.len().min(line.len())]
+            && state
+                .candidates
+                .iter()
+                .any(|c| c.text == prefix || prefix.is_empty());
 
-        if is_continuing {
+        if is_continuing && !prefix.is_empty() {
             // Cycle to next candidate.
             state.index = (state.index + 1) % state.candidates.len();
         } else {
@@ -429,7 +436,7 @@ impl Completer for ReplCompleter {
             state.index = 0;
             state.original_line = line.to_string();
             state.original_pos = pos;
-            state.prefix = prefix.to_string();
+            state.prefix = line[..word_start].to_string(); // Store text BEFORE the word being completed
         }
 
         if state.candidates.is_empty() {
@@ -821,6 +828,59 @@ mod tests {
             "pkg.list should complete to list_utils, got: {:?}",
             candidates
         );
+    }
+
+    #[test]
+    fn test_cycling_after_completion() {
+        // Test that after completing pkg. -> pkg.list_utils,
+        // pressing Tab again should cycle to math_utils, then statistics, then back to list_utils
+        use rustyline::completion::Completer;
+
+        let project_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("examples/multi_module");
+
+        if !project_dir.exists() {
+            return;
+        }
+
+        let completer = ReplCompleter::new(project_dir, Arc::new(Mutex::new(ReplContext::new())));
+        let history = rustyline::history::DefaultHistory::new();
+
+        // First Tab on "pkg."
+        let (_, pairs1) = completer
+            .complete("pkg.", 4, &rustyline::Context::new(&history))
+            .unwrap();
+        assert!(!pairs1.is_empty(), "Should have completions for pkg.");
+        let c1 = pairs1[0].replacement.clone();
+        eprintln!("Tab 1: {} (display: {})", c1, pairs1[0].display);
+
+        // Second Tab - line is now c1
+        let (_, pairs2) = completer
+            .complete(&c1, c1.len(), &rustyline::Context::new(&history))
+            .unwrap();
+        let c2 = pairs2[0].replacement.clone();
+        eprintln!("Tab 2: {} (display: {})", c2, pairs2[0].display);
+        assert_ne!(c1, c2, "Should cycle to different completion");
+
+        // Third Tab
+        let (_, pairs3) = completer
+            .complete(&c2, c2.len(), &rustyline::Context::new(&history))
+            .unwrap();
+        let c3 = pairs3[0].replacement.clone();
+        eprintln!("Tab 3: {} (display: {})", c3, pairs3[0].display);
+        assert_ne!(c2, c3, "Should cycle to different completion");
+
+        // Fourth Tab - should wrap back to first
+        let (_, pairs4) = completer
+            .complete(&c3, c3.len(), &rustyline::Context::new(&history))
+            .unwrap();
+        let c4 = pairs4[0].replacement.clone();
+        eprintln!("Tab 4: {} (display: {})", c4, pairs4[0].display);
+        assert_eq!(c1, c4, "Should wrap back to first completion");
     }
 
     #[test]
