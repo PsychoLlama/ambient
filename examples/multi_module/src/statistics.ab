@@ -7,7 +7,7 @@ use self.list_utils.{sum, average, maximum, minimum};
 
 // Calculate variance
 pub fn variance(xs: List<number>): number {
-    let len = list_length(xs);
+    let len = core.list.length(xs);
     if len == 0 {
         0
     } else {
@@ -17,17 +17,17 @@ pub fn variance(xs: List<number>): number {
 }
 
 fn sum_squared_diff(xs: List<number>, mean: number, acc: number): number {
-    if list_length(xs) == 0 {
+    if core.list.length(xs) == 0 {
         acc
     } else {
-        let diff = list_head(xs) - mean;
-        sum_squared_diff(list_tail(xs), mean, acc + diff * diff)
+        let diff = core.list.head(xs) - mean;
+        sum_squared_diff(core.list.tail(xs), mean, acc + diff * diff)
     }
 }
 
 // Calculate range (max - min)
 pub fn range(xs: List<number>): number {
-    if list_length(xs) == 0 {
+    if core.list.length(xs) == 0 {
         0
     } else {
         maximum(xs) - minimum(xs)

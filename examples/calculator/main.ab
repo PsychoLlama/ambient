@@ -14,12 +14,12 @@ fn is_whitespace(c: string): bool {
 
 // Skip whitespace and return remaining string
 fn skip_ws(s: string): string {
-    if string_length(s) == 0 {
+    if core.string.length(s) == 0 {
         s
     } else {
-        let c = string_slice(s, 0, 1);
+        let c = core.string.slice(s, 0, 1);
         if is_whitespace(c) {
-            skip_ws(string_slice(s, 1, string_length(s)))
+            skip_ws(core.string.slice(s, 1, core.string.length(s)))
         } else {
             s
         }
@@ -29,13 +29,13 @@ fn skip_ws(s: string): string {
 // Parse a number from the start of a string
 // Returns (number_value, remaining_string)
 fn parse_number(s: string, acc: number): (number, string) {
-    if string_length(s) == 0 {
+    if core.string.length(s) == 0 {
         (acc, s)
     } else {
-        let c = string_slice(s, 0, 1);
+        let c = core.string.slice(s, 0, 1);
         if is_digit(c) {
             let digit = char_to_digit(c);
-            parse_number(string_slice(s, 1, string_length(s)), acc * 10 + digit)
+            parse_number(core.string.slice(s, 1, core.string.length(s)), acc * 10 + digit)
         } else {
             (acc, s)
         }
@@ -62,15 +62,15 @@ fn eval_expr(s: string): (number, string) {
 }
 
 fn eval_expr_rest(left: number, s: string): (number, string) {
-    if string_length(s) == 0 {
+    if core.string.length(s) == 0 {
         (left, s)
     } else {
-        let op = string_slice(s, 0, 1);
+        let op = core.string.slice(s, 0, 1);
         if op == "+" {
-            let result = eval_term(skip_ws(string_slice(s, 1, string_length(s))));
+            let result = eval_term(skip_ws(core.string.slice(s, 1, core.string.length(s))));
             eval_expr_rest(left + result.0, skip_ws(result.1))
         } else if op == "-" {
-            let result = eval_term(skip_ws(string_slice(s, 1, string_length(s))));
+            let result = eval_term(skip_ws(core.string.slice(s, 1, core.string.length(s))));
             eval_expr_rest(left - result.0, skip_ws(result.1))
         } else {
             (left, s)
@@ -85,15 +85,15 @@ fn eval_term(s: string): (number, string) {
 }
 
 fn eval_term_rest(left: number, s: string): (number, string) {
-    if string_length(s) == 0 {
+    if core.string.length(s) == 0 {
         (left, s)
     } else {
-        let op = string_slice(s, 0, 1);
+        let op = core.string.slice(s, 0, 1);
         if op == "*" {
-            let result = eval_factor(skip_ws(string_slice(s, 1, string_length(s))));
+            let result = eval_factor(skip_ws(core.string.slice(s, 1, core.string.length(s))));
             eval_term_rest(left * result.0, skip_ws(result.1))
         } else if op == "/" {
-            let result = eval_factor(skip_ws(string_slice(s, 1, string_length(s))));
+            let result = eval_factor(skip_ws(core.string.slice(s, 1, core.string.length(s))));
             eval_term_rest(left / result.0, skip_ws(result.1))
         } else {
             (left, s)
@@ -104,17 +104,17 @@ fn eval_term_rest(left: number, s: string): (number, string) {
 // Evaluate a factor: numbers or parenthesized expressions
 fn eval_factor(s: string): (number, string) {
     let s = skip_ws(s);
-    if string_length(s) == 0 {
+    if core.string.length(s) == 0 {
         (0, s)
     } else {
-        let c = string_slice(s, 0, 1);
+        let c = core.string.slice(s, 0, 1);
         if c == "(" {
             // Parenthesized expression
-            let result = eval_expr(string_slice(s, 1, string_length(s)));
+            let result = eval_expr(core.string.slice(s, 1, core.string.length(s)));
             let rest = skip_ws(result.1);
             // Skip closing paren
-            if string_length(rest) > 0 && string_slice(rest, 0, 1) == ")" {
-                (result.0, string_slice(rest, 1, string_length(rest)))
+            if core.string.length(rest) > 0 && core.string.slice(rest, 0, 1) == ")" {
+                (result.0, core.string.slice(rest, 1, core.string.length(rest)))
             } else {
                 (result.0, rest)
             }
@@ -144,14 +144,14 @@ pub fn run(): string {
     let expr7 = "100 / 10 + 5 * 2";
 
     let results = [
-        string_concat(expr1, string_concat(" = ", to_string(calculate(expr1)))),
-        string_concat(expr2, string_concat(" = ", to_string(calculate(expr2)))),
-        string_concat(expr3, string_concat(" = ", to_string(calculate(expr3)))),
-        string_concat(expr4, string_concat(" = ", to_string(calculate(expr4)))),
-        string_concat(expr5, string_concat(" = ", to_string(calculate(expr5)))),
-        string_concat(expr6, string_concat(" = ", to_string(calculate(expr6)))),
-        string_concat(expr7, string_concat(" = ", to_string(calculate(expr7))))
+        core.string.concat(expr1, core.string.concat(" = ", core.convert.to_string(calculate(expr1)))),
+        core.string.concat(expr2, core.string.concat(" = ", core.convert.to_string(calculate(expr2)))),
+        core.string.concat(expr3, core.string.concat(" = ", core.convert.to_string(calculate(expr3)))),
+        core.string.concat(expr4, core.string.concat(" = ", core.convert.to_string(calculate(expr4)))),
+        core.string.concat(expr5, core.string.concat(" = ", core.convert.to_string(calculate(expr5)))),
+        core.string.concat(expr6, core.string.concat(" = ", core.convert.to_string(calculate(expr6)))),
+        core.string.concat(expr7, core.string.concat(" = ", core.convert.to_string(calculate(expr7))))
     ];
 
-    string_join(results, "\n")
+    core.string.join(results, "\n")
 }
