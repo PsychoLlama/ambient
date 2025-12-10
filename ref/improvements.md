@@ -220,7 +220,7 @@ From `ref/backlog.md`:
 
 | Ticket | Status | Notes |
 |--------|--------|-------|
-| 1.1 Split compiler | pending | |
+| 1.1 Split compiler | partial | Extracted intrinsics.rs and patterns.rs |
 | 1.2 Split infer | pending | |
 | 1.3 Extract VM tests | pending | |
 | 2.1 Option/Result helpers | pending | |

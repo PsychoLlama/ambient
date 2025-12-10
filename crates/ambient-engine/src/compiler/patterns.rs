@@ -1,0 +1,269 @@
+//! Pattern matching compilation.
+//!
+//! This module handles compilation of match expressions and pattern matching.
+
+use crate::ast::{Expr, Literal, MatchArm, Pattern, PatternKind};
+use crate::bytecode::Opcode;
+use crate::value::Value;
+
+use super::error::{CompileError, CompileErrorKind};
+use super::{compile_expr, str_to_value, FunctionCompiler, ModuleContext};
+
+/// Get the variant tag for a well-known enum variant name.
+///
+/// Tags for Option:
+/// - None = 0
+/// - Some = 1
+///
+/// Tags for Result:
+/// - Ok = 0
+/// - Err = 1
+pub(super) fn get_variant_tag(variant_name: &str) -> Option<u16> {
+    match variant_name {
+        // Tag 0: unit/success variants
+        "None" | "Ok" => Some(0),
+        // Tag 1: payload/error variants
+        "Some" | "Err" => Some(1),
+        _ => None,
+    }
+}
+
+/// Compile a match expression.
+pub(super) fn compile_match(
+    fc: &mut FunctionCompiler,
+    scrutinee: &Expr,
+    arms: &[MatchArm],
+    span: (u32, u32),
+    ctx: &mut ModuleContext,
+) -> Result<(), CompileError> {
+    if arms.is_empty() {
+        return Err(CompileError::new(
+            CompileErrorKind::Unsupported {
+                feature: "empty match expression".to_string(),
+            },
+            span,
+        ));
+    }
+
+    // Compile the scrutinee.
+    compile_expr(fc, scrutinee, ctx)?;
+
+    // For now, only support simple patterns (wildcards, bindings, literals).
+    // TODO: Full pattern matching with nested patterns and guards.
+
+    let mut end_jumps = Vec::new();
+
+    for (i, arm) in arms.iter().enumerate() {
+        let is_last = i == arms.len() - 1;
+
+        // Duplicate scrutinee for pattern matching (except last arm).
+        if !is_last {
+            fc.builder.emit(Opcode::Dup);
+        }
+
+        // Compile pattern match.
+        let fail_jump = compile_pattern_match(fc, &arm.pattern, is_last)?;
+
+        // If guard exists, compile it.
+        if let Some(guard) = &arm.guard {
+            compile_expr(fc, guard, ctx)?;
+            if let Some(fj) = fail_jump {
+                // If pattern matched but guard fails, need to jump to next arm.
+                let guard_fail = fc.builder.emit_jump_placeholder(Opcode::JumpIfNot);
+                // Pattern and guard both succeeded - compile body.
+                compile_expr(fc, &arm.body, ctx)?;
+                let end_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
+                end_jumps.push(end_jump);
+                fc.builder.patch_jump(guard_fail);
+                fc.builder.patch_jump(fj);
+            } else {
+                // Last arm with guard.
+                let guard_fail = fc.builder.emit_jump_placeholder(Opcode::JumpIfNot);
+                compile_expr(fc, &arm.body, ctx)?;
+                let end_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
+                end_jumps.push(end_jump);
+                fc.builder.patch_jump(guard_fail);
+                // If guard fails on last arm, push unit as result.
+                fc.builder.emit_const(Value::Unit);
+            }
+        } else if let Some(fj) = fail_jump {
+            // Pattern match can fail, compile body and jump to end.
+            compile_expr(fc, &arm.body, ctx)?;
+            let end_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
+            end_jumps.push(end_jump);
+            fc.builder.patch_jump(fj);
+        } else {
+            // Pattern always matches (wildcard or binding) and it's the last arm.
+            compile_expr(fc, &arm.body, ctx)?;
+        }
+    }
+
+    // Patch all end jumps to here.
+    for jump in end_jumps {
+        fc.builder.patch_jump(jump);
+    }
+
+    Ok(())
+}
+
+/// Compile a pattern match. Returns jump offset if pattern can fail.
+fn compile_pattern_match(
+    fc: &mut FunctionCompiler,
+    pattern: &Pattern,
+    is_last: bool,
+) -> Result<Option<usize>, CompileError> {
+    match &pattern.kind {
+        PatternKind::Wildcard => {
+            // Wildcard always matches, consume the scrutinee.
+            if !is_last {
+                fc.builder.emit(Opcode::Pop);
+            }
+            Ok(None)
+        }
+
+        PatternKind::Binding(id, name) => {
+            // Binding always matches, store in local.
+            let slot = fc.alloc_local_with_name(*id, name)?;
+            fc.builder.emit_u16(Opcode::StoreLocal, slot);
+            if !is_last {
+                // Consume the duplicated scrutinee.
+                fc.builder.emit(Opcode::Pop);
+            }
+            Ok(None)
+        }
+
+        PatternKind::Literal(lit) => {
+            // Compare with literal.
+            let value = match lit {
+                Literal::Unit => Value::Unit,
+                Literal::Bool(b) => Value::Bool(*b),
+                Literal::Number(n) => Value::Number(*n),
+                Literal::String(s) => str_to_value(s),
+            };
+            fc.builder.emit_const(value);
+            fc.builder.emit(Opcode::Eq);
+            let fail_jump = fc.builder.emit_jump_placeholder(Opcode::JumpIfNot);
+            if !is_last {
+                fc.builder.emit(Opcode::Pop);
+            }
+            Ok(Some(fail_jump))
+        }
+
+        PatternKind::Variant(variant_name, inner_pattern) => {
+            // Enum variant pattern matching: `Some(x)`, `None`, `Ok(v)`, `Err(e)`
+            //
+            // Stack behavior (from VM dispatch.rs):
+            // - EnumIs: uses peek(), pushes bool -> [enum] becomes [enum, bool]
+            // - EnumPayload: pops enum, pushes payload -> [enum] becomes [payload]
+            //
+            // For non-last arms, compile_match does Dup first, so we have [orig, dup].
+            // For last arm, we just have [orig].
+            //
+            // The challenge: EnumIs doesn't consume the enum, so on the fail path
+            // we have [orig, dup, bool] -> JumpIfNot -> [orig, dup].
+            // But the next arm expects [orig] to Dup from.
+            //
+            // Solution: On fail path, pop the dup before continuing to next arm.
+            // We emit:
+            //   EnumIs           -> [orig, dup, bool] or [orig, bool]
+            //   JumpIfNot cleanup_and_fail
+            //   <success code>
+            //   Jump past_cleanup
+            //   cleanup_and_fail: Pop  (remove dup on fail path)
+            //   past_cleanup: <returned as fail_jump for compile_match to patch>
+
+            let tag = get_variant_tag(&variant_name.name).ok_or_else(|| {
+                CompileError::new(
+                    CompileErrorKind::Unsupported {
+                        feature: format!("unknown variant: {}", variant_name.name),
+                    },
+                    (pattern.span.start, pattern.span.end),
+                )
+            })?;
+
+            // Check if the enum matches this variant tag.
+            // EnumIs: [enum] -> [enum, bool]
+            fc.builder.emit_enum_is(tag);
+
+            // Jump to cleanup on fail
+            let cleanup_jump = fc.builder.emit_jump_placeholder(Opcode::JumpIfNot);
+
+            // === SUCCESS PATH ===
+            // Stack after JumpIfNot (not taken): [orig, dup] or [orig]
+            // (JumpIfNot consumed the bool)
+
+            if let Some(inner) = inner_pattern {
+                // Extract payload: [orig, dup] -> [orig, payload]
+                fc.builder.emit_enum_payload();
+
+                // Recursively match the inner pattern against the payload.
+                // is_last=true because we want inner match to consume the payload.
+                compile_pattern_match(fc, inner, true)?;
+                // Stack: [orig] (non-last) or [] (last)
+            } else {
+                // Unit variant (like None) - pop the matched enum
+                fc.builder.emit(Opcode::Pop);
+                // Stack: [orig] (non-last) or [] (last)
+            }
+
+            // For non-last arms, pop the original scrutinee (compile_match expects [])
+            if !is_last {
+                fc.builder.emit(Opcode::Pop);
+            }
+            // Stack: []
+
+            // Jump past the cleanup code
+            let past_cleanup_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
+
+            // === FAIL PATH (cleanup) ===
+            fc.builder.patch_jump(cleanup_jump);
+            // Stack here: [orig, dup] (non-last) or [orig] (last)
+            // JumpIfNot consumed the bool
+
+            // Pop the enum that EnumIs left on stack
+            fc.builder.emit(Opcode::Pop);
+            // Stack: [orig] (non-last) or [] (last)
+
+            // For non-last: we now have [orig] which is correct for next arm's Dup
+            // For last: we have [] but there's no next arm anyway
+
+            // Patch the success path's jump to skip over the fail cleanup
+            fc.builder.patch_jump(past_cleanup_jump);
+
+            // Return the fail target for compile_match to use
+            // But wait - we need to return a jump placeholder, not an offset.
+            // The issue is compile_match expects a jump that IT will patch.
+            //
+            // Actually looking at compile_match:
+            //   let fail_jump = compile_pattern_match(...)?;
+            //   ...compile body...
+            //   fc.builder.patch_jump(fj);  // patches to HERE
+            //
+            // So fail_jump should point to AFTER the body. But we've already
+            // handled the fail path cleanup inline. We need a different approach.
+            //
+            // New approach: Don't return a fail_jump. Instead, emit a Jump
+            // placeholder that we return, which compile_match will patch.
+            // On fail, we clean up and then fall through to this Jump.
+
+            // Actually, let me re-read how this works. Looking at the patching:
+            //   fc.builder.patch_jump(fj);
+            // This patches fj to the current bytecode position.
+            //
+            // So if I return a Jump placeholder here, compile_match will patch
+            // it to point to after the arm body. That's what we want!
+
+            // Emit a jump that compile_match will patch to the right place
+            let fail_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
+
+            Ok(Some(fail_jump))
+        }
+
+        PatternKind::Tuple(_) | PatternKind::Record(_) => Err(CompileError::new(
+            CompileErrorKind::Unsupported {
+                feature: "complex patterns (tuple/record)".to_string(),
+            },
+            (pattern.span.start, pattern.span.end),
+        )),
+    }
+}
