@@ -16,16 +16,16 @@ The compiler module is monolithic, mixing expression compilation, intrinsic hand
 - [x] Create `compiler/lambdas.rs` - Extract lambda/closure compilation logic
 - [x] Keep `compiler/mod.rs` for module-level orchestration and `CompiledModule`
 
-### 1.2 Split infer/mod.rs (3147 lines)
+### 1.2 Split infer/mod.rs (3147 lines → 1938 lines)
 
 **File**: `crates/ambient-engine/src/infer/mod.rs`
 
-Type inference is also monolithic. Key functions to extract:
+Type inference has tightly coupled `impl Infer` methods. Extracting tests provides significant reduction:
 
-- [ ] Create `infer/expr.rs` - Extract `infer_expr()` with its 500+ line match statement
-- [ ] Create `infer/unify.rs` - Extract `unify()` and `unify_abilities()` (~300 lines)
-- [ ] Create `infer/pattern.rs` - Extract `infer_pattern()` (~100 lines)
-- [ ] Keep `infer/mod.rs` for `Infer` struct and core operations
+- [x] Create `infer/tests.rs` - Extract ~1200 lines of tests
+- [ ] ~~Create `infer/expr.rs`~~ - Deferred: tightly coupled to `Infer` struct
+- [ ] ~~Create `infer/unify.rs`~~ - Deferred: tightly coupled to `Infer` struct
+- [ ] ~~Create `infer/pattern.rs`~~ - Deferred: tightly coupled to `Infer` struct
 
 ### 1.3 Extract VM tests from vm/mod.rs (2795 lines)
 
@@ -221,7 +221,7 @@ From `ref/backlog.md`:
 | Ticket | Status | Notes |
 |--------|--------|-------|
 | 1.1 Split compiler | done | mod.rs: 3228→2008 lines via intrinsics.rs, patterns.rs, lambdas.rs |
-| 1.2 Split infer | deferred | Tightly coupled impl blocks; could extract tests |
+| 1.2 Split infer | done | mod.rs: 3147→1938 lines via tests.rs (further splitting deferred) |
 | 1.3 Extract VM tests | done | mod.rs: 2795→68 lines |
 | 2.1 Option/Result helpers | done | dispatch.rs: 1787→1621 lines |
 | 2.2 Math opcodes | done | Added unary_number_op; dispatch.rs: 1621→1556 |
