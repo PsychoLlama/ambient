@@ -13,7 +13,7 @@ The compiler module is monolithic, mixing expression compilation, intrinsic hand
 - [ ] Create `compiler/expr.rs` - Extract `compile_expr()` and related helpers (~1000 lines)
 - [x] Create `compiler/intrinsics.rs` - Extract `try_compile_intrinsic()` (~500 lines)
 - [x] Create `compiler/patterns.rs` - Extract pattern matching logic (~150 lines)
-- [ ] Create `compiler/lambdas.rs` - Extract lambda/closure compilation logic
+- [x] Create `compiler/lambdas.rs` - Extract lambda/closure compilation logic
 - [x] Keep `compiler/mod.rs` for module-level orchestration and `CompiledModule`
 
 ### 1.2 Split infer/mod.rs (3147 lines)
@@ -220,7 +220,7 @@ From `ref/backlog.md`:
 
 | Ticket | Status | Notes |
 |--------|--------|-------|
-| 1.1 Split compiler | partial | Extracted intrinsics.rs and patterns.rs |
+| 1.1 Split compiler | partial | Extracted intrinsics.rs, patterns.rs, lambdas.rs; expr.rs remains |
 | 1.2 Split infer | deferred | Tightly coupled impl blocks; could extract tests |
 | 1.3 Extract VM tests | done | mod.rs: 2795→68 lines |
 | 2.1 Option/Result helpers | done | dispatch.rs: 1787→1621 lines |
