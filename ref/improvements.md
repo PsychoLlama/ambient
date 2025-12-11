@@ -184,11 +184,19 @@ After splitting large files, these can be removed:
 
 **File**: `crates/ambient-engine/src/compiler/mod.rs`
 
-Only 14 tests for 3228 lines (~1 test per 230 lines).
+Added 24 new tests (13→37 total) covering expression compilation:
 
-- [ ] Add expression compilation tests for each `ExprKind` variant
-- [ ] Add intrinsic compilation tests
-- [ ] Add pattern matching edge case tests
+- [x] Add expression compilation tests for each `ExprKind` variant
+  - Unit/Bool/Number/String literals
+  - Tuple/Record construction and access
+  - List literals
+  - Unary/Binary operators (all arithmetic, comparison, logical)
+  - Block expressions with let bindings
+  - Lambda and closure capture
+  - If expressions (with/without else, nested)
+  - Match patterns (literal, binding, variant)
+- [x] Add module tests (nested calls, mutual recursion)
+- [ ] Add intrinsic compilation tests (deferred)
 - [ ] Target: 50+ tests
 
 ### 5.2 Parser property tests
@@ -234,6 +242,6 @@ From `ref/backlog.md`:
 | 4.1 Compiler dead code | done | Removed unused new_with_source and finalize_debug_info |
 | 4.2 LSP dead code | skipped | Fields retained for future use per doc comments |
 | 4.3 Clippy suppressions | done | Moved too_many_lines to function level in dispatch.rs |
-| 5.1 Compiler tests | pending | |
+| 5.1 Compiler tests | done | 13→37 tests covering expression compilation |
 | 5.2 Parser tests | pending | |
 | 5.3 Integration tests | pending | |
