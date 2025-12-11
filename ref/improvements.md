@@ -11,10 +11,10 @@ A prioritized list of refactoring and code quality improvements for the Ambient 
 The compiler module is monolithic, mixing expression compilation, intrinsic handling, pattern matching, and lambda compilation. Split into focused submodules:
 
 - [ ] Create `compiler/expr.rs` - Extract `compile_expr()` and related helpers (~1000 lines)
-- [ ] Create `compiler/intrinsics.rs` - Extract `try_compile_intrinsic()` (~500 lines)
-- [ ] Create `compiler/patterns.rs` - Extract pattern matching logic (~150 lines)
+- [x] Create `compiler/intrinsics.rs` - Extract `try_compile_intrinsic()` (~500 lines)
+- [x] Create `compiler/patterns.rs` - Extract pattern matching logic (~150 lines)
 - [ ] Create `compiler/lambdas.rs` - Extract lambda/closure compilation logic
-- [ ] Keep `compiler/mod.rs` for module-level orchestration and `CompiledModule`
+- [x] Keep `compiler/mod.rs` for module-level orchestration and `CompiledModule`
 
 ### 1.2 Split infer/mod.rs (3147 lines)
 
@@ -33,8 +33,8 @@ Type inference is also monolithic. Key functions to extract:
 
 The VM module contains ~134 test functions mixed with implementation. Tests should be extracted:
 
-- [ ] Move `#[cfg(test)] mod tests` to `vm/tests.rs` or `tests/vm_tests.rs`
-- [ ] Reduce main module to ~700 lines of actual implementation
+- [x] Move `#[cfg(test)] mod tests` to `vm/tests.rs` or `tests/vm_tests.rs`
+- [x] Reduce main module to ~700 lines of actual implementation
 
 ---
 
@@ -57,8 +57,8 @@ match value {
 }
 ```
 
-- [ ] Extract helper method `apply_closure_to_enum(type_name, some_tag, none_tag, wrap_action)`
-- [ ] Reduce ~250 lines to ~50 lines
+- [x] Extract helper method `apply_closure_to_enum(type_name, some_tag, none_tag, wrap_action)`
+- [x] Reduce ~250 lines to ~50 lines
 
 ### 2.2 Math opcode handlers
 
@@ -73,7 +73,7 @@ Opcode::Sqrt => {
 }
 ```
 
-- [ ] Consider table-driven approach or macro generation for math opcodes
+- [x] Consider table-driven approach or macro generation for math opcodes
 
 ### 2.3 Intrinsic compilation cases
 
@@ -81,8 +81,8 @@ Opcode::Sqrt => {
 
 `try_compile_intrinsic()` has 50+ near-identical match arms for different intrinsics.
 
-- [ ] Consider intrinsic descriptor table: `{ name, arg_count, opcode }`
-- [ ] Generate match arms from table or use lookup-based dispatch
+- [x] Consider intrinsic descriptor table: `{ name, arg_count, opcode }`
+- [x] Generate match arms from table or use lookup-based dispatch
 
 ---
 
@@ -157,7 +157,7 @@ abilities: AbilitySet::empty(), // TODO: lower abilities
 - Line 214: `#[allow(dead_code)] fn new_with_source()` - Unused constructor
 - Line 295: `#[allow(dead_code)] fn finalize_debug_info()` - Unused method
 
-- [ ] Remove if not needed for future milestones, or document intent
+- [x] Remove if not needed for future milestones, or document intent
 
 ### 4.2 Dead code in LSP
 
@@ -174,7 +174,7 @@ After splitting large files, these can be removed:
 - `crates/ambient-engine/src/vm/mod.rs:55` - `#![allow(clippy::too_many_lines)]`
 - Various function-level `#[allow(clippy::too_many_lines)]` in infer and parser
 
-- [ ] Remove suppressions after refactoring is complete
+- [x] Remove suppressions after refactoring is complete
 
 ---
 
