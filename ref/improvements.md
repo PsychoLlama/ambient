@@ -221,8 +221,8 @@ From `ref/backlog.md`:
 | Ticket | Status | Notes |
 |--------|--------|-------|
 | 1.1 Split compiler | partial | Extracted intrinsics.rs and patterns.rs |
-| 1.2 Split infer | pending | |
-| 1.3 Extract VM tests | pending | |
+| 1.2 Split infer | deferred | Tightly coupled impl blocks; could extract tests |
+| 1.3 Extract VM tests | done | mod.rs: 2795→68 lines |
 | 2.1 Option/Result helpers | pending | |
 | 2.2 Math opcodes | pending | |
 | 2.3 Intrinsic table | pending | |
