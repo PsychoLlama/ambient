@@ -10,6 +10,7 @@ use super::error::VmError;
 
 impl Vm {
     /// Main execution loop.
+    #[allow(clippy::too_many_lines)]
     pub(super) fn run(&mut self) -> Result<Value, VmError> {
         loop {
             let op = self.fetch_opcode()?;

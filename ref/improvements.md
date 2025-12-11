@@ -231,9 +231,9 @@ From `ref/backlog.md`:
 | 3.3 Module registry | pending | |
 | 3.4 Ability lowering | pending | |
 | 3.5 Pattern matching | pending | |
-| 4.1 Compiler dead code | pending | |
-| 4.2 LSP dead code | pending | |
-| 4.3 Clippy suppressions | pending | |
+| 4.1 Compiler dead code | done | Removed unused new_with_source and finalize_debug_info |
+| 4.2 LSP dead code | skipped | Fields retained for future use per doc comments |
+| 4.3 Clippy suppressions | done | Moved too_many_lines to function level in dispatch.rs |
 | 5.1 Compiler tests | pending | |
 | 5.2 Parser tests | pending | |
 | 5.3 Integration tests | pending | |

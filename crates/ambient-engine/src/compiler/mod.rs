@@ -215,31 +215,6 @@ impl FunctionCompiler {
         }
     }
 
-    /// Create a new function compiler with debug info source context.
-    #[allow(dead_code)]
-    fn new_with_source(
-        function_hashes: HashMap<Arc<str>, blake3::Hash>,
-        source_file: Option<String>,
-        function_name: Option<String>,
-    ) -> Self {
-        let mut debug_info = DebugInfo::new();
-        debug_info.source_file = source_file;
-        debug_info.function_name = function_name;
-        Self {
-            builder: BytecodeBuilder::new(),
-            locals: HashMap::new(),
-            local_names: HashMap::new(),
-            next_local: 0,
-            function_hashes,
-            captures: HashMap::new(),
-            capture_names: HashMap::new(),
-            parent_locals: None,
-            parent_local_names: None,
-            debug_info,
-            repl_context: None,
-        }
-    }
-
     /// Set the REPL context for this compiler.
     fn set_repl_context(&mut self, context: &ReplContext) {
         self.repl_context = Some(context.clone());
@@ -292,34 +267,6 @@ impl FunctionCompiler {
     /// Record a local variable name for debug output.
     fn record_local_name(&mut self, slot: u16, name: &str) {
         self.debug_info.add_local_name(slot, name);
-    }
-
-    /// Finalize debug info with source context.
-    ///
-    /// This computes line and column numbers from the stored spans.
-    #[allow(dead_code)]
-    fn finalize_debug_info(
-        mut self,
-        source: Option<&str>,
-        source_file: Option<&str>,
-        function_name: &str,
-    ) -> (BytecodeBuilder, u16, DebugInfo) {
-        self.debug_info.function_name = Some(function_name.to_string());
-        self.debug_info.source_file = source_file.map(String::from);
-
-        // Compute line/column numbers if source is available
-        if let Some(src) = source {
-            for mapping in &mut self.debug_info.source_map {
-                let (line, col) = span_to_line_col(
-                    src,
-                    crate::ast::Span::new(mapping.source_start as u32, mapping.source_end as u32),
-                );
-                mapping.line = line;
-                mapping.column = col;
-            }
-        }
-
-        (self.builder, self.next_local, self.debug_info)
     }
 
     /// Allocate a local slot for a binding with a name.
