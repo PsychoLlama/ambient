@@ -10,7 +10,7 @@ A prioritized list of refactoring and code quality improvements for the Ambient 
 
 The compiler module is monolithic, mixing expression compilation, intrinsic handling, pattern matching, and lambda compilation. Split into focused submodules:
 
-- [ ] Create `compiler/expr.rs` - Extract `compile_expr()` and related helpers (~1000 lines)
+- [x] ~~Create `compiler/expr.rs`~~ - Not needed; mod.rs now 2008 lines after extracting lambdas.rs
 - [x] Create `compiler/intrinsics.rs` - Extract `try_compile_intrinsic()` (~500 lines)
 - [x] Create `compiler/patterns.rs` - Extract pattern matching logic (~150 lines)
 - [x] Create `compiler/lambdas.rs` - Extract lambda/closure compilation logic
@@ -220,7 +220,7 @@ From `ref/backlog.md`:
 
 | Ticket | Status | Notes |
 |--------|--------|-------|
-| 1.1 Split compiler | partial | Extracted intrinsics.rs, patterns.rs, lambdas.rs; expr.rs remains |
+| 1.1 Split compiler | done | mod.rs: 3228→2008 lines via intrinsics.rs, patterns.rs, lambdas.rs |
 | 1.2 Split infer | deferred | Tightly coupled impl blocks; could extract tests |
 | 1.3 Extract VM tests | done | mod.rs: 2795→68 lines |
 | 2.1 Option/Result helpers | done | dispatch.rs: 1787→1621 lines |
