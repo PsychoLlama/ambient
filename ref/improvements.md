@@ -201,12 +201,14 @@ Added 24 new tests (13→37 total) covering expression compilation:
 
 ### 5.2 Parser property tests
 
-**File**: `crates/ambient-parser/src/parser/mod.rs`
+**File**: `crates/ambient-parser/tests/property_tests.rs`
 
-33 tests for 1351 lines.
+Extended property tests from ~30 to 50 tests:
 
-- [ ] Extend property-based tests (following `tests/property_tests.rs` pattern)
-- [ ] Add error recovery tests
+- [x] Add property tests for expression types (tuple, record, list, if, lambda, block)
+- [x] Add string escape and ASCII character handling tests
+- [x] Add error recovery tests (~20 tests for unclosed delimiters, invalid syntax)
+- [x] Add stress tests (long identifiers, many parameters, deep nesting)
 
 ### 5.3 Integration test pipeline
 
@@ -243,5 +245,5 @@ From `ref/backlog.md`:
 | 4.2 LSP dead code | skipped | Fields retained for future use per doc comments |
 | 4.3 Clippy suppressions | done | Moved too_many_lines to function level in dispatch.rs |
 | 5.1 Compiler tests | done | 13→37 tests covering expression compilation |
-| 5.2 Parser tests | pending | |
+| 5.2 Parser tests | done | ~30→50 tests (property tests + error recovery) |
 | 5.3 Integration tests | pending | |
