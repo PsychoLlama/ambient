@@ -507,6 +507,17 @@ impl Vm {
         self.pop_typed("string", Value::into_string, operation)
     }
 
+    /// Execute a unary operation on a number.
+    pub(super) fn unary_number_op(
+        &mut self,
+        op: impl FnOnce(f64) -> f64,
+        name: &'static str,
+    ) -> Result<(), VmError> {
+        let n = self.pop_number(name)?;
+        self.stack.push(Value::Number(op(n)));
+        Ok(())
+    }
+
     /// Execute a binary operation on numbers.
     pub(super) fn binary_number_op(
         &mut self,

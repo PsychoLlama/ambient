@@ -224,7 +224,7 @@ From `ref/backlog.md`:
 | 1.2 Split infer | deferred | Tightly coupled impl blocks; could extract tests |
 | 1.3 Extract VM tests | done | mod.rs: 2795→68 lines |
 | 2.1 Option/Result helpers | done | dispatch.rs: 1787→1621 lines |
-| 2.2 Math opcodes | pending | |
+| 2.2 Math opcodes | done | Added unary_number_op; dispatch.rs: 1621→1556 |
 | 2.3 Intrinsic table | pending | |
 | 3.1 Qualified methods | pending | |
 | 3.2 Generic enums | pending | |

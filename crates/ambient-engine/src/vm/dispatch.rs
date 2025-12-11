@@ -61,96 +61,31 @@ impl Vm {
                     }
                     self.stack.push(Value::Number(a % b));
                 }
-                Opcode::Neg => {
-                    let n = self.pop_number("neg")?;
-                    self.stack.push(Value::Number(-n));
-                }
+                Opcode::Neg => self.unary_number_op(|n| -n, "neg")?,
 
-                // Math functions
-                Opcode::Sqrt => {
-                    let n = self.pop_number("sqrt")?;
-                    self.stack.push(Value::Number(n.sqrt()));
-                }
-                Opcode::Abs => {
-                    let n = self.pop_number("abs")?;
-                    self.stack.push(Value::Number(n.abs()));
-                }
-                Opcode::Floor => {
-                    let n = self.pop_number("floor")?;
-                    self.stack.push(Value::Number(n.floor()));
-                }
-                Opcode::Ceil => {
-                    let n = self.pop_number("ceil")?;
-                    self.stack.push(Value::Number(n.ceil()));
-                }
-                Opcode::Round => {
-                    let n = self.pop_number("round")?;
-                    self.stack.push(Value::Number(n.round()));
-                }
-                Opcode::Trunc => {
-                    let n = self.pop_number("trunc")?;
-                    self.stack.push(Value::Number(n.trunc()));
-                }
-                Opcode::Sin => {
-                    let n = self.pop_number("sin")?;
-                    self.stack.push(Value::Number(n.sin()));
-                }
-                Opcode::Cos => {
-                    let n = self.pop_number("cos")?;
-                    self.stack.push(Value::Number(n.cos()));
-                }
-                Opcode::Tan => {
-                    let n = self.pop_number("tan")?;
-                    self.stack.push(Value::Number(n.tan()));
-                }
-                Opcode::Ln => {
-                    let n = self.pop_number("ln")?;
-                    self.stack.push(Value::Number(n.ln()));
-                }
-                Opcode::Exp => {
-                    let n = self.pop_number("exp")?;
-                    self.stack.push(Value::Number(n.exp()));
-                }
-                Opcode::Pow => {
-                    let exp = self.pop_number("pow")?;
-                    let base = self.pop_number("pow")?;
-                    self.stack.push(Value::Number(base.powf(exp)));
-                }
-                Opcode::Min => {
-                    let b = self.pop_number("min")?;
-                    let a = self.pop_number("min")?;
-                    self.stack.push(Value::Number(a.min(b)));
-                }
-                Opcode::Max => {
-                    let b = self.pop_number("max")?;
-                    let a = self.pop_number("max")?;
-                    self.stack.push(Value::Number(a.max(b)));
-                }
-                Opcode::Asin => {
-                    let n = self.pop_number("asin")?;
-                    self.stack.push(Value::Number(n.asin()));
-                }
-                Opcode::Acos => {
-                    let n = self.pop_number("acos")?;
-                    self.stack.push(Value::Number(n.acos()));
-                }
-                Opcode::Atan => {
-                    let n = self.pop_number("atan")?;
-                    self.stack.push(Value::Number(n.atan()));
-                }
-                Opcode::Atan2 => {
-                    let x = self.pop_number("atan2")?;
-                    let y = self.pop_number("atan2")?;
-                    self.stack.push(Value::Number(y.atan2(x)));
-                }
-                Opcode::Log10 => {
-                    let n = self.pop_number("log10")?;
-                    self.stack.push(Value::Number(n.log10()));
-                }
-                Opcode::Log2 => {
-                    let n = self.pop_number("log2")?;
-                    self.stack.push(Value::Number(n.log2()));
-                }
+                // Math functions (unary)
+                Opcode::Sqrt => self.unary_number_op(f64::sqrt, "sqrt")?,
+                Opcode::Abs => self.unary_number_op(f64::abs, "abs")?,
+                Opcode::Floor => self.unary_number_op(f64::floor, "floor")?,
+                Opcode::Ceil => self.unary_number_op(f64::ceil, "ceil")?,
+                Opcode::Round => self.unary_number_op(f64::round, "round")?,
+                Opcode::Trunc => self.unary_number_op(f64::trunc, "trunc")?,
+                Opcode::Sin => self.unary_number_op(f64::sin, "sin")?,
+                Opcode::Cos => self.unary_number_op(f64::cos, "cos")?,
+                Opcode::Tan => self.unary_number_op(f64::tan, "tan")?,
+                Opcode::Ln => self.unary_number_op(f64::ln, "ln")?,
+                Opcode::Exp => self.unary_number_op(f64::exp, "exp")?,
+
+                // Math functions (binary)
+                Opcode::Pow => self.binary_number_op(f64::powf, "pow")?,
+                Opcode::Min => self.binary_number_op(f64::min, "min")?,
+                Opcode::Max => self.binary_number_op(f64::max, "max")?,
+                Opcode::Asin => self.unary_number_op(f64::asin, "asin")?,
+                Opcode::Acos => self.unary_number_op(f64::acos, "acos")?,
+                Opcode::Atan => self.unary_number_op(f64::atan, "atan")?,
+                Opcode::Atan2 => self.binary_number_op(f64::atan2, "atan2")?,
+                Opcode::Log10 => self.unary_number_op(f64::log10, "log10")?,
+                Opcode::Log2 => self.unary_number_op(f64::log2, "log2")?,
 
                 Opcode::Eq => {
                     let b = self.pop()?;
