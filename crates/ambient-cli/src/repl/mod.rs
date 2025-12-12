@@ -5,6 +5,7 @@
 mod completer;
 mod editor;
 mod highlighter;
+mod lsp_bridge;
 
 use std::fs;
 use std::io::{self, Write};
