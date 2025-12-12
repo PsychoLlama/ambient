@@ -86,68 +86,6 @@ Opcode::Sqrt => {
 
 ---
 
-## Priority 3: Medium (Technical Debt from TODOs)
-
-### 3.1 Qualified method call syntax
-
-**File**: `crates/ambient-engine/src/infer/check.rs:449`
-
-```rust
-// TODO: Support `utils.helper()` syntax
-```
-
-Blocks usability of helper module patterns like `utils.format()`.
-
-- [ ] Add support for qualified method calls in type inference
-
-### 3.2 Generic enum parameters
-
-**File**: `crates/ambient-engine/src/infer/check.rs:512`
-
-```rust
-vec![], // TODO: handle generic enum parameters
-```
-
-- [ ] Implement generic type parameter handling for enum definitions
-
-### 3.3 Module registry for qualified names
-
-**Files**:
-- `crates/ambient-parser/src/resolve.rs:211`
-- `crates/ambient-parser/src/resolve.rs:524`
-
-```rust
-// TODO: implement once we have a module registry
-// TODO: handle qualified names from other modules
-```
-
-- [ ] Integrate module registry with name resolution
-
-### 3.4 Ability lowering from CST to AST
-
-**Files**:
-- `crates/ambient-parser/src/lower.rs:849`
-- `crates/ambient-parser/src/lower.rs:863`
-
-```rust
-abilities: AbilitySet::empty(), // TODO: lower abilities
-```
-
-- [ ] Implement ability set lowering from parsed syntax
-
-### 3.5 Advanced pattern matching
-
-**File**: `crates/ambient-engine/src/compiler/mod.rs:2500`
-
-```rust
-// TODO: Full pattern matching with nested patterns and guards.
-```
-
-- [ ] Implement nested pattern compilation
-- [ ] Implement pattern guards
-
----
-
 ## Priority 4: Low (Dead Code & Suppressions)
 
 ### 4.1 Dead code in compiler
@@ -217,15 +155,6 @@ Extended property tests from ~30 to 50 tests:
 
 ---
 
-## Priority 6: Backlog Items
-
-From `ref/backlog.md`:
-
-- [ ] Investigate alternatives for serialization, moving away from `base64`
-- [ ] Use binary format for compiled files, replacing JSON
-
----
-
 ## Tracking
 
 | Ticket | Status | Notes |
@@ -236,11 +165,6 @@ From `ref/backlog.md`:
 | 2.1 Option/Result helpers | done | dispatch.rs: 1787→1621 lines |
 | 2.2 Math opcodes | done | Added unary_number_op; dispatch.rs: 1621→1556 |
 | 2.3 Intrinsic table | done | Table-driven intrinsic compilation |
-| 3.1 Qualified methods | pending | |
-| 3.2 Generic enums | pending | |
-| 3.3 Module registry | pending | |
-| 3.4 Ability lowering | pending | |
-| 3.5 Pattern matching | pending | |
 | 4.1 Compiler dead code | done | Removed unused new_with_source and finalize_debug_info |
 | 4.2 LSP dead code | skipped | Fields retained for future use per doc comments |
 | 4.3 Clippy suppressions | done | Moved too_many_lines to function level in dispatch.rs |
