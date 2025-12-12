@@ -20,12 +20,34 @@ The compiler module is monolithic, mixing expression compilation, intrinsic hand
 
 **File**: `crates/ambient-engine/src/infer/mod.rs`
 
-Type inference has tightly coupled `impl Infer` methods. Extracting tests provides significant reduction:
+Type inference has tightly coupled `impl Infer` methods. Split using `impl Infer` blocks in separate files, with tests beside each module:
 
-- [x] Create `infer/tests.rs` - Extract ~1200 lines of tests
-- [ ] ~~Create `infer/expr.rs`~~ - Deferred: tightly coupled to `Infer` struct
-- [ ] ~~Create `infer/unify.rs`~~ - Deferred: tightly coupled to `Infer` struct
-- [ ] ~~Create `infer/pattern.rs`~~ - Deferred: tightly coupled to `Infer` struct
+#### Current Structure
+- `infer/mod.rs` - Main `Infer` struct with all inference logic (~1938 lines)
+- `infer/env.rs` - `TypeEnv` and `Scheme` (~158 lines)
+- `infer/error.rs` - `TypeError` and `TypeErrorKind` (~300 lines)
+- `infer/check.rs` - Module-level `check_module()` function
+- `infer/tests.rs` - All tests (~1200 lines)
+
+#### Target Structure
+
+| File | Contents | Lines |
+|------|----------|-------|
+| `mod.rs` | `Infer` struct, constructors, `fresh()`, `require_ability()`, `apply()`, `generalize()`, `instantiate()` | ~430 |
+| `unify.rs` | `unify()`, `unify_abilities()`, `occurs()`, `ability_occurs()` | ~500 |
+| `expr.rs` | `infer_expr()` - main expression inference | ~1000 |
+| `pattern.rs` | `infer_pattern()` - pattern matching inference | ~100 |
+| `intrinsics.rs` | `try_infer_intrinsic()` - intrinsic type inference | ~450 |
+| `abilities.rs` | `lookup_ability_method()`, `infer_async_*()`, ability helpers | ~400 |
+
+#### Implementation Steps
+
+- [ ] Create `infer/unify.rs` with `impl Infer` for unification methods, move ~10 unification tests
+- [ ] Create `infer/intrinsics.rs` with `try_infer_intrinsic()` (~400 lines)
+- [ ] Create `infer/abilities.rs` with ability lookup/async methods, move ~15 ability tests
+- [ ] Create `infer/pattern.rs` with `infer_pattern()` (~70 lines)
+- [ ] Create `infer/expr.rs` with `infer_expr()`, move ~25 expression inference tests
+- [ ] Delete `tests.rs` (tests now distributed to each module)
 
 ### 1.3 Extract VM tests from vm/mod.rs (2795 lines)
 
@@ -160,7 +182,7 @@ Extended property tests from ~30 to 50 tests:
 | Ticket | Status | Notes |
 |--------|--------|-------|
 | 1.1 Split compiler | done | mod.rs: 3228→2008 lines via intrinsics.rs, patterns.rs, lambdas.rs |
-| 1.2 Split infer | done | mod.rs: 3147→1938 lines via tests.rs (further splitting deferred) |
+| 1.2 Split infer | pending | mod.rs: 1938 lines; plan to split into unify.rs, expr.rs, pattern.rs, intrinsics.rs, abilities.rs |
 | 1.3 Extract VM tests | done | mod.rs: 2795→68 lines |
 | 2.1 Option/Result helpers | done | dispatch.rs: 1787→1621 lines |
 | 2.2 Math opcodes | done | Added unary_number_op; dispatch.rs: 1621→1556 |
