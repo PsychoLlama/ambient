@@ -212,8 +212,8 @@ Extended property tests from ~30 to 50 tests:
 
 ### 5.3 Integration test pipeline
 
-- [ ] Add end-to-end tests: parse -> infer -> compile -> execute
-- [ ] Test error messages through the full pipeline
+- [x] Add end-to-end tests: parse -> infer -> compile -> execute
+- [x] Test error messages through the full pipeline
 
 ---
 
@@ -246,4 +246,4 @@ From `ref/backlog.md`:
 | 4.3 Clippy suppressions | done | Moved too_many_lines to function level in dispatch.rs |
 | 5.1 Compiler tests | done | 13→37 tests covering expression compilation |
 | 5.2 Parser tests | done | ~30→50 tests (property tests + error recovery) |
-| 5.3 Integration tests | pending | |
+| 5.3 Integration tests | done | 27→40 tests (error messages + end-to-end execution) |

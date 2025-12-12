@@ -608,3 +608,265 @@ fn test_sandbox_nested_pure() {
     )
     .expect_output("120");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Error Message Tests (Ticket 5.3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_error_parse_missing_brace() {
+    // Missing closing brace should produce a parse error
+    let (_dir, path) = temp_source(
+        r#"
+        fn run(): number {
+            42
+        // missing closing brace
+    "#,
+    );
+
+    let output = ambient_cmd()
+        .arg("check")
+        .arg(&path)
+        .output()
+        .expect("failed to run command");
+
+    assert!(!output.status.success(), "should fail with parse error");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("error") || stderr.contains("Error"),
+        "stderr should mention error: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_error_type_mismatch() {
+    // Type mismatch should produce a type error
+    let (_dir, path) = temp_source(
+        r#"
+        fn run(): number {
+            "hello"
+        }
+    "#,
+    );
+
+    let output = ambient_cmd()
+        .arg("check")
+        .arg(&path)
+        .output()
+        .expect("failed to run command");
+
+    assert!(!output.status.success(), "should fail with type error");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("type") || stderr.contains("mismatch") || stderr.contains("error"),
+        "stderr should mention type error: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_error_undefined_function() {
+    // Calling undefined function should produce an error
+    let (_dir, path) = temp_source(
+        r#"
+        fn run(): number {
+            undefined_function()
+        }
+    "#,
+    );
+
+    let output = ambient_cmd()
+        .arg("check")
+        .arg(&path)
+        .output()
+        .expect("failed to run command");
+
+    assert!(
+        !output.status.success(),
+        "should fail with undefined function error"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("undefined") || stderr.contains("not found") || stderr.contains("error"),
+        "stderr should mention undefined: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_error_wrong_argument_count() {
+    // Calling function with wrong number of args
+    let (_dir, path) = temp_source(
+        r#"
+        fn add(x: number, y: number): number {
+            x + y
+        }
+
+        fn run(): number {
+            add(1)
+        }
+    "#,
+    );
+
+    let output = ambient_cmd()
+        .arg("check")
+        .arg(&path)
+        .output()
+        .expect("failed to run command");
+
+    assert!(
+        !output.status.success(),
+        "should fail with argument count error"
+    );
+}
+
+#[test]
+fn test_end_to_end_tuples() {
+    // Test tuple creation and access through full pipeline
+    CliTest::new(
+        r#"
+        fn run(): number {
+            let t = (1, 2, 3);
+            t.0 + t.1 + t.2
+        }
+    "#,
+    )
+    .expect_output("6");
+}
+
+#[test]
+fn test_end_to_end_records() {
+    // Test record creation through full pipeline
+    // Note: record field access from variables (r.x) is not yet supported by parser
+    // (parsed as qualified name - see ticket 3.1)
+    CliTest::new(
+        r#"
+        fn run(): number {
+            let _r = { x: 10, y: 20 };
+            30
+        }
+    "#,
+    )
+    .expect_output("30");
+}
+
+#[test]
+fn test_end_to_end_lists() {
+    // Test list creation through full pipeline
+    CliTest::new(
+        r#"
+        fn run(): number {
+            let xs = [1, 2, 3];
+            3
+        }
+    "#,
+    )
+    .expect_output("3");
+}
+
+#[test]
+fn test_end_to_end_match() {
+    // Test match expression through full pipeline
+    CliTest::new(
+        r#"
+        fn classify(n: number): number {
+            match n {
+                0 => 0,
+                1 => 1,
+                _ => 2,
+            }
+        }
+
+        fn run(): number {
+            classify(5)
+        }
+    "#,
+    )
+    .expect_output("2");
+}
+
+#[test]
+fn test_end_to_end_closure() {
+    // Test closure capture through full pipeline
+    CliTest::new(
+        r#"
+        fn run(): number {
+            let multiplier = 10;
+            let f = (x: number) => x * multiplier;
+            f(5)
+        }
+    "#,
+    )
+    .expect_output("50");
+}
+
+#[test]
+fn test_end_to_end_nested_calls() {
+    // Test nested function calls through full pipeline
+    CliTest::new(
+        r#"
+        fn double(x: number): number { x * 2 }
+        fn add_one(x: number): number { x + 1 }
+
+        fn run(): number {
+            add_one(double(add_one(double(5))))
+        }
+    "#,
+    )
+    .expect_output("23");
+}
+
+#[test]
+fn test_end_to_end_mutual_recursion() {
+    // Test mutual recursion through full pipeline
+    CliTest::new(
+        r#"
+        fn is_even(n: number): bool {
+            if n == 0 { true } else { is_odd(n - 1) }
+        }
+
+        fn is_odd(n: number): bool {
+            if n == 0 { false } else { is_even(n - 1) }
+        }
+
+        fn run(): bool {
+            is_even(10)
+        }
+    "#,
+    )
+    .expect_output("true");
+}
+
+#[test]
+fn test_end_to_end_higher_order() {
+    // Test higher-order functions through full pipeline
+    CliTest::new(
+        r#"
+        fn apply_twice(f: (number) -> number, x: number): number {
+            f(f(x))
+        }
+
+        fn run(): number {
+            let double = (x: number) => x * 2;
+            apply_twice(double, 3)
+        }
+    "#,
+    )
+    .expect_output("12");
+}
+
+#[test]
+fn test_end_to_end_complex_expression() {
+    // Test complex nested expression through full pipeline
+    CliTest::new(
+        r#"
+        fn run(): number {
+            let x = (1 + 2) * 3;
+            let y = if x > 5 { x * 2 } else { x };
+            y + 1
+        }
+    "#,
+    )
+    .expect_output("19");
+}
