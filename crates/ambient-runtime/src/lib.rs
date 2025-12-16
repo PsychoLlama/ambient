@@ -11,12 +11,14 @@ pub mod async_ability;
 pub mod console;
 pub mod log;
 pub mod random;
+pub mod remote;
 pub mod time;
 
 pub use async_ability::{AsyncAbility, ASYNC};
 pub use console::{ConsoleAbility, CONSOLE};
 pub use log::{LogAbility, LOG};
 pub use random::{RandomAbility, RANDOM};
+pub use remote::{RemoteAbility, REMOTE};
 pub use time::{TimeAbility, TIME};
 
 use ambient_core::{
@@ -190,6 +192,67 @@ impl<T: Clone + 'static> RuntimeAbilities<T> {
             ])),
         };
 
+        let remote_ability = AbilityDescriptor {
+            id: remote::ABILITY_ID,
+            name: RemoteAbility::NAME,
+            methods: Box::leak(Box::new([
+                MethodDescriptor {
+                    id: remote::METHOD_LISTEN,
+                    name: "listen",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.string()],
+                        return_type: |f| f.number(), // Listener handle
+                    },
+                },
+                MethodDescriptor {
+                    id: remote::METHOD_ACCEPT,
+                    name: "accept",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.number()], // Listener handle
+                        return_type: |f| f.number(),       // Connection handle
+                    },
+                },
+                MethodDescriptor {
+                    id: remote::METHOD_CONNECT,
+                    name: "connect",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.string()],
+                        return_type: |f| f.number(), // Connection handle
+                    },
+                },
+                MethodDescriptor {
+                    id: remote::METHOD_CALL,
+                    name: "call",
+                    signature: MethodSignature {
+                        param_count: 2,
+                        param_types: |f| vec![f.number(), f.type_var()], // conn, thunk
+                        return_type: |f| f.type_var(),
+                    },
+                },
+                MethodDescriptor {
+                    id: remote::METHOD_CLOSE,
+                    name: "close",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.number()], // Connection handle
+                        return_type: |f| f.unit(),
+                    },
+                },
+                MethodDescriptor {
+                    id: remote::METHOD_SERVE,
+                    name: "serve",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.number()], // Connection handle
+                        return_type: |f| f.type_var(),     // Returns whatever was executed
+                    },
+                },
+            ])),
+        };
+
         Self {
             abilities: vec![
                 console_ability,
@@ -197,6 +260,7 @@ impl<T: Clone + 'static> RuntimeAbilities<T> {
                 random_ability,
                 async_ability,
                 log_ability,
+                remote_ability,
             ],
         }
     }
@@ -266,7 +330,7 @@ mod tests {
         let factory = TestTypeFactory::new();
         let runtime = RuntimeAbilities::new(&factory);
 
-        assert_eq!(runtime.abilities().len(), 5);
+        assert_eq!(runtime.abilities().len(), 6);
 
         // Check Console
         let console = runtime.get_ability("Console");
@@ -297,6 +361,12 @@ mod tests {
         assert!(log.is_some());
         let log = log.unwrap();
         assert_eq!(log.methods.len(), 4);
+
+        // Check Remote
+        let remote_ab = runtime.get_ability("Remote");
+        assert!(remote_ab.is_some());
+        let remote_ab = remote_ab.unwrap();
+        assert_eq!(remote_ab.methods.len(), 6);
     }
 
     #[test]
@@ -307,5 +377,6 @@ mod tests {
         assert_eq!(random::ABILITY_ID, 0x0004);
         assert_eq!(async_ability::ABILITY_ID, 0x0005);
         assert_eq!(log::ABILITY_ID, 0x0006);
+        assert_eq!(remote::ABILITY_ID, 0x0007);
     }
 }

@@ -27,6 +27,7 @@ pub mod module_registry;
 pub mod package;
 pub mod protocol;
 pub mod remote;
+pub mod remote_state;
 pub mod server;
 pub mod store;
 pub mod types;

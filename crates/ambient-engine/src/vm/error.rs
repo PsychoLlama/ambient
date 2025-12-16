@@ -127,12 +127,15 @@ pub enum VmError {
     /// Invalid opcode encountered.
     InvalidOpcode(u8),
 
-    /// Type mismatch for an operation.
+    /// Type mismatch for an operation (static strings, used in hot paths).
     TypeError {
         expected: &'static str,
         got: &'static str,
         operation: &'static str,
     },
+
+    /// Type mismatch for an operation (owned strings, used in ability handlers).
+    TypeErrorOwned { expected: String, got: String },
 
     /// Division by zero.
     DivisionByZero,
@@ -184,6 +187,12 @@ pub enum VmError {
 
     /// Feature not yet implemented.
     Unsupported { operation: &'static str },
+
+    /// I/O error (from Remote ability or other I/O operations).
+    IoError(String),
+
+    /// A mutex lock was poisoned.
+    LockPoisoned,
 }
 
 impl std::fmt::Display for VmError {
@@ -200,6 +209,9 @@ impl std::fmt::Display for VmError {
                     f,
                     "type error in {operation}: expected {expected}, got {got}"
                 )
+            }
+            Self::TypeErrorOwned { expected, got } => {
+                write!(f, "type error: expected {expected}, got {got}")
             }
             Self::DivisionByZero => write!(f, "division by zero"),
             Self::InvalidConstant(idx) => write!(f, "invalid constant index: {idx}"),
@@ -253,6 +265,8 @@ impl std::fmt::Display for VmError {
             Self::Unsupported { operation } => {
                 write!(f, "unsupported operation: {operation}")
             }
+            Self::IoError(msg) => write!(f, "I/O error: {msg}"),
+            Self::LockPoisoned => write!(f, "mutex lock poisoned"),
         }
     }
 }

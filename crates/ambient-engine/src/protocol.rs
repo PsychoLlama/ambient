@@ -37,12 +37,15 @@ pub const MAX_MESSAGE_SIZE: u32 = 16 * 1024 * 1024;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Message {
-    /// Request to execute a function.
+    /// Request to execute a function (or closure).
     Execute {
         /// Hash of the function to execute (hex-encoded).
         function: String,
         /// Arguments to pass to the function.
         args: Vec<Value>,
+        /// Captured environment for closures.
+        #[serde(default)]
+        captures: Vec<Value>,
     },
 
     /// Server requests missing dependencies.
@@ -224,13 +227,24 @@ pub async fn read_message<R: AsyncRead + Unpin>(
 // ─────────────────────────────────────────────────────────────────────────────
 
 impl Message {
-    /// Create an Execute message.
+    /// Create an Execute message for a closure.
     #[must_use]
-    pub fn execute(function_hash: blake3::Hash, args: Vec<Value>) -> Self {
+    pub fn execute_closure(
+        function_hash: blake3::Hash,
+        args: Vec<Value>,
+        captures: Vec<Value>,
+    ) -> Self {
         Self::Execute {
             function: function_hash.to_hex().to_string(),
             args,
+            captures,
         }
+    }
+
+    /// Create an Execute message for a regular function (no captures).
+    #[must_use]
+    pub fn execute(function_hash: blake3::Hash, args: Vec<Value>) -> Self {
+        Self::execute_closure(function_hash, args, Vec::new())
     }
 
     /// Create a `NeedDeps` message.
@@ -303,7 +317,7 @@ mod tests {
         let parsed: Message = serde_json::from_str(&json).unwrap();
 
         match parsed {
-            Message::Execute { function, args } => {
+            Message::Execute { function, args, .. } => {
                 assert_eq!(function, hash.to_hex().to_string());
                 assert_eq!(args.len(), 1);
             }

@@ -177,6 +177,35 @@ impl Vm {
         self.call(hash, args).map_err(|e| self.runtime_error(e))
     }
 
+    /// Call a closure (function + captured environment).
+    ///
+    /// This is used for executing closures remotely where the captured
+    /// values need to be passed along with the function call.
+    pub fn call_closure(
+        &mut self,
+        hash: &blake3::Hash,
+        args: Vec<Value>,
+        captures: Vec<Value>,
+    ) -> Result<Value, VmError> {
+        // Reset state
+        self.stack.clear();
+        self.frames.clear();
+        self.handlers.clear();
+
+        let arg_count = args.len() as u8;
+
+        // Push arguments onto stack
+        for arg in args {
+            self.stack.push(arg);
+        }
+
+        // Set up initial call frame with captures
+        self.push_frame_with_captures(hash, arg_count, captures)?;
+
+        // Run the execution loop
+        self.run()
+    }
+
     /// Push a new call frame for the given function.
     pub(super) fn push_frame(&mut self, hash: &blake3::Hash, arg_count: u8) -> Result<(), VmError> {
         self.push_frame_with_captures(hash, arg_count, Vec::new())

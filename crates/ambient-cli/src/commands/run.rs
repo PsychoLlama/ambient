@@ -7,13 +7,14 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
-use ambient_engine::abilities::register_all_standard_abilities;
+use ambient_engine::abilities::{register_all_standard_abilities, register_remote, RemoteConfig};
 use ambient_engine::ast::{ItemKind, UsePrefix};
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::format::format_value_colored;
 use ambient_engine::module_path::{ImportPrefix, ModulePath};
 use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::package::{LoadedModule, Package};
+use ambient_engine::store::Store;
 use ambient_engine::vm::Vm;
 
 use crate::diagnostic::print_diagnostic;
@@ -299,11 +300,30 @@ fn compile_loaded_module_with_registry(
 
 /// Run a compiled module.
 fn run_compiled(compiled: &CompiledModule, entry: &str) -> Result<()> {
+    // Create tokio runtime for async operations (Remote ability).
+    let runtime = tokio::runtime::Runtime::new().context("failed to create async runtime")?;
+
     // Create and configure VM.
     let mut vm = Vm::new();
 
     // Register standard ability handlers.
     register_all_standard_abilities(&mut vm);
+
+    // Create store for function dependencies (used by Remote ability).
+    let mut store = Store::new();
+    for func in compiled.functions.values() {
+        store.add(func.clone());
+    }
+    let store = Arc::new(std::sync::Mutex::new(store));
+
+    // Register Remote ability for network operations.
+    register_remote(
+        &mut vm,
+        RemoteConfig {
+            runtime: runtime.handle().clone(),
+            store: Arc::clone(&store),
+        },
+    );
 
     // Load all functions into the VM.
     for func in compiled.functions.values() {

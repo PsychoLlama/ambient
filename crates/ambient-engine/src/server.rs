@@ -200,7 +200,9 @@ where
 /// Handle a single message and produce a response.
 async fn handle_message(message: Message, executor: &Arc<Mutex<Executor>>) -> Message {
     match message {
-        Message::Execute { function, args } => handle_execute(function, args, executor).await,
+        // Note: captures are ignored here since this server doesn't use call_closure
+        // The abilities.rs Remote.serve handler handles captures properly
+        Message::Execute { function, args, .. } => handle_execute(function, args, executor).await,
 
         Message::Provide { functions } => handle_provide(functions, executor).await,
 

@@ -1,0 +1,31 @@
+// Remote execution client example.
+//
+// This client connects to a server and sends a function
+// for remote execution.
+//
+// Run with: ambient run examples/remote_client
+// (Make sure the server is running first!)
+
+// A function we want to execute remotely
+fn double(x: number): number {
+    x * 2
+}
+
+pub fn run() {
+    Console.print!("Client: connecting to server...");
+    let conn = Remote.connect!("127.0.0.1:8080");
+    Console.print!("Client: connected!");
+
+    // The value we want to double remotely
+    let value = 21;
+
+    // Create a closure that captures 'value' and passes it to double.
+    // The dummy parameter 'x' is needed because zero-arg lambdas aren't supported.
+    // The captured 'value' will be sent as the argument to 'x'.
+    let thunk = (x: number) => double(value);
+    let result = Remote.call!(conn, thunk);
+    Console.print!(core.string.concat("Client: got result = ", core.convert.to_string(result)));
+
+    Remote.close!(conn);
+    Console.print!("Client: done")
+}
