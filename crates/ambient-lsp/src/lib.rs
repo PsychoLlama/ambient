@@ -58,7 +58,25 @@ mod server;
 mod util;
 mod workspace;
 
-pub use server::run_server;
+// Test harness module - exposed publicly so integration tests can use it.
+// The module contains testing utilities for the LSP server.
+// Testing code has relaxed lint rules.
+#[allow(
+    dead_code,
+    clippy::unwrap_used,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    clippy::missing_errors_doc,
+    clippy::uninlined_format_args,
+    clippy::needless_pass_by_value,
+    clippy::ptr_arg,
+    clippy::doc_markdown,
+    clippy::ref_option,
+    clippy::map_unwrap_or
+)]
+pub mod test_harness;
+
+pub use server::{run_server, run_server_with_connection};
 
 // Re-export key types for library use (REPL, testing)
 pub use analysis::{analyze, analyze_with_registry, format_type, AnalysisResult};

@@ -30,14 +30,28 @@ use crate::package::PackageInfo;
 use crate::util::uri_to_path;
 use crate::workspace::WorkspaceIndex;
 
-/// Run the LSP server.
+/// Run the LSP server over stdio.
 ///
 /// # Errors
 ///
 /// Returns an error if the server fails to start or communicate with the client.
 pub fn run_server() -> anyhow::Result<()> {
     let (connection, io_threads) = Connection::stdio();
+    run_server_with_connection(connection)?;
+    io_threads.join()?;
+    Ok(())
+}
 
+/// Run the LSP server with a given connection.
+///
+/// This is the core server implementation that can be used with any connection type,
+/// enabling both stdio (for production) and memory (for testing) connections.
+///
+/// # Errors
+///
+/// Returns an error if the server fails to communicate with the client.
+#[allow(clippy::needless_pass_by_value)] // Connection is used throughout the function
+pub fn run_server_with_connection(connection: Connection) -> anyhow::Result<()> {
     // Wait for initialize request.
     let (id, params) = connection.initialize_start()?;
     let (initialize_id, _initialize_params) =
@@ -69,7 +83,6 @@ pub fn run_server() -> anyhow::Result<()> {
     // Run the main loop.
     main_loop(&connection)?;
 
-    io_threads.join()?;
     Ok(())
 }
 
