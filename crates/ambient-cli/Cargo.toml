@@ -23,3 +23,5 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [dev-dependencies]
 tempfile = "3.14"
+portable-pty = "0.8"
+strip-ansi-escapes = "0.2"
