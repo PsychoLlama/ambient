@@ -7,16 +7,22 @@ use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, Notification as _,
     PublishDiagnostics,
 };
-use lsp_types::request::{Completion, GotoDefinition, HoverRequest, Request as _};
+use lsp_types::request::{
+    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, Request as _,
+    WorkspaceSymbolRequest,
+};
 use lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
-    HoverProviderCapability, InitializeParams, InitializeResult, Location, MarkedString, OneOf,
-    PublishDiagnosticsParams, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
-    Uri,
+    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
+    InitializeParams, InitializeResult, Location, MarkedString, OneOf, PublishDiagnosticsParams,
+    ServerCapabilities, SymbolInformation, SymbolKind as LspSymbolKind, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Uri, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use serde_json::Value;
+
+use ambient_engine::ast::{ItemKind, Module};
 
 use crate::analysis::{
     analyze_with_registry, find_definition_cross_file, find_expr_at_offset, format_type,
@@ -28,6 +34,7 @@ use crate::convert::{
 use crate::documents::DocumentStore;
 use crate::package::PackageInfo;
 use crate::util::uri_to_path;
+use crate::workspace::SymbolKind;
 use crate::workspace::WorkspaceIndex;
 
 /// Run the LSP server over stdio.
@@ -67,6 +74,8 @@ pub fn run_server_with_connection(connection: Connection) -> anyhow::Result<()> 
             resolve_provider: Some(false),
             ..Default::default()
         }),
+        document_symbol_provider: Some(OneOf::Left(true)),
+        workspace_symbol_provider: Some(OneOf::Left(true)),
         ..Default::default()
     };
 
@@ -164,6 +173,20 @@ fn handle_request(
                 Err(e) => return e,
             };
             handle_completion(id, &params, documents, analysis_cache)
+        }
+        DocumentSymbolRequest::METHOD => {
+            let params = match parse_params(&req.params, &id) {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
+            handle_document_symbol(id, &params, documents, analysis_cache)
+        }
+        WorkspaceSymbolRequest::METHOD => {
+            let params = match parse_params(&req.params, &id) {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
+            handle_workspace_symbol(id, &params, workspace_index, documents)
         }
         _ => Response::new_err(id, -32601, format!("Unknown method: {}", req.method)),
     }
@@ -347,6 +370,288 @@ fn handle_completion(
 
     let response = CompletionResponse::Array(items);
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
+}
+
+/// Handle document symbol request.
+fn handle_document_symbol(
+    id: RequestId,
+    params: &DocumentSymbolParams,
+    documents: &DocumentStore,
+    analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
+) -> Response {
+    let uri = &params.text_document.uri;
+
+    let Some(doc) = documents.get(uri) else {
+        return Response::new_ok(id, Value::Null);
+    };
+
+    let uri_str = uri.as_str();
+    let Some(analysis) = analysis_cache.get(uri_str) else {
+        return Response::new_ok(id, Value::Null);
+    };
+
+    let Some(module) = &analysis.module else {
+        return Response::new_ok(id, Value::Null);
+    };
+
+    let symbols = extract_document_symbols(module, doc);
+    let response = DocumentSymbolResponse::Nested(symbols);
+    Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
+}
+
+/// Handle workspace symbol request.
+fn handle_workspace_symbol(
+    id: RequestId,
+    params: &WorkspaceSymbolParams,
+    workspace_index: &WorkspaceIndex,
+    documents: &DocumentStore,
+) -> Response {
+    let query = params.query.to_lowercase();
+    let mut symbols: Vec<SymbolInformation> = Vec::new();
+
+    for module_info in workspace_index.all_modules() {
+        // Get the document for range calculation
+        let doc = documents.get(&module_info.uri);
+
+        for export in &module_info.exports {
+            // Filter by query (case-insensitive substring match)
+            if !query.is_empty() && !export.name.to_lowercase().contains(&query) {
+                continue;
+            }
+
+            let range = if let Some(doc) = doc {
+                offset_range_to_lsp_range(doc, export.offset as usize, export.end_offset as usize)
+            } else {
+                // Try to read the file to compute proper range
+                if let Some(file_path) = uri_to_path(&module_info.uri) {
+                    if let Ok(content) = std::fs::read_to_string(&file_path) {
+                        let temp_doc =
+                            crate::documents::Document::new(module_info.uri.clone(), 0, content);
+                        offset_range_to_lsp_range(
+                            &temp_doc,
+                            export.offset as usize,
+                            export.end_offset as usize,
+                        )
+                    } else {
+                        lsp_types::Range::default()
+                    }
+                } else {
+                    lsp_types::Range::default()
+                }
+            };
+
+            #[allow(deprecated)] // SymbolInformation::deprecated field is deprecated
+            symbols.push(SymbolInformation {
+                name: export.name.to_string(),
+                kind: symbol_kind_to_lsp(export.kind),
+                tags: None,
+                deprecated: None,
+                location: Location {
+                    uri: module_info.uri.clone(),
+                    range,
+                },
+                container_name: Some(module_info.module_path.join(".")),
+            });
+        }
+    }
+
+    let response = WorkspaceSymbolResponse::Flat(symbols);
+    Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
+}
+
+/// Extract document symbols from an AST module.
+fn extract_document_symbols(
+    module: &Module,
+    doc: &crate::documents::Document,
+) -> Vec<DocumentSymbol> {
+    module
+        .items
+        .iter()
+        .filter_map(|item| item_to_document_symbol(item, doc))
+        .collect()
+}
+
+/// Convert a single AST item to a document symbol.
+fn item_to_document_symbol(
+    item: &ambient_engine::ast::Item,
+    doc: &crate::documents::Document,
+) -> Option<DocumentSymbol> {
+    let range = offset_range_to_lsp_range(doc, item.span.start as usize, item.span.end as usize);
+
+    match &item.kind {
+        ItemKind::Function(f) => Some(make_symbol(
+            f.name.to_string(),
+            Some(format_function_signature(f)),
+            LspSymbolKind::FUNCTION,
+            range,
+            offset_range_to_lsp_range(doc, f.name_span.start as usize, f.name_span.end as usize),
+            None,
+        )),
+        ItemKind::Const(c) => Some(make_symbol(
+            c.name.to_string(),
+            Some(format_type(&c.ty)),
+            LspSymbolKind::CONSTANT,
+            range,
+            offset_range_to_lsp_range(doc, c.name_span.start as usize, c.name_span.end as usize),
+            None,
+        )),
+        ItemKind::TypeAlias(t) => Some(make_symbol(
+            t.name.to_string(),
+            None,
+            LspSymbolKind::TYPE_PARAMETER,
+            range,
+            offset_range_to_lsp_range(doc, t.name_span.start as usize, t.name_span.end as usize),
+            None,
+        )),
+        ItemKind::Enum(e) => {
+            let children = extract_enum_variants(e, doc);
+            Some(make_symbol(
+                e.name.to_string(),
+                None,
+                LspSymbolKind::ENUM,
+                range,
+                offset_range_to_lsp_range(
+                    doc,
+                    e.name_span.start as usize,
+                    e.name_span.end as usize,
+                ),
+                children,
+            ))
+        }
+        ItemKind::Ability(a) => {
+            let children = extract_ability_methods(a, doc);
+            Some(make_symbol(
+                a.name.to_string(),
+                None,
+                LspSymbolKind::INTERFACE,
+                range,
+                offset_range_to_lsp_range(
+                    doc,
+                    a.name_span.start as usize,
+                    a.name_span.end as usize,
+                ),
+                children,
+            ))
+        }
+        ItemKind::Use(_) => None,
+    }
+}
+
+/// Create a `DocumentSymbol` with the given properties.
+#[allow(deprecated)]
+fn make_symbol(
+    name: String,
+    detail: Option<String>,
+    kind: LspSymbolKind,
+    range: lsp_types::Range,
+    selection_range: lsp_types::Range,
+    children: Option<Vec<DocumentSymbol>>,
+) -> DocumentSymbol {
+    DocumentSymbol {
+        name,
+        detail,
+        kind,
+        tags: None,
+        deprecated: None,
+        range,
+        selection_range,
+        children,
+    }
+}
+
+/// Extract enum variants as child document symbols.
+fn extract_enum_variants(
+    e: &ambient_engine::ast::EnumDef,
+    doc: &crate::documents::Document,
+) -> Option<Vec<DocumentSymbol>> {
+    let children: Vec<_> = e
+        .variants
+        .iter()
+        .map(|v| {
+            let r = offset_range_to_lsp_range(doc, v.span.start as usize, v.span.end as usize);
+            make_symbol(
+                v.name.to_string(),
+                v.payload.as_ref().map(format_type),
+                LspSymbolKind::ENUM_MEMBER,
+                r,
+                r,
+                None,
+            )
+        })
+        .collect();
+    if children.is_empty() {
+        None
+    } else {
+        Some(children)
+    }
+}
+
+/// Extract ability methods as child document symbols.
+fn extract_ability_methods(
+    a: &ambient_engine::ast::AbilityDef,
+    doc: &crate::documents::Document,
+) -> Option<Vec<DocumentSymbol>> {
+    let children: Vec<_> = a
+        .methods
+        .iter()
+        .map(|m| {
+            let r = offset_range_to_lsp_range(doc, m.span.start as usize, m.span.end as usize);
+            make_symbol(
+                m.name.to_string(),
+                Some(format_ability_method_signature(m)),
+                LspSymbolKind::METHOD,
+                r,
+                r,
+                None,
+            )
+        })
+        .collect();
+    if children.is_empty() {
+        None
+    } else {
+        Some(children)
+    }
+}
+
+/// Convert our `SymbolKind` to LSP `SymbolKind`.
+fn symbol_kind_to_lsp(kind: SymbolKind) -> LspSymbolKind {
+    match kind {
+        SymbolKind::Function => LspSymbolKind::FUNCTION,
+        SymbolKind::Const => LspSymbolKind::CONSTANT,
+        SymbolKind::TypeAlias => LspSymbolKind::TYPE_PARAMETER,
+        SymbolKind::Enum => LspSymbolKind::ENUM,
+        SymbolKind::Ability => LspSymbolKind::INTERFACE,
+    }
+}
+
+/// Format a function signature for display.
+fn format_function_signature(f: &ambient_engine::ast::FunctionDef) -> String {
+    let params: Vec<String> = f
+        .params
+        .iter()
+        .map(|p| {
+            if let Some(ty) = &p.ty {
+                format!("{}: {}", p.name, format_type(ty))
+            } else {
+                p.name.to_string()
+            }
+        })
+        .collect();
+    let ret = f
+        .ret_ty
+        .as_ref()
+        .map_or(String::new(), |ty| format!(" -> {}", format_type(ty)));
+    format!("fn({}){}", params.join(", "), ret)
+}
+
+/// Format an ability method signature for display.
+fn format_ability_method_signature(m: &ambient_engine::ast::AbilityMethod) -> String {
+    let params: Vec<String> = m
+        .params
+        .iter()
+        .map(|(n, t)| format!("{n}: {}", format_type(t)))
+        .collect();
+    format!("fn({}) -> {}", params.join(", "), format_type(&m.ret_ty))
 }
 
 /// Handle an incoming notification.
