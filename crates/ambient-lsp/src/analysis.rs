@@ -98,52 +98,8 @@ fn find_expr_in_tree(expr: &Expr, offset: u32) -> Option<&Expr> {
         return None;
     }
 
-    // Try to find a more specific child expression.
-    let child = match &expr.kind {
-        ExprKind::Binary(_, left, right) => {
-            find_expr_in_tree(left, offset).or_else(|| find_expr_in_tree(right, offset))
-        }
-        ExprKind::Unary(_, operand) => find_expr_in_tree(operand, offset),
-        ExprKind::Call(callee, args) => find_expr_in_tree(callee, offset)
-            .or_else(|| args.iter().find_map(|a| find_expr_in_tree(a, offset))),
-        ExprKind::If(condition, then_branch, else_branch) => find_expr_in_tree(condition, offset)
-            .or_else(|| find_expr_in_tree(then_branch, offset))
-            .or_else(|| {
-                else_branch
-                    .as_ref()
-                    .and_then(|e| find_expr_in_tree(e, offset))
-            }),
-        ExprKind::Block(stmts, result) => {
-            for stmt in stmts {
-                if let StmtKind::Let(binding) = &stmt.kind {
-                    if let Some(e) = find_expr_in_tree(&binding.init, offset) {
-                        return Some(e);
-                    }
-                }
-            }
-            result.as_ref().and_then(|e| find_expr_in_tree(e, offset))
-        }
-        ExprKind::Tuple(elements) | ExprKind::List(elements) => {
-            elements.iter().find_map(|e| find_expr_in_tree(e, offset))
-        }
-        ExprKind::Record(fields) => fields
-            .iter()
-            .find_map(|(_, e)| find_expr_in_tree(e, offset)),
-        ExprKind::RecordField(object, _) => find_expr_in_tree(object, offset),
-        ExprKind::TupleIndex(tuple, _) => find_expr_in_tree(tuple, offset),
-        ExprKind::Match(scrutinee, arms) => find_expr_in_tree(scrutinee, offset).or_else(|| {
-            arms.iter()
-                .find_map(|arm| find_expr_in_tree(&arm.body, offset))
-        }),
-        ExprKind::Lambda(lambda) => find_expr_in_tree(&lambda.body, offset),
-        ExprKind::Handle(handle) => find_expr_in_tree(&handle.body, offset).or_else(|| {
-            handle
-                .else_clause
-                .as_ref()
-                .and_then(|e| find_expr_in_tree(e, offset))
-        }),
-        ExprKind::Sandbox(sandbox) => find_expr_in_tree(&sandbox.body, offset),
-        // Leaf nodes
+    match &expr.kind {
+        // Leaf nodes - these are directly hoverable
         ExprKind::Unit
         | ExprKind::Bool(_)
         | ExprKind::Number(_)
@@ -153,11 +109,74 @@ fn find_expr_in_tree(expr: &Expr, offset: u32) -> Option<&Expr> {
         | ExprKind::Perform(_)
         | ExprKind::Suspend(_)
         | ExprKind::Resume(_)
-        | ExprKind::HandlerLiteral(_) => None,
-    };
+        | ExprKind::HandlerLiteral(_) => Some(expr),
 
-    // Return the child if found, otherwise this expression.
-    child.or(Some(expr))
+        // Container expressions - only return child, never the container itself
+        ExprKind::Block(stmts, result) => {
+            for stmt in stmts {
+                // Check if offset is within this statement's span
+                if offset >= stmt.span.start && offset <= stmt.span.end {
+                    match &stmt.kind {
+                        StmtKind::Let(binding) => {
+                            // First try to find within the init expression
+                            if let Some(e) = find_expr_in_tree(&binding.init, offset) {
+                                return Some(e);
+                            }
+                            // If cursor is on the binding name or elsewhere in the let,
+                            // return the init expression so hover shows the variable's type
+                            return Some(&binding.init);
+                        }
+                        StmtKind::Expr(e) => {
+                            return find_expr_in_tree(e, offset);
+                        }
+                    }
+                }
+            }
+            result.as_ref().and_then(|e| find_expr_in_tree(e, offset))
+        }
+        ExprKind::Lambda(lambda) => find_expr_in_tree(&lambda.body, offset),
+        ExprKind::Handle(handle) => find_expr_in_tree(&handle.body, offset)
+            .or_else(|| {
+                handle
+                    .handlers
+                    .iter()
+                    .find_map(|h| find_expr_in_tree(&h.body, offset))
+            })
+            .or_else(|| {
+                handle
+                    .else_clause
+                    .as_ref()
+                    .and_then(|e| find_expr_in_tree(e, offset))
+            }),
+        ExprKind::Sandbox(sandbox) => find_expr_in_tree(&sandbox.body, offset),
+        ExprKind::Match(scrutinee, arms) => find_expr_in_tree(scrutinee, offset).or_else(|| {
+            arms.iter()
+                .find_map(|arm| find_expr_in_tree(&arm.body, offset))
+        }),
+
+        // Expressions with children - search children, fall back to self
+        ExprKind::Binary(_, left, right) => find_expr_in_tree(left, offset)
+            .or_else(|| find_expr_in_tree(right, offset))
+            .or(Some(expr)),
+        ExprKind::Unary(_, operand) => find_expr_in_tree(operand, offset).or(Some(expr)),
+        ExprKind::Call(callee, args) => find_expr_in_tree(callee, offset)
+            .or_else(|| args.iter().find_map(|a| find_expr_in_tree(a, offset)))
+            .or(Some(expr)),
+        ExprKind::If(cond, then_br, else_br) => find_expr_in_tree(cond, offset)
+            .or_else(|| find_expr_in_tree(then_br, offset))
+            .or_else(|| else_br.as_ref().and_then(|e| find_expr_in_tree(e, offset)))
+            .or(Some(expr)),
+        ExprKind::Tuple(elements) | ExprKind::List(elements) => elements
+            .iter()
+            .find_map(|e| find_expr_in_tree(e, offset))
+            .or(Some(expr)),
+        ExprKind::Record(fields) => fields
+            .iter()
+            .find_map(|(_, e)| find_expr_in_tree(e, offset))
+            .or(Some(expr)),
+        ExprKind::RecordField(object, _) => find_expr_in_tree(object, offset).or(Some(expr)),
+        ExprKind::TupleIndex(tuple, _) => find_expr_in_tree(tuple, offset).or(Some(expr)),
+    }
 }
 
 /// Format a type for display in hover information.
