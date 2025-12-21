@@ -101,6 +101,7 @@ impl ReplContext {
 
     /// Register core library modules with their exports.
     pub fn register_core_modules(&mut self) {
+        use crate::compiler::intrinsics::get_intrinsics_for_module;
         use crate::core_library::CoreLibrary;
 
         // Register the "core" parent module
@@ -113,11 +114,30 @@ impl ReplContext {
 
         // Register each core submodule
         for module_name in core_modules {
+            let mut exports = Vec::new();
+
+            // Parse exports from source file
             if let Ok(source) = CoreLibrary::get_source(&[Arc::from(module_name)]) {
-                let exports = parse_module_exports(source);
-                let path = format!("core.{module_name}");
-                self.register_module(path.clone(), ModuleValue::new(path, exports));
+                exports = parse_module_exports(source);
             }
+
+            // Add intrinsics for this module
+            let intrinsics = get_intrinsics_for_module(&["core", module_name]);
+            for (name, arity) in intrinsics {
+                // Only add if not already present from source parsing
+                if !exports.iter().any(|e| e.name.as_ref() == name) {
+                    // Generate a simple signature based on arity
+                    let signature = generate_intrinsic_signature(arity);
+                    exports.push(ModuleExport::with_signature(
+                        name,
+                        ModuleExportKind::Function,
+                        signature,
+                    ));
+                }
+            }
+
+            let path = format!("core.{module_name}");
+            self.register_module(path.clone(), ModuleValue::new(path, exports));
         }
     }
 
@@ -248,16 +268,45 @@ pub fn parse_module_exports(source: &str) -> Vec<ModuleExport> {
             continue;
         }
 
-        // Match pub fn declarations
+        // Match pub fn declarations (public functions)
         if let Some(rest) = line.strip_prefix("pub fn ") {
-            if let Some(name) = extract_identifier(rest) {
-                exports.push(ModuleExport::new(name, ModuleExportKind::Function));
+            if let Some((name, signature)) = extract_function_signature(rest) {
+                exports.push(ModuleExport::with_signature(
+                    name,
+                    ModuleExportKind::Function,
+                    signature,
+                ));
+            }
+        }
+        // Match fn declarations (private - skip for exports but include for now)
+        else if let Some(rest) = line.strip_prefix("fn ") {
+            // Skip private helper functions (those with underscores or _helper suffix)
+            if let Some((name, _)) = extract_function_signature(rest) {
+                if name.contains("_helper") || name.starts_with('_') {
+                    continue;
+                }
+                // Include non-helper functions with signatures
+                if let Some((name, signature)) = extract_function_signature(rest) {
+                    exports.push(ModuleExport::with_signature(
+                        name,
+                        ModuleExportKind::Function,
+                        signature,
+                    ));
+                }
             }
         }
         // Match const declarations (they're implicitly public in Ambient)
         else if let Some(rest) = line.strip_prefix("const ") {
-            if let Some(name) = extract_identifier(rest) {
-                exports.push(ModuleExport::new(name, ModuleExportKind::Const));
+            if let Some((name, type_str)) = extract_const_signature(rest) {
+                if let Some(type_str) = type_str {
+                    exports.push(ModuleExport::with_signature(
+                        name,
+                        ModuleExportKind::Const,
+                        type_str,
+                    ));
+                } else {
+                    exports.push(ModuleExport::new(name, ModuleExportKind::Const));
+                }
             }
         }
         // Match type declarations
@@ -302,6 +351,94 @@ fn extract_identifier(s: &str) -> Option<String> {
         Some(s[..end].to_string())
     } else {
         None
+    }
+}
+
+/// Extract function name and signature from a function declaration.
+/// Input: "map(xs: List<a>, f: (a) -> b): List<b> {"
+/// Output: ("map", "(xs: List<a>, f: (a) -> b): List<b>")
+fn extract_function_signature(s: &str) -> Option<(String, String)> {
+    let s = s.trim();
+
+    // Find the function name (identifier before '(' or '<')
+    let name_end = s.find(['(', '<']).unwrap_or(s.len());
+    let name = s[..name_end].trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+
+    // Find the signature: from first '(' to before '{'
+    let sig_start = s.find('(')?;
+    let sig_end = find_signature_end(s, sig_start);
+    let mut signature = s[sig_start..sig_end].trim().to_string();
+
+    // Remove trailing '{' if present
+    if signature.ends_with('{') {
+        signature = signature.trim_end_matches('{').trim().to_string();
+    }
+
+    Some((name, signature))
+}
+
+/// Find the end of a function signature (just before the opening brace).
+/// Handles nested parentheses and angle brackets for generic types.
+fn find_signature_end(s: &str, start: usize) -> usize {
+    let bytes = s.as_bytes();
+    let mut i = start;
+    let mut paren_depth = 0;
+    let mut angle_depth = 0;
+
+    while i < bytes.len() {
+        match bytes[i] {
+            b'(' => paren_depth += 1,
+            b')' => paren_depth -= 1,
+            b'<' => angle_depth += 1,
+            b'>' => angle_depth -= 1,
+            b'{' if paren_depth == 0 && angle_depth == 0 => {
+                // Found the opening brace, signature ends here
+                return i;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    // No opening brace found, return end of string
+    s.len()
+}
+
+/// Generate a simple signature for an intrinsic based on arity.
+fn generate_intrinsic_signature(arity: u8) -> String {
+    let params: Vec<String> = (0..arity).map(|i| format!("arg{i}")).collect();
+    format!("({})", params.join(", "))
+}
+
+/// Extract constant name and optional type from a const declaration.
+/// Input: "PI: number = 3.14159"
+/// Output: ("PI", Some("number"))
+fn extract_const_signature(s: &str) -> Option<(String, Option<String>)> {
+    let s = s.trim();
+
+    // Find the constant name
+    let name_end = s.find([':', '='])?;
+    let name = s[..name_end].trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+
+    // Check if there's a type annotation
+    if s.as_bytes().get(name_end) == Some(&b':') {
+        // Find the type: from ':' to '='
+        let type_start = name_end + 1;
+        let type_end = s[type_start..].find('=').map(|i| type_start + i)?;
+        let type_str = s[type_start..type_end].trim().to_string();
+        if type_str.is_empty() {
+            Some((name, None))
+        } else {
+            Some((name, Some(type_str)))
+        }
+    } else {
+        Some((name, None))
     }
 }
 

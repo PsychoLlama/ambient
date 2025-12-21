@@ -283,46 +283,59 @@ fn format_module(m: &crate::value::ModuleValue, color: bool) -> String {
     } else {
         result.push_str(" {\n");
 
-        // Group exports by kind
-        let mut functions: Vec<&str> = Vec::new();
-        let mut constants: Vec<&str> = Vec::new();
-        let mut types: Vec<&str> = Vec::new();
-        let mut abilities: Vec<&str> = Vec::new();
-        let mut modules: Vec<&str> = Vec::new();
+        // Collect and sort exports for consistent display
+        let mut sorted_exports: Vec<_> = m.exports.iter().collect();
+        sorted_exports.sort_by(|a, b| {
+            // Sort by kind first (functions, then consts, types, abilities, modules)
+            let kind_order = |k: &ModuleExportKind| match k {
+                ModuleExportKind::Function => 0,
+                ModuleExportKind::Const => 1,
+                ModuleExportKind::Type | ModuleExportKind::Enum => 2,
+                ModuleExportKind::Ability => 3,
+                ModuleExportKind::Module => 4,
+                ModuleExportKind::Variant => 5,
+            };
+            kind_order(&a.kind)
+                .cmp(&kind_order(&b.kind))
+                .then_with(|| a.name.cmp(&b.name))
+        });
 
-        for export in &m.exports {
+        for export in sorted_exports {
             match export.kind {
-                ModuleExportKind::Function => functions.push(&export.name),
-                ModuleExportKind::Const => constants.push(&export.name),
-                ModuleExportKind::Type | ModuleExportKind::Enum => types.push(&export.name),
-                ModuleExportKind::Variant => {} // Skip variants, they're part of enums
-                ModuleExportKind::Ability => abilities.push(&export.name),
-                ModuleExportKind::Module => modules.push(&export.name),
+                ModuleExportKind::Function => {
+                    if let Some(sig) = &export.signature {
+                        let _ = writeln!(
+                            result,
+                            "  {cyan}fn{reset} {}{dim}{sig}{reset};",
+                            export.name
+                        );
+                    } else {
+                        let _ = writeln!(result, "  {cyan}fn{reset} {}();", export.name);
+                    }
+                }
+                ModuleExportKind::Const => {
+                    if let Some(sig) = &export.signature {
+                        let _ = writeln!(result, "  {}: {cyan}{sig}{reset};", export.name);
+                    } else {
+                        let _ = writeln!(result, "  {};", export.name);
+                    }
+                }
+                ModuleExportKind::Type => {
+                    let _ = writeln!(result, "  {cyan}type{reset} {};", export.name);
+                }
+                ModuleExportKind::Enum => {
+                    let _ = writeln!(result, "  {cyan}enum{reset} {};", export.name);
+                }
+                ModuleExportKind::Ability => {
+                    let _ = writeln!(result, "  {cyan}ability{reset} {};", export.name);
+                }
+                ModuleExportKind::Module => {
+                    let _ = writeln!(result, "  {dim}mod{reset} {};", export.name);
+                }
+                ModuleExportKind::Variant => {
+                    // Skip variants, they're part of enums
+                }
             }
-        }
-
-        // Sort each group
-        functions.sort_unstable();
-        constants.sort_unstable();
-        types.sort_unstable();
-        abilities.sort_unstable();
-        modules.sort_unstable();
-
-        // Print each non-empty group
-        if !functions.is_empty() {
-            let _ = writeln!(result, "  {cyan}fn{reset}: {}", functions.join(", "));
-        }
-        if !constants.is_empty() {
-            let _ = writeln!(result, "  {cyan}const{reset}: {}", constants.join(", "));
-        }
-        if !types.is_empty() {
-            let _ = writeln!(result, "  {cyan}type{reset}: {}", types.join(", "));
-        }
-        if !abilities.is_empty() {
-            let _ = writeln!(result, "  {cyan}ability{reset}: {}", abilities.join(", "));
-        }
-        if !modules.is_empty() {
-            let _ = writeln!(result, "  {dim}mod{reset}: {}", modules.join(", "));
         }
 
         result.push('}');

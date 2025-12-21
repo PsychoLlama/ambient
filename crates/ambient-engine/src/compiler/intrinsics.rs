@@ -589,6 +589,18 @@ pub(super) fn try_compile_intrinsic(
     Ok(Some(()))
 }
 
+/// Get intrinsic function names for a given module path.
+///
+/// Returns a list of (name, arity) pairs for all intrinsics in the module.
+/// Used for REPL module introspection.
+pub fn get_intrinsics_for_module(module_path: &[&str]) -> Vec<(&'static str, u8)> {
+    INTRINSICS
+        .iter()
+        .filter(|i| i.path == module_path)
+        .map(|i| (i.name, i.arity))
+        .collect()
+}
+
 /// Emit bytecode for an intrinsic based on its emit strategy.
 fn emit_intrinsic(fc: &mut FunctionCompiler, strategy: EmitStrategy) {
     match strategy {

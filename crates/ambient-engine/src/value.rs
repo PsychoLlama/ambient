@@ -416,6 +416,9 @@ pub struct ModuleExport {
 
     /// The kind of export (function, constant, type, etc.).
     pub kind: ModuleExportKind,
+
+    /// Optional type signature for display (e.g., "(xs: List<a>, f: (a) -> b): List<b>").
+    pub signature: Option<Arc<str>>,
 }
 
 /// The kind of exported symbol in a module.
@@ -449,12 +452,27 @@ impl ModuleValue {
 }
 
 impl ModuleExport {
-    /// Create a new module export.
+    /// Create a new module export without a signature.
     #[must_use]
     pub fn new(name: impl Into<Arc<str>>, kind: ModuleExportKind) -> Self {
         Self {
             name: name.into(),
             kind,
+            signature: None,
+        }
+    }
+
+    /// Create a new module export with a signature.
+    #[must_use]
+    pub fn with_signature(
+        name: impl Into<Arc<str>>,
+        kind: ModuleExportKind,
+        signature: impl Into<Arc<str>>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            kind,
+            signature: Some(signature.into()),
         }
     }
 }
