@@ -9,7 +9,7 @@ use lsp_types::notification::{
 };
 use lsp_types::request::{
     Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, Request as _,
-    WorkspaceSymbolRequest,
+    SemanticTokensFullRequest, WorkspaceSymbolRequest,
 };
 use lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
@@ -17,8 +17,10 @@ use lsp_types::{
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
     GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
     InitializeParams, InitializeResult, Location, MarkedString, OneOf, PublishDiagnosticsParams,
-    ServerCapabilities, SymbolInformation, SymbolKind as LspSymbolKind, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Uri, WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    SemanticTokens, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
+    SymbolKind as LspSymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use serde_json::Value;
 
@@ -33,6 +35,7 @@ use crate::convert::{
 };
 use crate::documents::DocumentStore;
 use crate::package::PackageInfo;
+use crate::semantic_tokens::{create_legend, extract_semantic_tokens};
 use crate::util::uri_to_path;
 use crate::workspace::SymbolKind;
 use crate::workspace::WorkspaceIndex;
@@ -76,6 +79,14 @@ pub fn run_server_with_connection(connection: Connection) -> anyhow::Result<()> 
         }),
         document_symbol_provider: Some(OneOf::Left(true)),
         workspace_symbol_provider: Some(OneOf::Left(true)),
+        semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
+            SemanticTokensOptions {
+                legend: create_legend(),
+                full: Some(SemanticTokensFullOptions::Bool(true)),
+                range: None,
+                ..Default::default()
+            },
+        )),
         ..Default::default()
     };
 
@@ -187,6 +198,13 @@ fn handle_request(
                 Err(e) => return e,
             };
             handle_workspace_symbol(id, &params, workspace_index, documents)
+        }
+        SemanticTokensFullRequest::METHOD => {
+            let params = match parse_params(&req.params, &id) {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
+            handle_semantic_tokens(id, &params, documents, analysis_cache)
         }
         _ => Response::new_err(id, -32601, format!("Unknown method: {}", req.method)),
     }
@@ -457,6 +475,36 @@ fn handle_workspace_symbol(
 
     let response = WorkspaceSymbolResponse::Flat(symbols);
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
+}
+
+/// Handle semantic tokens request.
+fn handle_semantic_tokens(
+    id: RequestId,
+    params: &SemanticTokensParams,
+    documents: &DocumentStore,
+    analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
+) -> Response {
+    let uri = &params.text_document.uri;
+
+    let Some(doc) = documents.get(uri) else {
+        return Response::new_ok(id, Value::Null);
+    };
+
+    let uri_str = uri.as_str();
+    let Some(analysis) = analysis_cache.get(uri_str) else {
+        return Response::new_ok(id, Value::Null);
+    };
+
+    let Some(module) = &analysis.module else {
+        return Response::new_ok(id, Value::Null);
+    };
+
+    let tokens = extract_semantic_tokens(module, doc);
+    let result = SemanticTokensResult::Tokens(SemanticTokens {
+        result_id: None,
+        data: tokens,
+    });
+    Response::new_ok(id, serde_json::to_value(result).unwrap_or(Value::Null))
 }
 
 /// Extract document symbols from an AST module.

@@ -54,6 +54,7 @@ mod completions;
 mod convert;
 mod documents;
 mod package;
+mod semantic_tokens;
 mod server;
 mod util;
 mod workspace;
