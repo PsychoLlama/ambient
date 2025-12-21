@@ -16,18 +16,19 @@ use lsp_types::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
     GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
-    InitializeParams, InitializeResult, Location, MarkedString, OneOf, PublishDiagnosticsParams,
-    SemanticTokens, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
-    SymbolKind as LspSymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
-    WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    InitializeParams, InitializeResult, Location, MarkedString, MarkupContent, MarkupKind, OneOf,
+    PublishDiagnosticsParams, SemanticTokens, SemanticTokensFullOptions, SemanticTokensOptions,
+    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
+    ServerCapabilities, SymbolInformation, SymbolKind as LspSymbolKind, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Uri, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use serde_json::Value;
 
 use ambient_engine::ast::{ItemKind, Module};
 
 use crate::analysis::{
-    analyze_with_registry, find_definition_cross_file, find_expr_at_offset, format_type,
+    analyze_with_registry, find_definition_cross_file, find_expr_at_offset, find_item_at_offset,
+    format_type,
 };
 use crate::completions::{get_completions, CompletionContext};
 use crate::convert::{
@@ -236,7 +237,27 @@ fn handle_hover(
     let offset = doc.position_to_offset(position.line, position.character);
 
     #[allow(clippy::cast_possible_truncation)]
-    let Some(expr) = find_expr_at_offset(module, offset as u32) else {
+    let offset = offset as u32;
+
+    // First, try to find an item definition at this position (hovering over a name).
+    if let Some(item) = find_item_at_offset(module, offset) {
+        let content = format_item_hover(item);
+        let hover = Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: content,
+            }),
+            range: Some(offset_range_to_lsp_range(
+                doc,
+                item.span.start as usize,
+                item.span.end as usize,
+            )),
+        };
+        return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
+    }
+
+    // Fall back to expression-level hover.
+    let Some(expr) = find_expr_at_offset(module, offset) else {
         return Response::new_ok(id, Value::Null);
     };
 
@@ -279,6 +300,118 @@ fn handle_hover(
     };
 
     Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null))
+}
+
+/// Format hover content for an item definition, including documentation.
+fn format_item_hover(item: &ambient_engine::ast::Item) -> String {
+    let mut content = String::new();
+
+    // Add type signature in code block.
+    content.push_str("```ambient\n");
+    match &item.kind {
+        ItemKind::Function(f) => {
+            if f.is_public {
+                content.push_str("pub ");
+            }
+            content.push_str("fn ");
+            content.push_str(&f.name);
+
+            // Type parameters.
+            if !f.type_params.is_empty() {
+                content.push('<');
+                for (i, tp) in f.type_params.iter().enumerate() {
+                    if i > 0 {
+                        content.push_str(", ");
+                    }
+                    content.push_str(&tp.name);
+                }
+                content.push('>');
+            }
+
+            // Parameters.
+            content.push('(');
+            for (i, param) in f.params.iter().enumerate() {
+                if i > 0 {
+                    content.push_str(", ");
+                }
+                content.push_str(&param.name);
+                if let Some(ty) = &param.ty {
+                    content.push_str(": ");
+                    content.push_str(&format_type(ty));
+                }
+            }
+            content.push(')');
+
+            // Return type.
+            if let Some(ret) = &f.ret_ty {
+                content.push_str(": ");
+                content.push_str(&format_type(ret));
+            }
+
+            // Abilities.
+            if !f.abilities.is_empty() {
+                content.push_str(" with ");
+                for (i, ability) in f.abilities.iter().enumerate() {
+                    if i > 0 {
+                        content.push_str(", ");
+                    }
+                    content.push_str(&ability.name);
+                }
+            }
+        }
+        ItemKind::Const(c) => {
+            content.push_str("const ");
+            content.push_str(&c.name);
+            content.push_str(": ");
+            content.push_str(&format_type(&c.ty));
+        }
+        ItemKind::TypeAlias(t) => {
+            content.push_str("type ");
+            content.push_str(&t.name);
+            if !t.type_params.is_empty() {
+                content.push('<');
+                for (i, tp) in t.type_params.iter().enumerate() {
+                    if i > 0 {
+                        content.push_str(", ");
+                    }
+                    content.push_str(&tp.name);
+                }
+                content.push('>');
+            }
+            content.push_str(" = ");
+            content.push_str(&format_type(&t.ty));
+        }
+        ItemKind::Enum(e) => {
+            content.push_str("enum ");
+            content.push_str(&e.name);
+            if !e.type_params.is_empty() {
+                content.push('<');
+                for (i, tp) in e.type_params.iter().enumerate() {
+                    if i > 0 {
+                        content.push_str(", ");
+                    }
+                    content.push_str(&tp.name);
+                }
+                content.push('>');
+            }
+        }
+        ItemKind::Ability(a) => {
+            content.push_str("ability ");
+            content.push_str(&a.name);
+        }
+        ItemKind::Use(_) => {
+            content.push_str("use ...");
+        }
+    }
+    content.push_str("\n```");
+
+    // Add documentation if present.
+    if let Some(doc) = &item.doc {
+        content.push_str("\n\n---\n\n");
+        content.push_str(doc);
+    }
+
+    content
 }
 
 /// Handle goto definition request.

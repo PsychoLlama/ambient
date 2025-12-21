@@ -48,6 +48,12 @@ impl LoweringContext {
 pub fn lower_module(cst: &CstModule) -> Result<Module, ParseError> {
     let mut ctx = LoweringContext::new();
 
+    // Extract module-level documentation from inner doc comments (`//!`)
+    let doc = cst
+        .leading_trivia
+        .extract_inner_doc_comments()
+        .map(Arc::from);
+
     let mut items = Vec::new();
     for cst_item in &cst.items {
         items.push(lower_item_impl(&mut ctx, cst_item)?);
@@ -55,6 +61,7 @@ pub fn lower_module(cst: &CstModule) -> Result<Module, ParseError> {
 
     Ok(Module {
         name: cst.name.clone(),
+        doc,
         items,
     })
 }
@@ -72,6 +79,9 @@ pub fn lower_item(item: &CstItem) -> Result<Item, ParseError> {
 }
 
 fn lower_item_impl(ctx: &mut LoweringContext, item: &CstItem) -> Result<Item, ParseError> {
+    // Extract item documentation from doc comments (`///`)
+    let doc = item.leading_trivia.extract_doc_comments().map(Arc::from);
+
     let kind = match &item.kind {
         CstItemKind::Function(f) => ItemKind::Function(lower_function(ctx, f)?),
         CstItemKind::Const(c) => ItemKind::Const(lower_const(ctx, c)?),
@@ -87,7 +97,7 @@ fn lower_item_impl(ctx: &mut LoweringContext, item: &CstItem) -> Result<Item, Pa
         }
     };
 
-    Ok(Item::new(kind, item.span))
+    Ok(Item::with_doc(kind, item.span, doc))
 }
 
 fn lower_function(
@@ -1007,5 +1017,22 @@ mod tests {
             }
             _ => panic!("Expected enum"),
         }
+    }
+
+    #[test]
+    fn test_lower_function_with_doc_comment() {
+        let source = "/// Adds two numbers.\nfn add(x: number, y: number): number { x + y }";
+        let module = parse(source).expect("parse error");
+        assert_eq!(module.items.len(), 1);
+        let doc = module.items[0].doc.as_ref().expect("Expected doc comment");
+        assert_eq!(&**doc, "Adds two numbers.");
+    }
+
+    #[test]
+    fn test_lower_module_with_inner_doc() {
+        let source = "//! Module documentation.\n\nfn foo() { () }";
+        let module = parse(source).expect("parse error");
+        let doc = module.doc.as_ref().expect("Expected module doc");
+        assert_eq!(&**doc, "Module documentation.");
     }
 }

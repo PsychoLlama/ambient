@@ -24,7 +24,7 @@ const PREC = {
 module.exports = grammar({
   name: "ambient",
 
-  extras: ($) => [/\s/, $.comment],
+  extras: ($) => [/\s/, $.comment, $.doc_comment, $.inner_doc_comment],
 
   word: ($) => $.identifier,
 
@@ -500,6 +500,12 @@ module.exports = grammar({
 
     boolean: ($) => choice("true", "false"),
 
+    // Doc comments (/// for items, //! for modules)
+    doc_comment: ($) => token(prec(2, seq("///", /.*/))),
+
+    inner_doc_comment: ($) => token(prec(2, seq("//!", /.*/))),
+
+    // Regular comments
     comment: ($) => token(seq("//", /.*/)),
   },
 });

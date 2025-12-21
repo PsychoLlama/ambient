@@ -179,6 +179,10 @@ pub enum TokenKind {
     Whitespace,
     /// Line comment (`// ...`)
     Comment,
+    /// Doc comment (`/// ...`)
+    DocComment,
+    /// Inner doc comment (`//! ...`)
+    InnerDocComment,
 
     // ─────────────────────────────────────────────────────────────────────────
     // Special
@@ -193,7 +197,10 @@ impl TokenKind {
     /// Check if this token is trivia (whitespace or comment).
     #[must_use]
     pub const fn is_trivia(self) -> bool {
-        matches!(self, Self::Whitespace | Self::Comment)
+        matches!(
+            self,
+            Self::Whitespace | Self::Comment | Self::DocComment | Self::InnerDocComment
+        )
     }
 
     /// Check if this token is a keyword.
@@ -622,13 +629,29 @@ impl<'src> Lexer<'src> {
     #[allow(clippy::unnecessary_wraps)]
     fn lex_line_comment(&mut self, start: usize) -> Result<Token, ParseError> {
         // Already consumed "//"
+        // Check for doc comment markers
+        let kind = match self.peek() {
+            Some('/') => {
+                // `///` - outer doc comment
+                self.advance();
+                TokenKind::DocComment
+            }
+            Some('!') => {
+                // `//!` - inner doc comment
+                self.advance();
+                TokenKind::InnerDocComment
+            }
+            _ => TokenKind::Comment,
+        };
+
+        // Consume rest of line
         while let Some(c) = self.peek() {
             if c == '\n' {
                 break;
             }
             self.advance();
         }
-        Ok(self.make_token(TokenKind::Comment, start))
+        Ok(self.make_token(kind, start))
     }
 
     #[allow(clippy::unnecessary_wraps)]

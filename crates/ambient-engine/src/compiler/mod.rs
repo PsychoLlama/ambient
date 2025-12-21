@@ -1605,6 +1605,7 @@ mod tests {
     fn test_compile_module_with_functions() {
         let module = Module {
             name: Arc::from("test"),
+            doc: None,
             items: vec![
                 Item::new(
                     ItemKind::Function(FunctionDef {
@@ -1648,6 +1649,7 @@ mod tests {
         // the same content hash for those functions.
         let module1 = Module {
             name: Arc::from("test1"),
+            doc: None,
             items: vec![Item::new(
                 ItemKind::Function(FunctionDef {
                     name: Arc::from("add_one"),
@@ -1665,6 +1667,7 @@ mod tests {
 
         let module2 = Module {
             name: Arc::from("test2"),
+            doc: None,
             items: vec![Item::new(
                 ItemKind::Function(FunctionDef {
                     name: Arc::from("increment"), // Different name, same implementation
@@ -1702,6 +1705,7 @@ mod tests {
         // Functions with different implementations should have different hashes.
         let module = Module {
             name: Arc::from("test"),
+            doc: None,
             items: vec![
                 Item::new(
                     ItemKind::Function(FunctionDef {
@@ -1749,6 +1753,7 @@ mod tests {
         // A self-recursive function should get a stable hash
         let module = Module {
             name: Arc::from("test"),
+            doc: None,
             items: vec![Item::new(
                 ItemKind::Function(FunctionDef {
                     name: Arc::from("factorial"),
@@ -2587,6 +2592,7 @@ mod tests {
         // fn test() { add(mul(2, 3), mul(4, 5)) }
         let module = Module {
             name: Arc::from("test"),
+            doc: None,
             items: vec![
                 Item::new(
                     ItemKind::Function(FunctionDef {
@@ -2654,6 +2660,7 @@ mod tests {
         // fn is_odd(n) { if n == 0 { false } else { is_even(n - 1) } }
         let module = Module {
             name: Arc::from("test"),
+            doc: None,
             items: vec![
                 Item::new(
                     ItemKind::Function(FunctionDef {

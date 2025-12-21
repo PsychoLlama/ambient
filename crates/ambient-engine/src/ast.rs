@@ -555,6 +555,8 @@ pub struct LetBinding {
 pub struct Module {
     /// Module name (derived from file path).
     pub name: Arc<str>,
+    /// Module-level documentation from `//!` comments.
+    pub doc: Option<Arc<str>>,
     /// Items in the module.
     pub items: Vec<Item>,
 }
@@ -566,13 +568,25 @@ pub struct Item {
     pub kind: ItemKind,
     /// Source location.
     pub span: Span,
+    /// Documentation from `///` comments.
+    pub doc: Option<Arc<str>>,
 }
 
 impl Item {
     /// Create a new item.
     #[must_use]
     pub const fn new(kind: ItemKind, span: Span) -> Self {
-        Self { kind, span }
+        Self {
+            kind,
+            span,
+            doc: None,
+        }
+    }
+
+    /// Create a new item with documentation.
+    #[must_use]
+    pub fn with_doc(kind: ItemKind, span: Span, doc: Option<Arc<str>>) -> Self {
+        Self { kind, span, doc }
     }
 }
 

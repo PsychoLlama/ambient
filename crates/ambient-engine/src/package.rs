@@ -344,6 +344,7 @@ version = "0.1.0"
             source: "fn run(): number { 42 }".to_string(),
             ast: Module {
                 name: "main".into(),
+                doc: None,
                 items: vec![],
             },
         };

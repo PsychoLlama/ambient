@@ -49,11 +49,10 @@ fn test_hover_on_variable_usage() {
 
 #[test]
 fn test_hover_on_function_name() {
-    // Note: Hover on function names is not yet implemented
     LspTest::new()
         .with_source("fn add/*h*/(a: number, b: number): number { a + b }")
         .hover_at("h")
-        .expect_none()
+        .expect_contains("fn add(a: number, b: number): number")
         .shutdown();
 }
 
@@ -135,5 +134,25 @@ fn test_hover_outside_expression_is_none() {
         .with_source("/*h*/fn foo() { 42 }")
         .hover_at("h")
         .expect_none()
+        .shutdown();
+}
+
+#[test]
+fn test_hover_on_function_with_doc_comment() {
+    LspTest::new()
+        .with_source(
+            "/// Adds two numbers together.\nfn add/*h*/(a: number, b: number): number { a + b }",
+        )
+        .hover_at("h")
+        .expect_contains("Adds two numbers together.")
+        .shutdown();
+}
+
+#[test]
+fn test_hover_on_function_with_multiline_doc() {
+    LspTest::new()
+        .with_source("/// First line.\n/// Second line.\nfn foo/*h*/() { () }")
+        .hover_at("h")
+        .expect_contains("First line.")
         .shutdown();
 }

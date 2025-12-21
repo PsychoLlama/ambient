@@ -475,6 +475,7 @@ mod tests {
 
         let module = Arc::new(Module {
             name: Arc::from("utils"),
+            doc: None,
             items: vec![
                 make_function("helper", true),
                 make_function("internal", false),
@@ -500,6 +501,7 @@ mod tests {
 
         let module = Arc::new(Module {
             name: Arc::from("test"),
+            doc: None,
             items: vec![],
         });
 
@@ -525,6 +527,7 @@ mod tests {
 
         let module = Arc::new(Module {
             name: Arc::from("test"),
+            doc: None,
             items: vec![make_function("foo", true)],
         });
 
@@ -541,6 +544,7 @@ mod tests {
 
         let module = Arc::new(Module {
             name: Arc::from("test"),
+            doc: None,
             items: vec![
                 make_function("public1", true),
                 make_function("public2", true),
@@ -611,6 +615,7 @@ mod tests {
         // Register the utils module with a helper function
         let utils_module = Arc::new(Module {
             name: Arc::from("utils"),
+            doc: None,
             items: vec![make_function("helper", true)],
         });
         let utils_path = ModulePath::from_str_segments(&["utils"]).unwrap();
@@ -619,6 +624,7 @@ mod tests {
         // Register main module with a use statement
         let main_module = Arc::new(Module {
             name: Arc::from("main"),
+            doc: None,
             items: vec![Item::new(
                 ItemKind::Use(UseDef {
                     is_public: false,
@@ -656,6 +662,7 @@ mod tests {
         // Register the utils module with multiple functions
         let utils_module = Arc::new(Module {
             name: Arc::from("utils"),
+            doc: None,
             items: vec![
                 make_function("helper1", true),
                 make_function("helper2", true),
@@ -668,6 +675,7 @@ mod tests {
         // Register main module with a glob import
         let main_module = Arc::new(Module {
             name: Arc::from("main"),
+            doc: None,
             items: vec![Item::new(
                 ItemKind::Use(UseDef {
                     is_public: false,
@@ -698,6 +706,7 @@ mod tests {
         // Register the utils module
         let utils_module = Arc::new(Module {
             name: Arc::from("utils"),
+            doc: None,
             items: vec![make_function("helper", true)],
         });
         let utils_path = ModulePath::from_str_segments(&["utils"]).unwrap();
@@ -706,6 +715,7 @@ mod tests {
         // Register main module with a module import
         let main_module = Arc::new(Module {
             name: Arc::from("main"),
+            doc: None,
             items: vec![Item::new(
                 ItemKind::Use(UseDef {
                     is_public: false,

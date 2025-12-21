@@ -25,6 +25,8 @@
 (string_content) @string
 (escape_sequence) @string.escape
 (comment) @comment
+(doc_comment) @comment.documentation
+(inner_doc_comment) @comment.documentation
 
 ; Types
 (type_parameter) @type.parameter

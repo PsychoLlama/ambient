@@ -488,6 +488,7 @@ mod tests {
         let uri = test_uri("math");
         let module = Module {
             name: Arc::from("math"),
+            doc: None,
             items: vec![make_function("add", true, Span::new(0, 50))],
         };
 
@@ -507,6 +508,7 @@ mod tests {
         let uri = test_uri("utils");
         let module = Module {
             name: Arc::from("utils"),
+            doc: None,
             items: vec![
                 make_function("helper", true, Span::new(0, 30)),
                 make_function("internal", false, Span::new(31, 60)),
@@ -531,6 +533,7 @@ mod tests {
         let uri = test_uri("temp");
         let module = Module {
             name: Arc::from("temp"),
+            doc: None,
             items: vec![],
         };
 

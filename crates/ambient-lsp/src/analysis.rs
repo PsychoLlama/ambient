@@ -3,7 +3,7 @@
 //! This module handles parsing and type checking, producing diagnostics
 //! and type information for the LSP server.
 
-use ambient_engine::ast::{Expr, ExprKind, ItemKind, Module, QualifiedName, Span, StmtKind};
+use ambient_engine::ast::{Expr, ExprKind, Item, ItemKind, Module, QualifiedName, Span, StmtKind};
 use ambient_engine::infer::{check_module, check_module_with_registry, BoxedTypeError};
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
@@ -79,6 +79,30 @@ pub fn find_expr_at_offset(module: &Module, offset: u32) -> Option<&Expr> {
     for item in &module.items {
         if let Some(expr) = find_expr_in_item_at_offset(&item.kind, offset) {
             return Some(expr);
+        }
+    }
+    None
+}
+
+/// Find the item definition at a given byte offset (on its name).
+///
+/// Returns the item if the offset falls within the item's name span.
+#[must_use]
+pub fn find_item_at_offset(module: &Module, offset: u32) -> Option<&Item> {
+    for item in &module.items {
+        let name_span = match &item.kind {
+            ItemKind::Function(f) => Some(f.name_span),
+            ItemKind::Const(c) => Some(c.name_span),
+            ItemKind::TypeAlias(t) => Some(t.name_span),
+            ItemKind::Enum(e) => Some(e.name_span),
+            ItemKind::Ability(a) => Some(a.name_span),
+            ItemKind::Use(_) => None,
+        };
+
+        if let Some(span) = name_span {
+            if offset >= span.start && offset <= span.end {
+                return Some(item);
+            }
         }
     }
     None

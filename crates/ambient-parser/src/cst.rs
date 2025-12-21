@@ -38,6 +38,54 @@ impl Trivia {
             .iter()
             .any(|t| matches!(t.kind, TriviaKind::Comment))
     }
+
+    /// Extract doc comments (`///`) as a single markdown string.
+    /// Adjacent doc comments are joined with newlines.
+    #[must_use]
+    pub fn extract_doc_comments(&self) -> Option<String> {
+        let docs: Vec<&str> = self
+            .items
+            .iter()
+            .filter(|item| item.kind == TriviaKind::DocComment)
+            .map(|item| {
+                // Strip `/// ` or `///` prefix
+                let text = item.text.as_ref();
+                text.strip_prefix("/// ")
+                    .or_else(|| text.strip_prefix("///"))
+                    .unwrap_or(text)
+            })
+            .collect();
+
+        if docs.is_empty() {
+            None
+        } else {
+            Some(docs.join("\n"))
+        }
+    }
+
+    /// Extract inner doc comments (`//!`) as a single markdown string.
+    /// Adjacent inner doc comments are joined with newlines.
+    #[must_use]
+    pub fn extract_inner_doc_comments(&self) -> Option<String> {
+        let docs: Vec<&str> = self
+            .items
+            .iter()
+            .filter(|item| item.kind == TriviaKind::InnerDocComment)
+            .map(|item| {
+                // Strip `//! ` or `//!` prefix
+                let text = item.text.as_ref();
+                text.strip_prefix("//! ")
+                    .or_else(|| text.strip_prefix("//!"))
+                    .unwrap_or(text)
+            })
+            .collect();
+
+        if docs.is_empty() {
+            None
+        } else {
+            Some(docs.join("\n"))
+        }
+    }
 }
 
 /// A single trivia item.
@@ -58,6 +106,10 @@ pub enum TriviaKind {
     Whitespace,
     /// Line comment (`// ...`).
     Comment,
+    /// Doc comment (`/// ...`).
+    DocComment,
+    /// Inner doc comment (`//! ...`).
+    InnerDocComment,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

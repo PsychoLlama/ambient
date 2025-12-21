@@ -90,6 +90,33 @@ impl<'src> Parser<'src> {
             let kind = match token.kind {
                 TokenKind::Whitespace => TriviaKind::Whitespace,
                 TokenKind::Comment => TriviaKind::Comment,
+                TokenKind::DocComment => TriviaKind::DocComment,
+                TokenKind::InnerDocComment => TriviaKind::InnerDocComment,
+                _ => unreachable!(),
+            };
+            items.push(TriviaItem {
+                kind,
+                span: token.span,
+                text: token.text.into(),
+            });
+            self.pos += 1;
+        }
+        Trivia { items }
+    }
+
+    /// Skip only module-level trivia (whitespace and inner doc comments).
+    /// Leaves outer doc comments (`///`) for items to consume.
+    fn skip_module_trivia(&mut self) -> Trivia {
+        let mut items = Vec::new();
+        while matches!(
+            self.current_kind(),
+            TokenKind::Whitespace | TokenKind::Comment | TokenKind::InnerDocComment
+        ) {
+            let token = self.current().clone();
+            let kind = match token.kind {
+                TokenKind::Whitespace => TriviaKind::Whitespace,
+                TokenKind::Comment => TriviaKind::Comment,
+                TokenKind::InnerDocComment => TriviaKind::InnerDocComment,
                 _ => unreachable!(),
             };
             items.push(TriviaItem {
@@ -181,12 +208,14 @@ impl<'src> Parser<'src> {
     /// Returns a `ParseError` if the source contains syntax errors.
     pub fn parse_module(&mut self) -> Result<CstModule, ParseError> {
         let start = self.current().span.start;
-        let leading_trivia = self.skip_trivia();
+        // Only consume module-level trivia (whitespace, regular comments, inner doc comments).
+        // Leave outer doc comments (`///`) for items to consume.
+        let leading_trivia = self.skip_module_trivia();
 
         let mut items = Vec::new();
-        // Skip trivia before checking at_end to handle trailing whitespace/newlines
+        // Skip module-level trivia before checking at_end to handle trailing whitespace/newlines
         while {
-            self.skip_trivia();
+            self.skip_module_trivia();
             !self.at_end()
         } {
             match self.parse_item() {
