@@ -88,7 +88,8 @@ fn serialize_value(value: &Value) -> SerializedValue {
         | Value::Map(_)
         | Value::Set(_)
         | Value::Enum(_)
-        | Value::Module(_) => SerializedValue::Unit,
+        | Value::Module(_)
+        | Value::ModuleMember(_) => SerializedValue::Unit,
     }
 }
 

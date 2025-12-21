@@ -84,6 +84,7 @@ fn format_value_impl(value: &Value, mode: FormatMode) -> String {
         Value::Set(set) => format_set(set, color, mode),
         Value::Enum(e) => format_enum(e, color, mode),
         Value::Module(m) => format_module(m, color),
+        Value::ModuleMember(m) => format_module_member(m, color),
     }
 }
 
@@ -328,6 +329,23 @@ fn format_module(m: &crate::value::ModuleValue, color: bool) -> String {
     }
 
     result
+}
+
+fn format_module_member(m: &crate::value::ModuleMemberRef, color: bool) -> String {
+    let blue = if color { colors::BLUE } else { "" };
+    let reset = if color { colors::RESET } else { "" };
+
+    let kind_str = match m.kind {
+        ModuleExportKind::Function => "fn",
+        ModuleExportKind::Const => "const",
+        ModuleExportKind::Type => "type",
+        ModuleExportKind::Enum => "enum",
+        ModuleExportKind::Variant => "variant",
+        ModuleExportKind::Ability => "ability",
+        ModuleExportKind::Module => "module",
+    };
+
+    format!("{blue}{kind_str}{reset} {}", m.path)
 }
 
 /// Escape special characters in a string for display.

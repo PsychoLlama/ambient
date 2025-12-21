@@ -28,6 +28,9 @@ pub struct CompletionContext<'a> {
     pub after_ability_dot: Option<&'a str>,
     /// Whether we're after `core.` (for core library module completion).
     pub after_core_dot: bool,
+    /// Whether we're after `core.<submodule>.` (for core submodule member completion).
+    /// Contains the submodule name (e.g., "list" for "core.list.").
+    pub after_core_submodule_dot: Option<&'a str>,
     /// Whether we're after a use statement prefix (pkg, core, self, super).
     pub in_use_statement: bool,
 }
@@ -57,35 +60,57 @@ impl<'a> CompletionContext<'a> {
         let after_dot = before_word.trim_end().ends_with('.');
 
         // Check if we're after `core.` (for core library completions)
-        let after_core_dot = if after_dot {
+        // or after `core.<submodule>.` (for core submodule member completions)
+        let (after_core_dot, after_core_submodule_dot) = if after_dot {
             let trimmed = before_word.trim_end();
             let without_dot = trimmed.strip_suffix('.').unwrap_or(trimmed);
-            let ident_start = without_dot
-                .rfind(|c: char| !c.is_alphanumeric() && c != '_')
+
+            // Find the start of the qualified name (everything after the last non-ident char)
+            let qualified_start = without_dot
+                .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
                 .map_or(0, |i| i + 1);
-            let ident = &without_dot[ident_start..];
-            ident == "core"
+            let qualified_name = &without_dot[qualified_start..];
+
+            // Check for `core.<submodule>` pattern (e.g., "core.list")
+            if let Some(stripped) = qualified_name.strip_prefix("core.") {
+                // Extract the submodule name (part after "core." before any further dots)
+                let submodule_end = stripped
+                    .find(|c: char| !c.is_alphanumeric() && c != '_')
+                    .unwrap_or(stripped.len());
+                let submodule = &stripped[..submodule_end];
+
+                // Check if this is a valid core submodule
+                if CoreLibrary::available_modules().contains(&submodule) {
+                    (false, Some(submodule))
+                } else {
+                    (false, None)
+                }
+            } else {
+                // Check for `core.` pattern (just "core" before the dot)
+                (qualified_name == "core", None)
+            }
         } else {
-            false
+            (false, None)
         };
 
         // Check if we're after an ability name (e.g., "Console.")
-        let after_ability_dot = if after_dot && !after_core_dot {
-            // Look for the identifier before the dot
-            let trimmed = before_word.trim_end();
-            let without_dot = trimmed.strip_suffix('.').unwrap_or(trimmed);
-            let ident_start = without_dot
-                .rfind(|c: char| !c.is_alphanumeric() && c != '_')
-                .map_or(0, |i| i + 1);
-            let ident = &without_dot[ident_start..];
-            if TokenKind::builtin_abilities().contains(&ident) {
-                Some(ident)
+        let after_ability_dot =
+            if after_dot && !after_core_dot && after_core_submodule_dot.is_none() {
+                // Look for the identifier before the dot
+                let trimmed = before_word.trim_end();
+                let without_dot = trimmed.strip_suffix('.').unwrap_or(trimmed);
+                let ident_start = without_dot
+                    .rfind(|c: char| !c.is_alphanumeric() && c != '_')
+                    .map_or(0, |i| i + 1);
+                let ident = &without_dot[ident_start..];
+                if TokenKind::builtin_abilities().contains(&ident) {
+                    Some(ident)
+                } else {
+                    None
+                }
             } else {
                 None
-            }
-        } else {
-            None
-        };
+            };
 
         Self {
             offset,
@@ -93,6 +118,7 @@ impl<'a> CompletionContext<'a> {
             after_dot,
             after_ability_dot,
             after_core_dot,
+            after_core_submodule_dot,
             in_use_statement,
         }
     }
@@ -109,6 +135,15 @@ pub fn get_completions(
     // If we're completing core library modules (after "core.")
     if ctx.after_core_dot {
         items.extend(get_core_module_completions(ctx.word_prefix));
+        return items;
+    }
+
+    // If we're completing core submodule members (after "core.<submodule>.")
+    if let Some(submodule) = ctx.after_core_submodule_dot {
+        items.extend(get_core_submodule_member_completions(
+            submodule,
+            ctx.word_prefix,
+        ));
         return items;
     }
 
@@ -222,6 +257,94 @@ fn get_core_module_doc(module: &str) -> String {
         "string" => "String utilities (len, concat, from_number)".to_string(),
         "math" => "Mathematical functions (abs, min, max, clamp, PI, E, TAU)".to_string(),
         _ => format!("Core library module: {module}"),
+    }
+}
+
+/// Get core submodule member completions (functions and constants).
+fn get_core_submodule_member_completions(submodule: &str, prefix: &str) -> Vec<CompletionItem> {
+    use std::sync::Arc;
+
+    // Get the source code for the submodule
+    let Ok(source) = CoreLibrary::get_source(&[Arc::from(submodule)]) else {
+        return Vec::new();
+    };
+
+    // Parse the exports from the source
+    let exports = parse_core_module_exports(source);
+
+    // Filter and convert to completion items
+    exports
+        .into_iter()
+        .filter(|(name, _)| name.starts_with(prefix))
+        .map(|(name, kind)| {
+            let (item_kind, detail) = match kind {
+                CoreExportKind::Function => (CompletionItemKind::FUNCTION, "function"),
+                CoreExportKind::Const => (CompletionItemKind::CONSTANT, "constant"),
+            };
+            CompletionItem {
+                label: name.clone(),
+                kind: Some(item_kind),
+                detail: Some(format!("core.{submodule}.{name} ({detail})")),
+                ..Default::default()
+            }
+        })
+        .collect()
+}
+
+/// Kind of export from a core module.
+#[derive(Debug, Clone, Copy)]
+enum CoreExportKind {
+    Function,
+    Const,
+}
+
+/// Parse exports from core module source code.
+/// This is a lightweight parser that extracts pub fn and const declarations.
+fn parse_core_module_exports(source: &str) -> Vec<(String, CoreExportKind)> {
+    let mut exports = Vec::new();
+
+    for line in source.lines() {
+        let line = line.trim();
+
+        // Skip comments and empty lines
+        if line.starts_with("//") || line.is_empty() {
+            continue;
+        }
+
+        // Match pub fn declarations
+        if let Some(rest) = line.strip_prefix("pub fn ") {
+            if let Some(name) = extract_core_identifier(rest) {
+                exports.push((name, CoreExportKind::Function));
+            }
+        }
+        // Match const declarations
+        else if let Some(rest) = line.strip_prefix("const ") {
+            if let Some(name) = extract_core_identifier(rest) {
+                exports.push((name, CoreExportKind::Const));
+            }
+        }
+        // Match pub const declarations
+        else if let Some(rest) = line.strip_prefix("pub const ") {
+            if let Some(name) = extract_core_identifier(rest) {
+                exports.push((name, CoreExportKind::Const));
+            }
+        }
+    }
+
+    exports
+}
+
+/// Extract an identifier from the start of a string.
+fn extract_core_identifier(s: &str) -> Option<String> {
+    let s = s.trim();
+    // Handle generic parameters: "len<T>(" -> "len"
+    let end = s
+        .find(|c: char| !c.is_alphanumeric() && c != '_')
+        .unwrap_or(s.len());
+    if end > 0 {
+        Some(s[..end].to_string())
+    } else {
+        None
     }
 }
 

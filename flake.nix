@@ -66,6 +66,10 @@
               "--skip=test_tab_completion_keyword"
               "--skip=test_undefined_variable"
               "--skip=test_unterminated_string_does_not_crash"
+              "--skip=test_core_list_shadow_suggestion_shows_only_suffix"
+              "--skip=test_core_list_dot_shows_function_completions"
+              "--skip=test_core_list_first_inspects_as_function"
+              "--skip=test_user_defined_function_inspection"
             ];
 
             meta = {

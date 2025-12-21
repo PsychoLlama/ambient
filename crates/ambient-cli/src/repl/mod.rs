@@ -216,6 +216,18 @@ fn eval_repl_input(
         )));
     }
 
+    // Check if the input is a module member path (e.g., "core.list.first").
+    // This allows users to inspect functions and constants from modules.
+    if let Some(kind) = ctx.get_module_member(trimmed) {
+        use ambient_engine::value::ModuleMemberRef;
+        return Ok(Some(ambient_engine::value::Value::ModuleMember(
+            std::sync::Arc::new(ModuleMemberRef {
+                path: trimmed.into(),
+                kind,
+            }),
+        )));
+    }
+
     // Parse the input as either an item or an expression.
     let input = match ambient_parser::parse_repl_input(line) {
         Ok(i) => i,

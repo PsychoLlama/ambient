@@ -324,6 +324,12 @@ fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
             hasher.update(&(m.path.len() as u32).to_le_bytes());
             hasher.update(m.path.as_bytes());
         }
+        Value::ModuleMember(m) => {
+            const TYPE_MODULE_MEMBER: u8 = 16;
+            hasher.update(&[TYPE_MODULE_MEMBER]);
+            hasher.update(&(m.path.len() as u32).to_le_bytes());
+            hasher.update(m.path.as_bytes());
+        }
     }
 }
 

@@ -78,6 +78,19 @@ pub enum Value {
     /// A module value for REPL introspection.
     /// Contains the module path and a list of its exports.
     Module(Arc<ModuleValue>),
+
+    /// A reference to a module member (function, constant, etc.) for REPL introspection.
+    /// Contains the full path and the kind of the member.
+    ModuleMember(Arc<ModuleMemberRef>),
+}
+
+/// Reference to a module member for introspection.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModuleMemberRef {
+    /// Full path to the member (e.g., "core.list.first").
+    pub path: Arc<str>,
+    /// The kind of member.
+    pub kind: ModuleExportKind,
 }
 
 /// A map value with string keys.
@@ -684,6 +697,7 @@ impl Value {
             Self::Set(_) => "set",
             Self::Enum(_) => "enum",
             Self::Module(_) => "module",
+            Self::ModuleMember(_) => "module_member",
         }
     }
 
@@ -865,6 +879,8 @@ impl PartialEq for Value {
             (Self::Enum(a), Self::Enum(b)) => a == b,
             // Modules are structurally equal
             (Self::Module(a), Self::Module(b)) => a == b,
+            // Module members are structurally equal
+            (Self::ModuleMember(a), Self::ModuleMember(b)) => a == b,
             _ => false,
         }
     }

@@ -87,13 +87,13 @@ impl ReplLspBridge {
             return None;
         }
 
-        // Find prefix
+        // Find the full prefix (including dots for qualified names like "core.list")
         let word_start = line
             .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
             .map_or(0, |i| i + 1);
-        let prefix = &line[word_start..];
+        let full_prefix = &line[word_start..];
 
-        if prefix.is_empty() {
+        if full_prefix.is_empty() {
             return None;
         }
 
@@ -101,9 +101,18 @@ impl ReplLspBridge {
 
         // Show the best match as ghost text
         completions.first().map(|c| {
+            // Completions after a dot only replace the part after the dot.
+            // For example, typing "core.list" gets completions like "list" (not "core.list").
+            // We need to match against the part after the last dot.
+            let match_prefix = if let Some(dot_pos) = full_prefix.rfind('.') {
+                &full_prefix[dot_pos + 1..]
+            } else {
+                full_prefix
+            };
+
             // Only show the suffix that would be added
-            if c.replacement.starts_with(prefix) {
-                c.replacement[prefix.len()..].to_string()
+            if c.replacement.starts_with(match_prefix) {
+                c.replacement[match_prefix.len()..].to_string()
             } else {
                 c.replacement.clone()
             }

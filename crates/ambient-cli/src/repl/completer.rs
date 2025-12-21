@@ -309,4 +309,29 @@ mod tests {
         let hint = completer.hint("Console", 3, &ctx);
         assert!(hint.is_none());
     }
+
+    #[test]
+    fn test_completer_core_list_dot() {
+        let completer = test_completer();
+        let history = rustyline::history::DefaultHistory::new();
+        let ctx = rustyline::Context::new(&history);
+
+        // Completing after "core.list." should show list functions
+        let result = completer.complete("core.list.", 10, &ctx);
+        assert!(result.is_ok());
+        let (_, pairs) = result.unwrap();
+
+        // Should show core.list functions like first, last, map, filter, fold
+        let names: Vec<_> = pairs.iter().map(|p| p.replacement.as_str()).collect();
+        assert!(
+            names.iter().any(|n| *n == "first"),
+            "Should complete 'first', got: {:?}",
+            names
+        );
+        assert!(
+            names.iter().any(|n| *n == "map"),
+            "Should complete 'map', got: {:?}",
+            names
+        );
+    }
 }

@@ -239,3 +239,101 @@ fn test_unterminated_string_does_not_crash() {
         .expect_prompt() // Should still be usable
         .shutdown();
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shadow Suggestion / Hint Bug Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_core_list_shadow_suggestion_shows_only_suffix() {
+    // Bug: Typing `core.list` shows `core.listlist` where the second "list"
+    // is shadow suggestion text. It should only show the missing segment (empty
+    // in this case since `core.list` is complete), or show module members.
+    let test = ReplTest::new().wait_ready().type_text("core.list");
+
+    // Wait for hint to appear
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    let output = test.output();
+    eprintln!("RAW OUTPUT for core.list hint:\n{}", output);
+
+    // The hint should NOT append "list" again to form "core.listlist"
+    // Count occurrences of "list" after "core."
+    // In the output, we should see "core.list" exactly once on the current line,
+    // not "core.listlist"
+    let lines: Vec<&str> = output.lines().collect();
+    if let Some(prompt_line) = lines.iter().rfind(|l| l.contains("> ")) {
+        assert!(
+            !prompt_line.contains("core.listlist"),
+            "Shadow suggestion should not duplicate 'list'. Line was: {}",
+            prompt_line
+        );
+    }
+
+    test.shutdown();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Core Module Member Completion Bug Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_core_list_dot_shows_function_completions() {
+    // Bug: No completions for `core.list.` when it should print the functions
+    // like `first`, `last`, `map`, `filter`, `fold`, etc.
+    let test = ReplTest::new().wait_ready().type_text("core.list.").tab();
+
+    // Wait for completion to process
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    let output = test.output();
+    eprintln!("RAW OUTPUT for core.list. completion:\n{}", output);
+
+    // Should show at least one of the core.list functions
+    // The core.list module has: len, is_empty, first, last, map, filter, fold
+    let has_completion = output.contains("first")
+        || output.contains("last")
+        || output.contains("map")
+        || output.contains("filter")
+        || output.contains("fold")
+        || output.contains("len");
+
+    assert!(
+        has_completion,
+        "Pressing tab after 'core.list.' should show function completions (first, last, map, etc.), but got:\n{}",
+        output
+    );
+
+    test.shutdown();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Function Inspection Bug Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_core_list_first_inspects_as_function() {
+    // Bug: Submitting `core.list.first` should inspect it as a function,
+    // the same as if I printed the value of `fn example() {}<cr>example<cr>`.
+    // Currently it might error or return something unexpected.
+    ReplTest::new()
+        .wait_ready()
+        .type_line("core.list.first")
+        // Should display as a function (like "fn first<T>(list: List<T>): Option<T>")
+        // or at least not error
+        .expect_output("fn") // Functions should display with "fn" prefix
+        .shutdown();
+}
+
+#[test]
+fn test_user_defined_function_inspection() {
+    // For comparison: user-defined functions should also be inspectable
+    ReplTest::new()
+        .wait_ready()
+        .type_line("fn example() { 42 }")
+        .expect_output("Defined: example")
+        .type_line("example")
+        // Referencing a function by name should display it as a function
+        .expect_output("fn") // Should show function representation
+        .shutdown();
+}

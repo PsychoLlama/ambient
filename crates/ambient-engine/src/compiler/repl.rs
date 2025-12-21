@@ -78,6 +78,27 @@ impl ReplContext {
         self.modules.contains_key(path)
     }
 
+    /// Look up a module member by path (e.g., "core.list.first").
+    /// Returns the export kind if found.
+    #[must_use]
+    pub fn get_module_member(&self, path: &str) -> Option<ModuleExportKind> {
+        // Split path into module path and member name
+        // e.g., "core.list.first" -> module="core.list", member="first"
+        let dot_pos = path.rfind('.')?;
+        let module_path = &path[..dot_pos];
+        let member_name = &path[dot_pos + 1..];
+
+        // Look up the module
+        let module = self.modules.get(module_path)?;
+
+        // Look up the member in the module's exports
+        module
+            .exports
+            .iter()
+            .find(|e| e.name.as_ref() == member_name)
+            .map(|e| e.kind)
+    }
+
     /// Register core library modules with their exports.
     pub fn register_core_modules(&mut self) {
         use crate::core_library::CoreLibrary;
