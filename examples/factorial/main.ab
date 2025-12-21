@@ -1,5 +1,8 @@
-// Factorial example
+//! Factorial example.
+//!
+//! Demonstrates recursive computation.
 
+/// Computes the factorial of `n` using recursion.
 fn factorial(n: number): number {
   if n <= 1 {
     1
@@ -8,6 +11,7 @@ fn factorial(n: number): number {
   }
 }
 
+/// Entry point that computes 5!.
 fn run(): number {
   factorial(5)
 }

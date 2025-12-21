@@ -1,9 +1,9 @@
-// Console I/O example with effects
-//
-// Demonstrates the Console ability for output.
-// Effects are handled using handler expressions.
+//! Console I/O example with effects.
+//!
+//! Demonstrates the Console ability for output.
+//! Effects are handled using handler expressions.
 
-// Entry point demonstrating Console ability
+/// Entry point demonstrating the Console ability.
 pub fn run(): number {
     // Handler that intercepts Console output
     // The ability call is made directly in the handle body

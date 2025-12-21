@@ -1,9 +1,10 @@
-// FizzBuzz Example
-//
-// Classic programming challenge: for numbers 1 to N,
-// print "Fizz" for multiples of 3, "Buzz" for multiples of 5,
-// "FizzBuzz" for multiples of both, or the number itself.
+//! FizzBuzz Example.
+//!
+//! Classic programming challenge: for numbers 1 to N,
+//! print "Fizz" for multiples of 3, "Buzz" for multiples of 5,
+//! "FizzBuzz" for multiples of both, or the number itself.
 
+/// Returns the fizzbuzz result for a single number.
 fn fizzbuzz(n: number): string {
     let div3 = n % 3 == 0;
     let div5 = n % 5 == 0;
@@ -19,6 +20,7 @@ fn fizzbuzz(n: number): string {
     }
 }
 
+/// Computes fizzbuzz for all numbers in a range.
 fn fizzbuzz_range(start: number, end: number, acc: List<string>): List<string> {
     if start > end {
         acc

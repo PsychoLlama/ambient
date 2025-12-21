@@ -1,14 +1,14 @@
-// String operations example
-//
-// Demonstrates string manipulation using stdlib intrinsics.
+//! String operations example.
+//!
+//! Demonstrates string manipulation using stdlib intrinsics.
 
-// Check if a string is a palindrome
+/// Checks if a string is a palindrome.
 fn is_palindrome(s: string): bool {
     let cleaned = core.string.to_lower(s);
     cleaned == core.string.reverse(cleaned)
 }
 
-// Count occurrences of a character in a string
+/// Counts occurrences of a character in a string.
 fn count_char(s: string, ch: string): number {
     let chars = core.string.chars(s);
     count_char_helper(chars, ch, 0)
@@ -23,7 +23,7 @@ fn count_char_helper(chars: List<string>, target: string, acc: number): number {
     }
 }
 
-// Repeat a string with separator
+/// Repeats a string n times with a separator.
 fn repeat_with_sep(s: string, n: number, sep: string): string {
     if n <= 0 {
         ""
@@ -34,7 +34,7 @@ fn repeat_with_sep(s: string, n: number, sep: string): string {
     }
 }
 
-// Truncate string to max length with ellipsis
+/// Truncates a string to max length with ellipsis.
 fn truncate(s: string, max_len: number): string {
     if core.string.length(s) <= max_len {
         s
@@ -43,7 +43,7 @@ fn truncate(s: string, max_len: number): string {
     }
 }
 
-// Center a string in a field of given width
+/// Centers a string in a field of given width.
 fn center(s: string, width: number): string {
     let len = core.string.length(s);
     if len >= width {
@@ -58,7 +58,7 @@ fn center(s: string, width: number): string {
     }
 }
 
-// Count words in a string
+/// Counts words in a string.
 fn word_count(s: string): number {
     let trimmed = core.string.trim(s);
     if core.string.length(trimmed) == 0 {
@@ -69,7 +69,7 @@ fn word_count(s: string): number {
     }
 }
 
-// Capitalize first letter of each word
+/// Capitalizes first letter of each word.
 fn title_case(s: string): string {
     let words = core.string.split(s, " ");
     let capitalized = title_case_words(words);
@@ -96,7 +96,7 @@ fn capitalize_word(s: string): string {
     }
 }
 
-// Extract initials from a name
+/// Extracts initials from a name.
 fn initials(name: string): string {
     let words = core.string.split(core.string.trim(name), " ");
     initials_helper(words, "")

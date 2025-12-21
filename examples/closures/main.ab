@@ -1,13 +1,16 @@
-// Test closures
+//! Closures example.
+//!
+//! Demonstrates closure capture, higher-order functions,
+//! and passing closures as arguments.
 
-// Simple closure that captures a variable
+/// Simple closure that captures a variable.
 fn test_capture(): number {
   let n = 5;
   let f = (x) => x + n;
   f(10)
 }
 
-// Closure that captures multiple variables
+/// Closure that captures multiple variables.
 fn test_multi_capture(): number {
   let a = 10;
   let b = 20;
@@ -15,28 +18,30 @@ fn test_multi_capture(): number {
   f(5)
 }
 
-// Passing closures to other functions
+/// Applies a function to a value.
 fn apply(f: (number) -> number, x: number): number {
   f(x)
 }
 
+/// Tests passing a closure to another function.
 fn test_pass_closure(): number {
   let multiplier = 3;
   let triple = (x) => x * multiplier;
   apply(triple, 7)
 }
 
-// Returning closures (via immediate call)
+/// Creates an adder closure and immediately applies it.
 fn make_adder(n: number): number {
   let add = (x) => x + n;
   add(100)
 }
 
+/// Tests closure factory pattern.
 fn test_closure_factory(): number {
   make_adder(42)
 }
 
-// Entry point runs all tests
+/// Entry point that runs all closure tests.
 pub fn run(): number {
   let r1 = test_capture();       // Expected: 15
   let r2 = test_multi_capture(); // Expected: 35

@@ -1,10 +1,11 @@
-// Remote execution server example.
-//
-// This server listens for incoming connections and executes
-// functions sent by clients.
-//
-// Run with: ambient run examples/remote_server
+//! Remote execution server example.
+//!
+//! This server listens for incoming connections and executes
+//! functions sent by clients.
+//!
+//! Run with: `ambient run examples/remote_server`
 
+/// Entry point that starts the server and handles one client request.
 pub fn run() {
     Console.print!("Server: listening on 127.0.0.1:8080...");
     let listener = Remote.listen!("127.0.0.1:8080");

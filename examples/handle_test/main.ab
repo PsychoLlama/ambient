@@ -1,10 +1,13 @@
-// Test handle expressions
+//! Handle expressions test.
+//!
+//! Demonstrates handle expressions with ability handlers.
 
-// Test 1: Simple handle with no ability use (body returns normally)
+/// Simple function that returns a value.
 fn simple_function(): number {
   100
 }
 
+/// Tests a simple handle with no ability use.
 fn test_simple_handle(): number {
   handle simple_function() {
     Console.print(msg) => {
@@ -13,7 +16,7 @@ fn test_simple_handle(): number {
   }
 }
 
-// Test 2: Multiple handlers
+/// Tests handle expression with multiple handlers.
 fn test_multiple_handlers(): number {
   handle simple_function() {
     Console.print(msg) => {

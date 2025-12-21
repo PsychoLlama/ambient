@@ -1,9 +1,11 @@
-// Config Parser Example
-//
-// Parses a simple key=value config format and extracts values.
-// Demonstrates string manipulation and list operations.
+//! Config Parser Example.
+//!
+//! Parses a simple key=value config format and extracts values.
+//! Demonstrates string manipulation and list operations.
 
-// Parse a single line into a key-value pair, returns empty list on failure
+/// Parses a single line into a key-value pair.
+///
+/// Returns an empty list on failure.
 fn parse_line(line: string): List<(string, string)> {
     let trimmed = core.string.trim(line);
 
@@ -27,7 +29,7 @@ fn parse_line(line: string): List<(string, string)> {
     }
 }
 
-// Parse multiple lines of config
+/// Parses multiple lines of config into key-value pairs.
 fn parse_config(text: string): List<(string, string)> {
     let lines = core.string.split(text, "\n");
     parse_lines(lines, [])
@@ -48,7 +50,7 @@ fn parse_lines(lines: List<string>, acc: List<(string, string)>): List<(string, 
     }
 }
 
-// Look up a value by key, returns default if not found
+/// Looks up a value by key, returns default if not found.
 fn get_config(config: List<(string, string)>, key: string, default: string): string {
     if core.list.is_empty(config) {
         default

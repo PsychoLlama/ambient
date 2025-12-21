@@ -1,1 +1,6 @@
+//! Hello World example.
+//!
+//! The simplest possible Ambient program.
+
+/// Entry point that returns the answer to everything.
 fn run(): number { 42 }

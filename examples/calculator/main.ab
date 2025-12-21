@@ -1,18 +1,20 @@
-// Calculator Example
-//
-// Evaluates simple arithmetic expressions with +, -, *, / operators.
-// Demonstrates recursive descent parsing and string tokenization.
+//! Calculator Example.
+//!
+//! Evaluates simple arithmetic expressions with +, -, *, / operators.
+//! Demonstrates recursive descent parsing and string tokenization.
 
+/// Checks if a character is a digit.
 fn is_digit(c: string): bool {
     c == "0" || c == "1" || c == "2" || c == "3" || c == "4" ||
     c == "5" || c == "6" || c == "7" || c == "8" || c == "9"
 }
 
+/// Checks if a character is whitespace.
 fn is_whitespace(c: string): bool {
     c == " " || c == "\t" || c == "\n"
 }
 
-// Skip whitespace and return remaining string
+/// Skips whitespace and returns remaining string.
 fn skip_ws(s: string): string {
     if core.string.length(s) == 0 {
         s
@@ -26,8 +28,9 @@ fn skip_ws(s: string): string {
     }
 }
 
-// Parse a number from the start of a string
-// Returns (number_value, remaining_string)
+/// Parses a number from the start of a string.
+///
+/// Returns `(number_value, remaining_string)`.
 fn parse_number(s: string, acc: number): (number, string) {
     if core.string.length(s) == 0 {
         (acc, s)
@@ -42,6 +45,7 @@ fn parse_number(s: string, acc: number): (number, string) {
     }
 }
 
+/// Converts a digit character to its numeric value.
 fn char_to_digit(c: string): number {
     if c == "0" { 0 }
     else if c == "1" { 1 }
@@ -55,7 +59,7 @@ fn char_to_digit(c: string): number {
     else { 9 }
 }
 
-// Evaluate an expression: handles + and - (lowest precedence)
+/// Evaluates an expression: handles + and - (lowest precedence).
 fn eval_expr(s: string): (number, string) {
     let result = eval_term(skip_ws(s));
     eval_expr_rest(result.0, skip_ws(result.1))
@@ -78,7 +82,7 @@ fn eval_expr_rest(left: number, s: string): (number, string) {
     }
 }
 
-// Evaluate a term: handles * and / (higher precedence)
+/// Evaluates a term: handles * and / (higher precedence).
 fn eval_term(s: string): (number, string) {
     let result = eval_factor(skip_ws(s));
     eval_term_rest(result.0, skip_ws(result.1))
@@ -101,7 +105,7 @@ fn eval_term_rest(left: number, s: string): (number, string) {
     }
 }
 
-// Evaluate a factor: numbers or parenthesized expressions
+/// Evaluates a factor: numbers or parenthesized expressions.
 fn eval_factor(s: string): (number, string) {
     let s = skip_ws(s);
     if core.string.length(s) == 0 {
@@ -127,7 +131,7 @@ fn eval_factor(s: string): (number, string) {
     }
 }
 
-// Main evaluation function
+/// Evaluates an arithmetic expression string.
 fn calculate(expr: string): number {
     let result = eval_expr(expr);
     result.0

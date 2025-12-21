@@ -1,12 +1,12 @@
-// Remote execution client example.
-//
-// This client connects to a server and sends a function
-// for remote execution.
-//
-// Run with: ambient run examples/remote_client
-// (Make sure the server is running first!)
+//! Remote execution client example.
+//!
+//! This client connects to a server and sends a function
+//! for remote execution.
+//!
+//! Run with: `ambient run examples/remote_client`
+//! (Make sure the server is running first!)
 
-// A function we want to execute remotely
+/// A function we want to execute remotely.
 fn double(x: number): number {
     x * 2
 }

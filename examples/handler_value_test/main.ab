@@ -1,10 +1,13 @@
-// Test handle expressions with handler values (Milestone 13)
-// Tests HandleWithValue opcode without actually performing abilities
+//! Handler values test.
+//!
+//! Tests handle expressions with first-class handler values.
 
+/// Simple function that returns a value.
 fn simple_function(): number {
   100
 }
 
+/// Tests using a handler value with handle expression.
 fn test_handler_value(): number {
   let mock_console = {
     print(msg) => resume(())

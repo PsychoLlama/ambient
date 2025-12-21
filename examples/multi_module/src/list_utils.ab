@@ -1,8 +1,8 @@
-// List utility functions
-//
-// This module provides common list operations.
+//! List utility functions.
+//!
+//! This module provides common list operations.
 
-// Sum all numbers in a list
+/// Sums all numbers in a list.
 pub fn sum(xs: List<number>): number {
     sum_helper(xs, 0)
 }
@@ -15,7 +15,7 @@ fn sum_helper(xs: List<number>, acc: number): number {
     }
 }
 
-// Product of all numbers in a list
+/// Computes the product of all numbers in a list.
 pub fn product(xs: List<number>): number {
     product_helper(xs, 1)
 }
@@ -28,7 +28,7 @@ fn product_helper(xs: List<number>, acc: number): number {
     }
 }
 
-// Find the maximum value in a list
+/// Finds the maximum value in a list.
 pub fn maximum(xs: List<number>): number {
     if core.list.length(xs) == 0 {
         0
@@ -47,7 +47,7 @@ fn max_helper(xs: List<number>, current: number): number {
     }
 }
 
-// Find the minimum value in a list
+/// Finds the minimum value in a list.
 pub fn minimum(xs: List<number>): number {
     if core.list.length(xs) == 0 {
         0
@@ -66,7 +66,7 @@ fn min_helper(xs: List<number>, current: number): number {
     }
 }
 
-// Calculate average
+/// Calculates the average of a list of numbers.
 pub fn average(xs: List<number>): number {
     let len = core.list.length(xs);
     if len == 0 {

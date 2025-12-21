@@ -1,36 +1,36 @@
-// JSON Builder Example
-//
-// Builds JSON strings from Ambient data structures.
-// Demonstrates string manipulation and recursive data processing.
+//! JSON Builder Example.
+//!
+//! Builds JSON strings from Ambient data structures.
+//! Demonstrates string manipulation and recursive data processing.
 
-// Escape special characters in a JSON string
+/// Escapes special characters in a JSON string.
 fn escape_string(s: string): string {
     // Replace backslashes first (before adding more), then quotes
     let s1 = core.string.replace(s, "\\", "\\\\");
     core.string.replace(s1, "\"", "\\\"")
 }
 
-// Format a string as a JSON string (with quotes)
+/// Formats a string as a JSON string (with quotes).
 fn json_string(s: string): string {
     core.string.concat("\"", core.string.concat(escape_string(s), "\""))
 }
 
-// Format a number as JSON
+/// Formats a number as JSON.
 fn json_number(n: number): string {
     core.convert.to_string(n)
 }
 
-// Format a boolean as JSON
+/// Formats a boolean as JSON.
 fn json_bool(b: bool): string {
     if b { "true" } else { "false" }
 }
 
-// Build a JSON array from a list of pre-formatted JSON values
+/// Builds a JSON array from a list of pre-formatted JSON values.
 fn json_array(items: List<string>): string {
     core.string.concat("[", core.string.concat(core.string.join(items, ", "), "]"))
 }
 
-// Build a JSON object from key-value pairs (values pre-formatted)
+/// Builds a JSON object from key-value pairs (values pre-formatted).
 fn json_object(pairs: List<(string, string)>): string {
     let formatted = format_pairs(pairs, []);
     core.string.concat("{", core.string.concat(core.string.join(formatted, ", "), "}"))
@@ -48,7 +48,7 @@ fn format_pairs(pairs: List<(string, string)>, acc: List<string>): List<string> 
     }
 }
 
-// Helper to build a key-value pair for an object
+/// Helper to build a key-value pair for an object.
 fn field(key: string, value: string): (string, string) {
     (key, value)
 }

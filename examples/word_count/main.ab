@@ -1,12 +1,14 @@
-// Word Count Example
-//
-// Counts words, lines, and characters in text.
-// Demonstrates string processing and accumulator patterns.
+//! Word Count Example.
+//!
+//! Counts words, lines, and characters in text.
+//! Demonstrates string processing and accumulator patterns.
 
+/// Counts the number of characters in text.
 fn count_chars(text: string): number {
     core.string.length(text)
 }
 
+/// Counts the number of lines in text.
 fn count_lines(text: string): number {
     if core.string.length(text) == 0 {
         0
@@ -16,6 +18,7 @@ fn count_lines(text: string): number {
     }
 }
 
+/// Checks if a character is part of a word.
 fn is_word_char(c: string): bool {
     // Check if character is alphanumeric (simplified)
     let code = core.string.length(c);  // Can't get char code, so use a workaround
@@ -24,7 +27,7 @@ fn is_word_char(c: string): bool {
     c != ":" && c != ";" && c != "\"" && c != "'"
 }
 
-// Count words by iterating through characters
+/// Counts words by iterating through characters.
 fn count_words_impl(text: string, idx: number, in_word: bool, count: number): number {
     if idx >= core.string.length(text) {
         // End of string - add 1 if we were in a word
@@ -46,11 +49,12 @@ fn count_words_impl(text: string, idx: number, in_word: bool, count: number): nu
     }
 }
 
+/// Counts the number of words in text.
 fn count_words(text: string): number {
     count_words_impl(text, 0, false, 0)
 }
 
-// Build a stats summary
+/// Builds a stats summary with lines, words, and characters.
 fn wc(text: string): string {
     let lines = count_lines(text);
     let words = count_words(text);

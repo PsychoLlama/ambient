@@ -1,8 +1,8 @@
-// List operations example
-//
-// Demonstrates functional list manipulation using stdlib intrinsics.
+//! List operations example.
+//!
+//! Demonstrates functional list manipulation using stdlib intrinsics.
 
-// Sum all numbers in a list
+/// Sums all numbers in a list.
 fn sum(xs: List<number>): number {
     sum_helper(xs, 0)
 }
@@ -15,7 +15,7 @@ fn sum_helper(xs: List<number>, acc: number): number {
     }
 }
 
-// Product of all numbers
+/// Computes the product of all numbers.
 fn product(xs: List<number>): number {
     product_helper(xs, 1)
 }
@@ -28,7 +28,7 @@ fn product_helper(xs: List<number>, acc: number): number {
     }
 }
 
-// Map: apply a function to each element
+/// Doubles all elements in a list.
 fn double_all(xs: List<number>): List<number> {
     map_double(xs)
 }
@@ -41,7 +41,7 @@ fn map_double(xs: List<number>): List<number> {
     }
 }
 
-// Filter: keep elements matching a predicate
+/// Filters to keep only positive numbers.
 fn filter_positive(xs: List<number>): List<number> {
     if core.list.length(xs) == 0 {
         []
@@ -56,7 +56,7 @@ fn filter_positive(xs: List<number>): List<number> {
     }
 }
 
-// Find maximum element
+/// Finds the maximum element in a list.
 fn maximum(xs: List<number>): number {
     if core.list.length(xs) == 0 {
         0  // Default for empty list
@@ -75,7 +75,7 @@ fn max_helper(xs: List<number>, current_max: number): number {
     }
 }
 
-// Count elements matching a condition
+/// Counts even numbers in a list.
 fn count_even(xs: List<number>): number {
     count_even_helper(xs, 0)
 }
@@ -90,17 +90,17 @@ fn count_even_helper(xs: List<number>, acc: number): number {
     }
 }
 
-// Take first n elements
+/// Takes the first n elements from a list.
 fn take_n(xs: List<number>, n: number): List<number> {
     core.list.slice(xs, 0, n)
 }
 
-// Drop first n elements
+/// Drops the first n elements from a list.
 fn drop_n(xs: List<number>, n: number): List<number> {
     core.list.slice(xs, n, core.list.length(xs))
 }
 
-// Zip two lists into pairs (truncates to shorter length)
+/// Zips two lists into pairs (truncates to shorter length).
 fn zip_lists(xs: List<number>, ys: List<number>): List<(number, number)> {
     if core.list.length(xs) == 0 {
         []

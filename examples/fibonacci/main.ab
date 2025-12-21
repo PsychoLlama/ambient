@@ -1,8 +1,8 @@
-// Fibonacci sequence examples
-//
-// Demonstrates recursion and different algorithmic approaches.
+//! Fibonacci sequence examples.
+//!
+//! Demonstrates recursion and different algorithmic approaches.
 
-// Classic recursive fibonacci (exponential time)
+/// Classic recursive fibonacci (exponential time complexity).
 fn fib_recursive(n: number): number {
     if n <= 1 {
         n
@@ -11,7 +11,7 @@ fn fib_recursive(n: number): number {
     }
 }
 
-// Tail-recursive fibonacci with accumulator (linear time)
+/// Tail-recursive fibonacci with accumulator (linear time complexity).
 fn fib_tail(n: number): number {
     fib_tail_helper(n, 0, 1)
 }
@@ -24,7 +24,7 @@ fn fib_tail_helper(n: number, a: number, b: number): number {
     }
 }
 
-// Generate first n fibonacci numbers as a list
+/// Generates the first `n` fibonacci numbers as a list.
 fn fib_list(n: number): List<number> {
     if n <= 0 {
         []
@@ -45,7 +45,7 @@ fn fib_list_helper(remaining: number, acc: List<number>): List<number> {
     }
 }
 
-// Check if a number is a fibonacci number
+/// Checks if a number is a fibonacci number.
 fn is_fibonacci(n: number): bool {
     is_fib_helper(n, 0, 1)
 }

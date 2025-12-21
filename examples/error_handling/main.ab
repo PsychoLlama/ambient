@@ -1,9 +1,9 @@
-// Error handling example with Exception effects
-//
-// Demonstrates the Exception ability for error handling.
-// Shows how to catch and handle errors using handlers.
+//! Error handling example with Exception effects.
+//!
+//! Demonstrates the Exception ability for error handling.
+//! Shows how to catch and handle errors using handlers.
 
-// Entry point demonstrating error handling
+/// Entry point demonstrating error handling with handlers.
 pub fn run(): number {
     // Test 1: Success case - no exception thrown
     let success_result = handle {

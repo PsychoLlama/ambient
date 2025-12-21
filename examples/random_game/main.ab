@@ -1,13 +1,13 @@
-// Random number example with effects
-//
-// Demonstrates the Random ability effect handlers.
-// Shows how handlers intercept ability calls.
-//
-// NOTE: This example demonstrates the handler mechanism without
-// using the result values due to current type system limitations
-// with ability return types.
+//! Random number example with effects.
+//!
+//! Demonstrates the Random ability effect handlers.
+//! Shows how handlers intercept ability calls.
+//!
+//! NOTE: This example demonstrates the handler mechanism without
+//! using the result values due to current type system limitations
+//! with ability return types.
 
-// Entry point demonstrating Random ability handlers
+/// Entry point demonstrating Random ability handlers.
 pub fn run(): number {
     // The handler intercepts Random.seed!() calls
     // We can verify the handler is invoked by the program completing

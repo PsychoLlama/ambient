@@ -1,10 +1,10 @@
-// Multi-module example
-//
-// Demonstrates the module system with imports:
-// - `use pkg.module;` for package-relative imports
-// - `use self.sibling;` for same-directory imports
-// - `use pkg.module.{item1, item2};` for specific items
-// - `use pkg.module.*;` for glob imports
+//! Multi-module example.
+//!
+//! Demonstrates the module system with imports:
+//! - `use pkg.module;` for package-relative imports
+//! - `use self.sibling;` for same-directory imports
+//! - `use pkg.module.{item1, item2};` for specific items
+//! - `use pkg.module.*;` for glob imports
 
 // Import specific functions from math_utils
 use pkg.math_utils.{abs, min, max, gcd, lcm};
@@ -15,6 +15,7 @@ use pkg.list_utils.*;
 // Import from statistics (which itself imports from siblings)
 use pkg.statistics.{variance, range};
 
+/// Entry point that demonstrates using functions from multiple modules.
 pub fn run(): number {
     // Test math_utils functions
     let a = abs(0 - 42);        // 42
