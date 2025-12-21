@@ -791,6 +791,21 @@ impl Vm {
                     self.stack.push(Value::list(result));
                 }
 
+                Opcode::ListLast => {
+                    let list = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "list_last",
+                            })
+                        }
+                    };
+                    let result = list.last().cloned().unwrap_or(Value::Unit);
+                    self.stack.push(result);
+                }
+
                 Opcode::ListReverse => {
                     let list = match self.pop()? {
                         Value::List(elements) => elements,

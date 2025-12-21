@@ -410,6 +410,12 @@ pub enum Opcode {
     /// Stack: `[list] -> [bool]`
     ListIsEmpty = 0xCA,
 
+    /// Get the last element of a list.
+    ///
+    /// Stack: `[list] -> [element]`
+    /// Returns Unit if list is empty.
+    ListLast = 0xCB,
+
     // ─────────────────────────────────────────────────────────────────────────
     // String operations (Milestone 15 - Standard Library)
     // ─────────────────────────────────────────────────────────────────────────
@@ -790,6 +796,7 @@ impl Opcode {
             0xC8 => Some(Self::ListSort),
             0xC9 => Some(Self::ListSlice),
             0xCA => Some(Self::ListIsEmpty),
+            0xCB => Some(Self::ListLast),
             // Strings
             0xD0 => Some(Self::StringLength),
             0xD1 => Some(Self::StringSplit),

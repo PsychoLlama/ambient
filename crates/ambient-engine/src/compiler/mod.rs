@@ -1366,13 +1366,30 @@ fn compile_expr(
                 if try_compile_intrinsic(fc, name, args, ctx)?.is_some() {
                     // Intrinsic was compiled, nothing more to do
                 } else if fc.function_hashes.contains_key(&name.name) {
-                    // Direct function call to a known function.
+                    // Direct function call to a known function (simple name).
                     // Compile arguments first (left to right).
                     for arg in args {
                         compile_expr(fc, arg, ctx)?;
                     }
                     let hash = fc.function_hashes[&name.name];
                     fc.builder.emit_call(hash, args.len() as u8);
+                } else if !name.path.is_empty() {
+                    // Qualified name like core.list.last - construct full path and look up
+                    let qualified: Arc<str> =
+                        format!("{}.{}", name.path.join("."), name.name).into();
+                    if let Some(&hash) = fc.function_hashes.get(&qualified) {
+                        // Found the qualified function
+                        for arg in args {
+                            compile_expr(fc, arg, ctx)?;
+                        }
+                        fc.builder.emit_call(hash, args.len() as u8);
+                    } else {
+                        // Unknown qualified function
+                        return Err(CompileError::new(
+                            CompileErrorKind::UndefinedFunction { name: qualified },
+                            (callee.span.start, callee.span.end),
+                        ));
+                    }
                 } else if fc.get_local_by_name(&name.name).is_some()
                     || fc.capture_names.contains_key(&name.name)
                     || fc.is_parent_name(&name.name)

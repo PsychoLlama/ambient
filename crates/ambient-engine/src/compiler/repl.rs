@@ -121,6 +121,17 @@ impl ReplContext {
         }
     }
 
+    /// Register a core library function with its qualified name.
+    ///
+    /// Called by the REPL initialization code after compiling core library modules.
+    /// E.g., `register_core_function("core.list.last", hash)` makes `core.list.last()`
+    /// callable from the REPL.
+    pub fn register_core_function(&mut self, qualified_name: Arc<str>, hash: blake3::Hash) {
+        self.function_hashes.insert(qualified_name.clone(), hash);
+        self.item_kinds
+            .insert(qualified_name, ReplItemKind::Function);
+    }
+
     /// Register standard abilities as modules for introspection.
     pub fn register_ability_modules(&mut self) {
         // Console ability

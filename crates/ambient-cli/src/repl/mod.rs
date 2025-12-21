@@ -45,11 +45,20 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
     // Create shared REPL context for completions.
     let repl_ctx = Arc::new(Mutex::new(ReplContext::new()));
 
-    // Register built-in modules for introspection.
+    let mut vm = Vm::new();
+
+    // Register standard abilities for the REPL.
+    register_all_standard_abilities(&mut vm);
+
+    // Register built-in modules for introspection and compile core library.
     {
         let mut ctx = repl_ctx.lock().unwrap();
         ctx.register_core_modules();
         ctx.register_ability_modules();
+
+        // Compile and load core library functions into the VM.
+        // This allows calling functions like core.list.last() from the REPL.
+        compile_and_load_core_library(&mut ctx, &mut vm);
     }
 
     // Register project modules for introspection.
@@ -82,11 +91,6 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
         }
         let _ = rl.load_history(&history_path);
     }
-
-    let mut vm = Vm::new();
-
-    // Register standard abilities for the REPL.
-    register_all_standard_abilities(&mut vm);
 
     loop {
         // Flush stdout before reading (in case any output is buffered).
@@ -420,4 +424,41 @@ fn path_to_module_name(path: &Path, src_root: &Path) -> Option<String> {
     }
 
     Some(segments.join("."))
+}
+
+/// Compile core library modules and load them into the VM.
+///
+/// This allows calling functions like `core.list.last([1, 2])` from the REPL.
+fn compile_and_load_core_library(ctx: &mut ReplContext, vm: &mut Vm) {
+    use ambient_engine::compiler::compile_module;
+    use ambient_engine::core_library::CoreLibrary;
+
+    for module_name in CoreLibrary::available_modules() {
+        let Ok(source) = CoreLibrary::get_source(&[std::sync::Arc::from(module_name)]) else {
+            continue;
+        };
+
+        // Parse the module source
+        let Ok(module) = ambient_parser::parse(source) else {
+            continue;
+        };
+
+        // Compile the module
+        let Ok(compiled) = compile_module(&module) else {
+            continue;
+        };
+
+        // Register each function with its qualified name and load into VM
+        for (name, hash) in &compiled.function_names {
+            let qualified_name: std::sync::Arc<str> = format!("core.{module_name}.{name}").into();
+
+            // Register the hash so the expression compiler can find it
+            ctx.register_core_function(qualified_name, *hash);
+        }
+
+        // Load all compiled functions into the VM
+        for func in compiled.functions.into_values() {
+            vm.load_function(func);
+        }
+    }
 }

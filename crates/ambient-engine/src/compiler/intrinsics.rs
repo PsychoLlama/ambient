@@ -247,6 +247,18 @@ static INTRINSICS: &[Intrinsic] = &[
     },
     Intrinsic {
         path: &["core", "list"],
+        name: "first",
+        arity: 1,
+        emit: EmitStrategy::Helper(Helper::ListHead),
+    },
+    Intrinsic {
+        path: &["core", "list"],
+        name: "last",
+        arity: 1,
+        emit: EmitStrategy::Opcode(Opcode::ListLast),
+    },
+    Intrinsic {
+        path: &["core", "list"],
         name: "reverse",
         arity: 1,
         emit: EmitStrategy::Opcode(Opcode::ListReverse),

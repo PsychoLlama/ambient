@@ -314,6 +314,13 @@ impl BytecodeBuilder {
         self.code.push(Opcode::ListTail as u8);
     }
 
+    /// Emit a `ListLast` instruction.
+    ///
+    /// Pops a list and pushes the last element (or Unit if empty).
+    pub fn emit_list_last(&mut self) {
+        self.code.push(Opcode::ListLast as u8);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // String operations (Milestone 15)
     // ─────────────────────────────────────────────────────────────────────────

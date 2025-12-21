@@ -142,19 +142,27 @@ impl CompletionService {
 
         let mut items = get_completions(&ctx, module);
 
-        // Add external symbols
-        for symbol in &self.external_symbols {
-            if symbol.name.starts_with(ctx.word_prefix) {
-                items.push(CompletionItem {
-                    label: symbol.name.clone(),
-                    kind: Some(symbol.kind.to_completion_kind()),
-                    detail: symbol.detail.clone(),
-                    label_details: Some(CompletionItemLabelDetails {
+        // Add external symbols, but only when not in a specific module context.
+        // Skip when completing core.list.*, core.*, Console.*, etc. since those
+        // have their own specific completions.
+        let in_specific_context = ctx.after_core_submodule_dot.is_some()
+            || ctx.after_core_dot
+            || ctx.after_ability_dot.is_some();
+
+        if !in_specific_context {
+            for symbol in &self.external_symbols {
+                if symbol.name.starts_with(ctx.word_prefix) {
+                    items.push(CompletionItem {
+                        label: symbol.name.clone(),
+                        kind: Some(symbol.kind.to_completion_kind()),
                         detail: symbol.detail.clone(),
-                        description: Some(symbol.kind.label().to_string()),
-                    }),
-                    ..Default::default()
-                });
+                        label_details: Some(CompletionItemLabelDetails {
+                            detail: symbol.detail.clone(),
+                            description: Some(symbol.kind.label().to_string()),
+                        }),
+                        ..Default::default()
+                    });
+                }
             }
         }
 

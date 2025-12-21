@@ -393,6 +393,7 @@ mod tests {
             Opcode::ListAppend,
             Opcode::ListHead,
             Opcode::ListTail,
+            Opcode::ListLast,
             // Strings
             Opcode::StringLength,
             Opcode::StringSplit,
