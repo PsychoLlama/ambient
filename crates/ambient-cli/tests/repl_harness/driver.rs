@@ -160,18 +160,31 @@ impl Drop for PtyDriver {
     }
 }
 
-/// Find the ambient binary, preferring the debug build for tests.
+/// Find the ambient binary, preferring the release build for tests.
 fn find_ambient_binary() -> std::path::PathBuf {
+    // Find the workspace root by looking for Cargo.lock
+    let mut workspace_root = std::env::current_dir().unwrap_or_default();
+    loop {
+        if workspace_root.join("Cargo.lock").exists() {
+            break;
+        }
+        if !workspace_root.pop() {
+            // Couldn't find workspace root, use current dir
+            workspace_root = std::env::current_dir().unwrap_or_default();
+            break;
+        }
+    }
+
     // First try the release build (faster)
-    let release = std::path::Path::new("target/release/ambient");
+    let release = workspace_root.join("target/release/ambient");
     if release.exists() {
-        return release.to_path_buf();
+        return release;
     }
 
     // Then try the debug build
-    let debug = std::path::Path::new("target/debug/ambient");
+    let debug = workspace_root.join("target/debug/ambient");
     if debug.exists() {
-        return debug.to_path_buf();
+        return debug;
     }
 
     // Fall back to PATH

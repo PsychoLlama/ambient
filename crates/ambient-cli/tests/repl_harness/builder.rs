@@ -310,14 +310,17 @@ impl ReplTest {
     }
 
     /// Get the current input line for chained assertions.
+    ///
+    /// This looks for the LAST occurrence of "> " and returns what follows.
+    /// This handles the case where the terminal output has multiple prompts
+    /// on the same line (due to cursor control during typing).
     #[must_use]
     pub fn current_line(self) -> LineResult {
         let output = self.driver.output_stripped();
+        // Find the last occurrence of "> " and get what follows
         let line = output
-            .lines()
-            .rev()
-            .find(|l| l.starts_with("> "))
-            .map(|l| l[2..].to_string())
+            .rfind("> ")
+            .map(|pos| output[pos + 2..].to_string())
             .unwrap_or_default();
         LineResult { test: self, line }
     }

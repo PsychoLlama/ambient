@@ -63,6 +63,18 @@ impl LineResult {
         self
     }
 
+    /// Assert the line does NOT contain the text.
+    #[must_use]
+    pub fn not_contains(self, unexpected: &str) -> Self {
+        assert!(
+            !self.line.contains(unexpected),
+            "Expected line to NOT contain '{}', but got: '{}'",
+            unexpected,
+            self.line
+        );
+        self
+    }
+
     /// Get the raw line for custom assertions.
     pub fn raw(&self) -> &str {
         &self.line

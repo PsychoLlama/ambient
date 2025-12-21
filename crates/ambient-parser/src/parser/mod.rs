@@ -48,23 +48,11 @@ pub struct Parser<'src> {
 impl<'src> Parser<'src> {
     /// Create a new parser for the given source.
     ///
-    /// # Panics
-    ///
-    /// Panics if lexing fails. Use [`Parser::try_new`] for fallible construction.
-    #[must_use]
-    pub fn new(source: &'src str) -> Self {
-        Self::try_new(source).expect("lexer error")
-    }
-
-    /// Create a new parser for the given source, returning an error if lexing fails.
-    ///
-    /// This is the fallible version of [`Parser::new`].
-    ///
     /// # Errors
     ///
     /// Returns a `ParseError` if the source contains invalid tokens (e.g., unterminated
     /// strings, invalid escape sequences).
-    pub fn try_new(source: &'src str) -> Result<Self, ParseError> {
+    pub fn new(source: &'src str) -> Result<Self, ParseError> {
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize()?;
         Ok(Self {
@@ -854,32 +842,32 @@ mod tests {
 
     #[test]
     fn test_parse_number() {
-        let mut parser = Parser::new("42");
+        let mut parser = Parser::new("42").unwrap();
         let expr = parser.parse_expression().expect("parse error");
         assert!(matches!(expr.kind, CstExprKind::Number(n) if n == 42.0));
     }
 
     #[test]
     fn test_parse_string() {
-        let mut parser = Parser::new(r#""hello""#);
+        let mut parser = Parser::new(r#""hello""#).unwrap();
         let expr = parser.parse_expression().expect("parse error");
         assert!(matches!(&expr.kind, CstExprKind::String(s) if &**s == "hello"));
     }
 
     #[test]
     fn test_parse_bool() {
-        let mut parser = Parser::new("true");
+        let mut parser = Parser::new("true").unwrap();
         let expr = parser.parse_expression().expect("parse error");
         assert!(matches!(expr.kind, CstExprKind::Bool(true)));
 
-        let mut parser = Parser::new("false");
+        let mut parser = Parser::new("false").unwrap();
         let expr = parser.parse_expression().expect("parse error");
         assert!(matches!(expr.kind, CstExprKind::Bool(false)));
     }
 
     #[test]
     fn test_parse_binary_expr() {
-        let mut parser = Parser::new("1 + 2 * 3");
+        let mut parser = Parser::new("1 + 2 * 3").unwrap();
         let expr = parser.parse_expression().expect("parse error");
 
         // Should parse as 1 + (2 * 3)
@@ -902,7 +890,7 @@ mod tests {
 
     #[test]
     fn test_parse_unary_expr() {
-        let mut parser = Parser::new("-42");
+        let mut parser = Parser::new("-42").unwrap();
         let expr = parser.parse_expression().expect("parse error");
         match expr.kind {
             CstExprKind::Unary { op, operand } => {
@@ -915,14 +903,14 @@ mod tests {
 
     #[test]
     fn test_parse_if_expr() {
-        let mut parser = Parser::new("if x { 1 } else { 2 }");
+        let mut parser = Parser::new("if x { 1 } else { 2 }").unwrap();
         let expr = parser.parse_expression().expect("parse error");
         assert!(matches!(expr.kind, CstExprKind::If { .. }));
     }
 
     #[test]
     fn test_parse_lambda() {
-        let mut parser = Parser::new("(x) => x + 1");
+        let mut parser = Parser::new("(x) => x + 1").unwrap();
         let expr = parser.parse_expression().expect("parse error");
         match expr.kind {
             CstExprKind::Lambda(lambda) => {
@@ -936,7 +924,7 @@ mod tests {
     #[test]
     fn test_parse_function() {
         let source = "fn add(x: number, y: number): number { x + y }";
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
@@ -952,7 +940,7 @@ mod tests {
     #[test]
     fn test_parse_pub_function() {
         let source = "pub fn run(): () { () }";
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
@@ -967,7 +955,7 @@ mod tests {
     #[test]
     fn test_parse_function_with_abilities() {
         let source = "fn read_file(path: string): string with Filesystem { path }";
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
             CstItemKind::Function(f) => {
@@ -981,7 +969,7 @@ mod tests {
     #[test]
     fn test_parse_enum() {
         let source = "enum Option<T> { Some(T), None }";
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
             CstItemKind::Enum(e) => {
@@ -996,7 +984,7 @@ mod tests {
     #[test]
     fn test_parse_ability_def() {
         let source = "ability Console { fn print(message: string): (); }";
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
             CstItemKind::Ability(a) => {
@@ -1010,7 +998,7 @@ mod tests {
 
     #[test]
     fn test_parse_record_literal() {
-        let mut parser = Parser::new("{ x: 1, y: 2 }");
+        let mut parser = Parser::new("{ x: 1, y: 2 }").unwrap();
         let expr = parser.parse_expression().expect("parse error");
         match expr.kind {
             CstExprKind::Record(fields) => {
@@ -1024,7 +1012,7 @@ mod tests {
 
     #[test]
     fn test_parse_list_literal() {
-        let mut parser = Parser::new("[1, 2, 3]");
+        let mut parser = Parser::new("[1, 2, 3]").unwrap();
         let expr = parser.parse_expression().expect("parse error");
         match expr.kind {
             CstExprKind::List(elements) => {
@@ -1042,7 +1030,7 @@ mod tests {
                 None => 0,
             }
         "#;
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let expr = parser.parse_expression().expect("parse error");
         match expr.kind {
             CstExprKind::Match { arms, .. } => {
@@ -1054,7 +1042,7 @@ mod tests {
 
     #[test]
     fn test_parse_tuple() {
-        let mut parser = Parser::new("(1, 2, 3)");
+        let mut parser = Parser::new("(1, 2, 3)").unwrap();
         let expr = parser.parse_expression().expect("parse error");
         match expr.kind {
             CstExprKind::Tuple(elements) => {
@@ -1066,7 +1054,7 @@ mod tests {
 
     #[test]
     fn test_parse_unit() {
-        let mut parser = Parser::new("()");
+        let mut parser = Parser::new("()").unwrap();
         let expr = parser.parse_expression().expect("parse error");
         assert!(matches!(expr.kind, CstExprKind::Unit));
     }
@@ -1080,7 +1068,7 @@ mod tests {
                 x + y
             }
         "#;
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let expr = parser.parse_expression().expect("parse error");
         match expr.kind {
             CstExprKind::Block { stmts, result } => {
@@ -1099,7 +1087,7 @@ mod tests {
                 write(path, content) => resume(())
             }
         "#;
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let expr = parser.parse_expression().expect("parse error");
         match expr.kind {
             CstExprKind::HandlerLiteral(handler_lit) => {
@@ -1123,7 +1111,7 @@ mod tests {
     #[test]
     fn test_parse_handler_literal_single_method() {
         let source = r#"{ print(msg) => resume(()) }"#;
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let expr = parser.parse_expression().expect("parse error");
         match expr.kind {
             CstExprKind::HandlerLiteral(handler_lit) => {
@@ -1137,7 +1125,7 @@ mod tests {
     #[test]
     fn test_parse_handler_literal_empty_params() {
         let source = r#"{ now() => resume(42) }"#;
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let expr = parser.parse_expression().expect("parse error");
         match expr.kind {
             CstExprKind::HandlerLiteral(handler_lit) => {
@@ -1152,7 +1140,7 @@ mod tests {
     #[test]
     fn test_parse_sandbox_with_abilities() {
         let source = r#"sandbox with Log, Console { untrusted_code() }"#;
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let expr = parser.parse_expression().expect("parse error");
         match expr.kind {
             CstExprKind::Sandbox(sandbox) => {
@@ -1167,7 +1155,7 @@ mod tests {
     #[test]
     fn test_parse_sandbox_pure() {
         let source = r#"sandbox { pure_computation() }"#;
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let expr = parser.parse_expression().expect("parse error");
         match expr.kind {
             CstExprKind::Sandbox(sandbox) => {
@@ -1180,7 +1168,7 @@ mod tests {
     #[test]
     fn test_parse_sandbox_single_ability() {
         let source = r#"sandbox with Log { plugin() }"#;
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let expr = parser.parse_expression().expect("parse error");
         match expr.kind {
             CstExprKind::Sandbox(sandbox) => {
@@ -1194,7 +1182,7 @@ mod tests {
     #[test]
     fn test_parse_use_pkg_module() {
         let source = "use pkg.utils;";
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
@@ -1212,7 +1200,7 @@ mod tests {
     #[test]
     fn test_parse_use_pkg_nested() {
         let source = "use pkg.utils.format;";
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
             CstItemKind::Use(u) => {
@@ -1229,7 +1217,7 @@ mod tests {
     #[test]
     fn test_parse_use_pkg_glob() {
         let source = "use pkg.utils.*;";
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
             CstItemKind::Use(u) => {
@@ -1245,7 +1233,7 @@ mod tests {
     #[test]
     fn test_parse_use_pkg_items() {
         let source = "use pkg.utils.{format, parse};";
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
             CstItemKind::Use(u) => {
@@ -1268,7 +1256,7 @@ mod tests {
     #[test]
     fn test_parse_use_core() {
         let source = "use core.io;";
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
             CstItemKind::Use(u) => {
@@ -1283,7 +1271,7 @@ mod tests {
     #[test]
     fn test_parse_use_self() {
         let source = "use self.sibling;";
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
             CstItemKind::Use(u) => {
@@ -1298,7 +1286,7 @@ mod tests {
     #[test]
     fn test_parse_use_super() {
         let source = "use super.parent;";
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
             CstItemKind::Use(u) => {
@@ -1318,7 +1306,7 @@ mod tests {
     #[test]
     fn test_parse_use_super_super() {
         let source = "use super.super.grandparent;";
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
             CstItemKind::Use(u) => {
@@ -1338,7 +1326,7 @@ mod tests {
     #[test]
     fn test_parse_pub_use() {
         let source = "pub use pkg.utils;";
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
             CstItemKind::Use(u) => {

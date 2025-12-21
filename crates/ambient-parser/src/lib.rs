@@ -109,9 +109,9 @@ pub fn parse(source: &str) -> Result<Module, ParseError> {
 ///
 /// # Errors
 ///
-/// Returns a `ParseError` if the source contains syntax errors.
+/// Returns a `ParseError` if the source contains lexer or syntax errors.
 pub fn parse_to_cst(source: &str) -> Result<CstModule, ParseError> {
-    let mut parser = Parser::new(source);
+    let mut parser = Parser::new(source)?;
     parser.parse_module()
 }
 
@@ -129,9 +129,9 @@ pub fn parse_expr(source: &str) -> Result<Expr, ParseError> {
 ///
 /// # Errors
 ///
-/// Returns a `ParseError` if the source is not a valid expression.
+/// Returns a `ParseError` if the source contains lexer or syntax errors.
 pub fn parse_expr_to_cst(source: &str) -> Result<CstExpr, ParseError> {
-    let mut parser = Parser::new(source);
+    let mut parser = Parser::new(source)?;
     parser.parse_expression()
 }
 
@@ -139,9 +139,9 @@ pub fn parse_expr_to_cst(source: &str) -> Result<CstExpr, ParseError> {
 ///
 /// # Errors
 ///
-/// Returns a `ParseError` if the source is not a valid type.
+/// Returns a `ParseError` if the source contains lexer or syntax errors.
 pub fn parse_type(source: &str) -> Result<CstTypeExpr, ParseError> {
-    let mut parser = Parser::new(source);
+    let mut parser = Parser::new(source)?;
     parser.parse_type()
 }
 
@@ -152,9 +152,9 @@ pub fn parse_type(source: &str) -> Result<CstTypeExpr, ParseError> {
 ///
 /// # Errors
 ///
-/// Returns a `ParseError` if the source is not a valid item or expression.
+/// Returns a `ParseError` if the source contains lexer or syntax errors.
 pub fn parse_repl_input(source: &str) -> Result<ReplInput, ParseError> {
-    let mut parser = Parser::new(source);
+    let mut parser = Parser::new(source)?;
     let cst = parser.parse_repl_input()?;
     match cst {
         CstReplInput::Item(item) => Ok(ReplInput::Item(lower::lower_item(&item)?)),

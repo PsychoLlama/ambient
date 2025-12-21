@@ -62,9 +62,19 @@ impl Completer for ReplCompleter {
     ) -> rustyline::Result<(usize, Vec<Pair>)> {
         // Find the word being typed for replacement position
         let before_cursor = &line[..pos];
-        let word_start = before_cursor
-            .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
-            .map_or(0, |i| i + 1);
+
+        // Find word_start: the position where the current "word" starts.
+        // For method completion (after a dot), this is right after the dot.
+        // For identifiers, this is where the identifier starts.
+        let word_start = if let Some(dot_pos) = before_cursor.rfind('.') {
+            // Completing after a dot - word starts after the dot
+            dot_pos + 1
+        } else {
+            // Completing an identifier - find where it starts
+            before_cursor
+                .rfind(|c: char| !c.is_alphanumeric() && c != '_')
+                .map_or(0, |i| i + 1)
+        };
 
         // Sync REPL context and get completions from LSP bridge
         let ctx = self.repl_ctx.lock().unwrap();
@@ -209,6 +219,15 @@ mod tests {
             "Should show print method, got: {:?}",
             methods
         );
+
+        // Methods should NOT contain snippet syntax (${...})
+        for method in &methods {
+            assert!(
+                !method.contains("${"),
+                "Method should not contain snippet syntax: {}",
+                method
+            );
+        }
     }
 
     #[test]

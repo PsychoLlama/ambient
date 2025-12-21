@@ -156,6 +156,56 @@ fn test_ctrl_c_interrupt() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Completion Bug Regression Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_console_dot_completion_preserves_prefix() {
+    // Bug: Console.<tab> was replacing the entire line instead of completing after the dot
+    ReplTest::new()
+        .wait_ready()
+        .type_text("Console.")
+        .tab()
+        .current_line()
+        .starts_with("Console.") // Should still have the Console. prefix
+        .not_contains("${") // Should not have snippet placeholders
+        .done()
+        .shutdown();
+}
+
+#[test]
+fn test_completion_no_snippet_syntax() {
+    // Bug: Completions were including LSP snippet syntax like ${1:message}
+    let test = ReplTest::new().wait_ready().type_text("Console.").tab();
+
+    // Small delay to let completion happen
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let output = test.output();
+    eprintln!("RAW OUTPUT:\n{}", output);
+
+    // The raw output should not contain snippet syntax
+    assert!(
+        !output.contains("${"),
+        "Output should not contain snippet syntax, but got:\n{}",
+        output
+    );
+
+    test.shutdown();
+}
+
+#[test]
+fn test_core_string_methods_completion() {
+    // Bug: core.string. wasn't showing methods
+    ReplTest::new()
+        .wait_ready()
+        .type_text("core.string.")
+        .tab()
+        .expect_line("core.string.") // Should preserve prefix and show methods
+        .shutdown();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Error Handling Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -176,5 +226,16 @@ fn test_undefined_variable() {
         .type_line("undefined_var")
         .expect_error("undefined")
         .expect_prompt()
+        .shutdown();
+}
+
+#[test]
+fn test_unterminated_string_does_not_crash() {
+    // Bug: unterminated strings caused a panic instead of returning an error
+    ReplTest::new()
+        .wait_ready()
+        .type_line("\"s")
+        .expect_error("unterminated") // Should show error, not crash
+        .expect_prompt() // Should still be usable
         .shutdown();
 }

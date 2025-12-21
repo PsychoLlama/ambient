@@ -164,15 +164,22 @@ impl CompletionService {
     /// Get completions in a simplified format for REPL use.
     ///
     /// This is a convenience method that converts LSP completions to a simpler format.
+    /// It strips LSP snippet syntax (e.g., `${1:placeholder}`) since the REPL doesn't
+    /// support it.
     #[must_use]
     pub fn get_completions(&self, source: &str, offset: usize) -> Vec<ReplCompletion> {
         self.get_completions_lsp(source, offset)
             .into_iter()
             .map(|item| {
                 let priority = completion_priority(&item);
+                // Use insert_text if available, but strip snippet syntax
+                let replacement = item
+                    .insert_text
+                    .as_ref()
+                    .map_or_else(|| item.label.clone(), |t| strip_snippet_syntax(t));
                 ReplCompletion {
                     label: item.label.clone(),
-                    replacement: item.insert_text.unwrap_or(item.label),
+                    replacement,
                     detail: item.detail,
                     priority,
                 }
@@ -211,6 +218,62 @@ fn completion_priority(item: &CompletionItem) -> u8 {
         Some(CompletionItemKind::KEYWORD) => 30,
         _ => 50,
     }
+}
+
+/// Strip LSP snippet syntax from completion text.
+///
+/// Converts snippets like `print!(${1:message})` to `print!(message)`.
+/// This is needed because the REPL uses rustyline which doesn't support
+/// LSP snippet format.
+fn strip_snippet_syntax(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '$' && chars.peek() == Some(&'{') {
+            // Skip the '{' and find the placeholder content
+            chars.next(); // consume '{'
+
+            // Skip the number (e.g., "1")
+            while let Some(&c) = chars.peek() {
+                if c.is_ascii_digit() {
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+
+            // Check for colon or closing brace
+            match chars.peek() {
+                Some(&':') => {
+                    chars.next(); // consume ':'
+                                  // Copy the placeholder content until '}'
+                    for c in chars.by_ref() {
+                        if c == '}' {
+                            break;
+                        }
+                        result.push(c);
+                    }
+                }
+                Some(&'}') => {
+                    // No colon, just ${1} style - skip entirely
+                    chars.next();
+                }
+                _ => {
+                    // Malformed, skip until '}'
+                    for c in chars.by_ref() {
+                        if c == '}' {
+                            break;
+                        }
+                    }
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
 }
 
 #[cfg(test)]
@@ -319,5 +382,48 @@ mod tests {
             user_random.is_some() || builtin_random.is_some(),
             "Should have Random completion"
         );
+    }
+
+    #[test]
+    fn test_strip_snippet_syntax() {
+        // Snippet with placeholder name
+        assert_eq!(
+            strip_snippet_syntax("print!(${1:message})"),
+            "print!(message)"
+        );
+
+        // Multiple placeholders
+        assert_eq!(strip_snippet_syntax("foo(${1:a}, ${2:b})"), "foo(a, b)");
+
+        // No placeholders (just numbers)
+        assert_eq!(strip_snippet_syntax("bar(${1}, ${2})"), "bar(, )");
+
+        // No snippet syntax
+        assert_eq!(strip_snippet_syntax("simple()"), "simple()");
+
+        // Empty string
+        assert_eq!(strip_snippet_syntax(""), "");
+
+        // Partial snippet (edge case)
+        assert_eq!(strip_snippet_syntax("test$"), "test$");
+        assert_eq!(strip_snippet_syntax("test${"), "test");
+    }
+
+    #[test]
+    fn test_repl_completions_strip_snippets() {
+        let service = CompletionService::new();
+        let completions = service.get_completions("Console.", 8);
+
+        // Find a method completion
+        let print_completion = completions.iter().find(|c| c.label == "print!");
+
+        if let Some(print) = print_completion {
+            // Should not contain snippet syntax
+            assert!(
+                !print.replacement.contains("${"),
+                "Replacement should not contain snippet syntax, got: {}",
+                print.replacement
+            );
+        }
     }
 }
