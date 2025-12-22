@@ -3,3 +3,5 @@
 # Nix build result symlinks
 /result
 /result-*
+# Build artifacts (compiled bytecode, symbol database)
+/build/
