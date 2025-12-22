@@ -52,6 +52,8 @@ pub struct ModuleInfo {
     pub exports: Vec<ExportedSymbol>,
     /// Use statements in this module (for resolving imports).
     pub uses: Vec<UseInfo>,
+    /// Module-level documentation (from `//!` comments).
+    pub doc: Option<Arc<str>>,
 }
 
 /// Information about a use statement.
@@ -59,12 +61,23 @@ pub struct ModuleInfo {
 pub struct UseInfo {
     /// The prefix of the import (pkg, core, self, super).
     pub prefix: UsePrefixInfo,
-    /// The module path being imported.
-    pub path: Vec<Arc<str>>,
+    /// The module path segments with their source spans.
+    pub path: Vec<PathSegment>,
     /// What is imported.
     pub kind: UseKindInfo,
     /// Byte offset of the use statement.
     pub offset: u32,
+}
+
+/// A path segment in a use statement.
+#[derive(Debug, Clone)]
+pub struct PathSegment {
+    /// The segment name.
+    pub name: Arc<str>,
+    /// The byte offset where this segment starts.
+    pub start: u32,
+    /// The byte offset where this segment ends.
+    pub end: u32,
 }
 
 /// The prefix of a use path for the LSP.
@@ -164,6 +177,7 @@ impl WorkspaceIndex {
             module_path: module_path.clone(),
             exports,
             uses,
+            doc: module.doc.clone(),
         };
 
         self.modules.insert(uri_str, info);
@@ -213,6 +227,84 @@ impl WorkspaceIndex {
         let module = self.find_module(module_path)?;
         let symbol = module.exports.iter().find(|e| e.name.as_ref() == name)?;
         Some((module, symbol))
+    }
+
+    /// Find the module referenced at a given cursor position in a use statement.
+    ///
+    /// Given a file URI and cursor offset, checks if the cursor is within a path
+    /// segment of a use statement, and if so, resolves that module.
+    #[must_use]
+    pub fn find_use_module_at_offset(&self, current_uri: &Uri, offset: u32) -> Option<&ModuleInfo> {
+        let current_module = self.modules.get(current_uri.as_str())?;
+
+        for use_info in &current_module.uses {
+            // Find which path segment the cursor is in
+            for (idx, segment) in use_info.path.iter().enumerate() {
+                if offset >= segment.start && offset < segment.end {
+                    // Cursor is within this segment - resolve the partial path
+                    let partial_path: Vec<_> = use_info
+                        .path
+                        .iter()
+                        .take(idx + 1)
+                        .map(|s| s.name.clone())
+                        .collect();
+
+                    // Resolve based on prefix
+                    let resolved_path = self.resolve_partial_use_path(
+                        current_uri,
+                        &use_info.prefix,
+                        &partial_path,
+                    )?;
+
+                    return self.find_module(&resolved_path);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Resolve a partial use path based on prefix.
+    fn resolve_partial_use_path(
+        &self,
+        current_uri: &Uri,
+        prefix: &UsePrefixInfo,
+        partial_path: &[Arc<str>],
+    ) -> Option<Vec<Arc<str>>> {
+        match prefix {
+            UsePrefixInfo::Pkg => {
+                // Absolute path from package root
+                Some(partial_path.to_vec())
+            }
+            UsePrefixInfo::Core => {
+                // Core library - not in workspace index
+                None
+            }
+            UsePrefixInfo::Self_ => {
+                // Relative to current module's parent directory
+                let current_module = self.modules.get(current_uri.as_str())?;
+                let mut resolved = current_module.module_path.clone();
+                // Remove the current module name
+                resolved.pop();
+                // Add the import path
+                resolved.extend(partial_path.iter().cloned());
+                Some(resolved)
+            }
+            UsePrefixInfo::Super(levels) => {
+                // Go up n levels from current module
+                let current_module = self.modules.get(current_uri.as_str())?;
+                let mut resolved = current_module.module_path.clone();
+                // Remove the current module name
+                resolved.pop();
+                // Go up additional levels
+                for _ in 0..*levels {
+                    resolved.pop();
+                }
+                // Add the import path
+                resolved.extend(partial_path.iter().cloned());
+                Some(resolved)
+            }
+        }
     }
 
     /// Resolve a qualified name to a definition location.
@@ -266,10 +358,12 @@ impl WorkspaceIndex {
 
     /// Resolve a use statement path based on its prefix and the current file.
     fn resolve_use_path(&self, current_uri: &Uri, use_info: &UseInfo) -> Option<Vec<Arc<str>>> {
+        let path_names: Vec<_> = use_info.path.iter().map(|s| s.name.clone()).collect();
+
         match use_info.prefix {
             UsePrefixInfo::Pkg => {
                 // Absolute path from package root
-                Some(use_info.path.clone())
+                Some(path_names)
             }
             UsePrefixInfo::Core => {
                 // Core library - not in workspace index
@@ -282,7 +376,7 @@ impl WorkspaceIndex {
                 // Remove the current module name
                 resolved.pop();
                 // Add the import path
-                resolved.extend(use_info.path.iter().cloned());
+                resolved.extend(path_names);
                 Some(resolved)
             }
             UsePrefixInfo::Super(levels) => {
@@ -296,7 +390,7 @@ impl WorkspaceIndex {
                     resolved.pop();
                 }
                 // Add the import path
-                resolved.extend(use_info.path.iter().cloned());
+                resolved.extend(path_names);
                 Some(resolved)
             }
         }
@@ -443,7 +537,15 @@ fn extract_uses(module: &Module) -> Vec<UseInfo> {
         if let ItemKind::Use(use_def) = &item.kind {
             uses.push(UseInfo {
                 prefix: UsePrefixInfo::from(&use_def.prefix),
-                path: use_def.path.clone(),
+                path: use_def
+                    .path
+                    .iter()
+                    .map(|(name, span)| PathSegment {
+                        name: name.clone(),
+                        start: span.start,
+                        end: span.end,
+                    })
+                    .collect(),
                 kind: UseKindInfo::from(&use_def.kind),
                 offset: item.span.start,
             });
@@ -575,13 +677,21 @@ mod tests {
     fn test_is_core_import() {
         let core_use = UseInfo {
             prefix: UsePrefixInfo::Core,
-            path: vec![Arc::from("list")],
+            path: vec![PathSegment {
+                name: Arc::from("list"),
+                start: 0,
+                end: 4,
+            }],
             kind: UseKindInfo::Module,
             offset: 0,
         };
         let pkg_use = UseInfo {
             prefix: UsePrefixInfo::Pkg,
-            path: vec![Arc::from("utils")],
+            path: vec![PathSegment {
+                name: Arc::from("utils"),
+                start: 0,
+                end: 5,
+            }],
             kind: UseKindInfo::Module,
             offset: 0,
         };

@@ -247,7 +247,7 @@ fn lower_ability_def(a: &CstAbilityDef) -> Result<AbilityDef, ParseError> {
 
 #[allow(clippy::unnecessary_wraps)]
 fn lower_use(u: &CstUseDef) -> Result<UseDef, ParseError> {
-    let path = u.path.iter().map(|i| i.name.clone()).collect();
+    let path = u.path.iter().map(|i| (i.name.clone(), i.span)).collect();
 
     let prefix = match &u.prefix {
         CstUsePrefix::Pkg(_) => UsePrefix::Pkg,
@@ -899,13 +899,30 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
 #[allow(clippy::expect_used)]
 fn lower_qualified_name(qn: &CstQualifiedName) -> QualifiedName {
     // SAFETY: Qualified names always have at least one segment by construction
-    let segments: Vec<Arc<str>> = qn.segments.iter().map(|i| i.name.clone()).collect();
-    if segments.len() == 1 {
-        QualifiedName::simple(segments.into_iter().next().expect("segments not empty"))
+    if qn.segments.len() == 1 {
+        let seg = &qn.segments[0];
+        QualifiedName {
+            path: Vec::new(),
+            path_spans: Vec::new(),
+            name: seg.name.clone(),
+            name_span: Some(seg.span),
+        }
     } else {
-        let name = segments.last().expect("segments not empty").clone();
-        let path = segments[..segments.len() - 1].to_vec();
-        QualifiedName { path, name }
+        let name_seg = qn.segments.last().expect("segments not empty");
+        let path: Vec<Arc<str>> = qn.segments[..qn.segments.len() - 1]
+            .iter()
+            .map(|i| i.name.clone())
+            .collect();
+        let path_spans: Vec<Span> = qn.segments[..qn.segments.len() - 1]
+            .iter()
+            .map(|i| i.span)
+            .collect();
+        QualifiedName {
+            path,
+            path_spans,
+            name: name_seg.name.clone(),
+            name_span: Some(name_seg.span),
+        }
     }
 }
 

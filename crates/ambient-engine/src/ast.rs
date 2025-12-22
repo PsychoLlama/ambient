@@ -68,13 +68,27 @@ impl<T> Spanned<T> {
 pub type BindingId = u32;
 
 /// A reference to a named item (function, type, ability).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct QualifiedName {
     /// Module path segments (empty for local names).
     pub path: Vec<Arc<str>>,
+    /// Source spans for each path segment (for IDE features).
+    /// Same length as `path`, or empty if spans are not available.
+    pub path_spans: Vec<Span>,
     /// The final name.
     pub name: Arc<str>,
+    /// Source span for the name (for IDE features).
+    pub name_span: Option<Span>,
 }
+
+impl PartialEq for QualifiedName {
+    fn eq(&self, other: &Self) -> bool {
+        // Ignore spans for equality - only compare semantic content
+        self.path == other.path && self.name == other.name
+    }
+}
+
+impl Eq for QualifiedName {}
 
 impl QualifiedName {
     /// Create a simple unqualified name.
@@ -82,7 +96,9 @@ impl QualifiedName {
     pub fn simple(name: impl Into<Arc<str>>) -> Self {
         Self {
             path: Vec::new(),
+            path_spans: Vec::new(),
             name: name.into(),
+            name_span: None,
         }
     }
 
@@ -91,7 +107,25 @@ impl QualifiedName {
     pub fn qualified(path: Vec<impl Into<Arc<str>>>, name: impl Into<Arc<str>>) -> Self {
         Self {
             path: path.into_iter().map(Into::into).collect(),
+            path_spans: Vec::new(),
             name: name.into(),
+            name_span: None,
+        }
+    }
+
+    /// Create a qualified name with full span information.
+    #[must_use]
+    pub fn with_spans(
+        path: Vec<Arc<str>>,
+        path_spans: Vec<Span>,
+        name: Arc<str>,
+        name_span: Span,
+    ) -> Self {
+        Self {
+            path,
+            path_spans,
+            name,
+            name_span: Some(name_span),
         }
     }
 }
@@ -737,8 +771,8 @@ pub struct UseDef {
     pub is_public: bool,
     /// The import prefix determining the root.
     pub prefix: UsePrefix,
-    /// Path segments after the prefix.
-    pub path: Vec<Arc<str>>,
+    /// Path segments after the prefix, with their source spans.
+    pub path: Vec<(Arc<str>, Span)>,
     /// What to import from the path.
     pub kind: UseKind,
 }

@@ -299,9 +299,13 @@ impl ModuleRegistry {
                     continue;
                 }
 
+                // Extract just the names from the path (ignoring spans)
+                let path_names: Vec<_> =
+                    use_def.path.iter().map(|(name, _)| name.clone()).collect();
+
                 // Resolve the target module path
                 let Ok(target_path) =
-                    self.resolve_use_path(module_path, &use_def.prefix, &use_def.path)
+                    self.resolve_use_path(module_path, &use_def.prefix, &path_names)
                 else {
                     continue; // Skip unresolvable imports for now
                 };
@@ -310,9 +314,11 @@ impl ModuleRegistry {
                     UseKind::Module => {
                         // Import the module itself as a name
                         // `use pkg.utils;` -> `utils` refers to the module
-                        if let Some(last) = use_def.path.last() {
-                            imports
-                                .insert(last.clone(), ResolvedImport::Module(target_path.clone()));
+                        if let Some((last_name, _)) = use_def.path.last() {
+                            imports.insert(
+                                last_name.clone(),
+                                ResolvedImport::Module(target_path.clone()),
+                            );
                         }
                     }
                     UseKind::Glob => {
@@ -425,7 +431,7 @@ fn extract_re_exports(module: &Module) -> Vec<ReExport> {
             if use_def.is_public {
                 re_exports.push(ReExport {
                     prefix: use_def.prefix,
-                    path: use_def.path.clone(),
+                    path: use_def.path.iter().map(|(name, _)| name.clone()).collect(),
                     kind: use_def.kind.clone(),
                 });
             }
@@ -629,7 +635,7 @@ mod tests {
                 ItemKind::Use(UseDef {
                     is_public: false,
                     prefix: UsePrefix::Pkg,
-                    path: vec![Arc::from("utils")],
+                    path: vec![(Arc::from("utils"), Span::default())],
                     kind: UseKind::Items(vec![Arc::from("helper")]),
                 }),
                 Span::default(),
@@ -680,7 +686,7 @@ mod tests {
                 ItemKind::Use(UseDef {
                     is_public: false,
                     prefix: UsePrefix::Pkg,
-                    path: vec![Arc::from("utils")],
+                    path: vec![(Arc::from("utils"), Span::default())],
                     kind: UseKind::Glob,
                 }),
                 Span::default(),
@@ -720,7 +726,7 @@ mod tests {
                 ItemKind::Use(UseDef {
                     is_public: false,
                     prefix: UsePrefix::Pkg,
-                    path: vec![Arc::from("utils")],
+                    path: vec![(Arc::from("utils"), Span::default())],
                     kind: UseKind::Module,
                 }),
                 Span::default(),

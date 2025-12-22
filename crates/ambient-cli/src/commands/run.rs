@@ -226,7 +226,8 @@ fn extract_dependencies(
                 UsePrefix::Super(n) => ImportPrefix::Super(n),
             };
 
-            if let Ok(resolved) = current_path.resolve_relative(&import_prefix, &use_def.path) {
+            let path_names: Vec<_> = use_def.path.iter().map(|(name, _)| name.clone()).collect();
+            if let Ok(resolved) = current_path.resolve_relative(&import_prefix, &path_names) {
                 let key = resolved.to_string();
                 if !seen.contains(&key) {
                     seen.insert(key);

@@ -170,7 +170,7 @@ fn handle_request(
                 Ok(p) => p,
                 Err(e) => return e,
             };
-            handle_hover(id, &params, documents, analysis_cache)
+            handle_hover(id, &params, documents, analysis_cache, workspace_index)
         }
         GotoDefinition::METHOD => {
             let params = match parse_params(&req.params, &id) {
@@ -217,6 +217,7 @@ fn handle_hover(
     params: &HoverParams,
     documents: &DocumentStore,
     analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
+    workspace_index: &WorkspaceIndex,
 ) -> Response {
     let uri = &params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
@@ -239,7 +240,20 @@ fn handle_hover(
     #[allow(clippy::cast_possible_truncation)]
     let offset = offset as u32;
 
-    // First, try to find an item definition at this position (hovering over a name).
+    // First, check if hovering over a module path in a use statement.
+    if let Some(module_info) = workspace_index.find_use_module_at_offset(uri, offset) {
+        let content = format_module_hover(module_info);
+        let hover = Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: content,
+            }),
+            range: None, // TODO: compute range from path segment span
+        };
+        return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
+    }
+
+    // Next, try to find an item definition at this position (hovering over a name).
     if let Some(item) = find_item_at_offset(module, offset) {
         let content = format_item_hover(item);
         let hover = Hover {
@@ -260,6 +274,22 @@ fn handle_hover(
     let Some(expr) = find_expr_at_offset(module, offset) else {
         return Response::new_ok(id, Value::Null);
     };
+
+    // Check if hovering over a path segment in a qualified name expression.
+    if let ambient_engine::ast::ExprKind::Name(qname) = &expr.kind {
+        if let Some(module_info) = find_qname_module_at_offset(qname, offset, uri, workspace_index)
+        {
+            let content = format_module_hover(module_info);
+            let hover = Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: content,
+                }),
+                range: None,
+            };
+            return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
+        }
+    }
 
     // Get type information if available.
     let type_info = if let Some(ty) = &expr.ty {
@@ -412,6 +442,51 @@ fn format_item_hover(item: &ambient_engine::ast::Item) -> String {
     }
 
     content
+}
+
+/// Format hover content for a module.
+fn format_module_hover(module_info: &crate::workspace::ModuleInfo) -> String {
+    let mut content = String::new();
+
+    // Show module path
+    content.push_str("```ambient\n");
+    content.push_str("module ");
+    content.push_str(&module_info.module_path.join("."));
+    content.push_str("\n```");
+
+    // Add documentation if present
+    if let Some(doc) = &module_info.doc {
+        content.push_str("\n\n---\n\n");
+        content.push_str(doc);
+    }
+
+    content
+}
+
+/// Find the module referenced at a cursor position in a qualified name's path.
+fn find_qname_module_at_offset<'a>(
+    qname: &ambient_engine::ast::QualifiedName,
+    offset: u32,
+    _current_uri: &Uri,
+    workspace_index: &'a WorkspaceIndex,
+) -> Option<&'a crate::workspace::ModuleInfo> {
+    // Check if we have path spans and if cursor is within any of them
+    if qname.path_spans.len() != qname.path.len() {
+        return None; // No span information available
+    }
+
+    for (idx, span) in qname.path_spans.iter().enumerate() {
+        if offset >= span.start && offset < span.end {
+            // Cursor is within this path segment - resolve the partial path
+            let partial_path: Vec<_> = qname.path[..=idx].to_vec();
+
+            // Try to resolve to a module
+            // The path in a qualified name is relative to pkg root
+            return workspace_index.find_module(&partial_path);
+        }
+    }
+
+    None
 }
 
 /// Handle goto definition request.
