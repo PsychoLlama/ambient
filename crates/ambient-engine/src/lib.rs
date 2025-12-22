@@ -30,6 +30,7 @@ pub mod remote;
 pub mod remote_state;
 pub mod server;
 pub mod store;
+pub mod symbol_db;
 pub mod types;
 pub mod value;
 pub mod vm;
