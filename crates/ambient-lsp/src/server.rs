@@ -775,6 +775,50 @@ fn file_path_to_uri(file_path: &str) -> Uri {
     })
 }
 
+/// Populate the symbol database from all modules in a package.
+///
+/// This type-checks each module and stores symbols in the database,
+/// enabling workspace-wide symbol search without opening each file.
+fn populate_symbol_db_from_package(db: &mut SymbolDb, pkg: &PackageInfo) {
+    let registry = pkg.build_registry();
+
+    for parsed_module in pkg.modules.values() {
+        let module_path = &parsed_module.path;
+
+        // Type check the module
+        let result =
+            analyze_with_registry(&parsed_module.source, Some(module_path), Some(&registry));
+
+        // If type checking succeeded, populate the database
+        if let Some(ref module) = result.module {
+            let module_path_str = module_path.to_string();
+            let file_path = pkg.src_dir.join(module_path.to_file_path());
+            let file_path_str = file_path.display().to_string();
+
+            // Compute hashes
+            let source_hash = compute_source_hash(&parsed_module.source);
+            let export_hash = compute_export_hash(module, &module_path_str);
+
+            // Extract symbols and dependencies
+            let symbols = extract_symbols(module, &module_path_str);
+            let dependencies = extract_dependencies(module);
+
+            // Build module info and upsert
+            let info = ModuleInfo {
+                path: module_path_str,
+                file_path: file_path_str,
+                source_hash,
+                export_hash,
+                doc: module.doc.as_ref().map(ToString::to_string),
+                symbols,
+                dependencies,
+            };
+
+            let _ = db.upsert_module(&info);
+        }
+    }
+}
+
 /// Look up documentation for a qualified name from the `SymbolDb`.
 fn lookup_qname_doc(
     qname: &ambient_engine::ast::QualifiedName,
@@ -1073,7 +1117,9 @@ fn handle_notification(
                     if let Some(parent) = db_path.parent() {
                         let _ = std::fs::create_dir_all(parent);
                     }
-                    if let Ok(db) = SymbolDb::open(&db_path) {
+                    if let Ok(mut db) = SymbolDb::open(&db_path) {
+                        // Populate database with all discovered modules
+                        populate_symbol_db_from_package(&mut db, &pkg);
                         *symbol_db = Some(db);
                     }
 
