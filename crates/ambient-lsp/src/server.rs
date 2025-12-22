@@ -779,44 +779,113 @@ fn file_path_to_uri(file_path: &str) -> Uri {
 ///
 /// This type-checks each module and stores symbols in the database,
 /// enabling workspace-wide symbol search without opening each file.
+///
+/// Uses smart caching:
+/// - Skips modules whose source hash hasn't changed
+/// - Cascades invalidation to dependents when exports change
 fn populate_symbol_db_from_package(db: &mut SymbolDb, pkg: &PackageInfo) {
     let registry = pkg.build_registry();
 
+    // Track modules whose exports changed (need to invalidate dependents)
+    let mut changed_exports: Vec<String> = Vec::new();
+
+    // First pass: analyze modules that have changed
     for parsed_module in pkg.modules.values() {
-        let module_path = &parsed_module.path;
+        let module_path_str = parsed_module.path.to_string();
+        let source_hash = compute_source_hash(&parsed_module.source);
 
-        // Type check the module
-        let result =
-            analyze_with_registry(&parsed_module.source, Some(module_path), Some(&registry));
+        // Skip if source hasn't changed
+        if db
+            .is_module_up_to_date(&module_path_str, source_hash)
+            .unwrap_or(false)
+        {
+            continue;
+        }
 
-        // If type checking succeeded, populate the database
-        if let Some(ref module) = result.module {
-            let module_path_str = module_path.to_string();
-            let file_path = pkg.src_dir.join(module_path.to_file_path());
-            let file_path_str = file_path.display().to_string();
-
-            // Compute hashes
-            let source_hash = compute_source_hash(&parsed_module.source);
-            let export_hash = compute_export_hash(module, &module_path_str);
-
-            // Extract symbols and dependencies
-            let symbols = extract_symbols(module, &module_path_str);
-            let dependencies = extract_dependencies(module);
-
-            // Build module info and upsert
-            let info = ModuleInfo {
-                path: module_path_str,
-                file_path: file_path_str,
-                source_hash,
-                export_hash,
-                doc: module.doc.as_ref().map(ToString::to_string),
-                symbols,
-                dependencies,
-            };
-
-            let _ = db.upsert_module(&info);
+        // Type check and update database
+        if let Some(export_changed) =
+            analyze_and_store_module(db, parsed_module, &registry, &pkg.src_dir)
+        {
+            if export_changed {
+                changed_exports.push(module_path_str);
+            }
         }
     }
+
+    // Cascade invalidation: re-analyze dependents of changed modules
+    let mut processed: std::collections::HashSet<String> = std::collections::HashSet::new();
+    while !changed_exports.is_empty() {
+        let mut next_changed: Vec<String> = Vec::new();
+
+        for module_path in &changed_exports {
+            // Find all modules that depend on this one
+            if let Ok(dependents) = db.get_dependents(module_path) {
+                for dep_path in dependents {
+                    // Skip if already processed in this cascade
+                    if processed.contains(&dep_path) {
+                        continue;
+                    }
+                    processed.insert(dep_path.clone());
+
+                    // Find and re-analyze the dependent module
+                    if let Some(parsed_module) = pkg.modules.get(&dep_path) {
+                        if let Some(export_changed) =
+                            analyze_and_store_module(db, parsed_module, &registry, &pkg.src_dir)
+                        {
+                            if export_changed {
+                                next_changed.push(dep_path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        changed_exports = next_changed;
+    }
+}
+
+/// Analyze a single module and store it in the database.
+///
+/// Returns `Some(true)` if export hash changed, `Some(false)` if not,
+/// or `None` if type checking failed.
+fn analyze_and_store_module(
+    db: &mut SymbolDb,
+    parsed_module: &crate::package::ParsedModule,
+    registry: &ambient_engine::module_registry::ModuleRegistry,
+    src_dir: &std::path::Path,
+) -> Option<bool> {
+    let module_path = &parsed_module.path;
+
+    // Type check the module
+    let result = analyze_with_registry(&parsed_module.source, Some(module_path), Some(registry));
+
+    // If type checking succeeded, populate the database
+    let module = result.module.as_ref()?;
+    let module_path_str = module_path.to_string();
+    let file_path = src_dir.join(module_path.to_file_path());
+    let file_path_str = file_path.display().to_string();
+
+    // Compute hashes
+    let source_hash = compute_source_hash(&parsed_module.source);
+    let export_hash = compute_export_hash(module, &module_path_str);
+
+    // Extract symbols and dependencies
+    let symbols = extract_symbols(module, &module_path_str);
+    let dependencies = extract_dependencies(module);
+
+    // Build module info and upsert
+    let info = ModuleInfo {
+        path: module_path_str,
+        file_path: file_path_str,
+        source_hash,
+        export_hash,
+        doc: module.doc.as_ref().map(ToString::to_string),
+        symbols,
+        dependencies,
+    };
+
+    db.upsert_module(&info).ok()
 }
 
 /// Look up documentation for a qualified name from the `SymbolDb`.
@@ -1148,10 +1217,10 @@ fn handle_notification(
                     pkg.update_module(&uri, &text, module.clone());
                 }
 
-                // Update symbol database
+                // Update symbol database and cascade to dependents
                 if let (Some(db), Some(pkg)) = (symbol_db.as_mut(), package_info.as_ref()) {
                     if let Some(module_path) = pkg.uri_to_module_path(&uri) {
-                        update_symbol_db(db, &module_path.to_string(), &uri, &text, module);
+                        update_symbol_db(db, &module_path.to_string(), &uri, &text, module, pkg);
                     }
                 }
             }
@@ -1198,6 +1267,7 @@ fn handle_notification(
                                     &uri,
                                     &doc.text,
                                     module,
+                                    pkg,
                                 );
                             }
                         }
@@ -1272,13 +1342,14 @@ fn publish_diagnostics(
     Ok(())
 }
 
-/// Update the symbol database with a typed module.
+/// Update the symbol database with a typed module and cascade to dependents.
 fn update_symbol_db(
     db: &mut SymbolDb,
     module_path: &str,
     uri: &Uri,
     source: &str,
     module: &Module,
+    pkg: &PackageInfo,
 ) {
     // Get the file path relative to src/
     let file_path = uri_to_path(uri)
@@ -1304,6 +1375,46 @@ fn update_symbol_db(
         dependencies,
     };
 
-    // Silently ignore errors - the LSP should continue working even if db updates fail
-    let _ = db.upsert_module(&info);
+    // Upsert and check if exports changed
+    let export_changed = db.upsert_module(&info).unwrap_or(false);
+
+    // If exports changed, cascade invalidation to dependents
+    if export_changed {
+        cascade_invalidation(db, module_path, pkg);
+    }
+}
+
+/// Cascade invalidation to all modules that depend on the changed module.
+fn cascade_invalidation(db: &mut SymbolDb, changed_module: &str, pkg: &PackageInfo) {
+    let registry = pkg.build_registry();
+    let mut changed_exports = vec![changed_module.to_string()];
+    let mut processed: std::collections::HashSet<String> = std::collections::HashSet::new();
+    processed.insert(changed_module.to_string());
+
+    while !changed_exports.is_empty() {
+        let mut next_changed: Vec<String> = Vec::new();
+
+        for module_path in &changed_exports {
+            if let Ok(dependents) = db.get_dependents(module_path) {
+                for dep_path in dependents {
+                    if processed.contains(&dep_path) {
+                        continue;
+                    }
+                    processed.insert(dep_path.clone());
+
+                    if let Some(parsed_module) = pkg.modules.get(&dep_path) {
+                        if let Some(export_changed) =
+                            analyze_and_store_module(db, parsed_module, &registry, &pkg.src_dir)
+                        {
+                            if export_changed {
+                                next_changed.push(dep_path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        changed_exports = next_changed;
+    }
 }
