@@ -61,6 +61,18 @@ pub struct SymbolRecord {
     pub doc: Option<String>,
 }
 
+/// A symbol with its file path for workspace searches.
+#[derive(Debug, Clone)]
+pub struct WorkspaceSymbol {
+    pub name: String,
+    pub qualified_name: String,
+    pub kind: String,
+    pub file_path: String,
+    pub module_path: String,
+    pub span: Span,
+    pub doc: Option<String>,
+}
+
 /// Information needed to insert/update a module.
 #[derive(Debug)]
 pub struct ModuleInfo {
@@ -443,6 +455,52 @@ impl SymbolDb {
                 kind,
                 is_public,
                 type_signature,
+                span: Span::new(start, end),
+                doc,
+            });
+        }
+
+        Ok(symbols)
+    }
+
+    /// Search for symbols with file path information for workspace symbol search.
+    pub fn search_workspace_symbols(
+        &self,
+        query: &str,
+    ) -> Result<Vec<WorkspaceSymbol>, SymbolDbError> {
+        let pattern = format!("%{query}%");
+        let mut stmt = self.conn.prepare(
+            "SELECT s.name, s.qualified_name, s.kind, m.file_path, m.path,
+                    s.span_start, s.span_end, s.doc
+             FROM symbols s
+             JOIN modules m ON s.module_id = m.id
+             WHERE s.name LIKE ?1 OR s.qualified_name LIKE ?1
+             ORDER BY s.name
+             LIMIT 100",
+        )?;
+
+        let rows = stmt.query_map(params![pattern], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, u32>(5)?,
+                row.get::<_, u32>(6)?,
+                row.get::<_, Option<String>>(7)?,
+            ))
+        })?;
+
+        let mut symbols = Vec::new();
+        for row in rows {
+            let (name, qualified_name, kind, file_path, module_path, start, end, doc) = row?;
+            symbols.push(WorkspaceSymbol {
+                name,
+                qualified_name,
+                kind,
+                file_path,
+                module_path,
                 span: Span::new(start, end),
                 doc,
             });

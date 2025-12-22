@@ -1,6 +1,7 @@
 //! LSP server implementation for the Ambient language.
 
 use std::collections::HashMap;
+use std::str::FromStr;
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types::notification::{
@@ -130,7 +131,13 @@ fn main_loop(connection: &Connection) -> anyhow::Result<()> {
                     return Ok(());
                 }
 
-                let response = handle_request(&req, &documents, &analysis_cache, &workspace_index);
+                let response = handle_request(
+                    &req,
+                    &documents,
+                    &analysis_cache,
+                    &workspace_index,
+                    symbol_db.as_ref(),
+                );
                 connection.sender.send(Message::Response(response))?;
             }
             Message::Notification(notif) => {
@@ -168,6 +175,7 @@ fn handle_request(
     documents: &DocumentStore,
     analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
     workspace_index: &WorkspaceIndex,
+    symbol_db: Option<&SymbolDb>,
 ) -> Response {
     let id = req.id.clone();
 
@@ -177,7 +185,14 @@ fn handle_request(
                 Ok(p) => p,
                 Err(e) => return e,
             };
-            handle_hover(id, &params, documents, analysis_cache, workspace_index)
+            handle_hover(
+                id,
+                &params,
+                documents,
+                analysis_cache,
+                workspace_index,
+                symbol_db,
+            )
         }
         GotoDefinition::METHOD => {
             let params = match parse_params(&req.params, &id) {
@@ -205,7 +220,7 @@ fn handle_request(
                 Ok(p) => p,
                 Err(e) => return e,
             };
-            handle_workspace_symbol(id, &params, workspace_index, documents)
+            handle_workspace_symbol(id, &params, workspace_index, documents, symbol_db)
         }
         SemanticTokensFullRequest::METHOD => {
             let params = match parse_params(&req.params, &id) {
@@ -225,6 +240,7 @@ fn handle_hover(
     documents: &DocumentStore,
     analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
     workspace_index: &WorkspaceIndex,
+    _symbol_db: Option<&SymbolDb>,
 ) -> Response {
     let uri = &params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
@@ -638,10 +654,35 @@ fn handle_workspace_symbol(
     params: &WorkspaceSymbolParams,
     workspace_index: &WorkspaceIndex,
     documents: &DocumentStore,
+    symbol_db: Option<&SymbolDb>,
 ) -> Response {
     let query = params.query.to_lowercase();
     let mut symbols: Vec<SymbolInformation> = Vec::new();
 
+    // Try to use SymbolDb for searching if available
+    if let Some(db) = symbol_db {
+        if let Ok(db_symbols) = db.search_workspace_symbols(&query) {
+            for ws in db_symbols {
+                let range = compute_range_for_symbol(&ws.file_path, ws.span, documents);
+                let uri = file_path_to_uri(&ws.file_path);
+
+                #[allow(deprecated)]
+                symbols.push(SymbolInformation {
+                    name: ws.name,
+                    kind: db_kind_to_lsp(&ws.kind),
+                    tags: None,
+                    deprecated: None,
+                    location: Location { uri, range },
+                    container_name: Some(ws.module_path),
+                });
+            }
+
+            let response = WorkspaceSymbolResponse::Flat(symbols);
+            return Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null));
+        }
+    }
+
+    // Fall back to workspace index
     for module_info in workspace_index.all_modules() {
         // Get the document for range calculation
         let doc = documents.get(&module_info.uri);
@@ -690,6 +731,53 @@ fn handle_workspace_symbol(
 
     let response = WorkspaceSymbolResponse::Flat(symbols);
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
+}
+
+/// Compute a range for a symbol given its file path and span.
+fn compute_range_for_symbol(
+    file_path: &str,
+    span: ambient_engine::ast::Span,
+    documents: &DocumentStore,
+) -> lsp_types::Range {
+    // Try to find the document in the store first
+    let path = std::path::Path::new(file_path);
+    if let Some(uri) = crate::util::path_to_uri(path) {
+        if let Some(doc) = documents.get(&uri) {
+            return offset_range_to_lsp_range(doc, span.start as usize, span.end as usize);
+        }
+    }
+
+    // Try to read the file
+    if let Ok(content) = std::fs::read_to_string(file_path) {
+        let uri = file_path_to_uri(file_path);
+        let temp_doc = crate::documents::Document::new(uri, 0, content);
+        return offset_range_to_lsp_range(&temp_doc, span.start as usize, span.end as usize);
+    }
+
+    lsp_types::Range::default()
+}
+
+/// Convert a file path string to a URI.
+fn file_path_to_uri(file_path: &str) -> Uri {
+    // Try using our utility function first
+    let path = std::path::Path::new(file_path);
+    crate::util::path_to_uri(path).unwrap_or_else(|| {
+        // Fallback: parse directly
+        Uri::from_str(&format!("file://{file_path}"))
+            .unwrap_or_else(|_| Uri::from_str("file:///unknown").expect("valid fallback URI"))
+    })
+}
+
+/// Convert a database kind string to LSP `SymbolKind`.
+fn db_kind_to_lsp(kind: &str) -> LspSymbolKind {
+    match kind {
+        "function" => LspSymbolKind::FUNCTION,
+        "const" => LspSymbolKind::CONSTANT,
+        "type_alias" => LspSymbolKind::TYPE_PARAMETER,
+        "enum" => LspSymbolKind::ENUM,
+        "ability" => LspSymbolKind::INTERFACE,
+        _ => LspSymbolKind::VARIABLE,
+    }
 }
 
 /// Handle semantic tokens request.

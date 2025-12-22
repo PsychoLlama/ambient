@@ -15,7 +15,7 @@ mod extract;
 mod schema;
 mod serialize;
 
-pub use db::{ModuleInfo, SymbolDb, SymbolDbError};
+pub use db::{ModuleInfo, SymbolDb, SymbolDbError, WorkspaceSymbol};
 pub use export_hash::{compute_export_hash, compute_source_hash};
 pub use extract::{extract_dependencies, extract_symbols, DependencyInfo, SymbolInfo, SymbolKind};
 pub use serialize::{
