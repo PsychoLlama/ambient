@@ -501,11 +501,11 @@ module.exports = grammar({
     boolean: ($) => choice("true", "false"),
 
     // Doc comments (/// for items, //! for modules)
-    doc_comment: ($) => token(prec(2, seq("///", /.*/))),
+    doc_comment: ($) => token(seq("///", /.*/)),
 
-    inner_doc_comment: ($) => token(prec(2, seq("//!", /.*/))),
+    inner_doc_comment: ($) => token(seq("//!", /.*/)),
 
-    // Regular comments
-    comment: ($) => token(seq("//", /.*/)),
+    // Regular comments (explicitly exclude /// and //!)
+    comment: ($) => token(seq("//", /([^\/!\n].*)?/)),
   },
 });
