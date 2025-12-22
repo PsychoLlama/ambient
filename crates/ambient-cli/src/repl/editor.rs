@@ -15,7 +15,7 @@ use rustyline::{Cmd, ConditionalEventHandler, Event, EventContext, RepeatCount};
 pub fn edit_in_external_editor(initial_content: &str) -> io::Result<String> {
     // Create a temporary file with the content.
     let temp_dir = env::temp_dir();
-    let temp_file = temp_dir.join(format!("ambient_repl_{}.amb", std::process::id()));
+    let temp_file = temp_dir.join(format!("ambient_repl_{}.ab", std::process::id()));
 
     fs::write(&temp_file, initial_content)?;
 
@@ -45,7 +45,7 @@ pub fn edit_in_external_editor(initial_content: &str) -> io::Result<String> {
     Ok(content.trim_end().to_string())
 }
 
-/// Event handler for opening the external editor (Ctrl+E).
+/// Event handler for opening the external editor (Ctrl+E or Ctrl+O).
 ///
 /// This handler captures the current line content and opens it in an external editor.
 /// When the editor exits, the content replaces the current line.

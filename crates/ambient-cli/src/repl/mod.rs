@@ -78,9 +78,13 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
         Editor::with_config(config).context("failed to initialize readline")?;
     rl.set_helper(Some(completer));
 
-    // Bind Ctrl+E to open external editor (like bash's edit-and-execute-command).
+    // Bind Ctrl+E and Ctrl+O to open external editor (like bash's edit-and-execute-command).
     rl.bind_sequence(
         KeyEvent::ctrl('E'),
+        EventHandler::Conditional(Box::new(ExternalEditorHandler)),
+    );
+    rl.bind_sequence(
+        KeyEvent::ctrl('O'),
         EventHandler::Conditional(Box::new(ExternalEditorHandler)),
     );
 
@@ -191,7 +195,7 @@ fn print_repl_help() {
     eprintln!("  :clear, :reset   Clear all defined functions and variables");
     eprintln!();
     eprintln!("Key Bindings:");
-    eprintln!("  Ctrl+E           Edit current line in $EDITOR");
+    eprintln!("  Ctrl+E, Ctrl+O   Edit current line in $EDITOR");
     eprintln!();
     eprintln!("Definitions:");
     eprintln!("  fn add(x, y) {{ x + y }}   Define a function");
