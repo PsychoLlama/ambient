@@ -25,6 +25,10 @@ use lsp_types::{
 use serde_json::Value;
 
 use ambient_engine::ast::{ItemKind, Module};
+use ambient_engine::symbol_db::{
+    compute_export_hash, compute_source_hash, extract_dependencies, extract_symbols, ModuleInfo,
+    SymbolDb,
+};
 
 use crate::analysis::{
     analyze_with_registry, find_definition_cross_file, find_expr_at_offset, find_item_at_offset,
@@ -116,6 +120,8 @@ fn main_loop(connection: &Connection) -> anyhow::Result<()> {
     let mut workspace_index = WorkspaceIndex::new();
     // Package info for cross-module type checking
     let mut package_info: Option<PackageInfo> = None;
+    // Symbol database for fast lookups (initialized when package is discovered)
+    let mut symbol_db: Option<SymbolDb> = None;
 
     for msg in &connection.receiver {
         match msg {
@@ -134,6 +140,7 @@ fn main_loop(connection: &Connection) -> anyhow::Result<()> {
                     &mut analysis_cache,
                     &mut workspace_index,
                     &mut package_info,
+                    &mut symbol_db,
                     connection,
                 )?;
             }
@@ -917,6 +924,7 @@ fn handle_notification(
     analysis_cache: &mut HashMap<String, crate::analysis::AnalysisResult>,
     workspace_index: &mut WorkspaceIndex,
     package_info: &mut Option<PackageInfo>,
+    symbol_db: &mut Option<SymbolDb>,
     connection: &Connection,
 ) -> anyhow::Result<()> {
     match notif.method.as_str() {
@@ -935,6 +943,16 @@ fn handle_notification(
                     // Populate workspace index with all discovered modules
                     // This enables go-to-definition for imports
                     pkg.populate_workspace_index(workspace_index);
+
+                    // Initialize the symbol database
+                    let db_path = pkg.root.join("build").join("index.db");
+                    if let Some(parent) = db_path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    if let Ok(db) = SymbolDb::open(&db_path) {
+                        *symbol_db = Some(db);
+                    }
+
                     *package_info = Some(pkg);
                 }
             }
@@ -958,6 +976,13 @@ fn handle_notification(
                 // Update package info with the newly parsed module
                 if let Some(pkg) = package_info.as_mut() {
                     pkg.update_module(&uri, &text, module.clone());
+                }
+
+                // Update symbol database
+                if let (Some(db), Some(pkg)) = (symbol_db.as_mut(), package_info.as_ref()) {
+                    if let Some(module_path) = pkg.uri_to_module_path(&uri) {
+                        update_symbol_db(db, &module_path.to_string(), &uri, &text, module);
+                    }
                 }
             }
 
@@ -992,6 +1017,19 @@ fn handle_notification(
                         // Update package info with the newly parsed module
                         if let Some(pkg) = package_info.as_mut() {
                             pkg.update_module(&uri, &doc.text, module.clone());
+                        }
+
+                        // Update symbol database
+                        if let (Some(db), Some(pkg)) = (symbol_db.as_mut(), package_info.as_ref()) {
+                            if let Some(module_path) = pkg.uri_to_module_path(&uri) {
+                                update_symbol_db(
+                                    db,
+                                    &module_path.to_string(),
+                                    &uri,
+                                    &doc.text,
+                                    module,
+                                );
+                            }
                         }
                     }
 
@@ -1062,4 +1100,40 @@ fn publish_diagnostics(
         .sender
         .send(Message::Notification(notification))?;
     Ok(())
+}
+
+/// Update the symbol database with a typed module.
+fn update_symbol_db(
+    db: &mut SymbolDb,
+    module_path: &str,
+    uri: &Uri,
+    source: &str,
+    module: &Module,
+) {
+    // Get the file path relative to src/
+    let file_path = uri_to_path(uri)
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+
+    // Compute hashes
+    let source_hash = compute_source_hash(source);
+    let export_hash = compute_export_hash(module, module_path);
+
+    // Extract symbols and dependencies
+    let symbols = extract_symbols(module, module_path);
+    let dependencies = extract_dependencies(module);
+
+    // Build module info and upsert
+    let info = ModuleInfo {
+        path: module_path.to_string(),
+        file_path,
+        source_hash,
+        export_hash,
+        doc: module.doc.as_ref().map(ToString::to_string),
+        symbols,
+        dependencies,
+    };
+
+    // Silently ignore errors - the LSP should continue working even if db updates fail
+    let _ = db.upsert_module(&info);
 }

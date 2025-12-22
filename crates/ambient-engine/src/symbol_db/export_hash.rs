@@ -90,7 +90,6 @@ pub fn compute_export_hash(module: &Module, module_path: &str) -> blake3::Hash {
 ///
 /// This is used to detect when source has changed.
 #[must_use]
-#[allow(dead_code)] // Will be used when LSP integration is complete
 pub fn compute_source_hash(source: &str) -> blake3::Hash {
     blake3::hash(source.as_bytes())
 }
