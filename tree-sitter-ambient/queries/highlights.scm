@@ -19,7 +19,7 @@
 (visibility) @keyword
 
 ; Literals
-(boolean) @constant.builtin
+(boolean) @boolean
 (number) @number
 (string) @string
 (string_content) @string
