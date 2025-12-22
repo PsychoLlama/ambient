@@ -240,7 +240,7 @@ fn handle_hover(
     documents: &DocumentStore,
     analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
     workspace_index: &WorkspaceIndex,
-    _symbol_db: Option<&SymbolDb>,
+    symbol_db: Option<&SymbolDb>,
 ) -> Response {
     let uri = &params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
@@ -327,7 +327,14 @@ fn handle_hover(
             format!("```ambient\nlocal_{local_id}: {type_info}\n```")
         }
         ambient_engine::ast::ExprKind::Name(qname) => {
-            format!("```ambient\n{}: {type_info}\n```", qname.name)
+            // Try to look up documentation from SymbolDb for qualified names
+            let doc_info = lookup_qname_doc(qname, symbol_db);
+
+            if let Some(doc) = doc_info {
+                format!("```ambient\n{}: {type_info}\n```\n\n{doc}", qname.name)
+            } else {
+                format!("```ambient\n{}: {type_info}\n```", qname.name)
+            }
         }
         ambient_engine::ast::ExprKind::Bool(b) => {
             format!("```ambient\n{b}: {type_info}\n```")
@@ -766,6 +773,35 @@ fn file_path_to_uri(file_path: &str) -> Uri {
         Uri::from_str(&format!("file://{file_path}"))
             .unwrap_or_else(|_| Uri::from_str("file:///unknown").expect("valid fallback URI"))
     })
+}
+
+/// Look up documentation for a qualified name from the `SymbolDb`.
+fn lookup_qname_doc(
+    qname: &ambient_engine::ast::QualifiedName,
+    symbol_db: Option<&SymbolDb>,
+) -> Option<String> {
+    if qname.path.is_empty() {
+        return None;
+    }
+
+    let db = symbol_db?;
+
+    // Build qualified name: path.name
+    let qualified_name = format!(
+        "{}.{}",
+        qname
+            .path
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<_>>()
+            .join("."),
+        qname.name
+    );
+
+    db.lookup_symbol(&qualified_name)
+        .ok()
+        .flatten()
+        .and_then(|record| record.doc)
 }
 
 /// Convert a database kind string to LSP `SymbolKind`.
