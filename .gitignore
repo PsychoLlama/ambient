@@ -4,4 +4,4 @@
 /result
 /result-*
 # Build artifacts (compiled bytecode, symbol database)
-/build/
+build/
