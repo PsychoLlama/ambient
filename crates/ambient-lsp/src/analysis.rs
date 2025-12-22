@@ -7,6 +7,7 @@ use ambient_engine::ast::{Expr, ExprKind, Item, ItemKind, Module, QualifiedName,
 use ambient_engine::infer::{check_module, check_module_with_registry, BoxedTypeError};
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
+use ambient_engine::symbol_db::SymbolDb;
 use ambient_engine::types::Type;
 use ambient_parser::{parse, ParseError};
 
@@ -342,13 +343,14 @@ fn find_name_definition(module: &Module, qname: &QualifiedName) -> Option<Defini
     None
 }
 
-/// Find definition with cross-file support using the workspace index.
+/// Find definition with cross-file support using `SymbolDb` and workspace index.
 #[must_use]
 pub fn find_definition_cross_file(
     module: &Module,
     offset: u32,
     current_uri: &lsp_types::Uri,
     workspace: &crate::workspace::WorkspaceIndex,
+    symbol_db: Option<&SymbolDb>,
 ) -> Option<DefinitionResult> {
     // First try local definition
     if let Some(result) = find_definition(module, offset) {
@@ -359,32 +361,45 @@ pub fn find_definition_cross_file(
     let expr = find_expr_at_offset(module, offset)?;
 
     match &expr.kind {
-        ExprKind::Name(qname) => {
-            // Try to resolve using the workspace index
-            let (target_module, symbol) =
-                workspace.resolve_name(current_uri, &qname.path, &qname.name)?;
-
-            Some(DefinitionResult::cross_file(
-                Span::new(symbol.offset, symbol.end_offset),
-                target_module.uri.clone(),
-            ))
-        }
+        ExprKind::Name(qname) => resolve_qname_definition(qname, current_uri, workspace, symbol_db),
         ExprKind::Call(callee, _) => {
             // Check if the callee is a cross-file reference
             if let ExprKind::Name(qname) = &callee.kind {
-                let (target_module, symbol) =
-                    workspace.resolve_name(current_uri, &qname.path, &qname.name)?;
-
-                Some(DefinitionResult::cross_file(
-                    Span::new(symbol.offset, symbol.end_offset),
-                    target_module.uri.clone(),
-                ))
+                resolve_qname_definition(qname, current_uri, workspace, symbol_db)
             } else {
                 None
             }
         }
         _ => None,
     }
+}
+
+/// Resolve a qualified name to its definition location.
+fn resolve_qname_definition(
+    qname: &QualifiedName,
+    current_uri: &lsp_types::Uri,
+    workspace: &crate::workspace::WorkspaceIndex,
+    symbol_db: Option<&SymbolDb>,
+) -> Option<DefinitionResult> {
+    // Try SymbolDb first for qualified names (path is non-empty)
+    if !qname.path.is_empty() {
+        if let Some(db) = symbol_db {
+            // Build qualified name: path.name
+            let qualified_name = format!("{}.{}", qname.path.join("."), qname.name);
+            if let Ok(Some(def)) = db.lookup_definition(&qualified_name) {
+                let uri = crate::util::path_to_uri(std::path::Path::new(&def.file_path))?;
+                return Some(DefinitionResult::cross_file(def.span, uri));
+            }
+        }
+    }
+
+    // Fall back to workspace index
+    let (target_module, symbol) = workspace.resolve_name(current_uri, &qname.path, &qname.name)?;
+
+    Some(DefinitionResult::cross_file(
+        Span::new(symbol.offset, symbol.end_offset),
+        target_module.uri.clone(),
+    ))
 }
 
 fn find_definition_in_expr(module: &Module, expr: &Expr) -> Option<DefinitionResult> {

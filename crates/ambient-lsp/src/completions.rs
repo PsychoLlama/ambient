@@ -10,6 +10,7 @@
 
 use ambient_engine::ast::{Expr, ExprKind, FunctionDef, ItemKind, Module, Param, StmtKind};
 use ambient_engine::core_library::CoreLibrary;
+use ambient_engine::symbol_db::SymbolDb;
 use ambient_parser::TokenKind;
 use lsp_types::{CompletionItem, CompletionItemKind, CompletionItemLabelDetails, InsertTextFormat};
 
@@ -31,6 +32,9 @@ pub struct CompletionContext<'a> {
     /// Whether we're after `core.<submodule>.` (for core submodule member completion).
     /// Contains the submodule name (e.g., "list" for "core.list.").
     pub after_core_submodule_dot: Option<&'a str>,
+    /// Whether we're after a pkg module path (for pkg module member completion).
+    /// Contains the module path (e.g., "utils" for "utils." or "utils.format" for "utils.format.").
+    pub after_pkg_module_dot: Option<&'a str>,
     /// Whether we're after a use statement prefix (pkg, core, self, super).
     pub in_use_statement: bool,
 }
@@ -93,23 +97,40 @@ impl<'a> CompletionContext<'a> {
             (false, None)
         };
 
-        // Check if we're after an ability name (e.g., "Console.")
-        let after_ability_dot =
+        // Check if we're after an ability name (e.g., "Console.") or a module name
+        let (after_ability_dot, after_pkg_module_dot) =
             if after_dot && !after_core_dot && after_core_submodule_dot.is_none() {
-                // Look for the identifier before the dot
+                // Look for the identifier/path before the dot
                 let trimmed = before_word.trim_end();
                 let without_dot = trimmed.strip_suffix('.').unwrap_or(trimmed);
-                let ident_start = without_dot
-                    .rfind(|c: char| !c.is_alphanumeric() && c != '_')
+
+                // Find the start of the qualified name (allows dots for module paths)
+                let qualified_start = without_dot
+                    .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
                     .map_or(0, |i| i + 1);
-                let ident = &without_dot[ident_start..];
-                if TokenKind::builtin_abilities().contains(&ident) {
-                    Some(ident)
+                let qualified_name = &without_dot[qualified_start..];
+
+                // Get just the first identifier (for ability check)
+                let first_ident_end = qualified_name
+                    .find(|c: char| !c.is_alphanumeric() && c != '_')
+                    .unwrap_or(qualified_name.len());
+                let first_ident = &qualified_name[..first_ident_end];
+
+                if TokenKind::builtin_abilities().contains(&first_ident) {
+                    (Some(first_ident), None)
+                } else if !qualified_name.is_empty()
+                    && qualified_name
+                        .chars()
+                        .next()
+                        .is_some_and(char::is_lowercase)
+                {
+                    // Looks like a module path (starts with lowercase, not an ability)
+                    (None, Some(qualified_name))
                 } else {
-                    None
+                    (None, None)
                 }
             } else {
-                None
+                (None, None)
             };
 
         Self {
@@ -119,6 +140,7 @@ impl<'a> CompletionContext<'a> {
             after_ability_dot,
             after_core_dot,
             after_core_submodule_dot,
+            after_pkg_module_dot,
             in_use_statement,
         }
     }
@@ -129,6 +151,7 @@ impl<'a> CompletionContext<'a> {
 pub fn get_completions(
     ctx: &CompletionContext<'_>,
     module: Option<&Module>,
+    symbol_db: Option<&SymbolDb>,
 ) -> Vec<CompletionItem> {
     let mut items = Vec::new();
 
@@ -156,7 +179,15 @@ pub fn get_completions(
         return items;
     }
 
-    // If we're after a dot (but not an ability or core), we'd show field completions.
+    // If we're completing pkg module members (after "module_name.")
+    if let Some(module_path) = ctx.after_pkg_module_dot {
+        if let Some(db) = symbol_db {
+            items.extend(get_pkg_module_completions(db, module_path, ctx.word_prefix));
+        }
+        return items;
+    }
+
+    // If we're after a dot (but not an ability, core, or module), we'd show field completions.
     // For now, we don't have enough type info at the cursor, so skip.
     if ctx.after_dot {
         return items;
@@ -285,6 +316,47 @@ fn get_core_submodule_member_completions(submodule: &str, prefix: &str) -> Vec<C
                 label: name.clone(),
                 kind: Some(item_kind),
                 detail: Some(format!("core.{submodule}.{name} ({detail})")),
+                ..Default::default()
+            }
+        })
+        .collect()
+}
+
+/// Get completions for pkg module members from `SymbolDb`.
+fn get_pkg_module_completions(
+    db: &SymbolDb,
+    module_path: &str,
+    prefix: &str,
+) -> Vec<CompletionItem> {
+    let Ok(symbols) = db.get_module_symbols(module_path) else {
+        return Vec::new();
+    };
+
+    symbols
+        .into_iter()
+        .filter(|s| s.is_public && s.name.starts_with(prefix))
+        .map(|s| {
+            let item_kind = match s.kind.as_str() {
+                "function" => CompletionItemKind::FUNCTION,
+                "const" => CompletionItemKind::CONSTANT,
+                "type_alias" => CompletionItemKind::TYPE_PARAMETER,
+                "enum" => CompletionItemKind::ENUM,
+                "ability" => CompletionItemKind::INTERFACE,
+                _ => CompletionItemKind::VARIABLE,
+            };
+
+            let type_str = format_type(&s.type_signature);
+            let detail = format!("{}.{}: {}", module_path, s.name, type_str);
+
+            CompletionItem {
+                label: s.name.clone(),
+                kind: Some(item_kind),
+                detail: Some(detail),
+                documentation: s.doc.map(lsp_types::Documentation::String),
+                label_details: Some(CompletionItemLabelDetails {
+                    detail: Some(format!(": {type_str}")),
+                    description: Some(module_path.to_string()),
+                }),
                 ..Default::default()
             }
         })

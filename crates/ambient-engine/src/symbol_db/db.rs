@@ -73,6 +73,13 @@ pub struct WorkspaceSymbol {
     pub doc: Option<String>,
 }
 
+/// A definition location for go-to-definition.
+#[derive(Debug, Clone)]
+pub struct DefinitionLocation {
+    pub file_path: String,
+    pub span: Span,
+}
+
 /// Information needed to insert/update a module.
 #[derive(Debug)]
 pub struct ModuleInfo {
@@ -359,6 +366,40 @@ impl SymbolDb {
                     doc,
                 }))
             }
+            None => Ok(None),
+        }
+    }
+
+    /// Look up a symbol definition by qualified name, returning file path and span.
+    ///
+    /// This is optimized for go-to-definition operations.
+    pub fn lookup_definition(
+        &self,
+        qualified_name: &str,
+    ) -> Result<Option<DefinitionLocation>, SymbolDbError> {
+        let result = self
+            .conn
+            .query_row(
+                "SELECT m.file_path, s.span_start, s.span_end
+                 FROM symbols s
+                 JOIN modules m ON s.module_id = m.id
+                 WHERE s.qualified_name = ?1",
+                params![qualified_name],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, u32>(1)?,
+                        row.get::<_, u32>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+
+        match result {
+            Some((file_path, start, end)) => Ok(Some(DefinitionLocation {
+                file_path,
+                span: Span::new(start, end),
+            })),
             None => Ok(None),
         }
     }

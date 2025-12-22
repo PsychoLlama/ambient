@@ -140,7 +140,8 @@ impl CompletionService {
         let ctx = CompletionContext::new(source, offset);
         let module = self.analysis.as_ref().and_then(|a| a.module.as_ref());
 
-        let mut items = get_completions(&ctx, module);
+        // SymbolDb not available in REPL context
+        let mut items = get_completions(&ctx, module, None);
 
         // Add external symbols, but only when not in a specific module context.
         // Skip when completing core.list.*, core.*, Console.*, etc. since those

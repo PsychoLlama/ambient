@@ -199,14 +199,21 @@ fn handle_request(
                 Ok(p) => p,
                 Err(e) => return e,
             };
-            handle_goto_definition(id, &params, documents, analysis_cache, workspace_index)
+            handle_goto_definition(
+                id,
+                &params,
+                documents,
+                analysis_cache,
+                workspace_index,
+                symbol_db,
+            )
         }
         Completion::METHOD => {
             let params = match parse_params(&req.params, &id) {
                 Ok(p) => p,
                 Err(e) => return e,
             };
-            handle_completion(id, &params, documents, analysis_cache)
+            handle_completion(id, &params, documents, analysis_cache, symbol_db)
         }
         DocumentSymbolRequest::METHOD => {
             let params = match parse_params(&req.params, &id) {
@@ -314,41 +321,8 @@ fn handle_hover(
         }
     }
 
-    // Get type information if available.
-    let type_info = if let Some(ty) = &expr.ty {
-        format_type(ty)
-    } else {
-        "unknown".to_string()
-    };
-
-    // Build hover content.
-    let content = match &expr.kind {
-        ambient_engine::ast::ExprKind::Local(local_id) => {
-            format!("```ambient\nlocal_{local_id}: {type_info}\n```")
-        }
-        ambient_engine::ast::ExprKind::Name(qname) => {
-            // Try to look up documentation from SymbolDb for qualified names
-            let doc_info = lookup_qname_doc(qname, symbol_db);
-
-            if let Some(doc) = doc_info {
-                format!("```ambient\n{}: {type_info}\n```\n\n{doc}", qname.name)
-            } else {
-                format!("```ambient\n{}: {type_info}\n```", qname.name)
-            }
-        }
-        ambient_engine::ast::ExprKind::Bool(b) => {
-            format!("```ambient\n{b}: {type_info}\n```")
-        }
-        ambient_engine::ast::ExprKind::Number(n) => {
-            format!("```ambient\n{n}: {type_info}\n```")
-        }
-        ambient_engine::ast::ExprKind::String(s) => {
-            format!("```ambient\n\"{s}\": {type_info}\n```")
-        }
-        _ => {
-            format!("```ambient\n{type_info}\n```")
-        }
-    };
+    // Build hover content based on expression kind.
+    let content = format_expr_hover(expr, symbol_db);
 
     let hover = Hover {
         contents: HoverContents::Scalar(MarkedString::String(content)),
@@ -519,6 +493,51 @@ fn find_qname_module_at_offset<'a>(
     None
 }
 
+/// Format hover content for an expression.
+fn format_expr_hover(expr: &ambient_engine::ast::Expr, symbol_db: Option<&SymbolDb>) -> String {
+    match &expr.kind {
+        ambient_engine::ast::ExprKind::Local(local_id) => {
+            let type_info = expr.ty.as_ref().map_or("unknown".to_string(), format_type);
+            format!("```ambient\nlocal_{local_id}: {type_info}\n```")
+        }
+        ambient_engine::ast::ExprKind::Name(qname) => {
+            // Try to look up type and documentation from SymbolDb for qualified names
+            let db_info = lookup_qname_info(qname, symbol_db);
+
+            // Use SymbolDb type if available, otherwise fall back to expression type
+            let type_info = db_info
+                .as_ref()
+                .map(|info| format_type(&info.type_signature))
+                .or_else(|| expr.ty.as_ref().map(format_type))
+                .unwrap_or_else(|| "unknown".to_string());
+
+            let doc = db_info.and_then(|info| info.doc);
+
+            if let Some(doc) = doc {
+                format!("```ambient\n{}: {type_info}\n```\n\n{doc}", qname.name)
+            } else {
+                format!("```ambient\n{}: {type_info}\n```", qname.name)
+            }
+        }
+        ambient_engine::ast::ExprKind::Bool(b) => {
+            let type_info = expr.ty.as_ref().map_or("bool".to_string(), format_type);
+            format!("```ambient\n{b}: {type_info}\n```")
+        }
+        ambient_engine::ast::ExprKind::Number(n) => {
+            let type_info = expr.ty.as_ref().map_or("number".to_string(), format_type);
+            format!("```ambient\n{n}: {type_info}\n```")
+        }
+        ambient_engine::ast::ExprKind::String(s) => {
+            let type_info = expr.ty.as_ref().map_or("string".to_string(), format_type);
+            format!("```ambient\n\"{s}\": {type_info}\n```")
+        }
+        _ => {
+            let type_info = expr.ty.as_ref().map_or("unknown".to_string(), format_type);
+            format!("```ambient\n{type_info}\n```")
+        }
+    }
+}
+
 /// Handle goto definition request.
 fn handle_goto_definition(
     id: RequestId,
@@ -526,6 +545,7 @@ fn handle_goto_definition(
     documents: &DocumentStore,
     analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
     workspace_index: &WorkspaceIndex,
+    symbol_db: Option<&SymbolDb>,
 ) -> Response {
     let uri = &params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
@@ -546,7 +566,9 @@ fn handle_goto_definition(
     let offset = doc.position_to_offset(position.line, position.character);
 
     #[allow(clippy::cast_possible_truncation)]
-    let Some(def_result) = find_definition_cross_file(module, offset as u32, uri, workspace_index) else {
+    let Some(def_result) =
+        find_definition_cross_file(module, offset as u32, uri, workspace_index, symbol_db)
+    else {
         return Response::new_ok(id, Value::Null);
     };
 
@@ -604,6 +626,7 @@ fn handle_completion(
     params: &CompletionParams,
     documents: &DocumentStore,
     analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
+    symbol_db: Option<&SymbolDb>,
 ) -> Response {
     let uri = &params.text_document_position.text_document.uri;
     let position = params.text_document_position.position;
@@ -622,7 +645,7 @@ fn handle_completion(
 
     // Create completion context and get completions.
     let ctx = CompletionContext::new(&doc.text, offset);
-    let items = get_completions(&ctx, module);
+    let items = get_completions(&ctx, module, symbol_db);
 
     let response = CompletionResponse::Array(items);
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
@@ -888,11 +911,19 @@ fn analyze_and_store_module(
     db.upsert_module(&info).ok()
 }
 
-/// Look up documentation for a qualified name from the `SymbolDb`.
-fn lookup_qname_doc(
+/// Symbol information from `SymbolDb` for hover.
+struct SymbolHoverInfo {
+    type_signature: ambient_engine::types::Type,
+    doc: Option<String>,
+}
+
+/// Look up symbol information from `SymbolDb` for a qualified name.
+///
+/// Returns type signature and documentation for cross-file symbol lookups.
+fn lookup_qname_info(
     qname: &ambient_engine::ast::QualifiedName,
     symbol_db: Option<&SymbolDb>,
-) -> Option<String> {
+) -> Option<SymbolHoverInfo> {
     if qname.path.is_empty() {
         return None;
     }
@@ -914,7 +945,10 @@ fn lookup_qname_doc(
     db.lookup_symbol(&qualified_name)
         .ok()
         .flatten()
-        .and_then(|record| record.doc)
+        .map(|record| SymbolHoverInfo {
+            type_signature: record.type_signature,
+            doc: record.doc,
+        })
 }
 
 /// Convert a database kind string to LSP `SymbolKind`.
