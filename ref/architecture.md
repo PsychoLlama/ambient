@@ -34,8 +34,7 @@ pub fn multiply(x: number, y: number): number {
 
 ```ambient
 use some_library.mod.{a, b.c.d};  // Import specific items
-use some_library.utils.*;          // Import all from module
-use HttpMethod.*;                  // Import enum variants
+use some_library.utils;            // Import a module
 ```
 
 ### Types

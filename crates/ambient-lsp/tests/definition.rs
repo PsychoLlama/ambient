@@ -129,46 +129,6 @@ fn run() { helper/*use*/() }
 }
 
 #[test]
-fn test_goto_cross_file_glob_import() {
-    // Go to definition with glob import (use pkg.module.*)
-    let (test, locations) = LspTest::new()
-        .with_package()
-        .with_file(
-            "src/math.ab",
-            r#"
-pub fn add(a: number, b: number): number { a + b }
-pub fn sub(a: number, b: number): number { a - b }
-"#,
-        )
-        .with_file(
-            "src/main.ab",
-            r#"
-use pkg.math.*;
-fn run() { add/*use*/(1, 2) }
-"#,
-        )
-        .open_file("src/main.ab")
-        .goto_definition_at("use")
-        .raw();
-
-    assert!(
-        !locations.is_empty(),
-        "Expected to find definition via glob import"
-    );
-
-    let found_math = locations
-        .iter()
-        .any(|loc| loc.uri.as_str().contains("math.ab"));
-    assert!(
-        found_math,
-        "Expected definition in math.ab, got: {:?}",
-        locations.iter().map(|l| l.uri.as_str()).collect::<Vec<_>>()
-    );
-
-    test.shutdown();
-}
-
-#[test]
 fn test_goto_cross_file_specific_import() {
     // Go to definition with specific item import (use pkg.module.{item})
     let (test, locations) = LspTest::new()

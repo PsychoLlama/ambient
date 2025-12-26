@@ -797,8 +797,6 @@ pub enum UseKind {
     /// Import the module itself: `use pkg.utils;`
     /// Brings the module name into scope.
     Module,
-    /// Import all public items: `use pkg.utils.*;`
-    Glob,
     /// Import specific items: `use pkg.utils.{helper, format};`
     Items(Vec<Arc<str>>),
 }

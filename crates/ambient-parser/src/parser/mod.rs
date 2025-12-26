@@ -637,7 +637,7 @@ impl<'src> Parser<'src> {
     /// use_def = ["pub"] "use" use_prefix "." path_rest ";"
     /// use_prefix = "pkg" | "core" | "self" | super_chain
     /// super_chain = "super" ("." "super")*
-    /// path_rest = (ident ".")* (ident | "*" | "{" ident_list "}")
+    /// path_rest = (ident ".")* (ident | "{" ident_list "}")
     /// ident_list = ident ("," ident)* [","]
     /// ```
     fn parse_use(&mut self, is_public: bool) -> Result<CstUseDef, ParseError> {
@@ -654,18 +654,6 @@ impl<'src> Parser<'src> {
         let mut path = Vec::new();
 
         loop {
-            // Check for glob import: `use pkg.module.*;`
-            if self.consume(TokenKind::Star).is_some() {
-                let end = self.expect(TokenKind::Semi)?.span.end;
-                return Ok(CstUseDef {
-                    is_public,
-                    prefix,
-                    path,
-                    kind: CstUseKind::Glob,
-                    span: Span::new(start, end),
-                });
-            }
-
             // Check for grouped imports: `use pkg.module.{a, b};`
             if self.check(TokenKind::LBrace) {
                 self.advance();
@@ -1238,22 +1226,6 @@ mod tests {
                 assert_eq!(&*u.path[0].name, "utils");
                 assert_eq!(&*u.path[1].name, "format");
                 assert!(matches!(u.kind, CstUseKind::Module));
-            }
-            _ => panic!("Expected use"),
-        }
-    }
-
-    #[test]
-    fn test_parse_use_pkg_glob() {
-        let source = "use pkg.utils.*;";
-        let mut parser = Parser::new(source).unwrap();
-        let module = parser.parse_module().expect("parse error");
-        match &module.items[0].kind {
-            CstItemKind::Use(u) => {
-                assert!(matches!(&u.prefix, CstUsePrefix::Pkg(_)));
-                assert_eq!(u.path.len(), 1);
-                assert_eq!(&*u.path[0].name, "utils");
-                assert!(matches!(u.kind, CstUseKind::Glob));
             }
             _ => panic!("Expected use"),
         }

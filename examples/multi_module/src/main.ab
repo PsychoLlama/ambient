@@ -4,13 +4,12 @@
 //! - `use pkg.module;` for package-relative imports
 //! - `use self.sibling;` for same-directory imports
 //! - `use pkg.module.{item1, item2};` for specific items
-//! - `use pkg.module.*;` for glob imports
 
 // Import specific functions from math_utils
 use pkg.math_utils.{abs, min, max, gcd, lcm};
 
-// Import all public functions from list_utils
-use pkg.list_utils.*;
+// Import specific functions from list_utils
+use pkg.list_utils.{sum, product, maximum, minimum};
 
 // Import from statistics (which itself imports from siblings)
 use pkg.statistics.{variance, range};
@@ -24,7 +23,7 @@ pub fn run(): number {
     let d = gcd(48, 18);        // 6
     let e = lcm(4, 6);          // 12
 
-    // Test list_utils functions (via glob import)
+    // Test list_utils functions
     let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     let s = sum(numbers);       // 55
     let p = product([1, 2, 3, 4, 5]);  // 120

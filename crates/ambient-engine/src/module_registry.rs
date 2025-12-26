@@ -179,14 +179,6 @@ impl ModuleRegistry {
                     // `pub use pkg.other;` - re-exports the module itself, not its contents
                     // The module can be accessed as `other.symbol` through the current module
                 }
-                UseKind::Glob => {
-                    // `pub use pkg.other.*;` - re-exports all public symbols
-                    if let Some(target_path) = Self::resolve_import_path(module_path, re_export) {
-                        if let Ok(export) = self.lookup_symbol(&target_path, symbol_name) {
-                            return Ok(export);
-                        }
-                    }
-                }
                 UseKind::Items(items) => {
                     // `pub use pkg.other.{a, b};` - re-exports specific symbols
                     if items.iter().any(|item| item.as_ref() == symbol_name) {
@@ -207,26 +199,14 @@ impl ModuleRegistry {
         })
     }
 
-    /// Get all public exports from a module (for glob imports).
+    /// Get all public exports from a module.
     #[must_use]
     pub fn get_public_exports(&self, module_path: &ModulePath) -> Vec<&ExportInfo> {
         let Some(info) = self.modules.get(&module_path.to_string()) else {
             return Vec::new();
         };
 
-        let mut exports: Vec<&ExportInfo> = info.exports.values().filter(|e| e.is_public).collect();
-
-        // Also include re-exported symbols
-        for re_export in &info.re_exports {
-            if let UseKind::Glob = &re_export.kind {
-                if let Some(target_path) = Self::resolve_import_path(module_path, re_export) {
-                    let re_exported = self.get_public_exports(&target_path);
-                    exports.extend(re_exported);
-                }
-            }
-        }
-
-        exports
+        info.exports.values().filter(|e| e.is_public).collect()
     }
 
     /// Resolve an import path from a source module.
@@ -318,18 +298,6 @@ impl ModuleRegistry {
                             imports.insert(
                                 last_name.clone(),
                                 ResolvedImport::Module(target_path.clone()),
-                            );
-                        }
-                    }
-                    UseKind::Glob => {
-                        // Import all public symbols from the module
-                        for export in self.get_public_exports(&target_path) {
-                            imports.insert(
-                                export.name.clone(),
-                                ResolvedImport::Symbol {
-                                    from_module: target_path.clone(),
-                                    export_kind: export.kind,
-                                },
                             );
                         }
                     }
@@ -657,50 +625,6 @@ mod tests {
             }
             _ => panic!("Expected symbol import"),
         }
-    }
-
-    #[test]
-    fn test_resolve_imports_glob() {
-        use crate::ast::{Item, UseDef};
-
-        let mut registry = ModuleRegistry::new();
-
-        // Register the utils module with multiple functions
-        let utils_module = Arc::new(Module {
-            name: Arc::from("utils"),
-            doc: None,
-            items: vec![
-                make_function("helper1", true),
-                make_function("helper2", true),
-                make_function("private_fn", false),
-            ],
-        });
-        let utils_path = ModulePath::from_str_segments(&["utils"]).unwrap();
-        registry.register(&utils_path, utils_module);
-
-        // Register main module with a glob import
-        let main_module = Arc::new(Module {
-            name: Arc::from("main"),
-            doc: None,
-            items: vec![Item::new(
-                ItemKind::Use(UseDef {
-                    is_public: false,
-                    prefix: UsePrefix::Pkg,
-                    path: vec![(Arc::from("utils"), Span::default())],
-                    kind: UseKind::Glob,
-                }),
-                Span::default(),
-            )],
-        });
-        let main_path = ModulePath::from_str_segments(&["main"]).unwrap();
-        registry.register(&main_path, main_module);
-
-        // Resolve imports for main module
-        let imports = registry.resolve_imports(&main_path).unwrap();
-        assert!(imports.contains_key("helper1"));
-        assert!(imports.contains_key("helper2"));
-        // Private function should not be imported
-        assert!(!imports.contains_key("private_fn"));
     }
 
     #[test]

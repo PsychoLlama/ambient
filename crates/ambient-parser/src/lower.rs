@@ -258,7 +258,6 @@ fn lower_use(u: &CstUseDef) -> Result<UseDef, ParseError> {
 
     let kind = match &u.kind {
         CstUseKind::Module => UseKind::Module,
-        CstUseKind::Glob => UseKind::Glob,
         CstUseKind::Items(items) => UseKind::Items(items.iter().map(|i| i.name.clone()).collect()),
     };
 

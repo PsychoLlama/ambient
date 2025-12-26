@@ -76,7 +76,6 @@ pub struct DependencyInfo {
 #[derive(Debug, Clone, Copy)]
 pub enum DependencyKind {
     Module,
-    Glob,
     Items,
 }
 
@@ -86,7 +85,6 @@ impl DependencyKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Module => "module",
-            Self::Glob => "glob",
             Self::Items => "items",
         }
     }
@@ -316,7 +314,6 @@ fn extract_use_dependency(use_def: &UseDef) -> Option<DependencyInfo> {
 
     let (import_kind, imported_items) = match &use_def.kind {
         UseKind::Module => (DependencyKind::Module, None),
-        UseKind::Glob => (DependencyKind::Glob, None),
         UseKind::Items(items) => (DependencyKind::Items, Some(items.clone())),
     };
 

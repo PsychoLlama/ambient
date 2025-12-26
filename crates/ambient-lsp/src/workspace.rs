@@ -109,8 +109,6 @@ impl From<&UsePrefix> for UsePrefixInfo {
 pub enum UseKindInfo {
     /// Import the module itself: `use pkg.module;`.
     Module,
-    /// Import everything: `use pkg.module.*;`.
-    Glob,
     /// Import specific items: `use pkg.module.{a, b}`.
     Items(Vec<Arc<str>>),
 }
@@ -119,7 +117,6 @@ impl From<&UseKind> for UseKindInfo {
     fn from(kind: &UseKind) -> Self {
         match kind {
             UseKind::Module => Self::Module,
-            UseKind::Glob => Self::Glob,
             UseKind::Items(items) => Self::Items(items.clone()),
         }
     }
@@ -336,7 +333,7 @@ impl WorkspaceIndex {
             let resolved_path = self.resolve_use_path(current_uri, use_info)?;
 
             match &use_info.kind {
-                UseKindInfo::Module | UseKindInfo::Glob => {
+                UseKindInfo::Module => {
                     // Check if this module exports the name
                     if let Some(result) = self.find_symbol(&resolved_path, name) {
                         return Some(result);

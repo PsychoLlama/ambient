@@ -205,8 +205,8 @@ impl Resolver {
                 // For now, we'll handle imports within the same module only
                 // Full implementation would need a module registry
                 match &use_def.kind {
-                    ambient_engine::ast::UseKind::Module | ambient_engine::ast::UseKind::Glob => {
-                        // Import the module itself or all items from it
+                    ambient_engine::ast::UseKind::Module => {
+                        // Import the module itself
                         // For now, this is a no-op since we don't have cross-module resolution yet
                         // TODO: implement once we have a module registry
                     }

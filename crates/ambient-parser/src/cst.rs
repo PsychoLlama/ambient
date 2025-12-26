@@ -375,7 +375,6 @@ pub struct CstAbilityMethod {
 /// - `use pkg.utils;`
 /// - `use pkg.utils.helper;`
 /// - `use pkg.utils.{helper, format};`
-/// - `use pkg.utils.*;`
 /// - `use self.sibling;`
 /// - `use super.parent;`
 /// - `use core.list;`
@@ -412,8 +411,6 @@ pub enum CstUsePrefix {
 pub enum CstUseKind {
     /// Import the module itself: `use pkg.utils;`
     Module,
-    /// Import everything: `use pkg.utils.*;`
-    Glob,
     /// Import specific items: `use pkg.utils.{a, b}`.
     Items(Vec<CstIdent>),
 }

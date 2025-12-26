@@ -24,9 +24,6 @@ use pkg.utils;                    // utils.helper()
 use pkg.utils.helper;             // helper()
 use pkg.utils.{helper, format};   // helper(), format()
 
-// Import all exports
-use pkg.utils.*;                  // helper(), format(), etc.
-
 // Relative imports (within the same package)
 use self.sibling;                 // Import from ./sibling.ab
 use super.parent;                 // Import from ../parent.ab
@@ -34,11 +31,10 @@ use super.super.grandparent;      // Import from ../../grandparent.ab
 
 // Standard library
 use core.list;                    // list.map(), list.filter()
-use core.list.*;                  // map(), filter()
 
 // Re-exports (make imported items part of this module's public API)
 pub use pkg.other.Thing;          // Re-export Thing
-pub use pkg.utils.*;              // Re-export everything from utils
+pub use pkg.utils.{helper, format}; // Re-export specific items
 ```
 
 ### Visibility
@@ -168,26 +164,6 @@ pub fn public_fn(): number {
 use pkg.utils;
 utils.helper()                     // ERROR: helper is private
 ```
-
-### Glob Re-exports and Visibility
-
-When using `pub use pkg.module.*`, private items from the source module are included in the symbol table but marked as not visible:
-
-```ambient
-// internal.ab
-fn secret(): number { 42 }
-pub fn public_fn(): number { secret() }
-
-// lib.ab
-pub use pkg.internal.*;
-
-// main.ab
-use pkg.lib.*;
-public_fn()    // OK
-secret()       // ERROR: "secret exists in pkg.internal but is private"
-```
-
-This enables better error messages ("X exists but is private" vs "X not found") while preventing access. Private items do not appear in LSP autocomplete.
 
 ## Cyclic Imports
 
@@ -403,7 +379,6 @@ Extend the parser to handle the full import syntax.
 use pkg.module;
 use pkg.module.item;
 use pkg.module.{item1, item2};
-use pkg.module.*;
 use self.sibling;
 use super.parent;
 use super.super.grandparent;
