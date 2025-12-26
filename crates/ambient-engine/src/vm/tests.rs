@@ -612,6 +612,32 @@ fn test_host_handler_returns_value() {
 }
 
 #[test]
+fn test_bytecode_handler_overrides_host_handler() {
+    // Host handler would return 999.0, but bytecode handler should win with 42.0
+    let handler = FunctionBuilder::new("test::override_handler")
+        .with_locals(2)
+        .with_params(2)
+        .load_local(0) // continuation
+        .push(42.0) // resume value
+        .resume()
+        .build();
+    let handler_hash = handler.hash;
+
+    VmTest::new()
+        .with_function(handler)
+        .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |_ability| {
+            // This should NOT be called - bytecode handler takes priority
+            Ok(Value::Number(999.0))
+        })
+        .handle(ABILITY_MATH, handler_hash)
+        .push(5.0)
+        .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+        .perform()
+        .unhandle()
+        .expect_number(42.0); // Bytecode handler wins, not host handler's 999.0
+}
+
+#[test]
 fn test_unhandled_ability_error() {
     VmTest::new()
         .push(42.0)

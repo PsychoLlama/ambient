@@ -5,18 +5,22 @@
 
 /// Entry point demonstrating the Console ability.
 pub fn run(): number {
-    // Handler that intercepts Console output
-    // The ability call is made directly in the handle body
+    // Handler that intercepts Console output and prefixes messages
     let result = handle {
         Console.print!("Hello, World!");
         42  // Return value
     } {
         Console.print(msg) => {
-            // Handler intercepts the print call
-            // In a real implementation, this would output to stdout
+            // Prefix the message and print the modified version
+            Console.print!("[HANDLED] ");
+            Console.print!(msg);
             resume(())
         }
     };
+
+    // These prints are outside the handler, so they go through unmodified
+    Console.print!("This message is not captured by the handler.");
+    Console.print!("Handlers only affect code within their block.");
 
     result
 }

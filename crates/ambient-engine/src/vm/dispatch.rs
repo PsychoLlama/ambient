@@ -301,18 +301,8 @@ impl Vm {
                         }
                     };
 
-                    // First, check for a host handler
-                    if let Some(handler) = self
-                        .host_handlers
-                        .get(&(ability.ability_id, ability.method_id))
-                    {
-                        // Call the host handler synchronously
-                        let result = handler(&ability)?;
-                        self.stack.push(result);
-                        continue;
-                    }
-
-                    // Look for a bytecode handler on the handler stack
+                    // First, check for a bytecode handler on the handler stack
+                    // (user-installed handlers take priority over host handlers)
                     let handler_idx = self
                         .handlers
                         .iter()
@@ -367,6 +357,13 @@ impl Vm {
 
                         // Call the handler function
                         self.push_frame(&handler_func, 2)?;
+                    } else if let Some(handler) = self
+                        .host_handlers
+                        .get(&(ability.ability_id, ability.method_id))
+                    {
+                        // Fall back to host handler if no bytecode handler is installed
+                        let result = handler(&ability)?;
+                        self.stack.push(result);
                     } else {
                         // No handler found
                         return Err(VmError::UnhandledAbility {
