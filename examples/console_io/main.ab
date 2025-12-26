@@ -1,26 +1,21 @@
 //! Console I/O example with effects.
 //!
-//! Demonstrates the Console ability for output.
-//! Effects are handled using handler expressions.
+//! Demonstrates how effect handlers can intercept and transform
+//! ability calls. The handler only affects code within its block.
 
-/// Entry point demonstrating the Console ability.
-pub fn run(): number {
-    // Handler that intercepts Console output and prefixes messages
-    let result = handle {
-        Console.print!("Hello, World!");
-        42  // Return value
+/// Entry point demonstrating effect handler interception.
+pub fn run(): () {
+    // Handler intercepts Console.print and adds a prefix
+    handle {
+        Console.print!("Hello from inside the handler!");
     } {
         Console.print(msg) => {
-            // Prefix the message and print the modified version
-            Console.print!("[HANDLED] ");
+            Console.print!("[LOG] ");
             Console.print!(msg);
             resume(())
         }
     };
 
-    // These prints are outside the handler, so they go through unmodified
-    Console.print!("This message is not captured by the handler.");
-    Console.print!("Handlers only affect code within their block.");
-
-    result
+    // Outside the handler - prints directly without interception
+    Console.print!("Hello from outside - no prefix!");
 }
