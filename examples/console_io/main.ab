@@ -10,12 +10,11 @@ pub fn run(): () {
         Console.print!("Hello from inside the handler!");
     } {
         Console.print(msg) => {
-            Console.print!("[LOG] ");
-            Console.print!(msg);
+            Console.print!(core.string.concat("[LOG] ", msg));
             resume(())
         }
     };
 
     // Outside the handler - prints directly without interception
-    Console.print!("Hello from outside - no prefix!");
+    Console.print!("Hello from outside");
 }
