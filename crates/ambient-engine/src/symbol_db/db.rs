@@ -757,24 +757,21 @@ impl SymbolDb {
     /// let compiled = compile_module(&ast)?;
     /// db.populate_from_module(&compiled, "mylib", "mylib.utils", &function_map)?;
     /// ```
+    /// Populate the database from a compiled module.
+    ///
+    /// Registers all named symbols and their dependencies. The `function_visibility`
+    /// map is currently unused but reserved for future filtering of exported symbols.
     pub fn populate_from_module(
         &mut self,
         compiled: &crate::compiler::CompiledModule,
         package_name: &str,
         module_path: &str,
-        function_visibility: &std::collections::HashMap<std::sync::Arc<str>, bool>,
+        _function_visibility: &std::collections::HashMap<std::sync::Arc<str>, bool>,
     ) -> Result<PopulateStats, SymbolDbError> {
         let mut stats = PopulateStats::default();
 
         // Register each named function
         for (name, hash) in &compiled.function_names {
-            // Only register public symbols (or all if visibility map not provided)
-            let is_public = function_visibility.get(name).copied().unwrap_or(true);
-
-            if !is_public {
-                continue;
-            }
-
             // Build the full symbol path: package.module.name
             let symbol_path = if module_path.is_empty() {
                 format!("{package_name}.{name}")
