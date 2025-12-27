@@ -14,6 +14,7 @@
 pub mod abilities;
 pub mod ability_resolver;
 pub mod ast;
+pub mod build;
 pub mod bytecode;
 pub mod client;
 pub mod compilation_cache;

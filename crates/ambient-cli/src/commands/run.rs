@@ -15,7 +15,6 @@ use ambient_engine::module_path::{ImportPrefix, ModulePath};
 use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::package::{LoadedModule, Package};
 use ambient_engine::store::Store;
-use ambient_engine::symbol_db::SymbolDb;
 use ambient_engine::vm::Vm;
 
 use crate::diagnostic::print_diagnostic;
@@ -61,8 +60,6 @@ fn compile_package(path: &Path) -> Result<CompiledModule> {
     let mut pkg = Package::open(path)
         .with_context(|| format!("failed to open package at {}", path.display()))?;
 
-    let package_name = pkg.manifest().name.clone();
-
     // Load the main module and all its dependencies.
     let main_path = ModulePath::root();
     load_module_with_deps(&mut pkg, &main_path)?;
@@ -75,12 +72,6 @@ fn compile_package(path: &Path) -> Result<CompiledModule> {
 
     // Get modules in topological order (dependencies first).
     let module_order = get_compilation_order(&pkg, &main_path);
-
-    // Open symbol database in build directory (create if needed).
-    let build_dir = path.join("build");
-    fs::create_dir_all(&build_dir).ok();
-    let db_path = build_dir.join("symbols.db");
-    let mut symbol_db = SymbolDb::open(&db_path).ok();
 
     // Compile modules in dependency order, tracking function hashes.
     let mut all_compiled = CompiledModule::new();
@@ -105,20 +96,6 @@ fn compile_package(path: &Path) -> Result<CompiledModule> {
             imported_hashes,
         )?;
 
-        // Populate symbol database with compiled module.
-        if let Some(ref mut db) = symbol_db {
-            // Extract visibility information from AST.
-            let visibility = extract_function_visibility(&module.ast);
-            let module_path_str = module_path.to_string();
-
-            // Clean up old symbols for this module before repopulating.
-            let _ = db.remove_module(&module_path_str);
-
-            // Populate with new symbols.
-            let _ =
-                db.populate_from_module(&compiled, &package_name, &module_path_str, &visibility);
-        }
-
         // Record this module's function hashes for dependents.
         let mut func_hashes = HashMap::new();
         for (name, hash) in &compiled.function_names {
@@ -131,17 +108,6 @@ fn compile_package(path: &Path) -> Result<CompiledModule> {
     }
 
     Ok(all_compiled)
-}
-
-/// Extract function visibility from a module AST.
-fn extract_function_visibility(module: &ambient_engine::ast::Module) -> HashMap<Arc<str>, bool> {
-    let mut visibility = HashMap::new();
-    for item in &module.items {
-        if let ItemKind::Function(func) = &item.kind {
-            visibility.insert(Arc::clone(&func.name), func.is_public);
-        }
-    }
-    visibility
 }
 
 /// Get modules in topological order (dependencies first).

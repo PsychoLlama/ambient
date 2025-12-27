@@ -5,11 +5,33 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use ambient_engine::build::{build_package, BuildError};
+
 use super::{compile_source, read_source};
 use crate::serialize::serialize_module;
 
-/// Compile an Ambient source file.
+/// Parse source code into an AST (wrapper for ambient_parser::parse).
+fn parse_source(source: &str) -> Result<ambient_engine::ast::Module, String> {
+    ambient_parser::parse(source).map_err(|e| e.to_string())
+}
+
+/// Compile an Ambient source file or package.
+///
+/// If `file` is a directory with `ambient.toml`, compiles the package.
+/// Otherwise, compiles a single source file.
 pub fn cmd_compile(file: &Path, output: Option<&Path>) -> Result<()> {
+    // Check if this is a package directory
+    if file.is_dir() || file.join("ambient.toml").exists() {
+        let pkg_path = if file.is_dir() {
+            file.to_path_buf()
+        } else {
+            file.parent().unwrap_or(file).to_path_buf()
+        };
+        compile_package_cmd(&pkg_path)?;
+        return Ok(());
+    }
+
+    // Single file compilation
     let source = read_source(file)?;
     let compiled = compile_source(&source, file)?;
 
@@ -20,12 +42,36 @@ pub fn cmd_compile(file: &Path, output: Option<&Path>) -> Result<()> {
     );
 
     // Serialize and write the compiled module.
-    // For now, we'll use a simple JSON serialization (can switch to binary later).
     let serialized = serde_json::to_string_pretty(&serialize_module(&compiled))
         .context("failed to serialize")?;
     fs::write(&output_path, serialized).context("failed to write output")?;
 
     eprintln!("Compiled {} -> {}", file.display(), output_path.display());
+
+    Ok(())
+}
+
+/// Compile a package and print progress.
+fn compile_package_cmd(path: &Path) -> Result<()> {
+    let progress_cb = |module: &str, current: usize, total: usize| {
+        eprintln!("[{}/{}] Compiling {}", current, total, module);
+    };
+
+    let result = build_package(path, parse_source, Some(&progress_cb)).map_err(|e| match e {
+        BuildError::PackageOpen(msg) => anyhow::anyhow!("failed to open package: {msg}"),
+        BuildError::Parse { module, error } => anyhow::anyhow!("parse error in {module}: {error}"),
+        BuildError::TypeCheck { module, errors } => {
+            anyhow::anyhow!("type errors in {module}: {}", errors.join(", "))
+        }
+        BuildError::Compile { module, error } => {
+            anyhow::anyhow!("compile error in {module}: {error}")
+        }
+    })?;
+
+    eprintln!(
+        "Compiled {} ({} modules)",
+        result.package_name, result.module_count
+    );
 
     Ok(())
 }

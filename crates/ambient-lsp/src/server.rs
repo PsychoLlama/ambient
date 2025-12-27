@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
+use lsp_types::notification::Progress;
 use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, Notification as _,
     PublishDiagnostics,
@@ -16,15 +17,18 @@ use lsp_types::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
     GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
-    InitializeParams, InitializeResult, Location, MarkedString, MarkupContent, MarkupKind, OneOf,
-    PublishDiagnosticsParams, SemanticTokens, SemanticTokensFullOptions, SemanticTokensOptions,
-    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
-    ServerCapabilities, SymbolInformation, SymbolKind as LspSymbolKind, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Uri, WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    InitializeParams, InitializeResult, Location, MarkedString, MarkupContent, MarkupKind,
+    NumberOrString, OneOf, ProgressParams, ProgressParamsValue, PublishDiagnosticsParams,
+    SemanticTokens, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
+    SymbolKind as LspSymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd, WorkDoneProgressReport,
+    WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use serde_json::Value;
 
 use ambient_engine::ast::{ItemKind, Module};
+use ambient_engine::build::build_package;
 use ambient_engine::symbol_db::SymbolDb;
 
 use crate::analysis::{
@@ -731,22 +735,94 @@ fn handle_workspace_symbol(
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
 }
 
-/// Populate the symbol database from all modules in a package.
+/// Parse source code into an AST (wrapper for `ambient_parser::parse`).
+fn parse_source(source: &str) -> Result<Module, String> {
+    ambient_parser::parse(source).map_err(|e| e.to_string())
+}
+
+/// Populate the symbol database by compiling the package.
 ///
-/// Currently a no-op. The LSP uses `WorkspaceIndex` for cross-file navigation
-/// (go-to-definition, workspace symbols) which operates on parsed ASTs.
-///
-/// The `SymbolDb` is designed for hash-based lookups after compilation:
-/// - `SymbolDb::populate_from_module()` registers compiled functions and their dependencies
-/// - This enables find-references by tracking which functions call which
-///
-/// Integration options:
-/// 1. Background compilation task in LSP (expensive but enables find-references)
-/// 2. CLI compile command populates the database
-/// 3. Incremental population as files are saved and compiled
-fn populate_symbol_db_from_package(_db: &mut SymbolDb, _pkg: &PackageInfo) {
-    // WorkspaceIndex handles cross-file navigation for the LSP.
-    // SymbolDb population requires compilation, which is done by the CLI.
+/// This compiles all modules and populates the symbol database with
+/// function definitions and their dependencies.
+fn populate_symbol_db_from_package(db: &mut SymbolDb, pkg: &PackageInfo, connection: &Connection) {
+    let token = NumberOrString::String("indexing".to_string());
+
+    // Send progress begin
+    let begin = ProgressParams {
+        token: token.clone(),
+        value: ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(WorkDoneProgressBegin {
+            title: "Indexing".to_string(),
+            cancellable: Some(false),
+            message: Some("Compiling package...".to_string()),
+            percentage: Some(0),
+        })),
+    };
+    let _ = send_progress(connection, begin);
+
+    // Build the package with progress callback
+    #[allow(clippy::cast_possible_truncation)]
+    let progress_cb = |module: &str, current: usize, total: usize| {
+        let percentage = if total > 0 {
+            Some(((current * 100) / total) as u32)
+        } else {
+            None
+        };
+
+        let report = ProgressParams {
+            token: token.clone(),
+            value: ProgressParamsValue::WorkDone(WorkDoneProgress::Report(
+                WorkDoneProgressReport {
+                    cancellable: Some(false),
+                    message: Some(format!("[{current}/{total}] {module}")),
+                    percentage,
+                },
+            )),
+        };
+        let _ = send_progress(connection, report);
+    };
+
+    let result = build_package(&pkg.root, parse_source, Some(&progress_cb));
+
+    // Send progress end
+    let end_message = match &result {
+        Ok(r) => Some(format!("Indexed {} modules", r.module_count)),
+        Err(e) => Some(format!("Indexing failed: {e}")),
+    };
+
+    let end = ProgressParams {
+        token,
+        value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(WorkDoneProgressEnd {
+            message: end_message,
+        })),
+    };
+    let _ = send_progress(connection, end);
+
+    // Log the result (the database was populated by build_package)
+    match result {
+        Ok(r) => {
+            log::info!(
+                "Indexed {} modules for package {}",
+                r.module_count,
+                r.package_name
+            );
+            // The build_package function already populates the symbol database
+            // We need to reload it since build_package creates its own instance
+            let db_path = pkg.root.join("build").join("symbols.db");
+            if let Ok(new_db) = SymbolDb::open(&db_path) {
+                *db = new_db;
+            }
+        }
+        Err(e) => {
+            log::warn!("Failed to index package: {e}");
+        }
+    }
+}
+
+/// Send a progress notification to the client.
+fn send_progress(connection: &Connection, params: ProgressParams) -> anyhow::Result<()> {
+    let notif = Notification::new(Progress::METHOD.to_string(), params);
+    connection.sender.send(Message::Notification(notif))?;
+    Ok(())
 }
 
 /// Look up type information from `SymbolDb` for a qualified name.
@@ -1015,13 +1091,13 @@ fn handle_notification(
                     pkg.populate_workspace_index(workspace_index);
 
                     // Initialize the symbol database
-                    let db_path = pkg.root.join("build").join("index.db");
+                    let db_path = pkg.root.join("build").join("symbols.db");
                     if let Some(parent) = db_path.parent() {
                         let _ = std::fs::create_dir_all(parent);
                     }
                     if let Ok(mut db) = SymbolDb::open(&db_path) {
-                        // Populate database with all discovered modules
-                        populate_symbol_db_from_package(&mut db, &pkg);
+                        // Compile package and populate database
+                        populate_symbol_db_from_package(&mut db, &pkg, connection);
                         *symbol_db = Some(db);
                     }
 
