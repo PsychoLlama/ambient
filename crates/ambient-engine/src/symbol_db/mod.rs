@@ -14,8 +14,8 @@ mod schema;
 mod serialize;
 
 pub use db::{
-    CleanupStats, DependencyKind, SymbolDb, SymbolDbError, SymbolKind, SymbolPathEntry, TypeEntry,
-    TypeKind,
+    CleanupStats, DependencyKind, PopulateStats, SymbolDb, SymbolDbError, SymbolKind,
+    SymbolPathEntry, TypeEntry, TypeKind,
 };
 pub use serialize::{
     deserialize_ability_set, deserialize_type, serialize_ability_set, serialize_type,

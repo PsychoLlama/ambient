@@ -735,6 +735,69 @@ pub struct CleanupStats {
     pub hashes_removed: usize,
 }
 
+/// Statistics from module population.
+#[derive(Debug, Default)]
+pub struct PopulateStats {
+    /// Number of symbols registered.
+    pub symbols_registered: usize,
+    /// Number of dependencies recorded.
+    pub dependencies_recorded: usize,
+}
+
+impl SymbolDb {
+    /// Populate the database from a compiled module.
+    ///
+    /// This registers all named symbols and their dependencies from the compiled module.
+    /// The `module_path` should be the fully qualified module path (e.g., "mylib.utils").
+    /// The `package_name` is the package name for constructing symbol paths.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let compiled = compile_module(&ast)?;
+    /// db.populate_from_module(&compiled, "mylib", "mylib.utils", &function_map)?;
+    /// ```
+    pub fn populate_from_module(
+        &mut self,
+        compiled: &crate::compiler::CompiledModule,
+        package_name: &str,
+        module_path: &str,
+        function_visibility: &std::collections::HashMap<std::sync::Arc<str>, bool>,
+    ) -> Result<PopulateStats, SymbolDbError> {
+        let mut stats = PopulateStats::default();
+
+        // Register each named function
+        for (name, hash) in &compiled.function_names {
+            // Only register public symbols (or all if visibility map not provided)
+            let is_public = function_visibility.get(name).copied().unwrap_or(true);
+
+            if !is_public {
+                continue;
+            }
+
+            // Build the full symbol path: package.module.name
+            let symbol_path = if module_path.is_empty() {
+                format!("{package_name}.{name}")
+            } else {
+                format!("{package_name}.{module_path}.{name}")
+            };
+
+            self.register_symbol(&symbol_path, SymbolKind::Function, module_path, *hash)?;
+            stats.symbols_registered += 1;
+
+            // Record dependencies for this function
+            if let Some(func) = compiled.functions.get(hash) {
+                for dep_hash in &func.dependencies {
+                    self.add_dependency(*hash, *dep_hash, DependencyKind::Call)?;
+                    stats.dependencies_recorded += 1;
+                }
+            }
+        }
+
+        Ok(stats)
+    }
+}
+
 /// Convert bytes to a blake3 hash.
 fn hash_from_bytes(bytes: &[u8]) -> Option<blake3::Hash> {
     if bytes.len() == 32 {
