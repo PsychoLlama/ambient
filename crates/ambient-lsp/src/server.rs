@@ -1,6 +1,7 @@
 //! LSP server implementation for the Ambient language.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types::notification::Progress;
@@ -9,7 +10,7 @@ use lsp_types::notification::{
     PublishDiagnostics,
 };
 use lsp_types::request::{
-    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, Request as _,
+    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, References, Request as _,
     SemanticTokensFullRequest, WorkspaceSymbolRequest,
 };
 use lsp_types::{
@@ -19,11 +20,11 @@ use lsp_types::{
     GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
     InitializeParams, InitializeResult, Location, MarkedString, MarkupContent, MarkupKind,
     NumberOrString, OneOf, ProgressParams, ProgressParamsValue, PublishDiagnosticsParams,
-    SemanticTokens, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
-    SymbolKind as LspSymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
-    WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd, WorkDoneProgressReport,
-    WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    ReferenceParams, SemanticTokens, SemanticTokensFullOptions, SemanticTokensOptions,
+    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
+    ServerCapabilities, SymbolInformation, SymbolKind as LspSymbolKind, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Uri, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
+    WorkDoneProgressReport, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use serde_json::Value;
 
@@ -78,6 +79,7 @@ pub fn run_server_with_connection(connection: Connection) -> anyhow::Result<()> 
         text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         definition_provider: Some(OneOf::Left(true)),
+        references_provider: Some(OneOf::Left(true)),
         completion_provider: Some(CompletionOptions {
             trigger_characters: Some(vec![".".to_string()]),
             resolve_provider: Some(false),
@@ -235,6 +237,20 @@ fn handle_request(
                 Err(e) => return e,
             };
             handle_semantic_tokens(id, &params, documents, analysis_cache)
+        }
+        References::METHOD => {
+            let params = match parse_params(&req.params, &id) {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
+            handle_references(
+                id,
+                &params,
+                documents,
+                analysis_cache,
+                workspace_index,
+                symbol_db,
+            )
         }
         _ => Response::new_err(id, -32601, format!("Unknown method: {}", req.method)),
     }
@@ -609,6 +625,191 @@ fn handle_goto_definition(
 
     let response = GotoDefinitionResponse::Scalar(location);
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
+}
+
+/// Handle find references request.
+fn handle_references(
+    id: RequestId,
+    params: &ReferenceParams,
+    documents: &DocumentStore,
+    analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
+    workspace_index: &WorkspaceIndex,
+    symbol_db: Option<&SymbolDb>,
+) -> Response {
+    // Helper for returning empty references list
+    let empty_response = || Response::new_ok(id.clone(), Value::Array(vec![]));
+
+    let uri = &params.text_document_position.text_document.uri;
+    let position = params.text_document_position.position;
+
+    let Some(doc) = documents.get(uri) else {
+        return empty_response();
+    };
+
+    let uri_str = uri.as_str();
+    let Some(analysis) = analysis_cache.get(uri_str) else {
+        return empty_response();
+    };
+
+    let Some(module) = &analysis.module else {
+        return empty_response();
+    };
+
+    let offset = doc.position_to_offset(position.line, position.character);
+
+    // Find the expression at the cursor position
+    #[allow(clippy::cast_possible_truncation)]
+    let Some(expr) = find_expr_at_offset(module, offset as u32) else {
+        return empty_response();
+    };
+
+    // Extract the symbol name from the expression
+    let symbol_name = match &expr.kind {
+        ambient_engine::ast::ExprKind::Name(qname) => qname.name.clone(),
+        ambient_engine::ast::ExprKind::Call(callee, _) => {
+            if let ambient_engine::ast::ExprKind::Name(qname) = &callee.kind {
+                qname.name.clone()
+            } else {
+                return empty_response();
+            }
+        }
+        _ => {
+            return empty_response();
+        }
+    };
+
+    // Find the target symbol's definition to get its module path
+    let target_info = workspace_index
+        .resolve_name(uri, &[], &symbol_name)
+        .or_else(|| {
+            // Try to find in the current module's exports
+            let current_module = workspace_index.get_module(uri)?;
+            let export = current_module
+                .exports
+                .iter()
+                .find(|e| e.name.as_ref() == symbol_name.as_ref())?;
+            Some((current_module, export))
+        });
+
+    let Some((target_module, _target_export)) = target_info else {
+        return empty_response();
+    };
+
+    // Get the symbol's hash from the database
+    let Some(db) = symbol_db else {
+        return empty_response();
+    };
+
+    // Search for the symbol in the database by name
+    let target_module_path = target_module.module_path.join(".");
+    let Ok(symbols) = db.search_symbols(&symbol_name) else {
+        return empty_response();
+    };
+
+    // Find the matching symbol by module path
+    let target_entry = symbols.iter().find(|entry| {
+        // The symbol path is package.module.name, module_path is just module
+        // Match if the module_path in the database matches our target
+        entry.module_path == target_module_path
+            || (entry.module_path.is_empty() && target_module_path.is_empty())
+    });
+
+    let Some(target_entry) = target_entry else {
+        return empty_response();
+    };
+
+    // Query all dependents (functions that call this one)
+    let Ok(dependent_hashes) = db.get_dependents(target_entry.hash) else {
+        return empty_response();
+    };
+
+    // Resolve each dependent to a location
+    let mut locations = Vec::new();
+
+    // Optionally include the definition itself
+    if params.context.include_declaration {
+        if let Some(loc) =
+            resolve_symbol_to_location(&target_entry.path, workspace_index, documents)
+        {
+            locations.push(loc);
+        }
+    }
+
+    // Add all reference locations
+    for dep_hash in dependent_hashes {
+        let Ok(dep_paths) = db.get_symbol_paths(dep_hash) else {
+            continue;
+        };
+        for path in dep_paths {
+            if let Some(loc) = resolve_symbol_to_location(&path, workspace_index, documents) {
+                locations.push(loc);
+            }
+        }
+    }
+
+    Response::new_ok(id, serde_json::to_value(locations).unwrap_or(Value::Null))
+}
+
+/// Resolve a symbol path (e.g., "pkg.module.name") to an LSP Location.
+fn resolve_symbol_to_location(
+    symbol_path: &str,
+    workspace_index: &WorkspaceIndex,
+    documents: &DocumentStore,
+) -> Option<Location> {
+    // Parse symbol path: "package.module.name" -> extract name and module parts
+    let parts: Vec<&str> = symbol_path.split('.').collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    let name = parts.last()?;
+
+    // Module path is everything between package and name
+    // Symbol path format: package.module1.module2.name
+    // We need to find by module path (module1.module2) and name
+    let module_path: Vec<Arc<str>> = if parts.len() > 2 {
+        parts[1..parts.len() - 1]
+            .iter()
+            .map(|s| Arc::from(*s))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Find the module in the workspace index
+    let module_info = workspace_index.find_module(&module_path)?;
+
+    // Find the symbol in the module's exports
+    let export = module_info
+        .exports
+        .iter()
+        .find(|e| e.name.as_ref() == *name)?;
+
+    // Convert offset to LSP range
+    let range = if let Some(doc) = documents.get(&module_info.uri) {
+        offset_range_to_lsp_range(doc, export.offset as usize, export.end_offset as usize)
+    } else {
+        // Try to read the file
+        if let Some(file_path) = uri_to_path(&module_info.uri) {
+            if let Ok(content) = std::fs::read_to_string(&file_path) {
+                let temp_doc = crate::documents::Document::new(module_info.uri.clone(), 0, content);
+                offset_range_to_lsp_range(
+                    &temp_doc,
+                    export.offset as usize,
+                    export.end_offset as usize,
+                )
+            } else {
+                lsp_types::Range::default()
+            }
+        } else {
+            lsp_types::Range::default()
+        }
+    };
+
+    Some(Location {
+        uri: module_info.uri.clone(),
+        range,
+    })
 }
 
 /// Handle completion request.
