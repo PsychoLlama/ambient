@@ -733,11 +733,20 @@ fn handle_workspace_symbol(
 
 /// Populate the symbol database from all modules in a package.
 ///
-/// Currently a no-op - symbol database population happens during compilation.
-/// The LSP uses `WorkspaceIndex` for cross-file navigation.
+/// Currently a no-op. The LSP uses `WorkspaceIndex` for cross-file navigation
+/// (go-to-definition, workspace symbols) which operates on parsed ASTs.
+///
+/// The `SymbolDb` is designed for hash-based lookups after compilation:
+/// - `SymbolDb::populate_from_module()` registers compiled functions and their dependencies
+/// - This enables find-references by tracking which functions call which
+///
+/// Integration options:
+/// 1. Background compilation task in LSP (expensive but enables find-references)
+/// 2. CLI compile command populates the database
+/// 3. Incremental population as files are saved and compiled
 fn populate_symbol_db_from_package(_db: &mut SymbolDb, _pkg: &PackageInfo) {
-    // TODO: Symbol database population will be integrated with compilation.
-    // For now, the LSP uses WorkspaceIndex for cross-file features.
+    // WorkspaceIndex handles cross-file navigation for the LSP.
+    // SymbolDb population requires compilation, which is done by the CLI.
 }
 
 /// Look up type information from `SymbolDb` for a qualified name.
