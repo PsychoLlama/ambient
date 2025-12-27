@@ -1,7 +1,6 @@
 //! LSP server implementation for the Ambient language.
 
 use std::collections::HashMap;
-use std::str::FromStr;
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types::notification::{
@@ -26,10 +25,7 @@ use lsp_types::{
 use serde_json::Value;
 
 use ambient_engine::ast::{ItemKind, Module};
-use ambient_engine::symbol_db::{
-    compute_export_hash, compute_source_hash, extract_dependencies, extract_symbols, ModuleInfo,
-    SymbolDb,
-};
+use ambient_engine::symbol_db::SymbolDb;
 
 use crate::analysis::{
     analyze_with_registry, find_definition_cross_file, find_expr_at_offset, find_item_at_offset,
@@ -501,23 +497,14 @@ fn format_expr_hover(expr: &ambient_engine::ast::Expr, symbol_db: Option<&Symbol
             format!("```ambient\nlocal_{local_id}: {type_info}\n```")
         }
         ambient_engine::ast::ExprKind::Name(qname) => {
-            // Try to look up type and documentation from SymbolDb for qualified names
-            let db_info = lookup_qname_info(qname, symbol_db);
-
-            // Use SymbolDb type if available, otherwise fall back to expression type
-            let type_info = db_info
+            // Try to look up type from SymbolDb, otherwise fall back to expression type
+            let type_info = lookup_qname_type(qname, symbol_db)
                 .as_ref()
-                .map(|info| format_type(&info.type_signature))
+                .map(format_type)
                 .or_else(|| expr.ty.as_ref().map(format_type))
                 .unwrap_or_else(|| "unknown".to_string());
 
-            let doc = db_info.and_then(|info| info.doc);
-
-            if let Some(doc) = doc {
-                format!("```ambient\n{}: {type_info}\n```\n\n{doc}", qname.name)
-            } else {
-                format!("```ambient\n{}: {type_info}\n```", qname.name)
-            }
+            format!("```ambient\n{}: {type_info}\n```", qname.name)
         }
         ambient_engine::ast::ExprKind::Bool(b) => {
             let type_info = expr.ty.as_ref().map_or("bool".to_string(), format_type);
@@ -689,30 +676,11 @@ fn handle_workspace_symbol(
     let query = params.query.to_lowercase();
     let mut symbols: Vec<SymbolInformation> = Vec::new();
 
-    // Try to use SymbolDb for searching if available
-    if let Some(db) = symbol_db {
-        if let Ok(db_symbols) = db.search_workspace_symbols(&query) {
-            for ws in db_symbols {
-                let range = compute_range_for_symbol(&ws.file_path, ws.span, documents);
-                let uri = file_path_to_uri(&ws.file_path);
+    // Symbol database search is not used - it doesn't store span information.
+    // Use workspace index instead which has all the info we need.
+    let _ = symbol_db;
 
-                #[allow(deprecated)]
-                symbols.push(SymbolInformation {
-                    name: ws.name,
-                    kind: db_kind_to_lsp(&ws.kind),
-                    tags: None,
-                    deprecated: None,
-                    location: Location { uri, range },
-                    container_name: Some(ws.module_path),
-                });
-            }
-
-            let response = WorkspaceSymbolResponse::Flat(symbols);
-            return Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null));
-        }
-    }
-
-    // Fall back to workspace index
+    // Use workspace index for symbol search
     for module_info in workspace_index.all_modules() {
         // Get the document for range calculation
         let doc = documents.get(&module_info.uri);
@@ -763,204 +731,26 @@ fn handle_workspace_symbol(
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
 }
 
-/// Compute a range for a symbol given its file path and span.
-fn compute_range_for_symbol(
-    file_path: &str,
-    span: ambient_engine::ast::Span,
-    documents: &DocumentStore,
-) -> lsp_types::Range {
-    // Try to find the document in the store first
-    let path = std::path::Path::new(file_path);
-    if let Some(uri) = crate::util::path_to_uri(path) {
-        if let Some(doc) = documents.get(&uri) {
-            return offset_range_to_lsp_range(doc, span.start as usize, span.end as usize);
-        }
-    }
-
-    // Try to read the file
-    if let Ok(content) = std::fs::read_to_string(file_path) {
-        let uri = file_path_to_uri(file_path);
-        let temp_doc = crate::documents::Document::new(uri, 0, content);
-        return offset_range_to_lsp_range(&temp_doc, span.start as usize, span.end as usize);
-    }
-
-    lsp_types::Range::default()
-}
-
-/// Convert a file path string to a URI.
-fn file_path_to_uri(file_path: &str) -> Uri {
-    // Try using our utility function first
-    let path = std::path::Path::new(file_path);
-    crate::util::path_to_uri(path).unwrap_or_else(|| {
-        // Fallback: parse directly
-        Uri::from_str(&format!("file://{file_path}"))
-            .unwrap_or_else(|_| Uri::from_str("file:///unknown").expect("valid fallback URI"))
-    })
-}
-
 /// Populate the symbol database from all modules in a package.
 ///
-/// This type-checks each module and stores symbols in the database,
-/// enabling workspace-wide symbol search without opening each file.
+/// Currently a no-op - symbol database population happens during compilation.
+/// The LSP uses `WorkspaceIndex` for cross-file navigation.
+fn populate_symbol_db_from_package(_db: &mut SymbolDb, _pkg: &PackageInfo) {
+    // TODO: Symbol database population will be integrated with compilation.
+    // For now, the LSP uses WorkspaceIndex for cross-file features.
+}
+
+/// Look up type information from `SymbolDb` for a qualified name.
 ///
-/// Uses smart caching:
-/// - Skips modules whose source hash hasn't changed
-/// - Cascades invalidation to dependents when exports change
-fn populate_symbol_db_from_package(db: &mut SymbolDb, pkg: &PackageInfo) {
-    let registry = pkg.build_registry();
-
-    // Track modules whose exports changed (need to invalidate dependents)
-    let mut changed_exports: Vec<String> = Vec::new();
-
-    // First pass: analyze modules that have changed
-    for parsed_module in pkg.modules.values() {
-        let module_path_str = parsed_module.path.to_string();
-        let source_hash = compute_source_hash(&parsed_module.source);
-
-        // Skip if source hasn't changed
-        if db
-            .is_module_up_to_date(&module_path_str, source_hash)
-            .unwrap_or(false)
-        {
-            continue;
-        }
-
-        // Type check and update database
-        if let Some(export_changed) =
-            analyze_and_store_module(db, parsed_module, &registry, &pkg.src_dir)
-        {
-            if export_changed {
-                changed_exports.push(module_path_str);
-            }
-        }
-    }
-
-    // Cascade invalidation: re-analyze dependents of changed modules
-    let mut processed: std::collections::HashSet<String> = std::collections::HashSet::new();
-    while !changed_exports.is_empty() {
-        let mut next_changed: Vec<String> = Vec::new();
-
-        for module_path in &changed_exports {
-            // Find all modules that depend on this one
-            if let Ok(dependents) = db.get_dependents(module_path) {
-                for dep_path in dependents {
-                    // Skip if already processed in this cascade
-                    if processed.contains(&dep_path) {
-                        continue;
-                    }
-                    processed.insert(dep_path.clone());
-
-                    // Find and re-analyze the dependent module
-                    if let Some(parsed_module) = pkg.modules.get(&dep_path) {
-                        if let Some(export_changed) =
-                            analyze_and_store_module(db, parsed_module, &registry, &pkg.src_dir)
-                        {
-                            if export_changed {
-                                next_changed.push(dep_path);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        changed_exports = next_changed;
-    }
-}
-
-/// Analyze a single module and store it in the database.
-///
-/// Returns `Some(true)` if export hash changed, `Some(false)` if not,
-/// or `None` if type checking failed.
-fn analyze_and_store_module(
-    db: &mut SymbolDb,
-    parsed_module: &crate::package::ParsedModule,
-    registry: &ambient_engine::module_registry::ModuleRegistry,
-    src_dir: &std::path::Path,
-) -> Option<bool> {
-    let module_path = &parsed_module.path;
-
-    // Type check the module
-    let result = analyze_with_registry(&parsed_module.source, Some(module_path), Some(registry));
-
-    // If type checking succeeded, populate the database
-    let module = result.module.as_ref()?;
-    let module_path_str = module_path.to_string();
-    let file_path = src_dir.join(module_path.to_file_path());
-    let file_path_str = file_path.display().to_string();
-
-    // Compute hashes
-    let source_hash = compute_source_hash(&parsed_module.source);
-    let export_hash = compute_export_hash(module, &module_path_str);
-
-    // Extract symbols and dependencies
-    let symbols = extract_symbols(module, &module_path_str);
-    let dependencies = extract_dependencies(module);
-
-    // Build module info and upsert
-    let info = ModuleInfo {
-        path: module_path_str,
-        file_path: file_path_str,
-        source_hash,
-        export_hash,
-        doc: module.doc.as_ref().map(ToString::to_string),
-        symbols,
-        dependencies,
-    };
-
-    db.upsert_module(&info).ok()
-}
-
-/// Symbol information from `SymbolDb` for hover.
-struct SymbolHoverInfo {
-    type_signature: ambient_engine::types::Type,
-    doc: Option<String>,
-}
-
-/// Look up symbol information from `SymbolDb` for a qualified name.
-///
-/// Returns type signature and documentation for cross-file symbol lookups.
-fn lookup_qname_info(
-    qname: &ambient_engine::ast::QualifiedName,
-    symbol_db: Option<&SymbolDb>,
-) -> Option<SymbolHoverInfo> {
-    if qname.path.is_empty() {
-        return None;
-    }
-
-    let db = symbol_db?;
-
-    // Build qualified name: path.name
-    let qualified_name = format!(
-        "{}.{}",
-        qname
-            .path
-            .iter()
-            .map(AsRef::as_ref)
-            .collect::<Vec<_>>()
-            .join("."),
-        qname.name
-    );
-
-    db.lookup_symbol(&qualified_name)
-        .ok()
-        .flatten()
-        .map(|record| SymbolHoverInfo {
-            type_signature: record.type_signature,
-            doc: record.doc,
-        })
-}
-
-/// Convert a database kind string to LSP `SymbolKind`.
-fn db_kind_to_lsp(kind: &str) -> LspSymbolKind {
-    match kind {
-        "function" => LspSymbolKind::FUNCTION,
-        "const" => LspSymbolKind::CONSTANT,
-        "type_alias" => LspSymbolKind::TYPE_PARAMETER,
-        "enum" => LspSymbolKind::ENUM,
-        "ability" => LspSymbolKind::INTERFACE,
-        _ => LspSymbolKind::VARIABLE,
-    }
+/// Currently returns None - type information comes from the typed AST instead.
+/// TODO: Integrate with new symbol database API for cross-file type lookups.
+fn lookup_qname_type(
+    _qname: &ambient_engine::ast::QualifiedName,
+    _symbol_db: Option<&SymbolDb>,
+) -> Option<ambient_engine::types::Type> {
+    // TODO: Implement using new symbol database API.
+    // For now, hover uses the expression type from the typed AST.
+    None
 }
 
 /// Handle semantic tokens request.
@@ -1377,78 +1167,16 @@ fn publish_diagnostics(
 }
 
 /// Update the symbol database with a typed module and cascade to dependents.
+///
+/// Currently a no-op - symbol database updates will be integrated with compilation.
 fn update_symbol_db(
-    db: &mut SymbolDb,
-    module_path: &str,
-    uri: &Uri,
-    source: &str,
-    module: &Module,
-    pkg: &PackageInfo,
+    _db: &mut SymbolDb,
+    _module_path: &str,
+    _uri: &Uri,
+    _source: &str,
+    _module: &Module,
+    _pkg: &PackageInfo,
 ) {
-    // Get the file path relative to src/
-    let file_path = uri_to_path(uri)
-        .map(|p| p.display().to_string())
-        .unwrap_or_default();
-
-    // Compute hashes
-    let source_hash = compute_source_hash(source);
-    let export_hash = compute_export_hash(module, module_path);
-
-    // Extract symbols and dependencies
-    let symbols = extract_symbols(module, module_path);
-    let dependencies = extract_dependencies(module);
-
-    // Build module info and upsert
-    let info = ModuleInfo {
-        path: module_path.to_string(),
-        file_path,
-        source_hash,
-        export_hash,
-        doc: module.doc.as_ref().map(ToString::to_string),
-        symbols,
-        dependencies,
-    };
-
-    // Upsert and check if exports changed
-    let export_changed = db.upsert_module(&info).unwrap_or(false);
-
-    // If exports changed, cascade invalidation to dependents
-    if export_changed {
-        cascade_invalidation(db, module_path, pkg);
-    }
-}
-
-/// Cascade invalidation to all modules that depend on the changed module.
-fn cascade_invalidation(db: &mut SymbolDb, changed_module: &str, pkg: &PackageInfo) {
-    let registry = pkg.build_registry();
-    let mut changed_exports = vec![changed_module.to_string()];
-    let mut processed: std::collections::HashSet<String> = std::collections::HashSet::new();
-    processed.insert(changed_module.to_string());
-
-    while !changed_exports.is_empty() {
-        let mut next_changed: Vec<String> = Vec::new();
-
-        for module_path in &changed_exports {
-            if let Ok(dependents) = db.get_dependents(module_path) {
-                for dep_path in dependents {
-                    if processed.contains(&dep_path) {
-                        continue;
-                    }
-                    processed.insert(dep_path.clone());
-
-                    if let Some(parsed_module) = pkg.modules.get(&dep_path) {
-                        if let Some(export_changed) =
-                            analyze_and_store_module(db, parsed_module, &registry, &pkg.src_dir)
-                        {
-                            if export_changed {
-                                next_changed.push(dep_path);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        changed_exports = next_changed;
-    }
+    // TODO: Symbol database updates will be integrated with compilation.
+    // For now, the LSP uses WorkspaceIndex for cross-file features.
 }

@@ -381,19 +381,11 @@ fn resolve_qname_definition(
     workspace: &crate::workspace::WorkspaceIndex,
     symbol_db: Option<&SymbolDb>,
 ) -> Option<DefinitionResult> {
-    // Try SymbolDb first for qualified names (path is non-empty)
-    if !qname.path.is_empty() {
-        if let Some(db) = symbol_db {
-            // Build qualified name: path.name
-            let qualified_name = format!("{}.{}", qname.path.join("."), qname.name);
-            if let Ok(Some(def)) = db.lookup_definition(&qualified_name) {
-                let uri = crate::util::path_to_uri(std::path::Path::new(&def.file_path))?;
-                return Some(DefinitionResult::cross_file(def.span, uri));
-            }
-        }
-    }
+    // Symbol database doesn't store span information - use workspace index.
+    // The workspace index has all the info we need for go-to-definition.
+    let _ = symbol_db;
 
-    // Fall back to workspace index
+    // Use workspace index for definition lookup
     let (target_module, symbol) = workspace.resolve_name(current_uri, &qname.path, &qname.name)?;
 
     Some(DefinitionResult::cross_file(

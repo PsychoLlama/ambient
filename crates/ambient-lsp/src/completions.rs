@@ -10,7 +10,7 @@
 
 use ambient_engine::ast::{Expr, ExprKind, FunctionDef, ItemKind, Module, Param, StmtKind};
 use ambient_engine::core_library::CoreLibrary;
-use ambient_engine::symbol_db::SymbolDb;
+use ambient_engine::symbol_db::{SymbolDb, SymbolKind};
 use ambient_parser::TokenKind;
 use lsp_types::{CompletionItem, CompletionItemKind, CompletionItemLabelDetails, InsertTextFormat};
 
@@ -334,31 +334,32 @@ fn get_pkg_module_completions(
 
     symbols
         .into_iter()
-        .filter(|s| s.is_public && s.name.starts_with(prefix))
-        .map(|s| {
-            let item_kind = match s.kind.as_str() {
-                "function" => CompletionItemKind::FUNCTION,
-                "const" => CompletionItemKind::CONSTANT,
-                "type_alias" => CompletionItemKind::TYPE_PARAMETER,
-                "enum" => CompletionItemKind::ENUM,
-                "ability" => CompletionItemKind::INTERFACE,
-                _ => CompletionItemKind::VARIABLE,
+        .filter_map(|entry| {
+            // Extract symbol name from path (last segment after the last dot)
+            let name = entry.path.rsplit('.').next()?;
+            if !name.starts_with(prefix) {
+                return None;
+            }
+
+            let item_kind = match entry.kind {
+                SymbolKind::Function => CompletionItemKind::FUNCTION,
+                SymbolKind::Const => CompletionItemKind::CONSTANT,
+                SymbolKind::Enum => CompletionItemKind::ENUM,
+                SymbolKind::Ability => CompletionItemKind::INTERFACE,
             };
 
-            let type_str = format_type(&s.type_signature);
-            let detail = format!("{}.{}: {}", module_path, s.name, type_str);
+            let detail = format!("{module_path}.{name}");
 
-            CompletionItem {
-                label: s.name.clone(),
+            Some(CompletionItem {
+                label: name.to_string(),
                 kind: Some(item_kind),
                 detail: Some(detail),
-                documentation: s.doc.map(lsp_types::Documentation::String),
                 label_details: Some(CompletionItemLabelDetails {
-                    detail: Some(format!(": {type_str}")),
+                    detail: None,
                     description: Some(module_path.to_string()),
                 }),
                 ..Default::default()
-            }
+            })
         })
         .collect()
 }
