@@ -62,6 +62,15 @@ const HANDLER_PARAM_CONTINUATION: &str = "__continuation";
 /// Name for the implicit suspended ability parameter in handler functions (slot 1).
 const HANDLER_PARAM_SUSPENDED_ABILITY: &str = "__suspended_ability";
 
+/// A compiled function entry with metadata for hash finalization.
+///
+/// Fields: (name, function, `is_main`, `lambda_parent`)
+/// - `name`: Function name or synthetic lambda key
+/// - `function`: The compiled function
+/// - `is_main`: Whether this is the module entry point
+/// - `lambda_parent`: If Some, this is a lambda and contains the parent function name
+type FunctionEntry = (Arc<str>, CompiledFunction, bool, Option<Arc<str>>);
+
 /// Helper to convert `Arc<str>` to `Value::String` (which uses `Arc<String>`).
 fn str_to_value(s: &Arc<str>) -> Value {
     Value::String(Arc::new(s.to_string()))
@@ -99,7 +108,13 @@ pub struct CompiledModule {
     pub functions: HashMap<blake3::Hash, CompiledFunction>,
 
     /// Map from function names to their hashes.
+    /// Does NOT include lambdas - they have no names.
     pub function_names: HashMap<Arc<str>, blake3::Hash>,
+
+    /// Map from lambda hashes to their parent function names.
+    /// Used for navigation: to find a lambda's source location,
+    /// compile the parent and match by hash.
+    pub lambda_parents: HashMap<blake3::Hash, Arc<str>>,
 
     /// The entry point function (typically "run").
     pub entry_point: Option<blake3::Hash>,
@@ -112,6 +127,7 @@ impl CompiledModule {
         Self {
             functions: HashMap::new(),
             function_names: HashMap::new(),
+            lambda_parents: HashMap::new(),
             entry_point: None,
         }
     }
@@ -142,6 +158,11 @@ impl CompiledModule {
         }
         for (name, hash) in &other.function_names {
             self.function_names.entry(Arc::clone(name)).or_insert(*hash);
+        }
+        for (hash, parent) in &other.lambda_parents {
+            self.lambda_parents
+                .entry(*hash)
+                .or_insert_with(|| Arc::clone(parent));
         }
         // Don't overwrite entry point if we already have one
         if self.entry_point.is_none() {
@@ -364,10 +385,13 @@ impl FunctionCompiler {
 /// Context for module compilation that accumulates lambda functions.
 struct ModuleContext {
     /// Lambda functions discovered during compilation.
-    /// Maps temporary hash to compiled function.
-    lambdas: Vec<(blake3::Hash, CompiledFunction)>,
-    /// Counter for generating unique lambda names.
+    /// Maps (temporary hash, parent function name) to compiled function.
+    lambdas: Vec<(blake3::Hash, Arc<str>, CompiledFunction)>,
+    /// Counter for generating unique lambda temporary hashes.
     lambda_counter: u32,
+    /// Name of the function currently being compiled.
+    /// Used to track lambda parent relationships.
+    current_function: Option<Arc<str>>,
 }
 
 impl ModuleContext {
@@ -375,7 +399,13 @@ impl ModuleContext {
         Self {
             lambdas: Vec::new(),
             lambda_counter: 0,
+            current_function: None,
         }
+    }
+
+    /// Set the current function being compiled.
+    fn set_current_function(&mut self, name: Arc<str>) {
+        self.current_function = Some(name);
     }
 
     /// Generate a unique temporary hash for a lambda.
@@ -388,9 +418,14 @@ impl ModuleContext {
     }
 
     /// Register a compiled lambda and return its temporary hash.
+    /// The lambda is associated with the current function being compiled.
     fn register_lambda(&mut self, function: CompiledFunction) -> blake3::Hash {
         let hash = self.next_lambda_hash();
-        self.lambdas.push((hash, function));
+        let parent = self
+            .current_function
+            .clone()
+            .unwrap_or_else(|| Arc::from("__unknown__"));
+        self.lambdas.push((hash, parent, function));
         hash
     }
 }
@@ -517,6 +552,8 @@ fn compile_module_impl(
     // Phase 2: Compile each function using temporary hashes.
     let mut compiled_functions: Vec<(Arc<str>, CompiledFunction, bool)> = Vec::new();
     for func in &functions {
+        // Track current function for lambda parent relationships.
+        ctx.set_current_function(Arc::clone(&func.name));
         let compiled =
             compile_function_with_hash(func, &temp_hashes, &mut ctx, source, source_file)?;
         let is_main = &*func.name == "run";
@@ -526,21 +563,25 @@ fn compile_module_impl(
     // Compile constants.
     for item in &module.items {
         if let ItemKind::Const(const_def) = &item.kind {
+            // Track current function for lambda parent relationships.
+            ctx.set_current_function(Arc::clone(&const_def.name));
             let compiled = compile_const(const_def, &temp_hashes, &mut ctx, source, source_file)?;
             compiled_functions.push((Arc::clone(&const_def.name), compiled, false));
         }
     }
 
-    // Add lambda functions discovered during compilation.
-    // Generate synthetic names for them in temp_hashes.
-    for (lambda_hash, compiled_func) in ctx.lambdas {
-        let lambda_name: Arc<str> = format!("__lambda_{lambda_hash}").into();
-        temp_hashes.insert(Arc::clone(&lambda_name), lambda_hash);
-        compiled_functions.push((lambda_name, compiled_func, false));
+    // Collect lambda info: (temp_hash, parent_name, compiled_func)
+    // We need temp hashes for the call graph, but lambdas go to lambda_parents not function_names.
+    let lambdas: Vec<(blake3::Hash, Arc<str>, CompiledFunction)> = ctx.lambdas;
+    for (lambda_hash, _parent, _func) in &lambdas {
+        // Add to temp_hashes so call graph analysis works.
+        // Use hash as "name" for the temp mapping.
+        let lambda_key: Arc<str> = format!("__lambda_{lambda_hash}").into();
+        temp_hashes.insert(lambda_key, *lambda_hash);
     }
 
     // Phase 3: Compute content-addressed hashes and finalize the module.
-    finalize_module_hashes(compiled_functions, &temp_hashes)
+    finalize_module_hashes(compiled_functions, lambdas, &temp_hashes)
 }
 
 /// Finalize content-addressed hashes for all compiled functions.
@@ -548,9 +589,11 @@ fn compile_module_impl(
 /// This handles:
 /// 1. Non-recursive functions: compute hash from bytecode content
 /// 2. Recursive functions (SCCs): compute group hash for mutual recursion
+/// 3. Lambdas: added to functions and `lambda_parents` (not `function_names`)
 #[allow(clippy::too_many_lines)]
 fn finalize_module_hashes(
     compiled_functions: Vec<(Arc<str>, CompiledFunction, bool)>,
+    lambdas: Vec<(blake3::Hash, Arc<str>, CompiledFunction)>,
     temp_hashes: &HashMap<Arc<str>, blake3::Hash>,
 ) -> Result<CompiledModule, CompileError> {
     // Build reverse mapping: temp_hash -> name
@@ -559,10 +602,21 @@ fn finalize_module_hashes(
         .map(|(name, hash)| (*hash, Arc::clone(name)))
         .collect();
 
+    // Combine named functions and lambdas for call graph analysis.
+    // Lambdas use synthetic names like "__lambda_{hash}" for the call graph.
+    let mut all_functions: Vec<FunctionEntry> = Vec::new();
+    for (name, func, is_main) in compiled_functions {
+        all_functions.push((name, func, is_main, None)); // None = not a lambda
+    }
+    for (temp_hash, parent_name, func) in lambdas {
+        let lambda_key: Arc<str> = format!("__lambda_{temp_hash}").into();
+        all_functions.push((lambda_key, func, false, Some(parent_name))); // Some = lambda with parent
+    }
+
     // Build call graph: for each function, which other functions does it call?
     // We detect this by looking at FunctionRef values in the constant pool.
     let mut call_graph: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::new();
-    for (name, func, _) in &compiled_functions {
+    for (name, func, _, _) in &all_functions {
         let mut calls = Vec::new();
         for constant in &func.constants {
             if let Value::FunctionRef(hash) = constant {
@@ -582,8 +636,8 @@ fn finalize_module_hashes(
 
     // Pre-populate with imported function hashes.
     // Imported functions are already content-addressed, so we can use them directly.
-    // They're in temp_hashes but not in compiled_functions.
-    let local_names: HashSet<&Arc<str>> = compiled_functions.iter().map(|(n, _, _)| n).collect();
+    // They're in temp_hashes but not in all_functions.
+    let local_names: HashSet<&Arc<str>> = all_functions.iter().map(|(n, _, _, _)| n).collect();
     for (name, hash) in temp_hashes {
         if !local_names.contains(name) {
             // This is an imported function - use its hash directly
@@ -601,14 +655,14 @@ fn finalize_module_hashes(
                 continue;
             }
 
-            let func = compiled_functions
+            let func = all_functions
                 .iter()
-                .find(|(n, _, _)| n == name)
-                .map(|(_, f, _)| f)
+                .find(|(n, _, _, _)| n == name)
+                .map(|(_, f, _, _)| f)
                 .ok_or_else(|| {
                     CompileError::new(
                         CompileErrorKind::Internal {
-                            message: "function should exist in compiled_functions",
+                            message: "function should exist in all_functions",
                         },
                         (0, 0),
                     )
@@ -621,12 +675,8 @@ fn finalize_module_hashes(
 
             if is_self_recursive {
                 // Self-recursive: compute hash excluding self-reference
-                let hash = compute_scc_hash(
-                    &scc.members,
-                    &compiled_functions,
-                    &final_hashes,
-                    temp_hashes,
-                );
+                let hash =
+                    compute_scc_hash(&scc.members, &all_functions, &final_hashes, temp_hashes);
                 final_hashes.insert(Arc::clone(name), hash);
             } else {
                 // Non-recursive: compute hash with resolved dependencies
@@ -648,12 +698,8 @@ fn finalize_module_hashes(
             }
 
             // Compute a group hash for the entire SCC
-            let scc_hash = compute_scc_hash(
-                &scc.members,
-                &compiled_functions,
-                &final_hashes,
-                temp_hashes,
-            );
+            let scc_hash =
+                compute_scc_hash(&scc.members, &all_functions, &final_hashes, temp_hashes);
 
             // Each local function in the SCC gets a derived hash
             for (idx, name) in local_members.iter().enumerate() {
@@ -669,7 +715,7 @@ fn finalize_module_hashes(
     // Phase 4: Update all functions with final hashes
     let mut result = CompiledModule::new();
 
-    for (name, mut func, is_main) in compiled_functions {
+    for (name, mut func, is_main, lambda_parent) in all_functions {
         // Update FunctionRef values in constant pool
         for constant in &mut func.constants {
             if let Value::FunctionRef(ref mut hash) = constant {
@@ -688,7 +734,7 @@ fn finalize_module_hashes(
             .filter_map(|dep| {
                 temp_to_name
                     .get(dep)
-                    .and_then(|name| final_hashes.get(name))
+                    .and_then(|dep_name| final_hashes.get(dep_name))
                     .copied()
             })
             .collect();
@@ -706,11 +752,19 @@ fn finalize_module_hashes(
         // Update the function's hash field
         func.hash = final_hash;
 
+        // Add to functions map (both named functions and lambdas)
         result.functions.insert(final_hash, func);
-        result.function_names.insert(name, final_hash);
 
-        if is_main {
-            result.entry_point = Some(final_hash);
+        if let Some(parent_name) = lambda_parent {
+            // This is a lambda - add to lambda_parents, not function_names
+            result.lambda_parents.insert(final_hash, parent_name);
+        } else {
+            // This is a named function - add to function_names
+            result.function_names.insert(name, final_hash);
+
+            if is_main {
+                result.entry_point = Some(final_hash);
+            }
         }
     }
 
@@ -779,7 +833,7 @@ fn compute_content_hash(
 /// Compute a combined hash for a strongly connected component (recursive functions).
 fn compute_scc_hash(
     scc: &[Arc<str>],
-    compiled_functions: &[(Arc<str>, CompiledFunction, bool)],
+    all_functions: &[FunctionEntry],
     final_hashes: &HashMap<Arc<str>, blake3::Hash>,
     temp_hashes: &HashMap<Arc<str>, blake3::Hash>,
 ) -> blake3::Hash {
@@ -800,12 +854,12 @@ fn compute_scc_hash(
     sorted_scc.sort();
 
     for name in &sorted_scc {
-        // SAFETY: All functions in the SCC must exist in compiled_functions
+        // SAFETY: All functions in the SCC must exist in all_functions
         #[allow(clippy::expect_used)]
-        let func = compiled_functions
+        let func = all_functions
             .iter()
-            .find(|(n, _, _)| n == name)
-            .map(|(_, f, _)| f)
+            .find(|(n, _, _, _)| n == name)
+            .map(|(_, f, _, _)| f)
             .expect("function should exist");
 
         // Hash the function name (for position in SCC)

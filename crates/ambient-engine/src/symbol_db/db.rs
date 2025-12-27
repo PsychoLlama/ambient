@@ -740,6 +740,8 @@ pub struct CleanupStats {
 pub struct PopulateStats {
     /// Number of symbols registered.
     pub symbols_registered: usize,
+    /// Number of lambdas registered.
+    pub lambdas_registered: usize,
     /// Number of dependencies recorded.
     pub dependencies_recorded: usize,
 }
@@ -759,8 +761,9 @@ impl SymbolDb {
     /// ```
     /// Populate the database from a compiled module.
     ///
-    /// Registers all named symbols and their dependencies. The `function_visibility`
-    /// map is currently unused but reserved for future filtering of exported symbols.
+    /// Registers all named symbols, lambdas, and their dependencies.
+    /// The `function_visibility` map is currently unused but reserved for
+    /// future filtering of exported symbols.
     pub fn populate_from_module(
         &mut self,
         compiled: &crate::compiler::CompiledModule,
@@ -786,6 +789,27 @@ impl SymbolDb {
             if let Some(func) = compiled.functions.get(hash) {
                 for dep_hash in &func.dependencies {
                     self.add_dependency(*hash, *dep_hash, DependencyKind::Call)?;
+                    stats.dependencies_recorded += 1;
+                }
+            }
+        }
+
+        // Register lambdas with their parent functions
+        for (lambda_hash, parent_name) in &compiled.lambda_parents {
+            // Build the full parent symbol path: package.module.name
+            let parent_path = if module_path.is_empty() {
+                format!("{package_name}.{parent_name}")
+            } else {
+                format!("{package_name}.{module_path}.{parent_name}")
+            };
+
+            self.register_lambda(*lambda_hash, &parent_path)?;
+            stats.lambdas_registered += 1;
+
+            // Record dependencies for this lambda
+            if let Some(func) = compiled.functions.get(lambda_hash) {
+                for dep_hash in &func.dependencies {
+                    self.add_dependency(*lambda_hash, *dep_hash, DependencyKind::Call)?;
                     stats.dependencies_recorded += 1;
                 }
             }

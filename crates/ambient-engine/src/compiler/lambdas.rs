@@ -190,10 +190,9 @@ pub(super) fn compile_handle_expr(
         // Handler receives 2 implicit params: continuation and suspended ability.
         let param_count = 2;
         let handler_func = handler_fc.builder.build(local_count, param_count);
-        let handler_hash = handler_func.hash;
 
-        // Register the handler function.
-        ctx.lambdas.push((handler_hash, handler_func));
+        // Register the handler function (associates it with current parent function).
+        let handler_hash = ctx.register_lambda(handler_func);
 
         handler_hashes.push(handler_hash);
         handler_ability_ids.push(ability_id);
