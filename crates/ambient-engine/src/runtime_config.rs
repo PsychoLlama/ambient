@@ -67,16 +67,16 @@ impl RuntimeConfig {
 
     /// Create the native runtime configuration with all standard abilities.
     ///
-    /// Includes: Console, Time, Random, Async, Log.
+    /// Includes: Console, Time, Random, Async, Log, Network, Execute.
     ///
-    /// Note: Remote and Network abilities are not included because they require
-    /// external dependencies (runtime handle, store). Use `register_remote()`
-    /// and `register_network()` separately after creating the VM.
+    /// Note: Network and Execute abilities require external dependencies
+    /// (runtime handle, store). Use `register_network()` and `register_execute()`
+    /// separately after creating the VM to enable their handlers.
     #[must_use]
     pub fn native() -> Self {
         use crate::abilities::{
-            AsyncRuntimeAbility, ConsoleRuntimeAbility, LogRuntimeAbility, NetworkRuntimeAbility,
-            RandomRuntimeAbility, TimeRuntimeAbility,
+            AsyncRuntimeAbility, ConsoleRuntimeAbility, ExecuteRuntimeAbility, LogRuntimeAbility,
+            NetworkRuntimeAbility, RandomRuntimeAbility, TimeRuntimeAbility,
         };
 
         Self::new()
@@ -86,6 +86,7 @@ impl RuntimeConfig {
             .with_ability_factory("Async", AsyncRuntimeAbility::new)
             .with_ability_factory("Log", LogRuntimeAbility::new)
             .with_ability_factory("Network", NetworkRuntimeAbility::new)
+            .with_ability_factory("Execute", ExecuteRuntimeAbility::new)
     }
 
     /// Add an ability using a factory function.
@@ -287,7 +288,8 @@ mod tests {
         assert!(names.contains(&"Async"));
         assert!(names.contains(&"Log"));
         assert!(names.contains(&"Network"));
-        assert_eq!(names.len(), 6);
+        assert!(names.contains(&"Execute"));
+        assert_eq!(names.len(), 7);
     }
 
     #[test]
@@ -297,7 +299,7 @@ mod tests {
 
         assert!(!names.contains(&"Console"));
         assert!(names.contains(&"Time"));
-        assert_eq!(names.len(), 5);
+        assert_eq!(names.len(), 6);
     }
 
     #[test]
@@ -306,7 +308,7 @@ mod tests {
         let factory = TestTypeFactory::new();
         let descriptors = config.ability_descriptors(&factory);
 
-        assert_eq!(descriptors.len(), 6);
+        assert_eq!(descriptors.len(), 7);
 
         let console = descriptors.iter().find(|d| d.name == "Console");
         assert!(console.is_some());
@@ -315,6 +317,10 @@ mod tests {
         let network = descriptors.iter().find(|d| d.name == "Network");
         assert!(network.is_some());
         assert_eq!(network.map(|d| d.methods.len()), Some(9)); // 9 network methods
+
+        let execute = descriptors.iter().find(|d| d.name == "Execute");
+        assert!(execute.is_some());
+        assert_eq!(execute.map(|d| d.methods.len()), Some(4)); // 4 execute methods
     }
 
     #[test]
@@ -322,7 +328,8 @@ mod tests {
         let config = RuntimeConfig::native();
         let handlers = config.handlers();
 
-        // Console: 3, Time: 2, Random: 2, Async: 0 (VM opcodes), Log: 4, Network: 0 (registered separately)
+        // Console: 3, Time: 2, Random: 2, Async: 0 (VM opcodes), Log: 4
+        // Network: 0 (registered separately), Execute: 0 (registered separately)
         // Total: 11
         assert_eq!(handlers.len(), 11);
     }
@@ -330,7 +337,7 @@ mod tests {
     #[test]
     fn test_from_manifest() {
         let config = RuntimeConfig::from_manifest(&["ambient:native".to_string()]);
-        assert_eq!(config.ability_names().len(), 6);
+        assert_eq!(config.ability_names().len(), 7);
 
         let empty = RuntimeConfig::from_manifest(&[]);
         assert!(empty.ability_names().is_empty());

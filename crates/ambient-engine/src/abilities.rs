@@ -795,6 +795,129 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
     );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Execute Ability Configuration and Registration
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Configuration for the Execute ability.
+///
+/// Execute enables server-side function execution by content-addressed hash.
+pub struct ExecuteConfig {
+    /// Store for function lookup.
+    pub store: Arc<Mutex<Store>>,
+}
+
+/// Register the Execute ability handlers on a VM.
+///
+/// Provides server-side function execution:
+/// - `has_function(hash)` - Check if function exists
+/// - `get_dependencies(hash)` - Get function dependencies
+/// - `load_functions(data)` - Load functions from serialized data
+/// - `run(hash, args)` - Execute function by hash
+#[allow(clippy::too_many_lines)]
+pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
+    let store = config.store;
+
+    // Execute.has_function(hash: string) -> bool
+    let store_clone = Arc::clone(&store);
+    vm.register_host_handler(
+        execute::ABILITY_ID,
+        execute::METHOD_HAS_FUNCTION,
+        Box::new(move |ability: &SuspendedAbility| {
+            let hash_str = extract_string(&ability.args)?;
+            let hash = parse_hash(&hash_str)
+                .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
+
+            let store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            Ok(Value::Bool(store.contains(&hash)))
+        }),
+    );
+
+    // Execute.get_dependencies(hash: string) -> List<string>
+    let store_clone = Arc::clone(&store);
+    vm.register_host_handler(
+        execute::ABILITY_ID,
+        execute::METHOD_GET_DEPENDENCIES,
+        Box::new(move |ability: &SuspendedAbility| {
+            let hash_str = extract_string(&ability.args)?;
+            let hash = parse_hash(&hash_str)
+                .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
+
+            let store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let deps = store.missing_dependencies(&hash);
+            let dep_strings: Vec<Value> = deps
+                .iter()
+                .map(|h| Value::string(h.to_hex().to_string()))
+                .collect();
+            Ok(Value::list(dep_strings))
+        }),
+    );
+
+    // Execute.load_functions(data: List<number>) -> ()
+    let store_clone = Arc::clone(&store);
+    vm.register_host_handler(
+        execute::ABILITY_ID,
+        execute::METHOD_LOAD_FUNCTIONS,
+        Box::new(move |ability: &SuspendedAbility| {
+            let data = match ability.args.first() {
+                Some(v) => extract_bytes(v)?,
+                None => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "list".to_string(),
+                        got: "no argument".to_string(),
+                    })
+                }
+            };
+
+            // Deserialize the portable functions from bincode
+            let portable_functions: Vec<PortableFunction> = bincode::deserialize(&data)
+                .map_err(|e| VmError::IoError(format!("deserialize error: {e}")))?;
+
+            let mut store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            for pf in portable_functions {
+                let func = CompiledFunction::try_from(pf)
+                    .map_err(|e| VmError::IoError(format!("invalid function: {e}")))?;
+                store.add(func);
+            }
+            Ok(Value::Unit)
+        }),
+    );
+
+    // Execute.run(hash: string, args: T) -> R
+    // Note: This handler needs special treatment because it needs to call back into the VM.
+    // For now, we provide a stub that returns an error - actual execution requires
+    // integration with the VM's call mechanism.
+    vm.register_host_handler(
+        execute::ABILITY_ID,
+        execute::METHOD_RUN,
+        Box::new(move |ability: &SuspendedAbility| {
+            // This is a placeholder - actual implementation requires VM integration
+            // The middleware should use the VM's call mechanism directly
+            if ability.args.len() < 2 {
+                return Err(VmError::TypeErrorOwned {
+                    expected: "2 arguments (hash, args)".to_string(),
+                    got: format!("{} arguments", ability.args.len()),
+                });
+            }
+
+            let hash_str = match &ability.args[0] {
+                Value::String(s) => s.to_string(),
+                other => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "string".to_string(),
+                        got: other.type_name().to_string(),
+                    })
+                }
+            };
+
+            // For now, return an error indicating this needs VM integration
+            Err(VmError::IoError(format!(
+                "Execute.run requires VM integration - use vm.call() with hash '{hash_str}'"
+            )))
+        }),
+    );
+}
+
 /// Extract bytes from a List<number> value.
 fn extract_bytes(value: &Value) -> Result<Vec<u8>, VmError> {
     match value {
