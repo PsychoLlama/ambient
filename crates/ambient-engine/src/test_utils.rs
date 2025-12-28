@@ -39,6 +39,8 @@ pub struct VmTest {
 }
 
 struct PendingHandle {
+    /// The ability ID for this handle.
+    /// Stored for debugging purposes but not currently read.
     #[allow(dead_code)]
     ability_id: u16,
     jump_offset: usize,

@@ -104,13 +104,15 @@ The LSP server handles many different request types in one file.
 
 ---
 
-### IMP-007: Remove dead code in `ambient-engine`
+### IMP-007: Remove dead code in `ambient-engine` ✅
 
-**Files**:
-- `crates/ambient-engine/src/symbol_db/db.rs` (line 86)
-- `crates/ambient-engine/src/test_utils.rs` (line 42)
+**Status**: COMPLETE
 
-**Action**: Evaluate if these are needed and remove the suppressions or the code.
+**Changes made**:
+- `symbol_db/db.rs`: Removed incorrect `#[allow(dead_code)]` from `TypeKind::from_str`
+  (it IS used at lines 504 and 545 for parsing type kinds from database).
+- `test_utils.rs`: Added documentation explaining why `ability_id` field is
+  retained for debugging purposes in test utilities.
 
 ---
 

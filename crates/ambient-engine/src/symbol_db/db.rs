@@ -83,7 +83,6 @@ impl TypeKind {
         }
     }
 
-    #[allow(dead_code)]
     fn from_str(s: &str) -> Option<Self> {
         match s {
             "named" => Some(Self::Named),
