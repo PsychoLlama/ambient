@@ -13,8 +13,14 @@ pub mod execute;
 pub mod log;
 pub mod network;
 pub mod random;
-pub mod remote;
 pub mod time;
+
+// Legacy Remote module - deprecated, use Network + Execute instead
+#[deprecated(
+    since = "0.2.0",
+    note = "Use Network ability with stdlib/remote.ab middleware"
+)]
+pub mod remote;
 
 pub use async_ability::{AsyncAbility, AsyncRuntimeAbility, ASYNC};
 pub use console::{ConsoleAbility, ConsoleRuntimeAbility, CONSOLE};
@@ -22,15 +28,18 @@ pub use execute::ExecuteRuntimeAbility;
 pub use log::{LogAbility, LogRuntimeAbility, LOG};
 pub use network::{NetworkAbility, NetworkRuntimeAbility, NETWORK};
 pub use random::{RandomAbility, RandomRuntimeAbility, RANDOM};
-pub use remote::{RemoteAbility, RemoteRuntimeAbility, REMOTE};
 pub use time::{TimeAbility, TimeRuntimeAbility, TIME};
+
+// Legacy re-exports - deprecated
+#[allow(deprecated)]
+pub use remote::{RemoteAbility, RemoteRuntimeAbility, REMOTE};
 
 // Re-export RuntimeAbility trait for convenience
 pub use ambient_ability::RuntimeAbility;
 
 use ambient_core::{AbilityDescriptor, AbilityProvider, TypeFactory};
 
-/// Provider for runtime abilities (Console, Time, Random, Async, Log, Remote, Network, Execute).
+/// Provider for runtime abilities (Console, Time, Random, Async, Log, Network, Execute).
 ///
 /// This is parameterized by the type system's Type representation,
 /// allowing it to work with different type systems.
@@ -50,7 +59,6 @@ impl<T: Clone + 'static> RuntimeAbilities<T> {
                 RandomRuntimeAbility::new().descriptor(factory),
                 AsyncRuntimeAbility::new().descriptor(factory),
                 LogRuntimeAbility::new().descriptor(factory),
-                RemoteRuntimeAbility::new().descriptor(factory),
                 NetworkRuntimeAbility::new().descriptor(factory),
                 ExecuteRuntimeAbility::new().descriptor(factory),
             ],
@@ -122,7 +130,9 @@ mod tests {
         let factory = TestTypeFactory::new();
         let runtime = RuntimeAbilities::new(&factory);
 
-        assert_eq!(runtime.abilities().len(), 8);
+        // 7 abilities: Console, Time, Random, Async, Log, Network, Execute
+        // (Remote is deprecated and no longer included)
+        assert_eq!(runtime.abilities().len(), 7);
 
         // Check Console
         let console = runtime.get_ability("Console");
@@ -154,12 +164,6 @@ mod tests {
         let log = log.unwrap();
         assert_eq!(log.methods.len(), 4);
 
-        // Check Remote
-        let remote_ab = runtime.get_ability("Remote");
-        assert!(remote_ab.is_some());
-        let remote_ab = remote_ab.unwrap();
-        assert_eq!(remote_ab.methods.len(), 6);
-
         // Check Network
         let network_ab = runtime.get_ability("Network");
         assert!(network_ab.is_some());
@@ -171,9 +175,14 @@ mod tests {
         assert!(execute_ab.is_some());
         let execute_ab = execute_ab.unwrap();
         assert_eq!(execute_ab.methods.len(), 4);
+
+        // Remote is deprecated and not included in RuntimeAbilities
+        let remote_ab = runtime.get_ability("Remote");
+        assert!(remote_ab.is_none());
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_ability_ids() {
         // Verify the historical IDs are correct
         assert_eq!(console::ABILITY_ID, 0x0001);
@@ -181,7 +190,7 @@ mod tests {
         assert_eq!(random::ABILITY_ID, 0x0004);
         assert_eq!(async_ability::ABILITY_ID, 0x0005);
         assert_eq!(log::ABILITY_ID, 0x0006);
-        assert_eq!(remote::ABILITY_ID, 0x0007);
+        assert_eq!(remote::ABILITY_ID, 0x0007); // deprecated but ID preserved
         assert_eq!(network::ABILITY_ID, 0x0008);
         assert_eq!(execute::ABILITY_ID, 0x0009);
     }

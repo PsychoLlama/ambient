@@ -45,7 +45,12 @@ pub mod async_ability {
     pub use ambient_runtime::async_ability::*;
 }
 
-/// Remote ability - for remote function execution.
+/// Remote ability - DEPRECATED, use Network + Execute instead.
+#[deprecated(
+    since = "0.2.0",
+    note = "Use Network ability with stdlib/remote.ab middleware"
+)]
+#[allow(deprecated)]
 pub mod remote {
     pub use ambient_runtime::remote::*;
 }
@@ -68,8 +73,12 @@ pub mod log {
 // Re-export RuntimeAbility implementations for convenience
 pub use ambient_runtime::{
     AsyncRuntimeAbility, ConsoleRuntimeAbility, ExecuteRuntimeAbility, LogRuntimeAbility,
-    NetworkRuntimeAbility, RandomRuntimeAbility, RemoteRuntimeAbility, TimeRuntimeAbility,
+    NetworkRuntimeAbility, RandomRuntimeAbility, TimeRuntimeAbility,
 };
+
+// Legacy re-export - deprecated
+#[allow(deprecated)]
+pub use ambient_runtime::RemoteRuntimeAbility;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Console Ability Configuration and Registration
@@ -439,6 +448,12 @@ use crate::remote_state::{ConnectionId, RemoteState};
 use crate::store::{PortableFunction, Store};
 
 /// Configuration for the Remote ability.
+///
+/// **DEPRECATED**: Use Network ability with stdlib/remote.ab middleware instead.
+#[deprecated(
+    since = "0.2.0",
+    note = "Use Network ability with stdlib/remote.ab middleware"
+)]
 pub struct RemoteConfig {
     /// Tokio runtime handle for async operations.
     pub runtime: RuntimeHandle,
@@ -455,6 +470,13 @@ pub struct RemoteConfig {
 /// - `call(conn, thunk)` - Send thunk for remote execution
 /// - `serve(conn)` - Wait for and execute one remote call
 /// - `close(conn)` - Close connection
+///
+/// **DEPRECATED**: Use Network ability with stdlib/remote.ab middleware instead.
+#[deprecated(
+    since = "0.2.0",
+    note = "Use Network ability with stdlib/remote.ab middleware"
+)]
+#[allow(deprecated)]
 #[allow(clippy::too_many_lines)]
 pub fn register_remote(vm: &mut Vm, config: RemoteConfig) {
     let state = Arc::new(Mutex::new(RemoteState::new(config.runtime, config.store)));
