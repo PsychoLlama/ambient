@@ -1,0 +1,40 @@
+//! Network server example using the new Network ability.
+//!
+//! This server demonstrates low-level TCP operations with
+//! message-oriented I/O (length-prefixed messages).
+//!
+//! Run with: `ambient run examples/network_server`
+
+/// Entry point that starts a TCP server and echoes messages.
+pub fn run() {
+    runtime.Console.print!("Server: binding to 127.0.0.1:9000...");
+    let listener = runtime.Network.listen!("127.0.0.1:9000");
+
+    runtime.Console.print!("Server: waiting for connection...");
+    let conn = runtime.Network.accept!(listener);
+
+    let peer = runtime.Network.peer_addr!(conn);
+    runtime.Console.print!(core.string.concat("Server: client connected from ", peer));
+
+    // Echo loop: receive message, send it back
+    runtime.Console.print!("Server: entering echo loop (send empty message to quit)...");
+    echo_loop(conn);
+
+    runtime.Network.close!(conn);
+    runtime.Network.close_listener!(listener);
+    runtime.Console.print!("Server: done")
+}
+
+/// Echo messages back to the client until an empty message is received.
+fn echo_loop(conn: number) {
+    let msg = runtime.Network.receive!(conn);
+    let len = core.list.length(msg);
+
+    if len > 0 {
+        runtime.Console.print!(core.string.concat("Server: received ", core.string.concat(core.convert.to_string(len), " bytes, echoing back...")));
+        runtime.Network.send!(conn, msg);
+        echo_loop(conn)
+    } else {
+        runtime.Console.print!("Server: received empty message, closing connection")
+    }
+}

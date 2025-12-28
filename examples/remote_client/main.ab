@@ -1,4 +1,9 @@
-//! Remote execution client example.
+//! Remote execution client example (LEGACY).
+//!
+//! NOTE: This example uses the old Remote ability which bundles
+//! networking with remote execution. For new code, prefer using
+//! the Network ability directly or the stdlib/remote.ab middleware.
+//! See examples/network_client for the new approach.
 //!
 //! This client connects to a server and sends a function
 //! for remote execution.

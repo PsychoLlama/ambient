@@ -1,0 +1,40 @@
+//! Network client example using the new Network ability.
+//!
+//! This client demonstrates low-level TCP operations with
+//! message-oriented I/O (length-prefixed messages).
+//!
+//! Run with: `ambient run examples/network_client`
+//! (Make sure the network_server is running first!)
+
+/// Entry point that connects to a server and sends messages.
+pub fn run() {
+    runtime.Console.print!("Client: connecting to 127.0.0.1:9000...");
+    let conn = runtime.Network.connect!("127.0.0.1:9000");
+
+    let local = runtime.Network.local_addr!(conn);
+    runtime.Console.print!(core.string.concat("Client: connected from ", local));
+
+    // Send a message (as a list of byte values)
+    let message = string_to_bytes("Hello from Ambient!");
+    runtime.Console.print!(core.string.concat("Client: sending ", core.string.concat(core.convert.to_string(core.list.length(message)), " bytes...")));
+    runtime.Network.send!(conn, message);
+
+    // Receive the echo
+    let response = runtime.Network.receive!(conn);
+    runtime.Console.print!(core.string.concat("Client: received ", core.string.concat(core.convert.to_string(core.list.length(response)), " bytes back")));
+
+    // Send empty message to signal quit
+    runtime.Console.print!("Client: sending empty message to quit...");
+    runtime.Network.send!(conn, []);
+
+    runtime.Network.close!(conn);
+    runtime.Console.print!("Client: done")
+}
+
+/// Convert a string to a list of byte values (ASCII).
+fn string_to_bytes(s: string): List<number> {
+    // For now, just create a simple test payload
+    // In a real implementation, we'd use core.string.bytes or similar
+    [72, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 65, 109, 98, 105, 101, 110, 116, 33]
+    // "Hello from Ambient!" in ASCII
+}

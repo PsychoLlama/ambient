@@ -1,0 +1,6 @@
+[package]
+name = "network_server"
+version = "0.1.0"
+
+[build]
+src = "./"
