@@ -1563,6 +1563,118 @@ impl Vm {
                         "Ok",
                     )?;
                 }
+
+                // ─────────────────────────────────────────────────────────────
+                // Protocol serialization
+                // ─────────────────────────────────────────────────────────────
+                Opcode::SerializeValue => {
+                    let value = self.pop()?;
+                    let bytes = crate::protocol::serialize_value(&value);
+                    let byte_list: Vec<Value> =
+                        bytes.iter().map(|&b| Value::Number(f64::from(b))).collect();
+                    self.stack.push(Value::list(byte_list));
+                }
+
+                Opcode::DeserializeValue => {
+                    let list = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "deserialize_value",
+                            })
+                        }
+                    };
+                    let bytes: Vec<u8> = list
+                        .iter()
+                        .map(|v| match v {
+                            Value::Number(n) => Ok(*n as u8),
+                            other => Err(VmError::TypeError {
+                                expected: "number",
+                                got: other.type_name(),
+                                operation: "deserialize_value",
+                            }),
+                        })
+                        .collect::<Result<Vec<u8>, VmError>>()?;
+                    match crate::protocol::deserialize_value(&bytes) {
+                        Some(value) => self.stack.push(Value::some(value)),
+                        None => self.stack.push(Value::none()),
+                    }
+                }
+
+                Opcode::ClosureHash => {
+                    let closure = match self.pop()? {
+                        Value::Closure(c) => c,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "closure",
+                                got: other.type_name(),
+                                operation: "closure_hash",
+                            })
+                        }
+                    };
+                    self.stack
+                        .push(Value::string(closure.function_hash.to_string()));
+                }
+
+                Opcode::ClosureCaptures => {
+                    let closure = match self.pop()? {
+                        Value::Closure(c) => c,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "closure",
+                                got: other.type_name(),
+                                operation: "closure_captures",
+                            })
+                        }
+                    };
+                    // Serialize captures as a list
+                    let captures_value = Value::list(closure.environment.clone());
+                    let bytes = crate::protocol::serialize_value(&captures_value);
+                    let byte_list: Vec<Value> =
+                        bytes.iter().map(|&b| Value::Number(f64::from(b))).collect();
+                    self.stack.push(Value::list(byte_list));
+                }
+
+                Opcode::HexToBytes => {
+                    let hex_str = self.pop_string("hex_to_bytes")?;
+                    match hex::decode(&*hex_str) {
+                        Ok(bytes) => {
+                            let byte_list: Vec<Value> =
+                                bytes.iter().map(|&b| Value::Number(f64::from(b))).collect();
+                            self.stack.push(Value::some(Value::list(byte_list)));
+                        }
+                        Err(_) => {
+                            self.stack.push(Value::none());
+                        }
+                    }
+                }
+
+                Opcode::BytesToHex => {
+                    let list = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "bytes_to_hex",
+                            })
+                        }
+                    };
+                    let bytes: Vec<u8> = list
+                        .iter()
+                        .map(|v| match v {
+                            Value::Number(n) => Ok(*n as u8),
+                            other => Err(VmError::TypeError {
+                                expected: "number",
+                                got: other.type_name(),
+                                operation: "bytes_to_hex",
+                            }),
+                        })
+                        .collect::<Result<Vec<u8>, VmError>>()?;
+                    self.stack.push(Value::string(hex::encode(bytes)));
+                }
             }
         }
     }

@@ -705,6 +705,44 @@ pub enum Opcode {
     ResultAndThen = 0x5A,
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Serialization (for remote execution protocol)
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Serialize a value to binary format (bincode).
+    ///
+    /// Stack: `[value] -> [list<number>]`
+    /// Returns a list of bytes (0-255) representing the serialized value.
+    SerializeValue = 0x5B,
+
+    /// Deserialize a value from binary format (bincode).
+    ///
+    /// Stack: `[list<number>] -> [option<value>]`
+    /// Returns Some(value) on success, None on failure.
+    DeserializeValue = 0x5C,
+
+    /// Get the function hash from a closure.
+    ///
+    /// Stack: `[closure] -> [string]`
+    /// Returns the hex-encoded blake3 hash of the closure's function.
+    ClosureHash = 0x5D,
+
+    /// Get the captured environment from a closure as serialized bytes.
+    ///
+    /// Stack: `[closure] -> [list<number>]`
+    /// Returns the serialized captured values.
+    ClosureCaptures = 0x5E,
+
+    /// Convert hex string to bytes.
+    ///
+    /// Stack: `[string] -> [option<list<number>>]`
+    /// Returns Some(bytes) on valid hex, None on invalid.
+    HexToBytes = 0x5F,
+
+    /// Convert bytes to hex string.
+    ///
+    /// Stack: `[list<number>] -> [string]`
+    BytesToHex = 0x62,
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Special
     // ─────────────────────────────────────────────────────────────────────────
     /// Halt execution (end of program).
@@ -850,6 +888,13 @@ impl Opcode {
             0xE6 => Some(Self::ResultMap),
             0xE7 => Some(Self::ResultMapErr),
             0x5A => Some(Self::ResultAndThen),
+            // Serialization
+            0x5B => Some(Self::SerializeValue),
+            0x5C => Some(Self::DeserializeValue),
+            0x5D => Some(Self::ClosureHash),
+            0x5E => Some(Self::ClosureCaptures),
+            0x5F => Some(Self::HexToBytes),
+            0x62 => Some(Self::BytesToHex),
             0xFF => Some(Self::Halt),
             _ => None,
         }

@@ -8,6 +8,7 @@ ambient-ability = { path = "../ambient-ability" }
 ambient-core = { path = "../ambient-core" }
 ambient-runtime = { path = "../ambient-runtime" }
 base64 = "0.22"
+bincode = "1.3"
 blake3 = { version = "1.5.5", features = ["serde"] }
 hex = "0.4"
 rusqlite = { version = "0.32", features = ["bundled"] }

@@ -554,6 +554,45 @@ static INTRINSICS: &[Intrinsic] = &[
         arity: 1,
         emit: EmitStrategy::Helper(Helper::EnumPayload),
     },
+    // ─────────────────────────────────────────────────────────────────────
+    // core.protocol - Binary protocol operations
+    // ─────────────────────────────────────────────────────────────────────
+    Intrinsic {
+        path: &["core", "protocol"],
+        name: "serialize_value",
+        arity: 1,
+        emit: EmitStrategy::Opcode(Opcode::SerializeValue),
+    },
+    Intrinsic {
+        path: &["core", "protocol"],
+        name: "deserialize_value",
+        arity: 1,
+        emit: EmitStrategy::Opcode(Opcode::DeserializeValue),
+    },
+    Intrinsic {
+        path: &["core", "protocol"],
+        name: "closure_hash",
+        arity: 1,
+        emit: EmitStrategy::Opcode(Opcode::ClosureHash),
+    },
+    Intrinsic {
+        path: &["core", "protocol"],
+        name: "closure_captures",
+        arity: 1,
+        emit: EmitStrategy::Opcode(Opcode::ClosureCaptures),
+    },
+    Intrinsic {
+        path: &["core", "protocol"],
+        name: "hex_to_bytes",
+        arity: 1,
+        emit: EmitStrategy::Opcode(Opcode::HexToBytes),
+    },
+    Intrinsic {
+        path: &["core", "protocol"],
+        name: "bytes_to_hex",
+        arity: 1,
+        emit: EmitStrategy::Opcode(Opcode::BytesToHex),
+    },
 ];
 
 /// Check if a function name is an intrinsic and compile it if so.

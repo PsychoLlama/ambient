@@ -420,6 +420,47 @@ impl Infer {
                 Ok(Some(payload_ty))
             }
 
+            // ─────────────────────────────────────────────────────────────────
+            // core.protocol - Binary protocol operations
+            // ─────────────────────────────────────────────────────────────────
+            (["core", "protocol"], "serialize_value") if args.len() == 1 => {
+                // fn serialize_value<T>(value: T): List<number>
+                // Accept any type, return byte list
+                let _value_ty = self.infer_expr(env, &mut args[0])?;
+                Ok(Some(list_of(Type::Number)))
+            }
+            (["core", "protocol"], "deserialize_value") if args.len() == 1 => {
+                // fn deserialize_value<T>(bytes: List<number>): Option<T>
+                let bytes_ty = self.infer_expr(env, &mut args[0])?;
+                self.unify(&bytes_ty, &list_of(Type::Number), span)?;
+                let result_ty = self.fresh();
+                Ok(Some(Type::option(result_ty)))
+            }
+            (["core", "protocol"], "closure_hash") if args.len() == 1 => {
+                // fn closure_hash<T>(f: () -> T): string
+                // Accept any function type, return string (the hash)
+                let _fn_ty = self.infer_expr(env, &mut args[0])?;
+                Ok(Some(Type::String))
+            }
+            (["core", "protocol"], "closure_captures") if args.len() == 1 => {
+                // fn closure_captures<T>(f: () -> T): List<number>
+                // Accept any function type, return serialized captures
+                let _fn_ty = self.infer_expr(env, &mut args[0])?;
+                Ok(Some(list_of(Type::Number)))
+            }
+            (["core", "protocol"], "hex_to_bytes") if args.len() == 1 => {
+                // fn hex_to_bytes(hex: string): Option<List<number>>
+                let hex_ty = self.infer_expr(env, &mut args[0])?;
+                self.unify(&hex_ty, &Type::String, span)?;
+                Ok(Some(Type::option(list_of(Type::Number))))
+            }
+            (["core", "protocol"], "bytes_to_hex") if args.len() == 1 => {
+                // fn bytes_to_hex(bytes: List<number>): string
+                let bytes_ty = self.infer_expr(env, &mut args[0])?;
+                self.unify(&bytes_ty, &list_of(Type::Number), span)?;
+                Ok(Some(Type::String))
+            }
+
             _ => Ok(None),
         }
     }
