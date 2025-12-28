@@ -150,8 +150,8 @@ impl RuntimeConfig {
         factory: &dyn TypeFactory<T>,
     ) -> Vec<AbilityDescriptor<T>> {
         use crate::abilities::{
-            AsyncRuntimeAbility, ConsoleRuntimeAbility, LogRuntimeAbility, NetworkRuntimeAbility,
-            RandomRuntimeAbility, TimeRuntimeAbility,
+            AsyncRuntimeAbility, ConsoleRuntimeAbility, ExecuteRuntimeAbility, LogRuntimeAbility,
+            NetworkRuntimeAbility, RandomRuntimeAbility, TimeRuntimeAbility,
         };
 
         // We need to create descriptors for each ability type
@@ -167,6 +167,7 @@ impl RuntimeConfig {
                     "Async" => Some(AsyncRuntimeAbility::new().descriptor(factory)),
                     "Log" => Some(LogRuntimeAbility::new().descriptor(factory)),
                     "Network" => Some(NetworkRuntimeAbility::new().descriptor(factory)),
+                    "Execute" => Some(ExecuteRuntimeAbility::new().descriptor(factory)),
                     // Unknown abilities can't provide descriptors
                     _ => None,
                 }

@@ -9,6 +9,7 @@
 
 pub mod async_ability;
 pub mod console;
+pub mod execute;
 pub mod log;
 pub mod network;
 pub mod random;
@@ -17,6 +18,7 @@ pub mod time;
 
 pub use async_ability::{AsyncAbility, AsyncRuntimeAbility, ASYNC};
 pub use console::{ConsoleAbility, ConsoleRuntimeAbility, CONSOLE};
+pub use execute::ExecuteRuntimeAbility;
 pub use log::{LogAbility, LogRuntimeAbility, LOG};
 pub use network::{NetworkAbility, NetworkRuntimeAbility, NETWORK};
 pub use random::{RandomAbility, RandomRuntimeAbility, RANDOM};
@@ -28,7 +30,7 @@ pub use ambient_ability::RuntimeAbility;
 
 use ambient_core::{AbilityDescriptor, AbilityProvider, TypeFactory};
 
-/// Provider for runtime abilities (Console, Time, Random, Async, Log, Remote, Network).
+/// Provider for runtime abilities (Console, Time, Random, Async, Log, Remote, Network, Execute).
 ///
 /// This is parameterized by the type system's Type representation,
 /// allowing it to work with different type systems.
@@ -50,6 +52,7 @@ impl<T: Clone + 'static> RuntimeAbilities<T> {
                 LogRuntimeAbility::new().descriptor(factory),
                 RemoteRuntimeAbility::new().descriptor(factory),
                 NetworkRuntimeAbility::new().descriptor(factory),
+                ExecuteRuntimeAbility::new().descriptor(factory),
             ],
         }
     }
@@ -119,7 +122,7 @@ mod tests {
         let factory = TestTypeFactory::new();
         let runtime = RuntimeAbilities::new(&factory);
 
-        assert_eq!(runtime.abilities().len(), 7);
+        assert_eq!(runtime.abilities().len(), 8);
 
         // Check Console
         let console = runtime.get_ability("Console");
@@ -162,6 +165,12 @@ mod tests {
         assert!(network_ab.is_some());
         let network_ab = network_ab.unwrap();
         assert_eq!(network_ab.methods.len(), 9);
+
+        // Check Execute
+        let execute_ab = runtime.get_ability("Execute");
+        assert!(execute_ab.is_some());
+        let execute_ab = execute_ab.unwrap();
+        assert_eq!(execute_ab.methods.len(), 4);
     }
 
     #[test]
@@ -174,5 +183,6 @@ mod tests {
         assert_eq!(log::ABILITY_ID, 0x0006);
         assert_eq!(remote::ABILITY_ID, 0x0007);
         assert_eq!(network::ABILITY_ID, 0x0008);
+        assert_eq!(execute::ABILITY_ID, 0x0009);
     }
 }

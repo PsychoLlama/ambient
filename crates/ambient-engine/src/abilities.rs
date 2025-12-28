@@ -55,6 +55,11 @@ pub mod network {
     pub use ambient_runtime::network::*;
 }
 
+/// Execute ability - for server-side function execution.
+pub mod execute {
+    pub use ambient_runtime::execute::*;
+}
+
 /// Log ability - for structured logging with levels.
 pub mod log {
     pub use ambient_runtime::log::*;
@@ -62,8 +67,8 @@ pub mod log {
 
 // Re-export RuntimeAbility implementations for convenience
 pub use ambient_runtime::{
-    AsyncRuntimeAbility, ConsoleRuntimeAbility, LogRuntimeAbility, NetworkRuntimeAbility,
-    RandomRuntimeAbility, RemoteRuntimeAbility, TimeRuntimeAbility,
+    AsyncRuntimeAbility, ConsoleRuntimeAbility, ExecuteRuntimeAbility, LogRuntimeAbility,
+    NetworkRuntimeAbility, RandomRuntimeAbility, RemoteRuntimeAbility, TimeRuntimeAbility,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
