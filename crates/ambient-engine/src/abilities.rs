@@ -11,6 +11,8 @@
 // Re-export format_value for backward compatibility
 pub use crate::format::format_value;
 
+use std::sync::{Arc, Mutex};
+
 use ambient_core::{
     AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature, TypeFactory,
 };
@@ -20,7 +22,7 @@ use crate::value::{SuspendedAbility, Value};
 use crate::vm::{HostHandler, Vm, VmError};
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Re-export ability IDs from core and runtime crates
+// Re-export ability IDs and RuntimeAbility implementations from runtime crate
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Console ability - for printing to stdout/stderr.
@@ -53,8 +55,19 @@ pub mod remote {
     pub use ambient_runtime::remote::*;
 }
 
+/// Log ability - for structured logging with levels.
+pub mod log {
+    pub use ambient_runtime::log::*;
+}
+
+// Re-export RuntimeAbility implementations for convenience
+pub use ambient_runtime::{
+    AsyncRuntimeAbility, ConsoleRuntimeAbility, LogRuntimeAbility, RandomRuntimeAbility,
+    TimeRuntimeAbility,
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
-// Console Ability Implementation
+// Console Ability Configuration and Registration
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Configuration for the Console ability.
@@ -66,121 +79,6 @@ pub struct ConsoleConfig {
     pub print_handler: Option<Box<dyn Fn(&str) + Send + Sync>>,
     /// Custom eprint handler. If None, uses stderr.
     pub eprint_handler: Option<Box<dyn Fn(&str) + Send + Sync>>,
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Console RuntimeAbility Implementation
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Console ability implementation combining type info and handlers.
-///
-/// Uses default stdout/stderr output. For custom handlers, implement
-/// `RuntimeAbility` directly or use `register_console` with `ConsoleConfig`.
-#[derive(Default)]
-pub struct ConsoleRuntimeAbility;
-
-impl ConsoleRuntimeAbility {
-    /// Create a new Console ability.
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl RuntimeAbility for ConsoleRuntimeAbility {
-    fn name(&self) -> &'static str {
-        "Console"
-    }
-
-    fn ability_id(&self) -> AbilityId {
-        console::ABILITY_ID
-    }
-
-    fn descriptor<T: Clone + 'static>(
-        &self,
-        _factory: &dyn TypeFactory<T>,
-    ) -> AbilityDescriptor<T> {
-        AbilityDescriptor {
-            id: console::ABILITY_ID,
-            name: "Console",
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: console::METHOD_PRINT,
-                    name: "print",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: console::METHOD_PRINTLN,
-                    name: "println",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: console::METHOD_EPRINT,
-                    name: "eprint",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-            ])),
-        }
-    }
-
-    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
-        let print = Box::new(|ability: &SuspendedAbility| {
-            let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
-            #[cfg(not(test))]
-            {
-                #[allow(clippy::print_stdout)]
-                {
-                    println!("{message}");
-                }
-            }
-            let _ = message;
-            Ok(Value::Unit)
-        }) as HostHandler;
-
-        let println_handler = Box::new(|ability: &SuspendedAbility| {
-            let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
-            #[cfg(not(test))]
-            {
-                #[allow(clippy::print_stdout)]
-                {
-                    println!("{message}");
-                }
-            }
-            let _ = message;
-            Ok(Value::Unit)
-        }) as HostHandler;
-
-        let eprint = Box::new(|ability: &SuspendedAbility| {
-            let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
-            #[cfg(not(test))]
-            {
-                #[allow(clippy::print_stderr)]
-                {
-                    eprintln!("{message}");
-                }
-            }
-            let _ = message;
-            Ok(Value::Unit)
-        }) as HostHandler;
-
-        vec![
-            (console::METHOD_PRINT, print),
-            (console::METHOD_PRINTLN, println_handler),
-            (console::METHOD_EPRINT, eprint),
-        ]
-    }
 }
 
 /// Register the Console ability handlers on a VM.
@@ -339,13 +237,8 @@ pub fn register_exception_fallback(vm: &mut Vm) {
     );
 }
 
-/// Log ability - for structured logging with levels.
-pub mod log {
-    pub use ambient_runtime::log::*;
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
-// Time Ability Implementation
+// Time Ability Registration
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Register the Time ability handlers on a VM.
@@ -386,87 +279,7 @@ pub fn register_time(vm: &mut Vm) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Time RuntimeAbility Implementation
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Time ability implementation combining type info and handlers.
-#[derive(Default)]
-pub struct TimeRuntimeAbility;
-
-impl TimeRuntimeAbility {
-    /// Create a new Time ability.
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl RuntimeAbility for TimeRuntimeAbility {
-    fn name(&self) -> &'static str {
-        "Time"
-    }
-
-    fn ability_id(&self) -> AbilityId {
-        time::ABILITY_ID
-    }
-
-    fn descriptor<T: Clone + 'static>(
-        &self,
-        _factory: &dyn TypeFactory<T>,
-    ) -> AbilityDescriptor<T> {
-        AbilityDescriptor {
-            id: time::ABILITY_ID,
-            name: "Time",
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: time::METHOD_NOW,
-                    name: "now",
-                    signature: MethodSignature {
-                        param_count: 0,
-                        param_types: |_f| vec![],
-                        return_type: |f| f.number(),
-                    },
-                },
-                MethodDescriptor {
-                    id: time::METHOD_WAIT,
-                    name: "wait",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-            ])),
-        }
-    }
-
-    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
-        let now = Box::new(|_ability: &SuspendedAbility| {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            #[allow(clippy::cast_precision_loss)]
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_millis() as f64)
-                .unwrap_or(0.0);
-            Ok(Value::Number(now))
-        }) as HostHandler;
-
-        let wait = Box::new(|ability: &SuspendedAbility| {
-            if let Some(Value::Number(ms)) = ability.args.first() {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let ms_u64 = if *ms < 0.0 { 0 } else { *ms as u64 };
-                let duration = std::time::Duration::from_millis(ms_u64);
-                std::thread::sleep(duration);
-            }
-            Ok(Value::Unit)
-        }) as HostHandler;
-
-        vec![(time::METHOD_NOW, now), (time::METHOD_WAIT, wait)]
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Random Ability Implementation
+// Random Ability Registration
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Register the Random ability handlers on a VM.
@@ -558,131 +371,7 @@ pub fn register_random(vm: &mut Vm) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Random RuntimeAbility Implementation
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Random ability implementation combining type info and handlers.
-#[derive(Default)]
-pub struct RandomRuntimeAbility;
-
-impl RandomRuntimeAbility {
-    /// Create a new Random ability.
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl RuntimeAbility for RandomRuntimeAbility {
-    fn name(&self) -> &'static str {
-        "Random"
-    }
-
-    fn ability_id(&self) -> AbilityId {
-        random::ABILITY_ID
-    }
-
-    fn descriptor<T: Clone + 'static>(
-        &self,
-        _factory: &dyn TypeFactory<T>,
-    ) -> AbilityDescriptor<T> {
-        AbilityDescriptor {
-            id: random::ABILITY_ID,
-            name: "Random",
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: random::METHOD_SEED,
-                    name: "seed",
-                    signature: MethodSignature {
-                        param_count: 0,
-                        param_types: |_f| vec![],
-                        return_type: |f| f.number(),
-                    },
-                },
-                MethodDescriptor {
-                    id: random::METHOD_IN_RANGE,
-                    name: "in_range",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()],
-                        return_type: |f| f.number(),
-                    },
-                },
-            ])),
-        }
-    }
-
-    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
-        use std::sync::atomic::{AtomicU64, Ordering};
-
-        static SEED: AtomicU64 = AtomicU64::new(0);
-
-        fn next_random() -> f64 {
-            let mut state = SEED.load(Ordering::Relaxed);
-            if state == 0 {
-                use std::time::{SystemTime, UNIX_EPOCH};
-                #[allow(clippy::cast_possible_truncation)]
-                let time_seed = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_nanos() as u64)
-                    .unwrap_or(0x853c_49e6_748f_ea9b);
-                state = time_seed;
-                if state == 0 {
-                    state = 0x853c_49e6_748f_ea9b;
-                }
-            }
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            SEED.store(state, Ordering::Relaxed);
-            #[allow(clippy::cast_precision_loss)]
-            let result = (state as f64) / (u64::MAX as f64);
-            result
-        }
-
-        let seed =
-            Box::new(|_ability: &SuspendedAbility| Ok(Value::Number(next_random()))) as HostHandler;
-
-        let in_range = Box::new(|ability: &SuspendedAbility| {
-            if let Some(Value::Record(fields)) = ability.args.first() {
-                let start = fields
-                    .get(&std::sync::Arc::from("start"))
-                    .and_then(|v| match v {
-                        Value::Number(n) => Some(*n),
-                        _ => None,
-                    })
-                    .unwrap_or(0.0);
-                let end = fields
-                    .get(&std::sync::Arc::from("end"))
-                    .and_then(|v| match v {
-                        Value::Number(n) => Some(*n),
-                        _ => None,
-                    })
-                    .unwrap_or(1.0);
-                let random = next_random();
-                Ok(Value::Number(start + random * (end - start)))
-            } else {
-                let upper = ability
-                    .args
-                    .first()
-                    .and_then(|v| match v {
-                        Value::Number(n) => Some(*n),
-                        _ => None,
-                    })
-                    .unwrap_or(1.0);
-                Ok(Value::Number(next_random() * upper))
-            }
-        }) as HostHandler;
-
-        vec![
-            (random::METHOD_SEED, seed),
-            (random::METHOD_IN_RANGE, in_range),
-        ]
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Log Ability Implementation
+// Log Ability Configuration and Registration
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Configuration for the Log ability.
@@ -733,179 +422,8 @@ pub fn register_log(vm: &mut Vm, config: LogConfig) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Log RuntimeAbility Implementation
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Log ability implementation combining type info and handlers.
-///
-/// Uses default stdout output. For custom handlers, implement
-/// `RuntimeAbility` directly or use `register_log` with `LogConfig`.
-#[derive(Default)]
-pub struct LogRuntimeAbility;
-
-impl LogRuntimeAbility {
-    /// Create a new Log ability.
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl RuntimeAbility for LogRuntimeAbility {
-    fn name(&self) -> &'static str {
-        "Log"
-    }
-
-    fn ability_id(&self) -> AbilityId {
-        log::ABILITY_ID
-    }
-
-    fn descriptor<T: Clone + 'static>(
-        &self,
-        _factory: &dyn TypeFactory<T>,
-    ) -> AbilityDescriptor<T> {
-        AbilityDescriptor {
-            id: log::ABILITY_ID,
-            name: "Log",
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: log::METHOD_DEBUG,
-                    name: "debug",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: log::METHOD_INFO,
-                    name: "info",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: log::METHOD_WARN,
-                    name: "warn",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: log::METHOD_ERROR,
-                    name: "error",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-            ])),
-        }
-    }
-
-    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
-        // Helper macro to create log handlers
-        macro_rules! make_log_handler {
-            ($prefix:expr) => {
-                Box::new(|ability: &SuspendedAbility| {
-                    let message =
-                        format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
-                    #[cfg(not(test))]
-                    {
-                        #[allow(clippy::print_stdout)]
-                        {
-                            println!("[{}] {}", $prefix, message);
-                        }
-                    }
-                    let _ = message;
-                    Ok(Value::Unit)
-                }) as HostHandler
-            };
-        }
-
-        vec![
-            (log::METHOD_DEBUG, make_log_handler!("DEBUG")),
-            (log::METHOD_INFO, make_log_handler!("INFO")),
-            (log::METHOD_WARN, make_log_handler!("WARN")),
-            (log::METHOD_ERROR, make_log_handler!("ERROR")),
-        ]
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Async RuntimeAbility Implementation
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Async ability implementation.
-///
-/// Note: Async.all and Async.race are handled by VM opcodes, not host handlers.
-/// This provides only the type descriptor for compilation.
-#[derive(Default)]
-pub struct AsyncRuntimeAbility;
-
-impl AsyncRuntimeAbility {
-    /// Create a new Async ability.
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl RuntimeAbility for AsyncRuntimeAbility {
-    fn name(&self) -> &'static str {
-        "Async"
-    }
-
-    fn ability_id(&self) -> AbilityId {
-        async_ability::ABILITY_ID
-    }
-
-    fn descriptor<T: Clone + 'static>(
-        &self,
-        _factory: &dyn TypeFactory<T>,
-    ) -> AbilityDescriptor<T> {
-        AbilityDescriptor {
-            id: async_ability::ABILITY_ID,
-            name: "Async",
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: async_ability::METHOD_ALL,
-                    name: "all",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.type_var()],
-                        return_type: |f| f.type_var(),
-                    },
-                },
-                MethodDescriptor {
-                    id: async_ability::METHOD_RACE,
-                    name: "race",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.type_var()],
-                        return_type: |f| f.type_var(),
-                    },
-                },
-            ])),
-        }
-    }
-
-    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
-        // Async is handled by VM opcodes (AsyncAll, AsyncRace), not host handlers
-        vec![]
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // Remote Ability Implementation
 // ═══════════════════════════════════════════════════════════════════════════
-
-use std::sync::{Arc, Mutex};
 
 use tokio::runtime::Handle as RuntimeHandle;
 
@@ -920,6 +438,108 @@ pub struct RemoteConfig {
     pub runtime: RuntimeHandle,
     /// Store for function lookup (needed to send dependencies).
     pub store: Arc<Mutex<Store>>,
+}
+
+/// Remote ability implementation combining type info and handlers.
+///
+/// Note: Remote requires runtime configuration (tokio handle, store) so it
+/// doesn't use the default `RuntimeAbility` pattern. Use `register_remote` instead.
+pub struct RemoteRuntimeAbility;
+
+impl RemoteRuntimeAbility {
+    /// Create a new Remote ability.
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for RemoteRuntimeAbility {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RuntimeAbility for RemoteRuntimeAbility {
+    fn name(&self) -> &'static str {
+        "Remote"
+    }
+
+    fn ability_id(&self) -> AbilityId {
+        remote::ABILITY_ID
+    }
+
+    fn descriptor<T: Clone + 'static>(
+        &self,
+        _factory: &dyn TypeFactory<T>,
+    ) -> AbilityDescriptor<T> {
+        AbilityDescriptor {
+            id: remote::ABILITY_ID,
+            name: "Remote",
+            methods: Box::leak(Box::new([
+                MethodDescriptor {
+                    id: remote::METHOD_LISTEN,
+                    name: "listen",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.string()],
+                        return_type: |f| f.number(),
+                    },
+                },
+                MethodDescriptor {
+                    id: remote::METHOD_ACCEPT,
+                    name: "accept",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.number()],
+                        return_type: |f| f.number(),
+                    },
+                },
+                MethodDescriptor {
+                    id: remote::METHOD_CONNECT,
+                    name: "connect",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.string()],
+                        return_type: |f| f.number(),
+                    },
+                },
+                MethodDescriptor {
+                    id: remote::METHOD_CALL,
+                    name: "call",
+                    signature: MethodSignature {
+                        param_count: 2,
+                        param_types: |f| vec![f.number(), f.type_var()],
+                        return_type: |f| f.type_var(),
+                    },
+                },
+                MethodDescriptor {
+                    id: remote::METHOD_CLOSE,
+                    name: "close",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.number()],
+                        return_type: |f| f.unit(),
+                    },
+                },
+                MethodDescriptor {
+                    id: remote::METHOD_SERVE,
+                    name: "serve",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.number()],
+                        return_type: |f| f.type_var(),
+                    },
+                },
+            ])),
+        }
+    }
+
+    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
+        // Remote handlers require runtime configuration, so we can't provide default handlers.
+        // Use register_remote() to set up handlers with proper configuration.
+        vec![]
+    }
 }
 
 /// Register the Remote ability handlers on a VM.

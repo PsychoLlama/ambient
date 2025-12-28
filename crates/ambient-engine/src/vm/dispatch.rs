@@ -2,11 +2,11 @@
 
 use std::sync::Arc;
 
+use ambient_ability::{CapturedFrame, Value, VmError};
+
 use crate::bytecode::Opcode;
-use crate::value::{CapturedFrame, Value};
 
 use super::core::{CallFrame, HandlerFrame, HandlerKind, ReturnAction, Vm};
-use super::error::VmError;
 
 impl Vm {
     /// Main execution loop.

@@ -14,12 +14,15 @@ pub mod random;
 pub mod remote;
 pub mod time;
 
-pub use async_ability::{AsyncAbility, ASYNC};
-pub use console::{ConsoleAbility, CONSOLE};
-pub use log::{LogAbility, LOG};
-pub use random::{RandomAbility, RANDOM};
+pub use async_ability::{AsyncAbility, AsyncRuntimeAbility, ASYNC};
+pub use console::{ConsoleAbility, ConsoleRuntimeAbility, CONSOLE};
+pub use log::{LogAbility, LogRuntimeAbility, LOG};
+pub use random::{RandomAbility, RandomRuntimeAbility, RANDOM};
 pub use remote::{RemoteAbility, REMOTE};
-pub use time::{TimeAbility, TIME};
+pub use time::{TimeAbility, TimeRuntimeAbility, TIME};
+
+// Re-export RuntimeAbility trait for convenience
+pub use ambient_ability::RuntimeAbility;
 
 use ambient_core::{
     AbilityDescriptor, AbilityProvider, MethodDescriptor, MethodSignature, TypeFactory,

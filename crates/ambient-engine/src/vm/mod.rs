@@ -58,10 +58,9 @@
 
 mod core;
 mod dispatch;
-mod error;
 
-pub use core::{HostHandler, Vm};
-pub use error::{RuntimeError, StackTraceFrame, VmError};
+pub use ambient_ability::{HostHandler, RuntimeError, StackTraceFrame, VmError};
+pub use core::Vm;
 
 #[cfg(test)]
 mod tests;

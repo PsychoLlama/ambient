@@ -5,4 +5,5 @@ edition = "2021"
 description = "Host-provided runtime abilities for the Ambient language"
 
 [dependencies]
+ambient-ability = { path = "../ambient-ability" }
 ambient-core = { path = "../ambient-core" }

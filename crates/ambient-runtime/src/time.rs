@@ -1,6 +1,9 @@
 //! Time ability - for time-related operations.
 
-use ambient_core::AbilityId;
+use ambient_ability::{HostHandler, RuntimeAbility, SuspendedAbility, Value};
+use ambient_core::{
+    AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature, TypeFactory,
+};
 
 /// Time ability ID.
 ///
@@ -26,4 +29,84 @@ impl TimeAbility {
 
     /// Ability name.
     pub const NAME: &'static str = "Time";
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Time RuntimeAbility Implementation
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Time ability implementation combining type info and handlers.
+#[derive(Default)]
+pub struct TimeRuntimeAbility;
+
+impl TimeRuntimeAbility {
+    /// Create a new Time ability.
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl RuntimeAbility for TimeRuntimeAbility {
+    fn name(&self) -> &'static str {
+        "Time"
+    }
+
+    fn ability_id(&self) -> AbilityId {
+        ABILITY_ID
+    }
+
+    fn descriptor<T: Clone + 'static>(
+        &self,
+        _factory: &dyn TypeFactory<T>,
+    ) -> AbilityDescriptor<T> {
+        AbilityDescriptor {
+            id: ABILITY_ID,
+            name: "Time",
+            methods: Box::leak(Box::new([
+                MethodDescriptor {
+                    id: METHOD_NOW,
+                    name: "now",
+                    signature: MethodSignature {
+                        param_count: 0,
+                        param_types: |_f| vec![],
+                        return_type: |f| f.number(),
+                    },
+                },
+                MethodDescriptor {
+                    id: METHOD_WAIT,
+                    name: "wait",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.number()],
+                        return_type: |f| f.unit(),
+                    },
+                },
+            ])),
+        }
+    }
+
+    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
+        let now = Box::new(|_ability: &SuspendedAbility| {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            #[allow(clippy::cast_precision_loss)]
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as f64)
+                .unwrap_or(0.0);
+            Ok(Value::Number(now))
+        }) as HostHandler;
+
+        let wait = Box::new(|ability: &SuspendedAbility| {
+            if let Some(Value::Number(ms)) = ability.args.first() {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let ms_u64 = if *ms < 0.0 { 0 } else { *ms as u64 };
+                let duration = std::time::Duration::from_millis(ms_u64);
+                std::thread::sleep(duration);
+            }
+            Ok(Value::Unit)
+        }) as HostHandler;
+
+        vec![(METHOD_NOW, now), (METHOD_WAIT, wait)]
+    }
 }

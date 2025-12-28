@@ -3,11 +3,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use ambient_ability::{
+    HostHandler, RuntimeError, StackTraceFrame, SuspendedAbility, Value, VmError,
+};
+
 use crate::bytecode::{CompiledFunction, Opcode};
 use crate::runtime_config::RuntimeConfig;
-use crate::value::{SuspendedAbility, Value};
-
-use super::error::VmError;
 
 /// Action to perform when a call frame returns.
 ///
@@ -83,11 +84,6 @@ pub(super) struct HandlerFrame {
     /// The stack height when the handler was installed.
     pub stack_height: usize,
 }
-
-/// A host-provided ability handler callback.
-///
-/// Must be Send + Sync to allow the VM to be used across threads.
-pub type HostHandler = Box<dyn Fn(&SuspendedAbility) -> Result<Value, VmError> + Send + Sync>;
 
 /// The Ambient virtual machine.
 pub struct Vm {
@@ -193,7 +189,7 @@ impl Vm {
         &mut self,
         hash: &blake3::Hash,
         args: Vec<Value>,
-    ) -> Result<Value, super::error::RuntimeError> {
+    ) -> Result<Value, RuntimeError> {
         self.call(hash, args).map_err(|e| self.runtime_error(e))
     }
 
@@ -606,7 +602,7 @@ impl Vm {
     ///
     /// This collects information from all active call frames, using debug info
     /// when available to provide source locations.
-    pub fn capture_stack_trace(&self) -> Vec<super::error::StackTraceFrame> {
+    pub fn capture_stack_trace(&self) -> Vec<StackTraceFrame> {
         self.frames
             .iter()
             .rev() // Most recent frame first
@@ -628,7 +624,7 @@ impl Vm {
                         (None, None, None, None)
                     };
 
-                super::error::StackTraceFrame {
+                StackTraceFrame {
                     function_name,
                     source_file,
                     line,
@@ -641,8 +637,8 @@ impl Vm {
     }
 
     /// Create a `RuntimeError` with the current stack trace.
-    pub fn runtime_error(&self, error: VmError) -> super::error::RuntimeError {
-        super::error::RuntimeError::with_stack_trace(error, self.capture_stack_trace())
+    pub fn runtime_error(&self, error: VmError) -> RuntimeError {
+        RuntimeError::with_stack_trace(error, self.capture_stack_trace())
     }
 
     // ─────────────────────────────────────────────────────────────────────────

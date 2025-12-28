@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+ambient-ability = { path = "../ambient-ability" }
 ambient-core = { path = "../ambient-core" }
 ambient-runtime = { path = "../ambient-runtime" }
 base64 = "0.22"

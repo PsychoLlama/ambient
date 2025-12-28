@@ -1,6 +1,9 @@
 //! Console ability - for printing to stdout/stderr.
 
-use ambient_core::AbilityId;
+use ambient_ability::{format_value, HostHandler, RuntimeAbility, SuspendedAbility, Value};
+use ambient_core::{
+    AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature, TypeFactory,
+};
 
 /// Console ability ID.
 ///
@@ -29,4 +32,118 @@ impl ConsoleAbility {
 
     /// Ability name.
     pub const NAME: &'static str = "Console";
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Console RuntimeAbility Implementation
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Console ability implementation combining type info and handlers.
+///
+/// Uses default stdout/stderr output.
+#[derive(Default)]
+pub struct ConsoleRuntimeAbility;
+
+impl ConsoleRuntimeAbility {
+    /// Create a new Console ability.
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl RuntimeAbility for ConsoleRuntimeAbility {
+    fn name(&self) -> &'static str {
+        "Console"
+    }
+
+    fn ability_id(&self) -> AbilityId {
+        ABILITY_ID
+    }
+
+    fn descriptor<T: Clone + 'static>(
+        &self,
+        _factory: &dyn TypeFactory<T>,
+    ) -> AbilityDescriptor<T> {
+        AbilityDescriptor {
+            id: ABILITY_ID,
+            name: "Console",
+            methods: Box::leak(Box::new([
+                MethodDescriptor {
+                    id: METHOD_PRINT,
+                    name: "print",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.string()],
+                        return_type: |f| f.unit(),
+                    },
+                },
+                MethodDescriptor {
+                    id: METHOD_PRINTLN,
+                    name: "println",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.string()],
+                        return_type: |f| f.unit(),
+                    },
+                },
+                MethodDescriptor {
+                    id: METHOD_EPRINT,
+                    name: "eprint",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.string()],
+                        return_type: |f| f.unit(),
+                    },
+                },
+            ])),
+        }
+    }
+
+    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
+        let print = Box::new(|ability: &SuspendedAbility| {
+            let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
+            #[cfg(not(test))]
+            {
+                #[allow(clippy::print_stdout)]
+                {
+                    println!("{message}");
+                }
+            }
+            let _ = message;
+            Ok(Value::Unit)
+        }) as HostHandler;
+
+        let println_handler = Box::new(|ability: &SuspendedAbility| {
+            let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
+            #[cfg(not(test))]
+            {
+                #[allow(clippy::print_stdout)]
+                {
+                    println!("{message}");
+                }
+            }
+            let _ = message;
+            Ok(Value::Unit)
+        }) as HostHandler;
+
+        let eprint = Box::new(|ability: &SuspendedAbility| {
+            let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
+            #[cfg(not(test))]
+            {
+                #[allow(clippy::print_stderr)]
+                {
+                    eprintln!("{message}");
+                }
+            }
+            let _ = message;
+            Ok(Value::Unit)
+        }) as HostHandler;
+
+        vec![
+            (METHOD_PRINT, print),
+            (METHOD_PRINTLN, println_handler),
+            (METHOD_EPRINT, eprint),
+        ]
+    }
 }

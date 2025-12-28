@@ -1,4 +1,4 @@
-//! VM error types.
+//! VM error types for ability handlers.
 
 /// A single frame in a runtime stack trace.
 #[derive(Debug, Clone)]
@@ -64,6 +64,7 @@ pub struct RuntimeError {
 
 impl RuntimeError {
     /// Create a new runtime error without a stack trace.
+    #[must_use]
     pub fn new(error: VmError) -> Self {
         Self {
             error,
@@ -73,6 +74,7 @@ impl RuntimeError {
     }
 
     /// Create a runtime error with a stack trace.
+    #[must_use]
     pub fn with_stack_trace(error: VmError, stack_trace: Vec<StackTraceFrame>) -> Self {
         Self {
             error,

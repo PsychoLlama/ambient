@@ -1,6 +1,9 @@
 //! Async ability - for concurrent execution of abilities.
 
-use ambient_core::AbilityId;
+use ambient_ability::{HostHandler, RuntimeAbility};
+use ambient_core::{
+    AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature, TypeFactory,
+};
 
 /// Async ability ID.
 ///
@@ -28,4 +31,68 @@ impl AsyncAbility {
 
     /// Ability name.
     pub const NAME: &'static str = "Async";
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Async RuntimeAbility Implementation
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Async ability implementation.
+///
+/// Note: `Async.all` and `Async.race` are handled by VM opcodes, not host handlers.
+/// This provides only the type descriptor for compilation.
+#[derive(Default)]
+pub struct AsyncRuntimeAbility;
+
+impl AsyncRuntimeAbility {
+    /// Create a new Async ability.
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl RuntimeAbility for AsyncRuntimeAbility {
+    fn name(&self) -> &'static str {
+        "Async"
+    }
+
+    fn ability_id(&self) -> AbilityId {
+        ABILITY_ID
+    }
+
+    fn descriptor<T: Clone + 'static>(
+        &self,
+        _factory: &dyn TypeFactory<T>,
+    ) -> AbilityDescriptor<T> {
+        AbilityDescriptor {
+            id: ABILITY_ID,
+            name: "Async",
+            methods: Box::leak(Box::new([
+                MethodDescriptor {
+                    id: METHOD_ALL,
+                    name: "all",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.type_var()],
+                        return_type: |f| f.type_var(),
+                    },
+                },
+                MethodDescriptor {
+                    id: METHOD_RACE,
+                    name: "race",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.type_var()],
+                        return_type: |f| f.type_var(),
+                    },
+                },
+            ])),
+        }
+    }
+
+    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
+        // Async is handled by VM opcodes (AsyncAll, AsyncRace), not host handlers
+        vec![]
+    }
 }

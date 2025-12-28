@@ -15,6 +15,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ambient-ability"
+version = "0.1.0"
+dependencies = [
+ "ambient-core",
+ "blake3",
+ "serde",
+]
+
+[[package]]
 name = "ambient-cli"
 version = "0.1.0"
 dependencies = [
@@ -43,6 +52,7 @@ version = "0.1.0"
 name = "ambient-engine"
 version = "0.1.0"
 dependencies = [
+ "ambient-ability",
  "ambient-core",
  "ambient-runtime",
  "base64",
@@ -88,6 +98,7 @@ dependencies = [
 name = "ambient-runtime"
 version = "0.1.0"
 dependencies = [
+ "ambient-ability",
  "ambient-core",
 ]
 
