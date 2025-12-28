@@ -206,10 +206,10 @@ ability Async {
 // Concurrent execution
 let op1 = Network.fetch~(request1);
 let op2 = Network.fetch~(request2);
-let [r1, r2] = Async.all!([op1, op2]);
+let [r1, r2] = runtime.Async.all!([op1, op2]);
 
 // Race: first to complete wins, others cancelled
-let winner = Async.race!([op1, op2]);
+let winner = runtime.Async.race!([op1, op2]);
 ```
 
 ---
@@ -339,7 +339,7 @@ Abilities implemented using single-shot delimited continuations.
 Single-threaded with cooperative concurrency:
 1. User code runs on single thread
 2. Ability handlers may delegate to host thread pool
-3. `Async.all!`/`Async.race!` suspend operations for concurrent host execution
+3. `runtime.Async.all!`/`runtime.Async.race!` suspend operations for concurrent host execution
 4. No shared mutable state between concurrent operations
 
 ---
@@ -377,7 +377,7 @@ ambient serve foo.ambient  # Start remote execution server
 
 ```ambient
 pub fn run(): () with Console {
-  Console.print!("Hello, world!");
+  runtime.Console.print!("Hello, world!");
 }
 ```
 
@@ -396,7 +396,7 @@ pub fn fetch_all(urls: List<Url>): List<Response>
   with Network, Async
 {
   let ops = List.map(urls, (url) => Network.fetch~(Request { url: url, method: Get }));
-  Async.all!(ops)
+  runtime.Async.all!(ops)
 }
 ```
 

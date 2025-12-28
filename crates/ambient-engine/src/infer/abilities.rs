@@ -10,7 +10,16 @@ use std::sync::Arc;
 
 use super::{type_error, Infer, InferResult, TypeErrorKind};
 use crate::ability_resolver::EngineTypeFactory;
+use crate::ast::QualifiedName;
 use crate::types::{AbilityId, AbilitySet, Type};
+
+/// Abilities that live under the `runtime` namespace.
+const RUNTIME_ABILITIES: &[&str] = &["Console", "Time", "Random", "Async", "Log", "Remote"];
+
+/// Check if an ability requires the `runtime.` namespace prefix.
+fn is_runtime_ability(name: &str) -> bool {
+    RUNTIME_ABILITIES.contains(&name)
+}
 
 impl Infer {
     // ─────────────────────────────────────────────────────────────────────────
@@ -60,18 +69,35 @@ impl Infer {
     ///
     /// # Errors
     ///
-    /// Returns a `TypeError` if the ability or method is not found.
+    /// Returns a `TypeError` if the ability or method is not found, or if the namespace is incorrect.
     pub fn lookup_ability_method(
         &mut self,
-        ability_name: &str,
+        ability: &QualifiedName,
         method_name: &str,
         arg_tys: &[Type],
         span: (u32, u32),
     ) -> InferResult<(AbilityId, Type, AbilitySet)> {
+        let ability_name = &ability.name;
+
+        // Validate namespace for runtime abilities
+        if is_runtime_ability(ability_name) {
+            let has_runtime_prefix =
+                ability.path.len() == 1 && ability.path[0].as_ref() == "runtime";
+            if !has_runtime_prefix {
+                return Err(type_error(
+                    TypeErrorKind::AbilityRequiresNamespace {
+                        ability: ability_name.clone(),
+                        expected_namespace: "runtime",
+                    },
+                    span,
+                ));
+            }
+        }
+
         let ability_id = self.ability_name_to_id(ability_name).ok_or_else(|| {
             type_error(
                 TypeErrorKind::UnknownAbility {
-                    name: ability_name.into(),
+                    name: ability_name.clone(),
                 },
                 span,
             )
@@ -91,7 +117,7 @@ impl Infer {
                 _ => {
                     return Err(type_error(
                         TypeErrorKind::UnknownAbilityMethod {
-                            ability: ability_name.into(),
+                            ability: ability_name.clone(),
                             method: method_name.into(),
                         },
                         span,
@@ -109,7 +135,7 @@ impl Infer {
             .ok_or_else(|| {
                 type_error(
                     TypeErrorKind::UnknownAbilityMethod {
-                        ability: ability_name.into(),
+                        ability: ability_name.clone(),
                         method: method_name.into(),
                     },
                     span,
@@ -202,11 +228,17 @@ impl Infer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::QualifiedName;
     use crate::infer::Infer;
     use crate::types::{AbilityInfo, AbilityRegistry, AbilitySet, Type};
 
     fn span() -> (u32, u32) {
         (0, 0)
+    }
+
+    /// Create a qualified name with the `runtime.` prefix.
+    fn runtime_ability(name: &str) -> QualifiedName {
+        QualifiedName::qualified(vec!["runtime"], name)
     }
 
     #[test]
@@ -288,7 +320,12 @@ mod tests {
         let list_of_abilities = Type::named("List", vec![ability_value]);
 
         // Look up Async.all with this argument
-        let result = infer.lookup_ability_method("Async", "all", &[list_of_abilities], span());
+        let result = infer.lookup_ability_method(
+            &runtime_ability("Async"),
+            "all",
+            &[list_of_abilities],
+            span(),
+        );
         assert!(
             result.is_ok(),
             "Async.all should accept List<Ability<T, A!>>"
@@ -324,7 +361,12 @@ mod tests {
         let list_of_abilities = Type::named("List", vec![ability_value]);
 
         // Look up Async.race with this argument
-        let result = infer.lookup_ability_method("Async", "race", &[list_of_abilities], span());
+        let result = infer.lookup_ability_method(
+            &runtime_ability("Async"),
+            "race",
+            &[list_of_abilities],
+            span(),
+        );
         assert!(
             result.is_ok(),
             "Async.race should accept List<Ability<T, A!>>"
@@ -362,7 +404,12 @@ mod tests {
         let list_of_abilities = Type::named("List", vec![ability_value]);
 
         // Look up Async.all - should succeed with polymorphic types
-        let result = infer.lookup_ability_method("Async", "all", &[list_of_abilities], span());
+        let result = infer.lookup_ability_method(
+            &runtime_ability("Async"),
+            "all",
+            &[list_of_abilities],
+            span(),
+        );
         assert!(result.is_ok(), "Async.all should work with type variables");
 
         let (_, result_ty, _) = result.unwrap();
@@ -382,7 +429,7 @@ mod tests {
         let mut infer = Infer::new();
 
         // Try calling Async.all with no arguments
-        let result = infer.lookup_ability_method("Async", "all", &[], span());
+        let result = infer.lookup_ability_method(&runtime_ability("Async"), "all", &[], span());
         assert!(
             result.is_err(),
             "Async.all should require exactly one argument"
@@ -397,7 +444,8 @@ mod tests {
             "List",
             vec![Type::ability_value(Type::Number, AbilitySet::single(1))],
         );
-        let result = infer.lookup_ability_method("Async", "all", &[arg1, arg2], span());
+        let result =
+            infer.lookup_ability_method(&runtime_ability("Async"), "all", &[arg1, arg2], span());
         assert!(result.is_err(), "Async.all should not accept two arguments");
     }
 
@@ -406,7 +454,7 @@ mod tests {
         let mut infer = Infer::new();
 
         // Try calling Async.race with no arguments
-        let result = infer.lookup_ability_method("Async", "race", &[], span());
+        let result = infer.lookup_ability_method(&runtime_ability("Async"), "race", &[], span());
         assert!(
             result.is_err(),
             "Async.race should require exactly one argument"
@@ -418,7 +466,8 @@ mod tests {
         let mut infer = Infer::new();
 
         // Try calling Async.all with a non-List type (e.g., just a number)
-        let result = infer.lookup_ability_method("Async", "all", &[Type::Number], span());
+        let result =
+            infer.lookup_ability_method(&runtime_ability("Async"), "all", &[Type::Number], span());
         assert!(
             result.is_err(),
             "Async.all should reject non-List arguments"
@@ -426,7 +475,12 @@ mod tests {
 
         // Try calling Async.all with List<number> (not List<Ability<...>>)
         let list_of_numbers = Type::named("List", vec![Type::Number]);
-        let result = infer.lookup_ability_method("Async", "all", &[list_of_numbers], span());
+        let result = infer.lookup_ability_method(
+            &runtime_ability("Async"),
+            "all",
+            &[list_of_numbers],
+            span(),
+        );
         assert!(result.is_err(), "Async.all should reject List<number>");
     }
 
@@ -448,5 +502,25 @@ mod tests {
         let methods: Vec<Arc<str>> = vec!["now".into()];
         let ability = infer.infer_ability_from_methods(&methods);
         assert_eq!(ability, Some(0x0003)); // Time
+    }
+
+    #[test]
+    fn test_runtime_namespace_required() {
+        let mut infer = Infer::new();
+
+        // Console without runtime prefix should fail
+        let console_no_prefix = QualifiedName::simple("Console");
+        let result =
+            infer.lookup_ability_method(&console_no_prefix, "print", &[Type::String], span());
+        assert!(
+            result.is_err(),
+            "Console without runtime. prefix should fail"
+        );
+
+        // Console with runtime prefix should succeed
+        let console_with_prefix = runtime_ability("Console");
+        let result =
+            infer.lookup_ability_method(&console_with_prefix, "print", &[Type::String], span());
+        assert!(result.is_ok(), "runtime.Console.print should succeed");
     }
 }

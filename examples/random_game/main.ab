@@ -9,18 +9,18 @@
 
 /// Entry point demonstrating Random ability handlers.
 pub fn run(): number {
-    // The handler intercepts Random.seed!() calls
+    // The handler intercepts runtime.Random.seed!() calls
     // We can verify the handler is invoked by the program completing
     let result = handle {
         // Make some Random calls - handlers will be invoked
-        Random.seed!();
-        Random.seed!();
-        Random.seed!();
+        runtime.Random.seed!();
+        runtime.Random.seed!();
+        runtime.Random.seed!();
         // Return a known value after the effects complete
         42
     } {
-        Random.seed() => {
-            // Handler is invoked for each Random.seed!() call
+        runtime.Random.seed() => {
+            // Handler is invoked for each runtime.Random.seed!() call
             // resume continues execution after the call point
             resume(0)
         }

@@ -291,7 +291,7 @@ impl Infer {
 
                 // Look up the ability and method to get return type and additional abilities
                 let (ability_id, result_ty, additional_abilities) = self.lookup_ability_method(
-                    &ability_call.ability.name,
+                    &ability_call.ability,
                     &ability_call.method,
                     &arg_tys,
                     span,
@@ -317,7 +317,7 @@ impl Infer {
                 // Look up the ability and method to get return type
                 // Note: For suspend, we ignore additional_abilities since we're just creating a value
                 let (ability_id, result_ty, _additional_abilities) = self.lookup_ability_method(
-                    &ability_call.ability.name,
+                    &ability_call.ability,
                     &ability_call.method,
                     &arg_tys,
                     span,

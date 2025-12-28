@@ -12,9 +12,9 @@ fn double(x: number): number {
 }
 
 pub fn run() {
-    Console.print!("Client: connecting to server...");
-    let conn = Remote.connect!("127.0.0.1:8080");
-    Console.print!("Client: connected!");
+    runtime.Console.print!("Client: connecting to server...");
+    let conn = runtime.Remote.connect!("127.0.0.1:8080");
+    runtime.Console.print!("Client: connected!");
 
     // The value we want to double remotely
     let value = 21;
@@ -23,9 +23,9 @@ pub fn run() {
     // The dummy parameter 'x' is needed because zero-arg lambdas aren't supported.
     // The captured 'value' will be sent as the argument to 'x'.
     let thunk = (x: number) => double(value);
-    let result = Remote.call!(conn, thunk);
-    Console.print!(core.string.concat("Client: got result = ", core.convert.to_string(result)));
+    let result = runtime.Remote.call!(conn, thunk);
+    runtime.Console.print!(core.string.concat("Client: got result = ", core.convert.to_string(result)));
 
-    Remote.close!(conn);
-    Console.print!("Client: done")
+    runtime.Remote.close!(conn);
+    runtime.Console.print!("Client: done")
 }

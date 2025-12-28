@@ -168,6 +168,12 @@ pub enum TypeErrorKind {
         ability: Arc<str>,
         allowed: Vec<Arc<str>>,
     },
+
+    /// Ability requires a namespace prefix.
+    AbilityRequiresNamespace {
+        ability: Arc<str>,
+        expected_namespace: &'static str,
+    },
 }
 
 impl std::fmt::Display for TypeErrorKind {
@@ -293,6 +299,15 @@ impl std::fmt::Display for TypeErrorKind {
                         "sandbox violation: ability `{ability}` is not allowed (allowed: {allowed_str})"
                     )
                 }
+            }
+            Self::AbilityRequiresNamespace {
+                ability,
+                expected_namespace,
+            } => {
+                write!(
+                    f,
+                    "ability `{ability}` requires `{expected_namespace}.` prefix"
+                )
             }
         }
     }
