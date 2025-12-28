@@ -18,17 +18,15 @@ pub use async_ability::{AsyncAbility, AsyncRuntimeAbility, ASYNC};
 pub use console::{ConsoleAbility, ConsoleRuntimeAbility, CONSOLE};
 pub use log::{LogAbility, LogRuntimeAbility, LOG};
 pub use random::{RandomAbility, RandomRuntimeAbility, RANDOM};
-pub use remote::{RemoteAbility, REMOTE};
+pub use remote::{RemoteAbility, RemoteRuntimeAbility, REMOTE};
 pub use time::{TimeAbility, TimeRuntimeAbility, TIME};
 
 // Re-export RuntimeAbility trait for convenience
 pub use ambient_ability::RuntimeAbility;
 
-use ambient_core::{
-    AbilityDescriptor, AbilityProvider, MethodDescriptor, MethodSignature, TypeFactory,
-};
+use ambient_core::{AbilityDescriptor, AbilityProvider, TypeFactory};
 
-/// Provider for runtime abilities (Console, Time, Random, Async, Log).
+/// Provider for runtime abilities (Console, Time, Random, Async, Log, Remote).
 ///
 /// This is parameterized by the type system's Type representation,
 /// allowing it to work with different type systems.
@@ -40,230 +38,15 @@ impl<T: Clone + 'static> RuntimeAbilities<T> {
     /// Create a new runtime abilities provider.
     ///
     /// The type factory is used to construct type signatures for methods.
-    pub fn new(_factory: &dyn TypeFactory<T>) -> Self {
-        let console_ability = AbilityDescriptor {
-            id: console::ABILITY_ID,
-            name: ConsoleAbility::NAME,
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: console::METHOD_PRINT,
-                    name: "print",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: console::METHOD_PRINTLN,
-                    name: "println",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: console::METHOD_EPRINT,
-                    name: "eprint",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-            ])),
-        };
-
-        let time_ability = AbilityDescriptor {
-            id: time::ABILITY_ID,
-            name: TimeAbility::NAME,
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: time::METHOD_NOW,
-                    name: "now",
-                    signature: MethodSignature {
-                        param_count: 0,
-                        param_types: |_f| vec![],
-                        return_type: |f| f.number(),
-                    },
-                },
-                MethodDescriptor {
-                    id: time::METHOD_WAIT,
-                    name: "wait",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-            ])),
-        };
-
-        let random_ability = AbilityDescriptor {
-            id: random::ABILITY_ID,
-            name: RandomAbility::NAME,
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: random::METHOD_SEED,
-                    name: "seed",
-                    signature: MethodSignature {
-                        param_count: 0,
-                        param_types: |_f| vec![],
-                        return_type: |f| f.number(),
-                    },
-                },
-                MethodDescriptor {
-                    id: random::METHOD_IN_RANGE,
-                    name: "in_range",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()], // simplified - actually takes a record
-                        return_type: |f| f.number(),
-                    },
-                },
-            ])),
-        };
-
-        let async_ability = AbilityDescriptor {
-            id: async_ability::ABILITY_ID,
-            name: AsyncAbility::NAME,
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: async_ability::METHOD_ALL,
-                    name: "all",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        // List<Ability<T, A!>> -> List<T>
-                        // This is polymorphic - the actual types are inferred
-                        param_types: |f| vec![f.type_var()],
-                        return_type: |f| f.type_var(),
-                    },
-                },
-                MethodDescriptor {
-                    id: async_ability::METHOD_RACE,
-                    name: "race",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.type_var()],
-                        return_type: |f| f.type_var(),
-                    },
-                },
-            ])),
-        };
-
-        let log_ability = AbilityDescriptor {
-            id: log::ABILITY_ID,
-            name: LogAbility::NAME,
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: log::METHOD_DEBUG,
-                    name: "debug",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: log::METHOD_INFO,
-                    name: "info",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: log::METHOD_WARN,
-                    name: "warn",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: log::METHOD_ERROR,
-                    name: "error",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-            ])),
-        };
-
-        let remote_ability = AbilityDescriptor {
-            id: remote::ABILITY_ID,
-            name: RemoteAbility::NAME,
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: remote::METHOD_LISTEN,
-                    name: "listen",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.number(), // Listener handle
-                    },
-                },
-                MethodDescriptor {
-                    id: remote::METHOD_ACCEPT,
-                    name: "accept",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()], // Listener handle
-                        return_type: |f| f.number(),       // Connection handle
-                    },
-                },
-                MethodDescriptor {
-                    id: remote::METHOD_CONNECT,
-                    name: "connect",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.number(), // Connection handle
-                    },
-                },
-                MethodDescriptor {
-                    id: remote::METHOD_CALL,
-                    name: "call",
-                    signature: MethodSignature {
-                        param_count: 2,
-                        param_types: |f| vec![f.number(), f.type_var()], // conn, thunk
-                        return_type: |f| f.type_var(),
-                    },
-                },
-                MethodDescriptor {
-                    id: remote::METHOD_CLOSE,
-                    name: "close",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()], // Connection handle
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: remote::METHOD_SERVE,
-                    name: "serve",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()], // Connection handle
-                        return_type: |f| f.type_var(),     // Returns whatever was executed
-                    },
-                },
-            ])),
-        };
-
+    pub fn new(factory: &dyn TypeFactory<T>) -> Self {
         Self {
             abilities: vec![
-                console_ability,
-                time_ability,
-                random_ability,
-                async_ability,
-                log_ability,
-                remote_ability,
+                ConsoleRuntimeAbility::new().descriptor(factory),
+                TimeRuntimeAbility::new().descriptor(factory),
+                RandomRuntimeAbility::new().descriptor(factory),
+                AsyncRuntimeAbility::new().descriptor(factory),
+                LogRuntimeAbility::new().descriptor(factory),
+                RemoteRuntimeAbility::new().descriptor(factory),
             ],
         }
     }

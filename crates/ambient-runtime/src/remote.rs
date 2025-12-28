@@ -30,7 +30,10 @@
 //! Remote.close!(conn);
 //! ```
 
-use ambient_core::AbilityId;
+use ambient_ability::{HostHandler, RuntimeAbility};
+use ambient_core::{
+    AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature, TypeFactory,
+};
 
 /// Ability ID for Remote (next after Log = 0x0006).
 pub const ABILITY_ID: AbilityId = 0x0007;
@@ -64,3 +67,105 @@ impl RemoteAbility {
 
 /// Constant for use in other modules.
 pub const REMOTE: RemoteAbility = RemoteAbility;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Remote RuntimeAbility Implementation
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Remote ability implementation providing type descriptors.
+///
+/// Note: Remote handlers require runtime configuration (tokio handle, store)
+/// so this only provides the descriptor. Use `register_remote` in ambient-engine
+/// to set up handlers.
+#[derive(Default)]
+pub struct RemoteRuntimeAbility;
+
+impl RemoteRuntimeAbility {
+    /// Create a new Remote ability.
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl RuntimeAbility for RemoteRuntimeAbility {
+    fn name(&self) -> &'static str {
+        "Remote"
+    }
+
+    fn ability_id(&self) -> AbilityId {
+        ABILITY_ID
+    }
+
+    fn descriptor<T: Clone + 'static>(
+        &self,
+        _factory: &dyn TypeFactory<T>,
+    ) -> AbilityDescriptor<T> {
+        AbilityDescriptor {
+            id: ABILITY_ID,
+            name: "Remote",
+            methods: Box::leak(Box::new([
+                MethodDescriptor {
+                    id: METHOD_LISTEN,
+                    name: "listen",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.string()],
+                        return_type: |f| f.number(),
+                    },
+                },
+                MethodDescriptor {
+                    id: METHOD_ACCEPT,
+                    name: "accept",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.number()],
+                        return_type: |f| f.number(),
+                    },
+                },
+                MethodDescriptor {
+                    id: METHOD_CONNECT,
+                    name: "connect",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.string()],
+                        return_type: |f| f.number(),
+                    },
+                },
+                MethodDescriptor {
+                    id: METHOD_CALL,
+                    name: "call",
+                    signature: MethodSignature {
+                        param_count: 2,
+                        param_types: |f| vec![f.number(), f.type_var()],
+                        return_type: |f| f.type_var(),
+                    },
+                },
+                MethodDescriptor {
+                    id: METHOD_CLOSE,
+                    name: "close",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.number()],
+                        return_type: |f| f.unit(),
+                    },
+                },
+                MethodDescriptor {
+                    id: METHOD_SERVE,
+                    name: "serve",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.number()],
+                        return_type: |f| f.type_var(),
+                    },
+                },
+            ])),
+        }
+    }
+
+    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
+        // Remote handlers require runtime configuration, so we can't provide default handlers.
+        // Use register_remote() in ambient-engine to set up handlers.
+        vec![]
+    }
+}

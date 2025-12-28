@@ -13,13 +13,8 @@ pub use crate::format::format_value;
 
 use std::sync::{Arc, Mutex};
 
-use ambient_core::{
-    AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature, TypeFactory,
-};
-
-use crate::runtime_ability::RuntimeAbility;
 use crate::value::{SuspendedAbility, Value};
-use crate::vm::{HostHandler, Vm, VmError};
+use crate::vm::{Vm, VmError};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Re-export ability IDs and RuntimeAbility implementations from runtime crate
@@ -63,7 +58,7 @@ pub mod log {
 // Re-export RuntimeAbility implementations for convenience
 pub use ambient_runtime::{
     AsyncRuntimeAbility, ConsoleRuntimeAbility, LogRuntimeAbility, RandomRuntimeAbility,
-    TimeRuntimeAbility,
+    RemoteRuntimeAbility, TimeRuntimeAbility,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -438,108 +433,6 @@ pub struct RemoteConfig {
     pub runtime: RuntimeHandle,
     /// Store for function lookup (needed to send dependencies).
     pub store: Arc<Mutex<Store>>,
-}
-
-/// Remote ability implementation combining type info and handlers.
-///
-/// Note: Remote requires runtime configuration (tokio handle, store) so it
-/// doesn't use the default `RuntimeAbility` pattern. Use `register_remote` instead.
-pub struct RemoteRuntimeAbility;
-
-impl RemoteRuntimeAbility {
-    /// Create a new Remote ability.
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for RemoteRuntimeAbility {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl RuntimeAbility for RemoteRuntimeAbility {
-    fn name(&self) -> &'static str {
-        "Remote"
-    }
-
-    fn ability_id(&self) -> AbilityId {
-        remote::ABILITY_ID
-    }
-
-    fn descriptor<T: Clone + 'static>(
-        &self,
-        _factory: &dyn TypeFactory<T>,
-    ) -> AbilityDescriptor<T> {
-        AbilityDescriptor {
-            id: remote::ABILITY_ID,
-            name: "Remote",
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: remote::METHOD_LISTEN,
-                    name: "listen",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.number(),
-                    },
-                },
-                MethodDescriptor {
-                    id: remote::METHOD_ACCEPT,
-                    name: "accept",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()],
-                        return_type: |f| f.number(),
-                    },
-                },
-                MethodDescriptor {
-                    id: remote::METHOD_CONNECT,
-                    name: "connect",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.number(),
-                    },
-                },
-                MethodDescriptor {
-                    id: remote::METHOD_CALL,
-                    name: "call",
-                    signature: MethodSignature {
-                        param_count: 2,
-                        param_types: |f| vec![f.number(), f.type_var()],
-                        return_type: |f| f.type_var(),
-                    },
-                },
-                MethodDescriptor {
-                    id: remote::METHOD_CLOSE,
-                    name: "close",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: remote::METHOD_SERVE,
-                    name: "serve",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()],
-                        return_type: |f| f.type_var(),
-                    },
-                },
-            ])),
-        }
-    }
-
-    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
-        // Remote handlers require runtime configuration, so we can't provide default handlers.
-        // Use register_remote() to set up handlers with proper configuration.
-        vec![]
-    }
 }
 
 /// Register the Remote ability handlers on a VM.
