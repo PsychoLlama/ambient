@@ -1,103 +1,360 @@
-// Remote execution middleware
-//
-// This module provides high-level functions for remote function execution
-// using the Network and Execute abilities.
-//
-// The protocol works as follows:
-// 1. Client sends Execute message with function hash and serialized args
-// 2. Server checks if it has the function
-// 3. If missing dependencies, server sends NeedDeps message
-// 4. Client responds with Provide message containing the functions
-// 5. Server executes and returns Result or Error
-//
-// Example usage:
-//
-// Server:
-//   let listener = Network.listen!("127.0.0.1:8080");
-//   let conn = Network.accept!(listener);
-//   let result = remote.serve!(conn);
-//
-// Client:
-//   let conn = Network.connect!("127.0.0.1:8080");
-//   let result = remote.call!(conn, () -> expensive_computation());
+//! Remote execution middleware
+//!
+//! This module provides high-level functions for remote function execution
+//! using the Network and Execute abilities.
+//!
+//! The protocol works as follows:
+//! 1. Client sends Execute message with function hash and serialized args
+//! 2. Server checks if it has the function
+//! 3. If missing dependencies, server sends NeedDeps message
+//! 4. Client responds with Provide message containing the functions
+//! 5. Server executes and returns Result or Error
+//!
+//! Example usage:
+//!
+//! Server:
+//!   let listener = runtime.Network.listen!("127.0.0.1:8080");
+//!   let conn = runtime.Network.accept!(listener);
+//!   let result = handle { remote.serve(conn) } {
+//!       Exception.throw(e) => {
+//!           runtime.Console.print!(core.string.concat("Error: ", e));
+//!           ()
+//!       }
+//!   };
+//!
+//! Client:
+//!   let conn = runtime.Network.connect!("127.0.0.1:8080");
+//!   let result = handle { remote.call(conn, () => computation()) } {
+//!       Exception.throw(e) => {
+//!           runtime.Console.print!(core.string.concat("Error: ", e));
+//!           ()
+//!       }
+//!   };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Message Types
+// Message Type Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Message type constants (first byte of wire format)
-// let MSG_EXECUTE: number = 1;
-// let MSG_NEED_DEPS: number = 2;
-// let MSG_PROVIDE: number = 3;
-// let MSG_RESULT: number = 4;
-// let MSG_ERROR: number = 5;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Error Types
-// ─────────────────────────────────────────────────────────────────────────────
-
-enum RemoteError {
-    ConnectionClosed,
-    ProtocolError(string),
-    ExecutionFailed(string),
-    MissingDependency(string),
-    SerializationError(string)
-}
+// Message type bytes (first byte of wire format)
+fn msg_execute(): number { 1 }
+fn msg_need_deps(): number { 2 }
+fn msg_provide(): number { 3 }
+fn msg_result(): number { 4 }
+fn msg_error(): number { 5 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Server API
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Serve a single request on the connection.
-//
-// This function:
-// 1. Reads an Execute message from the connection
-// 2. Checks if all required functions are available
-// 3. Requests missing dependencies from the client
-// 4. Executes the function with the provided arguments
-// 5. Sends the result back to the client
-//
-// Returns the execution result, or throws RemoteError on failure.
-//
-// fn serve<R>(conn: number): R
-//   with Network, Execute, Exception<RemoteError>
-// {
-//   // TODO: Implement using Network.receive!, Execute.*, and protocol parsing
-//   // For now, this is a placeholder
-// }
+/// Serve a single request on the connection.
+///
+/// This function:
+/// 1. Reads an Execute message from the connection
+/// 2. Checks if all required functions are available
+/// 3. Requests missing dependencies from the client if needed
+/// 4. Executes the function with the provided arguments
+/// 5. Sends the result back to the client
+///
+/// Returns the execution result.
+/// Throws a string error on failure (use handle {} {} to catch).
+pub fn serve<R>(conn: number): R {
+    // Receive the initial message
+    let bytes = runtime.Network.receive!(conn);
+
+    check_not_empty(bytes, "connection closed");
+
+    let msg_type = get_message_type(bytes);
+
+    if msg_type == msg_execute() {
+        // Parse Execute message: hash + captures
+        let payload = get_payload(bytes);
+        let parsed = parse_execute_payload(payload);
+        let hash = parsed.0;
+        let captures = parsed.1;
+
+        // Check if we have the function and all dependencies
+        serve_execute(conn, hash, captures)
+    } else {
+        Exception.throw!("remote: expected Execute message")
+    }
+}
+
+/// Handle an Execute request, fetching dependencies if needed.
+fn serve_execute<R>(conn: number, hash: string, captures: List<number>): R {
+    // Check if we have the function
+    if runtime.Execute.has_function!(hash) {
+        // Get all dependencies
+        let deps = runtime.Execute.get_dependencies!(hash);
+        let missing = find_missing(deps);
+
+        if core.list.is_empty(missing) {
+            // We have everything, execute!
+            execute_and_respond(conn, hash, captures)
+        } else {
+            // Request missing dependencies
+            request_deps(conn, missing);
+            serve_execute(conn, hash, captures)
+        }
+    } else {
+        // We don't have the main function, request it
+        request_deps(conn, [hash]);
+        serve_execute(conn, hash, captures)
+    }
+}
+
+/// Find functions that are missing from the store.
+fn find_missing(hashes: List<string>): List<string> {
+    find_missing_loop(hashes, [])
+}
+
+fn find_missing_loop(hashes: List<string>, acc: List<string>): List<string> {
+    if core.list.is_empty(hashes) {
+        acc
+    } else {
+        let h = core.list.head(hashes);
+        let rest = core.list.tail(hashes);
+        if runtime.Execute.has_function!(h) {
+            find_missing_loop(rest, acc)
+        } else {
+            find_missing_loop(rest, core.list.append(acc, h))
+        }
+    }
+}
+
+/// Request dependencies from the client.
+fn request_deps(conn: number, hashes: List<string>) {
+    // Send NeedDeps message
+    let msg = make_need_deps_message(hashes);
+    runtime.Network.send!(conn, msg);
+
+    // Wait for Provide response
+    let response = runtime.Network.receive!(conn);
+
+    check_not_empty(response, "connection closed while waiting for dependencies");
+
+    let msg_type = get_message_type(response);
+
+    if msg_type == msg_provide() {
+        // Load the provided functions
+        let payload = get_payload(response);
+        runtime.Execute.load_functions!(payload)
+    } else {
+        Exception.throw!("remote: expected Provide message")
+    }
+}
+
+/// Execute the function and send the result back.
+fn execute_and_respond<R>(conn: number, hash: string, captures: List<number>): R {
+    // Deserialize captures to get the argument value
+    let arg = deserialize_or_throw(captures, "captures");
+
+    // Execute the function
+    // Note: Execute.run takes the hash and argument value
+    let result: R = runtime.Execute.run!(hash, arg);
+
+    // Send the result back
+    let result_bytes = core.protocol.serialize_value(result);
+    let msg = make_result_message(result_bytes);
+    runtime.Network.send!(conn, msg);
+
+    result
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Client API
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Execute a closure on a remote server.
-//
-// This function:
-// 1. Gets the closure's function hash and captures
-// 2. Sends an Execute message to the server
-// 3. Responds to NeedDeps requests by providing functions
-// 4. Returns the execution result
-//
-// fn call<T>(conn: number, thunk: () -> T): T
-//   with Network, Exception<RemoteError>
-// {
-//   let hash = core.protocol.closure_hash(thunk);
-//   let captures = core.protocol.closure_captures(thunk);
-//
-//   // TODO: Implement message sending/receiving loop
-//   // For now, this is a placeholder
-// }
+/// Execute a closure on a remote server.
+///
+/// This function:
+/// 1. Gets the closure's function hash and captures
+/// 2. Sends an Execute message to the server
+/// 3. Responds to NeedDeps requests by providing functions
+/// 4. Returns the execution result
+///
+/// Throws a string error on failure (use handle {} {} to catch).
+pub fn call<T>(conn: number, thunk: () -> T): T {
+    // Get closure info
+    let hash = core.protocol.closure_hash(thunk);
+    let captures = core.protocol.closure_captures(thunk);
+
+    // Send Execute message
+    let msg = make_execute_message(hash, captures);
+    runtime.Network.send!(conn, msg);
+
+    // Enter client loop to handle responses
+    client_loop(conn)
+}
+
+/// Client response loop - handles NeedDeps and Result messages.
+fn client_loop<T>(conn: number): T {
+    let response = runtime.Network.receive!(conn);
+
+    check_not_empty(response, "connection closed");
+
+    let msg_type = get_message_type(response);
+
+    if msg_type == msg_result() {
+        // Success! Deserialize and return the result
+        let payload = get_payload(response);
+        deserialize_or_throw(payload, "result")
+    } else {
+        if msg_type == msg_need_deps() {
+            // Server needs functions - provide them
+            let payload = get_payload(response);
+            let hashes = deserialize_list_or_throw(payload, "dependency list");
+            provide_functions(conn, hashes);
+            client_loop(conn)
+        } else {
+            if msg_type == msg_error() {
+                let payload = get_payload(response);
+                let error_msg = deserialize_string_or_throw(payload, "error message");
+                Exception.throw!(core.string.concat("remote: server error: ", error_msg))
+            } else {
+                Exception.throw!("remote: unexpected message type")
+            }
+        }
+    }
+}
+
+/// Provide requested functions to the server.
+fn provide_functions(conn: number, hashes: List<string>) {
+    // Collect function data for all requested hashes
+    // For now, we use a simple format: serialize the list of hashes
+    // The actual function bytecode is obtained from the local store
+    let data = core.protocol.serialize_value(hashes);
+    let msg = make_provide_message(data);
+    runtime.Network.send!(conn, msg)
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Protocol Helpers
+// Message Construction
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Parse a message from raw bytes
-// fn parse_message(bytes: List<number>): Result<Message, RemoteError> {
-//   // TODO: Implement protocol parsing
-// }
+/// Create an Execute message.
+fn make_execute_message(hash: string, captures: List<number>): List<number> {
+    // Format: [msg_type, hash_length, hash_bytes..., captures...]
+    let hash_bytes = core.protocol.serialize_value(hash);
+    let hash_len = core.list.length(hash_bytes);
+    core.list.concat(
+        [msg_execute(), hash_len],
+        core.list.concat(hash_bytes, captures)
+    )
+}
 
-// Serialize a message to bytes
-// fn serialize_message(msg: Message): List<number> {
-//   // TODO: Implement protocol serialization
-// }
+/// Create a NeedDeps message.
+fn make_need_deps_message(hashes: List<string>): List<number> {
+    // Format: [msg_type, serialized_hashes...]
+    let serialized = core.protocol.serialize_value(hashes);
+    core.list.concat([msg_need_deps()], serialized)
+}
+
+/// Create a Provide message.
+fn make_provide_message(data: List<number>): List<number> {
+    core.list.concat([msg_provide()], data)
+}
+
+/// Create a Result message.
+fn make_result_message(value_bytes: List<number>): List<number> {
+    core.list.concat([msg_result()], value_bytes)
+}
+
+/// Create an Error message.
+fn make_error_message(error_msg: string): List<number> {
+    let msg_bytes = core.protocol.serialize_value(error_msg);
+    core.list.concat([msg_error()], msg_bytes)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Message Parsing
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Get the message type (first byte).
+fn get_message_type(bytes: List<number>): number {
+    core.list.head(bytes)
+}
+
+/// Get the payload (everything after the first byte).
+fn get_payload(bytes: List<number>): List<number> {
+    core.list.tail(bytes)
+}
+
+/// Parse an Execute payload into (hash, captures).
+fn parse_execute_payload(payload: List<number>): (string, List<number>) {
+    // Format: [hash_length, hash_bytes..., captures...]
+    let hash_len = core.list.head(payload);
+    let rest = core.list.tail(payload);
+    let hash_bytes = take(hash_len, rest);
+    let captures = drop(hash_len, rest);
+    let hash = deserialize_string_or_throw(hash_bytes, "function hash");
+    (hash, captures)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper Functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Check that a byte list is not empty, throw if it is.
+fn check_not_empty<T>(bytes: List<number>, context: string): () {
+    if core.list.is_empty(bytes) {
+        Exception.throw!(core.string.concat("remote: ", context))
+    } else {
+        ()
+    }
+}
+
+/// Take the first n elements from a list.
+fn take(n: number, xs: List<number>): List<number> {
+    if n <= 0 {
+        []
+    } else {
+        if core.list.is_empty(xs) {
+            []
+        } else {
+            core.list.concat([core.list.head(xs)], take(n - 1, core.list.tail(xs)))
+        }
+    }
+}
+
+/// Drop the first n elements from a list.
+fn drop(n: number, xs: List<number>): List<number> {
+    if n <= 0 {
+        xs
+    } else {
+        if core.list.is_empty(xs) {
+            []
+        } else {
+            drop(n - 1, core.list.tail(xs))
+        }
+    }
+}
+
+/// Deserialize a value, throwing on failure.
+fn deserialize_or_throw<T>(bytes: List<number>, context: string): T {
+    let opt = core.protocol.deserialize_value(bytes);
+    if core.option.is_some(opt) {
+        core.option.unwrap_or(opt, core.option.unwrap_or(opt, opt))
+    } else {
+        Exception.throw!(core.string.concat("remote: failed to deserialize ", context))
+    }
+}
+
+/// Deserialize a string, throwing on failure.
+fn deserialize_string_or_throw(bytes: List<number>, context: string): string {
+    let opt = core.protocol.deserialize_value(bytes);
+    if core.option.is_some(opt) {
+        core.option.unwrap_or(opt, "")
+    } else {
+        Exception.throw!(core.string.concat("remote: failed to deserialize ", context))
+    }
+}
+
+/// Deserialize a list of strings, throwing on failure.
+fn deserialize_list_or_throw(bytes: List<number>, context: string): List<string> {
+    let opt = core.protocol.deserialize_value(bytes);
+    if core.option.is_some(opt) {
+        core.option.unwrap_or(opt, [])
+    } else {
+        Exception.throw!(core.string.concat("remote: failed to deserialize ", context))
+    }
+}
