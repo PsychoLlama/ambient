@@ -39,7 +39,6 @@ impl AnalysisResult {
 /// Performs parsing and type checking, returning all diagnostics found.
 /// This is a convenience wrapper for single-file analysis without cross-module support.
 #[must_use]
-#[allow(dead_code)]
 pub fn analyze(source: &str) -> AnalysisResult {
     analyze_with_registry(source, None, None)
 }

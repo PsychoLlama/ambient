@@ -88,15 +88,19 @@ The LSP server handles many different request types in one file.
 
 ## Dead Code Cleanup
 
-### IMP-006: Remove dead code in `ambient-lsp`
+### IMP-006: Remove dead code in `ambient-lsp` ✅
 
-**Files**:
-- `crates/ambient-lsp/src/package.rs` - 5 fields marked `#[allow(dead_code)]` (lines 25, 32, 42, 78, 88)
-- `crates/ambient-lsp/src/semantic_tokens.rs` - 5 token types marked `#[allow(dead_code)]` (lines 61, 66, 76, 79, 81)
-- `crates/ambient-lsp/src/analysis.rs` - 1 item marked `#[allow(dead_code)]` (line 42)
-- `crates/ambient-lsp/src/lib.rs` - Module-level `#![allow(dead_code)]` (line 66)
+**Status**: COMPLETE
 
-**Action**: Either use these items or remove them. If they're planned for future use, add a comment explaining the intent.
+**Changes made**:
+- `package.rs`: Removed incorrect `#[allow(dead_code)]` from `root` field (it IS used).
+  Added documentation explaining why `host_abilities`, `source`, `runtime_config()`,
+  and `ability_resolver()` are retained for future ability-aware type checking.
+- `semantic_tokens.rs`: Consolidated individual `#[allow(dead_code)]` into module-level
+  allows with documentation explaining these are for LSP protocol completeness.
+- `analysis.rs`: Removed incorrect `#[allow(dead_code)]` from `analyze()` function
+  (it IS used by `completion_service.rs` and re-exported from `lib.rs`).
+- `lib.rs`: No changes needed - the test_harness allow is appropriate.
 
 ---
 

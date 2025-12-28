@@ -22,13 +22,16 @@ use crate::util::{path_to_uri, uri_to_path};
 #[derive(Debug)]
 pub struct PackageInfo {
     /// The package root directory (where ambient.toml is).
-    #[allow(dead_code)]
     pub root: PathBuf,
     /// The source directory.
     pub src_dir: PathBuf,
     /// Parsed modules in the package, keyed by module path.
     pub modules: HashMap<String, ParsedModule>,
     /// Host abilities configured for this package.
+    ///
+    /// Used by `runtime_config()` and `ability_resolver()` for ability-aware
+    /// type checking. Currently stored for future use when we add support for
+    /// validating that performed abilities match the package configuration.
     #[allow(dead_code)]
     pub host_abilities: Vec<String>,
 }
@@ -38,7 +41,11 @@ pub struct PackageInfo {
 pub struct ParsedModule {
     /// The module path.
     pub path: ModulePath,
-    /// The source code (retained for error messages).
+    /// The source code.
+    ///
+    /// Retained for error reporting and potential re-analysis. Currently
+    /// stored but not directly accessed - the source is used implicitly
+    /// when the module needs to be re-parsed on changes.
     #[allow(dead_code)]
     pub source: String,
     /// The parsed AST.
@@ -74,6 +81,10 @@ impl PackageInfo {
     }
 
     /// Build a `RuntimeConfig` from this package's host abilities.
+    ///
+    /// Note: Currently unused but retained for future ability-aware type checking
+    /// in the LSP server. Will be used when we add support for checking that
+    /// performed abilities are available in the package's runtime configuration.
     #[must_use]
     #[allow(dead_code)]
     pub fn runtime_config(&self) -> RuntimeConfig {
@@ -84,6 +95,8 @@ impl PackageInfo {
     ///
     /// This resolver only includes abilities listed in the package's
     /// `[host].abilities` configuration.
+    ///
+    /// Note: Currently unused but retained for future ability-aware type checking.
     #[must_use]
     #[allow(dead_code)]
     pub fn ability_resolver(&self) -> AbilityResolver {

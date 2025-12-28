@@ -51,6 +51,10 @@ pub fn create_legend() -> SemanticTokensLegend {
 }
 
 /// Index constants for token types.
+///
+/// All LSP-defined token types are included for protocol completeness,
+/// even if not all are currently emitted.
+#[allow(dead_code)]
 mod token_type {
     pub const FUNCTION: u32 = 0;
     pub const VARIABLE: u32 = 1;
@@ -58,12 +62,10 @@ mod token_type {
     pub const TYPE: u32 = 3;
     pub const ENUM: u32 = 4;
     pub const ENUM_MEMBER: u32 = 5;
-    #[allow(dead_code)]
     pub const PROPERTY: u32 = 6;
     pub const STRING: u32 = 7;
     pub const NUMBER: u32 = 8;
     pub const KEYWORD: u32 = 9;
-    #[allow(dead_code)]
     pub const OPERATOR: u32 = 10;
     pub const INTERFACE: u32 = 11;
     pub const METHOD: u32 = 12;
@@ -71,14 +73,15 @@ mod token_type {
 }
 
 /// Index constants for token modifiers (as bit flags).
+///
+/// All LSP-defined modifiers are included for protocol completeness,
+/// even if not all are currently used.
+#[allow(dead_code)]
 mod token_modifier {
     pub const DECLARATION: u32 = 1 << 0;
-    #[allow(dead_code)]
     pub const DEFINITION: u32 = 1 << 1;
     pub const READONLY: u32 = 1 << 2;
-    #[allow(dead_code)]
     pub const STATIC: u32 = 1 << 3;
-    #[allow(dead_code)]
     pub const DEFAULT_LIBRARY: u32 = 1 << 4;
 }
 
