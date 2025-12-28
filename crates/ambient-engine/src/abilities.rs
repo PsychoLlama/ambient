@@ -45,16 +45,6 @@ pub mod async_ability {
     pub use ambient_runtime::async_ability::*;
 }
 
-/// Remote ability - DEPRECATED, use Network + Execute instead.
-#[deprecated(
-    since = "0.2.0",
-    note = "Use Network ability with stdlib/remote.ab middleware"
-)]
-#[allow(deprecated)]
-pub mod remote {
-    pub use ambient_runtime::remote::*;
-}
-
 /// Network ability - for TCP client/server operations.
 pub mod network {
     pub use ambient_runtime::network::*;
@@ -75,10 +65,6 @@ pub use ambient_runtime::{
     AsyncRuntimeAbility, ConsoleRuntimeAbility, ExecuteRuntimeAbility, LogRuntimeAbility,
     NetworkRuntimeAbility, RandomRuntimeAbility, TimeRuntimeAbility,
 };
-
-// Legacy re-export - deprecated
-#[allow(deprecated)]
-pub use ambient_runtime::RemoteRuntimeAbility;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Console Ability Configuration and Registration
@@ -436,174 +422,14 @@ pub fn register_log(vm: &mut Vm, config: LogConfig) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Remote Ability Implementation
+// Network Ability Implementation
 // ═══════════════════════════════════════════════════════════════════════════
 
 use tokio::runtime::Handle as RuntimeHandle;
 
 use crate::bytecode::CompiledFunction;
 use crate::network_state::NetworkState;
-use crate::protocol::{read_message, write_message, ErrorKind, Message};
-use crate::remote_state::{ConnectionId, RemoteState};
 use crate::store::{PortableFunction, Store};
-
-/// Configuration for the Remote ability.
-///
-/// **DEPRECATED**: Use Network ability with stdlib/remote.ab middleware instead.
-#[deprecated(
-    since = "0.2.0",
-    note = "Use Network ability with stdlib/remote.ab middleware"
-)]
-pub struct RemoteConfig {
-    /// Tokio runtime handle for async operations.
-    pub runtime: RuntimeHandle,
-    /// Store for function lookup (needed to send dependencies).
-    pub store: Arc<Mutex<Store>>,
-}
-
-/// Register the Remote ability handlers on a VM.
-///
-/// Provides network operations for remote function execution:
-/// - `listen(address)` - Bind TCP listener
-/// - `accept(listener)` - Accept connection
-/// - `connect(address)` - Connect to server
-/// - `call(conn, thunk)` - Send thunk for remote execution
-/// - `serve(conn)` - Wait for and execute one remote call
-/// - `close(conn)` - Close connection
-///
-/// **DEPRECATED**: Use Network ability with stdlib/remote.ab middleware instead.
-#[deprecated(
-    since = "0.2.0",
-    note = "Use Network ability with stdlib/remote.ab middleware"
-)]
-#[allow(deprecated)]
-#[allow(clippy::too_many_lines)]
-pub fn register_remote(vm: &mut Vm, config: RemoteConfig) {
-    let state = Arc::new(Mutex::new(RemoteState::new(config.runtime, config.store)));
-
-    // Remote.listen(address: string) -> Listener (number handle)
-    let state_clone = Arc::clone(&state);
-    vm.register_host_handler(
-        remote::ABILITY_ID,
-        remote::METHOD_LISTEN,
-        Box::new(move |ability: &SuspendedAbility| {
-            let addr = extract_string(&ability.args)?;
-            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            let id = state
-                .listen(&addr)
-                .map_err(|e| VmError::IoError(e.to_string()))?;
-            // Handle IDs are small integers; precision loss only happens after 2^53
-            #[allow(clippy::cast_precision_loss)]
-            Ok(Value::Number(id as f64))
-        }),
-    );
-
-    // Remote.accept(listener: number) -> Connection (number handle)
-    let state_clone = Arc::clone(&state);
-    vm.register_host_handler(
-        remote::ABILITY_ID,
-        remote::METHOD_ACCEPT,
-        Box::new(move |ability: &SuspendedAbility| {
-            // Handle IDs from Ambient are always non-negative integers
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let listener_id = extract_number(&ability.args)? as u64;
-            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            let id = state
-                .accept(listener_id)
-                .map_err(|e| VmError::IoError(e.to_string()))?;
-            #[allow(clippy::cast_precision_loss)]
-            Ok(Value::Number(id as f64))
-        }),
-    );
-
-    // Remote.connect(address: string) -> Connection (number handle)
-    let state_clone = Arc::clone(&state);
-    vm.register_host_handler(
-        remote::ABILITY_ID,
-        remote::METHOD_CONNECT,
-        Box::new(move |ability: &SuspendedAbility| {
-            let addr = extract_string(&ability.args)?;
-            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            let id = state
-                .connect(&addr)
-                .map_err(|e| VmError::IoError(e.to_string()))?;
-            #[allow(clippy::cast_precision_loss)]
-            Ok(Value::Number(id as f64))
-        }),
-    );
-
-    // Remote.call(conn: number, thunk: closure) -> value
-    let state_clone = Arc::clone(&state);
-    vm.register_host_handler(
-        remote::ABILITY_ID,
-        remote::METHOD_CALL,
-        Box::new(move |ability: &SuspendedAbility| {
-            if ability.args.len() < 2 {
-                return Err(VmError::TypeErrorOwned {
-                    expected: "2 arguments".to_string(),
-                    got: format!("{} arguments", ability.args.len()),
-                });
-            }
-
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let conn_id = match &ability.args[0] {
-                Value::Number(n) => *n as u64,
-                other => {
-                    return Err(VmError::TypeErrorOwned {
-                        expected: "number".to_string(),
-                        got: other.type_name().to_string(),
-                    })
-                }
-            };
-
-            let closure = match &ability.args[1] {
-                Value::Closure(c) => Arc::clone(c),
-                other => {
-                    return Err(VmError::TypeErrorOwned {
-                        expected: "closure".to_string(),
-                        got: other.type_name().to_string(),
-                    })
-                }
-            };
-
-            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            handle_remote_call(&mut state, conn_id, &closure)
-        }),
-    );
-
-    // Remote.serve(conn: number) -> value
-    let state_clone = Arc::clone(&state);
-    vm.register_host_handler(
-        remote::ABILITY_ID,
-        remote::METHOD_SERVE,
-        Box::new(move |ability: &SuspendedAbility| {
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let conn_id = extract_number(&ability.args)? as u64;
-            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            handle_remote_serve(&mut state, conn_id)
-        }),
-    );
-
-    // Remote.close(conn: number) -> ()
-    let state_clone = Arc::clone(&state);
-    vm.register_host_handler(
-        remote::ABILITY_ID,
-        remote::METHOD_CLOSE,
-        Box::new(move |ability: &SuspendedAbility| {
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let conn_id = extract_number(&ability.args)? as u64;
-            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            state
-                .close(conn_id)
-                .map_err(|e| VmError::IoError(e.to_string()))?;
-            Ok(Value::Unit)
-        }),
-    );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Network Ability Implementation
-// ═══════════════════════════════════════════════════════════════════════════
 
 /// Configuration for the Network ability.
 pub struct NetworkConfig {
@@ -975,189 +801,6 @@ fn extract_number(args: &[Value]) -> Result<f64, VmError> {
     }
 }
 
-/// Handle Remote.call - send closure for remote execution.
-fn handle_remote_call(
-    state: &mut RemoteState,
-    conn_id: ConnectionId,
-    closure: &crate::value::Closure,
-) -> Result<Value, VmError> {
-    // Get function hash and captured environment
-    let func_hash = closure.function_hash;
-    let captures = closure.environment.clone();
-
-    // For the PoC, since we can't write zero-arg lambdas like `() => expr`,
-    // we use lambdas with a dummy parameter like `(x) => expr`. We pass
-    // the captured values as the args (one value per parameter).
-    // This is a workaround until we support zero-arg lambdas.
-    let args = captures.clone();
-
-    // Collect function and dependencies from client's store
-    let store = state.store().lock().map_err(|_| VmError::LockPoisoned)?;
-    let subset = store.extract_with_dependencies(&func_hash);
-    let portable_functions: Vec<PortableFunction> = subset
-        .hashes()
-        .iter()
-        .filter_map(|h| subset.get(h).map(|f| PortableFunction::from(f.as_ref())))
-        .collect();
-    drop(store);
-
-    // Get runtime before getting mutable borrow
-    let runtime = state.runtime().clone();
-
-    // Get the connection
-    let conn = state
-        .get_connection_mut(conn_id)
-        .ok_or_else(|| VmError::IoError(format!("invalid connection ID: {conn_id}")))?;
-
-    // Split the stream for read/write
-    let stream = &mut conn.stream;
-
-    runtime.block_on(async {
-        // Send Execute message with closure's captured values
-        let (mut reader, mut writer) = stream.split();
-        write_message(
-            &mut writer,
-            &Message::execute_closure(func_hash, args, captures),
-        )
-        .await
-        .map_err(|e| VmError::IoError(e.to_string()))?;
-
-        // Handle response loop
-        loop {
-            let response = read_message(&mut reader)
-                .await
-                .map_err(|e| VmError::IoError(e.to_string()))?
-                .ok_or_else(|| VmError::IoError("connection closed".to_string()))?;
-
-            match response {
-                Message::Result { value } => return Ok(value),
-                Message::Error { error } => {
-                    return Err(VmError::IoError(format!("remote error: {}", error.message)))
-                }
-                Message::NeedDeps { hashes } => {
-                    // Provide requested functions
-                    let functions: Vec<_> = hashes
-                        .iter()
-                        .filter_map(|h| portable_functions.iter().find(|f| f.hash == *h).cloned())
-                        .collect();
-                    write_message(&mut writer, &Message::Provide { functions })
-                        .await
-                        .map_err(|e| VmError::IoError(e.to_string()))?;
-                }
-                _ => {
-                    return Err(VmError::IoError(
-                        "unexpected message from server".to_string(),
-                    ))
-                }
-            }
-        }
-    })
-}
-
-/// Handle Remote.serve - wait for and execute one remote call.
-fn handle_remote_serve(state: &mut RemoteState, conn_id: ConnectionId) -> Result<Value, VmError> {
-    // Get runtime before getting mutable borrow
-    let runtime = state.runtime().clone();
-
-    let conn = state
-        .get_connection_mut(conn_id)
-        .ok_or_else(|| VmError::IoError(format!("invalid connection ID: {conn_id}")))?;
-
-    let executor = conn
-        .executor
-        .as_mut()
-        .ok_or_else(|| VmError::IoError("not a server connection".to_string()))?;
-
-    let stream = &mut conn.stream;
-
-    runtime.block_on(async {
-        let (mut reader, mut writer) = stream.split();
-
-        // Track the pending execute request: (hash, args, captures)
-        let mut pending_execute: Option<(blake3::Hash, Vec<Value>, Vec<Value>)> = None;
-
-        loop {
-            // If we have a pending execute, try to run it
-            if let Some((hash, ref args, ref captures)) = pending_execute {
-                // Check if we now have the function
-                if executor.store().contains(&hash) {
-                    // Check for missing dependencies
-                    let missing = executor.store().missing_dependencies(&hash);
-                    if missing.is_empty() {
-                        // Execute the closure with its captured environment
-                        let result =
-                            executor
-                                .vm_mut()
-                                .call_closure(&hash, args.clone(), captures.clone());
-                        match result {
-                            Ok(value) => {
-                                write_message(&mut writer, &Message::result(value.clone()))
-                                    .await
-                                    .map_err(|e| VmError::IoError(e.to_string()))?;
-                                return Ok(value);
-                            }
-                            Err(e) => {
-                                write_message(
-                                    &mut writer,
-                                    &Message::error(ErrorKind::RuntimeException, e.to_string()),
-                                )
-                                .await
-                                .map_err(|e| VmError::IoError(e.to_string()))?;
-                                return Err(e);
-                            }
-                        }
-                    }
-                    // Missing dependencies - request them and wait for Provide
-                    write_message(&mut writer, &Message::need_deps(&missing))
-                        .await
-                        .map_err(|e| VmError::IoError(e.to_string()))?;
-                } else {
-                    // Still don't have the function, request it
-                    write_message(&mut writer, &Message::need_deps(&[hash]))
-                        .await
-                        .map_err(|e| VmError::IoError(e.to_string()))?;
-                }
-            }
-
-            // Read next message
-            let msg = read_message(&mut reader)
-                .await
-                .map_err(|e| VmError::IoError(e.to_string()))?
-                .ok_or_else(|| VmError::IoError("connection closed".to_string()))?;
-
-            match msg {
-                Message::Execute {
-                    function,
-                    args,
-                    captures,
-                    required_abilities: _, // TODO: Check against server's RuntimeConfig
-                } => {
-                    // Parse the function hash
-                    let hash = parse_hash(&function)
-                        .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
-
-                    // Store as pending with captures
-                    pending_execute = Some((hash, args, captures));
-                    // Loop will try to execute on next iteration
-                }
-                Message::Provide { functions } => {
-                    // Load provided functions into executor
-                    for pf in functions {
-                        let func = CompiledFunction::try_from(pf)
-                            .map_err(|e| VmError::IoError(format!("invalid function: {e}")))?;
-                        executor.store_mut().add(func.clone());
-                        executor.vm_mut().load_function(func);
-                    }
-                    // Loop will retry pending execute
-                }
-                _ => {
-                    // Ignore other messages
-                }
-            }
-        }
-    })
-}
-
 /// Parse a hex-encoded hash string.
 fn parse_hash(hex_str: &str) -> Result<blake3::Hash, String> {
     let bytes = hex::decode(hex_str).map_err(|e| format!("invalid hex: {e}"))?;
@@ -1179,7 +822,7 @@ fn parse_hash(hex_str: &str) -> Result<blake3::Hash, String> {
 /// Register all standard ability handlers on a VM.
 ///
 /// This includes Console, Exception (fallback), Time, Random, and Log.
-/// Note: Remote is NOT included here as it requires a runtime handle.
+/// Note: Network and Execute require external configuration and are not included.
 pub fn register_all_standard_abilities(vm: &mut Vm) {
     register_console(vm, ConsoleConfig::default());
     register_exception_fallback(vm);

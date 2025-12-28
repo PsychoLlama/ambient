@@ -15,13 +15,6 @@ pub mod network;
 pub mod random;
 pub mod time;
 
-// Legacy Remote module - deprecated, use Network + Execute instead
-#[deprecated(
-    since = "0.2.0",
-    note = "Use Network ability with stdlib/remote.ab middleware"
-)]
-pub mod remote;
-
 pub use async_ability::{AsyncAbility, AsyncRuntimeAbility, ASYNC};
 pub use console::{ConsoleAbility, ConsoleRuntimeAbility, CONSOLE};
 pub use execute::ExecuteRuntimeAbility;
@@ -29,10 +22,6 @@ pub use log::{LogAbility, LogRuntimeAbility, LOG};
 pub use network::{NetworkAbility, NetworkRuntimeAbility, NETWORK};
 pub use random::{RandomAbility, RandomRuntimeAbility, RANDOM};
 pub use time::{TimeAbility, TimeRuntimeAbility, TIME};
-
-// Legacy re-exports - deprecated
-#[allow(deprecated)]
-pub use remote::{RemoteAbility, RemoteRuntimeAbility, REMOTE};
 
 // Re-export RuntimeAbility trait for convenience
 pub use ambient_ability::RuntimeAbility;
@@ -131,7 +120,6 @@ mod tests {
         let runtime = RuntimeAbilities::new(&factory);
 
         // 7 abilities: Console, Time, Random, Async, Log, Network, Execute
-        // (Remote is deprecated and no longer included)
         assert_eq!(runtime.abilities().len(), 7);
 
         // Check Console
@@ -175,14 +163,9 @@ mod tests {
         assert!(execute_ab.is_some());
         let execute_ab = execute_ab.unwrap();
         assert_eq!(execute_ab.methods.len(), 4);
-
-        // Remote is deprecated and not included in RuntimeAbilities
-        let remote_ab = runtime.get_ability("Remote");
-        assert!(remote_ab.is_none());
     }
 
     #[test]
-    #[allow(deprecated)]
     fn test_ability_ids() {
         // Verify the historical IDs are correct
         assert_eq!(console::ABILITY_ID, 0x0001);
@@ -190,7 +173,7 @@ mod tests {
         assert_eq!(random::ABILITY_ID, 0x0004);
         assert_eq!(async_ability::ABILITY_ID, 0x0005);
         assert_eq!(log::ABILITY_ID, 0x0006);
-        assert_eq!(remote::ABILITY_ID, 0x0007); // deprecated but ID preserved
+        // 0x0007 was Remote (removed)
         assert_eq!(network::ABILITY_ID, 0x0008);
         assert_eq!(execute::ABILITY_ID, 0x0009);
     }

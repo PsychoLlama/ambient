@@ -9,9 +9,9 @@
 //! // Full native runtime
 //! let config = RuntimeConfig::native();
 //!
-//! // Custom runtime without Remote
+//! // Custom runtime without Network
 //! let config = RuntimeConfig::native()
-//!     .without_ability("Remote");
+//!     .without_ability("Network");
 //!
 //! // Create VM with config
 //! let mut vm = Vm::with_runtime(&config);

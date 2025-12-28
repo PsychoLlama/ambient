@@ -3,8 +3,7 @@
 //! This module provides thread-safe state for managing TCP listeners and connections
 //! used by the Network ability handlers.
 //!
-//! Unlike `RemoteState`, this is a pure networking layer without execution concerns.
-//! It handles:
+//! This is a pure networking layer that handles:
 //! - TCP listener lifecycle
 //! - TCP connection lifecycle
 //! - Length-prefixed message I/O
