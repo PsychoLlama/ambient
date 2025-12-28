@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
+#[allow(deprecated)]
 use ambient_engine::abilities::{
     register_execute, register_network, register_remote, ExecuteConfig, NetworkConfig, RemoteConfig,
 };
@@ -319,13 +320,17 @@ fn run_compiled(compiled: &CompiledModule, entry: &str) -> Result<()> {
     let store = Arc::new(std::sync::Mutex::new(store));
 
     // Register Remote ability for network operations (deprecated).
-    register_remote(
-        &mut vm,
-        RemoteConfig {
-            runtime: runtime.handle().clone(),
-            store: Arc::clone(&store),
-        },
-    );
+    // Kept for backwards compatibility with existing programs.
+    #[allow(deprecated)]
+    {
+        register_remote(
+            &mut vm,
+            RemoteConfig {
+                runtime: runtime.handle().clone(),
+                store: Arc::clone(&store),
+            },
+        );
+    }
 
     // Register Network ability for TCP operations.
     register_network(

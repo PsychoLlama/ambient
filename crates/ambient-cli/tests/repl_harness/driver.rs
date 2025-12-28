@@ -57,7 +57,7 @@ impl PtyDriver {
         // Build command to spawn
         let binary = binary_path
             .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| find_ambient_binary());
+            .unwrap_or_else(find_ambient_binary);
 
         let mut cmd = CommandBuilder::new(&binary);
         cmd.arg("repl");
