@@ -50,6 +50,11 @@ pub mod remote {
     pub use ambient_runtime::remote::*;
 }
 
+/// Network ability - for TCP client/server operations.
+pub mod network {
+    pub use ambient_runtime::network::*;
+}
+
 /// Log ability - for structured logging with levels.
 pub mod log {
     pub use ambient_runtime::log::*;
@@ -57,8 +62,8 @@ pub mod log {
 
 // Re-export RuntimeAbility implementations for convenience
 pub use ambient_runtime::{
-    AsyncRuntimeAbility, ConsoleRuntimeAbility, LogRuntimeAbility, RandomRuntimeAbility,
-    RemoteRuntimeAbility, TimeRuntimeAbility,
+    AsyncRuntimeAbility, ConsoleRuntimeAbility, LogRuntimeAbility, NetworkRuntimeAbility,
+    RandomRuntimeAbility, RemoteRuntimeAbility, TimeRuntimeAbility,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -423,6 +428,7 @@ pub fn register_log(vm: &mut Vm, config: LogConfig) {
 use tokio::runtime::Handle as RuntimeHandle;
 
 use crate::bytecode::CompiledFunction;
+use crate::network_state::NetworkState;
 use crate::protocol::{read_message, write_message, ErrorKind, Message};
 use crate::remote_state::{ConnectionId, RemoteState};
 use crate::store::{PortableFunction, Store};
@@ -566,6 +572,227 @@ pub fn register_remote(vm: &mut Vm, config: RemoteConfig) {
             Ok(Value::Unit)
         }),
     );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Network Ability Implementation
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Configuration for the Network ability.
+pub struct NetworkConfig {
+    /// Tokio runtime handle for async operations.
+    pub runtime: RuntimeHandle,
+}
+
+/// Register the Network ability handlers on a VM.
+///
+/// Provides low-level TCP networking operations:
+/// - `listen(address)` - Bind TCP listener
+/// - `accept(listener)` - Accept connection
+/// - `close_listener(listener)` - Close listener
+/// - `connect(address)` - Connect to server
+/// - `close(conn)` - Close connection
+/// - `send(conn, data)` - Send length-prefixed message
+/// - `receive(conn)` - Receive length-prefixed message
+/// - `local_addr(conn)` - Get local address
+/// - `peer_addr(conn)` - Get peer address
+#[allow(clippy::too_many_lines)]
+pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
+    let state = Arc::new(Mutex::new(NetworkState::new(config.runtime)));
+
+    // Network.listen(address: string) -> ListenerId (number handle)
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        network::ABILITY_ID,
+        network::METHOD_LISTEN,
+        Box::new(move |ability: &SuspendedAbility| {
+            let addr = extract_string(&ability.args)?;
+            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let id = state
+                .listen(&addr)
+                .map_err(|e| VmError::IoError(e.to_string()))?;
+            #[allow(clippy::cast_precision_loss)]
+            Ok(Value::Number(id as f64))
+        }),
+    );
+
+    // Network.accept(listener: number) -> ConnectionId (number handle)
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        network::ABILITY_ID,
+        network::METHOD_ACCEPT,
+        Box::new(move |ability: &SuspendedAbility| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let listener_id = extract_number(&ability.args)? as u64;
+            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let id = state
+                .accept(listener_id)
+                .map_err(|e| VmError::IoError(e.to_string()))?;
+            #[allow(clippy::cast_precision_loss)]
+            Ok(Value::Number(id as f64))
+        }),
+    );
+
+    // Network.close_listener(listener: number) -> ()
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        network::ABILITY_ID,
+        network::METHOD_CLOSE_LISTENER,
+        Box::new(move |ability: &SuspendedAbility| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let listener_id = extract_number(&ability.args)? as u64;
+            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            state
+                .close_listener(listener_id)
+                .map_err(|e| VmError::IoError(e.to_string()))?;
+            Ok(Value::Unit)
+        }),
+    );
+
+    // Network.connect(address: string) -> ConnectionId (number handle)
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        network::ABILITY_ID,
+        network::METHOD_CONNECT,
+        Box::new(move |ability: &SuspendedAbility| {
+            let addr = extract_string(&ability.args)?;
+            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let id = state
+                .connect(&addr)
+                .map_err(|e| VmError::IoError(e.to_string()))?;
+            #[allow(clippy::cast_precision_loss)]
+            Ok(Value::Number(id as f64))
+        }),
+    );
+
+    // Network.close(conn: number) -> ()
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        network::ABILITY_ID,
+        network::METHOD_CLOSE,
+        Box::new(move |ability: &SuspendedAbility| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let conn_id = extract_number(&ability.args)? as u64;
+            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            state
+                .close(conn_id)
+                .map_err(|e| VmError::IoError(e.to_string()))?;
+            Ok(Value::Unit)
+        }),
+    );
+
+    // Network.send(conn: number, data: List<number>) -> ()
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        network::ABILITY_ID,
+        network::METHOD_SEND,
+        Box::new(move |ability: &SuspendedAbility| {
+            if ability.args.len() < 2 {
+                return Err(VmError::TypeErrorOwned {
+                    expected: "2 arguments".to_string(),
+                    got: format!("{} arguments", ability.args.len()),
+                });
+            }
+
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let conn_id = match &ability.args[0] {
+                Value::Number(n) => *n as u64,
+                other => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "number".to_string(),
+                        got: other.type_name().to_string(),
+                    })
+                }
+            };
+
+            let data = extract_bytes(&ability.args[1])?;
+
+            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            state
+                .send(conn_id, &data)
+                .map_err(|e| VmError::IoError(e.to_string()))?;
+            Ok(Value::Unit)
+        }),
+    );
+
+    // Network.receive(conn: number) -> List<number>
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        network::ABILITY_ID,
+        network::METHOD_RECEIVE,
+        Box::new(move |ability: &SuspendedAbility| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let conn_id = extract_number(&ability.args)? as u64;
+
+            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let data = state
+                .receive(conn_id)
+                .map_err(|e| VmError::IoError(e.to_string()))?;
+
+            Ok(bytes_to_list(&data))
+        }),
+    );
+
+    // Network.local_addr(conn: number) -> string
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        network::ABILITY_ID,
+        network::METHOD_LOCAL_ADDR,
+        Box::new(move |ability: &SuspendedAbility| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let conn_id = extract_number(&ability.args)? as u64;
+
+            let state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let addr = state
+                .local_addr(conn_id)
+                .map_err(|e| VmError::IoError(e.to_string()))?;
+            Ok(Value::string(addr))
+        }),
+    );
+
+    // Network.peer_addr(conn: number) -> string
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        network::ABILITY_ID,
+        network::METHOD_PEER_ADDR,
+        Box::new(move |ability: &SuspendedAbility| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let conn_id = extract_number(&ability.args)? as u64;
+
+            let state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let addr = state
+                .peer_addr(conn_id)
+                .map_err(|e| VmError::IoError(e.to_string()))?;
+            Ok(Value::string(addr))
+        }),
+    );
+}
+
+/// Extract bytes from a List<number> value.
+fn extract_bytes(value: &Value) -> Result<Vec<u8>, VmError> {
+    match value {
+        Value::List(list) => list
+            .iter()
+            .map(|v| match v {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                Value::Number(n) => Ok(*n as u8),
+                other => Err(VmError::TypeErrorOwned {
+                    expected: "number".to_string(),
+                    got: other.type_name().to_string(),
+                }),
+            })
+            .collect(),
+        other => Err(VmError::TypeErrorOwned {
+            expected: "list".to_string(),
+            got: other.type_name().to_string(),
+        }),
+    }
+}
+
+/// Convert bytes to a List<number> value.
+fn bytes_to_list(bytes: &[u8]) -> Value {
+    let values: Vec<Value> = bytes.iter().map(|&b| Value::Number(f64::from(b))).collect();
+    Value::List(Arc::new(values))
 }
 
 /// Extract a string from the first argument.
