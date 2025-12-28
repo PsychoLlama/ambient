@@ -1,0 +1,103 @@
+// Remote execution middleware
+//
+// This module provides high-level functions for remote function execution
+// using the Network and Execute abilities.
+//
+// The protocol works as follows:
+// 1. Client sends Execute message with function hash and serialized args
+// 2. Server checks if it has the function
+// 3. If missing dependencies, server sends NeedDeps message
+// 4. Client responds with Provide message containing the functions
+// 5. Server executes and returns Result or Error
+//
+// Example usage:
+//
+// Server:
+//   let listener = Network.listen!("127.0.0.1:8080");
+//   let conn = Network.accept!(listener);
+//   let result = remote.serve!(conn);
+//
+// Client:
+//   let conn = Network.connect!("127.0.0.1:8080");
+//   let result = remote.call!(conn, () -> expensive_computation());
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Message Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Message type constants (first byte of wire format)
+// let MSG_EXECUTE: number = 1;
+// let MSG_NEED_DEPS: number = 2;
+// let MSG_PROVIDE: number = 3;
+// let MSG_RESULT: number = 4;
+// let MSG_ERROR: number = 5;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Error Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum RemoteError {
+    ConnectionClosed,
+    ProtocolError(string),
+    ExecutionFailed(string),
+    MissingDependency(string),
+    SerializationError(string)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Server API
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Serve a single request on the connection.
+//
+// This function:
+// 1. Reads an Execute message from the connection
+// 2. Checks if all required functions are available
+// 3. Requests missing dependencies from the client
+// 4. Executes the function with the provided arguments
+// 5. Sends the result back to the client
+//
+// Returns the execution result, or throws RemoteError on failure.
+//
+// fn serve<R>(conn: number): R
+//   with Network, Execute, Exception<RemoteError>
+// {
+//   // TODO: Implement using Network.receive!, Execute.*, and protocol parsing
+//   // For now, this is a placeholder
+// }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Client API
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Execute a closure on a remote server.
+//
+// This function:
+// 1. Gets the closure's function hash and captures
+// 2. Sends an Execute message to the server
+// 3. Responds to NeedDeps requests by providing functions
+// 4. Returns the execution result
+//
+// fn call<T>(conn: number, thunk: () -> T): T
+//   with Network, Exception<RemoteError>
+// {
+//   let hash = core.protocol.closure_hash(thunk);
+//   let captures = core.protocol.closure_captures(thunk);
+//
+//   // TODO: Implement message sending/receiving loop
+//   // For now, this is a placeholder
+// }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Protocol Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Parse a message from raw bytes
+// fn parse_message(bytes: List<number>): Result<Message, RemoteError> {
+//   // TODO: Implement protocol parsing
+// }
+
+// Serialize a message to bytes
+// fn serialize_message(msg: Message): List<number> {
+//   // TODO: Implement protocol serialization
+// }
