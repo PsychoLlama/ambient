@@ -7,7 +7,9 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
-use ambient_engine::abilities::{register_remote, RemoteConfig};
+use ambient_engine::abilities::{
+    register_execute, register_network, register_remote, ExecuteConfig, NetworkConfig, RemoteConfig,
+};
 use ambient_engine::ast::{ItemKind, UsePrefix};
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::format::format_value_colored;
@@ -316,11 +318,27 @@ fn run_compiled(compiled: &CompiledModule, entry: &str) -> Result<()> {
     }
     let store = Arc::new(std::sync::Mutex::new(store));
 
-    // Register Remote ability for network operations.
+    // Register Remote ability for network operations (deprecated).
     register_remote(
         &mut vm,
         RemoteConfig {
             runtime: runtime.handle().clone(),
+            store: Arc::clone(&store),
+        },
+    );
+
+    // Register Network ability for TCP operations.
+    register_network(
+        &mut vm,
+        NetworkConfig {
+            runtime: runtime.handle().clone(),
+        },
+    );
+
+    // Register Execute ability for server-side function execution.
+    register_execute(
+        &mut vm,
+        ExecuteConfig {
             store: Arc::clone(&store),
         },
     );
