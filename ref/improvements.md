@@ -222,15 +222,18 @@ Core library (356 lines) with **no tests**:
 
 ---
 
-### IMP-014: Address `#[allow(clippy::unnecessary_wraps)]` suppressions
+### IMP-014: Address `#[allow(clippy::unnecessary_wraps)]` suppressions ✅
 
-**Files**:
-- `crates/ambient-parser/src/lexer.rs` (lines 616, 629, 657)
-- `crates/ambient-parser/src/lower.rs` (line 248)
+**Status**: COMPLETE
 
-These indicate functions returning `Result` or `Option` when they always succeed. Either:
-- Remove the wrapper type if always successful
-- Document why the signature is intentional (consistency with similar functions)
+**Changes made**:
+Added documentation to all functions explaining that the `Result` return type is
+for API consistency with other lex/lower functions that can fail:
+- `lexer.rs`: `lex_whitespace`, `lex_line_comment`, `lex_identifier`
+- `lower.rs`: `lower_use`
+
+These functions are called in contexts where other branches can fail, so they
+need matching signatures for ergonomic use in match expressions.
 
 ---
 

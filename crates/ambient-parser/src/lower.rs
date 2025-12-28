@@ -245,6 +245,8 @@ fn lower_ability_def(a: &CstAbilityDef) -> Result<AbilityDef, ParseError> {
     })
 }
 
+/// Lower a use statement. Returns Result for API consistency with other lower
+/// functions, even though use lowering never fails.
 #[allow(clippy::unnecessary_wraps)]
 fn lower_use(u: &CstUseDef) -> Result<UseDef, ParseError> {
     let path = u.path.iter().map(|i| (i.name.clone(), i.span)).collect();

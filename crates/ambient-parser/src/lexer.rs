@@ -613,6 +613,8 @@ impl<'src> Lexer<'src> {
         }
     }
 
+    /// Lex whitespace characters. Returns Result for API consistency with other
+    /// lex methods, even though whitespace lexing never fails.
     #[allow(clippy::unnecessary_wraps)]
     fn lex_whitespace(&mut self, start: usize) -> Result<Token, ParseError> {
         while let Some(c) = self.peek() {
@@ -626,6 +628,8 @@ impl<'src> Lexer<'src> {
         Ok(self.make_token(TokenKind::Whitespace, start))
     }
 
+    /// Lex a line comment (regular, doc, or inner doc). Returns Result for API
+    /// consistency with other lex methods.
     #[allow(clippy::unnecessary_wraps)]
     fn lex_line_comment(&mut self, start: usize) -> Result<Token, ParseError> {
         // Already consumed "//"
@@ -654,6 +658,8 @@ impl<'src> Lexer<'src> {
         Ok(self.make_token(kind, start))
     }
 
+    /// Lex an identifier or keyword. Returns Result for API consistency with
+    /// other lex methods.
     #[allow(clippy::unnecessary_wraps)]
     fn lex_identifier(&mut self, start: usize) -> Result<Token, ParseError> {
         while let Some(c) = self.peek() {
