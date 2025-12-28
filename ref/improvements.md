@@ -237,13 +237,17 @@ need matching signatures for ergonomic use in match expressions.
 
 ---
 
-### IMP-015: Review `#[allow(clippy::expect_used)]` suppressions
+### IMP-015: Review `#[allow(clippy::expect_used)]` suppressions ✅
 
-**Files**:
-- `crates/ambient-parser/src/lower.rs` (lines 771, 898)
-- `crates/ambient-engine/src/compiler/mod.rs` (line 858)
+**Status**: COMPLETE
 
-Document why `expect()` is safe in these locations, or refactor to handle errors properly.
+**Changes made**:
+- `lower.rs`: Added `# Panics` documentation to `lower_type` and `lower_qualified_name`
+  explaining that qualified names always have at least one segment by parser construction.
+- `compiler/mod.rs`: Improved the invariant comment to explain why SCC functions
+  must exist in `all_functions`.
+
+All uses of `expect()` are for internal invariants that cannot fail at runtime.
 
 ---
 

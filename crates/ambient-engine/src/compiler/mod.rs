@@ -854,13 +854,14 @@ fn compute_scc_hash(
     sorted_scc.sort();
 
     for name in &sorted_scc {
-        // SAFETY: All functions in the SCC must exist in all_functions
+        // All functions in the SCC must exist in all_functions because the SCC
+        // was computed from this same set of functions.
         #[allow(clippy::expect_used)]
         let func = all_functions
             .iter()
             .find(|(n, _, _, _)| n == name)
             .map(|(_, f, _, _)| f)
-            .expect("function should exist");
+            .expect("SCC function must exist in all_functions");
 
         // Hash the function name (for position in SCC)
         hasher.update(&(name.len() as u32).to_le_bytes());

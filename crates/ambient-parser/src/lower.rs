@@ -770,11 +770,16 @@ fn lower_record_pattern_field(
     Ok((field.field.name.clone(), pattern))
 }
 
+/// Lower a CST type expression to an AST Type.
+///
+/// # Panics
+/// Uses `expect()` for qualified name segments which is safe because qualified
+/// names always have at least one segment by parser construction.
 #[allow(clippy::expect_used, clippy::too_many_lines)]
 fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
     match &ty.kind {
         CstTypeExprKind::Name(qn) => {
-            // SAFETY: Qualified names always have at least one segment by construction
+            // Qualified names always have at least one segment by parser construction
             let name = &qn
                 .segments
                 .last()
@@ -897,9 +902,13 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
     }
 }
 
+/// Lower a CST qualified name to an AST `QualifiedName`.
+///
+/// # Panics
+/// Uses `expect()` for segment access which is safe because qualified names
+/// always have at least one segment by parser construction.
 #[allow(clippy::expect_used)]
 fn lower_qualified_name(qn: &CstQualifiedName) -> QualifiedName {
-    // SAFETY: Qualified names always have at least one segment by construction
     if qn.segments.len() == 1 {
         let seg = &qn.segments[0];
         QualifiedName {
