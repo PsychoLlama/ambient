@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::ability_resolver::AbilityResolver;
 use crate::ast::BindingId;
 use crate::module_path::ModulePath;
 use crate::module_registry::{ExportKind, ModuleRegistry, ResolvedImport};
@@ -376,6 +377,135 @@ pub fn check_module_with_registry(
                                             func.name, ability_id
                                         ),
                                         ),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    errors.push(e.with_context(format!("in function `{}`", func.name)));
+                }
+            }
+        }
+
+        if let crate::ast::ItemKind::Const(const_def) = &mut item.kind {
+            infer.reset_abilities();
+            let expected_ty = infer.resolve_holes(&const_def.ty);
+
+            match infer.infer_expr(&env, &mut const_def.value) {
+                Ok(actual_ty) => {
+                    let span = (const_def.value.span.start, const_def.value.span.end);
+                    if let Err(e) = infer.unify(&expected_ty, &actual_ty, span) {
+                        errors.push(e.with_context(format!(
+                            "in constant `{}`: type mismatch",
+                            const_def.name
+                        )));
+                    }
+                }
+                Err(e) => {
+                    errors.push(e.with_context(format!("in constant `{}`", const_def.name)));
+                }
+            }
+        }
+    }
+
+    CheckResult { errors, module }
+}
+
+/// Check a module with cross-module support and a custom ability resolver.
+///
+/// This variant allows specifying which abilities are available at compile time,
+/// which is useful for LSP and other tools that need to respect package configuration.
+///
+/// # Arguments
+///
+/// * `module` - The module to type check
+/// * `module_path` - The path of this module in the package
+/// * `registry` - The module registry containing all loaded modules
+/// * `resolver` - The ability resolver specifying available abilities
+#[must_use]
+pub fn check_module_with_registry_and_resolver(
+    mut module: crate::ast::Module,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+    resolver: AbilityResolver,
+) -> CheckResult {
+    let mut infer = Infer::with_resolver(resolver);
+    let mut errors = Vec::new();
+
+    // Build initial environment from imports
+    let mut env = build_import_env(&mut infer, module_path, registry, &mut errors);
+
+    // Phase 1: Collect all function signatures into the environment.
+    let mut function_schemes: Vec<(BindingId, Arc<str>, Scheme)> = Vec::new();
+    let mut next_binding_id: BindingId = 1_000_000;
+
+    for item in &module.items {
+        if let crate::ast::ItemKind::Function(func) = &item.kind {
+            let binding_id = next_binding_id;
+            next_binding_id += 1;
+            let scheme = build_function_scheme(&mut infer, func);
+            function_schemes.push((binding_id, Arc::clone(&func.name), scheme));
+        }
+    }
+
+    for (id, name, scheme) in &function_schemes {
+        env.insert(*id, Arc::clone(name), scheme.clone());
+    }
+
+    // Phase 2: Type-check each function body
+    for item in &mut module.items {
+        if let crate::ast::ItemKind::Function(func) = &mut item.kind {
+            infer.reset_abilities();
+
+            let mut func_env = env.extend();
+            let expected_ret_ty = func.ret_ty.clone().map(|ty| infer.resolve_holes(&ty));
+
+            let mut param_types = Vec::new();
+            for param in &func.params {
+                let param_ty = match &param.ty {
+                    Some(ty) => infer.resolve_holes(ty),
+                    None => infer.fresh(),
+                };
+                param_types.push(param_ty.clone());
+                func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
+            }
+
+            match infer.infer_expr(&func_env, &mut func.body) {
+                Ok(body_ty) => {
+                    if let Some(ref expected) = expected_ret_ty {
+                        let span = (func.body.span.start, func.body.span.end);
+                        if let Err(e) = infer.unify(expected, &body_ty, span) {
+                            errors.push(e.with_context(format!(
+                                "in function `{}`: return type mismatch",
+                                func.name
+                            )));
+                        }
+                    }
+
+                    let inferred_abilities = infer.current_abilities().clone();
+                    if !func.abilities.is_empty() {
+                        let declared: Vec<AbilityId> = func
+                            .abilities
+                            .iter()
+                            .filter_map(|qn| infer.ability_name_to_id(&qn.name))
+                            .collect();
+                        let declared_set = AbilitySet::from_abilities(declared);
+
+                        if let AbilitySet::Concrete(inferred_ids) = &inferred_abilities {
+                            for ability_id in inferred_ids {
+                                if !declared_set.contains(*ability_id) {
+                                    let span = (item.span.start, item.span.end);
+                                    errors.push(Box::new(
+                                        TypeError::new(
+                                            TypeErrorKind::MissingAbility {
+                                                required: *ability_id,
+                                                available: declared_set.clone(),
+                                            },
+                                            span,
+                                        )
+                                        .with_context(format!("in function `{}`", func.name)),
                                     ));
                                 }
                             }

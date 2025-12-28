@@ -3,8 +3,12 @@
 //! This module handles parsing and type checking, producing diagnostics
 //! and type information for the LSP server.
 
+use ambient_engine::ability_resolver::AbilityResolver;
 use ambient_engine::ast::{Expr, ExprKind, Item, ItemKind, Module, QualifiedName, Span, StmtKind};
-use ambient_engine::infer::{check_module, check_module_with_registry, BoxedTypeError};
+use ambient_engine::infer::{
+    check_module, check_module_with_registry, check_module_with_registry_and_resolver,
+    BoxedTypeError,
+};
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::symbol_db::SymbolDb;
@@ -49,6 +53,20 @@ pub fn analyze_with_registry(
     module_path: Option<&ModulePath>,
     registry: Option<&ModuleRegistry>,
 ) -> AnalysisResult {
+    analyze_with_registry_and_resolver(source, module_path, registry, None)
+}
+
+/// Analyze a document with cross-module support and a custom ability resolver.
+///
+/// This variant allows specifying which abilities are available, respecting
+/// the package's `[host].abilities` configuration.
+#[must_use]
+pub fn analyze_with_registry_and_resolver(
+    source: &str,
+    module_path: Option<&ModulePath>,
+    registry: Option<&ModuleRegistry>,
+    resolver: Option<AbilityResolver>,
+) -> AnalysisResult {
     // Parse the source.
     let module = match parse(source) {
         Ok(m) => m,
@@ -61,9 +79,12 @@ pub fn analyze_with_registry(
         }
     };
 
-    // Type check the module - use registry if available.
-    let check_result = match (module_path, registry) {
-        (Some(path), Some(reg)) => check_module_with_registry(module, path, reg),
+    // Type check the module - use registry and resolver if available.
+    let check_result = match (module_path, registry, resolver) {
+        (Some(path), Some(reg), Some(res)) => {
+            check_module_with_registry_and_resolver(module, path, reg, res)
+        }
+        (Some(path), Some(reg), None) => check_module_with_registry(module, path, reg),
         _ => check_module(module),
     };
 

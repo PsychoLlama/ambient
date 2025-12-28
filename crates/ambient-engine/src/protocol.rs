@@ -46,6 +46,13 @@ pub enum Message {
         /// Captured environment for closures.
         #[serde(default)]
         captures: Vec<Value>,
+        /// Required abilities for execution (e.g., `["Console", "Time"]`).
+        ///
+        /// The server checks these against its available abilities and returns
+        /// an error if any are missing. This allows early failure before
+        /// sending bytecode.
+        #[serde(default)]
+        required_abilities: Vec<String>,
     },
 
     /// Server requests missing dependencies.
@@ -227,21 +234,43 @@ pub async fn read_message<R: AsyncRead + Unpin>(
 // ─────────────────────────────────────────────────────────────────────────────
 
 impl Message {
-    /// Create an Execute message for a closure.
+    /// Create an Execute message for a closure with required abilities.
+    #[must_use]
+    pub fn execute_closure_with_abilities(
+        function_hash: blake3::Hash,
+        args: Vec<Value>,
+        captures: Vec<Value>,
+        required_abilities: Vec<String>,
+    ) -> Self {
+        Self::Execute {
+            function: function_hash.to_hex().to_string(),
+            args,
+            captures,
+            required_abilities,
+        }
+    }
+
+    /// Create an Execute message for a closure (no ability requirements).
     #[must_use]
     pub fn execute_closure(
         function_hash: blake3::Hash,
         args: Vec<Value>,
         captures: Vec<Value>,
     ) -> Self {
-        Self::Execute {
-            function: function_hash.to_hex().to_string(),
-            args,
-            captures,
-        }
+        Self::execute_closure_with_abilities(function_hash, args, captures, Vec::new())
     }
 
-    /// Create an Execute message for a regular function (no captures).
+    /// Create an Execute message for a regular function with required abilities.
+    #[must_use]
+    pub fn execute_with_abilities(
+        function_hash: blake3::Hash,
+        args: Vec<Value>,
+        required_abilities: Vec<String>,
+    ) -> Self {
+        Self::execute_closure_with_abilities(function_hash, args, Vec::new(), required_abilities)
+    }
+
+    /// Create an Execute message for a regular function (no captures or ability requirements).
     #[must_use]
     pub fn execute(function_hash: blake3::Hash, args: Vec<Value>) -> Self {
         Self::execute_closure(function_hash, args, Vec::new())
@@ -317,9 +346,34 @@ mod tests {
         let parsed: Message = serde_json::from_str(&json).unwrap();
 
         match parsed {
-            Message::Execute { function, args, .. } => {
+            Message::Execute {
+                function,
+                args,
+                required_abilities,
+                ..
+            } => {
                 assert_eq!(function, hash.to_hex().to_string());
                 assert_eq!(args.len(), 1);
+                assert!(required_abilities.is_empty());
+            }
+            _ => panic!("wrong message type"),
+        }
+    }
+
+    #[test]
+    fn test_execute_with_abilities() {
+        let hash = blake3::hash(b"test::function");
+        let abilities = vec!["Console".to_string(), "Time".to_string()];
+        let msg = Message::execute_with_abilities(hash, vec![], abilities.clone());
+
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: Message = serde_json::from_str(&json).unwrap();
+
+        match parsed {
+            Message::Execute {
+                required_abilities, ..
+            } => {
+                assert_eq!(required_abilities, abilities);
             }
             _ => panic!("wrong message type"),
         }

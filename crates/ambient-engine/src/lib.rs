@@ -29,6 +29,8 @@ pub mod package;
 pub mod protocol;
 pub mod remote;
 pub mod remote_state;
+pub mod runtime_ability;
+pub mod runtime_config;
 pub mod server;
 pub mod store;
 pub mod symbol_db;

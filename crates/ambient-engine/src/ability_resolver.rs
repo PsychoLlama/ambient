@@ -4,6 +4,7 @@
 //! and any user-defined providers) and provides lookup methods for the type checker
 //! and compiler.
 
+use crate::runtime_config::RuntimeConfig;
 use crate::types::Type;
 use ambient_core::{AbilityDescriptor, AbilityId, AbilityProvider, MethodId, TypeFactory};
 use std::collections::HashMap;
@@ -29,6 +30,39 @@ impl AbilityResolver {
             by_name: HashMap::new(),
             by_id: HashMap::new(),
         }
+    }
+
+    /// Create an ability resolver from a `RuntimeConfig`.
+    ///
+    /// This includes:
+    /// - Core abilities (Exception, etc.) which are always available
+    /// - Runtime abilities from the config (Console, Time, etc.)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let config = RuntimeConfig::native();
+    /// let resolver = AbilityResolver::from_runtime_config(&config);
+    /// assert!(resolver.get_by_name("Console").is_some());
+    /// ```
+    #[must_use]
+    pub fn from_runtime_config(config: &RuntimeConfig) -> Self {
+        let factory = EngineTypeFactory;
+        let mut resolver = Self::new();
+
+        // Always register core abilities (Exception, etc.)
+        let core = ambient_core::CoreAbilities::new(&factory);
+        resolver.register(&core);
+
+        // Register runtime abilities from the config
+        for descriptor in config.ability_descriptors(&factory) {
+            resolver
+                .by_name
+                .insert(Arc::from(descriptor.name), descriptor.clone());
+            resolver.by_id.insert(descriptor.id, descriptor);
+        }
+
+        resolver
     }
 
     /// Register abilities from a provider.
@@ -275,5 +309,34 @@ mod tests {
         let methods = vec![Arc::from("throw")];
         let result = resolver.infer_ability_from_methods(&methods);
         assert_eq!(result, Some(ambient_core::exception::ABILITY_ID));
+    }
+
+    #[test]
+    fn test_from_runtime_config() {
+        let config = RuntimeConfig::native();
+        let resolver = AbilityResolver::from_runtime_config(&config);
+
+        // Core abilities are always present
+        assert!(resolver.get_by_name("Exception").is_some());
+
+        // Native runtime abilities
+        assert!(resolver.get_by_name("Console").is_some());
+        assert!(resolver.get_by_name("Time").is_some());
+        assert!(resolver.get_by_name("Random").is_some());
+        assert!(resolver.get_by_name("Async").is_some());
+        assert!(resolver.get_by_name("Log").is_some());
+    }
+
+    #[test]
+    fn test_from_runtime_config_without_ability() {
+        let config = RuntimeConfig::native().without_ability("Console");
+        let resolver = AbilityResolver::from_runtime_config(&config);
+
+        // Console should be absent
+        assert!(resolver.get_by_name("Console").is_none());
+
+        // Other runtime abilities still present
+        assert!(resolver.get_by_name("Time").is_some());
+        assert!(resolver.get_by_name("Random").is_some());
     }
 }

@@ -62,7 +62,9 @@ mod intrinsics;
 mod pattern;
 mod unify;
 
-pub use check::{check_module, check_module_with_registry, CheckResult};
+pub use check::{
+    check_module, check_module_with_registry, check_module_with_registry_and_resolver, CheckResult,
+};
 pub use env::{Scheme, TypeEnv};
 pub use error::{BoxedTypeError, BoxedTypeErrorExt, InferResult, TypeError, TypeErrorKind};
 

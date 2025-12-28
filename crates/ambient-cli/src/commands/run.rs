@@ -7,13 +7,14 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
-use ambient_engine::abilities::{register_all_standard_abilities, register_remote, RemoteConfig};
+use ambient_engine::abilities::{register_remote, RemoteConfig};
 use ambient_engine::ast::{ItemKind, UsePrefix};
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::format::format_value_colored;
 use ambient_engine::module_path::{ImportPrefix, ModulePath};
 use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::package::{LoadedModule, Package};
+use ambient_engine::runtime_config::RuntimeConfig;
 use ambient_engine::store::Store;
 use ambient_engine::vm::Vm;
 
@@ -304,11 +305,9 @@ fn run_compiled(compiled: &CompiledModule, entry: &str) -> Result<()> {
     // Create tokio runtime for async operations (Remote ability).
     let runtime = tokio::runtime::Runtime::new().context("failed to create async runtime")?;
 
-    // Create and configure VM.
-    let mut vm = Vm::new();
-
-    // Register standard ability handlers.
-    register_all_standard_abilities(&mut vm);
+    // Create VM with native abilities (Console, Time, Random, Async, Log).
+    let config = RuntimeConfig::native();
+    let mut vm = Vm::with_runtime(&config);
 
     // Create store for function dependencies (used by Remote ability).
     let mut store = Store::new();

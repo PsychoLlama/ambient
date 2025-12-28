@@ -8,10 +8,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use ambient_engine::ability_resolver::AbilityResolver;
 use ambient_engine::ast::Module;
 use ambient_engine::manifest::Manifest;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
+use ambient_engine::runtime_config::RuntimeConfig;
 use lsp_types::Uri;
 
 use crate::util::{path_to_uri, uri_to_path};
@@ -26,6 +28,9 @@ pub struct PackageInfo {
     pub src_dir: PathBuf,
     /// Parsed modules in the package, keyed by module path.
     pub modules: HashMap<String, ParsedModule>,
+    /// Host abilities configured for this package.
+    #[allow(dead_code)]
+    pub host_abilities: Vec<String>,
 }
 
 /// A parsed module with its source and AST.
@@ -60,11 +65,29 @@ impl PackageInfo {
                     root: current.to_path_buf(),
                     src_dir,
                     modules: HashMap::new(),
+                    host_abilities: manifest.host_abilities,
                 });
             }
 
             current = current.parent()?;
         }
+    }
+
+    /// Build a `RuntimeConfig` from this package's host abilities.
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn runtime_config(&self) -> RuntimeConfig {
+        RuntimeConfig::from_manifest(&self.host_abilities)
+    }
+
+    /// Get an `AbilityResolver` configured for this package.
+    ///
+    /// This resolver only includes abilities listed in the package's
+    /// `[host].abilities` configuration.
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn ability_resolver(&self) -> AbilityResolver {
+        AbilityResolver::from_runtime_config(&self.runtime_config())
     }
 
     /// Get the module path for a file URI within this package.
