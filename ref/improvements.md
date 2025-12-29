@@ -114,39 +114,31 @@ The LSP server handles many different request types in one file.
 
 ## Test Coverage Gaps
 
-### IMP-008: Add unit tests for type inference
+### IMP-008: Add unit tests for type inference ✅
 
-**Directory**: `crates/ambient-engine/src/infer/`
+**Status**: NOT NEEDED
 
-The type inference system (4,547 lines, 139 functions) has **zero unit tests**. This is critical infrastructure implementing Hindley-Milner type inference.
+Upon re-evaluation, the type inference system already has comprehensive unit tests:
+- `infer/expr.rs`: 31 tests covering expression inference and error cases
+- `infer/unify.rs`: 21 tests covering unification algorithm
+- `infer/abilities.rs`: 12 tests covering ability tracking
+- `infer/mod.rs`: 14 tests covering high-level inference
 
-**Priority modules**:
-1. `infer/unify.rs` (727 lines) - Type unification algorithm
-2. `infer/expr.rs` (1,150 lines) - Expression type inference
-3. `infer/check.rs` (660 lines) - Module-level type checking
-4. `infer/abilities.rs` (528 lines) - Ability constraint solving
-
-**Suggested test cases**:
-- Basic type inference (literals, variables)
-- Unification success/failure cases
-- Let-polymorphism and generalization
-- Ability propagation and constraint solving
-- Error message quality for type mismatches
+Total: 76 unit tests for the type inference system.
 
 ---
 
-### IMP-009: Add unit tests for compiler
+### IMP-009: Add unit tests for compiler ✅
 
-**Directory**: `crates/ambient-engine/src/compiler/`
+**Status**: NOT NEEDED
 
-The bytecode compiler (4,872 lines, 124 functions) has **zero unit tests**. Only covered by end-to-end integration tests.
-
-**Priority areas**:
-1. Expression compilation (`compile_expr`)
-2. Lambda closure capture
-3. Pattern matching compilation
-4. Record field compilation
-5. Module hash finalization
+Upon re-evaluation, the compiler already has 37 unit tests in `compiler/mod.rs`:
+- Expression compilation tests (literals, operators, control flow)
+- Function compilation tests (simple functions, recursion, mutual recursion)
+- Pattern matching tests
+- Closure and lambda tests
+- Content-addressed hash tests
+- Debug info generation tests
 
 ---
 
