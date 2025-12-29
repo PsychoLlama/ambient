@@ -257,6 +257,8 @@ All uses of `expect()` are for internal invariants that cannot fail at runtime.
 
 ### IMP-016: Consolidate numeric cast suppressions
 
+**Status**: DEFERRED
+
 Multiple files suppress `clippy::cast_possible_truncation`, `clippy::cast_sign_loss`, and `clippy::cast_precision_loss`. Consider:
 - Creating safe wrapper functions for common casts
 - Documenting invariants that make truncation safe
@@ -268,11 +270,18 @@ Multiple files suppress `clippy::cast_possible_truncation`, `clippy::cast_sign_l
 - `protocol.rs`, `network_state.rs`, `random.rs`, `time.rs`
 - `lsp/server.rs`, `lsp/completions.rs`, `lsp/documents.rs`
 
+**Reason for deferral**: These casts are localized within specific functions and already have
+`#[allow]` attributes with implicit invariants. Creating wrapper functions would add indirection
+without significant safety benefits. The existing suppressions are appropriate for the use cases
+(bytecode offsets, protocol lengths, timestamps).
+
 ---
 
 ## Architecture Improvements
 
 ### IMP-017: Reduce code duplication in abilities
+
+**Status**: DEFERRED
 
 **Files**:
 - `crates/ambient-engine/src/abilities.rs` (1,187 lines)
@@ -283,9 +292,18 @@ The built-in ability implementations in `abilities.rs` and the runtime implement
 - Creating macros for repetitive ability registration
 - Unifying the two locations of ability definitions
 
+**Reason for deferral**: The two locations serve different purposes:
+- `ambient-runtime`: Provides `RuntimeAbility` implementations for external use (CLI, REPL)
+- `ambient-engine/abilities.rs`: Provides engine-internal ability integration with collectors
+
+The duplication is intentional separation of concerns. Creating macros would obscure the code
+and make debugging harder. Each location is now well-tested (IMP-010).
+
 ---
 
 ### IMP-018: Improve error handling consistency
+
+**Status**: DEFERRED
 
 Some modules use `expect()` heavily while others use proper `Result` types. Standardize error handling:
 - `parser/mod.rs` - 69 `expect()` calls
@@ -296,6 +314,11 @@ Many of these are internal invariant checks. Consider:
 - Using `debug_assert!` for development-only checks
 - Creating a consistent pattern for "this should never happen" errors
 - Adding context to error messages
+
+**Reason for deferral**: The `expect()` calls in these modules are intentional internal invariant
+checks (e.g., "we just pushed this, so it must exist"). Converting to `Result` would propagate
+complexity without benefit. The messages already indicate the invariant being checked. These
+are not user-facing errors but developer assertions.
 
 ---
 
