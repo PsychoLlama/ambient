@@ -136,3 +136,183 @@ pub trait AbilityProvider<T> {
         self.abilities().iter().find(|a| a.id == id)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct TestType(String);
+
+    struct TestTypeFactory;
+
+    impl TypeFactory<TestType> for TestTypeFactory {
+        fn unit(&self) -> TestType {
+            TestType("unit".to_string())
+        }
+        fn bool(&self) -> TestType {
+            TestType("bool".to_string())
+        }
+        fn number(&self) -> TestType {
+            TestType("number".to_string())
+        }
+        fn string(&self) -> TestType {
+            TestType("string".to_string())
+        }
+        fn never(&self) -> TestType {
+            TestType("never".to_string())
+        }
+        fn type_var(&self) -> TestType {
+            TestType("var".to_string())
+        }
+        fn list(&self, element: TestType) -> TestType {
+            TestType(format!("list<{}>", element.0))
+        }
+    }
+
+    static TEST_METHODS: [MethodDescriptor<TestType>; 2] = [
+        MethodDescriptor::new(0, "method_a", 1, |f| vec![f.string()], |f| f.unit()),
+        MethodDescriptor::new(
+            1,
+            "method_b",
+            2,
+            |f| vec![f.number(), f.bool()],
+            |f| f.number(),
+        ),
+    ];
+
+    #[test]
+    fn test_method_descriptor_new() {
+        let method = MethodDescriptor::<TestType>::new(
+            42,
+            "test_method",
+            1,
+            |f| vec![f.string()],
+            |f| f.bool(),
+        );
+
+        assert_eq!(method.id, 42);
+        assert_eq!(method.name, "test_method");
+        assert_eq!(method.signature.param_count, 1);
+    }
+
+    #[test]
+    fn test_method_signature_param_types() {
+        let factory = TestTypeFactory;
+        let method = &TEST_METHODS[1];
+
+        let params = (method.signature.param_types)(&factory);
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0], TestType("number".to_string()));
+        assert_eq!(params[1], TestType("bool".to_string()));
+    }
+
+    #[test]
+    fn test_method_signature_return_type() {
+        let factory = TestTypeFactory;
+        let method = &TEST_METHODS[0];
+
+        let ret = (method.signature.return_type)(&factory);
+        assert_eq!(ret, TestType("unit".to_string()));
+    }
+
+    #[test]
+    fn test_ability_descriptor_new() {
+        let ability = AbilityDescriptor::<TestType>::new(0x1234, "TestAbility", &TEST_METHODS);
+
+        assert_eq!(ability.id, 0x1234);
+        assert_eq!(ability.name, "TestAbility");
+        assert_eq!(ability.methods.len(), 2);
+    }
+
+    #[test]
+    fn test_ability_descriptor_get_method() {
+        let ability = AbilityDescriptor::<TestType>::new(1, "TestAbility", &TEST_METHODS);
+
+        let method_a = ability.get_method("method_a");
+        assert!(method_a.is_some());
+        assert_eq!(method_a.expect("should exist").id, 0);
+
+        let method_b = ability.get_method("method_b");
+        assert!(method_b.is_some());
+        assert_eq!(method_b.expect("should exist").id, 1);
+
+        let missing = ability.get_method("nonexistent");
+        assert!(missing.is_none());
+    }
+
+    #[test]
+    fn test_ability_descriptor_get_method_by_id() {
+        let ability = AbilityDescriptor::<TestType>::new(1, "TestAbility", &TEST_METHODS);
+
+        let method_0 = ability.get_method_by_id(0);
+        assert!(method_0.is_some());
+        assert_eq!(method_0.expect("should exist").name, "method_a");
+
+        let method_1 = ability.get_method_by_id(1);
+        assert!(method_1.is_some());
+        assert_eq!(method_1.expect("should exist").name, "method_b");
+
+        let missing = ability.get_method_by_id(99);
+        assert!(missing.is_none());
+    }
+
+    struct TestProvider {
+        abilities: Vec<AbilityDescriptor<TestType>>,
+    }
+
+    impl AbilityProvider<TestType> for TestProvider {
+        fn abilities(&self) -> &[AbilityDescriptor<TestType>] {
+            &self.abilities
+        }
+    }
+
+    #[test]
+    fn test_ability_provider_get_ability() {
+        let provider = TestProvider {
+            abilities: vec![
+                AbilityDescriptor::new(1, "Ability1", &[]),
+                AbilityDescriptor::new(2, "Ability2", &[]),
+            ],
+        };
+
+        let ability1 = provider.get_ability("Ability1");
+        assert!(ability1.is_some());
+        assert_eq!(ability1.expect("should exist").id, 1);
+
+        let ability2 = provider.get_ability("Ability2");
+        assert!(ability2.is_some());
+        assert_eq!(ability2.expect("should exist").id, 2);
+
+        let missing = provider.get_ability("NonExistent");
+        assert!(missing.is_none());
+    }
+
+    #[test]
+    fn test_ability_provider_get_ability_by_id() {
+        let provider = TestProvider {
+            abilities: vec![
+                AbilityDescriptor::new(100, "AbilityA", &[]),
+                AbilityDescriptor::new(200, "AbilityB", &[]),
+            ],
+        };
+
+        let ability_100 = provider.get_ability_by_id(100);
+        assert!(ability_100.is_some());
+        assert_eq!(ability_100.expect("should exist").name, "AbilityA");
+
+        let ability_200 = provider.get_ability_by_id(200);
+        assert!(ability_200.is_some());
+        assert_eq!(ability_200.expect("should exist").name, "AbilityB");
+
+        let missing = provider.get_ability_by_id(999);
+        assert!(missing.is_none());
+    }
+
+    #[test]
+    fn test_type_factory_list() {
+        let factory = TestTypeFactory;
+        let list_of_numbers = factory.list(factory.number());
+        assert_eq!(list_of_numbers, TestType("list<number>".to_string()));
+    }
+}

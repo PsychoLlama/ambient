@@ -178,13 +178,20 @@ Total: 47 new tests added to ambient-ability crate.
 
 ---
 
-### IMP-012: Add tests for `ambient-core` crate
+### IMP-012: Add tests for `ambient-core` crate ✅
 
-**Directory**: `crates/ambient-core/src/`
+**Status**: COMPLETE
 
-Core library (356 lines) with **no tests**:
-- `exception.rs` (185 lines) - Exception handling
-- `descriptor.rs` (138 lines) - Ability descriptors
+**Changes made**:
+- `exception.rs` already had 3 tests (CoreAbilities, exception IDs, method signatures)
+- Added 9 tests to `descriptor.rs`:
+  - MethodDescriptor::new construction
+  - MethodSignature param_types and return_type
+  - AbilityDescriptor::new, get_method, get_method_by_id
+  - AbilityProvider trait methods (get_ability, get_ability_by_id)
+  - TypeFactory::list for nested types
+
+Total: 12 tests in ambient-core crate (3 existing + 9 new).
 
 ---
 
