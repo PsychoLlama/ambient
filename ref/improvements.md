@@ -51,34 +51,27 @@ most expression handlers are concise.
 
 ### IMP-004: Split `parser/mod.rs` (1,340 lines) and `parser/expr.rs` (1,237 lines)
 
-**Files**:
-- `crates/ambient-parser/src/parser/mod.rs`
-- `crates/ambient-parser/src/parser/expr.rs`
+**Status**: DEFERRED
 
-Two functions marked `#[allow(clippy::too_many_lines)]`:
-- `parse_postfix_expr()` (expr.rs:206)
-- `parse_binary_expr()` (expr.rs:361)
+The parser is already organized into focused files:
+- `mod.rs` (1,340 lines): Module/item parsing, definitions
+- `expr.rs` (1,237 lines): Expression parsing by precedence level
+- `patterns.rs` (202 lines): Pattern parsing
+- `types.rs` (181 lines): Type parsing
 
-**Suggested split**:
-- `parser/statements.rs` - Statement parsing
-- `parser/expr/postfix.rs` - Postfix expression parsing
-- `parser/expr/binary.rs` - Binary expression parsing
-- `parser/expr/primary.rs` - Primary/literal parsing
+Further splitting has diminishing returns. The functions are large due to the
+inherent complexity of a recursive descent parser with many expression forms.
+The code is well-organized within each file with clear precedence-based sections.
 
 ---
 
 ### IMP-005: Split `lsp/server.rs` (1,468 lines)
 
-**File**: `crates/ambient-lsp/src/server.rs`
+**Status**: DEFERRED
 
-The LSP server handles many different request types in one file.
-
-**Suggested split by LSP capability**:
-- `server/handlers.rs` - Request handler dispatch
-- `server/text_document.rs` - Text document sync handlers
-- `server/completion.rs` - Completion request handling
-- `server/navigation.rs` - Go-to-definition, references, etc.
-- `server/symbols.rs` - Document/workspace symbols
+The LSP server file is large but well-organized with LSP protocol handlers.
+Splitting would require significant restructuring of the request routing.
+Lower priority than core language improvements.
 
 ---
 
