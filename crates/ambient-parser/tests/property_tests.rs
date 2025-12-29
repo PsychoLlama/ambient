@@ -34,6 +34,10 @@ fn ident_strategy() -> impl Strategy<Value = String> {
                     | "resume"
                     | "sandbox"
                     | "unique"
+                    | "pkg"
+                    | "core"
+                    | "self"
+                    | "super"
             )
         })
         .prop_filter("not underscore alone", |s| s != "_")
