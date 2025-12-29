@@ -110,6 +110,9 @@ pub enum ParseErrorKind {
     /// Error during CST to AST lowering.
     LoweringError(String),
 
+    /// Invalid UUID in unique type declaration.
+    InvalidUuid(String),
+
     // ─────────────────────────────────────────────────────────────────────────
     // Name resolution errors
     // ─────────────────────────────────────────────────────────────────────────
@@ -146,6 +149,7 @@ impl fmt::Display for ParseErrorKind {
             }
 
             Self::LoweringError(msg) => write!(f, "lowering error: {msg}"),
+            Self::InvalidUuid(msg) => write!(f, "invalid UUID: {msg}"),
 
             Self::UndefinedName(name) => write!(f, "undefined name '{name}'"),
             Self::DuplicateDefinition(name) => write!(f, "duplicate definition '{name}'"),

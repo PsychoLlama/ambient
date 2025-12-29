@@ -466,10 +466,15 @@ impl<'src> Parser<'src> {
         // Check for unique
         let unique_id = if self.consume(TokenKind::Unique).is_some() {
             self.expect(TokenKind::LParen)?;
-            let id_token = self.advance();
-            let id = id_token.text.clone();
+            // UUIDs contain dashes which tokenize as minus, so we need to
+            // consume all tokens until the closing paren and concatenate them.
+            let mut uuid_parts = String::new();
+            while !self.check(TokenKind::RParen) && !self.at_end() {
+                let token = self.advance();
+                uuid_parts.push_str(&token.text);
+            }
             self.expect(TokenKind::RParen)?;
-            Some(Arc::from(id.as_str()))
+            Some(Arc::from(uuid_parts.as_str()))
         } else {
             None
         };

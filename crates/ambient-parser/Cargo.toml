@@ -7,6 +7,7 @@ description = "Parser for the Ambient programming language"
 [dependencies]
 ambient-engine = { path = "../ambient-engine" }
 thiserror = "2.0"
+uuid = { version = "1.11", features = ["v4"] }
 
 [dev-dependencies]
 proptest = "1.5"

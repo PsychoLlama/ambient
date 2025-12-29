@@ -11,6 +11,8 @@
 
 use std::sync::Arc;
 
+use uuid::Uuid;
+
 use crate::types::Type;
 
 /// A source location span for error reporting.
@@ -690,6 +692,9 @@ pub struct ConstDef {
 }
 
 /// A type alias definition.
+///
+/// If `unique_id` is `Some`, this is a nominal type that is incompatible
+/// with structurally identical types (e.g., `unique(uuid) type UserId { value: string }`).
 #[derive(Debug, Clone)]
 pub struct TypeAliasDef {
     /// Type name.
@@ -698,8 +703,11 @@ pub struct TypeAliasDef {
     pub name_span: Span,
     /// Type parameters (generics).
     pub type_params: Vec<TypeParam>,
-    /// The aliased type.
+    /// The aliased type (wrapped in `Type::Nominal` if `unique_id` is set).
     pub ty: Type,
+    /// Optional UUID for nominal types. If set, makes this type incompatible
+    /// with structurally identical types.
+    pub unique_id: Option<Uuid>,
 }
 
 /// An enum definition.

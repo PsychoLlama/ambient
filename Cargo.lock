@@ -93,6 +93,7 @@ dependencies = [
  "ambient-engine",
  "proptest",
  "thiserror 2.0.11",
+ "uuid",
 ]
 
 [[package]]

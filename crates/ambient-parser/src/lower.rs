@@ -6,6 +6,8 @@
 
 use std::sync::Arc;
 
+use uuid::Uuid;
+
 use ambient_engine::ast::{
     AbilityCall, AbilityDef, AbilityMethod, BinaryOp, BindingId, ConstDef, EnumDef, EnumVariant,
     Expr, ExprKind, FunctionDef, HandleExpr, Handler, HandlerLiteralExpr, HandlerLiteralMethod,
@@ -13,7 +15,7 @@ use ambient_engine::ast::{
     QualifiedName, SandboxExpr, Span, Stmt, StmtKind, TypeAliasDef, TypeParam, UnaryOp, UseDef,
     UseKind, UsePrefix,
 };
-use ambient_engine::types::Type;
+use ambient_engine::types::{NominalType, Type};
 
 use crate::cst::{
     CstAbilityDef, CstBinaryOp, CstConstDef, CstEnumDef, CstExpr, CstExprKind, CstFunctionDef,
@@ -159,13 +161,32 @@ fn lower_type_alias(t: &CstTypeAliasDef) -> Result<TypeAliasDef, ParseError> {
         })
         .collect();
 
-    let ty = lower_type(&t.ty)?;
+    // Parse UUID if this is a nominal type
+    let unique_id = t
+        .unique_id
+        .as_ref()
+        .map(|s| {
+            Uuid::parse_str(s).map_err(|e| {
+                ParseError::new(ParseErrorKind::InvalidUuid(e.to_string()), t.name.span)
+            })
+        })
+        .transpose()?;
+
+    let inner_ty = lower_type(&t.ty)?;
+
+    // Wrap in Nominal type if unique_id is present
+    let ty = if let Some(uuid) = unique_id {
+        Type::Nominal(NominalType::new(uuid, inner_ty, Some(t.name.name.clone())))
+    } else {
+        inner_ty
+    };
 
     Ok(TypeAliasDef {
         name: t.name.name.clone(),
         name_span: t.name.span,
         type_params,
         ty,
+        unique_id,
     })
 }
 
@@ -1061,5 +1082,48 @@ mod tests {
         let module = parse(source).expect("parse error");
         let doc = module.doc.as_ref().expect("Expected module doc");
         assert_eq!(&**doc, "Module documentation.");
+    }
+
+    #[test]
+    fn test_lower_nominal_type() {
+        let source = "unique(d098767b-4093-4d5c-ba37-ad92aa7b5d98) type UserId { value: string }";
+        let module = parse(source).expect("parse error");
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0].kind {
+            ItemKind::TypeAlias(t) => {
+                assert_eq!(&*t.name, "UserId");
+                assert!(t.unique_id.is_some());
+                let uuid = t.unique_id.unwrap();
+                assert_eq!(uuid.to_string(), "d098767b-4093-4d5c-ba37-ad92aa7b5d98");
+                // The type should be wrapped in Nominal
+                assert!(matches!(t.ty, Type::Nominal(_)));
+            }
+            _ => panic!("Expected type alias"),
+        }
+    }
+
+    #[test]
+    fn test_lower_regular_type_alias() {
+        let source = "type Point { x: number, y: number }";
+        let module = parse(source).expect("parse error");
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0].kind {
+            ItemKind::TypeAlias(t) => {
+                assert_eq!(&*t.name, "Point");
+                assert!(t.unique_id.is_none());
+                // The type should NOT be wrapped in Nominal
+                assert!(matches!(t.ty, Type::Record(_)));
+            }
+            _ => panic!("Expected type alias"),
+        }
+    }
+
+    #[test]
+    fn test_lower_invalid_uuid() {
+        let source = "unique(not-a-valid-uuid) type BadId { value: string }";
+        let result = parse(source);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err.kind, ParseErrorKind::InvalidUuid(_)));
     }
 }
