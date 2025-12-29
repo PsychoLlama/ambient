@@ -6,20 +6,16 @@ Improvement tickets for the Ambient codebase. Each ticket targets maintainabilit
 
 ## File Size / Modularization
 
-### IMP-001: Split `compiler/mod.rs` (2,774 lines)
+### IMP-001: Split `compiler/mod.rs` (2,774 lines) ✅
 
-**File**: `crates/ambient-engine/src/compiler/mod.rs`
+**Status**: COMPLETE
 
-The main compiler module handles too many responsibilities in a single file. Three functions are marked with `#[allow(clippy::too_many_lines)]`:
-- `finalize_module_hashes()` (line 593)
-- `compile_record_fields()` (line 911)
-- `compile_expr()` (line 1186)
+**Changes made**:
+- Created `compiler/expr.rs` (420 lines): Expression and statement compilation
+- Created `compiler/hash.rs` (518 lines): Content-addressed hash computation
+- Reduced `mod.rs` from 2,774 to 1,893 lines
 
-**Suggested split**:
-- `compiler/expr.rs` - Expression compilation (`compile_expr` and helpers)
-- `compiler/records.rs` - Record/struct field compilation
-- `compiler/module.rs` - Module-level compilation and hash finalization
-- `compiler/mod.rs` - Public interface and coordination
+The module is now better organized with focused, single-responsibility files.
 
 ---
 
