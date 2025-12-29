@@ -907,3 +907,303 @@ impl PartialEq for Value {
 }
 
 impl Eq for Value {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_value_unit() {
+        let v = Value::Unit;
+        assert_eq!(v.type_name(), "unit");
+        assert_eq!(v, Value::Unit);
+    }
+
+    #[test]
+    fn test_value_bool() {
+        assert_eq!(Value::Bool(true).type_name(), "bool");
+        assert_eq!(Value::Bool(true).as_bool(), Some(true));
+        assert_eq!(Value::Bool(false).as_bool(), Some(false));
+        assert!(Value::Bool(true) != Value::Bool(false));
+    }
+
+    #[test]
+    fn test_value_number() {
+        assert_eq!(Value::Number(42.0).type_name(), "number");
+        assert_eq!(Value::Number(42.0).as_number(), Some(42.0));
+        assert_eq!(Value::Number(1.5), Value::Number(1.5));
+    }
+
+    #[test]
+    fn test_value_number_nan_equality() {
+        // NaN should equal itself for structural equality (uses to_bits)
+        let nan = Value::Number(f64::NAN);
+        assert_eq!(nan, nan);
+    }
+
+    #[test]
+    fn test_value_string() {
+        let v = Value::string("hello");
+        assert_eq!(v.type_name(), "string");
+        if let Value::String(s) = &v {
+            assert_eq!(&**s, "hello");
+        } else {
+            panic!("Expected string");
+        }
+    }
+
+    #[test]
+    fn test_value_tuple() {
+        let v = Value::tuple(vec![Value::Number(1.0), Value::Bool(true)]);
+        assert_eq!(v.type_name(), "tuple");
+        if let Value::Tuple(t) = v {
+            assert_eq!(t.len(), 2);
+        }
+    }
+
+    #[test]
+    fn test_value_record() {
+        let v = Value::record([("x", Value::Number(10.0)), ("y", Value::Number(20.0))]);
+        assert_eq!(v.type_name(), "record");
+        if let Value::Record(r) = v {
+            assert_eq!(r.get(&Arc::from("x")), Some(&Value::Number(10.0)));
+        }
+    }
+
+    #[test]
+    fn test_value_list() {
+        let v = Value::list(vec![Value::Number(1.0), Value::Number(2.0)]);
+        assert_eq!(v.type_name(), "list");
+        if let Value::List(l) = v {
+            assert_eq!(l.len(), 2);
+        }
+    }
+
+    #[test]
+    fn test_value_option_none() {
+        let v = Value::none();
+        assert_eq!(v.type_name(), "enum");
+        if let Value::Enum(e) = &v {
+            assert_eq!(&*e.type_name, "Option");
+            assert_eq!(e.tag, 0);
+            assert!(e.payload.is_none());
+        }
+    }
+
+    #[test]
+    fn test_value_option_some() {
+        let v = Value::some(Value::Number(42.0));
+        if let Value::Enum(e) = &v {
+            assert_eq!(&*e.type_name, "Option");
+            assert_eq!(e.tag, 1);
+            assert_eq!(e.payload(), Some(&Value::Number(42.0)));
+        }
+    }
+
+    #[test]
+    fn test_value_result_ok() {
+        let v = Value::ok(Value::string("success"));
+        if let Value::Enum(e) = &v {
+            assert_eq!(&*e.type_name, "Result");
+            assert_eq!(e.tag, 0);
+            assert!(e.payload.is_some());
+        }
+    }
+
+    #[test]
+    fn test_value_result_err() {
+        let v = Value::err(Value::string("error"));
+        if let Value::Enum(e) = &v {
+            assert_eq!(&*e.type_name, "Result");
+            assert_eq!(e.tag, 1);
+        }
+    }
+
+    #[test]
+    fn test_map_value_operations() {
+        let map = MapValue::new();
+        assert!(map.is_empty());
+        assert_eq!(map.len(), 0);
+
+        let map = map.insert("key1", Value::Number(1.0));
+        assert!(!map.is_empty());
+        assert_eq!(map.len(), 1);
+        assert!(map.contains_key("key1"));
+        assert_eq!(map.get("key1"), Some(&Value::Number(1.0)));
+
+        let map = map.insert("key2", Value::Number(2.0));
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.keys().len(), 2);
+        assert_eq!(map.values().len(), 2);
+
+        let map = map.remove("key1");
+        assert_eq!(map.len(), 1);
+        assert!(!map.contains_key("key1"));
+    }
+
+    #[test]
+    fn test_set_value_operations() {
+        let set = SetValue::new();
+        assert!(set.is_empty());
+
+        let set = set.insert(Value::Number(1.0));
+        assert!(!set.is_empty());
+        assert_eq!(set.len(), 1);
+        assert!(set.contains(&Value::Number(1.0)));
+
+        // Insert duplicate should not change size
+        let set = set.insert(Value::Number(1.0));
+        assert_eq!(set.len(), 1);
+
+        let set = set.insert(Value::Number(2.0));
+        assert_eq!(set.len(), 2);
+
+        let set = set.remove(&Value::Number(1.0));
+        assert_eq!(set.len(), 1);
+        assert!(!set.contains(&Value::Number(1.0)));
+    }
+
+    #[test]
+    fn test_set_value_union() {
+        let set1 = SetValue::from_values([Value::Number(1.0), Value::Number(2.0)]);
+        let set2 = SetValue::from_values([Value::Number(2.0), Value::Number(3.0)]);
+        let union = set1.union(&set2);
+        assert_eq!(union.len(), 3);
+    }
+
+    #[test]
+    fn test_set_value_intersection() {
+        let set1 = SetValue::from_values([Value::Number(1.0), Value::Number(2.0)]);
+        let set2 = SetValue::from_values([Value::Number(2.0), Value::Number(3.0)]);
+        let intersection = set1.intersection(&set2);
+        assert_eq!(intersection.len(), 1);
+        assert!(intersection.contains(&Value::Number(2.0)));
+    }
+
+    #[test]
+    fn test_set_value_difference() {
+        let set1 = SetValue::from_values([Value::Number(1.0), Value::Number(2.0)]);
+        let set2 = SetValue::from_values([Value::Number(2.0), Value::Number(3.0)]);
+        let diff = set1.difference(&set2);
+        assert_eq!(diff.len(), 1);
+        assert!(diff.contains(&Value::Number(1.0)));
+    }
+
+    #[test]
+    fn test_enum_value_is_variant() {
+        let some = EnumValue::some(Value::Unit);
+        assert!(some.is_variant(1));
+        assert!(!some.is_variant(0));
+        assert!(some.is_variant_named("Some"));
+        assert!(!some.is_variant_named("None"));
+    }
+
+    #[test]
+    fn test_enum_value_into_payload() {
+        let some = EnumValue::some(Value::Number(42.0));
+        let payload = some.into_payload();
+        assert_eq!(payload, Some(Value::Number(42.0)));
+
+        let none = EnumValue::none();
+        assert_eq!(none.into_payload(), None);
+    }
+
+    #[test]
+    fn test_suspended_ability() {
+        let ability = SuspendedAbility::new(1, 2, vec![Value::Number(42.0)]);
+        assert_eq!(ability.ability_id, 1);
+        assert_eq!(ability.method_id, 2);
+        assert_eq!(ability.args.len(), 1);
+    }
+
+    #[test]
+    fn test_continuation_single_shot() {
+        let cont = Continuation::new(vec![], vec![]);
+        assert!(!cont.is_resumed());
+        assert!(cont.mark_resumed());
+        assert!(cont.is_resumed());
+        // Second resume should fail
+        assert!(!cont.mark_resumed());
+    }
+
+    #[test]
+    fn test_handler_value_methods() {
+        let mut methods = HashMap::new();
+        methods.insert(0u16, blake3::hash(b"test"));
+        let handler = HandlerValue::new(1, methods);
+
+        assert_eq!(handler.ability_id, 1);
+        assert!(handler.handles_method(0));
+        assert!(!handler.handles_method(1));
+        assert!(handler.get_method(0).is_some());
+        assert!(handler.get_method(1).is_none());
+    }
+
+    #[test]
+    fn test_handler_value_compose() {
+        let mut methods1 = HashMap::new();
+        methods1.insert(0u16, blake3::hash(b"method0"));
+        let handler1 = HandlerValue::new(1, methods1);
+
+        let mut methods2 = HashMap::new();
+        methods2.insert(1u16, blake3::hash(b"method1"));
+        let handler2 = HandlerValue::new(1, methods2);
+
+        let composed = handler1.compose(&handler2);
+        assert!(composed.is_some());
+        let composed = composed.expect("compose should succeed");
+        assert!(composed.handles_method(0));
+        assert!(composed.handles_method(1));
+    }
+
+    #[test]
+    fn test_handler_value_compose_different_abilities_fails() {
+        let handler1 = HandlerValue::new(1, HashMap::new());
+        let handler2 = HandlerValue::new(2, HashMap::new());
+        assert!(handler1.compose(&handler2).is_none());
+    }
+
+    #[test]
+    fn test_module_export() {
+        let export = ModuleExport::new("my_func", ModuleExportKind::Function);
+        assert_eq!(&*export.name, "my_func");
+        assert_eq!(export.kind, ModuleExportKind::Function);
+        assert!(export.signature.is_none());
+
+        let export_with_sig = ModuleExport::with_signature(
+            "add",
+            ModuleExportKind::Function,
+            "(a: number, b: number): number",
+        );
+        assert!(export_with_sig.signature.is_some());
+    }
+
+    #[test]
+    fn test_module_value() {
+        let exports = vec![
+            ModuleExport::new("func1", ModuleExportKind::Function),
+            ModuleExport::new("const1", ModuleExportKind::Const),
+        ];
+        let module = ModuleValue::new("pkg.utils", exports);
+        assert_eq!(&*module.path, "pkg.utils");
+        assert_eq!(module.exports.len(), 2);
+    }
+
+    #[test]
+    fn test_value_equality() {
+        // Tuples
+        let t1 = Value::tuple(vec![Value::Number(1.0)]);
+        let t2 = Value::tuple(vec![Value::Number(1.0)]);
+        assert_eq!(t1, t2);
+
+        // Records
+        let r1 = Value::record([("a", Value::Number(1.0))]);
+        let r2 = Value::record([("a", Value::Number(1.0))]);
+        assert_eq!(r1, r2);
+
+        // Lists
+        let l1 = Value::list(vec![Value::Bool(true)]);
+        let l2 = Value::list(vec![Value::Bool(true)]);
+        assert_eq!(l1, l2);
+    }
+}

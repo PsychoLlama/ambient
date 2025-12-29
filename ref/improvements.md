@@ -152,15 +152,29 @@ Total: 34 new tests added to runtime abilities.
 
 ---
 
-### IMP-011: Add tests for `ambient-ability` crate
+### IMP-011: Add tests for `ambient-ability` crate ✅
 
-**Directory**: `crates/ambient-ability/src/`
+**Status**: COMPLETE
 
-The ability authoring framework (1,595 lines) has only minimal inline tests:
-- `value.rs` (909 lines) - Value representation - **no tests**
-- `format.rs` (458 lines) - Value formatting - has some inline tests
-- `error.rs` (276 lines) - Error types - **no tests**
-- `handler.rs` (72 lines) - Handler traits - **no tests**
+**Changes made**:
+- Added 27 tests to `value.rs`:
+  - Value type tests (unit, bool, number, string, tuple, record, list)
+  - NaN equality (structural equality using to_bits)
+  - Option/Result enum variants
+  - MapValue operations (insert, remove, contains_key, keys, values)
+  - SetValue operations (insert, remove, union, intersection, difference)
+  - EnumValue helpers (is_variant, into_payload)
+  - SuspendedAbility, Continuation single-shot, HandlerValue compose
+  - ModuleExport/ModuleValue constructors
+- Added 20 tests to `error.rs`:
+  - VmError Display implementations for all variants
+  - VmError equality
+  - StackTraceFrame Display (with and without function name)
+  - RuntimeError construction (new, with_stack_trace, with_source_context)
+  - RuntimeError Display with full stack trace
+  - From<VmError> conversion
+
+Total: 47 new tests added to ambient-ability crate.
 
 ---
 

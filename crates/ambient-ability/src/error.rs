@@ -274,3 +274,200 @@ impl std::fmt::Display for VmError {
 }
 
 impl std::error::Error for VmError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vm_error_display_stack_underflow() {
+        let err = VmError::StackUnderflow;
+        assert_eq!(format!("{err}"), "stack underflow");
+    }
+
+    #[test]
+    fn test_vm_error_display_invalid_opcode() {
+        let err = VmError::InvalidOpcode(0xff);
+        assert_eq!(format!("{err}"), "invalid opcode: 0xff");
+    }
+
+    #[test]
+    fn test_vm_error_display_type_error() {
+        let err = VmError::TypeError {
+            expected: "number",
+            got: "string",
+            operation: "add",
+        };
+        assert_eq!(
+            format!("{err}"),
+            "type error in add: expected number, got string"
+        );
+    }
+
+    #[test]
+    fn test_vm_error_display_type_error_owned() {
+        let err = VmError::TypeErrorOwned {
+            expected: "list".to_string(),
+            got: "number".to_string(),
+        };
+        assert_eq!(format!("{err}"), "type error: expected list, got number");
+    }
+
+    #[test]
+    fn test_vm_error_display_division_by_zero() {
+        let err = VmError::DivisionByZero;
+        assert_eq!(format!("{err}"), "division by zero");
+    }
+
+    #[test]
+    fn test_vm_error_display_unknown_function() {
+        let hash = blake3::hash(b"test");
+        let err = VmError::UnknownFunction(hash);
+        assert!(format!("{err}").contains("unknown function"));
+    }
+
+    #[test]
+    fn test_vm_error_display_tuple_index_out_of_bounds() {
+        let err = VmError::TupleIndexOutOfBounds {
+            index: 5,
+            length: 3,
+        };
+        assert_eq!(format!("{err}"), "tuple index 5 out of bounds (length 3)");
+    }
+
+    #[test]
+    fn test_vm_error_display_record_field_not_found() {
+        let err = VmError::RecordFieldNotFound("missing_field".to_string());
+        assert_eq!(format!("{err}"), "record field not found: missing_field");
+    }
+
+    #[test]
+    fn test_vm_error_display_arity_mismatch() {
+        let err = VmError::ArityMismatch {
+            expected: 2,
+            got: 3,
+        };
+        assert_eq!(
+            format!("{err}"),
+            "arity mismatch: expected 2 arguments, got 3"
+        );
+    }
+
+    #[test]
+    fn test_vm_error_display_unhandled_ability() {
+        let err = VmError::UnhandledAbility {
+            ability_id: 1,
+            method_id: 2,
+        };
+        assert_eq!(format!("{err}"), "unhandled ability: ability 1, method 2");
+    }
+
+    #[test]
+    fn test_vm_error_display_continuation_already_resumed() {
+        let err = VmError::ContinuationAlreadyResumed;
+        assert_eq!(
+            format!("{err}"),
+            "continuation already resumed (single-shot violation)"
+        );
+    }
+
+    #[test]
+    fn test_vm_error_display_io_error() {
+        let err = VmError::IoError("connection refused".to_string());
+        assert_eq!(format!("{err}"), "I/O error: connection refused");
+    }
+
+    #[test]
+    fn test_vm_error_equality() {
+        assert_eq!(VmError::StackUnderflow, VmError::StackUnderflow);
+        assert_eq!(VmError::DivisionByZero, VmError::DivisionByZero);
+        assert_ne!(VmError::StackUnderflow, VmError::DivisionByZero);
+    }
+
+    #[test]
+    fn test_stack_trace_frame_display_with_full_info() {
+        let frame = StackTraceFrame {
+            function_name: Some("my_function".to_string()),
+            source_file: Some("main.ab".to_string()),
+            line: Some(10),
+            column: Some(5),
+            function_hash: blake3::hash(b"test"),
+            bytecode_offset: 42,
+        };
+        let display = format!("{frame}");
+        assert!(display.contains("my_function"));
+        assert!(display.contains("main.ab:10:5"));
+    }
+
+    #[test]
+    fn test_stack_trace_frame_display_without_name() {
+        let hash = blake3::hash(b"test");
+        let frame = StackTraceFrame {
+            function_name: None,
+            source_file: Some("main.ab".to_string()),
+            line: Some(10),
+            column: None,
+            function_hash: hash,
+            bytecode_offset: 42,
+        };
+        let display = format!("{frame}");
+        // Should show abbreviated hash
+        assert!(display.contains(&hash.to_string()[..8]));
+        assert!(display.contains("main.ab:10"));
+    }
+
+    #[test]
+    fn test_runtime_error_new() {
+        let err = RuntimeError::new(VmError::StackUnderflow);
+        assert_eq!(err.error, VmError::StackUnderflow);
+        assert!(err.stack_trace.is_empty());
+        assert!(err.source_context.is_none());
+    }
+
+    #[test]
+    fn test_runtime_error_with_stack_trace() {
+        let frames = vec![StackTraceFrame {
+            function_name: Some("test".to_string()),
+            source_file: None,
+            line: None,
+            column: None,
+            function_hash: blake3::hash(b"test"),
+            bytecode_offset: 0,
+        }];
+        let err = RuntimeError::with_stack_trace(VmError::DivisionByZero, frames);
+        assert_eq!(err.stack_trace.len(), 1);
+    }
+
+    #[test]
+    fn test_runtime_error_with_source_context() {
+        let err =
+            RuntimeError::new(VmError::DivisionByZero).with_source_context("  x / 0".to_string());
+        assert!(err.source_context.is_some());
+    }
+
+    #[test]
+    fn test_runtime_error_display() {
+        let frames = vec![StackTraceFrame {
+            function_name: Some("divide".to_string()),
+            source_file: Some("math.ab".to_string()),
+            line: Some(5),
+            column: Some(3),
+            function_hash: blake3::hash(b"test"),
+            bytecode_offset: 10,
+        }];
+        let err = RuntimeError::with_stack_trace(VmError::DivisionByZero, frames)
+            .with_source_context("  let result = x / 0".to_string());
+        let display = format!("{err}");
+        assert!(display.contains("Runtime error"));
+        assert!(display.contains("division by zero"));
+        assert!(display.contains("Stack trace"));
+        assert!(display.contains("divide"));
+    }
+
+    #[test]
+    fn test_runtime_error_from_vm_error() {
+        let vm_err = VmError::StackOverflow;
+        let runtime_err: RuntimeError = vm_err.into();
+        assert_eq!(runtime_err.error, VmError::StackOverflow);
+    }
+}
