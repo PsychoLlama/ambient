@@ -44,7 +44,7 @@
 //!
 //! - [`core`]: VM struct, call frames, handler frames, helper methods
 //! - [`dispatch`]: Main opcode dispatch loop
-//! - [`error`]: Error types
+//! - [`abilities`]: Ability handling operations (suspend, perform, resume)
 //!
 //! [`CallFrame`]: core::CallFrame
 //! [`CompiledFunction`]: crate::bytecode::CompiledFunction
@@ -56,6 +56,7 @@
 #![allow(clippy::cast_possible_wrap)]
 #![allow(clippy::cast_sign_loss)]
 
+mod abilities;
 mod core;
 mod dispatch;
 

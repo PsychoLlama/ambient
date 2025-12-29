@@ -2,11 +2,11 @@
 
 use std::sync::Arc;
 
-use ambient_ability::{CapturedFrame, Value, VmError};
+use ambient_ability::{Value, VmError};
 
 use crate::bytecode::Opcode;
 
-use super::core::{CallFrame, HandlerFrame, HandlerKind, ReturnAction, Vm};
+use super::core::{ReturnAction, Vm};
 
 impl Vm {
     /// Main execution loop.
@@ -271,114 +271,23 @@ impl Vm {
 
                 // ─────────────────────────────────────────────────────────────
                 // Abilities (Milestone 2)
+                // See vm/abilities.rs for the implementation of these operations.
                 // ─────────────────────────────────────────────────────────────
                 Opcode::Suspend => {
-                    // Create a suspended ability value from arguments on the stack
                     let ability_id = self.read_u16()?;
                     let method_id = self.read_u16()?;
                     let arg_count = self.read_u8()?;
-
-                    // Pop arguments (in reverse order)
-                    let mut args = Vec::with_capacity(arg_count as usize);
-                    for _ in 0..arg_count {
-                        args.push(self.pop()?);
-                    }
-                    args.reverse();
-
-                    // Push the suspended ability value
-                    self.stack
-                        .push(Value::suspended_ability(ability_id, method_id, args));
+                    self.op_suspend(ability_id, method_id, arg_count)?;
                 }
 
                 Opcode::Perform => {
-                    // Pop the suspended ability and perform it
-                    let ability = match self.pop()? {
-                        Value::SuspendedAbility(a) => a,
-                        other => {
-                            return Err(VmError::ExpectedSuspendedAbility {
-                                got: other.type_name(),
-                            })
-                        }
-                    };
-
-                    // First, check for a bytecode handler on the handler stack
-                    // (user-installed handlers take priority over host handlers)
-                    let handler_idx = self
-                        .handlers
-                        .iter()
-                        .rposition(|h| h.ability_id == ability.ability_id);
-
-                    if let Some(idx) = handler_idx {
-                        // Found a handler - capture continuation and jump to handler
-                        let handler = self.handlers[idx].clone();
-
-                        // Determine the handler function to call based on handler kind
-                        let handler_func = match &handler.handler {
-                            HandlerKind::Inline { handler_func } => *handler_func,
-                            HandlerKind::Value { handler_value } => {
-                                // Look up the method function from the handler value
-                                match handler_value.get_method(ability.method_id) {
-                                    Some(func) => func,
-                                    None => {
-                                        return Err(VmError::UnhandledAbility {
-                                            ability_id: ability.ability_id,
-                                            method_id: ability.method_id,
-                                        });
-                                    }
-                                }
-                            }
-                        };
-
-                        // Capture the continuation: stack and frames from handler point to current
-                        let captured_stack = self.stack.split_off(handler.stack_height);
-                        let captured_frames: Vec<CapturedFrame> = self.frames
-                            [handler.call_frame_idx..]
-                            .iter()
-                            .map(|f| CapturedFrame {
-                                function_hash: f.function.hash,
-                                ip: f.ip,
-                                bp: f.bp,
-                            })
-                            .collect();
-
-                        // Truncate frames to handler point
-                        self.frames.truncate(handler.call_frame_idx);
-
-                        // Remove the handler (and any handlers installed after it)
-                        self.handlers.truncate(idx);
-
-                        // Create continuation value
-                        let continuation = Value::continuation(captured_stack, captured_frames);
-
-                        // Push the continuation and the suspended ability as arguments
-                        // to the handler function
-                        self.stack.push(continuation);
-                        self.stack.push(Value::SuspendedAbility(ability));
-
-                        // Call the handler function
-                        self.push_frame(&handler_func, 2)?;
-                    } else if let Some(handler) = self
-                        .host_handlers
-                        .get(&(ability.ability_id, ability.method_id))
-                    {
-                        // Fall back to host handler if no bytecode handler is installed
-                        let result = handler(&ability)?;
-                        self.stack.push(result);
-                    } else {
-                        // No handler found
-                        return Err(VmError::UnhandledAbility {
-                            ability_id: ability.ability_id,
-                            method_id: ability.method_id,
-                        });
-                    }
+                    self.op_perform()?;
                 }
 
                 Opcode::Handle => {
-                    // Install an ability handler (inline)
                     let ability_id = self.read_u16()?;
                     let handler_idx = self.read_u16()?;
                     let _completion_offset = self.read_i16()?; // Reserved for future optimization
-
                     let handler_func = match self.get_constant(handler_idx)? {
                         Value::FunctionRef(h) => h,
                         other => {
@@ -389,80 +298,20 @@ impl Vm {
                             })
                         }
                     };
-
-                    self.handlers.push(HandlerFrame {
-                        ability_id,
-                        handler: HandlerKind::Inline { handler_func },
-                        call_frame_idx: self.frames.len() - 1,
-                        stack_height: self.stack.len(),
-                    });
+                    self.op_handle(ability_id, handler_func);
                 }
 
                 Opcode::Unhandle => {
-                    // Remove the most recent handler
                     self.handlers.pop();
                 }
 
                 Opcode::Resume => {
-                    // Resume a continuation with a value
-                    let value = self.pop()?;
-                    let continuation = match self.pop()? {
-                        Value::Continuation(c) => c,
-                        other => {
-                            return Err(VmError::ExpectedContinuation {
-                                got: other.type_name(),
-                            })
-                        }
-                    };
-
-                    // Single-shot enforcement
-                    if !continuation.mark_resumed() {
-                        return Err(VmError::ContinuationAlreadyResumed);
-                    }
-
-                    // Restore the captured stack
-                    self.stack.extend(continuation.stack.iter().cloned());
-
-                    // Restore the captured frames
-                    for captured in &continuation.frames {
-                        let function = self
-                            .functions
-                            .get(&captured.function_hash)
-                            .ok_or(VmError::UnknownFunction(captured.function_hash))?
-                            .clone();
-
-                        self.frames.push(CallFrame {
-                            function,
-                            ip: captured.ip,
-                            bp: captured.bp,
-                            captures: Vec::new(), // Continuations don't preserve closure captures
-                            return_action: ReturnAction::None, // Restored frames have no special action
-                        });
-                    }
-
-                    // Push the resume value as the result of the Perform
-                    self.stack.push(value);
+                    self.op_resume()?;
                 }
 
                 Opcode::GetAbilityArg => {
                     let arg_index = self.read_u8()? as usize;
-                    let ability = match self.pop()? {
-                        Value::SuspendedAbility(a) => a,
-                        other => {
-                            return Err(VmError::ExpectedSuspendedAbility {
-                                got: other.type_name(),
-                            })
-                        }
-                    };
-
-                    if arg_index >= ability.args.len() {
-                        return Err(VmError::AbilityArgOutOfBounds {
-                            index: arg_index,
-                            length: ability.args.len(),
-                        });
-                    }
-
-                    self.stack.push(ability.args[arg_index].clone());
+                    self.op_get_ability_arg(arg_index)?;
                 }
 
                 Opcode::Halt => {
@@ -644,27 +493,8 @@ impl Vm {
                 }
 
                 Opcode::HandleWithValue => {
-                    // Install a handler from a HandlerValue on the stack
                     let _completion_offset = self.read_i16()?; // Reserved for future optimization
-
-                    // Pop the handler value from the stack
-                    let handler_value = match self.pop()? {
-                        Value::Handler(h) => h,
-                        other => {
-                            return Err(VmError::TypeError {
-                                expected: "handler",
-                                got: other.type_name(),
-                                operation: "handle_with_value",
-                            })
-                        }
-                    };
-
-                    self.handlers.push(HandlerFrame {
-                        ability_id: handler_value.ability_id,
-                        handler: HandlerKind::Value { handler_value },
-                        call_frame_idx: self.frames.len() - 1,
-                        stack_height: self.stack.len(),
-                    });
+                    self.op_handle_with_value()?;
                 }
 
                 // ─────────────────────────────────────────────────────────────
