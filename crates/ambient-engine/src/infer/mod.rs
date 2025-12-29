@@ -55,6 +55,7 @@
 
 mod abilities;
 mod check;
+mod effects;
 mod env;
 mod error;
 mod expr;
