@@ -153,3 +153,145 @@ impl RuntimeAbility for RandomRuntimeAbility {
         vec![(METHOD_SEED, seed), (METHOD_IN_RANGE, in_range)]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone)]
+    struct TestType;
+
+    struct TestTypeFactory;
+
+    impl TypeFactory<TestType> for TestTypeFactory {
+        fn unit(&self) -> TestType {
+            TestType
+        }
+        fn bool(&self) -> TestType {
+            TestType
+        }
+        fn number(&self) -> TestType {
+            TestType
+        }
+        fn string(&self) -> TestType {
+            TestType
+        }
+        fn never(&self) -> TestType {
+            TestType
+        }
+        fn type_var(&self) -> TestType {
+            TestType
+        }
+        fn list(&self, _: TestType) -> TestType {
+            TestType
+        }
+    }
+
+    #[test]
+    fn test_random_ability_constants() {
+        assert_eq!(ABILITY_ID, 0x0004);
+        assert_eq!(METHOD_SEED, 0x0000);
+        assert_eq!(METHOD_IN_RANGE, 0x0001);
+    }
+
+    #[test]
+    fn test_random_runtime_ability_name() {
+        let random = RandomRuntimeAbility::new();
+        assert_eq!(random.name(), "Random");
+        assert_eq!(random.ability_id(), ABILITY_ID);
+    }
+
+    #[test]
+    fn test_random_descriptor_methods() {
+        let random = RandomRuntimeAbility::new();
+        let factory = TestTypeFactory;
+        let descriptor = random.descriptor(&factory);
+
+        assert_eq!(descriptor.id, ABILITY_ID);
+        assert_eq!(descriptor.name, "Random");
+        assert_eq!(descriptor.methods.len(), 2);
+
+        let method_names: Vec<_> = descriptor.methods.iter().map(|m| m.name).collect();
+        assert!(method_names.contains(&"seed"));
+        assert!(method_names.contains(&"in_range"));
+    }
+
+    #[test]
+    fn test_random_seed_returns_number_in_range() {
+        let random = RandomRuntimeAbility::new();
+        let handlers = random.handlers();
+
+        let (_, seed_handler) = handlers.iter().find(|(id, _)| *id == METHOD_SEED).unwrap();
+
+        let ability = SuspendedAbility {
+            ability_id: ABILITY_ID,
+            method_id: METHOD_SEED,
+            args: vec![],
+        };
+
+        // Call multiple times to verify range
+        for _ in 0..10 {
+            let result = seed_handler(&ability);
+            assert!(result.is_ok());
+
+            if let Value::Number(n) = result.unwrap() {
+                assert!(n >= 0.0 && n <= 1.0, "Expected 0 <= {n} <= 1");
+            } else {
+                panic!("Expected Number value");
+            }
+        }
+    }
+
+    #[test]
+    fn test_random_in_range_with_number() {
+        let random = RandomRuntimeAbility::new();
+        let handlers = random.handlers();
+
+        let (_, in_range_handler) = handlers
+            .iter()
+            .find(|(id, _)| *id == METHOD_IN_RANGE)
+            .unwrap();
+
+        let ability = SuspendedAbility {
+            ability_id: ABILITY_ID,
+            method_id: METHOD_IN_RANGE,
+            args: vec![Value::Number(100.0)],
+        };
+
+        let result = in_range_handler(&ability);
+        assert!(result.is_ok());
+
+        if let Value::Number(n) = result.unwrap() {
+            assert!(n >= 0.0 && n <= 100.0, "Expected 0 <= {n} <= 100");
+        } else {
+            panic!("Expected Number value");
+        }
+    }
+
+    #[test]
+    fn test_random_produces_different_values() {
+        let random = RandomRuntimeAbility::new();
+        let handlers = random.handlers();
+
+        let (_, seed_handler) = handlers.iter().find(|(id, _)| *id == METHOD_SEED).unwrap();
+
+        let ability = SuspendedAbility {
+            ability_id: ABILITY_ID,
+            method_id: METHOD_SEED,
+            args: vec![],
+        };
+
+        let mut values = std::collections::HashSet::new();
+        for _ in 0..100 {
+            if let Ok(Value::Number(n)) = seed_handler(&ability) {
+                values.insert(n.to_bits());
+            }
+        }
+
+        // Should produce at least some different values
+        assert!(
+            values.len() > 1,
+            "Expected random to produce different values"
+        );
+    }
+}

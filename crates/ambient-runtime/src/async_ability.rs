@@ -96,3 +96,74 @@ impl RuntimeAbility for AsyncRuntimeAbility {
         vec![]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone)]
+    struct TestType;
+
+    struct TestTypeFactory;
+
+    impl TypeFactory<TestType> for TestTypeFactory {
+        fn unit(&self) -> TestType {
+            TestType
+        }
+        fn bool(&self) -> TestType {
+            TestType
+        }
+        fn number(&self) -> TestType {
+            TestType
+        }
+        fn string(&self) -> TestType {
+            TestType
+        }
+        fn never(&self) -> TestType {
+            TestType
+        }
+        fn type_var(&self) -> TestType {
+            TestType
+        }
+        fn list(&self, _: TestType) -> TestType {
+            TestType
+        }
+    }
+
+    #[test]
+    fn test_async_ability_constants() {
+        assert_eq!(ABILITY_ID, 0x0005);
+        assert_eq!(METHOD_ALL, 0x0000);
+        assert_eq!(METHOD_RACE, 0x0001);
+    }
+
+    #[test]
+    fn test_async_runtime_ability_name() {
+        let async_ability = AsyncRuntimeAbility::new();
+        assert_eq!(async_ability.name(), "Async");
+        assert_eq!(async_ability.ability_id(), ABILITY_ID);
+    }
+
+    #[test]
+    fn test_async_descriptor_methods() {
+        let async_ability = AsyncRuntimeAbility::new();
+        let factory = TestTypeFactory;
+        let descriptor = async_ability.descriptor(&factory);
+
+        assert_eq!(descriptor.id, ABILITY_ID);
+        assert_eq!(descriptor.name, "Async");
+        assert_eq!(descriptor.methods.len(), 2);
+
+        let method_names: Vec<_> = descriptor.methods.iter().map(|m| m.name).collect();
+        assert!(method_names.contains(&"all"));
+        assert!(method_names.contains(&"race"));
+    }
+
+    #[test]
+    fn test_async_handlers_empty() {
+        // Async is handled by VM opcodes, not host handlers
+        let async_ability = AsyncRuntimeAbility::new();
+        let handlers = async_ability.handlers();
+        assert!(handlers.is_empty());
+    }
+}

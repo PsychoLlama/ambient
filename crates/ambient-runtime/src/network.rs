@@ -225,3 +225,88 @@ impl RuntimeAbility for NetworkRuntimeAbility {
         vec![]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone)]
+    struct TestType;
+
+    struct TestTypeFactory;
+
+    impl TypeFactory<TestType> for TestTypeFactory {
+        fn unit(&self) -> TestType {
+            TestType
+        }
+        fn bool(&self) -> TestType {
+            TestType
+        }
+        fn number(&self) -> TestType {
+            TestType
+        }
+        fn string(&self) -> TestType {
+            TestType
+        }
+        fn never(&self) -> TestType {
+            TestType
+        }
+        fn type_var(&self) -> TestType {
+            TestType
+        }
+        fn list(&self, _: TestType) -> TestType {
+            TestType
+        }
+    }
+
+    #[test]
+    fn test_network_ability_constants() {
+        assert_eq!(ABILITY_ID, 0x0008);
+        assert_eq!(METHOD_LISTEN, 0x0000);
+        assert_eq!(METHOD_ACCEPT, 0x0001);
+        assert_eq!(METHOD_CLOSE_LISTENER, 0x0002);
+        assert_eq!(METHOD_CONNECT, 0x0003);
+        assert_eq!(METHOD_CLOSE, 0x0004);
+        assert_eq!(METHOD_SEND, 0x0005);
+        assert_eq!(METHOD_RECEIVE, 0x0006);
+        assert_eq!(METHOD_LOCAL_ADDR, 0x0007);
+        assert_eq!(METHOD_PEER_ADDR, 0x0008);
+    }
+
+    #[test]
+    fn test_network_runtime_ability_name() {
+        let network = NetworkRuntimeAbility::new();
+        assert_eq!(network.name(), "Network");
+        assert_eq!(network.ability_id(), ABILITY_ID);
+    }
+
+    #[test]
+    fn test_network_descriptor_methods() {
+        let network = NetworkRuntimeAbility::new();
+        let factory = TestTypeFactory;
+        let descriptor = network.descriptor(&factory);
+
+        assert_eq!(descriptor.id, ABILITY_ID);
+        assert_eq!(descriptor.name, "Network");
+        assert_eq!(descriptor.methods.len(), 9);
+
+        let method_names: Vec<_> = descriptor.methods.iter().map(|m| m.name).collect();
+        assert!(method_names.contains(&"listen"));
+        assert!(method_names.contains(&"accept"));
+        assert!(method_names.contains(&"close_listener"));
+        assert!(method_names.contains(&"connect"));
+        assert!(method_names.contains(&"close"));
+        assert!(method_names.contains(&"send"));
+        assert!(method_names.contains(&"receive"));
+        assert!(method_names.contains(&"local_addr"));
+        assert!(method_names.contains(&"peer_addr"));
+    }
+
+    #[test]
+    fn test_network_handlers_empty() {
+        // Network handlers require runtime configuration
+        let network = NetworkRuntimeAbility::new();
+        let handlers = network.handlers();
+        assert!(handlers.is_empty());
+    }
+}

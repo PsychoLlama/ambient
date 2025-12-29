@@ -147,3 +147,103 @@ impl RuntimeAbility for ConsoleRuntimeAbility {
         ]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone)]
+    struct TestType;
+
+    struct TestTypeFactory;
+
+    impl TypeFactory<TestType> for TestTypeFactory {
+        fn unit(&self) -> TestType {
+            TestType
+        }
+        fn bool(&self) -> TestType {
+            TestType
+        }
+        fn number(&self) -> TestType {
+            TestType
+        }
+        fn string(&self) -> TestType {
+            TestType
+        }
+        fn never(&self) -> TestType {
+            TestType
+        }
+        fn type_var(&self) -> TestType {
+            TestType
+        }
+        fn list(&self, _: TestType) -> TestType {
+            TestType
+        }
+    }
+
+    #[test]
+    fn test_console_ability_constants() {
+        assert_eq!(ABILITY_ID, 0x0001);
+        assert_eq!(METHOD_PRINT, 0x0000);
+        assert_eq!(METHOD_EPRINT, 0x0001);
+        assert_eq!(METHOD_PRINTLN, 0x0002);
+    }
+
+    #[test]
+    fn test_console_runtime_ability_name() {
+        let console = ConsoleRuntimeAbility::new();
+        assert_eq!(console.name(), "Console");
+        assert_eq!(console.ability_id(), ABILITY_ID);
+    }
+
+    #[test]
+    fn test_console_descriptor_methods() {
+        let console = ConsoleRuntimeAbility::new();
+        let factory = TestTypeFactory;
+        let descriptor = console.descriptor(&factory);
+
+        assert_eq!(descriptor.id, ABILITY_ID);
+        assert_eq!(descriptor.name, "Console");
+        assert_eq!(descriptor.methods.len(), 3);
+
+        // Check method names
+        let method_names: Vec<_> = descriptor.methods.iter().map(|m| m.name).collect();
+        assert!(method_names.contains(&"print"));
+        assert!(method_names.contains(&"println"));
+        assert!(method_names.contains(&"eprint"));
+    }
+
+    #[test]
+    fn test_console_handlers() {
+        let console = ConsoleRuntimeAbility::new();
+        let handlers = console.handlers();
+
+        assert_eq!(handlers.len(), 3);
+
+        // Check handler method IDs
+        let method_ids: Vec<_> = handlers.iter().map(|(id, _)| *id).collect();
+        assert!(method_ids.contains(&METHOD_PRINT));
+        assert!(method_ids.contains(&METHOD_PRINTLN));
+        assert!(method_ids.contains(&METHOD_EPRINT));
+    }
+
+    #[test]
+    fn test_console_print_handler_returns_unit() {
+        let console = ConsoleRuntimeAbility::new();
+        let handlers = console.handlers();
+
+        // Find the print handler
+        let (_, print_handler) = handlers.iter().find(|(id, _)| *id == METHOD_PRINT).unwrap();
+
+        // Create a suspended ability with a string argument
+        let ability = SuspendedAbility {
+            ability_id: ABILITY_ID,
+            method_id: METHOD_PRINT,
+            args: vec![Value::string("test message")],
+        };
+
+        let result = print_handler(&ability);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Value::Unit);
+    }
+}

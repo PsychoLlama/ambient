@@ -140,3 +140,103 @@ impl RuntimeAbility for LogRuntimeAbility {
         ]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone)]
+    struct TestType;
+
+    struct TestTypeFactory;
+
+    impl TypeFactory<TestType> for TestTypeFactory {
+        fn unit(&self) -> TestType {
+            TestType
+        }
+        fn bool(&self) -> TestType {
+            TestType
+        }
+        fn number(&self) -> TestType {
+            TestType
+        }
+        fn string(&self) -> TestType {
+            TestType
+        }
+        fn never(&self) -> TestType {
+            TestType
+        }
+        fn type_var(&self) -> TestType {
+            TestType
+        }
+        fn list(&self, _: TestType) -> TestType {
+            TestType
+        }
+    }
+
+    #[test]
+    fn test_log_ability_constants() {
+        assert_eq!(ABILITY_ID, 0x0006);
+        assert_eq!(METHOD_DEBUG, 0x0000);
+        assert_eq!(METHOD_INFO, 0x0001);
+        assert_eq!(METHOD_WARN, 0x0002);
+        assert_eq!(METHOD_ERROR, 0x0003);
+    }
+
+    #[test]
+    fn test_log_runtime_ability_name() {
+        let log = LogRuntimeAbility::new();
+        assert_eq!(log.name(), "Log");
+        assert_eq!(log.ability_id(), ABILITY_ID);
+    }
+
+    #[test]
+    fn test_log_descriptor_methods() {
+        let log = LogRuntimeAbility::new();
+        let factory = TestTypeFactory;
+        let descriptor = log.descriptor(&factory);
+
+        assert_eq!(descriptor.id, ABILITY_ID);
+        assert_eq!(descriptor.name, "Log");
+        assert_eq!(descriptor.methods.len(), 4);
+
+        let method_names: Vec<_> = descriptor.methods.iter().map(|m| m.name).collect();
+        assert!(method_names.contains(&"debug"));
+        assert!(method_names.contains(&"info"));
+        assert!(method_names.contains(&"warn"));
+        assert!(method_names.contains(&"error"));
+    }
+
+    #[test]
+    fn test_log_handlers() {
+        let log = LogRuntimeAbility::new();
+        let handlers = log.handlers();
+
+        assert_eq!(handlers.len(), 4);
+
+        let method_ids: Vec<_> = handlers.iter().map(|(id, _)| *id).collect();
+        assert!(method_ids.contains(&METHOD_DEBUG));
+        assert!(method_ids.contains(&METHOD_INFO));
+        assert!(method_ids.contains(&METHOD_WARN));
+        assert!(method_ids.contains(&METHOD_ERROR));
+    }
+
+    #[test]
+    fn test_log_handler_returns_unit() {
+        let log = LogRuntimeAbility::new();
+        let handlers = log.handlers();
+
+        // Test debug handler
+        let (_, debug_handler) = handlers.iter().find(|(id, _)| *id == METHOD_DEBUG).unwrap();
+
+        let ability = SuspendedAbility {
+            ability_id: ABILITY_ID,
+            method_id: METHOD_DEBUG,
+            args: vec![Value::string("test message")],
+        };
+
+        let result = debug_handler(&ability);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Value::Unit);
+    }
+}

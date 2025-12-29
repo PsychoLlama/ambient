@@ -110,3 +110,131 @@ impl RuntimeAbility for TimeRuntimeAbility {
         vec![(METHOD_NOW, now), (METHOD_WAIT, wait)]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone)]
+    struct TestType;
+
+    struct TestTypeFactory;
+
+    impl TypeFactory<TestType> for TestTypeFactory {
+        fn unit(&self) -> TestType {
+            TestType
+        }
+        fn bool(&self) -> TestType {
+            TestType
+        }
+        fn number(&self) -> TestType {
+            TestType
+        }
+        fn string(&self) -> TestType {
+            TestType
+        }
+        fn never(&self) -> TestType {
+            TestType
+        }
+        fn type_var(&self) -> TestType {
+            TestType
+        }
+        fn list(&self, _: TestType) -> TestType {
+            TestType
+        }
+    }
+
+    #[test]
+    fn test_time_ability_constants() {
+        assert_eq!(ABILITY_ID, 0x0003);
+        assert_eq!(METHOD_NOW, 0x0000);
+        assert_eq!(METHOD_WAIT, 0x0001);
+    }
+
+    #[test]
+    fn test_time_runtime_ability_name() {
+        let time = TimeRuntimeAbility::new();
+        assert_eq!(time.name(), "Time");
+        assert_eq!(time.ability_id(), ABILITY_ID);
+    }
+
+    #[test]
+    fn test_time_descriptor_methods() {
+        let time = TimeRuntimeAbility::new();
+        let factory = TestTypeFactory;
+        let descriptor = time.descriptor(&factory);
+
+        assert_eq!(descriptor.id, ABILITY_ID);
+        assert_eq!(descriptor.name, "Time");
+        assert_eq!(descriptor.methods.len(), 2);
+
+        // Check method names
+        let method_names: Vec<_> = descriptor.methods.iter().map(|m| m.name).collect();
+        assert!(method_names.contains(&"now"));
+        assert!(method_names.contains(&"wait"));
+    }
+
+    #[test]
+    fn test_time_now_returns_positive_number() {
+        let time = TimeRuntimeAbility::new();
+        let handlers = time.handlers();
+
+        let (_, now_handler) = handlers.iter().find(|(id, _)| *id == METHOD_NOW).unwrap();
+
+        let ability = SuspendedAbility {
+            ability_id: ABILITY_ID,
+            method_id: METHOD_NOW,
+            args: vec![],
+        };
+
+        let result = now_handler(&ability);
+        assert!(result.is_ok());
+
+        if let Value::Number(ms) = result.unwrap() {
+            // Should be a positive number (milliseconds since epoch)
+            assert!(ms > 0.0);
+            // Should be reasonably recent (after year 2020)
+            assert!(ms > 1_577_836_800_000.0); // Jan 1, 2020
+        } else {
+            panic!("Expected Number value");
+        }
+    }
+
+    #[test]
+    fn test_time_wait_returns_unit() {
+        let time = TimeRuntimeAbility::new();
+        let handlers = time.handlers();
+
+        let (_, wait_handler) = handlers.iter().find(|(id, _)| *id == METHOD_WAIT).unwrap();
+
+        // Wait for 1 millisecond
+        let ability = SuspendedAbility {
+            ability_id: ABILITY_ID,
+            method_id: METHOD_WAIT,
+            args: vec![Value::Number(1.0)],
+        };
+
+        let result = wait_handler(&ability);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Value::Unit);
+    }
+
+    #[test]
+    fn test_time_wait_handles_negative_duration() {
+        let time = TimeRuntimeAbility::new();
+        let handlers = time.handlers();
+
+        let (_, wait_handler) = handlers.iter().find(|(id, _)| *id == METHOD_WAIT).unwrap();
+
+        // Negative duration should be treated as 0
+        let ability = SuspendedAbility {
+            ability_id: ABILITY_ID,
+            method_id: METHOD_WAIT,
+            args: vec![Value::Number(-100.0)],
+        };
+
+        let result = wait_handler(&ability);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Value::Unit);
+    }
+}
