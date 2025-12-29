@@ -1,0 +1,68 @@
+//! Nominal Types Example
+//!
+//! Demonstrates the syntax for nominal types using the `unique(uuid)` modifier.
+//!
+//! Nominal types are structurally identical but type-incompatible. This prevents
+//! accidentally mixing values that have the same shape but different meanings,
+//! like user IDs vs order IDs, or dollars vs euros.
+//!
+//! Syntax: unique(<uuid>) type <Name> { <fields> }
+//!
+//! The UUID ensures the type is globally unique - two types with the same
+//! structure but different UUIDs are incompatible.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Nominal Type Definitions
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A unique user identifier.
+/// The UUID makes this type distinct from any other type with the same structure.
+unique(a1b2c3d4-e5f6-7890-abcd-ef1234567890) type UserId { value: string }
+
+/// A unique order identifier.
+/// Structurally identical to UserId (both wrap a string),
+/// but completely incompatible at the type level.
+unique(b2c3d4e5-f6a7-8901-bcde-f12345678901) type OrderId { value: string }
+
+/// US Dollars stored as cents.
+unique(d4e5f6a7-b8c9-0123-defa-234567890123) type USD { cents: number }
+
+/// Euros stored as cents.
+/// Same structure as USD, but cannot be mixed.
+unique(e5f6a7b8-c9d0-1234-efab-345678901234) type EUR { cents: number }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Why Nominal Types Matter
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Without nominal types, these bugs would compile:
+//
+//   fn get_user(id: { value: string }): User { ... }
+//   fn get_order(id: { value: string }): Order { ... }
+//
+//   let user_id = { value: "user-123" };
+//   let order_id = { value: "order-456" };
+//
+//   // BUG: Accidentally swapped IDs - compiles with structural types!
+//   get_user(order_id);   // Wrong ID type
+//   get_order(user_id);   // Wrong ID type
+//
+// With nominal types (UserId, OrderId), the compiler catches these errors:
+//
+//   fn get_user(id: UserId): User { ... }
+//   fn get_order(id: OrderId): Order { ... }
+//
+//   // ERROR: Cannot pass OrderId where UserId expected
+//   get_user(order_id);   // Compile error!
+//
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Entry point - demonstrates that nominal type syntax parses correctly.
+pub fn run(): number {
+    // The nominal type definitions above are parsed and type-checked.
+    // Full runtime support for nominal types (construction, field access)
+    // is a work in progress.
+
+    // For now, return a value to show the example runs.
+    42
+}
