@@ -236,6 +236,7 @@ pub fn format_type(ty: &Type) -> String {
         Type::Bool => "bool".to_string(),
         Type::Number => "number".to_string(),
         Type::String => "string".to_string(),
+        Type::Bytes => "Bytes".to_string(),
         Type::Var(var) => match var {
             ambient_engine::types::TypeVar::Unbound(id) => format!("?{id}"),
             ambient_engine::types::TypeVar::Link(linked) => format_type(&linked.borrow()),

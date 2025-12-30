@@ -40,6 +40,9 @@ pub trait TypeFactory<T> {
     /// Create the String type.
     fn string(&self) -> T;
 
+    /// Create the Bytes type.
+    fn bytes(&self) -> T;
+
     /// Create the Never type (for expressions that don't return).
     fn never(&self) -> T;
 
@@ -158,6 +161,9 @@ mod tests {
         }
         fn string(&self) -> TestType {
             TestType("string".to_string())
+        }
+        fn bytes(&self) -> TestType {
+            TestType("bytes".to_string())
         }
         fn never(&self) -> TestType {
             TestType("never".to_string())

@@ -407,6 +407,9 @@ pub enum Type {
     /// UTF-8 string type.
     String,
 
+    /// Byte sequence type for binary data.
+    Bytes,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Composite types
     // ─────────────────────────────────────────────────────────────────────────
@@ -1041,6 +1044,7 @@ impl fmt::Display for Type {
             Self::Bool => write!(f, "bool"),
             Self::Number => write!(f, "number"),
             Self::String => write!(f, "string"),
+            Self::Bytes => write!(f, "Bytes"),
             Self::Never => write!(f, "!"),
             Self::Error => write!(f, "<error>"),
             Self::Hole => write!(f, "_"),

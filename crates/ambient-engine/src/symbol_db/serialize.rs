@@ -34,6 +34,7 @@ pub fn serialize_type_value(ty: &Type) -> Value {
         Type::Bool => json!({"t": "bool"}),
         Type::Number => json!({"t": "number"}),
         Type::String => json!({"t": "string"}),
+        Type::Bytes => json!({"t": "bytes"}),
         Type::Never => json!({"t": "never"}),
         Type::Error => json!({"t": "error"}),
         Type::Hole => json!({"t": "hole"}),

@@ -30,6 +30,7 @@ impl Infer {
             | (Type::Bool, Type::Bool)
             | (Type::Number, Type::Number)
             | (Type::String, Type::String)
+            | (Type::Bytes, Type::Bytes)
             | (Type::Never, Type::Never)
             | (Type::Error, _)
             | (_, Type::Error) => Ok(()),

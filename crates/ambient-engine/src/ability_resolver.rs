@@ -232,6 +232,10 @@ impl TypeFactory<Type> for EngineTypeFactory {
         Type::String
     }
 
+    fn bytes(&self) -> Type {
+        Type::Bytes
+    }
+
     fn never(&self) -> Type {
         Type::Never
     }
