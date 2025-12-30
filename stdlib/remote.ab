@@ -80,7 +80,7 @@ pub fn serve<R>(conn: number): R {
 }
 
 /// Handle an Execute request, fetching dependencies if needed.
-fn serve_execute<R>(conn: number, hash: string, captures: List<number>): R {
+fn serve_execute<R>(conn: number, hash: string, captures: Bytes): R {
     // Check if we have the function
     if runtime.Execute.has_function!(hash) {
         // Get all dependencies
@@ -144,7 +144,7 @@ fn request_deps(conn: number, hashes: List<string>) {
 }
 
 /// Execute the function and send the result back.
-fn execute_and_respond<R>(conn: number, hash: string, captures: List<number>): R {
+fn execute_and_respond<R>(conn: number, hash: string, captures: Bytes): R {
     // Deserialize captures to get the argument value
     let arg = deserialize_or_throw(captures, "captures");
 
@@ -232,37 +232,37 @@ fn provide_functions(conn: number, hashes: List<string>) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Create an Execute message.
-fn make_execute_message(hash: string, captures: List<number>): List<number> {
+fn make_execute_message(hash: string, captures: Bytes): Bytes {
     // Format: [msg_type, hash_length, hash_bytes..., captures...]
     let hash_bytes = core.protocol.serialize_value(hash);
-    let hash_len = core.list.length(hash_bytes);
-    core.list.concat(
-        [msg_execute(), hash_len],
-        core.list.concat(hash_bytes, captures)
+    let hash_len = Bytes.length(hash_bytes);
+    Bytes.concat(
+        Bytes.from([msg_execute(), hash_len]),
+        Bytes.concat(hash_bytes, captures)
     )
 }
 
 /// Create a NeedDeps message.
-fn make_need_deps_message(hashes: List<string>): List<number> {
+fn make_need_deps_message(hashes: List<string>): Bytes {
     // Format: [msg_type, serialized_hashes...]
     let serialized = core.protocol.serialize_value(hashes);
-    core.list.concat([msg_need_deps()], serialized)
+    Bytes.concat(Bytes.from([msg_need_deps()]), serialized)
 }
 
 /// Create a Provide message.
-fn make_provide_message(data: List<number>): List<number> {
-    core.list.concat([msg_provide()], data)
+fn make_provide_message(data: Bytes): Bytes {
+    Bytes.concat(Bytes.from([msg_provide()]), data)
 }
 
 /// Create a Result message.
-fn make_result_message(value_bytes: List<number>): List<number> {
-    core.list.concat([msg_result()], value_bytes)
+fn make_result_message(value_bytes: Bytes): Bytes {
+    Bytes.concat(Bytes.from([msg_result()]), value_bytes)
 }
 
 /// Create an Error message.
-fn make_error_message(error_msg: string): List<number> {
+fn make_error_message(error_msg: string): Bytes {
     let msg_bytes = core.protocol.serialize_value(error_msg);
-    core.list.concat([msg_error()], msg_bytes)
+    Bytes.concat(Bytes.from([msg_error()]), msg_bytes)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -270,22 +270,22 @@ fn make_error_message(error_msg: string): List<number> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Get the message type (first byte).
-fn get_message_type(bytes: List<number>): number {
-    core.list.head(bytes)
+fn get_message_type(bytes: Bytes): number {
+    Bytes.get(bytes, 0)
 }
 
 /// Get the payload (everything after the first byte).
-fn get_payload(bytes: List<number>): List<number> {
-    core.list.tail(bytes)
+fn get_payload(bytes: Bytes): Bytes {
+    Bytes.slice(bytes, 1, Bytes.length(bytes))
 }
 
 /// Parse an Execute payload into (hash, captures).
-fn parse_execute_payload(payload: List<number>): (string, List<number>) {
+fn parse_execute_payload(payload: Bytes): (string, Bytes) {
     // Format: [hash_length, hash_bytes..., captures...]
-    let hash_len = core.list.head(payload);
-    let rest = core.list.tail(payload);
-    let hash_bytes = take(hash_len, rest);
-    let captures = drop(hash_len, rest);
+    let hash_len = Bytes.get(payload, 0);
+    let rest = Bytes.slice(payload, 1, Bytes.length(payload));
+    let hash_bytes = Bytes.slice(rest, 0, hash_len);
+    let captures = Bytes.slice(rest, hash_len, Bytes.length(rest));
     let hash = deserialize_string_or_throw(hash_bytes, "function hash");
     (hash, captures)
 }
@@ -294,43 +294,17 @@ fn parse_execute_payload(payload: List<number>): (string, List<number>) {
 // Helper Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Check that a byte list is not empty, throw if it is.
-fn check_not_empty<T>(bytes: List<number>, context: string): () {
-    if core.list.is_empty(bytes) {
+/// Check that bytes are not empty, throw if they are.
+fn check_not_empty<T>(bytes: Bytes, context: string): () {
+    if Bytes.length(bytes) == 0 {
         Exception.throw!(core.string.concat("remote: ", context))
     } else {
         ()
     }
 }
 
-/// Take the first n elements from a list.
-fn take(n: number, xs: List<number>): List<number> {
-    if n <= 0 {
-        []
-    } else {
-        if core.list.is_empty(xs) {
-            []
-        } else {
-            core.list.concat([core.list.head(xs)], take(n - 1, core.list.tail(xs)))
-        }
-    }
-}
-
-/// Drop the first n elements from a list.
-fn drop(n: number, xs: List<number>): List<number> {
-    if n <= 0 {
-        xs
-    } else {
-        if core.list.is_empty(xs) {
-            []
-        } else {
-            drop(n - 1, core.list.tail(xs))
-        }
-    }
-}
-
 /// Deserialize a value, throwing on failure.
-fn deserialize_or_throw<T>(bytes: List<number>, context: string): T {
+fn deserialize_or_throw<T>(bytes: Bytes, context: string): T {
     let opt = core.protocol.deserialize_value(bytes);
     if core.option.is_some(opt) {
         core.option.unwrap_or(opt, core.option.unwrap_or(opt, opt))
@@ -340,7 +314,7 @@ fn deserialize_or_throw<T>(bytes: List<number>, context: string): T {
 }
 
 /// Deserialize a string, throwing on failure.
-fn deserialize_string_or_throw(bytes: List<number>, context: string): string {
+fn deserialize_string_or_throw(bytes: Bytes, context: string): string {
     let opt = core.protocol.deserialize_value(bytes);
     if core.option.is_some(opt) {
         core.option.unwrap_or(opt, "")
@@ -350,7 +324,7 @@ fn deserialize_string_or_throw(bytes: List<number>, context: string): string {
 }
 
 /// Deserialize a list of strings, throwing on failure.
-fn deserialize_list_or_throw(bytes: List<number>, context: string): List<string> {
+fn deserialize_list_or_throw(bytes: Bytes, context: string): List<string> {
     let opt = core.protocol.deserialize_value(bytes);
     if core.option.is_some(opt) {
         core.option.unwrap_or(opt, [])

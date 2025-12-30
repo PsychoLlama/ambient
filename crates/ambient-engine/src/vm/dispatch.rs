@@ -1400,33 +1400,20 @@ impl Vm {
                 Opcode::SerializeValue => {
                     let value = self.pop()?;
                     let bytes = crate::protocol::serialize_value(&value);
-                    let byte_list: Vec<Value> =
-                        bytes.iter().map(|&b| Value::Number(f64::from(b))).collect();
-                    self.stack.push(Value::list(byte_list));
+                    self.stack.push(Value::bytes(bytes));
                 }
 
                 Opcode::DeserializeValue => {
-                    let list = match self.pop()? {
-                        Value::List(elements) => elements,
+                    let bytes = match self.pop()? {
+                        Value::Bytes(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "list",
+                                expected: "bytes",
                                 got: other.type_name(),
                                 operation: "deserialize_value",
                             })
                         }
                     };
-                    let bytes: Vec<u8> = list
-                        .iter()
-                        .map(|v| match v {
-                            Value::Number(n) => Ok(*n as u8),
-                            other => Err(VmError::TypeError {
-                                expected: "number",
-                                got: other.type_name(),
-                                operation: "deserialize_value",
-                            }),
-                        })
-                        .collect::<Result<Vec<u8>, VmError>>()?;
                     match crate::protocol::deserialize_value(&bytes) {
                         Some(value) => self.stack.push(Value::some(value)),
                         None => self.stack.push(Value::none()),
@@ -1459,21 +1446,17 @@ impl Vm {
                             })
                         }
                     };
-                    // Serialize captures as a list
+                    // Serialize captures as bytes
                     let captures_value = Value::list(closure.environment.clone());
                     let bytes = crate::protocol::serialize_value(&captures_value);
-                    let byte_list: Vec<Value> =
-                        bytes.iter().map(|&b| Value::Number(f64::from(b))).collect();
-                    self.stack.push(Value::list(byte_list));
+                    self.stack.push(Value::bytes(bytes));
                 }
 
                 Opcode::HexToBytes => {
                     let hex_str = self.pop_string("hex_to_bytes")?;
                     match hex::decode(&*hex_str) {
                         Ok(bytes) => {
-                            let byte_list: Vec<Value> =
-                                bytes.iter().map(|&b| Value::Number(f64::from(b))).collect();
-                            self.stack.push(Value::some(Value::list(byte_list)));
+                            self.stack.push(Value::some(Value::bytes(bytes)));
                         }
                         Err(_) => {
                             self.stack.push(Value::none());
@@ -1482,28 +1465,17 @@ impl Vm {
                 }
 
                 Opcode::BytesToHex => {
-                    let list = match self.pop()? {
-                        Value::List(elements) => elements,
+                    let bytes = match self.pop()? {
+                        Value::Bytes(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "list",
+                                expected: "bytes",
                                 got: other.type_name(),
                                 operation: "bytes_to_hex",
                             })
                         }
                     };
-                    let bytes: Vec<u8> = list
-                        .iter()
-                        .map(|v| match v {
-                            Value::Number(n) => Ok(*n as u8),
-                            other => Err(VmError::TypeError {
-                                expected: "number",
-                                got: other.type_name(),
-                                operation: "bytes_to_hex",
-                            }),
-                        })
-                        .collect::<Result<Vec<u8>, VmError>>()?;
-                    self.stack.push(Value::string(hex::encode(bytes)));
+                    self.stack.push(Value::string(hex::encode(bytes.as_ref())));
                 }
 
                 // ─────────────────────────────────────────────────────────────
