@@ -13,11 +13,13 @@ use ambient_engine::core_library::CoreLibrary;
 use ambient_engine::symbol_db::{SymbolDb, SymbolKind};
 use ambient_parser::TokenKind;
 use lsp_types::{CompletionItem, CompletionItemKind, CompletionItemLabelDetails, InsertTextFormat};
+use uuid::Uuid;
 
 use crate::analysis::format_type;
 
 /// A completion context containing information about the cursor position.
 #[derive(Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct CompletionContext<'a> {
     /// The byte offset of the cursor.
     pub offset: usize,
@@ -37,6 +39,8 @@ pub struct CompletionContext<'a> {
     pub after_pkg_module_dot: Option<&'a str>,
     /// Whether we're after a use statement prefix (pkg, core, self, super).
     pub in_use_statement: bool,
+    /// Whether we're inside `unique(` for nominal type UUID completion.
+    pub in_unique_paren: bool,
 }
 
 impl<'a> CompletionContext<'a> {
@@ -133,6 +137,16 @@ impl<'a> CompletionContext<'a> {
                 (None, None)
             };
 
+        // Check if we're inside `unique(` for nominal type UUID completion.
+        // Look for "unique(" before the cursor on the current line, with no closing paren.
+        let in_unique_paren = if let Some(unique_pos) = line_prefix.rfind("unique(") {
+            // Check there's no closing paren after the opening paren
+            let after_open = &line_prefix[unique_pos + 7..];
+            !after_open.contains(')')
+        } else {
+            false
+        };
+
         Self {
             offset,
             word_prefix,
@@ -142,6 +156,7 @@ impl<'a> CompletionContext<'a> {
             after_core_submodule_dot,
             after_pkg_module_dot,
             in_use_statement,
+            in_unique_paren,
         }
     }
 }
@@ -154,6 +169,12 @@ pub fn get_completions(
     symbol_db: Option<&SymbolDb>,
 ) -> Vec<CompletionItem> {
     let mut items = Vec::new();
+
+    // If we're inside unique(), offer a generated UUID
+    if ctx.in_unique_paren {
+        items.push(get_uuid_completion());
+        return items;
+    }
 
     // If we're completing core library modules (after "core.")
     if ctx.after_core_dot {
@@ -214,6 +235,18 @@ pub fn get_completions(
     }
 
     items
+}
+
+/// Generate a completion item with a fresh UUID for nominal type definitions.
+fn get_uuid_completion() -> CompletionItem {
+    let uuid = Uuid::new_v4().to_string();
+    CompletionItem {
+        label: uuid.clone(),
+        kind: Some(CompletionItemKind::VALUE),
+        detail: Some("Generated UUID for nominal type".to_string()),
+        insert_text: Some(uuid),
+        ..Default::default()
+    }
 }
 
 /// Get keyword completions.

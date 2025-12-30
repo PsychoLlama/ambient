@@ -207,3 +207,77 @@ fn test_time_ability_methods() {
         .done()
         .shutdown();
 }
+
+#[test]
+fn test_unique_uuid_completion() {
+    let (test, items) = LspTest::new()
+        .with_source("unique(/*|*/) type UserId { value: string }")
+        .complete_at("0")
+        .raw();
+
+    // Should get exactly one completion
+    assert_eq!(
+        items.len(),
+        1,
+        "Expected 1 UUID completion, got {}",
+        items.len()
+    );
+
+    let item = &items[0];
+
+    // Check it's a VALUE kind
+    assert_eq!(
+        item.kind,
+        Some(CompletionItemKind::VALUE),
+        "Expected VALUE kind for UUID completion"
+    );
+
+    // Check the label looks like a UUID (8-4-4-4-12 hex format)
+    let label = &item.label;
+    let parts: Vec<&str> = label.split('-').collect();
+    assert_eq!(
+        parts.len(),
+        5,
+        "UUID should have 5 parts separated by dashes: {}",
+        label
+    );
+    assert_eq!(parts[0].len(), 8, "First UUID part should be 8 chars");
+    assert_eq!(parts[1].len(), 4, "Second UUID part should be 4 chars");
+    assert_eq!(parts[2].len(), 4, "Third UUID part should be 4 chars");
+    assert_eq!(parts[3].len(), 4, "Fourth UUID part should be 4 chars");
+    assert_eq!(parts[4].len(), 12, "Fifth UUID part should be 12 chars");
+
+    // Check detail message
+    assert_eq!(
+        item.detail.as_deref(),
+        Some("Generated UUID for nominal type"),
+        "Expected detail message for UUID completion"
+    );
+
+    test.shutdown();
+}
+
+#[test]
+fn test_unique_uuid_completion_partial() {
+    // Even with partial UUID already typed, should still offer completion
+    let (test, items) = LspTest::new()
+        .with_source("unique(abc/*|*/) type UserId { value: string }")
+        .complete_at("0")
+        .raw();
+
+    // Should still offer a UUID (the word_prefix doesn't filter UUIDs)
+    assert_eq!(items.len(), 1, "Expected 1 UUID completion");
+
+    test.shutdown();
+}
+
+#[test]
+fn test_unique_uuid_not_offered_after_close() {
+    // After closing paren, should not offer UUID
+    LspTest::new()
+        .with_source("unique(abc-123) t/*|*/")
+        .complete_at("0")
+        .expect_item("type") // Should offer normal keyword completion
+        .done()
+        .shutdown();
+}

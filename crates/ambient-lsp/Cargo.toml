@@ -25,6 +25,9 @@ log = "0.4"
 # Error handling
 anyhow = "1.0"
 
+# UUID generation for completions
+uuid = { version = "1.11", features = ["v4"] }
+
 # Testing dependencies (used by test_harness module)
 tempfile = "3.14"
 insta = "1.44"
