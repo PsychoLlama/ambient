@@ -7,7 +7,7 @@
 //!
 //! - `has_function(hash: string) -> bool` - Check if function exists
 //! - `get_dependencies(hash: string) -> List<string>` - Get function dependencies
-//! - `load_functions(data: List<number>) -> ()` - Load portable functions
+//! - `load_functions(data: Bytes) -> ()` - Load portable functions
 //! - `run<T, R>(hash: string, args: T) -> R` - Execute function by hash
 
 use ambient_ability::{HostHandler, RuntimeAbility};
@@ -109,7 +109,7 @@ impl RuntimeAbility for ExecuteRuntimeAbility {
                     name: "load_functions",
                     signature: MethodSignature {
                         param_count: 1,
-                        param_types: |f| vec![f.list(f.number())], // serialized data
+                        param_types: |f| vec![f.bytes()], // serialized data
                         return_type: |f| f.unit(),
                     },
                 },

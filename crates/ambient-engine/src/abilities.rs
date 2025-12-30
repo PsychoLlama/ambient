@@ -568,7 +568,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
         }),
     );
 
-    // Network.receive(conn: number) -> List<number>
+    // Network.receive(conn: number) -> Bytes
     let state_clone = Arc::clone(&state);
     vm.register_host_handler(
         network::ABILITY_ID,
@@ -582,7 +582,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
                 .receive(conn_id)
                 .map_err(|e| VmError::IoError(e.to_string()))?;
 
-            Ok(bytes_to_list(&data))
+            Ok(Value::bytes(data))
         }),
     );
 
@@ -679,7 +679,7 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
         }),
     );
 
-    // Execute.load_functions(data: List<number>) -> ()
+    // Execute.load_functions(data: Bytes) -> ()
     let store_clone = Arc::clone(&store);
     vm.register_host_handler(
         execute::ABILITY_ID,
@@ -689,7 +689,7 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
                 Some(v) => extract_bytes(v)?,
                 None => {
                     return Err(VmError::TypeErrorOwned {
-                        expected: "list".to_string(),
+                        expected: "bytes".to_string(),
                         got: "no argument".to_string(),
                     })
                 }
@@ -744,31 +744,15 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
     );
 }
 
-/// Extract bytes from a List<number> value.
+/// Extract bytes from a Bytes value.
 fn extract_bytes(value: &Value) -> Result<Vec<u8>, VmError> {
     match value {
-        Value::List(list) => list
-            .iter()
-            .map(|v| match v {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                Value::Number(n) => Ok(*n as u8),
-                other => Err(VmError::TypeErrorOwned {
-                    expected: "number".to_string(),
-                    got: other.type_name().to_string(),
-                }),
-            })
-            .collect(),
+        Value::Bytes(bytes) => Ok(bytes.as_ref().clone()),
         other => Err(VmError::TypeErrorOwned {
-            expected: "list".to_string(),
+            expected: "bytes".to_string(),
             got: other.type_name().to_string(),
         }),
     }
-}
-
-/// Convert bytes to a List<number> value.
-fn bytes_to_list(bytes: &[u8]) -> Value {
-    let values: Vec<Value> = bytes.iter().map(|&b| Value::Number(f64::from(b))).collect();
-    Value::List(Arc::new(values))
 }
 
 /// Extract a string from the first argument.

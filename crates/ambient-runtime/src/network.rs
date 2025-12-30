@@ -16,8 +16,8 @@
 //! - `close(conn: ConnectionId) -> ()` - Close connection
 //!
 //! ## Message I/O (length-prefixed)
-//! - `send(conn: ConnectionId, data: List<number>) -> ()` - Send message
-//! - `receive(conn: ConnectionId) -> List<number>` - Receive message
+//! - `send(conn: ConnectionId, data: Bytes) -> ()` - Send message
+//! - `receive(conn: ConnectionId) -> Bytes` - Receive message
 //!
 //! ## Connection Info
 //! - `local_addr(conn: ConnectionId) -> string` - Get local address
@@ -184,7 +184,7 @@ impl RuntimeAbility for NetworkRuntimeAbility {
                     name: "send",
                     signature: MethodSignature {
                         param_count: 2,
-                        param_types: |f| vec![f.number(), f.list(f.number())],
+                        param_types: |f| vec![f.number(), f.bytes()],
                         return_type: |f| f.unit(),
                     },
                 },
@@ -194,7 +194,7 @@ impl RuntimeAbility for NetworkRuntimeAbility {
                     signature: MethodSignature {
                         param_count: 1,
                         param_types: |f| vec![f.number()],
-                        return_type: |f| f.list(f.number()),
+                        return_type: |f| f.bytes(),
                     },
                 },
                 MethodDescriptor {
