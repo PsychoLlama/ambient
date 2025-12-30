@@ -16,16 +16,16 @@ pub fn run() {
 
     // Send a message as Bytes
     let message = string_to_bytes("Hello from Ambient!");
-    runtime.Console.print!(core.string.concat("Client: sending ", core.string.concat(core.convert.to_string(Bytes.length(message)), " bytes...")));
+    runtime.Console.print!(core.string.concat("Client: sending ", core.string.concat(core.convert.to_string(core.bytes.length(message)), " bytes...")));
     runtime.Network.send!(conn, message);
 
     // Receive the echo
     let response = runtime.Network.receive!(conn);
-    runtime.Console.print!(core.string.concat("Client: received ", core.string.concat(core.convert.to_string(Bytes.length(response)), " bytes back")));
+    runtime.Console.print!(core.string.concat("Client: received ", core.string.concat(core.convert.to_string(core.bytes.length(response)), " bytes back")));
 
     // Send empty message to signal quit
     runtime.Console.print!("Client: sending empty message to quit...");
-    runtime.Network.send!(conn, Bytes.from([]));
+    runtime.Network.send!(conn, core.bytes.from([]));
 
     runtime.Network.close!(conn);
     runtime.Console.print!("Client: done")
@@ -36,5 +36,5 @@ fn string_to_bytes(s: string): Bytes {
     // For now, just create a simple test payload
     // In a real implementation, we'd use core.string.bytes or similar
     // "Hello from Ambient!" in ASCII
-    Bytes.from([72, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 65, 109, 98, 105, 101, 110, 116, 33])
+    core.bytes.from([72, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 65, 109, 98, 105, 101, 110, 116, 33])
 }

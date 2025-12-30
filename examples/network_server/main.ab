@@ -28,7 +28,7 @@ pub fn run() {
 /// Echo messages back to the client until an empty message is received.
 fn echo_loop(conn: number) {
     let msg = runtime.Network.receive!(conn);
-    let len = Bytes.length(msg);
+    let len = core.bytes.length(msg);
 
     if len > 0 {
         runtime.Console.print!(core.string.concat("Server: received ", core.string.concat(core.convert.to_string(len), " bytes, echoing back...")));

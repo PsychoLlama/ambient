@@ -824,6 +824,7 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
                 "number" => Ok(Type::Number),
                 "string" => Ok(Type::String),
                 "bool" => Ok(Type::Bool),
+                "Bytes" => Ok(Type::Bytes),
                 _ => {
                     // Named type - could be generic, user-defined, etc.
                     // For now, represent as a named type

@@ -237,21 +237,15 @@ impl Parser<'_> {
                         let end = self.expect(TokenKind::RParen)?.span.end;
 
                         // Reconstruct ability name from the expression
-                        let ability = match &expr.kind {
-                            CstExprKind::Ident(ident) => CstQualifiedName {
-                                segments: vec![ident.clone()],
-                                span: expr.span,
-                            },
-                            CstExprKind::QualifiedName(qn) => qn.clone(),
-                            _ => {
-                                return Err(ParseError::new(
-                                    ParseErrorKind::InvalidAbilitySyntax(
-                                        "expected ability name before method".into(),
-                                    ),
-                                    expr.span,
-                                ));
-                            }
-                        };
+                        // Handles: Ident, QualifiedName, and chains of Field accesses
+                        let ability = expr_to_qualified_name(&expr).ok_or_else(|| {
+                            ParseError::new(
+                                ParseErrorKind::InvalidAbilitySyntax(
+                                    "expected ability name before method".into(),
+                                ),
+                                expr.span,
+                            )
+                        })?;
 
                         let span = Span::new(expr.span.start, end);
                         expr = if is_perform {
@@ -1343,5 +1337,31 @@ impl Parser<'_> {
         }
 
         Ok(args)
+    }
+}
+
+/// Convert an expression to a qualified name if possible.
+///
+/// Handles:
+/// - `Ident` → single-segment qualified name
+/// - `QualifiedName` → as-is
+/// - Chain of `Field` accesses → multi-segment qualified name (e.g., `runtime.Console`)
+///
+/// Returns `None` if the expression cannot be converted to a qualified name.
+fn expr_to_qualified_name(expr: &CstExpr) -> Option<CstQualifiedName> {
+    match &expr.kind {
+        CstExprKind::Ident(ident) => Some(CstQualifiedName {
+            segments: vec![ident.clone()],
+            span: expr.span,
+        }),
+        CstExprKind::QualifiedName(qn) => Some(qn.clone()),
+        CstExprKind::Field { record, field } => {
+            // Recursively convert the record to a qualified name and append the field
+            let mut qn = expr_to_qualified_name(record)?;
+            qn.segments.push(field.clone());
+            qn.span = Span::new(qn.span.start, field.span.end);
+            Some(qn)
+        }
+        _ => None,
     }
 }
