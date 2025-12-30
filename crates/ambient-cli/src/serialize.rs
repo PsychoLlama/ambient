@@ -38,6 +38,7 @@ pub enum SerializedValue {
     Bool(bool),
     Number(f64),
     String(String),
+    Bytes(Vec<u8>),
     FunctionRef(String), // hex hash
                          // Tuples and records not typically in constant pools
 }
@@ -76,6 +77,7 @@ fn serialize_value(value: &Value) -> SerializedValue {
         Value::Bool(b) => SerializedValue::Bool(*b),
         Value::Number(n) => SerializedValue::Number(*n),
         Value::String(s) => SerializedValue::String((**s).clone()),
+        Value::Bytes(b) => SerializedValue::Bytes((**b).clone()),
         Value::FunctionRef(h) => SerializedValue::FunctionRef(h.to_hex().to_string()),
         // These shouldn't appear in constant pools
         Value::Tuple(_)
@@ -149,6 +151,7 @@ fn deserialize_value(sv: &SerializedValue) -> Result<Value> {
         SerializedValue::Bool(b) => Value::Bool(*b),
         SerializedValue::Number(n) => Value::Number(*n),
         SerializedValue::String(s) => Value::String(Arc::new(s.clone())),
+        SerializedValue::Bytes(b) => Value::bytes(b.clone()),
         SerializedValue::FunctionRef(h) => {
             Value::FunctionRef(blake3::Hash::from_hex(h).context("invalid function ref hash")?)
         }

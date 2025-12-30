@@ -46,6 +46,7 @@ enum SerializableValue {
     Bool(bool),
     Number(f64),
     String(String),
+    Bytes(Vec<u8>),
     Tuple(Vec<SerializableValue>),
     List(Vec<SerializableValue>),
     Record(Vec<(String, SerializableValue)>),
@@ -65,6 +66,7 @@ impl From<&Value> for SerializableValue {
             Value::Bool(b) => SerializableValue::Bool(*b),
             Value::Number(n) => SerializableValue::Number(*n),
             Value::String(s) => SerializableValue::String((**s).clone()),
+            Value::Bytes(b) => SerializableValue::Bytes((**b).clone()),
             Value::Tuple(elements) => {
                 SerializableValue::Tuple(elements.iter().map(SerializableValue::from).collect())
             }
@@ -110,6 +112,7 @@ impl From<SerializableValue> for Value {
             SerializableValue::Bool(b) => Value::Bool(b),
             SerializableValue::Number(n) => Value::Number(n),
             SerializableValue::String(s) => Value::String(Arc::new(s)),
+            SerializableValue::Bytes(b) => Value::bytes(b),
             SerializableValue::Tuple(elements) => {
                 Value::tuple(elements.into_iter().map(Value::from).collect())
             }

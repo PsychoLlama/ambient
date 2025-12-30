@@ -384,6 +384,12 @@ fn hash_value_for_content(hasher: &mut blake3::Hasher, value: &Value) {
             hasher.update(&(s.len() as u32).to_le_bytes());
             hasher.update(s.as_bytes());
         }
+        Value::Bytes(b) => {
+            const TYPE_BYTES: u8 = 17;
+            hasher.update(&[TYPE_BYTES]);
+            hasher.update(&(b.len() as u32).to_le_bytes());
+            hasher.update(b);
+        }
         Value::Tuple(elements) => {
             hasher.update(&[TYPE_TUPLE]);
             hasher.update(&(elements.len() as u32).to_le_bytes());

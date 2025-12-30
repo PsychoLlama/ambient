@@ -28,6 +28,9 @@ pub enum Value {
     /// UTF-8 string.
     String(Arc<String>),
 
+    /// Byte sequence for binary data.
+    Bytes(Arc<Vec<u8>>),
+
     /// Tuple: fixed-size, heterogeneous collection accessed by index.
     Tuple(Arc<Vec<Value>>),
 
@@ -683,6 +686,12 @@ impl Value {
         Self::String(Arc::new(s.into()))
     }
 
+    /// Create a new bytes value.
+    #[must_use]
+    pub fn bytes(data: Vec<u8>) -> Self {
+        Self::Bytes(Arc::new(data))
+    }
+
     /// Create a new tuple value.
     #[must_use]
     pub fn tuple(values: Vec<Value>) -> Self {
@@ -705,6 +714,7 @@ impl Value {
             Self::Bool(_) => "bool",
             Self::Number(_) => "number",
             Self::String(_) => "string",
+            Self::Bytes(_) => "bytes",
             Self::Tuple(_) => "tuple",
             Self::Record(_) => "record",
             Self::FunctionRef(_) => "function",
@@ -863,6 +873,15 @@ impl Value {
             _ => None,
         }
     }
+
+    /// Extract the bytes if this value is a `Bytes`, otherwise `None`.
+    #[must_use]
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        match self {
+            Self::Bytes(b) => Some(b.as_slice()),
+            _ => None,
+        }
+    }
 }
 
 impl PartialEq for Value {
@@ -873,6 +892,7 @@ impl PartialEq for Value {
             // NaN != NaN per IEEE 754, but we want structural equality for values
             (Self::Number(a), Self::Number(b)) => a.to_bits() == b.to_bits(),
             (Self::String(a), Self::String(b)) => a == b,
+            (Self::Bytes(a), Self::Bytes(b)) => a == b,
             // Tuples and lists are structurally equal
             (Self::Tuple(a), Self::Tuple(b)) | (Self::List(a), Self::List(b)) => a == b,
             (Self::Record(a), Self::Record(b)) => a == b,

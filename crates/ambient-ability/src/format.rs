@@ -72,6 +72,7 @@ fn format_value_impl(value: &Value, mode: FormatMode) -> String {
         Value::Bool(b) => format_bool(*b, color),
         Value::Number(n) => format_number(*n, color),
         Value::String(s) => format_string(s, quote_strings, color),
+        Value::Bytes(b) => format_bytes(b, color),
         Value::Tuple(elements) => format_sequence(elements, "(", ")", mode),
         Value::List(elements) => format_sequence(elements, "[", "]", mode),
         Value::Record(fields) => format_record(fields, color, mode),
@@ -127,6 +128,25 @@ fn format_string(s: &str, quote: bool, color: bool) -> String {
         }
     } else {
         s.to_string()
+    }
+}
+
+fn format_bytes(bytes: &[u8], color: bool) -> String {
+    // Format as hex string for readability
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    let len = bytes.len();
+    if color {
+        format!(
+            "{}Bytes{}<{}{len} bytes{}: {}{hex}{}>",
+            colors::DIM,
+            colors::RESET,
+            colors::CYAN,
+            colors::RESET,
+            colors::GREEN,
+            colors::RESET,
+        )
+    } else {
+        format!("Bytes<{len} bytes: {hex}>")
     }
 }
 
