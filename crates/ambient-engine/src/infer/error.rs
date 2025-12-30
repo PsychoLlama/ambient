@@ -174,6 +174,15 @@ pub enum TypeErrorKind {
         ability: Arc<str>,
         expected_namespace: &'static str,
     },
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Typed record errors
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Unknown type name in typed record construction.
+    UndefinedTypeName { name: Arc<str> },
+
+    /// Type is not constructable as a record.
+    NotARecordType { ty: Type },
 }
 
 impl std::fmt::Display for TypeErrorKind {
@@ -308,6 +317,12 @@ impl std::fmt::Display for TypeErrorKind {
                     f,
                     "ability `{ability}` requires `{expected_namespace}.` prefix"
                 )
+            }
+            Self::UndefinedTypeName { name } => {
+                write!(f, "undefined type: `{name}`")
+            }
+            Self::NotARecordType { ty } => {
+                write!(f, "type `{ty}` is not a record type and cannot be constructed with {{ field: value }} syntax")
             }
         }
     }

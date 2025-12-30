@@ -57,12 +57,35 @@ unique(e5f6a7b8-c9d0-1234-efab-345678901234) type EUR { cents: number }
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Entry point - demonstrates that nominal type syntax parses correctly.
-pub fn run(): number {
-    // The nominal type definitions above are parsed and type-checked.
-    // Full runtime support for nominal types (construction, field access)
-    // is a work in progress.
+/// Helper function that takes a UserId - not an OrderId or bare record!
+fn get_user_name(id: UserId): string {
+    id.value
+}
 
-    // For now, return a value to show the example runs.
-    42
+/// Helper function that takes USD - not EUR or bare number!
+fn format_usd(amount: USD): number {
+    // Return the cents value
+    amount.cents
+}
+
+/// Entry point - demonstrates nominal type construction and field access.
+pub fn run(): number {
+    // Construct nominal types using TypeName { field: value } syntax
+    let user = UserId { value: "user-123" };
+    let order = OrderId { value: "order-456" };
+    let price = USD { cents: 1999 };
+    let eu_price = EUR { cents: 1799 };
+
+    // Field access works on nominal types
+    let user_value = user.value;
+    let order_value = order.value;
+    let price_cents = price.cents;
+    let eu_cents = eu_price.cents;
+
+    // Use the helper functions with correct types
+    let name = get_user_name(user);
+    let formatted = format_usd(price);
+
+    // Return the sum of cents to verify everything works
+    price_cents + eu_cents
 }

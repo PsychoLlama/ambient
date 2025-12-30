@@ -208,6 +208,12 @@ pub enum ExprKind {
     /// Record construction: `{ x: 1, y: 2 }`.
     Record(Vec<(Arc<str>, Expr)>),
 
+    /// Typed record construction: `TypeName { x: 1, y: 2 }`.
+    TypedRecord {
+        type_name: QualifiedName,
+        fields: Vec<(Arc<str>, Expr)>,
+    },
+
     /// Record field access: `record.field`.
     RecordField(Box<Expr>, Arc<str>),
 

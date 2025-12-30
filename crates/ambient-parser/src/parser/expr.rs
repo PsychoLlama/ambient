@@ -467,10 +467,14 @@ impl Parser<'_> {
         let start = self.current().span.start;
 
         // Handle module prefixes (pkg, core, self, super) as the first segment
-        let first_segment = if matches!(
+        // Only these keywords start qualified names - regular identifiers followed by
+        // dots are field accesses handled by postfix parsing
+        let is_module_prefix = matches!(
             self.current_kind(),
             TokenKind::Pkg | TokenKind::Core | TokenKind::Self_ | TokenKind::Super
-        ) {
+        );
+
+        let first_segment = if is_module_prefix {
             let token = self.advance();
             let trailing_trivia = self.skip_trivia();
             CstIdent {
@@ -483,7 +487,28 @@ impl Parser<'_> {
         };
         let ident = first_segment;
 
-        // Check for qualified name (but not tuple index - let postfix handle that)
+        // Only build qualified names for module prefixes (pkg, core, self, super)
+        // For regular identifiers, return immediately and let postfix parsing
+        // handle field access like `id.value`
+        if !is_module_prefix {
+            // Check for typed record construction: TypeName { field: value, ... }
+            if self.check(TokenKind::LBrace) && self.is_record_literal_start() {
+                let ident_span = ident.span;
+                let qualified_name = CstQualifiedName {
+                    segments: vec![ident],
+                    span: ident_span,
+                };
+                return self.parse_typed_record_literal(qualified_name, start);
+            }
+
+            let span = ident.span;
+            return Ok(CstExpr {
+                kind: CstExprKind::Ident(ident),
+                span,
+            });
+        }
+
+        // For module prefixes, check for qualified name (but not tuple index)
         if self.check(TokenKind::Dot) {
             // Peek ahead to see if this is a tuple index (Dot followed by Number)
             // If so, don't consume the dot - let parse_postfix_expr handle it
@@ -514,64 +539,88 @@ impl Parser<'_> {
             if segments.len() > 1 {
                 // Check for ability method call pattern: Ability.method!(args) or Ability.method~(args)
                 if self.check(TokenKind::Bang) || self.check(TokenKind::Tilde) {
-                    // This is an ability call pattern
-                    let is_perform = self.consume(TokenKind::Bang).is_some();
-                    if !is_perform {
-                        self.expect(TokenKind::Tilde)?; // consume the ~
-                    }
-                    self.expect(TokenKind::LParen)?;
-                    let args = self.parse_args()?;
-                    let end = self.expect(TokenKind::RParen)?.span.end;
-
-                    // Last segment is the method, everything else is the ability
-                    let method = segments.pop().expect("at least 2 segments");
-                    let ability_span = Span::new(
-                        segments[0].span.start,
-                        segments.last().expect("at least 1 segment").span.end,
-                    );
-                    let ability = CstQualifiedName {
-                        segments,
-                        span: ability_span,
-                    };
-                    let span = Span::new(ability_span.start, end);
-
-                    return Ok(CstExpr {
-                        kind: if is_perform {
-                            CstExprKind::Perform {
-                                ability,
-                                method,
-                                args,
-                            }
-                        } else {
-                            CstExprKind::Suspend {
-                                ability,
-                                method,
-                                args,
-                            }
-                        },
-                        span,
-                    });
+                    return self.parse_ability_call(segments);
                 }
 
                 let span = Span::new(
                     segments[0].span.start,
                     segments.last().expect("segments not empty").span.end,
                 );
+                let qualified_name = CstQualifiedName { segments, span };
+
+                // Check for typed record construction: QualifiedName { field: value, ... }
+                if self.check(TokenKind::LBrace) && self.is_record_literal_start() {
+                    return self.parse_typed_record_literal(qualified_name, start);
+                }
+
                 return Ok(CstExpr {
-                    kind: CstExprKind::QualifiedName(CstQualifiedName { segments, span }),
+                    kind: CstExprKind::QualifiedName(qualified_name),
                     span,
                 });
             }
             // Only one segment, return as ident
+            let single_ident = segments.into_iter().next().expect("segments not empty");
+
+            // Check for typed record construction: TypeName { field: value, ... }
+            if self.check(TokenKind::LBrace) && self.is_record_literal_start() {
+                let ident_span = single_ident.span;
+                let qualified_name = CstQualifiedName {
+                    segments: vec![single_ident],
+                    span: ident_span,
+                };
+                return self.parse_typed_record_literal(qualified_name, start);
+            }
+
             return Ok(CstExpr {
-                kind: CstExprKind::Ident(segments.into_iter().next().expect("segments not empty")),
+                kind: CstExprKind::Ident(single_ident),
                 span: Span::new(start, self.current().span.start),
             });
         }
 
+        // Module prefix with no dot after it - return as identifier
         let span = ident.span;
         Ok(CstExpr {
             kind: CstExprKind::Ident(ident),
+            span,
+        })
+    }
+
+    /// Parse an ability call pattern: Ability.method!(args) or Ability.method~(args)
+    fn parse_ability_call(&mut self, mut segments: Vec<CstIdent>) -> Result<CstExpr, ParseError> {
+        let is_perform = self.consume(TokenKind::Bang).is_some();
+        if !is_perform {
+            self.expect(TokenKind::Tilde)?;
+        }
+        self.expect(TokenKind::LParen)?;
+        let args = self.parse_args()?;
+        let end = self.expect(TokenKind::RParen)?.span.end;
+
+        // Last segment is the method, everything else is the ability
+        let method = segments.pop().expect("at least 2 segments");
+        let ability_span = Span::new(
+            segments[0].span.start,
+            segments.last().expect("at least 1 segment").span.end,
+        );
+        let ability = CstQualifiedName {
+            segments,
+            span: ability_span,
+        };
+        let span = Span::new(ability_span.start, end);
+
+        Ok(CstExpr {
+            kind: if is_perform {
+                CstExprKind::Perform {
+                    ability,
+                    method,
+                    args,
+                }
+            } else {
+                CstExprKind::Suspend {
+                    ability,
+                    method,
+                    args,
+                }
+            },
             span,
         })
     }
@@ -870,6 +919,67 @@ impl Parser<'_> {
         let end = self.expect(TokenKind::RBrace)?.span.end;
         Ok(CstExpr {
             kind: CstExprKind::Record(fields),
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Check if the upcoming `{` starts a record literal (has `ident:` pattern).
+    /// Returns false for empty braces `{}` or block expressions.
+    fn is_record_literal_start(&mut self) -> bool {
+        let saved = self.pos;
+        self.skip_trivia();
+        self.pos += 1; // skip the `{` token
+        self.skip_trivia();
+
+        // Empty braces {} are ambiguous (could be empty block, empty record,
+        // or syntax like `handle x with h {}`), so don't treat as typed record.
+        // Typed record construction requires at least one field: `TypeName { field: value }`.
+        if self.current_kind() == TokenKind::RBrace {
+            self.pos = saved;
+            return false;
+        }
+
+        // Check for ident followed by colon
+        let is_record = if self.current_kind() == TokenKind::Ident {
+            self.pos += 1; // skip ident
+            self.skip_trivia();
+            self.current_kind() == TokenKind::Colon
+        } else {
+            false
+        };
+
+        self.pos = saved;
+        is_record
+    }
+
+    /// Parse a typed record literal: `TypeName { field: value, ... }`
+    fn parse_typed_record_literal(
+        &mut self,
+        type_name: CstQualifiedName,
+        start: u32,
+    ) -> Result<CstExpr, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+
+        let mut fields = Vec::new();
+        loop {
+            if self.check(TokenKind::RBrace) {
+                break;
+            }
+
+            let name = self.parse_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let value = self.parse_expression()?;
+
+            fields.push((name, value));
+
+            if self.consume(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span.end;
+        Ok(CstExpr {
+            kind: CstExprKind::TypedRecord { type_name, fields },
             span: Span::new(start, end),
         })
     }

@@ -800,7 +800,7 @@ fn collect_locals_in_scope(
                 collect_locals_in_scope(elem, offset, prefix, items);
             }
         }
-        ExprKind::Record(fields) => {
+        ExprKind::Record(fields) | ExprKind::TypedRecord { fields, .. } => {
             for (_, value) in fields {
                 collect_locals_in_scope(value, offset, prefix, items);
             }

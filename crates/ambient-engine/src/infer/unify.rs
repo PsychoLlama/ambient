@@ -453,6 +453,7 @@ impl Infer {
                     current_abilities: AbilitySet::Empty,
                     ability_registry: self.ability_registry.clone(),
                     ability_resolver: crate::ability_resolver::standard_abilities(),
+                    type_aliases: self.type_aliases.clone(),
                 };
                 Type::Forall(crate::types::ForallType::with_abilities(
                     f.vars.clone(),

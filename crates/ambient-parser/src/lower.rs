@@ -346,6 +346,20 @@ fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, P
             ExprKind::Record(lowered)
         }
 
+        CstExprKind::TypedRecord { type_name, fields } => {
+            let lowered_fields = fields
+                .iter()
+                .map(|(name, value)| {
+                    let lowered_value = lower_expression(ctx, value)?;
+                    Ok((name.name.clone(), lowered_value))
+                })
+                .collect::<Result<Vec<_>, ParseError>>()?;
+            ExprKind::TypedRecord {
+                type_name: lower_qualified_name(type_name),
+                fields: lowered_fields,
+            }
+        }
+
         CstExprKind::Field { record, field } => {
             let lowered = lower_expression(ctx, record)?;
             ExprKind::RecordField(Box::new(lowered), field.name.clone())

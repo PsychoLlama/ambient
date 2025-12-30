@@ -61,26 +61,11 @@ pub fn check_module(mut module: crate::ast::Module) -> CheckResult {
     let mut errors = Vec::new();
     let mut env = TypeEnv::new();
 
-    // Phase 1: Collect all function signatures into the environment.
-    // This allows functions to call each other regardless of definition order.
-    let mut function_schemes: Vec<(BindingId, Arc<str>, Scheme)> = Vec::new();
-    let mut next_binding_id: BindingId = 1_000_000; // Start high to avoid collisions
+    // Phase 1a: Register all type aliases so parameter types resolve correctly.
+    register_type_aliases(&mut infer, &module);
 
-    for item in &module.items {
-        if let crate::ast::ItemKind::Function(func) = &item.kind {
-            let binding_id = next_binding_id;
-            next_binding_id += 1;
-
-            // Build the function type from its signature
-            let scheme = build_function_scheme(&mut infer, func);
-            function_schemes.push((binding_id, Arc::clone(&func.name), scheme));
-        }
-    }
-
-    // Add all function schemes to the environment
-    for (id, name, scheme) in &function_schemes {
-        env.insert(*id, Arc::clone(name), scheme.clone());
-    }
+    // Phase 1b: Collect all function signatures into the environment.
+    collect_function_signatures(&mut infer, &module, &mut env);
 
     // Phase 2: Type-check each function body.
     for item in &mut module.items {
@@ -186,6 +171,28 @@ pub fn check_module(mut module: crate::ast::Module) -> CheckResult {
     CheckResult { errors, module }
 }
 
+/// Register all type aliases from a module into the inferencer.
+fn register_type_aliases(infer: &mut Infer, module: &crate::ast::Module) {
+    for item in &module.items {
+        if let crate::ast::ItemKind::TypeAlias(type_alias) = &item.kind {
+            infer.register_type_alias(Arc::clone(&type_alias.name), type_alias.ty.clone());
+        }
+    }
+}
+
+/// Collect function signatures into the environment.
+fn collect_function_signatures(infer: &mut Infer, module: &crate::ast::Module, env: &mut TypeEnv) {
+    let mut next_binding_id: BindingId = 1_000_000;
+    for item in &module.items {
+        if let crate::ast::ItemKind::Function(func) = &item.kind {
+            let binding_id = next_binding_id;
+            next_binding_id += 1;
+            let scheme = build_function_scheme(infer, func);
+            env.insert(binding_id, Arc::clone(&func.name), scheme);
+        }
+    }
+}
+
 /// Build a type scheme for a function from its signature.
 fn build_function_scheme(infer: &mut Infer, func: &crate::ast::FunctionDef) -> Scheme {
     // Collect type variables from type parameters
@@ -199,19 +206,25 @@ fn build_function_scheme(infer: &mut Infer, func: &crate::ast::FunctionDef) -> S
         quantified_vars.push(var_id);
     }
 
-    // Build parameter types
+    // Build parameter types, resolving type aliases
     let param_types: Vec<Type> = func
         .params
         .iter()
         .map(|p| match &p.ty {
-            Some(ty) => substitute_type_params(ty, &type_var_map),
+            Some(ty) => {
+                let substituted = substitute_type_params(ty, &type_var_map);
+                infer.resolve_holes(&substituted)
+            }
             None => infer.fresh(),
         })
         .collect();
 
-    // Build return type
+    // Build return type, resolving type aliases
     let ret_ty = match &func.ret_ty {
-        Some(ty) => substitute_type_params(ty, &type_var_map),
+        Some(ty) => {
+            let substituted = substitute_type_params(ty, &type_var_map);
+            infer.resolve_holes(&substituted)
+        }
         None => infer.fresh(),
     };
 
@@ -303,24 +316,13 @@ pub fn check_module_with_registry(
     // Build initial environment from imports
     let mut env = build_import_env(&mut infer, module_path, registry, &mut errors);
 
-    // Phase 1: Collect all function signatures into the environment.
-    let mut function_schemes: Vec<(BindingId, Arc<str>, Scheme)> = Vec::new();
-    let mut next_binding_id: BindingId = 1_000_000;
+    // Phase 1a: Register all type aliases so parameter types resolve correctly.
+    register_type_aliases(&mut infer, &module);
 
-    for item in &module.items {
-        if let crate::ast::ItemKind::Function(func) = &item.kind {
-            let binding_id = next_binding_id;
-            next_binding_id += 1;
-            let scheme = build_function_scheme(&mut infer, func);
-            function_schemes.push((binding_id, Arc::clone(&func.name), scheme));
-        }
-    }
+    // Phase 1b: Collect all function signatures into the environment.
+    collect_function_signatures(&mut infer, &module, &mut env);
 
-    for (id, name, scheme) in &function_schemes {
-        env.insert(*id, Arc::clone(name), scheme.clone());
-    }
-
-    // Phase 2: Type-check each function body (same as check_module)
+    // Phase 2: Type-check each function body
     for item in &mut module.items {
         if let crate::ast::ItemKind::Function(func) = &mut item.kind {
             infer.reset_abilities();
@@ -437,22 +439,11 @@ pub fn check_module_with_registry_and_resolver(
     // Build initial environment from imports
     let mut env = build_import_env(&mut infer, module_path, registry, &mut errors);
 
-    // Phase 1: Collect all function signatures into the environment.
-    let mut function_schemes: Vec<(BindingId, Arc<str>, Scheme)> = Vec::new();
-    let mut next_binding_id: BindingId = 1_000_000;
+    // Phase 1a: Register all type aliases so parameter types resolve correctly.
+    register_type_aliases(&mut infer, &module);
 
-    for item in &module.items {
-        if let crate::ast::ItemKind::Function(func) = &item.kind {
-            let binding_id = next_binding_id;
-            next_binding_id += 1;
-            let scheme = build_function_scheme(&mut infer, func);
-            function_schemes.push((binding_id, Arc::clone(&func.name), scheme));
-        }
-    }
-
-    for (id, name, scheme) in &function_schemes {
-        env.insert(*id, Arc::clone(name), scheme.clone());
-    }
+    // Phase 1b: Collect all function signatures into the environment.
+    collect_function_signatures(&mut infer, &module, &mut env);
 
     // Phase 2: Type-check each function body
     for item in &mut module.items {

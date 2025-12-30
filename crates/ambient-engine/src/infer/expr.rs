@@ -105,19 +105,72 @@ impl Infer {
                 Type::record(field_tys)
             }
 
+            ExprKind::TypedRecord { type_name, fields } => {
+                // Look up the type alias
+                let type_alias = self.get_type_alias(&type_name.name).ok_or_else(|| {
+                    type_error(
+                        TypeErrorKind::UndefinedTypeName {
+                            name: type_name.name.clone(),
+                        },
+                        span,
+                    )
+                })?;
+                let full_type = type_alias.clone();
+
+                // Get the expected record type (unwrap Nominal if present)
+                let expected_record = match &full_type {
+                    Type::Nominal(nom) => match nom.inner.as_ref() {
+                        Type::Record(r) => r.clone(),
+                        other => {
+                            return Err(type_error(
+                                TypeErrorKind::NotARecordType { ty: other.clone() },
+                                span,
+                            ))
+                        }
+                    },
+                    Type::Record(r) => r.clone(),
+                    other => {
+                        return Err(type_error(
+                            TypeErrorKind::NotARecordType { ty: other.clone() },
+                            span,
+                        ))
+                    }
+                };
+
+                // Infer field types and unify with expected
+                let mut inferred_fields = Vec::with_capacity(fields.len());
+                for (name, expr) in fields {
+                    let field_ty = self.infer_expr(env, expr)?;
+                    inferred_fields.push((name.clone(), field_ty));
+                }
+                let inferred_record = Type::record(inferred_fields);
+
+                // Unify the inferred record with expected record type
+                self.unify(&Type::Record(expected_record), &inferred_record, span)?;
+
+                // Return the full type (Nominal wrapper if applicable)
+                full_type
+            }
+
             ExprKind::RecordField(record_expr, field) => {
                 let record_ty = self.infer_expr(env, record_expr)?;
                 let record_ty = self.apply(&record_ty);
-                match &record_ty {
-                    Type::Record(rec) => rec.get_field(field).cloned().ok_or_else(|| {
-                        TypeError::new(
-                            TypeErrorKind::FieldNotFound {
-                                field: field.clone(),
-                                record_ty: record_ty.clone(),
-                            },
-                            span,
-                        )
-                    })?,
+
+                // Get the record type, unwrapping Nominal if present
+                let rec = match &record_ty {
+                    Type::Record(rec) => rec,
+                    Type::Nominal(nom) => match nom.inner.as_ref() {
+                        Type::Record(rec) => rec,
+                        _ => {
+                            return Err(type_error(
+                                TypeErrorKind::FieldNotFound {
+                                    field: field.clone(),
+                                    record_ty: record_ty.clone(),
+                                },
+                                span,
+                            ));
+                        }
+                    },
                     Type::Var(_) => {
                         return Err(type_error(
                             TypeErrorKind::CannotInfer {
@@ -135,7 +188,17 @@ impl Infer {
                             span,
                         ));
                     }
-                }
+                };
+
+                rec.get_field(field).cloned().ok_or_else(|| {
+                    TypeError::new(
+                        TypeErrorKind::FieldNotFound {
+                            field: field.clone(),
+                            record_ty: record_ty.clone(),
+                        },
+                        span,
+                    )
+                })?
             }
 
             ExprKind::List(elems) => {

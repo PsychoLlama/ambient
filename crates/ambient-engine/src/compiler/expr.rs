@@ -151,6 +151,16 @@ pub(super) fn compile_expr(
             fc.builder.emit_u8(Opcode::MakeRecord, fields.len() as u8);
         }
 
+        ExprKind::TypedRecord { fields, .. } => {
+            // Typed records compile exactly like regular records.
+            // The type information is a compile-time concept only.
+            for (name, value) in fields {
+                fc.builder.emit_const(str_to_value(name));
+                compile_expr(fc, value, ctx)?;
+            }
+            fc.builder.emit_u8(Opcode::MakeRecord, fields.len() as u8);
+        }
+
         ExprKind::RecordField(record, field) => {
             compile_expr(fc, record, ctx)?;
             let idx = fc.builder.add_constant(str_to_value(field));

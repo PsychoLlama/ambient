@@ -538,6 +538,10 @@ fn format_expr_hover(expr: &ambient_engine::ast::Expr, symbol_db: Option<&Symbol
             let type_info = expr.ty.as_ref().map_or("string".to_string(), format_type);
             format!("```ambient\n\"{s}\": {type_info}\n```")
         }
+        ambient_engine::ast::ExprKind::RecordField(_, field_name) => {
+            let type_info = expr.ty.as_ref().map_or("unknown".to_string(), format_type);
+            format!("```ambient\n{field_name}: {type_info}\n```")
+        }
         _ => {
             let type_info = expr.ty.as_ref().map_or("unknown".to_string(), format_type);
             format!("```ambient\n{type_info}\n```")

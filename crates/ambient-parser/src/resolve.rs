@@ -310,6 +310,18 @@ impl Resolver {
                 Ok(())
             }
 
+            ExprKind::TypedRecord {
+                type_name: _,
+                fields,
+            } => {
+                // Don't resolve type_name here - it's a type, not a value.
+                // Type alias resolution happens during type checking.
+                for (_, value) in fields {
+                    self.resolve_expr(value)?;
+                }
+                Ok(())
+            }
+
             ExprKind::RecordField(record, _) => self.resolve_expr(record),
 
             ExprKind::Binary(_, left, right) => {

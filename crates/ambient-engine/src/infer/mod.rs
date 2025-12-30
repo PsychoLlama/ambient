@@ -72,6 +72,7 @@ pub use error::{BoxedTypeError, BoxedTypeErrorExt, InferResult, TypeError, TypeE
 use error::type_error;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::ability_resolver::AbilityResolver;
 use crate::types::{
@@ -98,6 +99,9 @@ pub struct Infer {
     pub(crate) ability_registry: Option<AbilityRegistry>,
     /// Ability resolver for looking up ability and method information.
     pub(crate) ability_resolver: AbilityResolver,
+    /// Type alias registry for looking up types by name.
+    /// Maps type alias names to their resolved types (including Nominal types).
+    pub(crate) type_aliases: HashMap<Arc<str>, Type>,
 }
 
 impl Default for Infer {
@@ -117,6 +121,7 @@ impl Infer {
             current_abilities: AbilitySet::Empty,
             ability_registry: None,
             ability_resolver: crate::ability_resolver::standard_abilities(),
+            type_aliases: HashMap::new(),
         }
     }
 
@@ -130,6 +135,7 @@ impl Infer {
             current_abilities: AbilitySet::Empty,
             ability_registry: Some(registry),
             ability_resolver: crate::ability_resolver::standard_abilities(),
+            type_aliases: HashMap::new(),
         }
     }
 
@@ -143,7 +149,19 @@ impl Infer {
             current_abilities: AbilitySet::Empty,
             ability_registry: None,
             ability_resolver: resolver,
+            type_aliases: HashMap::new(),
         }
+    }
+
+    /// Register a type alias for later lookup during typed record inference.
+    pub fn register_type_alias(&mut self, name: Arc<str>, ty: Type) {
+        self.type_aliases.insert(name, ty);
+    }
+
+    /// Look up a type alias by name.
+    #[must_use]
+    pub fn get_type_alias(&self, name: &str) -> Option<&Type> {
+        self.type_aliases.get(name)
     }
 
     /// Generate a fresh type variable.
@@ -203,10 +221,20 @@ impl Infer {
                 let ret = self.resolve_holes(&f.ret);
                 Type::function_with_abilities(params, ret, f.abilities.clone())
             }
-            Type::Named(n) => Type::Named(NamedType::new(
-                n.name.clone(),
-                n.args.iter().map(|a| self.resolve_holes(a)).collect(),
-            )),
+            Type::Named(n) => {
+                // Check if this named type corresponds to a registered type alias
+                if n.args.is_empty() {
+                    if let Some(aliased_type) = self.type_aliases.get(&n.name).cloned() {
+                        // Resolve to the aliased type
+                        return self.resolve_holes(&aliased_type);
+                    }
+                }
+                // Otherwise keep as named type with resolved args
+                Type::Named(NamedType::new(
+                    n.name.clone(),
+                    n.args.iter().map(|a| self.resolve_holes(a)).collect(),
+                ))
+            }
             Type::Nominal(n) => Type::Nominal(NominalType::new(
                 n.uuid,
                 self.resolve_holes(&n.inner),

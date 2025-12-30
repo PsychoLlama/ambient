@@ -470,6 +470,12 @@ pub enum CstExprKind {
     /// Record: `{ x: 1, y: 2 }`.
     Record(Vec<(CstIdent, CstExpr)>),
 
+    /// Typed record construction: `TypeName { x: 1, y: 2 }`.
+    TypedRecord {
+        type_name: CstQualifiedName,
+        fields: Vec<(CstIdent, CstExpr)>,
+    },
+
     /// Record field access: `record.field`.
     Field {
         record: Box<CstExpr>,

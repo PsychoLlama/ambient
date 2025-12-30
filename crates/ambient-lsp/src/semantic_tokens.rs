@@ -293,6 +293,13 @@ impl<'a> TokenCollector<'a> {
                     self.visit_expr(value);
                 }
             }
+            ExprKind::TypedRecord { fields, .. } => {
+                // The type name could be highlighted as a type, but for now
+                // just visit the field values
+                for (_, value) in fields {
+                    self.visit_expr(value);
+                }
+            }
             ExprKind::Binary(_, left, right) => {
                 self.visit_expr(left);
                 self.visit_expr(right);
