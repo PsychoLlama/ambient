@@ -743,6 +743,42 @@ pub enum Opcode {
     BytesToHex = 0x62,
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Bytes operations
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Create Bytes from a list of numbers.
+    ///
+    /// Stack: `[list<number>] -> [bytes]`
+    /// Each number is truncated to a byte (0-255).
+    BytesFrom = 0x63,
+
+    /// Convert Bytes to a list of numbers.
+    ///
+    /// Stack: `[bytes] -> [list<number>]`
+    BytesToList = 0x64,
+
+    /// Get the length of Bytes.
+    ///
+    /// Stack: `[bytes] -> [number]`
+    BytesLength = 0x65,
+
+    /// Get a single byte at index.
+    ///
+    /// Stack: `[bytes, index] -> [number]`
+    /// Returns 0 if index is out of bounds.
+    BytesGet = 0x66,
+
+    /// Get a slice of Bytes.
+    ///
+    /// Stack: `[bytes, start, end] -> [bytes]`
+    /// Indices are clamped to valid bounds.
+    BytesSlice = 0x67,
+
+    /// Concatenate two Bytes values.
+    ///
+    /// Stack: `[bytes, bytes] -> [bytes]`
+    BytesConcat = 0x68,
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Special
     // ─────────────────────────────────────────────────────────────────────────
     /// Halt execution (end of program).
@@ -895,6 +931,13 @@ impl Opcode {
             0x5E => Some(Self::ClosureCaptures),
             0x5F => Some(Self::HexToBytes),
             0x62 => Some(Self::BytesToHex),
+            // Bytes operations
+            0x63 => Some(Self::BytesFrom),
+            0x64 => Some(Self::BytesToList),
+            0x65 => Some(Self::BytesLength),
+            0x66 => Some(Self::BytesGet),
+            0x67 => Some(Self::BytesSlice),
+            0x68 => Some(Self::BytesConcat),
             0xFF => Some(Self::Halt),
             _ => None,
         }

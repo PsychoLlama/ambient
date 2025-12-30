@@ -1505,6 +1505,132 @@ impl Vm {
                         .collect::<Result<Vec<u8>, VmError>>()?;
                     self.stack.push(Value::string(hex::encode(bytes)));
                 }
+
+                // ─────────────────────────────────────────────────────────────
+                // Bytes operations
+                // ─────────────────────────────────────────────────────────────
+                Opcode::BytesFrom => {
+                    let list = match self.pop()? {
+                        Value::List(elements) => elements,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "list",
+                                got: other.type_name(),
+                                operation: "bytes_from",
+                            })
+                        }
+                    };
+                    let bytes: Vec<u8> = list
+                        .iter()
+                        .map(|v| match v {
+                            Value::Number(n) => Ok(*n as u8),
+                            other => Err(VmError::TypeError {
+                                expected: "number",
+                                got: other.type_name(),
+                                operation: "bytes_from",
+                            }),
+                        })
+                        .collect::<Result<Vec<u8>, VmError>>()?;
+                    self.stack.push(Value::bytes(bytes));
+                }
+
+                Opcode::BytesToList => {
+                    let bytes = match self.pop()? {
+                        Value::Bytes(b) => b,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "bytes",
+                                got: other.type_name(),
+                                operation: "bytes_to_list",
+                            })
+                        }
+                    };
+                    let list: Vec<Value> =
+                        bytes.iter().map(|&b| Value::Number(f64::from(b))).collect();
+                    self.stack.push(Value::list(list));
+                }
+
+                Opcode::BytesLength => {
+                    let bytes = match self.pop()? {
+                        Value::Bytes(b) => b,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "bytes",
+                                got: other.type_name(),
+                                operation: "bytes_length",
+                            })
+                        }
+                    };
+                    self.stack.push(Value::Number(bytes.len() as f64));
+                }
+
+                Opcode::BytesGet => {
+                    let index = self.pop_number("bytes_get")? as usize;
+                    let bytes = match self.pop()? {
+                        Value::Bytes(b) => b,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "bytes",
+                                got: other.type_name(),
+                                operation: "bytes_get",
+                            })
+                        }
+                    };
+                    // Return 0 for out of bounds
+                    let value = bytes.get(index).copied().unwrap_or(0);
+                    self.stack.push(Value::Number(f64::from(value)));
+                }
+
+                Opcode::BytesSlice => {
+                    let end = self.pop_number("bytes_slice")? as usize;
+                    let start = self.pop_number("bytes_slice")? as usize;
+                    let bytes = match self.pop()? {
+                        Value::Bytes(b) => b,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "bytes",
+                                got: other.type_name(),
+                                operation: "bytes_slice",
+                            })
+                        }
+                    };
+                    let len = bytes.len();
+                    let start = start.min(len);
+                    let end = end.min(len);
+                    let slice = if start < end {
+                        bytes[start..end].to_vec()
+                    } else {
+                        Vec::new()
+                    };
+                    self.stack.push(Value::bytes(slice));
+                }
+
+                Opcode::BytesConcat => {
+                    let b = match self.pop()? {
+                        Value::Bytes(b) => b,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "bytes",
+                                got: other.type_name(),
+                                operation: "bytes_concat",
+                            })
+                        }
+                    };
+                    let a = match self.pop()? {
+                        Value::Bytes(a) => a,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "bytes",
+                                got: other.type_name(),
+                                operation: "bytes_concat",
+                            })
+                        }
+                    };
+                    let mut result = Vec::with_capacity(a.len() + b.len());
+                    result.extend_from_slice(&a);
+                    result.extend_from_slice(&b);
+                    self.stack.push(Value::bytes(result));
+                }
             }
         }
     }
