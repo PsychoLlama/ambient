@@ -1561,6 +1561,7 @@ impl Vm {
                             })
                         }
                     };
+                    #[allow(clippy::cast_precision_loss)]
                     self.stack.push(Value::Number(bytes.len() as f64));
                 }
 

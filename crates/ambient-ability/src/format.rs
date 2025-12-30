@@ -133,7 +133,11 @@ fn format_string(s: &str, quote: bool, color: bool) -> String {
 
 fn format_bytes(bytes: &[u8], color: bool) -> String {
     // Format as hex string for readability
-    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    use std::fmt::Write;
+    let hex = bytes.iter().fold(String::new(), |mut acc, b| {
+        let _ = write!(acc, "{b:02x}");
+        acc
+    });
     let len = bytes.len();
     if color {
         format!(

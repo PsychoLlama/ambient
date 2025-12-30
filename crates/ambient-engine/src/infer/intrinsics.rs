@@ -461,6 +461,54 @@ impl Infer {
                 Ok(Some(Type::String))
             }
 
+            // ─────────────────────────────────────────────────────────────────
+            // core.bytes - Bytes operations
+            // ─────────────────────────────────────────────────────────────────
+            (["core", "bytes"], "from") if args.len() == 1 => {
+                // fn from(list: List<number>): Bytes
+                let list_ty = self.infer_expr(env, &mut args[0])?;
+                self.unify(&list_ty, &list_of(Type::Number), span)?;
+                Ok(Some(Type::Bytes))
+            }
+            (["core", "bytes"], "to_list") if args.len() == 1 => {
+                // fn to_list(bytes: Bytes): List<number>
+                let bytes_ty = self.infer_expr(env, &mut args[0])?;
+                self.unify(&bytes_ty, &Type::Bytes, span)?;
+                Ok(Some(list_of(Type::Number)))
+            }
+            (["core", "bytes"], "length") if args.len() == 1 => {
+                // fn length(bytes: Bytes): number
+                let bytes_ty = self.infer_expr(env, &mut args[0])?;
+                self.unify(&bytes_ty, &Type::Bytes, span)?;
+                Ok(Some(Type::Number))
+            }
+            (["core", "bytes"], "get") if args.len() == 2 => {
+                // fn get(bytes: Bytes, index: number): number
+                let bytes_ty = self.infer_expr(env, &mut args[0])?;
+                let index_ty = self.infer_expr(env, &mut args[1])?;
+                self.unify(&bytes_ty, &Type::Bytes, span)?;
+                self.unify(&index_ty, &Type::Number, span)?;
+                Ok(Some(Type::Number))
+            }
+            (["core", "bytes"], "slice") if args.len() == 3 => {
+                // fn slice(bytes: Bytes, start: number, end: number): Bytes
+                let bytes_ty = self.infer_expr(env, &mut args[0])?;
+                let start_ty = self.infer_expr(env, &mut args[1])?;
+                let end_ty = self.infer_expr(env, &mut args[2])?;
+                self.unify(&bytes_ty, &Type::Bytes, span)?;
+                self.unify(&start_ty, &Type::Number, span)?;
+                self.unify(&end_ty, &Type::Number, span)?;
+                Ok(Some(Type::Bytes))
+            }
+            (["core", "bytes"], "concat") if args.len() == 2 => {
+                // fn concat(a: Bytes, b: Bytes): Bytes
+                let a_ty = self.infer_expr(env, &mut args[0])?;
+                let b_ty = self.infer_expr(env, &mut args[1])?;
+                self.unify(&a_ty, &Type::Bytes, span)?;
+                self.unify(&b_ty, &Type::Bytes, span)?;
+                Ok(Some(Type::Bytes))
+            }
+
             _ => Ok(None),
         }
     }

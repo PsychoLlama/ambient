@@ -248,6 +248,9 @@ mod tests {
         fn string(&self) -> TestType {
             TestType
         }
+        fn bytes(&self) -> TestType {
+            TestType
+        }
         fn never(&self) -> TestType {
             TestType
         }

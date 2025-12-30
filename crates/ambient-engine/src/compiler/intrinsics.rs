@@ -593,6 +593,45 @@ static INTRINSICS: &[Intrinsic] = &[
         arity: 1,
         emit: EmitStrategy::Opcode(Opcode::BytesToHex),
     },
+    // ─────────────────────────────────────────────────────────────────────
+    // core.bytes - Bytes operations
+    // ─────────────────────────────────────────────────────────────────────
+    Intrinsic {
+        path: &["core", "bytes"],
+        name: "from",
+        arity: 1,
+        emit: EmitStrategy::Opcode(Opcode::BytesFrom),
+    },
+    Intrinsic {
+        path: &["core", "bytes"],
+        name: "to_list",
+        arity: 1,
+        emit: EmitStrategy::Opcode(Opcode::BytesToList),
+    },
+    Intrinsic {
+        path: &["core", "bytes"],
+        name: "length",
+        arity: 1,
+        emit: EmitStrategy::Opcode(Opcode::BytesLength),
+    },
+    Intrinsic {
+        path: &["core", "bytes"],
+        name: "get",
+        arity: 2,
+        emit: EmitStrategy::Opcode(Opcode::BytesGet),
+    },
+    Intrinsic {
+        path: &["core", "bytes"],
+        name: "slice",
+        arity: 3,
+        emit: EmitStrategy::Opcode(Opcode::BytesSlice),
+    },
+    Intrinsic {
+        path: &["core", "bytes"],
+        name: "concat",
+        arity: 2,
+        emit: EmitStrategy::Opcode(Opcode::BytesConcat),
+    },
 ];
 
 /// Check if a function name is an intrinsic and compile it if so.
