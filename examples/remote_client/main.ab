@@ -1,0 +1,107 @@
+//! Remote execution client example.
+//!
+//! This client demonstrates the remote execution protocol:
+//! 1. Send function hash and captures to server
+//! 2. Provide function bytecode if requested
+//! 3. Receive result
+//!
+//! Run with: `ambient run examples/remote_client`
+//! (Make sure the remote_server is running first!)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Entry Point
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A function we want to execute remotely.
+fn double(x: number): number {
+    x * 2
+}
+
+/// Entry point that connects to server and executes a function remotely.
+pub fn run() {
+    runtime.Console.print!("Client: connecting to 127.0.0.1:8080...");
+    let conn = runtime.Network.connect!("127.0.0.1:8080");
+
+    let local = runtime.Network.local_addr!(conn);
+    runtime.Console.print!(core.string.concat("Client: connected from ", local));
+
+    // The value we want to double remotely
+    let value = 21;
+
+    // Create a closure that captures 'value'
+    let thunk = (x) => double(value);
+
+    runtime.Console.print!(core.string.concat("Client: sending double(", core.string.concat(core.convert.to_string(value), ") for remote execution...")));
+
+    // Send the Execute message
+    let result = send_and_receive(conn, thunk, value);
+
+    runtime.Console.print!(core.string.concat("Client: got result = ", core.convert.to_string(result)));
+
+    runtime.Network.close!(conn);
+    runtime.Console.print!("Client: done")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Client Protocol
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Send a function for remote execution and receive the result.
+fn send_and_receive<A>(conn: number, thunk: (A) -> number, arg: A): number {
+    let hash = core.protocol.closure_hash(thunk);
+    let captures = core.protocol.serialize_value(arg);
+
+    runtime.Console.print!(core.string.concat("Client: closure hash = ", hash));
+
+    // Build Execute message: [msg_type, hash_len, hash_bytes, captures]
+    let hash_bytes = core.protocol.serialize_value(hash);
+    let hash_len = core.bytes.length(hash_bytes);
+    let msg = core.bytes.concat(
+        core.bytes.from([1, hash_len]),
+        core.bytes.concat(hash_bytes, captures)
+    );
+    runtime.Network.send!(conn, msg);
+
+    // Wait for response
+    handle_response(conn, thunk)
+}
+
+/// Handle server response.
+fn handle_response<A>(conn: number, thunk: (A) -> number): number {
+    let response = runtime.Network.receive!(conn);
+
+    if core.bytes.length(response) == 0 {
+        runtime.Console.print!("Client: connection closed");
+        0
+    } else {
+        let msg_type = core.bytes.get(response, 0);
+
+        if msg_type == 4 {
+            // Result message
+            let payload = core.bytes.slice(response, 1, core.bytes.length(response));
+            let result_opt = core.protocol.deserialize_value(payload);
+            core.option.unwrap_or(result_opt, 0)
+        } else {
+            if msg_type == 2 {
+                // NeedDeps message
+                runtime.Console.print!("Client: server needs function bytecode");
+                let payload = core.bytes.slice(response, 1, core.bytes.length(response));
+                let hashes_opt = core.protocol.deserialize_value(payload);
+                let hashes: List<string> = core.option.unwrap_or(hashes_opt, []);
+
+                // Send Provide message with function bytecode
+                let data = runtime.Execute.get_functions!(hashes);
+                let provide_msg = core.bytes.concat(core.bytes.from([3]), data);
+                runtime.Network.send!(conn, provide_msg);
+
+                runtime.Console.print!("Client: sent function bytecode");
+
+                // Continue waiting for result
+                handle_response(conn, thunk)
+            } else {
+                runtime.Console.print!("Client: unexpected message type");
+                0
+            }
+        }
+    }
+}

@@ -1,0 +1,6 @@
+[package]
+name = "remote_client"
+version = "0.1.0"
+
+[build]
+src = "./"

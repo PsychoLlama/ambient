@@ -324,7 +324,7 @@ mod tests {
 
         let execute = descriptors.iter().find(|d| d.name == "Execute");
         assert!(execute.is_some());
-        assert_eq!(execute.map(|d| d.methods.len()), Some(4)); // 4 execute methods
+        assert_eq!(execute.map(|d| d.methods.len()), Some(5)); // 5 execute methods
     }
 
     #[test]

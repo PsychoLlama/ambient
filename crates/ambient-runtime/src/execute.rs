@@ -34,6 +34,9 @@ pub const METHOD_LOAD_FUNCTIONS: MethodId = 0x0002;
 /// Method: run<T, R>(hash: string, args: T) -> R
 pub const METHOD_RUN: MethodId = 0x0003;
 
+/// Method: get_functions(hashes: List<string>) -> Bytes
+pub const METHOD_GET_FUNCTIONS: MethodId = 0x0004;
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Execute Ability Constant
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -120,6 +123,15 @@ impl RuntimeAbility for ExecuteRuntimeAbility {
                         param_count: 2,
                         param_types: |f| vec![f.string(), f.type_var()], // hash, args
                         return_type: |f| f.type_var(),                   // result
+                    },
+                },
+                MethodDescriptor {
+                    id: METHOD_GET_FUNCTIONS,
+                    name: "get_functions",
+                    signature: MethodSignature {
+                        param_count: 1,
+                        param_types: |f| vec![f.list(f.string())], // list of hashes
+                        return_type: |f| f.bytes(),                // serialized functions
                     },
                 },
             ])),
@@ -209,7 +221,7 @@ mod tests {
 
         assert_eq!(descriptor.id, 0x0009);
         assert_eq!(descriptor.name, "Execute");
-        assert_eq!(descriptor.methods.len(), 4);
+        assert_eq!(descriptor.methods.len(), 5);
 
         // Check method names
         let names: Vec<&str> = descriptor.methods.iter().map(|m| m.name).collect();
@@ -217,6 +229,7 @@ mod tests {
         assert!(names.contains(&"get_dependencies"));
         assert!(names.contains(&"load_functions"));
         assert!(names.contains(&"run"));
+        assert!(names.contains(&"get_functions"));
     }
 
     #[test]

@@ -166,7 +166,7 @@ mod tests {
         let execute_ab = runtime.get_ability("Execute");
         assert!(execute_ab.is_some());
         let execute_ab = execute_ab.unwrap();
-        assert_eq!(execute_ab.methods.len(), 4);
+        assert_eq!(execute_ab.methods.len(), 5);
     }
 
     #[test]

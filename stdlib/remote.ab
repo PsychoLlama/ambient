@@ -219,10 +219,8 @@ fn client_loop<T>(conn: number): T {
 
 /// Provide requested functions to the server.
 fn provide_functions(conn: number, hashes: List<string>) {
-    // Collect function data for all requested hashes
-    // For now, we use a simple format: serialize the list of hashes
-    // The actual function bytecode is obtained from the local store
-    let data = core.protocol.serialize_value(hashes);
+    // Get function bytecode for all requested hashes from local store
+    let data = runtime.Execute.get_functions!(hashes);
     let msg = make_provide_message(data);
     runtime.Network.send!(conn, msg)
 }
@@ -235,10 +233,10 @@ fn provide_functions(conn: number, hashes: List<string>) {
 fn make_execute_message(hash: string, captures: Bytes): Bytes {
     // Format: [msg_type, hash_length, hash_bytes..., captures...]
     let hash_bytes = core.protocol.serialize_value(hash);
-    let hash_len = Bytes.length(hash_bytes);
-    Bytes.concat(
-        Bytes.from([msg_execute(), hash_len]),
-        Bytes.concat(hash_bytes, captures)
+    let hash_len = core.bytes.length(hash_bytes);
+    core.bytes.concat(
+        core.bytes.from([msg_execute(), hash_len]),
+        core.bytes.concat(hash_bytes, captures)
     )
 }
 
@@ -246,23 +244,23 @@ fn make_execute_message(hash: string, captures: Bytes): Bytes {
 fn make_need_deps_message(hashes: List<string>): Bytes {
     // Format: [msg_type, serialized_hashes...]
     let serialized = core.protocol.serialize_value(hashes);
-    Bytes.concat(Bytes.from([msg_need_deps()]), serialized)
+    core.bytes.concat(core.bytes.from([msg_need_deps()]), serialized)
 }
 
 /// Create a Provide message.
 fn make_provide_message(data: Bytes): Bytes {
-    Bytes.concat(Bytes.from([msg_provide()]), data)
+    core.bytes.concat(core.bytes.from([msg_provide()]), data)
 }
 
 /// Create a Result message.
 fn make_result_message(value_bytes: Bytes): Bytes {
-    Bytes.concat(Bytes.from([msg_result()]), value_bytes)
+    core.bytes.concat(core.bytes.from([msg_result()]), value_bytes)
 }
 
 /// Create an Error message.
 fn make_error_message(error_msg: string): Bytes {
     let msg_bytes = core.protocol.serialize_value(error_msg);
-    Bytes.concat(Bytes.from([msg_error()]), msg_bytes)
+    core.bytes.concat(core.bytes.from([msg_error()]), msg_bytes)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -271,21 +269,21 @@ fn make_error_message(error_msg: string): Bytes {
 
 /// Get the message type (first byte).
 fn get_message_type(bytes: Bytes): number {
-    Bytes.get(bytes, 0)
+    core.bytes.get(bytes, 0)
 }
 
 /// Get the payload (everything after the first byte).
 fn get_payload(bytes: Bytes): Bytes {
-    Bytes.slice(bytes, 1, Bytes.length(bytes))
+    core.bytes.slice(bytes, 1, core.bytes.length(bytes))
 }
 
 /// Parse an Execute payload into (hash, captures).
 fn parse_execute_payload(payload: Bytes): (string, Bytes) {
     // Format: [hash_length, hash_bytes..., captures...]
-    let hash_len = Bytes.get(payload, 0);
-    let rest = Bytes.slice(payload, 1, Bytes.length(payload));
-    let hash_bytes = Bytes.slice(rest, 0, hash_len);
-    let captures = Bytes.slice(rest, hash_len, Bytes.length(rest));
+    let hash_len = core.bytes.get(payload, 0);
+    let rest = core.bytes.slice(payload, 1, core.bytes.length(payload));
+    let hash_bytes = core.bytes.slice(rest, 0, hash_len);
+    let captures = core.bytes.slice(rest, hash_len, core.bytes.length(rest));
     let hash = deserialize_string_or_throw(hash_bytes, "function hash");
     (hash, captures)
 }
@@ -296,7 +294,7 @@ fn parse_execute_payload(payload: Bytes): (string, Bytes) {
 
 /// Check that bytes are not empty, throw if they are.
 fn check_not_empty<T>(bytes: Bytes, context: string): () {
-    if Bytes.length(bytes) == 0 {
+    if core.bytes.length(bytes) == 0 {
         Exception.throw!(core.string.concat("remote: ", context))
     } else {
         ()

@@ -1,0 +1,123 @@
+//! Remote execution server example.
+//!
+//! This server demonstrates the remote execution protocol:
+//! 1. Receive function hash and captures from client
+//! 2. Load missing functions
+//! 3. Execute and return result
+//!
+//! Run with: `ambient run examples/remote_server`
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Entry Point
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Entry point that starts the server.
+pub fn run() {
+    runtime.Console.print!("Server: listening on 127.0.0.1:8080...");
+    let listener = runtime.Network.listen!("127.0.0.1:8080");
+
+    runtime.Console.print!("Server: waiting for connection...");
+    let conn = runtime.Network.accept!(listener);
+
+    let peer = runtime.Network.peer_addr!(conn);
+    runtime.Console.print!(core.string.concat("Server: client connected from ", peer));
+
+    // Handle the remote execution request
+    serve_request(conn);
+
+    runtime.Network.close!(conn);
+    runtime.Network.close_listener!(listener);
+    runtime.Console.print!("Server: done")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Server Protocol
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Serve a remote execution request.
+fn serve_request(conn: number) {
+    let bytes = runtime.Network.receive!(conn);
+
+    if core.bytes.length(bytes) == 0 {
+        runtime.Console.print!("Server: connection closed")
+    } else {
+        let msg_type = core.bytes.get(bytes, 0);
+
+        if msg_type == 1 {
+            // Execute message
+            let payload = core.bytes.slice(bytes, 1, core.bytes.length(bytes));
+            handle_execute(conn, payload)
+        } else {
+            runtime.Console.print!("Server: unknown message type")
+        }
+    }
+}
+
+/// Handle an Execute request.
+fn handle_execute(conn: number, payload: Bytes) {
+    // Parse hash length and hash
+    let hash_len = core.bytes.get(payload, 0);
+    let rest = core.bytes.slice(payload, 1, core.bytes.length(payload));
+    let hash_bytes = core.bytes.slice(rest, 0, hash_len);
+    let captures = core.bytes.slice(rest, hash_len, core.bytes.length(rest));
+
+    // Deserialize hash string
+    let hash_opt = core.protocol.deserialize_value(hash_bytes);
+    let hash = core.option.unwrap_or(hash_opt, "");
+
+    runtime.Console.print!(core.string.concat("Server: received Execute for hash ", hash));
+
+    // Check if we have the function
+    if runtime.Execute.has_function!(hash) {
+        runtime.Console.print!("Server: function found locally");
+        execute_function(conn, hash, captures)
+    } else {
+        runtime.Console.print!("Server: function not found, requesting from client");
+        request_function(conn, hash);
+        // After receiving the function, execute it
+        execute_function(conn, hash, captures)
+    }
+}
+
+/// Request a function from the client.
+fn request_function(conn: number, hash: string) {
+    // Send NeedDeps message with the hash
+    let serialized = core.protocol.serialize_value([hash]);
+    let msg = core.bytes.concat(core.bytes.from([2]), serialized);
+    runtime.Network.send!(conn, msg);
+
+    // Receive Provide message
+    let response = runtime.Network.receive!(conn);
+    let msg_type = core.bytes.get(response, 0);
+
+    if msg_type == 3 {
+        let payload = core.bytes.slice(response, 1, core.bytes.length(response));
+        runtime.Execute.load_functions!(payload);
+        runtime.Console.print!("Server: loaded function from client")
+    } else {
+        runtime.Console.print!("Server: unexpected response to NeedDeps")
+    }
+}
+
+/// Execute the function and send the result.
+fn execute_function(conn: number, hash: string, captures: Bytes) {
+    // Deserialize captures
+    let arg_opt = core.protocol.deserialize_value(captures);
+    let arg: number = core.option.unwrap_or(arg_opt, 0);
+
+    runtime.Console.print!(core.string.concat("Server: executing with arg = ", core.convert.to_string(arg)));
+
+    // Note: Execute.run is not fully implemented yet.
+    // For this demo, we'll just echo back the serialized captures as the "result".
+    // In a full implementation, this would call: runtime.Execute.run!(hash, arg)
+    let result = arg * 2;  // Simulate double(arg)
+
+    runtime.Console.print!(core.string.concat("Server: result = ", core.convert.to_string(result)));
+
+    // Send Result message
+    let result_bytes = core.protocol.serialize_value(result);
+    let msg = core.bytes.concat(core.bytes.from([4]), result_bytes);
+    runtime.Network.send!(conn, msg);
+
+    runtime.Console.print!("Server: sent result to client")
+}

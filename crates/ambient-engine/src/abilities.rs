@@ -695,8 +695,8 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
                 }
             };
 
-            // Deserialize the portable functions from bincode
-            let portable_functions: Vec<PortableFunction> = bincode::deserialize(&data)
+            // Deserialize the portable functions from JSON
+            let portable_functions: Vec<PortableFunction> = serde_json::from_slice(&data)
                 .map_err(|e| VmError::IoError(format!("deserialize error: {e}")))?;
 
             let mut store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
@@ -740,6 +740,64 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
             Err(VmError::IoError(format!(
                 "Execute.run requires VM integration - use vm.call() with hash '{hash_str}'"
             )))
+        }),
+    );
+
+    // Execute.get_functions(hashes: List<string>) -> Bytes
+    let store_clone = Arc::clone(&store);
+    vm.register_host_handler(
+        execute::ABILITY_ID,
+        execute::METHOD_GET_FUNCTIONS,
+        Box::new(move |ability: &SuspendedAbility| {
+            let hashes = match ability.args.first() {
+                Some(Value::List(list)) => list.clone(),
+                Some(other) => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "list".to_string(),
+                        got: other.type_name().to_string(),
+                    })
+                }
+                None => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "list".to_string(),
+                        got: "no argument".to_string(),
+                    })
+                }
+            };
+
+            let store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let mut portable_functions = Vec::new();
+
+            for hash_value in hashes.iter() {
+                let hash_str = match hash_value {
+                    Value::String(s) => s,
+                    other => {
+                        return Err(VmError::TypeErrorOwned {
+                            expected: "string".to_string(),
+                            got: other.type_name().to_string(),
+                        })
+                    }
+                };
+
+                let hash = parse_hash(hash_str)
+                    .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
+
+                // Extract the function and all dependencies
+                let subset = store.extract_with_dependencies(&hash);
+                for func_hash in subset.hashes() {
+                    if let Some(func) = subset.get(&func_hash) {
+                        portable_functions.push(PortableFunction::from(func.as_ref()));
+                    }
+                }
+            }
+
+            drop(store);
+
+            // Serialize using JSON (same format as load_functions expects)
+            let bytes = serde_json::to_vec(&portable_functions)
+                .map_err(|e| VmError::IoError(format!("serialize error: {e}")))?;
+
+            Ok(Value::bytes(bytes))
         }),
     );
 }
