@@ -107,10 +107,8 @@ fn execute_function(conn: number, hash: string, captures: Bytes) {
 
     runtime.Console.print!(core.string.concat("Server: executing with arg = ", core.convert.to_string(arg)));
 
-    // Note: Execute.run is not fully implemented yet.
-    // For this demo, we'll just echo back the serialized captures as the "result".
-    // In a full implementation, this would call: runtime.Execute.run!(hash, arg)
-    let result = arg * 2;  // Simulate double(arg)
+    // Execute the function remotely using the loaded bytecode
+    let result: number = runtime.Execute.run!(hash, arg);
 
     runtime.Console.print!(core.string.concat("Server: result = ", core.convert.to_string(result)));
 

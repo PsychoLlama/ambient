@@ -28,8 +28,8 @@ pub fn run() {
     // The value we want to double remotely
     let value = 21;
 
-    // Create a closure that captures 'value'
-    let thunk = (x) => double(value);
+    // Create a function that takes an argument (not a capture) for remote execution
+    let thunk = (x) => double(x);
 
     runtime.Console.print!(core.string.concat("Client: sending double(", core.string.concat(core.convert.to_string(value), ") for remote execution...")));
 

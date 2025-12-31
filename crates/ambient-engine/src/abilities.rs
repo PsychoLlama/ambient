@@ -710,15 +710,14 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
     );
 
     // Execute.run(hash: string, args: T) -> R
-    // Note: This handler needs special treatment because it needs to call back into the VM.
-    // For now, we provide a stub that returns an error - actual execution requires
-    // integration with the VM's call mechanism.
+    // Executes a function by its content-addressed hash with the given argument.
+    // This creates a new VM instance, loads the function and its dependencies,
+    // and executes it in isolation.
+    let store_clone = Arc::clone(&store);
     vm.register_host_handler(
         execute::ABILITY_ID,
         execute::METHOD_RUN,
         Box::new(move |ability: &SuspendedAbility| {
-            // This is a placeholder - actual implementation requires VM integration
-            // The middleware should use the VM's call mechanism directly
             if ability.args.len() < 2 {
                 return Err(VmError::TypeErrorOwned {
                     expected: "2 arguments (hash, args)".to_string(),
@@ -736,10 +735,31 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
                 }
             };
 
-            // For now, return an error indicating this needs VM integration
-            Err(VmError::IoError(format!(
-                "Execute.run requires VM integration - use vm.call() with hash '{hash_str}'"
-            )))
+            let arg = ability.args[1].clone();
+
+            // Parse the hash
+            let hash = parse_hash(&hash_str)
+                .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
+
+            // Get the function and all its dependencies from the store
+            let store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+
+            // Extract the function with all transitive dependencies
+            let subset = store.extract_with_dependencies(&hash);
+            drop(store);
+
+            // Create a new VM for isolated execution
+            let mut exec_vm = crate::vm::Vm::new();
+
+            // Load all functions (the target and its dependencies)
+            for func_hash in subset.hashes() {
+                if let Some(func) = subset.get(&func_hash) {
+                    exec_vm.load_function(func.as_ref().clone());
+                }
+            }
+
+            // Execute the function with the provided argument
+            exec_vm.call(&hash, vec![arg])
         }),
     );
 
