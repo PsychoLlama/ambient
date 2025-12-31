@@ -456,10 +456,13 @@ impl Parser<'_> {
         }
 
         // Identifier or qualified name (including pkg.module.function, core.module.function)
+        // Note: Self_ is NOT included here because in expressions `self` is an identifier
+        // (the instance in a method), not a module prefix. Module prefix `self` is only
+        // valid in import statements, which are parsed separately.
         if self.check(TokenKind::Ident)
             || matches!(
                 self.current_kind(),
-                TokenKind::Pkg | TokenKind::Core | TokenKind::Self_ | TokenKind::Super
+                TokenKind::Pkg | TokenKind::Core | TokenKind::Super | TokenKind::Self_
             )
         {
             return self.parse_ident_or_qualified();
@@ -474,15 +477,26 @@ impl Parser<'_> {
     fn parse_ident_or_qualified(&mut self) -> Result<CstExpr, ParseError> {
         let start = self.current().span.start;
 
-        // Handle module prefixes (pkg, core, self, super) as the first segment
+        // Handle module prefixes (pkg, core, super) as the first segment
         // Only these keywords start qualified names - regular identifiers followed by
-        // dots are field accesses handled by postfix parsing
+        // dots are field accesses handled by postfix parsing.
+        // Note: `self` is NOT a module prefix in expressions - it's the instance reference
+        // in impl methods. It should be treated as a regular identifier.
         let is_module_prefix = matches!(
             self.current_kind(),
-            TokenKind::Pkg | TokenKind::Core | TokenKind::Self_ | TokenKind::Super
+            TokenKind::Pkg | TokenKind::Core | TokenKind::Super
         );
 
         let first_segment = if is_module_prefix {
+            let token = self.advance();
+            let trailing_trivia = self.skip_trivia();
+            CstIdent {
+                name: token.text.into(),
+                span: token.span,
+                trailing_trivia,
+            }
+        } else if self.current_kind() == TokenKind::Self_ {
+            // Handle `self` as a regular identifier (the instance in impl methods)
             let token = self.advance();
             let trailing_trivia = self.skip_trivia();
             CstIdent {

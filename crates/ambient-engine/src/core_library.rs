@@ -96,6 +96,7 @@ fn get_core_modules() -> HashMap<&'static str, &'static str> {
     modules.insert("list", include_str!("core_lib/list.ab"));
     modules.insert("string", include_str!("core_lib/string.ab"));
     modules.insert("math", include_str!("core_lib/math.ab"));
+    modules.insert("traits", include_str!("core_lib/traits.ab"));
     modules
 }
 

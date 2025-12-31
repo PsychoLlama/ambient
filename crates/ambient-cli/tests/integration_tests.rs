@@ -870,3 +870,152 @@ fn test_end_to_end_complex_expression() {
     )
     .expect_output("19");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trait System Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_trait_definition_and_impl() {
+    // Test trait definition and implementation for a nominal type
+    CliTest::new(
+        r#"
+        trait Show {
+            fn show(self): number;
+        }
+
+        unique(a1b2c3d4-0000-0000-0000-000000000001) type Counter { value: number }
+
+        impl Show for Counter {
+            fn show(self): number {
+                self.value
+            }
+        }
+
+        fn run(): number {
+            let c = Counter { value: 42 };
+            c.show()
+        }
+    "#,
+    )
+    .expect_output("42");
+}
+
+#[test]
+fn test_trait_method_with_args() {
+    // Test trait method that takes additional arguments
+    CliTest::new(
+        r#"
+        trait Scalable {
+            fn scale(self, factor: number): number;
+        }
+
+        unique(a1b2c3d4-0000-0000-0000-000000000002) type Size { width: number }
+
+        impl Scalable for Size {
+            fn scale(self, factor: number): number {
+                self.width * factor
+            }
+        }
+
+        fn run(): number {
+            let s = Size { width: 10 };
+            s.scale(5)
+        }
+    "#,
+    )
+    .expect_output("50");
+}
+
+#[test]
+fn test_operator_overloading_add() {
+    // Test Add trait for operator overloading
+    CliTest::new(
+        r#"
+        trait Add {
+            fn add(self, other: Self): Self;
+        }
+
+        unique(a1b2c3d4-0000-0000-0000-000000000003) type Money { cents: number }
+
+        impl Add for Money {
+            fn add(self, other: Money): Money {
+                Money { cents: self.cents + other.cents }
+            }
+        }
+
+        fn run(): number {
+            let a = Money { cents: 100 };
+            let b = Money { cents: 50 };
+            let total = a + b;
+            total.cents
+        }
+    "#,
+    )
+    .expect_output("150");
+}
+
+#[test]
+fn test_operator_overloading_eq() {
+    // Test Eq trait for equality comparison
+    CliTest::new(
+        r#"
+        trait Eq {
+            fn eq(self, other: Self): bool;
+        }
+
+        unique(a1b2c3d4-0000-0000-0000-000000000004) type Id { value: number }
+
+        impl Eq for Id {
+            fn eq(self, other: Id): bool {
+                self.value == other.value
+            }
+        }
+
+        fn run(): bool {
+            let a = Id { value: 42 };
+            let b = Id { value: 42 };
+            a == b
+        }
+    "#,
+    )
+    .expect_output("true");
+}
+
+#[test]
+fn test_multiple_traits_same_type() {
+    // Test implementing multiple traits for the same type
+    CliTest::new(
+        r#"
+        trait Doubler {
+            fn double(self): Self;
+        }
+
+        trait Tripler {
+            fn triple(self): Self;
+        }
+
+        unique(a1b2c3d4-0000-0000-0000-000000000005) type Num { val: number }
+
+        impl Doubler for Num {
+            fn double(self): Num {
+                Num { val: self.val * 2 }
+            }
+        }
+
+        impl Tripler for Num {
+            fn triple(self): Num {
+                Num { val: self.val * 3 }
+            }
+        }
+
+        fn run(): number {
+            let n = Num { val: 5 };
+            let doubled = n.double();
+            let tripled = n.triple();
+            doubled.val + tripled.val
+        }
+    "#,
+    )
+    .expect_output("25");
+}

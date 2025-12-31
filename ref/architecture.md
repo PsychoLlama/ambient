@@ -79,6 +79,106 @@ let sum = "Sum: ${to_string(a + b)}";
 
 ---
 
+## Traits
+
+Traits define shared behavior for types. Only nominal types can implement traits.
+
+### Defining Traits
+
+```ambient
+trait Show {
+  fn show(self): string;
+}
+
+trait Add {
+  fn add(self, other: Self): Self;
+}
+
+trait Eq {
+  fn eq(self, other: Self): bool;
+}
+```
+
+The `Self` type refers to the implementing type.
+
+### Implementing Traits
+
+```ambient
+unique(d098767b-4093-4d5c-ba37-ad92aa7b5d98) type Money { cents: number }
+
+impl Show for Money {
+  fn show(self): string {
+    "$" + to_string(self.cents / 100)
+  }
+}
+
+impl Add for Money {
+  fn add(self, other: Money): Money {
+    Money { cents: self.cents + other.cents }
+  }
+}
+
+impl Eq for Money {
+  fn eq(self, other: Money): bool {
+    self.cents == other.cents
+  }
+}
+```
+
+### Method Calls
+
+Methods are called using dot notation:
+
+```ambient
+let m = Money { cents: 1500 };
+let s = m.show();           // "$15"
+
+let a = Money { cents: 100 };
+let b = Money { cents: 50 };
+let c = a.add(b);           // Money { cents: 150 }
+```
+
+### Operator Overloading
+
+Standard operators dispatch to trait methods for nominal types:
+
+| Operator | Trait | Method |
+|----------|-------|--------|
+| `+` | `Add` | `add(self, other: Self): Self` |
+| `-` | `Sub` | `sub(self, other: Self): Self` |
+| `*` | `Mul` | `mul(self, other: Self): Self` |
+| `/` | `Div` | `div(self, other: Self): Self` |
+| `%` | `Mod` | `rem(self, other: Self): Self` |
+| `==` | `Eq` | `eq(self, other: Self): bool` |
+| `!=` | `Eq` | `eq` (negated) |
+
+```ambient
+let a = Money { cents: 100 };
+let b = Money { cents: 50 };
+let c = a + b;              // Calls a.add(b)
+let equal = a == b;         // Calls a.eq(b)
+```
+
+For primitive types (`number`, `bool`, `string`), operators use built-in implementations.
+
+### Standard Library Traits
+
+The `core/traits` module provides standard traits:
+
+```ambient
+use core.traits.{Add, Sub, Mul, Div, Mod, Eq, Ord};
+```
+
+The `Ord` trait is used for comparison operators:
+
+```ambient
+trait Ord {
+  fn cmp(self, other: Self): number;  // -1, 0, or 1
+}
+```
+
+---
+
 ## Abilities
 
 Abilities are the mechanism for controlled side effects.
@@ -389,6 +489,31 @@ fn factorial(n: number): number {
 }
 ```
 
+### Vector Math with Traits
+
+```ambient
+unique(a1b2c3d4-0000-0000-0000-000000000001) type Vec2 { x: number, y: number }
+
+impl Add for Vec2 {
+  fn add(self, other: Vec2): Vec2 {
+    Vec2 { x: self.x + other.x, y: self.y + other.y }
+  }
+}
+
+impl Eq for Vec2 {
+  fn eq(self, other: Vec2): bool {
+    self.x == other.x && self.y == other.y
+  }
+}
+
+fn run(): bool {
+  let a = Vec2 { x: 1, y: 2 };
+  let b = Vec2 { x: 3, y: 4 };
+  let c = a + b;              // Vec2 { x: 4, y: 6 }
+  c == Vec2 { x: 4, y: 6 }    // true
+}
+```
+
 ### Concurrent Fetching
 
 ```ambient
@@ -423,6 +548,6 @@ fn test_my_function(): () {
 - Package manager
 - Type unions (`A | B`)
 - Multi-shot continuations
-- Trait system / operator overloading
+- Trait bounds on type parameters (`fn foo<T: Eq>(x: T)`)
 - Mutable references (`Store<T>` or affine types)
 - Incremental compilation

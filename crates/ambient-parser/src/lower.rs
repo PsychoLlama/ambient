@@ -1171,6 +1171,7 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
                 ret_ty,
                 body,
                 span: m.span,
+                resolved_hash: None,
             })
         })
         .collect::<Result<Vec<_>, _>>()?;

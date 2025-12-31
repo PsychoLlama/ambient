@@ -927,6 +927,9 @@ pub struct ImplMethod {
     pub body: Expr,
     /// Source span.
     pub span: Span,
+    /// Resolved hash for this method implementation.
+    /// Filled in during type checking based on `trait_id`, type UUID, and method name.
+    pub resolved_hash: Option<blake3::Hash>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

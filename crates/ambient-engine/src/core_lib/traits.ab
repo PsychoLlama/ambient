@@ -1,0 +1,40 @@
+// Core library: Standard traits
+//
+// Traits for operator overloading and common behaviors.
+// Implement these traits to enable operators on custom types.
+
+/// Trait for the `+` operator.
+pub trait Add {
+    fn add(self, other: Self): Self;
+}
+
+/// Trait for the `-` operator.
+pub trait Sub {
+    fn sub(self, other: Self): Self;
+}
+
+/// Trait for the `*` operator.
+pub trait Mul {
+    fn mul(self, other: Self): Self;
+}
+
+/// Trait for the `/` operator.
+pub trait Div {
+    fn div(self, other: Self): Self;
+}
+
+/// Trait for the `%` operator.
+pub trait Mod {
+    fn rem(self, other: Self): Self;
+}
+
+/// Trait for equality comparison (`==`, `!=`).
+pub trait Eq {
+    fn eq(self, other: Self): bool;
+}
+
+/// Trait for ordering comparison (`<`, `>`, `<=`, `>=`).
+/// Returns -1 if self < other, 0 if equal, 1 if self > other.
+pub trait Ord {
+    fn cmp(self, other: Self): number;
+}

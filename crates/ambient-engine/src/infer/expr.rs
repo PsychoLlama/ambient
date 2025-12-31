@@ -730,7 +730,7 @@ impl Infer {
 }
 
 /// Substitute `Self` type references with the actual type.
-fn substitute_self(ty: &Type, self_ty: &Type) -> Type {
+pub(super) fn substitute_self(ty: &Type, self_ty: &Type) -> Type {
     match ty {
         // Check for a Named type called "Self"
         Type::Named(n) if n.name.as_ref() == "Self" && n.args.is_empty() => self_ty.clone(),

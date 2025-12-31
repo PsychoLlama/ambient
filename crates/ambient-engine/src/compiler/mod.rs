@@ -48,7 +48,7 @@ use hash::{compute_temporary_hash, finalize_module_hashes};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::ast::{BindingId, ConstDef, FunctionDef, ItemKind, Module};
+use crate::ast::{BindingId, ConstDef, FunctionDef, ImplDef, ItemKind, Module};
 use crate::bytecode::{BytecodeBuilder, CompiledFunction, DebugInfo, Opcode};
 use crate::value::Value;
 
@@ -581,7 +581,24 @@ fn compile_module_impl(
     }
 
     // Phase 3: Compute content-addressed hashes and finalize the module.
-    finalize_module_hashes(compiled_functions, lambdas, &temp_hashes)
+    let mut compiled_module = finalize_module_hashes(compiled_functions, lambdas, &temp_hashes)?;
+
+    // Phase 4: Compile impl methods.
+    // These are compiled separately because they use pre-computed hashes (from type checking)
+    // instead of content-addressed hashes.
+    for item in &module.items {
+        if let ItemKind::Impl(impl_def) = &item.kind {
+            compile_impl_methods(
+                impl_def,
+                &temp_hashes,
+                &mut compiled_module,
+                source,
+                source_file,
+            )?;
+        }
+    }
+
+    Ok(compiled_module)
 }
 
 /// Compile a function with pre-determined hash.
@@ -689,6 +706,96 @@ fn compile_const(
     }
 
     Ok(compiled)
+}
+
+/// Compile impl methods and add them to the module.
+/// Uses the pre-computed `resolved_hash` from type checking instead of content-addressing.
+fn compile_impl_methods(
+    impl_def: &ImplDef,
+    function_hashes: &HashMap<Arc<str>, blake3::Hash>,
+    module: &mut CompiledModule,
+    source: Option<&str>,
+    source_file: Option<&str>,
+) -> Result<(), CompileError> {
+    for method in &impl_def.methods {
+        // Get the pre-computed hash from type checking
+        let Some(hash) = method.resolved_hash else {
+            return Err(CompileError::new(
+                CompileErrorKind::Internal {
+                    message: "impl method missing resolved hash",
+                },
+                (method.span.start, method.span.end),
+            ));
+        };
+
+        // Compile the method like a function
+        let mut fc = FunctionCompiler::new(function_hashes.clone());
+
+        // Allocate slot for self parameter
+        let self_name: Arc<str> = "self".into();
+        fc.alloc_local_with_name(method.self_id, &self_name)?;
+
+        // Allocate slots for other parameters
+        for param in &method.params {
+            fc.alloc_local_with_name(param.id, &param.name)?;
+        }
+
+        // Compile the method body
+        let mut ctx = ModuleContext::new();
+        compile_expr(&mut fc, &method.body, &mut ctx)?;
+
+        // Emit return instruction
+        fc.builder.emit(Opcode::Return);
+
+        // +1 for self parameter
+        let param_count = (method.params.len() + 1) as u8;
+
+        let bytecode = fc.builder.bytecode().to_vec();
+        let constants = fc.builder.constants().to_vec();
+        let dependencies = fc.builder.dependencies().to_vec();
+
+        // Build debug info if source is available
+        let debug_info = if source.is_some() || source_file.is_some() {
+            let mut debug_info = fc.debug_info;
+            debug_info.function_name =
+                Some(format!("{}::{}", impl_def.trait_name.name, method.name));
+            debug_info.source_file = source_file.map(String::from);
+
+            // Compute line/column numbers from source spans
+            if let Some(src) = source {
+                for mapping in &mut debug_info.source_map {
+                    let (line, col) = span_to_line_col(
+                        src,
+                        crate::ast::Span::new(
+                            mapping.source_start as u32,
+                            mapping.source_end as u32,
+                        ),
+                    );
+                    mapping.line = line;
+                    mapping.column = col;
+                }
+            }
+
+            Some(debug_info)
+        } else {
+            None
+        };
+
+        let compiled = CompiledFunction {
+            hash,
+            bytecode,
+            constants,
+            local_count: fc.next_local,
+            param_count,
+            dependencies,
+            debug_info,
+        };
+
+        // Add the compiled method to the module using its pre-computed hash
+        module.functions.insert(hash, compiled);
+    }
+
+    Ok(())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

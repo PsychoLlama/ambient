@@ -19,7 +19,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ambient_engine::ast::{
-    BindingId, Expr, ExprKind, FunctionDef, Item, ItemKind, Module, QualifiedName, Stmt, StmtKind,
+    BindingId, Expr, ExprKind, FunctionDef, ImplMethod, Item, ItemKind, Module, QualifiedName,
+    Stmt, StmtKind,
 };
 
 use crate::error::{ParseError, ParseErrorKind};
@@ -261,10 +262,15 @@ impl Resolver {
             | ItemKind::Enum(_)
             | ItemKind::Ability(_)
             | ItemKind::Trait(_)
-            | ItemKind::Impl(_)
             | ItemKind::Use(_) => {
                 // No name resolution needed for these yet
-                // TODO: Resolve impl method bodies
+                Ok(())
+            }
+            ItemKind::Impl(impl_def) => {
+                // Resolve impl method bodies
+                for method in &impl_def.methods {
+                    self.resolve_impl_method(method)?;
+                }
                 Ok(())
             }
         }
@@ -284,6 +290,28 @@ impl Resolver {
         self.resolve_expr(&func.body)?;
 
         // Pop the function scope
+        self.pop_scope();
+
+        Ok(())
+    }
+
+    /// Resolve names within an impl method.
+    fn resolve_impl_method(&mut self, method: &ImplMethod) -> Result<(), ParseError> {
+        // Push a new scope for the method
+        self.push_scope();
+
+        // Add self parameter to the local scope
+        self.add_local_binding(&Arc::from("self"), method.self_id)?;
+
+        // Add other parameters to the local scope
+        for param in &method.params {
+            self.add_local_binding(&param.name, param.id)?;
+        }
+
+        // Resolve the method body
+        self.resolve_expr(&method.body)?;
+
+        // Pop the method scope
         self.pop_scope();
 
         Ok(())
