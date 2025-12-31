@@ -267,6 +267,20 @@ impl Parser<'_> {
                                 span,
                             }
                         };
+                    } else if self.check(TokenKind::LParen) {
+                        // Method call: receiver.method(args)
+                        self.advance();
+                        let args = self.parse_args()?;
+                        let end = self.expect(TokenKind::RParen)?.span.end;
+                        let span = Span::new(expr.span.start, end);
+                        expr = CstExpr {
+                            kind: CstExprKind::MethodCall {
+                                receiver: Box::new(expr),
+                                method: field,
+                                args,
+                            },
+                            span,
+                        };
                     } else {
                         let span = Span::new(expr.span.start, field.span.end);
                         expr = CstExpr {

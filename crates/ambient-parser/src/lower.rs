@@ -443,6 +443,25 @@ fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, P
             ExprKind::Call(Box::new(lowered_callee), lowered_args)
         }
 
+        CstExprKind::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            let lowered_receiver = lower_expression(ctx, receiver)?;
+            let lowered_args = args
+                .iter()
+                .map(|e| lower_expression(ctx, e))
+                .collect::<Result<Vec<_>, _>>()?;
+            ExprKind::MethodCall {
+                receiver: Box::new(lowered_receiver),
+                method: method.name.clone(),
+                method_span: Span::new(method.span.start, method.span.end),
+                args: lowered_args,
+                resolved_hash: None,
+            }
+        }
+
         CstExprKind::Perform {
             ability,
             method,

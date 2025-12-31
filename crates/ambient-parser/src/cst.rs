@@ -646,6 +646,13 @@ pub enum CstExprKind {
         args: Vec<CstExpr>,
     },
 
+    /// Method call: `receiver.method(args)`.
+    MethodCall {
+        receiver: Box<CstExpr>,
+        method: CstIdent,
+        args: Vec<CstExpr>,
+    },
+
     // ─────────────────────────────────────────────────────────────────────────
     // Abilities
     // ─────────────────────────────────────────────────────────────────────────
