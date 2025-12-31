@@ -484,6 +484,15 @@ impl Resolver {
                 // Ability names in allowed_abilities are validated during type checking
                 self.resolve_expr(&sandbox_expr.body)
             }
+
+            ExprKind::MethodCall { receiver, args, .. } => {
+                // Resolve the receiver and all arguments
+                self.resolve_expr(receiver)?;
+                for arg in args {
+                    self.resolve_expr(arg)?;
+                }
+                Ok(())
+            }
         }
     }
 

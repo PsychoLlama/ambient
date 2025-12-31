@@ -226,6 +226,11 @@ fn find_expr_in_tree(expr: &Expr, offset: u32) -> Option<&Expr> {
             .or(Some(expr)),
         ExprKind::RecordField(object, _) => find_expr_in_tree(object, offset).or(Some(expr)),
         ExprKind::TupleIndex(tuple, _) => find_expr_in_tree(tuple, offset).or(Some(expr)),
+        ExprKind::MethodCall { receiver, args, .. } => args
+            .iter()
+            .find_map(|e| find_expr_in_tree(e, offset))
+            .or_else(|| find_expr_in_tree(receiver, offset))
+            .or(Some(expr)),
     }
 }
 

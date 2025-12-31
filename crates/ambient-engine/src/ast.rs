@@ -217,6 +217,17 @@ pub enum ExprKind {
     /// Record field access: `record.field`.
     RecordField(Box<Expr>, Arc<str>),
 
+    /// Method call: `receiver.method(args)`.
+    /// Resolved to a trait method at type checking time.
+    MethodCall {
+        receiver: Box<Expr>,
+        method: Arc<str>,
+        method_span: Span,
+        args: Vec<Expr>,
+        /// Resolved trait method hash (filled in during type checking).
+        resolved_hash: Option<blake3::Hash>,
+    },
+
     /// List literal: `[a, b, c]`.
     List(Vec<Expr>),
 

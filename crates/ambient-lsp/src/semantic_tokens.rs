@@ -370,6 +370,19 @@ impl<'a> TokenCollector<'a> {
             ExprKind::Resume(value) => self.visit_expr(value),
             ExprKind::HandlerLiteral(h) => self.visit_handler_literal(h),
             ExprKind::Sandbox(s) => self.visit_sandbox(s),
+            ExprKind::MethodCall {
+                receiver,
+                method_span,
+                args,
+                ..
+            } => {
+                // Highlight method name
+                self.add_token(method_span.start, method_span.end, token_type::METHOD, 0);
+                self.visit_expr(receiver);
+                for arg in args {
+                    self.visit_expr(arg);
+                }
+            }
         }
     }
 

@@ -12,6 +12,9 @@
 //! - Effect operations (perform, suspend, handle, resume)
 //! - Handler literals and sandbox expressions
 
+use std::sync::Arc;
+
+use super::error::BoxedTypeErrorExt;
 use super::{type_error, Infer, InferResult, TypeEnv, TypeError, TypeErrorKind};
 use crate::ast::{Expr, ExprKind, StmtKind, UnaryOp};
 use crate::types::{AbilitySet, Type};
@@ -368,6 +371,16 @@ impl Infer {
             }
 
             ExprKind::Sandbox(sandbox_expr) => self.infer_sandbox(env, sandbox_expr, span)?,
+
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                method_span,
+                args,
+                resolved_hash,
+            } => {
+                self.infer_method_call(env, receiver, method, *method_span, args, resolved_hash)?
+            }
         };
 
         expr.ty = Some(ty.clone());
@@ -555,6 +568,127 @@ impl Infer {
         self.current_abilities = saved_abilities;
 
         Ok(body_ty)
+    }
+
+    /// Infer the type of a method call expression.
+    #[allow(clippy::too_many_arguments)]
+    fn infer_method_call(
+        &mut self,
+        env: &TypeEnv,
+        receiver: &mut Expr,
+        method_name: &Arc<str>,
+        method_span: crate::ast::Span,
+        args: &mut [Expr],
+        resolved_hash: &mut Option<blake3::Hash>,
+    ) -> InferResult<Type> {
+        // Infer the receiver type
+        let receiver_ty = self.infer_expr(env, receiver)?;
+        let receiver_ty = self.apply(&receiver_ty);
+        let span = (method_span.start, method_span.end);
+
+        // Check if the receiver is a nominal type
+        let Type::Nominal(nominal) = &receiver_ty else {
+            return Err(type_error(
+                TypeErrorKind::MethodNotFound {
+                    method: Arc::clone(method_name),
+                    ty: receiver_ty.clone(),
+                },
+                span,
+            ));
+        };
+
+        // Look up the method in the trait registry
+        let Some((trait_id, method_def, method_hash)) =
+            self.trait_registry.find_method(nominal.uuid, method_name)
+        else {
+            return Err(type_error(
+                TypeErrorKind::MethodNotFound {
+                    method: Arc::clone(method_name),
+                    ty: receiver_ty.clone(),
+                },
+                span,
+            ));
+        };
+
+        // Clone the method definition to release the borrow on trait_registry
+        let method_def = method_def.clone();
+
+        // Store the resolved hash for compilation
+        *resolved_hash = Some(method_hash);
+
+        // Infer argument types
+        let mut arg_tys = Vec::new();
+        for arg in args.iter_mut() {
+            arg_tys.push(self.infer_expr(env, arg)?);
+        }
+
+        // Check argument count (excluding self)
+        let expected_param_count = method_def.params.len();
+        if arg_tys.len() != expected_param_count {
+            // Get trait name for error message
+            let trait_name = self
+                .trait_registry
+                .get_trait(trait_id)
+                .map_or_else(|| Arc::from("?"), |t| Arc::clone(&t.name));
+            return Err(type_error(
+                TypeErrorKind::ArityMismatch {
+                    expected: expected_param_count,
+                    actual: arg_tys.len(),
+                },
+                span,
+            )
+            .with_context(format!("in method call `{trait_name}.{method_name}`")));
+        }
+
+        // Unify argument types with parameter types
+        // For now, we use the parameter types from the trait method definition
+        // In a full implementation, we'd substitute Self with the receiver type
+        for (i, (arg_ty, param_ty)) in arg_tys.iter().zip(method_def.params.iter()).enumerate() {
+            // Substitute Self in param_ty with the receiver type
+            let param_ty = substitute_self(param_ty, &receiver_ty);
+            if let Err(e) = self.unify(arg_ty, &param_ty, span) {
+                return Err(e.with_context(format!(
+                    "in argument {} of method `{}`",
+                    i + 1,
+                    method_name
+                )));
+            }
+        }
+
+        // Return the substituted return type
+        Ok(substitute_self(&method_def.ret, &receiver_ty))
+    }
+}
+
+/// Substitute `Self` type references with the actual type.
+fn substitute_self(ty: &Type, self_ty: &Type) -> Type {
+    match ty {
+        // Check for a Named type called "Self"
+        Type::Named(n) if n.name.as_ref() == "Self" && n.args.is_empty() => self_ty.clone(),
+        // Recursively substitute in composite types
+        Type::Tuple(elems) => {
+            Type::Tuple(elems.iter().map(|t| substitute_self(t, self_ty)).collect())
+        }
+        Type::Record(rec) => Type::Record(crate::types::RecordType::new(
+            rec.fields
+                .iter()
+                .map(|(n, t)| (Arc::clone(n), substitute_self(t, self_ty)))
+                .collect(),
+        )),
+        Type::Function(f) => Type::function_with_abilities(
+            f.params
+                .iter()
+                .map(|t| substitute_self(t, self_ty))
+                .collect(),
+            substitute_self(&f.ret, self_ty),
+            f.abilities.clone(),
+        ),
+        Type::Named(n) => Type::Named(crate::types::NamedType::new(
+            Arc::clone(&n.name),
+            n.args.iter().map(|t| substitute_self(t, self_ty)).collect(),
+        )),
+        // Other types pass through unchanged
+        _ => ty.clone(),
     }
 }
 

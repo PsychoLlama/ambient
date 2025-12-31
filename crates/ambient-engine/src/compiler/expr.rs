@@ -389,6 +389,38 @@ pub(super) fn compile_expr(
             // - Dynamic capability tracking
             compile_expr(fc, &sandbox_expr.body, ctx)?;
         }
+
+        ExprKind::MethodCall {
+            receiver,
+            args,
+            resolved_hash,
+            ..
+        } => {
+            // Method calls are compiled as regular function calls.
+            // The resolved_hash was filled in during type checking.
+            // Safety: type checking always sets this for valid method calls.
+            let Some(hash) = resolved_hash else {
+                return Err(CompileError::new(
+                    CompileErrorKind::Internal {
+                        message: "method call missing resolved hash",
+                    },
+                    (expr.span.start, expr.span.end),
+                ));
+            };
+
+            // Compile receiver (self) as first argument
+            compile_expr(fc, receiver, ctx)?;
+
+            // Compile other arguments
+            for arg in args {
+                compile_expr(fc, arg, ctx)?;
+            }
+
+            // Emit call with arity = self + args
+            #[allow(clippy::cast_possible_truncation)]
+            let arity = (1 + args.len()) as u8;
+            fc.builder.emit_call(*hash, arity);
+        }
     }
 
     Ok(())

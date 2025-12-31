@@ -853,7 +853,8 @@ fn collect_locals_in_scope(
         | ExprKind::Perform(_)
         | ExprKind::Suspend(_)
         | ExprKind::Resume(_)
-        | ExprKind::HandlerLiteral(_) => {}
+        | ExprKind::HandlerLiteral(_)
+        | ExprKind::MethodCall { .. } => {}
     }
 }
 
