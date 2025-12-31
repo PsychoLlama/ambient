@@ -28,9 +28,10 @@ use ambient_engine::ast::Span;
 
 use crate::cst::{
     CstAbilityDef, CstAbilityMethod, CstConstDef, CstEnumDef, CstEnumVariant, CstFunctionDef,
-    CstIdent, CstItem, CstItemKind, CstModule, CstParam, CstQualifiedName, CstReplInput,
-    CstTypeAliasDef, CstTypeParam, CstUseDef, CstUseKind, CstUsePrefix, Trivia, TriviaItem,
-    TriviaKind,
+    CstIdent, CstImplDef, CstImplMethod, CstItem, CstItemKind, CstModule, CstParam,
+    CstQualifiedName, CstReplInput, CstTraitDef, CstTraitMethod, CstTraitParam, CstTraitParamKind,
+    CstTypeAliasDef, CstTypeParam, CstUseDef, CstUseKind, CstUsePrefix, CstWhereClause, Trivia,
+    TriviaItem, TriviaKind,
 };
 use crate::error::{ParseError, ParseErrorKind};
 use crate::lexer::{Lexer, Token, TokenKind};
@@ -185,7 +186,9 @@ impl<'src> Parser<'src> {
                 | TokenKind::Type
                 | TokenKind::Enum
                 | TokenKind::Ability
-                | TokenKind::Use => return,
+                | TokenKind::Use
+                | TokenKind::Trait
+                | TokenKind::Impl => return,
                 TokenKind::Semi | TokenKind::RBrace => {
                     self.advance();
                     return;
@@ -273,6 +276,8 @@ impl<'src> Parser<'src> {
             TokenKind::Enum => CstItemKind::Enum(self.parse_enum()?),
             TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def()?),
             TokenKind::Use => CstItemKind::Use(self.parse_use(false)?),
+            TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def()?),
+            TokenKind::Impl => CstItemKind::Impl(self.parse_impl_def()?),
             _ => {
                 return Err(ParseError::new(
                     ParseErrorKind::UnexpectedToken(format!("{:?}", self.current_kind())),
@@ -310,6 +315,8 @@ impl<'src> Parser<'src> {
                 | TokenKind::Enum
                 | TokenKind::Ability
                 | TokenKind::Use
+                | TokenKind::Trait
+                | TokenKind::Impl
         );
 
         if is_item {
@@ -631,6 +638,249 @@ impl<'src> Parser<'src> {
             type_params,
             params,
             ret_ty,
+            span: Span::new(start, end),
+        })
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Trait parsing
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Parse a trait definition: `trait Name<T> with Supertrait { fn method(self, ...): RetType; }`
+    fn parse_trait_def(&mut self) -> Result<CstTraitDef, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::Trait)?;
+        let name = self.parse_ident()?;
+
+        // Type parameters
+        let type_params = if self.check(TokenKind::Lt) {
+            self.parse_type_params()?
+        } else {
+            Vec::new()
+        };
+
+        // Supertraits: `with Trait1, Trait2`
+        let supertraits = if self.check(TokenKind::With) {
+            self.advance();
+            self.parse_ability_list()?
+        } else {
+            Vec::new()
+        };
+
+        self.expect(TokenKind::LBrace)?;
+
+        let mut methods = Vec::new();
+        loop {
+            if self.check(TokenKind::RBrace) {
+                break;
+            }
+            methods.push(self.parse_trait_method()?);
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span.end;
+
+        Ok(CstTraitDef {
+            name,
+            type_params,
+            supertraits,
+            methods,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Parse a trait method signature: `fn name(self, args): RetType;`
+    fn parse_trait_method(&mut self) -> Result<CstTraitMethod, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::Fn)?;
+        let name = self.parse_ident()?;
+
+        let type_params = if self.check(TokenKind::Lt) {
+            self.parse_type_params()?
+        } else {
+            Vec::new()
+        };
+
+        self.expect(TokenKind::LParen)?;
+        let params = self.parse_trait_params()?;
+        self.expect(TokenKind::RParen)?;
+
+        self.expect(TokenKind::Colon)?;
+        let ret_ty = self.parse_type()?;
+
+        let end = self.expect(TokenKind::Semi)?.span.end;
+
+        Ok(CstTraitMethod {
+            name,
+            type_params,
+            params,
+            ret_ty,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Parse trait method parameters (handles `self`).
+    fn parse_trait_params(&mut self) -> Result<Vec<CstTraitParam>, ParseError> {
+        let mut params = Vec::new();
+
+        loop {
+            if self.check(TokenKind::RParen) {
+                break;
+            }
+
+            let start = self.current().span.start;
+
+            // Check for `self` keyword
+            if self.check(TokenKind::Self_) {
+                let token = self.advance();
+                params.push(CstTraitParam {
+                    kind: CstTraitParamKind::SelfParam,
+                    span: token.span,
+                });
+            } else {
+                // Regular parameter: name: Type
+                let name = self.parse_ident()?;
+                self.expect(TokenKind::Colon)?;
+                let ty = self.parse_type()?;
+                let end = ty.span.end;
+                params.push(CstTraitParam {
+                    kind: CstTraitParamKind::Named { name, ty },
+                    span: Span::new(start, end),
+                });
+            }
+
+            if self.consume(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+
+        Ok(params)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Impl parsing
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Parse an impl block: `impl<T> Trait for Type where T: Bound { methods }`
+    fn parse_impl_def(&mut self) -> Result<CstImplDef, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::Impl)?;
+
+        // Optional type parameters
+        let type_params = if self.check(TokenKind::Lt) {
+            self.parse_type_params()?
+        } else {
+            Vec::new()
+        };
+
+        // Trait name
+        let trait_name = self.parse_qualified_name()?;
+
+        // `for` keyword
+        self.expect(TokenKind::For)?;
+
+        // Type being implemented
+        let for_type = self.parse_type()?;
+
+        // Optional where clause
+        let where_clauses = if self.check(TokenKind::Where) {
+            self.advance();
+            self.parse_where_clauses()?
+        } else {
+            Vec::new()
+        };
+
+        self.expect(TokenKind::LBrace)?;
+
+        let mut methods = Vec::new();
+        loop {
+            if self.check(TokenKind::RBrace) {
+                break;
+            }
+            methods.push(self.parse_impl_method()?);
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span.end;
+
+        Ok(CstImplDef {
+            type_params,
+            trait_name,
+            for_type,
+            where_clauses,
+            methods,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Parse where clauses: `T: Trait1 + Trait2, U: Trait3`
+    fn parse_where_clauses(&mut self) -> Result<Vec<CstWhereClause>, ParseError> {
+        let mut clauses = Vec::new();
+
+        loop {
+            let start = self.current().span.start;
+            let ty = self.parse_type()?;
+            self.expect(TokenKind::Colon)?;
+
+            let mut bounds = Vec::new();
+            loop {
+                bounds.push(self.parse_qualified_name()?);
+                if self.consume(TokenKind::Plus).is_none() {
+                    break;
+                }
+            }
+
+            let end = bounds.last().map_or(ty.span.end, |b| b.span.end);
+            clauses.push(CstWhereClause {
+                ty,
+                bounds,
+                span: Span::new(start, end),
+            });
+
+            if self.consume(TokenKind::Comma).is_none() {
+                break;
+            }
+
+            // Don't continue if we hit the opening brace
+            if self.check(TokenKind::LBrace) {
+                break;
+            }
+        }
+
+        Ok(clauses)
+    }
+
+    /// Parse an impl method: `fn name(self, args): RetType { body }`
+    fn parse_impl_method(&mut self) -> Result<CstImplMethod, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::Fn)?;
+        let name = self.parse_ident()?;
+
+        let type_params = if self.check(TokenKind::Lt) {
+            self.parse_type_params()?
+        } else {
+            Vec::new()
+        };
+
+        self.expect(TokenKind::LParen)?;
+        let params = self.parse_trait_params()?;
+        self.expect(TokenKind::RParen)?;
+
+        // Optional return type
+        let ret_ty = if self.consume(TokenKind::Colon).is_some() {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        // Method body
+        let body = self.parse_block_expr()?;
+        let end = body.span.end;
+
+        Ok(CstImplMethod {
+            name,
+            type_params,
+            params,
+            ret_ty,
+            body,
             span: Span::new(start, end),
         })
     }

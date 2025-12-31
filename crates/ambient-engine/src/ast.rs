@@ -652,6 +652,12 @@ pub enum ItemKind {
 
     /// A use/import statement.
     Use(UseDef),
+
+    /// A trait definition.
+    Trait(TraitDef),
+
+    /// A trait implementation.
+    Impl(ImplDef),
 }
 
 /// A function definition.
@@ -813,6 +819,95 @@ pub enum UseKind {
     Module,
     /// Import specific items: `use pkg.utils.{helper, format};`
     Items(Vec<Arc<str>>),
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trait and Impl Definitions
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A trait definition.
+///
+/// Syntax: `trait Name<T> with Supertrait { fn method(self, ...): RetType; }`
+#[derive(Debug, Clone)]
+pub struct TraitDef {
+    /// Trait name.
+    pub name: Arc<str>,
+    /// Span of the trait name.
+    pub name_span: Span,
+    /// Type parameters.
+    pub type_params: Vec<TypeParam>,
+    /// Supertraits that this trait requires.
+    pub supertraits: Vec<QualifiedName>,
+    /// Method signatures.
+    pub methods: Vec<TraitMethod>,
+}
+
+/// A method signature in a trait definition.
+#[derive(Debug, Clone)]
+pub struct TraitMethod {
+    /// Method name.
+    pub name: Arc<str>,
+    /// Span of the method name.
+    pub name_span: Span,
+    /// Type parameters for the method.
+    pub type_params: Vec<TypeParam>,
+    /// Whether this method takes self as first parameter.
+    pub has_self: bool,
+    /// Parameters (excluding self).
+    pub params: Vec<(Arc<str>, Type)>,
+    /// Return type.
+    pub ret_ty: Type,
+    /// Source span.
+    pub span: Span,
+}
+
+/// A trait implementation.
+///
+/// Syntax: `impl<T> Trait for Type where T: Bound { fn method(self, ...) { body } }`
+#[derive(Debug, Clone)]
+pub struct ImplDef {
+    /// Type parameters for generic impls.
+    pub type_params: Vec<TypeParam>,
+    /// The trait being implemented.
+    pub trait_name: QualifiedName,
+    /// The type implementing the trait.
+    pub for_type: Type,
+    /// Where clauses (type, trait bounds).
+    pub where_clauses: Vec<WhereClause>,
+    /// Method implementations.
+    pub methods: Vec<ImplMethod>,
+    /// Source span.
+    pub span: Span,
+}
+
+/// A where clause for trait bounds.
+#[derive(Debug, Clone)]
+pub struct WhereClause {
+    /// The type being constrained.
+    pub ty: Type,
+    /// Trait bounds.
+    pub bounds: Vec<QualifiedName>,
+}
+
+/// A method implementation in an impl block.
+#[derive(Debug, Clone)]
+pub struct ImplMethod {
+    /// Method name.
+    pub name: Arc<str>,
+    /// Span of the method name.
+    pub name_span: Span,
+    /// Type parameters for the method.
+    pub type_params: Vec<TypeParam>,
+    /// Binding ID for self parameter.
+    pub self_id: BindingId,
+    /// Parameters (excluding self).
+    pub params: Vec<Param>,
+    /// Return type.
+    pub ret_ty: Option<Type>,
+    /// Method body.
+    pub body: Expr,
+    /// Source span.
+    pub span: Span,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

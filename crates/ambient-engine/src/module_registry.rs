@@ -69,6 +69,7 @@ pub enum ExportKind {
     Enum,
     EnumVariant,
     Ability,
+    Trait,
 }
 
 /// Information about a loaded module.
@@ -379,7 +380,13 @@ fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> {
                 is_public: true, // Abilities are always public for now
                 re_export_from: None,
             }),
-            ItemKind::Use(_) => None, // Use statements are not exports
+            ItemKind::Trait(t) => Some(ExportInfo {
+                name: t.name.clone(),
+                kind: ExportKind::Trait,
+                is_public: true, // Traits are always public for now
+                re_export_from: None,
+            }),
+            ItemKind::Use(_) | ItemKind::Impl(_) => None, // Use statements and impls are not exports
         };
 
         if let Some(info) = info {

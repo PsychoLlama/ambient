@@ -81,6 +81,14 @@ pub enum TokenKind {
     Sandbox,
     /// `unique`
     Unique,
+    /// `trait`
+    Trait,
+    /// `impl`
+    Impl,
+    /// `for`
+    For,
+    /// `where`
+    Where,
     /// `pkg` - local package prefix in imports
     Pkg,
     /// `core` - standard library prefix in imports
@@ -226,6 +234,10 @@ impl TokenKind {
                 | Self::Resume
                 | Self::Sandbox
                 | Self::Unique
+                | Self::Trait
+                | Self::Impl
+                | Self::For
+                | Self::Where
                 | Self::Pkg
                 | Self::Core
                 | Self::Self_
@@ -255,6 +267,10 @@ impl TokenKind {
             "resume" => Some(Self::Resume),
             "sandbox" => Some(Self::Sandbox),
             "unique" => Some(Self::Unique),
+            "trait" => Some(Self::Trait),
+            "impl" => Some(Self::Impl),
+            "for" => Some(Self::For),
+            "where" => Some(Self::Where),
             "pkg" => Some(Self::Pkg),
             "core" => Some(Self::Core),
             "self" => Some(Self::Self_),
@@ -285,6 +301,10 @@ impl TokenKind {
             Self::Resume => Some("resume"),
             Self::Sandbox => Some("sandbox"),
             Self::Unique => Some("unique"),
+            Self::Trait => Some("trait"),
+            Self::Impl => Some("impl"),
+            Self::For => Some("for"),
+            Self::Where => Some("where"),
             Self::Pkg => Some("pkg"),
             Self::Core => Some("core"),
             Self::Self_ => Some("self"),
@@ -298,8 +318,8 @@ impl TokenKind {
     pub const fn all_keywords() -> &'static [&'static str] {
         &[
             "fn", "pub", "let", "const", "if", "else", "match", "true", "false", "enum", "type",
-            "ability", "use", "with", "handle", "resume", "sandbox", "unique", "pkg", "core",
-            "self", "super",
+            "ability", "use", "with", "handle", "resume", "sandbox", "unique", "trait", "impl",
+            "for", "where", "pkg", "core", "self", "super",
         ]
     }
 

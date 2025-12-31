@@ -509,7 +509,8 @@ fn extract_exports(module: &Module) -> Vec<ExportedSymbol> {
             ItemKind::TypeAlias(t) => (t.name.clone(), SymbolKind::TypeAlias, t.name_span, true),
             ItemKind::Enum(e) => (e.name.clone(), SymbolKind::Enum, e.name_span, true),
             ItemKind::Ability(a) => (a.name.clone(), SymbolKind::Ability, a.name_span, true),
-            ItemKind::Use(_) => continue,
+            ItemKind::Trait(t) => (t.name.clone(), SymbolKind::Ability, t.name_span, true),
+            ItemKind::Impl(_) | ItemKind::Use(_) => continue,
         };
 
         // Only export public items (or all for now until we have proper visibility)

@@ -117,7 +117,8 @@ pub fn find_item_at_offset(module: &Module, offset: u32) -> Option<&Item> {
             ItemKind::TypeAlias(t) => Some(t.name_span),
             ItemKind::Enum(e) => Some(e.name_span),
             ItemKind::Ability(a) => Some(a.name_span),
-            ItemKind::Use(_) => None,
+            ItemKind::Trait(t) => Some(t.name_span),
+            ItemKind::Use(_) | ItemKind::Impl(_) => None,
         };
 
         if let Some(span) = name_span {
@@ -357,7 +358,8 @@ fn find_name_definition(module: &Module, qname: &QualifiedName) -> Option<Defini
             ItemKind::TypeAlias(t) => &t.name,
             ItemKind::Enum(e) => &e.name,
             ItemKind::Ability(a) => &a.name,
-            ItemKind::Use(_) => continue,
+            ItemKind::Trait(t) => &t.name,
+            ItemKind::Use(_) | ItemKind::Impl(_) => continue,
         };
 
         if name.as_ref() == qname.name.as_ref() {

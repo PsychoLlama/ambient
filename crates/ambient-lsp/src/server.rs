@@ -355,60 +355,22 @@ fn handle_hover(
 /// Format hover content for an item definition, including documentation.
 fn format_item_hover(item: &ambient_engine::ast::Item) -> String {
     let mut content = String::new();
-
-    // Add type signature in code block.
     content.push_str("```ambient\n");
-    match &item.kind {
-        ItemKind::Function(f) => {
-            if f.is_public {
-                content.push_str("pub ");
-            }
-            content.push_str("fn ");
-            content.push_str(&f.name);
+    format_item_signature(&item.kind, &mut content);
+    content.push_str("\n```");
 
-            // Type parameters.
-            if !f.type_params.is_empty() {
-                content.push('<');
-                for (i, tp) in f.type_params.iter().enumerate() {
-                    if i > 0 {
-                        content.push_str(", ");
-                    }
-                    content.push_str(&tp.name);
-                }
-                content.push('>');
-            }
+    if let Some(doc) = &item.doc {
+        content.push_str("\n\n---\n\n");
+        content.push_str(doc);
+    }
 
-            // Parameters.
-            content.push('(');
-            for (i, param) in f.params.iter().enumerate() {
-                if i > 0 {
-                    content.push_str(", ");
-                }
-                content.push_str(&param.name);
-                if let Some(ty) = &param.ty {
-                    content.push_str(": ");
-                    content.push_str(&format_type(ty));
-                }
-            }
-            content.push(')');
+    content
+}
 
-            // Return type.
-            if let Some(ret) = &f.ret_ty {
-                content.push_str(": ");
-                content.push_str(&format_type(ret));
-            }
-
-            // Abilities.
-            if !f.abilities.is_empty() {
-                content.push_str(" with ");
-                for (i, ability) in f.abilities.iter().enumerate() {
-                    if i > 0 {
-                        content.push_str(", ");
-                    }
-                    content.push_str(&ability.name);
-                }
-            }
-        }
+/// Format an item's type signature into the given buffer.
+fn format_item_signature(kind: &ItemKind, content: &mut String) {
+    match kind {
+        ItemKind::Function(f) => format_function_hover(f, content),
         ItemKind::Const(c) => {
             content.push_str("const ");
             content.push_str(&c.name);
@@ -418,50 +380,81 @@ fn format_item_hover(item: &ambient_engine::ast::Item) -> String {
         ItemKind::TypeAlias(t) => {
             content.push_str("type ");
             content.push_str(&t.name);
-            if !t.type_params.is_empty() {
-                content.push('<');
-                for (i, tp) in t.type_params.iter().enumerate() {
-                    if i > 0 {
-                        content.push_str(", ");
-                    }
-                    content.push_str(&tp.name);
-                }
-                content.push('>');
-            }
+            format_type_params(&t.type_params, content);
             content.push_str(" = ");
             content.push_str(&format_type(&t.ty));
         }
         ItemKind::Enum(e) => {
             content.push_str("enum ");
             content.push_str(&e.name);
-            if !e.type_params.is_empty() {
-                content.push('<');
-                for (i, tp) in e.type_params.iter().enumerate() {
-                    if i > 0 {
-                        content.push_str(", ");
-                    }
-                    content.push_str(&tp.name);
-                }
-                content.push('>');
-            }
+            format_type_params(&e.type_params, content);
         }
         ItemKind::Ability(a) => {
             content.push_str("ability ");
             content.push_str(&a.name);
         }
-        ItemKind::Use(_) => {
-            content.push_str("use ...");
+        ItemKind::Use(_) => content.push_str("use ..."),
+        ItemKind::Trait(t) => {
+            content.push_str("trait ");
+            content.push_str(&t.name);
+            format_type_params(&t.type_params, content);
+        }
+        ItemKind::Impl(i) => {
+            content.push_str("impl ");
+            content.push_str(&i.trait_name.name);
+            content.push_str(" for ");
+            content.push_str(&format_type(&i.for_type));
         }
     }
-    content.push_str("\n```");
+}
 
-    // Add documentation if present.
-    if let Some(doc) = &item.doc {
-        content.push_str("\n\n---\n\n");
-        content.push_str(doc);
+/// Format a function's signature for hover.
+fn format_function_hover(f: &ambient_engine::ast::FunctionDef, content: &mut String) {
+    if f.is_public {
+        content.push_str("pub ");
     }
+    content.push_str("fn ");
+    content.push_str(&f.name);
+    format_type_params(&f.type_params, content);
+    content.push('(');
+    for (i, param) in f.params.iter().enumerate() {
+        if i > 0 {
+            content.push_str(", ");
+        }
+        content.push_str(&param.name);
+        if let Some(ty) = &param.ty {
+            content.push_str(": ");
+            content.push_str(&format_type(ty));
+        }
+    }
+    content.push(')');
+    if let Some(ret) = &f.ret_ty {
+        content.push_str(": ");
+        content.push_str(&format_type(ret));
+    }
+    if !f.abilities.is_empty() {
+        content.push_str(" with ");
+        for (i, ability) in f.abilities.iter().enumerate() {
+            if i > 0 {
+                content.push_str(", ");
+            }
+            content.push_str(&ability.name);
+        }
+    }
+}
 
-    content
+/// Format type parameters if present.
+fn format_type_params(type_params: &[ambient_engine::ast::TypeParam], content: &mut String) {
+    if !type_params.is_empty() {
+        content.push('<');
+        for (i, tp) in type_params.iter().enumerate() {
+            if i > 0 {
+                content.push_str(", ");
+            }
+            content.push_str(&tp.name);
+        }
+        content.push('>');
+    }
 }
 
 /// Format hover content for a module.
@@ -1148,7 +1141,61 @@ fn item_to_document_symbol(
             ))
         }
         ItemKind::Use(_) => None,
+        ItemKind::Trait(t) => {
+            let children = extract_trait_methods(t, doc);
+            Some(make_symbol(
+                t.name.to_string(),
+                None,
+                LspSymbolKind::INTERFACE,
+                range,
+                offset_range_to_lsp_range(
+                    doc,
+                    t.name_span.start as usize,
+                    t.name_span.end as usize,
+                ),
+                children,
+            ))
+        }
+        ItemKind::Impl(i) => Some(make_symbol(
+            format!("impl {} for ...", i.trait_name.name),
+            None,
+            LspSymbolKind::CLASS,
+            range,
+            range,
+            None,
+        )),
     }
+}
+
+/// Extract trait methods as document symbols.
+fn extract_trait_methods(
+    trait_def: &ambient_engine::ast::TraitDef,
+    doc: &crate::documents::Document,
+) -> Option<Vec<DocumentSymbol>> {
+    if trait_def.methods.is_empty() {
+        return None;
+    }
+
+    let symbols: Vec<_> = trait_def
+        .methods
+        .iter()
+        .map(|m| {
+            make_symbol(
+                m.name.to_string(),
+                None,
+                LspSymbolKind::METHOD,
+                offset_range_to_lsp_range(doc, m.span.start as usize, m.span.end as usize),
+                offset_range_to_lsp_range(
+                    doc,
+                    m.name_span.start as usize,
+                    m.name_span.end as usize,
+                ),
+                None,
+            )
+        })
+        .collect();
+
+    Some(symbols)
 }
 
 /// Create a `DocumentSymbol` with the given properties.

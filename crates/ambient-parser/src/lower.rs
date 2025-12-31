@@ -11,17 +11,18 @@ use uuid::Uuid;
 use ambient_engine::ast::{
     AbilityCall, AbilityDef, AbilityMethod, BinaryOp, BindingId, ConstDef, EnumDef, EnumVariant,
     Expr, ExprKind, FunctionDef, HandleExpr, Handler, HandlerLiteralExpr, HandlerLiteralMethod,
-    Item, ItemKind, Lambda, LetBinding, Literal, MatchArm, Module, Param, Pattern, PatternKind,
-    QualifiedName, SandboxExpr, Span, Stmt, StmtKind, TypeAliasDef, TypeParam, UnaryOp, UseDef,
-    UseKind, UsePrefix,
+    ImplDef, ImplMethod, Item, ItemKind, Lambda, LetBinding, Literal, MatchArm, Module, Param,
+    Pattern, PatternKind, QualifiedName, SandboxExpr, Span, Stmt, StmtKind, TraitDef, TraitMethod,
+    TypeAliasDef, TypeParam, UnaryOp, UseDef, UseKind, UsePrefix, WhereClause,
 };
 use ambient_engine::types::{NominalType, Type};
 
 use crate::cst::{
     CstAbilityDef, CstBinaryOp, CstConstDef, CstEnumDef, CstExpr, CstExprKind, CstFunctionDef,
-    CstItem, CstItemKind, CstLambda, CstLiteral, CstMatchArm, CstModule, CstParam, CstPattern,
-    CstPatternKind, CstQualifiedName, CstRecordPatternField, CstStmt, CstStmtKind, CstTypeAliasDef,
-    CstTypeExpr, CstTypeExprKind, CstUnaryOp, CstUseDef, CstUseKind, CstUsePrefix, StringPart,
+    CstImplDef, CstItem, CstItemKind, CstLambda, CstLiteral, CstMatchArm, CstModule, CstParam,
+    CstPattern, CstPatternKind, CstQualifiedName, CstRecordPatternField, CstStmt, CstStmtKind,
+    CstTraitDef, CstTraitParamKind, CstTypeAliasDef, CstTypeExpr, CstTypeExprKind, CstUnaryOp,
+    CstUseDef, CstUseKind, CstUsePrefix, StringPart,
 };
 use crate::error::{ParseError, ParseErrorKind};
 
@@ -91,6 +92,8 @@ fn lower_item_impl(ctx: &mut LoweringContext, item: &CstItem) -> Result<Item, Pa
         CstItemKind::Enum(e) => ItemKind::Enum(lower_enum(e)?),
         CstItemKind::Ability(a) => ItemKind::Ability(lower_ability_def(a)?),
         CstItemKind::Use(u) => ItemKind::Use(lower_use(u)?),
+        CstItemKind::Trait(t) => ItemKind::Trait(lower_trait_def(t)?),
+        CstItemKind::Impl(i) => ItemKind::Impl(lower_impl_def(ctx, i)?),
         CstItemKind::Error => {
             return Err(ParseError::new(
                 ParseErrorKind::LoweringError("cannot lower error item".into()),
@@ -995,6 +998,167 @@ fn lower_unary_op(op: CstUnaryOp) -> UnaryOp {
         CstUnaryOp::Neg => UnaryOp::Neg,
         CstUnaryOp::Not => UnaryOp::Not,
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trait and Impl Lowering
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
+    let type_params = t
+        .type_params
+        .iter()
+        .map(|tp| TypeParam {
+            name: tp.name.name.clone(),
+            span: tp.span,
+        })
+        .collect();
+
+    let supertraits = t.supertraits.iter().map(lower_qualified_name).collect();
+
+    let methods = t
+        .methods
+        .iter()
+        .map(|m| {
+            let method_type_params = m
+                .type_params
+                .iter()
+                .map(|tp| TypeParam {
+                    name: tp.name.name.clone(),
+                    span: tp.span,
+                })
+                .collect();
+
+            // Check if first param is self
+            let (has_self, other_params) = if let Some(first) = m.params.first() {
+                match &first.kind {
+                    CstTraitParamKind::SelfParam => (true, &m.params[1..]),
+                    CstTraitParamKind::Named { .. } => (false, &m.params[..]),
+                }
+            } else {
+                (false, &m.params[..])
+            };
+
+            let params = other_params
+                .iter()
+                .map(|p| match &p.kind {
+                    CstTraitParamKind::Named { name, ty } => {
+                        let lowered_ty = lower_type(ty)?;
+                        Ok((name.name.clone(), lowered_ty))
+                    }
+                    CstTraitParamKind::SelfParam => Err(ParseError::new(
+                        ParseErrorKind::LoweringError(
+                            "self can only be the first parameter".into(),
+                        ),
+                        p.span,
+                    )),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let ret_ty = lower_type(&m.ret_ty)?;
+
+            Ok(TraitMethod {
+                name: m.name.name.clone(),
+                name_span: m.name.span,
+                type_params: method_type_params,
+                has_self,
+                params,
+                ret_ty,
+                span: m.span,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(TraitDef {
+        name: t.name.name.clone(),
+        name_span: t.name.span,
+        type_params,
+        supertraits,
+        methods,
+    })
+}
+
+fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, ParseError> {
+    let type_params = i
+        .type_params
+        .iter()
+        .map(|tp| TypeParam {
+            name: tp.name.name.clone(),
+            span: tp.span,
+        })
+        .collect();
+
+    let trait_name = lower_qualified_name(&i.trait_name);
+    let for_type = lower_type(&i.for_type)?;
+
+    let where_clauses = i
+        .where_clauses
+        .iter()
+        .map(|wc| {
+            let ty = lower_type(&wc.ty)?;
+            let bounds = wc.bounds.iter().map(lower_qualified_name).collect();
+            Ok(WhereClause { ty, bounds })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let methods = i
+        .methods
+        .iter()
+        .map(|m| {
+            let method_type_params = m
+                .type_params
+                .iter()
+                .map(|tp| TypeParam {
+                    name: tp.name.name.clone(),
+                    span: tp.span,
+                })
+                .collect();
+
+            // Allocate self binding ID
+            let self_id = ctx.fresh_binding();
+
+            // Lower non-self parameters
+            let params = m
+                .params
+                .iter()
+                .filter_map(|p| match &p.kind {
+                    CstTraitParamKind::SelfParam => None,
+                    CstTraitParamKind::Named { name, ty } => Some({
+                        let lowered_ty = lower_type(ty).ok();
+                        Ok(Param {
+                            id: ctx.fresh_binding(),
+                            name: name.name.clone(),
+                            ty: lowered_ty,
+                            span: p.span,
+                        })
+                    }),
+                })
+                .collect::<Result<Vec<_>, ParseError>>()?;
+
+            let ret_ty = m.ret_ty.as_ref().map(lower_type).transpose()?;
+            let body = lower_expression(ctx, &m.body)?;
+
+            Ok(ImplMethod {
+                name: m.name.name.clone(),
+                name_span: m.name.span,
+                type_params: method_type_params,
+                self_id,
+                params,
+                ret_ty,
+                body,
+                span: m.span,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(ImplDef {
+        type_params,
+        trait_name,
+        for_type,
+        where_clauses,
+        methods,
+        span: i.span,
+    })
 }
 
 #[cfg(test)]

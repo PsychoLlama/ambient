@@ -259,6 +259,36 @@ impl<'a> TokenCollector<'a> {
             ItemKind::Use(_) => {
                 // Use statements - could highlight the path segments
             }
+            ItemKind::Trait(t) => {
+                // Trait name at definition
+                self.add_token(
+                    t.name_span.start,
+                    t.name_span.end,
+                    token_type::INTERFACE,
+                    token_modifier::DECLARATION,
+                );
+                // Methods
+                for method in &t.methods {
+                    self.add_token(
+                        method.name_span.start,
+                        method.name_span.end,
+                        token_type::METHOD,
+                        token_modifier::DECLARATION,
+                    );
+                }
+            }
+            ItemKind::Impl(i) => {
+                // Visit method bodies
+                for method in &i.methods {
+                    self.add_token(
+                        method.name_span.start,
+                        method.name_span.end,
+                        token_type::METHOD,
+                        token_modifier::DECLARATION,
+                    );
+                    self.visit_expr(&method.body);
+                }
+            }
         }
     }
 

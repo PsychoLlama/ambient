@@ -42,6 +42,8 @@ pub enum DefId {
     },
     /// An ability.
     Ability(Arc<str>),
+    /// A trait.
+    Trait(Arc<str>),
     /// A local binding (parameter or let binding).
     Local(BindingId),
 }
@@ -189,8 +191,18 @@ impl Resolver {
                             )
                         })?;
                 }
-                ItemKind::Use(_) => {
-                    // Imports are processed in a separate pass
+                ItemKind::Trait(t) => {
+                    self.module_scope
+                        .insert(t.name.clone(), DefId::Trait(t.name.clone()))
+                        .map_err(|name| {
+                            ParseError::new(
+                                ParseErrorKind::DuplicateDefinition(name.to_string()),
+                                item.span,
+                            )
+                        })?;
+                }
+                ItemKind::Use(_) | ItemKind::Impl(_) => {
+                    // Imports and impls are processed in separate passes
                 }
             }
         }
@@ -248,8 +260,11 @@ impl Resolver {
             ItemKind::TypeAlias(_)
             | ItemKind::Enum(_)
             | ItemKind::Ability(_)
+            | ItemKind::Trait(_)
+            | ItemKind::Impl(_)
             | ItemKind::Use(_) => {
-                // No name resolution needed for these
+                // No name resolution needed for these yet
+                // TODO: Resolve impl method bodies
                 Ok(())
             }
         }
