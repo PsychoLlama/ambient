@@ -7,7 +7,7 @@ use crate::ability_resolver::AbilityResolver;
 use crate::ast::BindingId;
 use crate::module_path::ModulePath;
 use crate::module_registry::{ExportKind, ModuleRegistry, ResolvedImport};
-use crate::types::{AbilityId, AbilitySet, Type, TypeVarId};
+use crate::types::{AbilityId, AbilitySet, TraitDef, TraitMethodDef, Type, TypeVarId};
 
 use super::env::{Scheme, TypeEnv};
 use super::error::{BoxedTypeError, BoxedTypeErrorExt, TypeError, TypeErrorKind};
@@ -64,10 +64,16 @@ pub fn check_module(mut module: crate::ast::Module) -> CheckResult {
     // Phase 1a: Register all type aliases so parameter types resolve correctly.
     register_type_aliases(&mut infer, &module);
 
-    // Phase 1b: Collect all function signatures into the environment.
+    // Phase 1b: Register all trait definitions.
+    register_traits(&mut infer, &module);
+
+    // Phase 1c: Collect all function signatures into the environment.
     collect_function_signatures(&mut infer, &module, &mut env);
 
-    // Phase 2: Type-check each function body.
+    // Phase 2: Type-check impl blocks.
+    check_impls(&mut infer, &mut module, &env, &mut errors);
+
+    // Phase 3: Type-check each function body.
     for item in &mut module.items {
         if let crate::ast::ItemKind::Function(func) = &mut item.kind {
             // Reset ability tracking for each function
@@ -176,6 +182,189 @@ fn register_type_aliases(infer: &mut Infer, module: &crate::ast::Module) {
     for item in &module.items {
         if let crate::ast::ItemKind::TypeAlias(type_alias) = &item.kind {
             infer.register_type_alias(Arc::clone(&type_alias.name), type_alias.ty.clone());
+        }
+    }
+}
+
+/// Register all trait definitions from a module into the trait registry.
+fn register_traits(infer: &mut Infer, module: &crate::ast::Module) {
+    for item in &module.items {
+        if let crate::ast::ItemKind::Trait(trait_def) = &item.kind {
+            let trait_id = infer.trait_registry.fresh_id();
+
+            // Build method definitions
+            let methods: Vec<TraitMethodDef> = trait_def
+                .methods
+                .iter()
+                .map(|m| {
+                    TraitMethodDef::new(
+                        Arc::clone(&m.name),
+                        m.has_self,
+                        m.params.iter().map(|(_, ty)| ty.clone()).collect(),
+                        m.ret_ty.clone(),
+                    )
+                })
+                .collect();
+
+            // Create and register the trait definition
+            let def = TraitDef {
+                id: trait_id,
+                name: Arc::clone(&trait_def.name),
+                type_params: Vec::new(), // TODO: Handle type params properly
+                methods,
+                supertraits: Vec::new(), // TODO: Resolve supertrait references
+            };
+
+            infer.trait_registry.register_trait(def);
+        }
+    }
+}
+
+/// Check impl blocks and register implementations.
+fn check_impls(
+    infer: &mut Infer,
+    module: &mut crate::ast::Module,
+    env: &TypeEnv,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    for item in &mut module.items {
+        if let crate::ast::ItemKind::Impl(impl_def) = &mut item.kind {
+            check_single_impl(infer, impl_def, item.span, env, errors);
+        }
+    }
+}
+
+/// Check a single impl block.
+fn check_single_impl(
+    infer: &mut Infer,
+    impl_def: &mut crate::ast::ImplDef,
+    item_span: crate::ast::Span,
+    env: &TypeEnv,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    let span = (item_span.start, item_span.end);
+
+    // Look up the trait
+    let Some(trait_id) = infer.trait_registry.lookup_trait(&impl_def.trait_name.name) else {
+        errors.push(Box::new(TypeError::new(
+            TypeErrorKind::UnknownTrait {
+                name: Arc::clone(&impl_def.trait_name.name),
+            },
+            span,
+        )));
+        return;
+    };
+
+    // Verify the implementing type is nominal
+    let for_type = infer.resolve_holes(&impl_def.for_type);
+    let Type::Nominal(nominal_type) = &for_type else {
+        errors.push(Box::new(TypeError::new(
+            TypeErrorKind::TraitOnStructuralType {
+                trait_name: Arc::clone(&impl_def.trait_name.name),
+                ty: for_type.clone(),
+            },
+            span,
+        )));
+        return;
+    };
+
+    // Get the trait definition to check method signatures
+    let Some(trait_def) = infer.trait_registry.get_trait(trait_id).cloned() else {
+        return;
+    };
+
+    // Check each method in the impl
+    check_impl_methods(infer, impl_def, &trait_def, &for_type, env, errors);
+
+    // Check that all required methods are implemented
+    check_impl_completeness(impl_def, &trait_def, span, errors);
+
+    // Register the impl (we'd store method hashes here after compilation)
+    let impl_record = crate::types::TraitImpl::new(trait_id, nominal_type.clone());
+    infer.trait_registry.register_impl(impl_record);
+}
+
+/// Check all methods in an impl block.
+fn check_impl_methods(
+    infer: &mut Infer,
+    impl_def: &mut crate::ast::ImplDef,
+    trait_def: &TraitDef,
+    for_type: &Type,
+    env: &TypeEnv,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    for method in &mut impl_def.methods {
+        let trait_method = trait_def
+            .methods
+            .iter()
+            .find(|m| m.name.as_ref() == method.name.as_ref());
+
+        let Some(tm) = trait_method else {
+            errors.push(Box::new(TypeError::new(
+                TypeErrorKind::MethodNotFound {
+                    method: Arc::clone(&method.name),
+                    ty: Type::Named(crate::types::NamedType::simple(Arc::clone(
+                        &impl_def.trait_name.name,
+                    ))),
+                },
+                (method.span.start, method.span.end),
+            )));
+            continue;
+        };
+
+        // Type-check the method body
+        infer.reset_abilities();
+        let mut func_env = env.extend();
+
+        // Add self parameter
+        if tm.has_self {
+            func_env.insert_mono(method.self_id, Arc::from("self"), for_type.clone());
+        }
+
+        // Add other parameters
+        for (param, expected_ty) in method.params.iter().zip(tm.params.iter()) {
+            let param_ty = param
+                .ty
+                .as_ref()
+                .map_or_else(|| expected_ty.clone(), |ty| infer.resolve_holes(ty));
+            func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
+        }
+
+        // Infer body type and check against expected return type
+        match infer.infer_expr(&func_env, &mut method.body) {
+            Ok(body_ty) => {
+                let method_span = (method.span.start, method.span.end);
+                if let Err(e) = infer.unify(&tm.ret, &body_ty, method_span) {
+                    errors.push(e.with_context(format!("in impl method `{}`", method.name)));
+                }
+            }
+            Err(e) => {
+                errors.push(e.with_context(format!("in impl method `{}`", method.name)));
+            }
+        }
+    }
+}
+
+/// Check that all required trait methods are implemented.
+fn check_impl_completeness(
+    impl_def: &crate::ast::ImplDef,
+    trait_def: &TraitDef,
+    span: (u32, u32),
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    for trait_method in &trait_def.methods {
+        let implemented = impl_def
+            .methods
+            .iter()
+            .any(|m| m.name.as_ref() == trait_method.name.as_ref());
+        if !implemented {
+            errors.push(Box::new(TypeError::new(
+                TypeErrorKind::ImplMissingMethod {
+                    trait_name: Arc::clone(&impl_def.trait_name.name),
+                    method: Arc::clone(&trait_method.name),
+                },
+                span,
+            )));
         }
     }
 }
@@ -319,10 +508,16 @@ pub fn check_module_with_registry(
     // Phase 1a: Register all type aliases so parameter types resolve correctly.
     register_type_aliases(&mut infer, &module);
 
-    // Phase 1b: Collect all function signatures into the environment.
+    // Phase 1b: Register all trait definitions.
+    register_traits(&mut infer, &module);
+
+    // Phase 1c: Collect all function signatures into the environment.
     collect_function_signatures(&mut infer, &module, &mut env);
 
-    // Phase 2: Type-check each function body
+    // Phase 2: Type-check impl blocks.
+    check_impls(&mut infer, &mut module, &env, &mut errors);
+
+    // Phase 3: Type-check each function body
     for item in &mut module.items {
         if let crate::ast::ItemKind::Function(func) = &mut item.kind {
             infer.reset_abilities();
@@ -442,10 +637,16 @@ pub fn check_module_with_registry_and_resolver(
     // Phase 1a: Register all type aliases so parameter types resolve correctly.
     register_type_aliases(&mut infer, &module);
 
-    // Phase 1b: Collect all function signatures into the environment.
+    // Phase 1b: Register all trait definitions.
+    register_traits(&mut infer, &module);
+
+    // Phase 1c: Collect all function signatures into the environment.
     collect_function_signatures(&mut infer, &module, &mut env);
 
-    // Phase 2: Type-check each function body
+    // Phase 2: Type-check impl blocks.
+    check_impls(&mut infer, &mut module, &env, &mut errors);
+
+    // Phase 3: Type-check each function body
     for item in &mut module.items {
         if let crate::ast::ItemKind::Function(func) = &mut item.kind {
             infer.reset_abilities();
