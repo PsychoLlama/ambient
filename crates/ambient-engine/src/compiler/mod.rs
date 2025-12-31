@@ -1134,11 +1134,12 @@ mod tests {
             abilities: vec![],
             // The body expression has a span covering "x + y"
             body: Expr::new(
-                ExprKind::Binary(
-                    BinaryOp::Add,
-                    Box::new(Expr::local(0)),
-                    Box::new(Expr::local(1)),
-                ),
+                ExprKind::Binary {
+                    op: BinaryOp::Add,
+                    left: Box::new(Expr::local(0)),
+                    right: Box::new(Expr::local(1)),
+                    resolved_op: None,
+                },
                 Span::new(15, 20), // "x + y" in the source
             ),
         };

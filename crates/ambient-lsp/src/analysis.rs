@@ -201,7 +201,7 @@ fn find_expr_in_tree(expr: &Expr, offset: u32) -> Option<&Expr> {
         }),
 
         // Expressions with children - search children, fall back to self
-        ExprKind::Binary(_, left, right) => find_expr_in_tree(left, offset)
+        ExprKind::Binary { left, right, .. } => find_expr_in_tree(left, offset)
             .or_else(|| find_expr_in_tree(right, offset))
             .or(Some(expr)),
         ExprKind::Unary(_, operand) => find_expr_in_tree(operand, offset).or(Some(expr)),
@@ -498,7 +498,7 @@ fn find_binding_in_expr(expr: &Expr, target_id: ambient_engine::ast::BindingId) 
                         .and_then(|e| find_binding_in_expr(e, target_id))
                 })
         }
-        ExprKind::Binary(_, left, right) => {
+        ExprKind::Binary { left, right, .. } => {
             find_binding_in_expr(left, target_id).or_else(|| find_binding_in_expr(right, target_id))
         }
         ExprKind::Unary(_, operand) => find_binding_in_expr(operand, target_id),

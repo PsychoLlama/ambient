@@ -380,7 +380,12 @@ fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, P
             let ast_op = lower_binary_op(*op);
             let left = lower_expression(ctx, left)?;
             let right = lower_expression(ctx, right)?;
-            ExprKind::Binary(ast_op, Box::new(left), Box::new(right))
+            ExprKind::Binary {
+                op: ast_op,
+                left: Box::new(left),
+                right: Box::new(right),
+                resolved_op: None,
+            }
         }
 
         CstExprKind::Unary { op, operand } => {
@@ -1186,7 +1191,9 @@ mod tests {
 
         let expr = parse_expr("1 + 2 * 3").expect("parse error");
         match expr.kind {
-            ExprKind::Binary(BinaryOp::Add, _, _) => {}
+            ExprKind::Binary {
+                op: BinaryOp::Add, ..
+            } => {}
             _ => panic!("Expected binary add expression"),
         }
     }

@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use super::error::BoxedTypeErrorExt;
 use super::{type_error, Infer, InferResult, TypeEnv, TypeError, TypeErrorKind};
-use crate::ast::{Expr, ExprKind, StmtKind, UnaryOp};
+use crate::ast::{BinaryOp, Expr, ExprKind, StmtKind, UnaryOp};
 use crate::types::{AbilitySet, Type};
 
 impl Infer {
@@ -213,26 +213,12 @@ impl Infer {
                 Type::named("List", vec![self.apply(&elem_ty)])
             }
 
-            ExprKind::Binary(op, left, right) => {
-                let left_ty = self.infer_expr(env, left)?;
-                let right_ty = self.infer_expr(env, right)?;
-
-                if op.is_arithmetic() {
-                    self.unify(&left_ty, &Type::Number, span)?;
-                    self.unify(&right_ty, &Type::Number, span)?;
-                    Type::Number
-                } else if op.is_comparison() {
-                    // For now, require same types for comparison
-                    self.unify(&left_ty, &right_ty, span)?;
-                    Type::Bool
-                } else if op.is_logical() {
-                    self.unify(&left_ty, &Type::Bool, span)?;
-                    self.unify(&right_ty, &Type::Bool, span)?;
-                    Type::Bool
-                } else {
-                    unreachable!()
-                }
-            }
+            ExprKind::Binary {
+                op,
+                left,
+                right,
+                resolved_op,
+            } => self.infer_binary(env, *op, left, right, resolved_op, span)?,
 
             ExprKind::Unary(op, operand) => {
                 let operand_ty = self.infer_expr(env, operand)?;
@@ -570,6 +556,89 @@ impl Infer {
         Ok(body_ty)
     }
 
+    /// Infer the type of a binary operation.
+    ///
+    /// For primitive types, uses built-in operators.
+    /// For nominal types, looks up the appropriate trait (Add, Eq, etc.).
+    #[allow(clippy::too_many_arguments)]
+    fn infer_binary(
+        &mut self,
+        env: &TypeEnv,
+        op: BinaryOp,
+        left: &mut Expr,
+        right: &mut Expr,
+        resolved_op: &mut Option<blake3::Hash>,
+        span: (u32, u32),
+    ) -> InferResult<Type> {
+        let left_ty = self.infer_expr(env, left)?;
+        let right_ty = self.infer_expr(env, right)?;
+
+        // Apply substitutions to get the actual types
+        let left_ty = self.apply(&left_ty);
+        let right_ty = self.apply(&right_ty);
+
+        // Check for operator overloading on nominal types
+        if let Type::Nominal(nominal) = &left_ty {
+            // Get the trait and method name for this operator
+            if let Some((trait_name, method_name)) = operator_trait(op) {
+                // Look up the trait
+                if let Some(trait_id) = self.trait_registry.lookup_trait(trait_name) {
+                    // Check if the type implements this trait
+                    let method_hash = self
+                        .trait_registry
+                        .get_impl(trait_id, nominal.uuid)
+                        .and_then(|impl_| impl_.methods.get(method_name).copied());
+
+                    if let Some(hash) = method_hash {
+                        // Unify operands (both must be the same nominal type)
+                        self.unify(&left_ty, &right_ty, span)?;
+
+                        // Store the resolved hash for compilation
+                        *resolved_op = Some(hash);
+
+                        // Return type depends on the operator category
+                        return Ok(operator_return_type(op, &left_ty));
+                    }
+                }
+            }
+        }
+
+        // Built-in operators for primitive types
+        match op {
+            // Arithmetic operators: Number -> Number -> Number
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod => {
+                // Special case: Add also works for String concatenation
+                if op == BinaryOp::Add && left_ty == Type::String {
+                    self.unify(&right_ty, &Type::String, span)?;
+                    return Ok(Type::String);
+                }
+                self.unify(&left_ty, &Type::Number, span)?;
+                self.unify(&right_ty, &Type::Number, span)?;
+                Ok(Type::Number)
+            }
+
+            // Comparison operators: a -> a -> Bool
+            BinaryOp::Eq | BinaryOp::Ne => {
+                self.unify(&left_ty, &right_ty, span)?;
+                Ok(Type::Bool)
+            }
+
+            // Ordering operators: Number -> Number -> Bool
+            BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+                self.unify(&left_ty, &Type::Number, span)?;
+                self.unify(&right_ty, &Type::Number, span)?;
+                Ok(Type::Bool)
+            }
+
+            // Logical operators: Bool -> Bool -> Bool
+            BinaryOp::And | BinaryOp::Or => {
+                self.unify(&left_ty, &Type::Bool, span)?;
+                self.unify(&right_ty, &Type::Bool, span)?;
+                Ok(Type::Bool)
+            }
+        }
+    }
+
     /// Infer the type of a method call expression.
     #[allow(clippy::too_many_arguments)]
     fn infer_method_call(
@@ -689,6 +758,38 @@ fn substitute_self(ty: &Type, self_ty: &Type) -> Type {
         )),
         // Other types pass through unchanged
         _ => ty.clone(),
+    }
+}
+
+/// Map binary operators to their corresponding trait and method names.
+/// Returns `(trait_name, method_name)` if the operator can be overloaded.
+fn operator_trait(op: BinaryOp) -> Option<(&'static str, &'static str)> {
+    match op {
+        BinaryOp::Add => Some(("Add", "add")),
+        BinaryOp::Sub => Some(("Sub", "sub")),
+        BinaryOp::Mul => Some(("Mul", "mul")),
+        BinaryOp::Div => Some(("Div", "div")),
+        BinaryOp::Mod => Some(("Mod", "rem")),
+        BinaryOp::Eq | BinaryOp::Ne => Some(("Eq", "eq")),
+        BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => Some(("Ord", "cmp")),
+        // Logical operators cannot be overloaded
+        BinaryOp::And | BinaryOp::Or => None,
+    }
+}
+
+/// Get the return type for an overloaded operator.
+fn operator_return_type(op: BinaryOp, operand_ty: &Type) -> Type {
+    match op {
+        // Arithmetic operators return the same type
+        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod => {
+            operand_ty.clone()
+        }
+        // Comparison operators return Bool
+        BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+            Type::Bool
+        }
+        // Logical operators (not overloadable, but included for completeness)
+        BinaryOp::And | BinaryOp::Or => Type::Bool,
     }
 }
 

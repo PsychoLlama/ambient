@@ -177,7 +177,12 @@ pub(super) fn compile_expr(
         // ─────────────────────────────────────────────────────────────────────
         // Operators
         // ─────────────────────────────────────────────────────────────────────
-        ExprKind::Binary(op, left, right) => {
+        ExprKind::Binary {
+            op,
+            left,
+            right,
+            resolved_op,
+        } => {
             // Short-circuit evaluation for logical operators.
             match op {
                 BinaryOp::And => {
@@ -199,21 +204,29 @@ pub(super) fn compile_expr(
                 _ => {
                     compile_expr(fc, left, ctx)?;
                     compile_expr(fc, right, ctx)?;
-                    let opcode = match op {
-                        BinaryOp::Add => Opcode::Add,
-                        BinaryOp::Sub => Opcode::Sub,
-                        BinaryOp::Mul => Opcode::Mul,
-                        BinaryOp::Div => Opcode::Div,
-                        BinaryOp::Mod => Opcode::Mod,
-                        BinaryOp::Eq => Opcode::Eq,
-                        BinaryOp::Ne => Opcode::Ne,
-                        BinaryOp::Lt => Opcode::Lt,
-                        BinaryOp::Le => Opcode::Le,
-                        BinaryOp::Gt => Opcode::Gt,
-                        BinaryOp::Ge => Opcode::Ge,
-                        BinaryOp::And | BinaryOp::Or => unreachable!(),
-                    };
-                    fc.builder.emit(opcode);
+
+                    // Check if we have a resolved trait method for operator overloading
+                    if let Some(hash) = resolved_op {
+                        // Operator is overloaded - call the trait method
+                        fc.builder.emit_call(*hash, 2);
+                    } else {
+                        // Built-in operator
+                        let opcode = match op {
+                            BinaryOp::Add => Opcode::Add,
+                            BinaryOp::Sub => Opcode::Sub,
+                            BinaryOp::Mul => Opcode::Mul,
+                            BinaryOp::Div => Opcode::Div,
+                            BinaryOp::Mod => Opcode::Mod,
+                            BinaryOp::Eq => Opcode::Eq,
+                            BinaryOp::Ne => Opcode::Ne,
+                            BinaryOp::Lt => Opcode::Lt,
+                            BinaryOp::Le => Opcode::Le,
+                            BinaryOp::Gt => Opcode::Gt,
+                            BinaryOp::Ge => Opcode::Ge,
+                            BinaryOp::And | BinaryOp::Or => unreachable!(),
+                        };
+                        fc.builder.emit(opcode);
+                    }
                 }
             }
         }

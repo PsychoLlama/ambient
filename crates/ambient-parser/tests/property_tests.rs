@@ -357,7 +357,7 @@ fn test_operators_precedence() {
     // 1 + 2 * 3 should parse as 1 + (2 * 3)
     let result = parse_expr("1 + 2 * 3").unwrap();
     match result.kind {
-        ambient_engine::ast::ExprKind::Binary(op, _, _) => {
+        ambient_engine::ast::ExprKind::Binary { op, .. } => {
             assert_eq!(op, ambient_engine::ast::BinaryOp::Add);
         }
         _ => panic!("Expected binary expression"),
@@ -369,10 +369,13 @@ fn test_left_associativity() {
     // 1 - 2 - 3 should parse as (1 - 2) - 3
     let result = parse_expr("1 - 2 - 3").unwrap();
     match result.kind {
-        ambient_engine::ast::ExprKind::Binary(_, left, _) => {
+        ambient_engine::ast::ExprKind::Binary { left, .. } => {
             assert!(matches!(
                 left.kind,
-                ambient_engine::ast::ExprKind::Binary(ambient_engine::ast::BinaryOp::Sub, _, _)
+                ambient_engine::ast::ExprKind::Binary {
+                    op: ambient_engine::ast::BinaryOp::Sub,
+                    ..
+                }
             ));
         }
         _ => panic!("Expected binary expression"),
@@ -384,11 +387,14 @@ fn test_parentheses_override_precedence() {
     // (1 + 2) * 3 should parse as (1 + 2) * 3
     let result = parse_expr("(1 + 2) * 3").unwrap();
     match result.kind {
-        ambient_engine::ast::ExprKind::Binary(op, left, _) => {
+        ambient_engine::ast::ExprKind::Binary { op, left, .. } => {
             assert_eq!(op, ambient_engine::ast::BinaryOp::Mul);
             assert!(matches!(
                 left.kind,
-                ambient_engine::ast::ExprKind::Binary(ambient_engine::ast::BinaryOp::Add, _, _)
+                ambient_engine::ast::ExprKind::Binary {
+                    op: ambient_engine::ast::BinaryOp::Add,
+                    ..
+                }
             ));
         }
         _ => panic!("Expected binary expression"),

@@ -330,7 +330,7 @@ impl<'a> TokenCollector<'a> {
                     self.visit_expr(value);
                 }
             }
-            ExprKind::Binary(_, left, right) => {
+            ExprKind::Binary { left, right, .. } => {
                 self.visit_expr(left);
                 self.visit_expr(right);
             }

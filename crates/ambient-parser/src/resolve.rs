@@ -339,7 +339,7 @@ impl Resolver {
 
             ExprKind::RecordField(record, _) => self.resolve_expr(record),
 
-            ExprKind::Binary(_, left, right) => {
+            ExprKind::Binary { left, right, .. } => {
                 self.resolve_expr(left)?;
                 self.resolve_expr(right)?;
                 Ok(())

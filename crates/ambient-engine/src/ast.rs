@@ -235,7 +235,15 @@ pub enum ExprKind {
     // Operators
     // ─────────────────────────────────────────────────────────────────────────
     /// Binary operation: `a + b`, `a && b`, etc.
-    Binary(BinaryOp, Box<Expr>, Box<Expr>),
+    /// For primitive types, uses built-in operators.
+    /// For nominal types, resolves to trait method (Add, Eq, etc.).
+    Binary {
+        op: BinaryOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+        /// Resolved trait method hash for overloaded operators (filled during type checking).
+        resolved_op: Option<blake3::Hash>,
+    },
 
     /// Unary operation: `-x`, `!x`.
     Unary(UnaryOp, Box<Expr>),
@@ -966,7 +974,12 @@ impl Expr {
     #[must_use]
     pub fn binary(op: BinaryOp, left: Expr, right: Expr) -> Self {
         Self::new(
-            ExprKind::Binary(op, Box::new(left), Box::new(right)),
+            ExprKind::Binary {
+                op,
+                left: Box::new(left),
+                right: Box::new(right),
+                resolved_op: None,
+            },
             Span::default(),
         )
     }
@@ -1140,7 +1153,10 @@ mod tests {
     fn test_expr_builders() {
         let expr = Expr::binary(BinaryOp::Add, Expr::number(1.0), Expr::number(2.0));
 
-        if let ExprKind::Binary(op, left, right) = expr.kind {
+        if let ExprKind::Binary {
+            op, left, right, ..
+        } = expr.kind
+        {
             assert_eq!(op, BinaryOp::Add);
             assert!(matches!(left.kind, ExprKind::Number(n) if n == 1.0));
             assert!(matches!(right.kind, ExprKind::Number(n) if n == 2.0));

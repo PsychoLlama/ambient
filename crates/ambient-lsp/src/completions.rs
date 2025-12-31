@@ -815,7 +815,7 @@ fn collect_locals_in_scope(
         ExprKind::Handle(handle) => {
             collect_handle_locals(handle, offset, prefix, items);
         }
-        ExprKind::Binary(_, left, right) => {
+        ExprKind::Binary { left, right, .. } => {
             collect_locals_in_scope(left, offset, prefix, items);
             collect_locals_in_scope(right, offset, prefix, items);
         }
