@@ -183,6 +183,42 @@ pub enum TypeErrorKind {
 
     /// Type is not constructable as a record.
     NotARecordType { ty: Type },
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Trait errors
+    // ─────────────────────────────────────────────────────────────────────────
+    /// Trait not found.
+    UnknownTrait { name: Arc<str> },
+
+    /// Trait is not implemented for a type.
+    TraitNotImplemented { trait_name: Arc<str>, ty: Type },
+
+    /// Method not found on type.
+    MethodNotFound { method: Arc<str>, ty: Type },
+
+    /// Ambiguous method call (multiple traits provide the same method).
+    AmbiguousMethod {
+        method: Arc<str>,
+        ty: Type,
+        candidates: Vec<Arc<str>>,
+    },
+
+    /// Cannot implement trait for non-nominal type.
+    TraitOnStructuralType { trait_name: Arc<str>, ty: Type },
+
+    /// Impl method signature doesn't match trait.
+    ImplMethodSignatureMismatch {
+        trait_name: Arc<str>,
+        method: Arc<str>,
+        expected: Type,
+        actual: Type,
+    },
+
+    /// Impl is missing a required method.
+    ImplMissingMethod {
+        trait_name: Arc<str>,
+        method: Arc<str>,
+    },
 }
 
 impl std::fmt::Display for TypeErrorKind {
@@ -323,6 +359,53 @@ impl std::fmt::Display for TypeErrorKind {
             }
             Self::NotARecordType { ty } => {
                 write!(f, "type `{ty}` is not a record type and cannot be constructed with {{ field: value }} syntax")
+            }
+            Self::UnknownTrait { name } => {
+                write!(f, "unknown trait: `{name}`")
+            }
+            Self::TraitNotImplemented { trait_name, ty } => {
+                write!(f, "trait `{trait_name}` is not implemented for `{ty}`")
+            }
+            Self::MethodNotFound { method, ty } => {
+                write!(f, "method `{method}` not found for type `{ty}`")
+            }
+            Self::AmbiguousMethod {
+                method,
+                ty,
+                candidates,
+            } => {
+                let traits = candidates
+                    .iter()
+                    .map(|s| format!("`{s}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(
+                    f,
+                    "ambiguous method `{method}` for type `{ty}`: could be from {traits}"
+                )
+            }
+            Self::TraitOnStructuralType { trait_name, ty } => {
+                write!(
+                    f,
+                    "cannot implement trait `{trait_name}` for structural type `{ty}`; traits can only be implemented for nominal types"
+                )
+            }
+            Self::ImplMethodSignatureMismatch {
+                trait_name,
+                method,
+                expected,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "method `{method}` in impl for `{trait_name}` has wrong type: expected `{expected}`, found `{actual}`"
+                )
+            }
+            Self::ImplMissingMethod { trait_name, method } => {
+                write!(
+                    f,
+                    "impl for `{trait_name}` is missing required method `{method}`"
+                )
             }
         }
     }

@@ -77,7 +77,7 @@ use std::sync::Arc;
 use crate::ability_resolver::AbilityResolver;
 use crate::types::{
     AbilityId, AbilityRegistry, AbilitySet, AbilityValueType, AbilityVarId, ForallType, NamedType,
-    NominalType, RecordType, Type, TypeVarGen, TypeVarId,
+    NominalType, RecordType, TraitRegistry, Type, TypeVarGen, TypeVarId,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -102,6 +102,8 @@ pub struct Infer {
     /// Type alias registry for looking up types by name.
     /// Maps type alias names to their resolved types (including Nominal types).
     pub(crate) type_aliases: HashMap<Arc<str>, Type>,
+    /// Trait registry for trait and impl lookup.
+    pub(crate) trait_registry: TraitRegistry,
 }
 
 impl Default for Infer {
@@ -122,6 +124,7 @@ impl Infer {
             ability_registry: None,
             ability_resolver: crate::ability_resolver::standard_abilities(),
             type_aliases: HashMap::new(),
+            trait_registry: TraitRegistry::new(),
         }
     }
 
@@ -136,6 +139,7 @@ impl Infer {
             ability_registry: Some(registry),
             ability_resolver: crate::ability_resolver::standard_abilities(),
             type_aliases: HashMap::new(),
+            trait_registry: TraitRegistry::new(),
         }
     }
 
@@ -150,6 +154,7 @@ impl Infer {
             ability_registry: None,
             ability_resolver: resolver,
             type_aliases: HashMap::new(),
+            trait_registry: TraitRegistry::new(),
         }
     }
 

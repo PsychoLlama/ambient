@@ -27,6 +27,9 @@ pub type AbilityVarId = u32;
 /// An ability identifier (matches runtime ability IDs from abilities.rs).
 pub type AbilityId = u16;
 
+/// A unique identifier for traits.
+pub type TraitId = u16;
+
 /// Counter for generating fresh type variable IDs.
 #[derive(Debug, Default)]
 pub struct TypeVarGen {
@@ -386,6 +389,226 @@ impl AbilityRegistry {
         let mut abilities = vec![id];
         abilities.extend(self.transitive_dependencies(id));
         AbilitySet::from_abilities(abilities)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trait System Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Definition of a trait.
+#[derive(Debug, Clone)]
+pub struct TraitDef {
+    /// Unique trait identifier.
+    pub id: TraitId,
+
+    /// Trait name for display purposes.
+    pub name: Arc<str>,
+
+    /// Type parameters for generic traits.
+    pub type_params: Vec<TypeVarId>,
+
+    /// Methods defined by this trait.
+    pub methods: Vec<TraitMethodDef>,
+
+    /// Supertraits that must also be implemented.
+    pub supertraits: Vec<TraitId>,
+}
+
+impl TraitDef {
+    /// Create a new trait definition.
+    #[must_use]
+    pub fn new(id: TraitId, name: impl Into<Arc<str>>) -> Self {
+        Self {
+            id,
+            name: name.into(),
+            type_params: Vec::new(),
+            methods: Vec::new(),
+            supertraits: Vec::new(),
+        }
+    }
+
+    /// Add a type parameter.
+    #[must_use]
+    pub fn with_type_param(mut self, var: TypeVarId) -> Self {
+        self.type_params.push(var);
+        self
+    }
+
+    /// Add a method.
+    #[must_use]
+    pub fn with_method(mut self, method: TraitMethodDef) -> Self {
+        self.methods.push(method);
+        self
+    }
+
+    /// Add a supertrait.
+    #[must_use]
+    pub fn with_supertrait(mut self, trait_id: TraitId) -> Self {
+        self.supertraits.push(trait_id);
+        self
+    }
+}
+
+/// A method signature in a trait definition.
+#[derive(Debug, Clone)]
+pub struct TraitMethodDef {
+    /// Method name.
+    pub name: Arc<str>,
+
+    /// Whether the method takes `self` as first argument.
+    pub has_self: bool,
+
+    /// Parameter types (excluding self).
+    pub params: Vec<Type>,
+
+    /// Return type.
+    pub ret: Type,
+}
+
+impl TraitMethodDef {
+    /// Create a new trait method definition.
+    #[must_use]
+    pub fn new(name: impl Into<Arc<str>>, has_self: bool, params: Vec<Type>, ret: Type) -> Self {
+        Self {
+            name: name.into(),
+            has_self,
+            params,
+            ret,
+        }
+    }
+}
+
+/// A registered trait implementation.
+#[derive(Debug, Clone)]
+pub struct TraitImpl {
+    /// The trait being implemented.
+    pub trait_id: TraitId,
+
+    /// The type implementing the trait (must be nominal).
+    pub implementing_type: NominalType,
+
+    /// Compiled method hashes: method name -> function hash.
+    pub methods: HashMap<Arc<str>, blake3::Hash>,
+}
+
+impl TraitImpl {
+    /// Create a new trait implementation.
+    #[must_use]
+    pub fn new(trait_id: TraitId, implementing_type: NominalType) -> Self {
+        Self {
+            trait_id,
+            implementing_type,
+            methods: HashMap::new(),
+        }
+    }
+
+    /// Add a method implementation.
+    #[must_use]
+    pub fn with_method(mut self, name: impl Into<Arc<str>>, hash: blake3::Hash) -> Self {
+        self.methods.insert(name.into(), hash);
+        self
+    }
+}
+
+/// Registry of trait definitions and implementations.
+#[derive(Debug, Clone, Default)]
+pub struct TraitRegistry {
+    /// Map from trait ID to trait definition.
+    traits: HashMap<TraitId, TraitDef>,
+
+    /// Map from trait name to ID for lookup.
+    name_to_id: HashMap<Arc<str>, TraitId>,
+
+    /// Map from (trait ID, nominal type UUID) to implementation.
+    impls: HashMap<(TraitId, Uuid), TraitImpl>,
+
+    /// Next available trait ID.
+    next_id: TraitId,
+}
+
+impl TraitRegistry {
+    /// Create a new empty registry.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Generate a fresh trait ID.
+    pub fn fresh_id(&mut self) -> TraitId {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+
+    /// Register a trait definition.
+    pub fn register_trait(&mut self, def: TraitDef) {
+        self.name_to_id.insert(def.name.clone(), def.id);
+        self.traits.insert(def.id, def);
+    }
+
+    /// Get trait definition by ID.
+    #[must_use]
+    pub fn get_trait(&self, id: TraitId) -> Option<&TraitDef> {
+        self.traits.get(&id)
+    }
+
+    /// Look up trait ID by name.
+    #[must_use]
+    pub fn lookup_trait(&self, name: &str) -> Option<TraitId> {
+        self.name_to_id.get(name).copied()
+    }
+
+    /// Register a trait implementation.
+    pub fn register_impl(&mut self, impl_: TraitImpl) {
+        let key = (impl_.trait_id, impl_.implementing_type.uuid);
+        self.impls.insert(key, impl_);
+    }
+
+    /// Get implementation for a trait and nominal type.
+    #[must_use]
+    pub fn get_impl(&self, trait_id: TraitId, type_uuid: Uuid) -> Option<&TraitImpl> {
+        self.impls.get(&(trait_id, type_uuid))
+    }
+
+    /// Find all implementations for a nominal type.
+    #[must_use]
+    pub fn impls_for_type(&self, type_uuid: Uuid) -> Vec<&TraitImpl> {
+        self.impls
+            .iter()
+            .filter(|((_, uuid), _)| *uuid == type_uuid)
+            .map(|(_, impl_)| impl_)
+            .collect()
+    }
+
+    /// Find a method by name for a given nominal type.
+    /// Returns (`trait_id`, method signature, method hash) if found.
+    #[must_use]
+    pub fn find_method(
+        &self,
+        type_uuid: Uuid,
+        method_name: &str,
+    ) -> Option<(TraitId, &TraitMethodDef, blake3::Hash)> {
+        for impl_ in self.impls_for_type(type_uuid) {
+            if let Some(hash) = impl_.methods.get(method_name) {
+                if let Some(trait_def) = self.get_trait(impl_.trait_id) {
+                    if let Some(method) = trait_def
+                        .methods
+                        .iter()
+                        .find(|m| m.name.as_ref() == method_name)
+                    {
+                        return Some((impl_.trait_id, method, *hash));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Check if a type implements a trait.
+    #[must_use]
+    pub fn implements(&self, type_uuid: Uuid, trait_id: TraitId) -> bool {
+        self.impls.contains_key(&(trait_id, type_uuid))
     }
 }
 
