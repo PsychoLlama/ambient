@@ -1,12 +1,12 @@
 local project_root = vim.fn.expand('<sfile>:h')
 
-require('core.lsp').add({
-  name = 'ambient',
-  command = { 'ambient', 'lsp' },
+vim.lsp.config('ambient', {
+  cmd = { 'ambient', 'lsp' },
   filetypes = { 'ambient' },
-  root = { patterns = { '.git' } },
-  settings = {},
+  root_markers = { '.git' },
 })
+
+vim.lsp.enable('ambient')
 
 require('core.pkg').add_hook(function(plugins)
   return vim.list_extend(plugins, {
