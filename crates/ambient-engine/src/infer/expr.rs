@@ -1095,23 +1095,75 @@ mod tests {
     // Handler literal type checking tests (Milestone 13)
     // ─────────────────────────────────────────────────────────────────────────
 
-    #[test]
-    fn test_handler_literal_console_print() {
+    /// An `Infer` with prelude-style test abilities registered:
+    /// `Printer.go(message: string): ()` and
+    /// `Clock { now(): number; wait(duration: number): (); }`.
+    fn infer_with_test_prelude() -> Infer {
+        use crate::ability_resolver::{DynAbility, DynMethod};
+
         let mut infer = Infer::new();
+        infer.ability_resolver.register_dynamic_in_namespace(
+            "runtime",
+            DynAbility {
+                id: crate::types::AbilityId::from_bytes([7; 32]),
+                name: "Printer".into(),
+                methods: vec![DynMethod {
+                    id: 0,
+                    name: "go".into(),
+                    params: vec![Type::String],
+                    ret: Type::Unit,
+                    quantified: vec![],
+                }],
+                dependencies: vec![],
+            },
+        );
+        infer.ability_resolver.register_dynamic_in_namespace(
+            "runtime",
+            DynAbility {
+                id: crate::types::AbilityId::from_bytes([8; 32]),
+                name: "Clock".into(),
+                methods: vec![
+                    DynMethod {
+                        id: 0,
+                        name: "now".into(),
+                        params: vec![],
+                        ret: Type::Number,
+                        quantified: vec![],
+                    },
+                    DynMethod {
+                        id: 1,
+                        name: "wait".into(),
+                        params: vec![Type::Number],
+                        ret: Type::Unit,
+                        quantified: vec![],
+                    },
+                ],
+                dependencies: vec![],
+            },
+        );
+        infer
+    }
+
+    #[test]
+    fn test_handler_literal_prelude_ability() {
+        let mut infer = infer_with_test_prelude();
         let env = TypeEnv::new();
 
-        // { print(msg) => resume(()) }
+        // { go(msg) => resume(()) }
         let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
-            "print",
+            "go",
             vec![Param::new(1, "msg")],
             Expr::unit(), // resume(()) - simplified for test
         )]);
 
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
 
-        // Should infer Handler<Console>
+        // Should infer Handler<Printer>
         if let Type::Handler(handler_ty) = ty {
-            assert_eq!(handler_ty.ability, ambient_runtime::console::ability_id());
+            assert_eq!(
+                handler_ty.ability,
+                crate::types::AbilityId::from_bytes([7; 32])
+            );
         } else {
             panic!("Expected Handler type, got {:?}", ty);
         }
@@ -1140,8 +1192,8 @@ mod tests {
     }
 
     #[test]
-    fn test_handler_literal_time_methods() {
-        let mut infer = Infer::new();
+    fn test_handler_literal_multi_method() {
+        let mut infer = infer_with_test_prelude();
         let env = TypeEnv::new();
 
         // { now() => resume(0.0), wait(duration) => resume(()) }
@@ -1152,9 +1204,12 @@ mod tests {
 
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
 
-        // Should infer Handler<Time>
+        // Should infer Handler<Clock>
         if let Type::Handler(handler_ty) = ty {
-            assert_eq!(handler_ty.ability, ambient_runtime::time::ability_id());
+            assert_eq!(
+                handler_ty.ability,
+                crate::types::AbilityId::from_bytes([8; 32])
+            );
         } else {
             panic!("Expected Handler type, got {:?}", ty);
         }
@@ -1181,12 +1236,12 @@ mod tests {
 
     #[test]
     fn test_handler_literal_wrong_arity() {
-        let mut infer = Infer::new();
+        let mut infer = infer_with_test_prelude();
         let env = TypeEnv::new();
 
-        // { print(a, b) => ... } - Console.print takes 1 arg, not 2
+        // { go(a, b) => ... } - Printer.go takes 1 arg, not 2
         let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
-            "print",
+            "go",
             vec![Param::new(1, "a"), Param::new(2, "b")],
             Expr::unit(),
         )]);
@@ -1207,15 +1262,15 @@ mod tests {
 
     #[test]
     fn test_handler_literal_partial_handler() {
-        let mut infer = Infer::new();
+        let mut infer = infer_with_test_prelude();
         let env = TypeEnv::new();
 
-        // { print(msg) => ... } - only handles print, not println/eprint
+        // { now() => ... } - only handles now, not wait
         // This should be allowed (partial handlers can be composed)
         let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
-            "print",
-            vec![Param::new(1, "msg")],
-            Expr::unit(),
+            "now",
+            vec![],
+            Expr::number(0.0),
         )]);
 
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
@@ -1227,12 +1282,12 @@ mod tests {
 
     #[test]
     fn test_handler_literal_method_body_type_checked() {
-        let mut infer = Infer::new();
+        let mut infer = infer_with_test_prelude();
         let env = TypeEnv::new();
 
-        // { print(msg) => msg + 1 } - body uses msg (should type-check)
+        // { go(msg) => msg + 1 } - body uses msg (should type-check)
         let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
-            "print",
+            "go",
             vec![Param::new(1, "msg")],
             Expr::binary(BinaryOp::Add, Expr::local(1), Expr::number(1.0)),
         )]);

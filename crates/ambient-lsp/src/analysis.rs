@@ -6,8 +6,7 @@
 use ambient_engine::ability_resolver::AbilityResolver;
 use ambient_engine::ast::{Expr, ExprKind, Item, ItemKind, Module, QualifiedName, Span, StmtKind};
 use ambient_engine::infer::{
-    check_module, check_module_with_registry, check_module_with_registry_and_resolver,
-    BoxedTypeError,
+    check_module_with_registry_and_resolver, check_module_with_resolver, BoxedTypeError,
 };
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
@@ -78,13 +77,14 @@ pub fn analyze_with_registry_and_resolver(
         }
     };
 
-    // Type check the module - use registry and resolver if available.
-    let check_result = match (module_path, registry, resolver) {
-        (Some(path), Some(reg), Some(res)) => {
-            check_module_with_registry_and_resolver(module, path, reg, res)
+    // Type check the module - use the registry if available. Without an
+    // explicit resolver, abilities resolve against the runtime prelude.
+    let resolver = resolver.unwrap_or_else(runtime_prelude_resolver);
+    let check_result = match (module_path, registry) {
+        (Some(path), Some(reg)) => {
+            check_module_with_registry_and_resolver(module, path, reg, resolver)
         }
-        (Some(path), Some(reg), None) => check_module_with_registry(module, path, reg),
-        _ => check_module(module),
+        _ => check_module_with_resolver(module, resolver),
     };
 
     AnalysisResult {
@@ -92,6 +92,19 @@ pub fn analyze_with_registry_and_resolver(
         type_errors: check_result.errors,
         module: Some(check_result.module),
     }
+}
+
+/// An ability resolver with the runtime bindings interface registered
+/// under the `runtime` namespace, mirroring how the CLI checks code.
+fn runtime_prelude_resolver() -> AbilityResolver {
+    let mut resolver = ambient_engine::ability_resolver::core_abilities();
+    if let Ok(mut module) = parse(ambient_runtime::ABILITY_DECLARATIONS) {
+        let (abilities, _errors) = ambient_engine::infer::resolve_ability_declarations(&mut module);
+        for ability in abilities {
+            resolver.register_dynamic_in_namespace("runtime", (*ability).clone());
+        }
+    }
+    resolver
 }
 
 /// Find the expression at a given byte offset in the module.

@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
-use ambient_engine::ability_resolver::{standard_abilities, AbilityResolver, DynAbility};
+use ambient_engine::ability_resolver::{core_abilities, AbilityResolver, DynAbility};
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
@@ -47,9 +47,9 @@ pub fn runtime_prelude() -> Result<Vec<Arc<DynAbility>>> {
 }
 
 /// An ability resolver with the runtime prelude registered under the
-/// `runtime` namespace, on top of the standard descriptors.
+/// `runtime` namespace, on top of the core abilities (Exception).
 pub fn prelude_resolver(prelude: &[Arc<DynAbility>]) -> AbilityResolver {
-    let mut resolver = standard_abilities();
+    let mut resolver = core_abilities();
     for ability in prelude {
         resolver.register_dynamic_in_namespace("runtime", (**ability).clone());
     }

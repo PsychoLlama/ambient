@@ -42,8 +42,10 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
         None => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     };
 
-    // Create shared REPL context for completions.
-    let repl_ctx = Arc::new(Mutex::new(ReplContext::new()));
+    // Create shared REPL context for completions, with the runtime
+    // prelude registered so ability calls compile.
+    let prelude = crate::commands::runtime_prelude()?;
+    let repl_ctx = Arc::new(Mutex::new(ReplContext::with_prelude(prelude.clone())));
 
     let mut vm = Vm::new();
 
@@ -121,7 +123,7 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
                             // Clear the VM state by creating a fresh VM.
                             vm = Vm::new();
                             register_all_standard_abilities(&mut vm);
-                            *repl_ctx.lock().unwrap() = ReplContext::new();
+                            *repl_ctx.lock().unwrap() = ReplContext::with_prelude(prelude.clone());
                             eprintln!("State cleared.");
                         }
                         ReplCommand::Unknown(cmd) => {

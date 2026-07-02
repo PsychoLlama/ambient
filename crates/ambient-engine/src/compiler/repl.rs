@@ -31,6 +31,9 @@ pub struct ReplContext {
     pub item_kinds: HashMap<Arc<str>, ReplItemKind>,
     /// Available modules for introspection (path -> module value).
     pub modules: HashMap<Arc<str>, Arc<ModuleValue>>,
+    /// Prelude abilities (e.g. the runtime bindings interface) that
+    /// ability calls compile against.
+    pub prelude_abilities: Vec<Arc<crate::ability_resolver::DynAbility>>,
 }
 
 impl ReplContext {
@@ -38,6 +41,22 @@ impl ReplContext {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a REPL context with prelude abilities registered.
+    #[must_use]
+    pub fn with_prelude(prelude: Vec<Arc<crate::ability_resolver::DynAbility>>) -> Self {
+        Self {
+            prelude_abilities: prelude,
+            ..Self::default()
+        }
+    }
+
+    /// A module context with this REPL's prelude abilities registered.
+    fn module_context(&self) -> ModuleContext {
+        let mut ctx = ModuleContext::new();
+        ctx.register_prelude_abilities(&self.prelude_abilities);
+        ctx
     }
 
     /// Register a function with its hash.
@@ -473,7 +492,7 @@ pub fn compile_expression_with_context(
 ) -> Result<CompiledFunction, CompileError> {
     let mut fc = FunctionCompiler::new(context.function_hashes.clone());
     fc.set_repl_context(context);
-    let mut ctx = ModuleContext::new();
+    let mut ctx = context.module_context();
 
     // Compile the expression (leaves result on stack).
     compile_expr(&mut fc, expr, &mut ctx)?;
@@ -565,7 +584,7 @@ pub fn compile_repl_item(
             let temp_hash = compute_temporary_hash(&func.name);
             hashes.insert(Arc::clone(&func.name), temp_hash);
 
-            let mut module_ctx = ModuleContext::new();
+            let mut module_ctx = context.module_context();
             let compiled =
                 compile_function_for_repl(func, &hashes, &mut module_ctx, context)?;
 
@@ -577,7 +596,7 @@ pub fn compile_repl_item(
         }
         ItemKind::Const(const_def) => {
             let hashes = context.function_hashes.clone();
-            let mut module_ctx = ModuleContext::new();
+            let mut module_ctx = context.module_context();
             let compiled = compile_const_for_repl(const_def, &hashes, &mut module_ctx, context)?;
 
             Ok(CompiledReplItem {

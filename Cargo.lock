@@ -79,6 +79,7 @@ version = "0.1.0"
 dependencies = [
  "ambient-engine",
  "ambient-parser",
+ "ambient-runtime",
  "anyhow",
  "crossbeam-channel",
  "insta",

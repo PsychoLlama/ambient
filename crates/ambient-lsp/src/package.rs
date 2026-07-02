@@ -8,12 +8,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use ambient_engine::ability_resolver::AbilityResolver;
 use ambient_engine::ast::Module;
 use ambient_engine::manifest::Manifest;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
-use ambient_engine::runtime_config::RuntimeConfig;
 use lsp_types::Uri;
 
 use crate::util::{path_to_uri, uri_to_path};
@@ -78,29 +76,6 @@ impl PackageInfo {
 
             current = current.parent()?;
         }
-    }
-
-    /// Build a `RuntimeConfig` from this package's host abilities.
-    ///
-    /// Note: Currently unused but retained for future ability-aware type checking
-    /// in the LSP server. Will be used when we add support for checking that
-    /// performed abilities are available in the package's runtime configuration.
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn runtime_config(&self) -> RuntimeConfig {
-        RuntimeConfig::from_manifest(&self.host_abilities)
-    }
-
-    /// Get an `AbilityResolver` configured for this package.
-    ///
-    /// This resolver only includes abilities listed in the package's
-    /// `[host].abilities` configuration.
-    ///
-    /// Note: Currently unused but retained for future ability-aware type checking.
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn ability_resolver(&self) -> AbilityResolver {
-        AbilityResolver::from_runtime_config(&self.runtime_config())
     }
 
     /// Get the module path for a file URI within this package.

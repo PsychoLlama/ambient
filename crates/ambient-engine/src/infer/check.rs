@@ -894,6 +894,18 @@ pub fn check_module_with_registry(
     check_module_core(Infer::new(), module, Some((module_path, registry)))
 }
 
+/// Check a single module with a custom ability resolver.
+///
+/// Like [`check_module`], but the resolver decides which abilities are
+/// in scope (e.g. an embedder-registered runtime prelude).
+#[must_use]
+pub fn check_module_with_resolver(
+    module: crate::ast::Module,
+    resolver: AbilityResolver,
+) -> CheckResult {
+    check_module_core(Infer::with_resolver(resolver), module, None)
+}
+
 /// Check a module with cross-module support and a custom ability resolver.
 ///
 /// This variant allows specifying which abilities are available at compile

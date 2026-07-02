@@ -12,16 +12,6 @@ use crate::ability_resolver::EngineTypeFactory;
 use crate::ast::QualifiedName;
 use crate::types::{AbilityId, AbilitySet, Type};
 
-/// Abilities that live under the `runtime` namespace.
-const RUNTIME_ABILITIES: &[&str] = &[
-    "Console", "Time", "Random", "Log", "Fs", "Network", "Execute",
-];
-
-/// Check if an ability requires the `runtime.` namespace prefix.
-fn is_runtime_ability(name: &str) -> bool {
-    RUNTIME_ABILITIES.contains(&name)
-}
-
 impl Infer {
     // ─────────────────────────────────────────────────────────────────────────
     // Ability lookup helpers (Milestone 8)
@@ -92,26 +82,11 @@ impl Infer {
             }
         }
 
-        // Validate namespace for runtime abilities
-        if is_runtime_ability(ability_name) {
-            let has_runtime_prefix =
-                ability.path.len() == 1 && ability.path[0].as_ref() == "runtime";
-            if !has_runtime_prefix {
-                return Err(type_error(
-                    TypeErrorKind::AbilityRequiresNamespace {
-                        ability: ability_name.clone(),
-                        expected_namespace: Arc::from("runtime"),
-                    },
-                    span,
-                ));
-            }
-        }
-
         // Module-declared abilities are used by bare name and take
         // precedence over bare-name builtins (Exception), mirroring how
-        // local enums shadow the prelude. `runtime.`-namespaced abilities
+        // local enums shadow the prelude. Namespaced prelude abilities
         // are unaffected: user declarations never register under a path.
-        if ability.path.is_empty() && !is_runtime_ability(ability_name) {
+        if ability.path.is_empty() {
             if let Some(dynamic) = self.ability_resolver.get_dynamic(ability_name).cloned() {
                 return self.lookup_dynamic_method(&dynamic, method_name, arg_tys, span);
             }
@@ -233,28 +208,30 @@ mod tests {
         QualifiedName::qualified(vec!["runtime"], name)
     }
 
+    /// A prelude-style test ability: `Printer.go(message: string): ()`.
+    fn printer_ability(byte: u8) -> crate::ability_resolver::DynAbility {
+        crate::ability_resolver::DynAbility {
+            id: aid(byte),
+            name: Arc::from("Printer"),
+            methods: vec![crate::ability_resolver::DynMethod {
+                id: 0,
+                name: Arc::from("go"),
+                params: vec![Type::String],
+                ret: Type::Unit,
+                quantified: vec![],
+            }],
+            dependencies: vec![],
+        }
+    }
+
     /// Namespaced dynamics (ability preludes) resolve qualified performs
     /// with full argument checking, superseding the descriptor path.
     #[test]
     fn namespaced_dynamic_resolves_qualified_perform() {
-        use crate::ability_resolver::{DynAbility, DynMethod};
-
         let mut infer = Infer::new();
-        infer.ability_resolver.register_dynamic_in_namespace(
-            "runtime",
-            DynAbility {
-                id: aid(7),
-                name: Arc::from("Printer"),
-                methods: vec![DynMethod {
-                    id: 0,
-                    name: Arc::from("go"),
-                    params: vec![Type::String],
-                    ret: Type::Unit,
-                    quantified: vec![],
-                }],
-                dependencies: vec![],
-            },
-        );
+        infer
+            .ability_resolver
+            .register_dynamic_in_namespace("runtime", printer_ability(7));
 
         let qualified = QualifiedName::qualified(vec!["runtime"], "Printer");
         let (id, ret, _) = infer
@@ -307,23 +284,19 @@ mod tests {
 
     #[test]
     fn test_ability_name_to_id() {
-        let infer = Infer::new();
-        assert_eq!(
-            infer.ability_name_to_id("Console"),
-            Some(ambient_runtime::console::ability_id())
-        );
+        let mut infer = Infer::new();
+        infer
+            .ability_resolver
+            .register_dynamic_in_namespace("runtime", printer_ability(7));
+
+        // Exception is the only engine builtin; prelude abilities resolve
+        // by bare name too (effect rows, handler arms).
         assert_eq!(
             infer.ability_name_to_id("Exception"),
             Some(ambient_core::exception::ability_id())
         );
-        assert_eq!(
-            infer.ability_name_to_id("Time"),
-            Some(ambient_runtime::time::ability_id())
-        );
-        assert_eq!(
-            infer.ability_name_to_id("Random"),
-            Some(ambient_runtime::random::ability_id())
-        );
+        assert_eq!(infer.ability_name_to_id("Printer"), Some(aid(7)));
+        assert_eq!(infer.ability_name_to_id("Console"), None);
         assert_eq!(infer.ability_name_to_id("Unknown"), None);
     }
 
@@ -356,41 +329,40 @@ mod tests {
 
     #[test]
     fn test_infer_ability_from_methods_uniqueness() {
-        let infer = Infer::new();
+        let mut infer = Infer::new();
+        infer
+            .ability_resolver
+            .register_dynamic_in_namespace("runtime", printer_ability(7));
 
-        // "print" exists in Console
-        let methods: Vec<Arc<str>> = vec!["print".into()];
+        // "go" exists only in Printer.
+        let methods: Vec<Arc<str>> = vec!["go".into()];
         let ability = infer.infer_ability_from_methods(&methods);
-        assert_eq!(ability, Some(ambient_runtime::console::ability_id()));
+        assert_eq!(ability, Some(aid(7)));
 
-        // "throw" exists only in Exception
+        // "throw" exists only in Exception.
         let methods: Vec<Arc<str>> = vec!["throw".into()];
         let ability = infer.infer_ability_from_methods(&methods);
         assert_eq!(ability, Some(ambient_core::exception::ability_id()));
-
-        // "now" exists only in Time
-        let methods: Vec<Arc<str>> = vec!["now".into()];
-        let ability = infer.infer_ability_from_methods(&methods);
-        assert_eq!(ability, Some(ambient_runtime::time::ability_id()));
     }
 
     #[test]
     fn test_runtime_namespace_required() {
         let mut infer = Infer::new();
+        infer
+            .ability_resolver
+            .register_dynamic_in_namespace("runtime", printer_ability(7));
 
-        // Console without runtime prefix should fail
-        let console_no_prefix = QualifiedName::simple("Console");
-        let result =
-            infer.lookup_ability_method(&console_no_prefix, "print", &[Type::String], span());
+        // A namespaced prelude ability performed bare should fail.
+        let bare = QualifiedName::simple("Printer");
+        let result = infer.lookup_ability_method(&bare, "go", &[Type::String], span());
         assert!(
             result.is_err(),
-            "Console without runtime. prefix should fail"
+            "Printer without runtime. prefix should fail"
         );
 
-        // Console with runtime prefix should succeed
-        let console_with_prefix = runtime_ability("Console");
-        let result =
-            infer.lookup_ability_method(&console_with_prefix, "print", &[Type::String], span());
-        assert!(result.is_ok(), "runtime.Console.print should succeed");
+        // The same perform with the namespace succeeds.
+        let qualified = runtime_ability("Printer");
+        let result = infer.lookup_ability_method(&qualified, "go", &[Type::String], span());
+        assert!(result.is_ok(), "runtime.Printer.go should succeed");
     }
 }

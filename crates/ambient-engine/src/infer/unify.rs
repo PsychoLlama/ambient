@@ -485,7 +485,7 @@ impl Infer {
                     ability_subst: new_ability_subst,
                     current_abilities: AbilitySet::Empty,
                     ability_registry: self.ability_registry.clone(),
-                    ability_resolver: crate::ability_resolver::standard_abilities(),
+                    ability_resolver: crate::ability_resolver::core_abilities(),
                     type_aliases: self.type_aliases.clone(),
                     trait_registry: self.trait_registry.clone(),
                     enum_registry: self.enum_registry.clone(),

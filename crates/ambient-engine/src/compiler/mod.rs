@@ -485,6 +485,11 @@ struct ModuleContext {
     /// The identity comes from the type checker (`AbilityDef::resolved_id`);
     /// the compiler never re-derives interface hashes.
     abilities: HashMap<Arc<str>, CompiledAbilityInfo>,
+    /// Prelude abilities (embedder-resolved declaration modules, e.g. the
+    /// runtime bindings interface), kept apart from locals so a local
+    /// declaration and a namespaced prelude ability of the same name
+    /// resolve independently.
+    prelude_abilities: HashMap<Arc<str>, CompiledAbilityInfo>,
 }
 
 /// Compile-time info for one module-declared ability.
@@ -539,19 +544,20 @@ impl ModuleContext {
             current_function: None,
             enums,
             abilities: HashMap::new(),
+            prelude_abilities: HashMap::new(),
         }
     }
 
     /// Register prelude abilities (declaration modules resolved by the
     /// embedder, e.g. the `runtime` bindings interface) so ability calls
     /// and handler literals compile against their content-hash
-    /// identities. Local declarations registered later shadow these.
+    /// identities.
     fn register_prelude_abilities(
         &mut self,
         prelude: &[std::sync::Arc<crate::ability_resolver::DynAbility>],
     ) {
         for ability in prelude {
-            self.abilities.insert(
+            self.prelude_abilities.insert(
                 Arc::clone(&ability.name),
                 CompiledAbilityInfo {
                     id: ability.id,
@@ -562,6 +568,23 @@ impl ModuleContext {
                         .collect(),
                 },
             );
+        }
+    }
+
+    /// Resolve an ability name against locals and the prelude.
+    ///
+    /// Namespace-qualified references prefer the prelude (that is what a
+    /// qualifier means); bare references prefer locals, mirroring the
+    /// type checker's shadowing rules.
+    fn resolve_ability(&self, name: &str, namespaced: bool) -> Option<&CompiledAbilityInfo> {
+        if namespaced {
+            self.prelude_abilities
+                .get(name)
+                .or_else(|| self.abilities.get(name))
+        } else {
+            self.abilities
+                .get(name)
+                .or_else(|| self.prelude_abilities.get(name))
         }
     }
 
@@ -590,13 +613,21 @@ impl ModuleContext {
         Ok(())
     }
 
-    /// Look up a module-declared ability by identity (for handler literals,
-    /// where the type checker hands the compiler an `AbilityId`).
+    /// Look up an ability by identity (for handler literals, where the
+    /// type checker hands the compiler an `AbilityId`). Searches locals,
+    /// then the prelude.
     fn ability_by_id(
         &self,
         id: crate::types::AbilityId,
     ) -> Option<(&Arc<str>, &CompiledAbilityInfo)> {
-        self.abilities.iter().find(|(_, info)| info.id == id)
+        self.abilities
+            .iter()
+            .find(|(_, info)| info.id == id)
+            .or_else(|| {
+                self.prelude_abilities
+                    .iter()
+                    .find(|(_, info)| info.id == id)
+            })
     }
 
     /// Register a module's enum declarations, shadowing prelude variants.

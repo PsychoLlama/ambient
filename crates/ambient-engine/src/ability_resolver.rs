@@ -4,7 +4,6 @@
 //! and any user-defined providers) and provides lookup methods for the type checker
 //! and compiler.
 
-use crate::runtime_config::RuntimeConfig;
 use crate::types::Type;
 use ambient_core::{
     hash_interface_raw, AbilityDescriptor, AbilityId, AbilityProvider, MethodId, RawMethod,
@@ -184,39 +183,6 @@ impl AbilityResolver {
     #[must_use]
     pub fn get_dynamic_by_id(&self, id: AbilityId) -> Option<&Arc<DynAbility>> {
         self.dynamic_by_id.get(&id)
-    }
-
-    /// Create an ability resolver from a `RuntimeConfig`.
-    ///
-    /// This includes:
-    /// - Core abilities (Exception, etc.) which are always available
-    /// - Runtime abilities from the config (Console, Time, etc.)
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let config = RuntimeConfig::native();
-    /// let resolver = AbilityResolver::from_runtime_config(&config);
-    /// assert!(resolver.get_by_name("Console").is_some());
-    /// ```
-    #[must_use]
-    pub fn from_runtime_config(config: &RuntimeConfig) -> Self {
-        let factory = EngineTypeFactory;
-        let mut resolver = Self::new();
-
-        // Always register core abilities (Exception, etc.)
-        let core = ambient_core::CoreAbilities::new(&factory);
-        resolver.register(&core);
-
-        // Register runtime abilities from the config
-        for descriptor in config.ability_descriptors(&factory) {
-            resolver
-                .by_name
-                .insert(Arc::from(descriptor.name), descriptor.clone());
-            resolver.by_id.insert(descriptor.id, descriptor);
-        }
-
-        resolver
     }
 
     /// Register abilities from a provider.
@@ -609,20 +575,20 @@ impl TypeFactory<Type> for EngineTypeFactory {
     }
 }
 
-/// Create an `AbilityResolver` with the standard abilities (core + runtime).
+/// Create an `AbilityResolver` with the language-level core abilities
+/// (Exception).
+///
+/// This is the engine's only builtin ability set. Runtime abilities
+/// (Console, Fs, Network, ...) are not engine builtins: embedders
+/// resolve their declaration modules with
+/// [`crate::infer::resolve_ability_declarations`] and register the
+/// results as namespaced dynamics.
 #[must_use]
-pub fn standard_abilities() -> AbilityResolver {
+pub fn core_abilities() -> AbilityResolver {
     let factory = EngineTypeFactory;
     let mut resolver = AbilityResolver::new();
-
-    // Register core abilities
     let core = ambient_core::CoreAbilities::new(&factory);
     resolver.register(&core);
-
-    // Register runtime abilities
-    let runtime = ambient_runtime::RuntimeAbilities::new(&factory);
-    resolver.register(&runtime);
-
     resolver
 }
 
@@ -631,41 +597,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_standard_abilities() {
-        let resolver = standard_abilities();
+    fn test_core_abilities() {
+        let resolver = core_abilities();
 
-        // Check core abilities
+        // Exception is the engine's only builtin ability.
         assert!(resolver.get_by_name("Exception").is_some());
 
-        // Check runtime abilities
-        assert!(resolver.get_by_name("Console").is_some());
-        assert!(resolver.get_by_name("Time").is_some());
-        assert!(resolver.get_by_name("Random").is_some());
-        assert!(resolver.get_by_name("Log").is_some());
-    }
-
-    #[test]
-    fn test_ability_lookup() {
-        let resolver = standard_abilities();
-
-        // Look up Console.print
-        let result = resolver.get_method("Console", "print");
-        assert!(result.is_some());
-        let (ability_id, method_id) = result.unwrap();
-        assert_eq!(ability_id, ambient_runtime::console::ability_id());
-        assert_eq!(method_id, ambient_runtime::console::METHOD_PRINT);
+        // Runtime abilities are not engine builtins.
+        assert!(resolver.get_by_name("Console").is_none());
+        assert!(resolver.get_by_name("Fs").is_none());
     }
 
     #[test]
     fn test_infer_ability_from_methods() {
-        let resolver = standard_abilities();
+        let mut resolver = core_abilities();
+        resolver.register_dynamic_in_namespace("runtime", dyn_ability("Printer", 7));
 
-        // Methods that match Console
-        let methods = vec![Arc::from("print"), Arc::from("println")];
+        // Methods that match the namespaced dynamic.
+        let methods = vec![Arc::from("go")];
         let result = resolver.infer_ability_from_methods(&methods);
-        assert_eq!(result, Some(ambient_runtime::console::ability_id()));
+        assert_eq!(result, Some(AbilityId::from_bytes([7; 32])));
 
-        // Methods that match Exception
+        // Methods that match Exception.
         let methods = vec![Arc::from("throw")];
         let result = resolver.infer_ability_from_methods(&methods);
         assert_eq!(result, Some(ambient_core::exception::ability_id()));
@@ -738,33 +691,5 @@ mod tests {
             resolver.get_namespaced("runtime", "Printer").map(|a| a.id),
             Some(AbilityId::from_bytes([7; 32]))
         );
-    }
-
-    #[test]
-    fn test_from_runtime_config() {
-        let config = RuntimeConfig::native();
-        let resolver = AbilityResolver::from_runtime_config(&config);
-
-        // Core abilities are always present
-        assert!(resolver.get_by_name("Exception").is_some());
-
-        // Native runtime abilities
-        assert!(resolver.get_by_name("Console").is_some());
-        assert!(resolver.get_by_name("Time").is_some());
-        assert!(resolver.get_by_name("Random").is_some());
-        assert!(resolver.get_by_name("Log").is_some());
-    }
-
-    #[test]
-    fn test_from_runtime_config_without_ability() {
-        let config = RuntimeConfig::native().without_ability("Console");
-        let resolver = AbilityResolver::from_runtime_config(&config);
-
-        // Console should be absent
-        assert!(resolver.get_by_name("Console").is_none());
-
-        // Other runtime abilities still present
-        assert!(resolver.get_by_name("Time").is_some());
-        assert!(resolver.get_by_name("Random").is_some());
     }
 }

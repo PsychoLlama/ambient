@@ -66,7 +66,7 @@ mod unify;
 
 pub use check::{
     check_module, check_module_with_registry, check_module_with_registry_and_resolver,
-    resolve_ability_declarations, CheckResult,
+    check_module_with_resolver, resolve_ability_declarations, CheckResult,
 };
 pub use env::{Scheme, TypeEnv};
 pub use error::{BoxedTypeError, BoxedTypeErrorExt, InferResult, TypeError, TypeErrorKind};
@@ -131,7 +131,7 @@ impl Infer {
             ability_subst: HashMap::new(),
             current_abilities: AbilitySet::Empty,
             ability_registry: None,
-            ability_resolver: crate::ability_resolver::standard_abilities(),
+            ability_resolver: crate::ability_resolver::core_abilities(),
             type_aliases: HashMap::new(),
             trait_registry: TraitRegistry::with_prelude(),
             enum_registry: enums::EnumRegistry::with_prelude(),
@@ -148,7 +148,7 @@ impl Infer {
             ability_subst: HashMap::new(),
             current_abilities: AbilitySet::Empty,
             ability_registry: Some(registry),
-            ability_resolver: crate::ability_resolver::standard_abilities(),
+            ability_resolver: crate::ability_resolver::core_abilities(),
             type_aliases: HashMap::new(),
             trait_registry: TraitRegistry::with_prelude(),
             enum_registry: enums::EnumRegistry::with_prelude(),
