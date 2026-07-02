@@ -19,7 +19,6 @@ use rustyline::{Config as RustylineConfig, Editor, EventHandler, KeyEvent};
 
 use editor::ExternalEditorHandler;
 
-use ambient_engine::abilities::register_all_standard_abilities;
 use ambient_engine::compiler::{
     compile_expression_with_context, compile_repl_item, parse_module_exports, ReplContext,
     ReplItemKind,
@@ -49,8 +48,8 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
 
     let mut vm = Vm::new();
 
-    // Register standard abilities for the REPL.
-    register_all_standard_abilities(&mut vm);
+    // Register standard abilities for the REPL against the resolved prelude.
+    ambient_runtime::register_defaults(&mut vm, &prelude);
 
     // Register built-in modules for introspection and compile core library.
     {
@@ -122,7 +121,7 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
                         ReplCommand::Clear => {
                             // Clear the VM state by creating a fresh VM.
                             vm = Vm::new();
-                            register_all_standard_abilities(&mut vm);
+                            ambient_runtime::register_defaults(&mut vm, &prelude);
                             *repl_ctx.lock().unwrap() = ReplContext::with_prelude(prelude.clone());
                             eprintln!("State cleared.");
                         }

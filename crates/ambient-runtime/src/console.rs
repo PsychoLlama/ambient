@@ -1,123 +1,61 @@
 //! Console ability - for printing to stdout/stderr.
 
-use std::sync::OnceLock;
+#![allow(clippy::type_complexity)] // Handler types are inherently complex
 
-use ambient_ability::{format_value, HostHandler, RuntimeAbility, SuspendedAbility, Value};
-use ambient_core::{
-    hash_interface, AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature,
-    TypeFactory,
-};
+use ambient_ability::{format_value, SuspendedAbility, Value, VmError};
+use ambient_engine::ability_resolver::AbilityInterface;
+use ambient_engine::vm::Vm;
 
-/// Method: print a message to stdout.
-pub const METHOD_PRINT: u16 = 0x0000;
+use crate::require;
 
-/// Method: print a message to stderr.
-pub const METHOD_EPRINT: u16 = 0x0001;
-
-/// Method: print with newline.
-pub const METHOD_PRINTLN: u16 = 0x0002;
-
-/// The Console ability's method set, instantiated for any type system.
+/// Configuration for the Console ability.
 ///
-/// Single source of truth for the interface: the content-addressed
-/// [`ability_id`] and the engine-facing descriptor both derive from it.
-fn methods<T: Clone + 'static>() -> Vec<MethodDescriptor<T>> {
-    vec![
-        MethodDescriptor {
-            id: METHOD_PRINT,
-            name: "print",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.string()],
-                return_type: |f| f.unit(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_PRINTLN,
-            name: "println",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.string()],
-                return_type: |f| f.unit(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_EPRINT,
-            name: "eprint",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.string()],
-                return_type: |f| f.unit(),
-            },
-        },
-    ]
-}
-
-/// The content-addressed identity of the Console ability.
-#[must_use]
-pub fn ability_id() -> AbilityId {
-    static ID: OnceLock<AbilityId> = OnceLock::new();
-    *ID.get_or_init(|| hash_interface(ConsoleAbility::NAME, &methods()))
-}
-
-/// Console ability marker.
-pub const CONSOLE: ConsoleAbility = ConsoleAbility;
-
-/// Marker type for the Console ability.
-#[derive(Clone, Copy)]
-pub struct ConsoleAbility;
-
-impl ConsoleAbility {
-    /// Ability name.
-    pub const NAME: &'static str = "Console";
-
-    /// The content-addressed identity of the Console ability.
-    #[must_use]
-    pub fn ability_id() -> AbilityId {
-        ability_id()
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Console RuntimeAbility Implementation
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Console ability implementation combining type info and handlers.
-///
-/// Uses default stdout/stderr output.
+/// Handlers must be Send + Sync to allow the VM to be used across threads.
 #[derive(Default)]
-pub struct ConsoleRuntimeAbility;
-
-impl ConsoleRuntimeAbility {
-    /// Create a new Console ability.
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
+pub struct ConsoleConfig {
+    /// Custom print handler. If None, uses stdout.
+    pub print_handler: Option<Box<dyn Fn(&str) + Send + Sync>>,
+    /// Custom eprint handler. If None, uses stderr.
+    pub eprint_handler: Option<Box<dyn Fn(&str) + Send + Sync>>,
 }
 
-impl RuntimeAbility for ConsoleRuntimeAbility {
-    fn name(&self) -> &'static str {
-        ConsoleAbility::NAME
-    }
+/// Register the Console ability handlers on a VM.
+///
+/// By default, this prints to stdout/stderr. Use [`ConsoleConfig`] to
+/// customize.
+///
+/// # Panics
+///
+/// Panics if the resolved interface is missing an expected method — the
+/// bindings interface and this handler set have drifted.
+pub fn register_console(vm: &mut Vm, ability: &AbilityInterface, config: ConsoleConfig) {
+    // Console.print - prints with newline
+    let print_handler = config.print_handler;
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "print"),
+        Box::new(move |ability: &SuspendedAbility| {
+            let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
+            if let Some(ref handler) = print_handler {
+                handler(&message);
+            } else {
+                #[cfg(not(test))]
+                {
+                    #[allow(clippy::print_stdout)]
+                    {
+                        println!("{message}");
+                    }
+                }
+            }
+            Ok(Value::Unit)
+        }),
+    );
 
-    fn ability_id(&self) -> AbilityId {
-        ability_id()
-    }
-
-    fn descriptor<T: Clone + 'static>(
-        &self,
-        _factory: &dyn TypeFactory<T>,
-    ) -> AbilityDescriptor<T> {
-        AbilityDescriptor {
-            id: ability_id(),
-            name: ConsoleAbility::NAME,
-            methods: Box::leak(methods::<T>().into_boxed_slice()),
-        }
-    }
-
-    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
-        let print = Box::new(|ability: &SuspendedAbility| {
+    // Console.println - same as print (both add newline)
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "println"),
+        Box::new(|ability: &SuspendedAbility| {
             let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
             #[cfg(not(test))]
             {
@@ -126,144 +64,172 @@ impl RuntimeAbility for ConsoleRuntimeAbility {
                     println!("{message}");
                 }
             }
-            let _ = message;
+            let _ = message; // Suppress unused warning in test mode
             Ok(Value::Unit)
-        }) as HostHandler;
+        }),
+    );
 
-        let println_handler = Box::new(|ability: &SuspendedAbility| {
+    // Console.eprint - prints to stderr with newline
+    let eprint_handler = config.eprint_handler;
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "eprint"),
+        Box::new(move |ability: &SuspendedAbility| {
             let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
-            #[cfg(not(test))]
-            {
-                #[allow(clippy::print_stdout)]
+            if let Some(ref handler) = eprint_handler {
+                handler(&message);
+            } else {
+                #[cfg(not(test))]
                 {
-                    println!("{message}");
+                    #[allow(clippy::print_stderr)]
+                    {
+                        eprintln!("{message}");
+                    }
                 }
             }
-            let _ = message;
             Ok(Value::Unit)
-        }) as HostHandler;
+        }),
+    );
+}
 
-        let eprint = Box::new(|ability: &SuspendedAbility| {
+/// Register Console with a custom output collector (useful for testing).
+///
+/// Uses `Arc<Mutex<>>` for thread safety. A poisoned collector mutex
+/// surfaces as a fatal `VmError::LockPoisoned`.
+///
+/// # Panics
+///
+/// Panics if the resolved interface is missing an expected method — the
+/// bindings interface and this handler set have drifted.
+pub fn register_console_with_collector(
+    vm: &mut Vm,
+    ability: &AbilityInterface,
+    output: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+) {
+    let output_clone = output.clone();
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "print"),
+        Box::new(move |ability: &SuspendedAbility| {
             let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
-            #[cfg(not(test))]
-            {
-                #[allow(clippy::print_stderr)]
-                {
-                    eprintln!("{message}");
-                }
-            }
-            let _ = message;
+            output_clone
+                .lock()
+                .map_err(|_| VmError::LockPoisoned)?
+                .push(message);
             Ok(Value::Unit)
-        }) as HostHandler;
+        }),
+    );
 
-        vec![
-            (METHOD_PRINT, print),
-            (METHOD_PRINTLN, println_handler),
-            (METHOD_EPRINT, eprint),
-        ]
-    }
+    let output_clone = output.clone();
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "println"),
+        Box::new(move |ability: &SuspendedAbility| {
+            let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
+            output_clone
+                .lock()
+                .map_err(|_| VmError::LockPoisoned)?
+                .push(format!("{message}\n"));
+            Ok(Value::Unit)
+        }),
+    );
+
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "eprint"),
+        Box::new(move |ability: &SuspendedAbility| {
+            let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
+            output
+                .lock()
+                .map_err(|_| VmError::LockPoisoned)?
+                .push(format!("[ERR] {message}"));
+            Ok(Value::Unit)
+        }),
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::test_interface;
+    use ambient_engine::bytecode::{BytecodeBuilder, Opcode};
+    use std::sync::{Arc, Mutex};
 
-    #[derive(Clone)]
-    struct TestType;
-
-    struct TestTypeFactory;
-
-    impl TypeFactory<TestType> for TestTypeFactory {
-        fn unit(&self) -> TestType {
-            TestType
-        }
-        fn bool(&self) -> TestType {
-            TestType
-        }
-        fn number(&self) -> TestType {
-            TestType
-        }
-        fn string(&self) -> TestType {
-            TestType
-        }
-        fn bytes(&self) -> TestType {
-            TestType
-        }
-        fn never(&self) -> TestType {
-            TestType
-        }
-        fn type_var(&self) -> TestType {
-            TestType
-        }
-        fn list(&self, _: TestType) -> TestType {
-            TestType
-        }
+    fn console_interface() -> AbilityInterface {
+        test_interface("Console", 1, &["print", "eprint", "println"])
     }
 
     #[test]
-    fn test_console_ability_constants() {
-        assert_eq!(METHOD_PRINT, 0x0000);
-        assert_eq!(METHOD_EPRINT, 0x0001);
-        assert_eq!(METHOD_PRINTLN, 0x0002);
-        // Identity is stable across calls.
-        assert_eq!(ability_id(), ConsoleAbility::ability_id());
+    fn test_console_print_with_collector() {
+        let ability = console_interface();
+        let output: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("Hello, World!"));
+        builder.emit_suspend(ability.id, require(&ability, "print"), 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+        register_console_with_collector(&mut vm, &ability, output.clone());
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Unit));
+        assert_eq!(*output.lock().expect("lock"), vec!["Hello, World!"]);
     }
 
     #[test]
-    fn test_console_runtime_ability_name() {
-        let console = ConsoleRuntimeAbility::new();
-        assert_eq!(console.name(), "Console");
-        assert_eq!(console.ability_id(), ability_id());
+    fn test_console_println_with_collector() {
+        let ability = console_interface();
+        let output: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::Number(42.0));
+        builder.emit_suspend(ability.id, require(&ability, "println"), 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+        register_console_with_collector(&mut vm, &ability, output.clone());
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Unit));
+        assert_eq!(*output.lock().expect("lock"), vec!["42\n"]);
     }
 
     #[test]
-    fn test_console_descriptor_methods() {
-        let console = ConsoleRuntimeAbility::new();
-        let factory = TestTypeFactory;
-        let descriptor = console.descriptor(&factory);
+    fn test_multiple_prints() {
+        let ability = console_interface();
+        let output: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
-        assert_eq!(descriptor.id, ability_id());
-        assert_eq!(descriptor.name, "Console");
-        assert_eq!(descriptor.methods.len(), 3);
+        let mut builder = BytecodeBuilder::new();
+        for message in ["one", "two", "three"] {
+            builder.emit_const(Value::string(message));
+            builder.emit_suspend(ability.id, require(&ability, "print"), 1);
+            builder.emit(Opcode::Perform);
+            if message != "three" {
+                builder.emit(Opcode::Pop);
+            }
+        }
+        builder.emit(Opcode::Return);
 
-        // Check method names
-        let method_names: Vec<_> = descriptor.methods.iter().map(|m| m.name).collect();
-        assert!(method_names.contains(&"print"));
-        assert!(method_names.contains(&"println"));
-        assert!(method_names.contains(&"eprint"));
-    }
+        let func = builder.build(0, 0);
+        let hash = func.hash;
 
-    #[test]
-    fn test_console_handlers() {
-        let console = ConsoleRuntimeAbility::new();
-        let handlers = console.handlers();
+        let mut vm = Vm::new();
+        vm.load_function(func);
+        register_console_with_collector(&mut vm, &ability, output.clone());
 
-        assert_eq!(handlers.len(), 3);
-
-        // Check handler method IDs
-        let method_ids: Vec<_> = handlers.iter().map(|(id, _)| *id).collect();
-        assert!(method_ids.contains(&METHOD_PRINT));
-        assert!(method_ids.contains(&METHOD_PRINTLN));
-        assert!(method_ids.contains(&METHOD_EPRINT));
-    }
-
-    #[test]
-    fn test_console_print_handler_returns_unit() {
-        let console = ConsoleRuntimeAbility::new();
-        let handlers = console.handlers();
-
-        // Find the print handler
-        let (_, print_handler) = handlers.iter().find(|(id, _)| *id == METHOD_PRINT).unwrap();
-
-        // Create a suspended ability with a string argument
-        let ability = SuspendedAbility {
-            ability_id: ability_id(),
-            method_id: METHOD_PRINT,
-            args: vec![Value::string("test message")],
-        };
-
-        let result = print_handler(&ability);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Value::Unit);
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Unit));
+        assert_eq!(*output.lock().expect("lock"), vec!["one", "two", "three"]);
     }
 }

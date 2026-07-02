@@ -1,213 +1,69 @@
 //! Time ability - for time-related operations.
 
-use std::sync::OnceLock;
+use ambient_ability::{SuspendedAbility, Value, VmError};
+use ambient_engine::ability_resolver::AbilityInterface;
+use ambient_engine::vm::Vm;
 
-use ambient_ability::{HostHandler, RuntimeAbility, SuspendedAbility, Value};
-use ambient_core::{
-    hash_interface, AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature,
-    TypeFactory,
-};
+use crate::require;
 
-/// Method: get current timestamp in milliseconds.
-pub const METHOD_NOW: u16 = 0x0000;
+/// `Time.now()` -> current timestamp in milliseconds since the Unix epoch.
+// Handlers match the `HostHandler` signature, so the `Result` stays even
+// where a handler cannot fail.
+#[allow(clippy::unnecessary_wraps)]
+fn now(_ability: &SuspendedAbility) -> Result<Value, VmError> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    // Precision loss is acceptable for timestamps (won't exceed 52 bits for centuries)
+    #[allow(clippy::cast_precision_loss)]
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as f64)
+        .unwrap_or(0.0);
+    Ok(Value::Number(now))
+}
 
-/// Method: wait for a duration in milliseconds.
-pub const METHOD_WAIT: u16 = 0x0001;
+/// `Time.wait(duration)` -> sleeps for the given number of milliseconds.
+#[allow(clippy::unnecessary_wraps)]
+fn wait(ability: &SuspendedAbility) -> Result<Value, VmError> {
+    if let Some(Value::Number(ms)) = ability.args.first() {
+        // Negative durations are clamped to 0
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let ms_u64 = if *ms < 0.0 { 0 } else { *ms as u64 };
+        let duration = std::time::Duration::from_millis(ms_u64);
+        std::thread::sleep(duration);
+    }
+    Ok(Value::Unit)
+}
 
-/// The Time ability's method set, instantiated for any type system.
+/// Register the Time ability handlers on a VM.
 ///
-/// Single source of truth for the interface: the content-addressed
-/// [`ability_id`] and the engine-facing descriptor both derive from it.
-fn methods<T: Clone + 'static>() -> Vec<MethodDescriptor<T>> {
-    vec![
-        MethodDescriptor {
-            id: METHOD_NOW,
-            name: "now",
-            signature: MethodSignature {
-                param_count: 0,
-                param_types: |_f| vec![],
-                return_type: |f| f.number(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_WAIT,
-            name: "wait",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.number()],
-                return_type: |f| f.unit(),
-            },
-        },
-    ]
-}
-
-/// The content-addressed identity of the Time ability.
-#[must_use]
-pub fn ability_id() -> AbilityId {
-    static ID: OnceLock<AbilityId> = OnceLock::new();
-    *ID.get_or_init(|| hash_interface(TimeAbility::NAME, &methods()))
-}
-
-/// Time ability marker.
-pub const TIME: TimeAbility = TimeAbility;
-
-/// Marker type for the Time ability.
-#[derive(Clone, Copy)]
-pub struct TimeAbility;
-
-impl TimeAbility {
-    /// Ability name.
-    pub const NAME: &'static str = "Time";
-
-    /// The content-addressed identity of the Time ability.
-    #[must_use]
-    pub fn ability_id() -> AbilityId {
-        ability_id()
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Time RuntimeAbility Implementation
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Time ability implementation combining type info and handlers.
-#[derive(Default)]
-pub struct TimeRuntimeAbility;
-
-impl TimeRuntimeAbility {
-    /// Create a new Time ability.
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl RuntimeAbility for TimeRuntimeAbility {
-    fn name(&self) -> &'static str {
-        "Time"
-    }
-
-    fn ability_id(&self) -> AbilityId {
-        ability_id()
-    }
-
-    fn descriptor<T: Clone + 'static>(
-        &self,
-        _factory: &dyn TypeFactory<T>,
-    ) -> AbilityDescriptor<T> {
-        AbilityDescriptor {
-            id: ability_id(),
-            name: TimeAbility::NAME,
-            methods: Box::leak(methods::<T>().into_boxed_slice()),
-        }
-    }
-
-    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
-        let now = Box::new(|_ability: &SuspendedAbility| {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            #[allow(clippy::cast_precision_loss)]
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_millis() as f64)
-                .unwrap_or(0.0);
-            Ok(Value::Number(now))
-        }) as HostHandler;
-
-        let wait = Box::new(|ability: &SuspendedAbility| {
-            if let Some(Value::Number(ms)) = ability.args.first() {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let ms_u64 = if *ms < 0.0 { 0 } else { *ms as u64 };
-                let duration = std::time::Duration::from_millis(ms_u64);
-                std::thread::sleep(duration);
-            }
-            Ok(Value::Unit)
-        }) as HostHandler;
-
-        vec![(METHOD_NOW, now), (METHOD_WAIT, wait)]
-    }
+/// Provides `now()` for getting current timestamp and `wait(ms)` for
+/// sleeping.
+///
+/// # Panics
+///
+/// Panics if the resolved interface is missing an expected method — the
+/// bindings interface and this handler set have drifted.
+pub fn register_time(vm: &mut Vm, ability: &AbilityInterface) {
+    vm.register_host_handler(ability.id, require(ability, "now"), Box::new(now));
+    vm.register_host_handler(ability.id, require(ability, "wait"), Box::new(wait));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ambient_core::AbilityId;
 
-    #[derive(Clone)]
-    struct TestType;
-
-    struct TestTypeFactory;
-
-    impl TypeFactory<TestType> for TestTypeFactory {
-        fn unit(&self) -> TestType {
-            TestType
+    fn suspended(args: Vec<Value>) -> SuspendedAbility {
+        SuspendedAbility {
+            ability_id: AbilityId::from_bytes([2; 32]),
+            method_id: 0,
+            args,
         }
-        fn bool(&self) -> TestType {
-            TestType
-        }
-        fn number(&self) -> TestType {
-            TestType
-        }
-        fn string(&self) -> TestType {
-            TestType
-        }
-        fn bytes(&self) -> TestType {
-            TestType
-        }
-        fn never(&self) -> TestType {
-            TestType
-        }
-        fn type_var(&self) -> TestType {
-            TestType
-        }
-        fn list(&self, _: TestType) -> TestType {
-            TestType
-        }
-    }
-
-    #[test]
-    fn test_time_ability_constants() {
-        assert_eq!(METHOD_NOW, 0x0000);
-        assert_eq!(METHOD_WAIT, 0x0001);
-        // Identity is stable across calls.
-        assert_eq!(ability_id(), TimeAbility::ability_id());
-    }
-
-    #[test]
-    fn test_time_runtime_ability_name() {
-        let time = TimeRuntimeAbility::new();
-        assert_eq!(time.name(), "Time");
-        assert_eq!(time.ability_id(), ability_id());
-    }
-
-    #[test]
-    fn test_time_descriptor_methods() {
-        let time = TimeRuntimeAbility::new();
-        let factory = TestTypeFactory;
-        let descriptor = time.descriptor(&factory);
-
-        assert_eq!(descriptor.id, ability_id());
-        assert_eq!(descriptor.name, "Time");
-        assert_eq!(descriptor.methods.len(), 2);
-
-        // Check method names
-        let method_names: Vec<_> = descriptor.methods.iter().map(|m| m.name).collect();
-        assert!(method_names.contains(&"now"));
-        assert!(method_names.contains(&"wait"));
     }
 
     #[test]
     fn test_time_now_returns_positive_number() {
-        let time = TimeRuntimeAbility::new();
-        let handlers = time.handlers();
-
-        let (_, now_handler) = handlers.iter().find(|(id, _)| *id == METHOD_NOW).unwrap();
-
-        let ability = SuspendedAbility {
-            ability_id: ability_id(),
-            method_id: METHOD_NOW,
-            args: vec![],
-        };
-
-        let result = now_handler(&ability);
+        let result = now(&suspended(vec![]));
         assert!(result.is_ok());
 
         if let Value::Number(ms) = result.unwrap() {
@@ -222,38 +78,16 @@ mod tests {
 
     #[test]
     fn test_time_wait_returns_unit() {
-        let time = TimeRuntimeAbility::new();
-        let handlers = time.handlers();
-
-        let (_, wait_handler) = handlers.iter().find(|(id, _)| *id == METHOD_WAIT).unwrap();
-
         // Wait for 1 millisecond
-        let ability = SuspendedAbility {
-            ability_id: ability_id(),
-            method_id: METHOD_WAIT,
-            args: vec![Value::Number(1.0)],
-        };
-
-        let result = wait_handler(&ability);
+        let result = wait(&suspended(vec![Value::Number(1.0)]));
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Value::Unit);
     }
 
     #[test]
     fn test_time_wait_handles_negative_duration() {
-        let time = TimeRuntimeAbility::new();
-        let handlers = time.handlers();
-
-        let (_, wait_handler) = handlers.iter().find(|(id, _)| *id == METHOD_WAIT).unwrap();
-
         // Negative duration should be treated as 0
-        let ability = SuspendedAbility {
-            ability_id: ability_id(),
-            method_id: METHOD_WAIT,
-            args: vec![Value::Number(-100.0)],
-        };
-
-        let result = wait_handler(&ability);
+        let result = wait(&suspended(vec![Value::Number(-100.0)]));
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Value::Unit);
     }

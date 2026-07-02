@@ -1,262 +1,174 @@
 //! Log ability - for structured logging with levels.
 
-use std::sync::OnceLock;
+#![allow(clippy::type_complexity)] // Handler types are inherently complex
 
-use ambient_ability::{format_value, HostHandler, RuntimeAbility, SuspendedAbility, Value};
-use ambient_core::{
-    hash_interface, AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature,
-    TypeFactory,
-};
+use ambient_ability::{format_value, SuspendedAbility, Value};
+use ambient_engine::ability_resolver::AbilityInterface;
+use ambient_engine::vm::Vm;
 
-/// Method: log a debug message.
-pub const METHOD_DEBUG: u16 = 0x0000;
+use crate::require;
 
-/// Method: log an info message.
-pub const METHOD_INFO: u16 = 0x0001;
-
-/// Method: log a warning message.
-pub const METHOD_WARN: u16 = 0x0002;
-
-/// Method: log an error message.
-pub const METHOD_ERROR: u16 = 0x0003;
-
-/// The Log ability's method set, instantiated for any type system.
-///
-/// Single source of truth for the interface: the content-addressed
-/// [`ability_id`] and the engine-facing descriptor both derive from it.
-fn methods<T: Clone + 'static>() -> Vec<MethodDescriptor<T>> {
-    vec![
-        MethodDescriptor {
-            id: METHOD_DEBUG,
-            name: "debug",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.string()],
-                return_type: |f| f.unit(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_INFO,
-            name: "info",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.string()],
-                return_type: |f| f.unit(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_WARN,
-            name: "warn",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.string()],
-                return_type: |f| f.unit(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_ERROR,
-            name: "error",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.string()],
-                return_type: |f| f.unit(),
-            },
-        },
-    ]
-}
-
-/// The content-addressed identity of the Log ability.
-#[must_use]
-pub fn ability_id() -> AbilityId {
-    static ID: OnceLock<AbilityId> = OnceLock::new();
-    *ID.get_or_init(|| hash_interface(LogAbility::NAME, &methods()))
-}
-
-/// Log ability marker.
-pub const LOG: LogAbility = LogAbility;
-
-/// Marker type for the Log ability.
-#[derive(Clone, Copy)]
-pub struct LogAbility;
-
-impl LogAbility {
-    /// Ability name.
-    pub const NAME: &'static str = "Log";
-
-    /// The content-addressed identity of the Log ability.
-    #[must_use]
-    pub fn ability_id() -> AbilityId {
-        ability_id()
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Log RuntimeAbility Implementation
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Log ability implementation combining type info and handlers.
-///
-/// Uses default stdout output.
+/// Configuration for the Log ability.
 #[derive(Default)]
-pub struct LogRuntimeAbility;
-
-impl LogRuntimeAbility {
-    /// Create a new Log ability.
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
+pub struct LogConfig {
+    /// Minimum log level to output (0 = debug, 1 = info, 2 = warn, 3 = error)
+    pub min_level: u8,
+    /// Custom log handler. If None, uses default formatting to stdout.
+    pub handler: Option<Box<dyn Fn(&str, &str) + Send + Sync>>,
 }
 
-impl RuntimeAbility for LogRuntimeAbility {
-    fn name(&self) -> &'static str {
-        "Log"
-    }
+/// Register the Log ability handlers on a VM.
+///
+/// Provides structured logging with debug, info, warn, and error levels.
+///
+/// # Panics
+///
+/// Panics if the resolved interface is missing an expected method — the
+/// bindings interface and this handler set have drifted.
+pub fn register_log(vm: &mut Vm, ability: &AbilityInterface, config: LogConfig) {
+    let min_level = config.min_level;
+    let handler = std::sync::Arc::new(config.handler);
 
-    fn ability_id(&self) -> AbilityId {
-        ability_id()
-    }
-
-    fn descriptor<T: Clone + 'static>(
-        &self,
-        _factory: &dyn TypeFactory<T>,
-    ) -> AbilityDescriptor<T> {
-        AbilityDescriptor {
-            id: ability_id(),
-            name: LogAbility::NAME,
-            methods: Box::leak(methods::<T>().into_boxed_slice()),
-        }
-    }
-
-    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
-        // Helper macro to create log handlers
-        macro_rules! make_log_handler {
-            ($prefix:expr) => {
-                Box::new(|ability: &SuspendedAbility| {
+    // Helper to create log handlers
+    macro_rules! log_handler {
+        ($level:expr, $prefix:expr) => {{
+            let handler = handler.clone();
+            Box::new(move |ability: &SuspendedAbility| {
+                if $level >= min_level {
                     let message =
                         format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
-                    #[cfg(not(test))]
-                    {
-                        #[allow(clippy::print_stdout)]
+                    if let Some(ref h) = *handler {
+                        h($prefix, &message);
+                    } else {
+                        #[cfg(not(test))]
                         {
-                            println!("[{}] {}", $prefix, message);
+                            #[allow(clippy::print_stdout)]
+                            {
+                                println!("[{}] {}", $prefix, message);
+                            }
                         }
                     }
-                    let _ = message;
-                    Ok(Value::Unit)
-                }) as HostHandler
-            };
-        }
-
-        vec![
-            (METHOD_DEBUG, make_log_handler!("DEBUG")),
-            (METHOD_INFO, make_log_handler!("INFO")),
-            (METHOD_WARN, make_log_handler!("WARN")),
-            (METHOD_ERROR, make_log_handler!("ERROR")),
-        ]
+                }
+                Ok(Value::Unit)
+            })
+        }};
     }
+
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "debug"),
+        log_handler!(0, "DEBUG"),
+    );
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "info"),
+        log_handler!(1, "INFO"),
+    );
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "warn"),
+        log_handler!(2, "WARN"),
+    );
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "error"),
+        log_handler!(3, "ERROR"),
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::test_interface;
+    use ambient_engine::bytecode::{BytecodeBuilder, Opcode};
+    use std::sync::{Arc, Mutex};
 
-    #[derive(Clone)]
-    struct TestType;
+    fn log_interface() -> AbilityInterface {
+        test_interface("Log", 4, &["debug", "info", "warn", "error"])
+    }
 
-    struct TestTypeFactory;
-
-    impl TypeFactory<TestType> for TestTypeFactory {
-        fn unit(&self) -> TestType {
-            TestType
-        }
-        fn bool(&self) -> TestType {
-            TestType
-        }
-        fn number(&self) -> TestType {
-            TestType
-        }
-        fn string(&self) -> TestType {
-            TestType
-        }
-        fn bytes(&self) -> TestType {
-            TestType
-        }
-        fn never(&self) -> TestType {
-            TestType
-        }
-        fn type_var(&self) -> TestType {
-            TestType
-        }
-        fn list(&self, _: TestType) -> TestType {
-            TestType
+    fn collecting_config(min_level: u8, output: &Arc<Mutex<Vec<(String, String)>>>) -> LogConfig {
+        let output = Arc::clone(output);
+        LogConfig {
+            min_level,
+            handler: Some(Box::new(move |level: &str, msg: &str| {
+                output
+                    .lock()
+                    .expect("lock")
+                    .push((level.to_string(), msg.to_string()));
+            })),
         }
     }
 
     #[test]
-    fn test_log_ability_constants() {
-        assert_eq!(METHOD_DEBUG, 0x0000);
-        assert_eq!(METHOD_INFO, 0x0001);
-        assert_eq!(METHOD_WARN, 0x0002);
-        assert_eq!(METHOD_ERROR, 0x0003);
-        // Identity is stable across calls.
-        assert_eq!(ability_id(), LogAbility::ability_id());
+    fn test_log_info() {
+        let ability = log_interface();
+        let output: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+        let config = collecting_config(0, &output);
+
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_const(Value::string("test message"));
+        builder.emit_suspend(ability.id, require(&ability, "info"), 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+
+        let mut vm = Vm::new();
+        vm.load_function(func);
+        register_log(&mut vm, &ability, config);
+
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Unit));
+
+        let logs = output.lock().expect("lock");
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0], ("INFO".to_string(), "test message".to_string()));
     }
 
     #[test]
-    fn test_log_runtime_ability_name() {
-        let log = LogRuntimeAbility::new();
-        assert_eq!(log.name(), "Log");
-        assert_eq!(log.ability_id(), ability_id());
-    }
+    fn test_log_min_level_filters() {
+        let ability = log_interface();
+        let output: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
 
-    #[test]
-    fn test_log_descriptor_methods() {
-        let log = LogRuntimeAbility::new();
-        let factory = TestTypeFactory;
-        let descriptor = log.descriptor(&factory);
+        // Set min level to WARN (2), so DEBUG and INFO should be filtered
+        let config = collecting_config(2, &output);
 
-        assert_eq!(descriptor.id, ability_id());
-        assert_eq!(descriptor.name, "Log");
-        assert_eq!(descriptor.methods.len(), 4);
+        let mut builder = BytecodeBuilder::new();
 
-        let method_names: Vec<_> = descriptor.methods.iter().map(|m| m.name).collect();
-        assert!(method_names.contains(&"debug"));
-        assert!(method_names.contains(&"info"));
-        assert!(method_names.contains(&"warn"));
-        assert!(method_names.contains(&"error"));
-    }
+        // Log debug (should be filtered)
+        builder.emit_const(Value::string("debug msg"));
+        builder.emit_suspend(ability.id, require(&ability, "debug"), 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Pop);
 
-    #[test]
-    fn test_log_handlers() {
-        let log = LogRuntimeAbility::new();
-        let handlers = log.handlers();
+        // Log warn (should pass)
+        builder.emit_const(Value::string("warn msg"));
+        builder.emit_suspend(ability.id, require(&ability, "warn"), 1);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Pop);
 
-        assert_eq!(handlers.len(), 4);
+        // Log error (should pass)
+        builder.emit_const(Value::string("error msg"));
+        builder.emit_suspend(ability.id, require(&ability, "error"), 1);
+        builder.emit(Opcode::Perform);
 
-        let method_ids: Vec<_> = handlers.iter().map(|(id, _)| *id).collect();
-        assert!(method_ids.contains(&METHOD_DEBUG));
-        assert!(method_ids.contains(&METHOD_INFO));
-        assert!(method_ids.contains(&METHOD_WARN));
-        assert!(method_ids.contains(&METHOD_ERROR));
-    }
+        builder.emit(Opcode::Return);
 
-    #[test]
-    fn test_log_handler_returns_unit() {
-        let log = LogRuntimeAbility::new();
-        let handlers = log.handlers();
+        let func = builder.build(0, 0);
+        let hash = func.hash;
 
-        // Test debug handler
-        let (_, debug_handler) = handlers.iter().find(|(id, _)| *id == METHOD_DEBUG).unwrap();
+        let mut vm = Vm::new();
+        vm.load_function(func);
+        register_log(&mut vm, &ability, config);
 
-        let ability = SuspendedAbility {
-            ability_id: ability_id(),
-            method_id: METHOD_DEBUG,
-            args: vec![Value::string("test message")],
-        };
+        let result = vm.call(&hash, vec![]);
+        assert_eq!(result, Ok(Value::Unit));
 
-        let result = debug_handler(&ability);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Value::Unit);
+        let logs = output.lock().expect("lock");
+        assert_eq!(logs.len(), 2);
+        assert_eq!(logs[0], ("WARN".to_string(), "warn msg".to_string()));
+        assert_eq!(logs[1], ("ERROR".to_string(), "error msg".to_string()));
     }
 }

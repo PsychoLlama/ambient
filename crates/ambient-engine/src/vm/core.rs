@@ -7,7 +7,6 @@ use ambient_ability::{HostHandler, RuntimeError, StackTraceFrame, Value, VmError
 use ambient_core::AbilityId;
 
 use crate::bytecode::{CompiledFunction, Opcode};
-use crate::runtime_config::RuntimeConfig;
 
 pub(super) use ambient_ability::ReturnAction;
 
@@ -97,25 +96,6 @@ impl Vm {
             functions: HashMap::new(),
             max_call_depth: 1000,
         }
-    }
-
-    /// Create a VM configured with abilities from a `RuntimeConfig`.
-    ///
-    /// This registers all host handlers from the config's abilities.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let config = RuntimeConfig::native();
-    /// let mut vm = Vm::with_runtime(&config);
-    /// ```
-    #[must_use]
-    pub fn with_runtime(config: &RuntimeConfig) -> Self {
-        let mut vm = Self::new();
-        for (ability_id, method_id, handler) in config.handlers() {
-            vm.register_host_handler(ability_id, method_id, handler);
-        }
-        vm
     }
 
     /// Load a compiled function into the VM.

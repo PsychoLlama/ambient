@@ -7,10 +7,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
-use ambient_engine::abilities::{
-    register_console, register_execute, register_log, register_network, ConsoleConfig,
-    ExecuteConfig, LogConfig, NetworkConfig,
-};
+use ambient_engine::ability_resolver::{AbilityInterface, DynAbility};
 use ambient_engine::ast::{ItemKind, UsePrefix};
 use ambient_engine::build::{build_imported_hashes_from_compiled, compile_core_modules};
 use ambient_engine::compiler::CompiledModule;
@@ -18,9 +15,12 @@ use ambient_engine::format::format_value_colored;
 use ambient_engine::module_path::{ImportPrefix, ModulePath};
 use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::package::{LoadedModule, Package};
-use ambient_engine::runtime_config::RuntimeConfig;
 use ambient_engine::store::Store;
 use ambient_engine::vm::Vm;
+use ambient_runtime::{
+    register_console, register_execute, register_log, register_network, ConsoleConfig,
+    ExecuteConfig, LogConfig, NetworkConfig,
+};
 
 use crate::diagnostic::print_diagnostic;
 
@@ -294,14 +294,31 @@ fn compile_loaded_module_with_registry(
     Ok(compiled)
 }
 
+/// The named ability's interface from the resolved runtime prelude.
+fn prelude_interface(prelude: &[Arc<DynAbility>], name: &str) -> Result<AbilityInterface> {
+    prelude
+        .iter()
+        .find(|ability| ability.name.as_ref() == name)
+        .map(|ability| AbilityInterface::from(&**ability))
+        .ok_or_else(|| anyhow::anyhow!("runtime prelude is missing the `{name}` ability"))
+}
+
 /// Run a compiled module.
 fn run_compiled(compiled: &CompiledModule, entry: &str) -> Result<()> {
     // Create tokio runtime for async operations (Remote ability).
     let runtime = tokio::runtime::Runtime::new().context("failed to create async runtime")?;
 
-    // Create VM with native abilities (Console, Time, Random, Log).
-    let config = RuntimeConfig::native();
-    let mut vm = Vm::with_runtime(&config);
+    // Bind host handlers against the resolved runtime prelude: handlers
+    // are keyed by method name against the declaration identities the
+    // program was compiled with.
+    let prelude = super::runtime_prelude()?;
+    let mut vm = Vm::new();
+    ambient_runtime::register_defaults(&mut vm, &prelude);
+
+    let network_interface = prelude_interface(&prelude, "Network")?;
+    let execute_interface = prelude_interface(&prelude, "Execute")?;
+    let console_interface = prelude_interface(&prelude, "Console")?;
+    let log_interface = prelude_interface(&prelude, "Log")?;
 
     // Create store for function dependencies (used by the Execute ability).
     // add_module registers canonical objects so functions can be shipped.
@@ -312,6 +329,7 @@ fn run_compiled(compiled: &CompiledModule, entry: &str) -> Result<()> {
     // Register Network ability for TCP operations.
     register_network(
         &mut vm,
+        &network_interface,
         NetworkConfig {
             runtime: runtime.handle().clone(),
         },
@@ -323,11 +341,12 @@ fn run_compiled(compiled: &CompiledModule, entry: &str) -> Result<()> {
     // Time, Random, or (recursive) Execute access.
     register_execute(
         &mut vm,
+        &execute_interface,
         ExecuteConfig {
             store: Arc::clone(&store),
-            grants: Some(Arc::new(|exec_vm: &mut Vm| {
-                register_console(exec_vm, ConsoleConfig::default());
-                register_log(exec_vm, LogConfig::default());
+            grants: Some(Arc::new(move |exec_vm: &mut Vm| {
+                register_console(exec_vm, &console_interface, ConsoleConfig::default());
+                register_log(exec_vm, &log_interface, LogConfig::default());
             })),
         },
     );

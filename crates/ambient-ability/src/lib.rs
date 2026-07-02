@@ -6,28 +6,17 @@
 //! - [`SuspendedAbility`] - Represents a suspended ability operation
 //! - [`VmError`] - Errors that abilities can return
 //! - [`HostHandler`] - The function type for ability method implementations
-//! - [`RuntimeAbility`] - Trait for defining complete abilities
 //!
 //! # Example
 //!
 //! ```ignore
-//! use ambient_ability::{RuntimeAbility, HostHandler, Value, SuspendedAbility, VmError};
-//! use ambient_core::{AbilityDescriptor, AbilityId, MethodId, TypeFactory};
+//! use ambient_ability::{format_value, HostHandler, Value};
 //!
-//! pub struct MyAbility;
-//!
-//! impl RuntimeAbility for MyAbility {
-//!     fn name(&self) -> &'static str { "MyAbility" }
-//!     fn ability_id(&self) -> AbilityId { 0x1000 }
-//!
-//!     fn descriptor<T: Clone + 'static>(&self, factory: &dyn TypeFactory<T>) -> AbilityDescriptor<T> {
-//!         // ... define method signatures
-//!     }
-//!
-//!     fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
-//!         vec![(0, Box::new(|ability| Ok(Value::Unit)))]
-//!     }
-//! }
+//! let print_handler: HostHandler = Box::new(|ability| {
+//!     let message = ability.args.first().cloned().unwrap_or(Value::Unit);
+//!     println!("{}", format_value(&message));
+//!     Ok(Value::Unit)
+//! });
 //! ```
 
 #![warn(clippy::print_stdout, clippy::print_stderr)]
@@ -48,7 +37,7 @@ mod value;
 
 pub use error::{RuntimeError, StackTraceFrame, VmError};
 pub use format::{format_value, format_value_colored, format_value_display};
-pub use handler::{HostHandler, RuntimeAbility};
+pub use handler::HostHandler;
 pub use value::{
     CapturedFrame, CapturedHandler, Closure, Continuation, EnumValue, HandlerImpl, HandlerValue,
     MapValue, ModuleExport, ModuleExportKind, ModuleMemberRef, ModuleValue, ReturnAction, SetValue,

@@ -27,9 +27,8 @@ pub struct PackageInfo {
     pub modules: HashMap<String, ParsedModule>,
     /// Host abilities configured for this package.
     ///
-    /// Used by `runtime_config()` and `ability_resolver()` for ability-aware
-    /// type checking. Currently stored for future use when we add support for
-    /// validating that performed abilities match the package configuration.
+    /// Stored for future use when we add support for validating that
+    /// performed abilities match the package configuration.
     #[allow(dead_code)]
     pub host_abilities: Vec<String>,
 }

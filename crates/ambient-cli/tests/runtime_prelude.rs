@@ -1,10 +1,12 @@
-//! The runtime bindings interface (`runtime.ab`) must hash identically
-//! to the Rust descriptors it replaces.
+//! The runtime bindings interface (`runtime.ab`) is the sole source of
+//! truth for the native runtime.
 //!
-//! Host handlers are registered under the descriptor identities, while
-//! type checking and compilation resolve performs through the parsed
-//! declarations — identical hashes are what let both halves meet. When
-//! the descriptors are retired, these assertions go with them.
+//! Type checking and compilation resolve performs through the parsed
+//! declarations, and host handlers bind by method name against the same
+//! resolved interfaces (method IDs are declaration indices). These tests
+//! pin the shape of that contract: the declarations must resolve cleanly
+//! and expose the ability and method names the handler sets expect, in
+//! declaration order.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -26,102 +28,79 @@ fn resolved_prelude() -> HashMap<String, Arc<DynAbility>> {
 }
 
 #[test]
-fn declarations_hash_identically_to_descriptors() {
+fn declarations_expose_the_expected_interfaces() {
     let prelude = resolved_prelude();
-    let expected = [
-        ("Console", ambient_runtime::console::ability_id()),
-        ("Time", ambient_runtime::time::ability_id()),
-        ("Random", ambient_runtime::random::ability_id()),
-        ("Log", ambient_runtime::log::ability_id()),
-        ("Fs", ambient_runtime::fs::ability_id()),
-        ("Network", ambient_runtime::network::ability_id()),
-        ("Execute", ambient_runtime::execute::ability_id()),
+
+    let expected: [(&str, &[&str]); 7] = [
+        ("Console", &["print", "eprint", "println"]),
+        ("Time", &["now", "wait"]),
+        ("Random", &["seed", "in_range"]),
+        ("Log", &["debug", "info", "warn", "error"]),
+        (
+            "Fs",
+            &[
+                "read",
+                "write",
+                "read_bytes",
+                "write_bytes",
+                "exists",
+                "list",
+                "remove",
+                "create_dir",
+            ],
+        ),
+        (
+            "Network",
+            &[
+                "listen",
+                "accept",
+                "close_listener",
+                "connect",
+                "close",
+                "send",
+                "receive",
+                "local_addr",
+                "peer_addr",
+            ],
+        ),
+        (
+            "Execute",
+            &[
+                "has_function",
+                "get_dependencies",
+                "load_functions",
+                "run",
+                "get_functions",
+                "run_with",
+            ],
+        ),
     ];
 
-    assert_eq!(prelude.len(), expected.len());
-    for (name, descriptor_id) in expected {
-        let declared = prelude
+    assert_eq!(
+        prelude.len(),
+        expected.len(),
+        "runtime.ab must declare exactly the 7 runtime abilities"
+    );
+
+    for (name, methods) in expected {
+        let ability = prelude
             .get(name)
             .unwrap_or_else(|| panic!("runtime.ab must declare {name}"));
+
+        let declared: Vec<&str> = ability.methods.iter().map(|m| m.name.as_ref()).collect();
         assert_eq!(
-            declared.id,
-            descriptor_id,
-            "declaration of {name} must hash like its descriptor \
-             (declared {}, descriptor {})",
-            declared.id.to_hex(),
-            descriptor_id.to_hex()
+            declared, methods,
+            "{name} must declare these methods in this order \
+             (method ID = declaration index)"
         );
+
+        for (index, method) in ability.methods.iter().enumerate() {
+            assert_eq!(
+                usize::from(method.id),
+                index,
+                "{name}.{} must get its declaration index as its method ID",
+                method.name
+            );
+        }
     }
-}
-
-#[test]
-fn method_ids_match_descriptor_constants() {
-    let prelude = resolved_prelude();
-    let method_id = |ability: &str, method: &str| {
-        prelude[ability]
-            .method(method)
-            .unwrap_or_else(|| panic!("{ability} must declare {method}"))
-            .id
-    };
-
-    use ambient_runtime::{console, execute, fs, log, network, random, time};
-
-    assert_eq!(method_id("Console", "print"), console::METHOD_PRINT);
-    assert_eq!(method_id("Console", "eprint"), console::METHOD_EPRINT);
-    assert_eq!(method_id("Console", "println"), console::METHOD_PRINTLN);
-
-    assert_eq!(method_id("Time", "now"), time::METHOD_NOW);
-    assert_eq!(method_id("Time", "wait"), time::METHOD_WAIT);
-
-    assert_eq!(method_id("Random", "seed"), random::METHOD_SEED);
-    assert_eq!(method_id("Random", "in_range"), random::METHOD_IN_RANGE);
-
-    assert_eq!(method_id("Log", "debug"), log::METHOD_DEBUG);
-    assert_eq!(method_id("Log", "info"), log::METHOD_INFO);
-    assert_eq!(method_id("Log", "warn"), log::METHOD_WARN);
-    assert_eq!(method_id("Log", "error"), log::METHOD_ERROR);
-
-    assert_eq!(method_id("Fs", "read"), fs::METHOD_READ);
-    assert_eq!(method_id("Fs", "write"), fs::METHOD_WRITE);
-    assert_eq!(method_id("Fs", "read_bytes"), fs::METHOD_READ_BYTES);
-    assert_eq!(method_id("Fs", "write_bytes"), fs::METHOD_WRITE_BYTES);
-    assert_eq!(method_id("Fs", "exists"), fs::METHOD_EXISTS);
-    assert_eq!(method_id("Fs", "list"), fs::METHOD_LIST);
-    assert_eq!(method_id("Fs", "remove"), fs::METHOD_REMOVE);
-    assert_eq!(method_id("Fs", "create_dir"), fs::METHOD_CREATE_DIR);
-
-    assert_eq!(method_id("Network", "listen"), network::METHOD_LISTEN);
-    assert_eq!(method_id("Network", "accept"), network::METHOD_ACCEPT);
-    assert_eq!(
-        method_id("Network", "close_listener"),
-        network::METHOD_CLOSE_LISTENER
-    );
-    assert_eq!(method_id("Network", "connect"), network::METHOD_CONNECT);
-    assert_eq!(method_id("Network", "close"), network::METHOD_CLOSE);
-    assert_eq!(method_id("Network", "send"), network::METHOD_SEND);
-    assert_eq!(method_id("Network", "receive"), network::METHOD_RECEIVE);
-    assert_eq!(
-        method_id("Network", "local_addr"),
-        network::METHOD_LOCAL_ADDR
-    );
-    assert_eq!(method_id("Network", "peer_addr"), network::METHOD_PEER_ADDR);
-
-    assert_eq!(
-        method_id("Execute", "has_function"),
-        execute::METHOD_HAS_FUNCTION
-    );
-    assert_eq!(
-        method_id("Execute", "get_dependencies"),
-        execute::METHOD_GET_DEPENDENCIES
-    );
-    assert_eq!(
-        method_id("Execute", "load_functions"),
-        execute::METHOD_LOAD_FUNCTIONS
-    );
-    assert_eq!(method_id("Execute", "run"), execute::METHOD_RUN);
-    assert_eq!(
-        method_id("Execute", "get_functions"),
-        execute::METHOD_GET_FUNCTIONS
-    );
-    assert_eq!(method_id("Execute", "run_with"), execute::METHOD_RUN_WITH);
 }

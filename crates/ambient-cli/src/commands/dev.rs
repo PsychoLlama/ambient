@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 
-use ambient_engine::abilities::{format_value, register_all_standard_abilities};
+use ambient_engine::format::format_value;
 use ambient_engine::vm::Vm;
 
 use super::compile_source;
@@ -116,9 +116,16 @@ fn run_dev_iteration(file: &Path, entry: &str) {
 
     let compile_time = start.elapsed();
 
-    // Create and configure VM.
+    // Create and configure VM with the runtime prelude's default abilities.
+    let prelude = match super::runtime_prelude() {
+        Ok(prelude) => prelude,
+        Err(e) => {
+            eprintln!("\x1b[1;31merror\x1b[0m: {e}");
+            return;
+        }
+    };
     let mut vm = Vm::new();
-    register_all_standard_abilities(&mut vm);
+    ambient_runtime::register_defaults(&mut vm, &prelude);
 
     // Load all functions into the VM.
     for func in compiled.functions.values() {

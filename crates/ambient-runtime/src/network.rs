@@ -1,8 +1,8 @@
 //! Network ability for TCP client/server operations.
 //!
-//! This module provides general-purpose networking primitives with message-oriented I/O.
-//! Unlike the Remote ability which bundles networking with remote execution semantics,
-//! Network provides low-level socket operations that can be used for any protocol.
+//! This module provides general-purpose networking primitives with
+//! message-oriented I/O: low-level socket operations that can be used for
+//! any protocol.
 //!
 //! # API
 //!
@@ -42,296 +42,207 @@
 //! Network.close!(conn);
 //! ```
 
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex};
 
-use ambient_ability::{HostHandler, RuntimeAbility};
-use ambient_core::{
-    hash_interface, AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature,
-    TypeFactory,
-};
+use ambient_ability::{SuspendedAbility, Value, VmError};
+use ambient_engine::ability_resolver::AbilityInterface;
+use ambient_engine::vm::Vm;
+use tokio::runtime::Handle as RuntimeHandle;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Method IDs
-// ═══════════════════════════════════════════════════════════════════════════════
+use crate::network_state::NetworkState;
+use crate::{extract_bytes, extract_number, extract_string, require};
 
-/// Method: listen(address: string) -> ListenerId
-pub const METHOD_LISTEN: u16 = 0x0000;
+/// Configuration for the Network ability.
+pub struct NetworkConfig {
+    /// Tokio runtime handle for async operations.
+    pub runtime: RuntimeHandle,
+}
 
-/// Method: accept(listener: ListenerId) -> ConnectionId
-pub const METHOD_ACCEPT: u16 = 0x0001;
-
-/// Method: close_listener(listener: ListenerId) -> ()
-pub const METHOD_CLOSE_LISTENER: u16 = 0x0002;
-
-/// Method: connect(address: string) -> ConnectionId
-pub const METHOD_CONNECT: u16 = 0x0003;
-
-/// Method: close(conn: ConnectionId) -> ()
-pub const METHOD_CLOSE: u16 = 0x0004;
-
-/// Method: send(conn: ConnectionId, data: List<number>) -> ()
-pub const METHOD_SEND: u16 = 0x0005;
-
-/// Method: receive(conn: ConnectionId) -> List<number>
-pub const METHOD_RECEIVE: u16 = 0x0006;
-
-/// Method: local_addr(conn: ConnectionId) -> string
-pub const METHOD_LOCAL_ADDR: u16 = 0x0007;
-
-/// Method: peer_addr(conn: ConnectionId) -> string
-pub const METHOD_PEER_ADDR: u16 = 0x0008;
-
-/// The Network ability's method set, instantiated for any type system.
+/// Register the Network ability handlers on a VM.
 ///
-/// Single source of truth for the interface: the content-addressed
-/// [`ability_id`] and the engine-facing descriptor both derive from it.
-fn methods<T: Clone + 'static>() -> Vec<MethodDescriptor<T>> {
-    vec![
-        MethodDescriptor {
-            id: METHOD_LISTEN,
-            name: "listen",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.string()],
-                return_type: |f| f.number(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_ACCEPT,
-            name: "accept",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.number()],
-                return_type: |f| f.number(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_CLOSE_LISTENER,
-            name: "close_listener",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.number()],
-                return_type: |f| f.unit(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_CONNECT,
-            name: "connect",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.string()],
-                return_type: |f| f.number(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_CLOSE,
-            name: "close",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.number()],
-                return_type: |f| f.unit(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_SEND,
-            name: "send",
-            signature: MethodSignature {
-                param_count: 2,
-                param_types: |f| vec![f.number(), f.bytes()],
-                return_type: |f| f.unit(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_RECEIVE,
-            name: "receive",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.number()],
-                return_type: |f| f.bytes(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_LOCAL_ADDR,
-            name: "local_addr",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.number()],
-                return_type: |f| f.string(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_PEER_ADDR,
-            name: "peer_addr",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.number()],
-                return_type: |f| f.string(),
-            },
-        },
-    ]
-}
-
-/// The content-addressed identity of the Network ability.
-#[must_use]
-pub fn ability_id() -> AbilityId {
-    static ID: OnceLock<AbilityId> = OnceLock::new();
-    *ID.get_or_init(|| hash_interface(NetworkAbility::NAME, &methods()))
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Marker Types
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Marker struct for the Network ability.
-#[derive(Clone, Copy, Debug)]
-pub struct NetworkAbility;
-
-impl NetworkAbility {
-    /// The name of this ability as it appears in Ambient code.
-    pub const NAME: &'static str = "Network";
-
-    /// The content-addressed identity of the Network ability.
-    #[must_use]
-    pub fn ability_id() -> AbilityId {
-        ability_id()
-    }
-}
-
-/// Constant for use in other modules.
-pub const NETWORK: NetworkAbility = NetworkAbility;
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Network RuntimeAbility Implementation
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Network ability implementation providing type descriptors.
+/// Provides low-level TCP networking operations:
+/// - `listen(address)` - Bind TCP listener
+/// - `accept(listener)` - Accept connection
+/// - `close_listener(listener)` - Close listener
+/// - `connect(address)` - Connect to server
+/// - `close(conn)` - Close connection
+/// - `send(conn, data)` - Send length-prefixed message
+/// - `receive(conn)` - Receive length-prefixed message
+/// - `local_addr(conn)` - Get local address
+/// - `peer_addr(conn)` - Get peer address
 ///
-/// Note: Network handlers require runtime configuration (tokio handle) so this
-/// only provides the descriptor. Use `register_network` in ambient-engine to
-/// set up handlers.
-#[derive(Default)]
-pub struct NetworkRuntimeAbility;
+/// # Panics
+///
+/// Panics if the resolved interface is missing an expected method — the
+/// bindings interface and this handler set have drifted.
+#[allow(clippy::too_many_lines)]
+pub fn register_network(vm: &mut Vm, ability: &AbilityInterface, config: NetworkConfig) {
+    let state = Arc::new(Mutex::new(NetworkState::new(config.runtime)));
 
-impl NetworkRuntimeAbility {
-    /// Create a new Network ability.
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
-}
+    // Network.listen(address: string) -> ListenerId (number handle)
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "listen"),
+        Box::new(move |ability: &SuspendedAbility| {
+            let addr = extract_string(&ability.args)?;
+            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let id = state
+                .listen(&addr)
+                .map_err(|e| VmError::exception(format!("Network.listen: {e}")))?;
+            #[allow(clippy::cast_precision_loss)]
+            Ok(Value::Number(id as f64))
+        }),
+    );
 
-impl RuntimeAbility for NetworkRuntimeAbility {
-    fn name(&self) -> &'static str {
-        "Network"
-    }
+    // Network.accept(listener: number) -> ConnectionId (number handle)
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "accept"),
+        Box::new(move |ability: &SuspendedAbility| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let listener_id = extract_number(&ability.args)? as u64;
+            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let id = state
+                .accept(listener_id)
+                .map_err(|e| VmError::exception(format!("Network.accept: {e}")))?;
+            #[allow(clippy::cast_precision_loss)]
+            Ok(Value::Number(id as f64))
+        }),
+    );
 
-    fn ability_id(&self) -> AbilityId {
-        ability_id()
-    }
+    // Network.close_listener(listener: number) -> ()
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "close_listener"),
+        Box::new(move |ability: &SuspendedAbility| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let listener_id = extract_number(&ability.args)? as u64;
+            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            state
+                .close_listener(listener_id)
+                .map_err(|e| VmError::exception(format!("Network.close_listener: {e}")))?;
+            Ok(Value::Unit)
+        }),
+    );
 
-    fn descriptor<T: Clone + 'static>(
-        &self,
-        _factory: &dyn TypeFactory<T>,
-    ) -> AbilityDescriptor<T> {
-        AbilityDescriptor {
-            id: ability_id(),
-            name: NetworkAbility::NAME,
-            methods: Box::leak(methods::<T>().into_boxed_slice()),
-        }
-    }
+    // Network.connect(address: string) -> ConnectionId (number handle)
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "connect"),
+        Box::new(move |ability: &SuspendedAbility| {
+            let addr = extract_string(&ability.args)?;
+            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let id = state
+                .connect(&addr)
+                .map_err(|e| VmError::exception(format!("Network.connect: {e}")))?;
+            #[allow(clippy::cast_precision_loss)]
+            Ok(Value::Number(id as f64))
+        }),
+    );
 
-    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
-        // Network handlers require runtime configuration, so we can't provide default handlers.
-        // Use register_network() in ambient-engine to set up handlers.
-        vec![]
-    }
-}
+    // Network.close(conn: number) -> ()
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "close"),
+        Box::new(move |ability: &SuspendedAbility| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let conn_id = extract_number(&ability.args)? as u64;
+            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            state
+                .close(conn_id)
+                .map_err(|e| VmError::exception(format!("Network.close: {e}")))?;
+            Ok(Value::Unit)
+        }),
+    );
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    // Network.send(conn: number, data: Bytes) -> ()
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "send"),
+        Box::new(move |ability: &SuspendedAbility| {
+            if ability.args.len() < 2 {
+                return Err(VmError::TypeErrorOwned {
+                    expected: "2 arguments".to_string(),
+                    got: format!("{} arguments", ability.args.len()),
+                });
+            }
 
-    #[derive(Clone)]
-    struct TestType;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let conn_id = match &ability.args[0] {
+                Value::Number(n) => *n as u64,
+                other => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "number".to_string(),
+                        got: other.type_name().to_string(),
+                    })
+                }
+            };
 
-    struct TestTypeFactory;
+            let data = extract_bytes(&ability.args[1])?;
 
-    impl TypeFactory<TestType> for TestTypeFactory {
-        fn unit(&self) -> TestType {
-            TestType
-        }
-        fn bool(&self) -> TestType {
-            TestType
-        }
-        fn number(&self) -> TestType {
-            TestType
-        }
-        fn string(&self) -> TestType {
-            TestType
-        }
-        fn bytes(&self) -> TestType {
-            TestType
-        }
-        fn never(&self) -> TestType {
-            TestType
-        }
-        fn type_var(&self) -> TestType {
-            TestType
-        }
-        fn list(&self, _: TestType) -> TestType {
-            TestType
-        }
-    }
+            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            state
+                .send(conn_id, &data)
+                .map_err(|e| VmError::exception(format!("Network.send: {e}")))?;
+            Ok(Value::Unit)
+        }),
+    );
 
-    #[test]
-    fn test_network_ability_constants() {
-        assert_eq!(METHOD_LISTEN, 0x0000);
-        assert_eq!(METHOD_ACCEPT, 0x0001);
-        assert_eq!(METHOD_CLOSE_LISTENER, 0x0002);
-        assert_eq!(METHOD_CONNECT, 0x0003);
-        assert_eq!(METHOD_CLOSE, 0x0004);
-        assert_eq!(METHOD_SEND, 0x0005);
-        assert_eq!(METHOD_RECEIVE, 0x0006);
-        assert_eq!(METHOD_LOCAL_ADDR, 0x0007);
-        assert_eq!(METHOD_PEER_ADDR, 0x0008);
-        // Identity is stable across calls.
-        assert_eq!(ability_id(), NetworkAbility::ability_id());
-    }
+    // Network.receive(conn: number) -> Bytes
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "receive"),
+        Box::new(move |ability: &SuspendedAbility| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let conn_id = extract_number(&ability.args)? as u64;
 
-    #[test]
-    fn test_network_runtime_ability_name() {
-        let network = NetworkRuntimeAbility::new();
-        assert_eq!(network.name(), "Network");
-        assert_eq!(network.ability_id(), ability_id());
-    }
+            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let data = state
+                .receive(conn_id)
+                .map_err(|e| VmError::exception(format!("Network.receive: {e}")))?;
 
-    #[test]
-    fn test_network_descriptor_methods() {
-        let network = NetworkRuntimeAbility::new();
-        let factory = TestTypeFactory;
-        let descriptor = network.descriptor(&factory);
+            Ok(Value::bytes(data))
+        }),
+    );
 
-        assert_eq!(descriptor.id, ability_id());
-        assert_eq!(descriptor.name, "Network");
-        assert_eq!(descriptor.methods.len(), 9);
+    // Network.local_addr(conn: number) -> string
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "local_addr"),
+        Box::new(move |ability: &SuspendedAbility| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let conn_id = extract_number(&ability.args)? as u64;
 
-        let method_names: Vec<_> = descriptor.methods.iter().map(|m| m.name).collect();
-        assert!(method_names.contains(&"listen"));
-        assert!(method_names.contains(&"accept"));
-        assert!(method_names.contains(&"close_listener"));
-        assert!(method_names.contains(&"connect"));
-        assert!(method_names.contains(&"close"));
-        assert!(method_names.contains(&"send"));
-        assert!(method_names.contains(&"receive"));
-        assert!(method_names.contains(&"local_addr"));
-        assert!(method_names.contains(&"peer_addr"));
-    }
+            let state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let addr = state
+                .local_addr(conn_id)
+                .map_err(|e| VmError::exception(format!("Network.local_addr: {e}")))?;
+            Ok(Value::string(addr))
+        }),
+    );
 
-    #[test]
-    fn test_network_handlers_empty() {
-        // Network handlers require runtime configuration
-        let network = NetworkRuntimeAbility::new();
-        let handlers = network.handlers();
-        assert!(handlers.is_empty());
-    }
+    // Network.peer_addr(conn: number) -> string
+    let state_clone = Arc::clone(&state);
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "peer_addr"),
+        Box::new(move |ability: &SuspendedAbility| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let conn_id = extract_number(&ability.args)? as u64;
+
+            let state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let addr = state
+                .peer_addr(conn_id)
+                .map_err(|e| VmError::exception(format!("Network.peer_addr: {e}")))?;
+            Ok(Value::string(addr))
+        }),
+    );
 }

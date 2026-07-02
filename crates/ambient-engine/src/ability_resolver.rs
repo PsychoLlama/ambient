@@ -82,6 +82,43 @@ impl DynAbility {
     }
 }
 
+/// A plain-data view of a resolved ability interface: its
+/// content-addressed identity plus method-name → method-id mapping.
+///
+/// Unlike [`DynAbility`] this is `Send + Sync` (no types), so host
+/// binding code — including capability-grant closures that outlive the
+/// current thread — can carry it around freely.
+#[derive(Debug, Clone)]
+pub struct AbilityInterface {
+    /// Content-addressed identity of the interface.
+    pub id: AbilityId,
+    methods: Vec<(Arc<str>, MethodId)>,
+}
+
+impl AbilityInterface {
+    /// Method ID for a method name.
+    #[must_use]
+    pub fn method_id(&self, name: &str) -> Option<MethodId> {
+        self.methods
+            .iter()
+            .find(|(n, _)| n.as_ref() == name)
+            .map(|(_, id)| *id)
+    }
+}
+
+impl From<&DynAbility> for AbilityInterface {
+    fn from(ability: &DynAbility) -> Self {
+        Self {
+            id: ability.id,
+            methods: ability
+                .methods
+                .iter()
+                .map(|m| (Arc::clone(&m.name), m.id))
+                .collect(),
+        }
+    }
+}
+
 /// Resolves ability lookups from registered providers.
 ///
 /// This is used by the type checker and compiler to look up ability and method

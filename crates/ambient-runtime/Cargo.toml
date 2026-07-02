@@ -7,3 +7,7 @@ description = "Host-provided runtime abilities for the Ambient language"
 [dependencies]
 ambient-ability = { path = "../ambient-ability" }
 ambient-core = { path = "../ambient-core" }
+ambient-engine = { path = "../ambient-engine" }
+blake3 = { version = "1.5.5", features = ["serde"] }
+hex = "0.4"
+tokio = { version = "1.42", features = ["net", "io-util", "rt-multi-thread", "macros", "sync"] }

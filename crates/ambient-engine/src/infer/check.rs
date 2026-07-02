@@ -1130,12 +1130,15 @@ mod tests {
         Type::Named(crate::types::NamedType::new(Arc::from(name), vec![]))
     }
 
-    /// The in-language declaration of a builtin must hash to the same
-    /// identity as its Rust descriptor: this is what lets host handlers
-    /// keyed by the descriptor id serve performs compiled against the
-    /// declaration.
+    /// An in-language declaration must hash to the same identity as a
+    /// descriptor-style rendering of the interface (method IDs are
+    /// declaration indices, signatures render through the canonical type
+    /// grammar): this is what lets host handlers keyed against the
+    /// resolved declarations serve performs compiled from them.
     #[test]
-    fn console_declaration_hashes_like_the_builtin_descriptor() {
+    fn declaration_hashing_matches_descriptor_hashing() {
+        use ambient_core::{hash_interface, MethodDescriptor};
+
         let mut module = ability_module(
             "Console",
             vec![
@@ -1149,20 +1152,20 @@ mod tests {
         assert!(errors.is_empty());
         assert_eq!(abilities.len(), 1);
 
+        let expected = hash_interface(
+            "Console",
+            &[
+                MethodDescriptor::new(0, "print", 1, |f| vec![f.string()], |f| f.unit()),
+                MethodDescriptor::new(1, "eprint", 1, |f| vec![f.string()], |f| f.unit()),
+                MethodDescriptor::new(2, "println", 1, |f| vec![f.string()], |f| f.unit()),
+            ],
+        );
+
         let console = &abilities[0];
-        assert_eq!(console.id, ambient_runtime::console::ability_id());
-        assert_eq!(
-            console.method("print").map(|m| m.id),
-            Some(ambient_runtime::console::METHOD_PRINT)
-        );
-        assert_eq!(
-            console.method("eprint").map(|m| m.id),
-            Some(ambient_runtime::console::METHOD_EPRINT)
-        );
-        assert_eq!(
-            console.method("println").map(|m| m.id),
-            Some(ambient_runtime::console::METHOD_PRINTLN)
-        );
+        assert_eq!(console.id, expected);
+        assert_eq!(console.method("print").map(|m| m.id), Some(0));
+        assert_eq!(console.method("eprint").map(|m| m.id), Some(1));
+        assert_eq!(console.method("println").map(|m| m.id), Some(2));
 
         // The identity is also written back for the compiler.
         let crate::ast::ItemKind::Ability(def) = &module.items[0].kind else {
@@ -1176,7 +1179,9 @@ mod tests {
     /// declaration must use a distinct type parameter per position
     /// (`run<T, R>` — never one parameter in two positions).
     #[test]
-    fn execute_declaration_hashes_like_the_builtin_descriptor() {
+    fn generic_declaration_hashing_matches_descriptor_hashing() {
+        use ambient_core::{hash_interface, MethodDescriptor};
+
         let list_of_string = Type::named("List", vec![Type::String]);
         let mut module = ability_module(
             "Execute",
@@ -1221,15 +1226,46 @@ mod tests {
 
         let (abilities, errors) = resolve_ability_declarations(&mut module);
         assert!(errors.is_empty());
+
+        let expected = hash_interface(
+            "Execute",
+            &[
+                MethodDescriptor::new(0, "has_function", 1, |f| vec![f.string()], |f| f.bool()),
+                MethodDescriptor::new(
+                    1,
+                    "get_dependencies",
+                    1,
+                    |f| vec![f.string()],
+                    |f| f.list(f.string()),
+                ),
+                MethodDescriptor::new(2, "load_functions", 1, |f| vec![f.bytes()], |f| f.unit()),
+                MethodDescriptor::new(
+                    3,
+                    "run",
+                    2,
+                    |f| vec![f.string(), f.type_var()],
+                    |f| f.type_var(),
+                ),
+                MethodDescriptor::new(
+                    4,
+                    "get_functions",
+                    1,
+                    |f| vec![f.list(f.string())],
+                    |f| f.bytes(),
+                ),
+                MethodDescriptor::new(
+                    5,
+                    "run_with",
+                    3,
+                    |f| vec![f.string(), f.type_var(), f.type_var()],
+                    |f| f.type_var(),
+                ),
+            ],
+        );
+
         let execute = &abilities[0];
-        assert_eq!(execute.id, ambient_runtime::execute::ability_id());
-        assert_eq!(
-            execute.method("run").map(|m| m.id),
-            Some(ambient_runtime::execute::METHOD_RUN)
-        );
-        assert_eq!(
-            execute.method("run_with").map(|m| m.id),
-            Some(ambient_runtime::execute::METHOD_RUN_WITH)
-        );
+        assert_eq!(execute.id, expected);
+        assert_eq!(execute.method("run").map(|m| m.id), Some(3));
+        assert_eq!(execute.method("run_with").map(|m| m.id), Some(5));
     }
 }

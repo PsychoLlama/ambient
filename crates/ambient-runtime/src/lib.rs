@@ -1,206 +1,221 @@
 //! Runtime abilities for the Ambient language.
 //!
-//! This crate defines host-provided abilities that depend on the execution
-//! environment. These abilities may not be available in all environments
-//! (e.g., WASM targets may not support File operations).
+//! This crate is the native embedder layer over `ambient-engine`. It
+//! ships the runtime bindings interface as in-language `ability`
+//! declarations ([`ABILITY_DECLARATIONS`]) and provides host handler
+//! implementations that bind against the *resolved* declarations by
+//! method name — there is no parallel Rust description of the interface.
 //!
-//! Core abilities that the language depends on (like Exception) are defined
-//! in `ambient-core` instead.
+//! Core abilities that the language depends on (like Exception) are
+//! defined in `ambient-core` instead.
+
+#![warn(clippy::print_stdout, clippy::print_stderr)]
+#![deny(
+    clippy::pedantic,
+    clippy::perf,
+    clippy::style,
+    clippy::complexity,
+    clippy::correctness,
+    clippy::suspicious,
+    clippy::unwrap_used,
+    clippy::self_named_module_files
+)]
+#![cfg_attr(not(test), deny(clippy::expect_used))]
 
 pub mod console;
 pub mod execute;
 pub mod fs;
 pub mod log;
 pub mod network;
+pub mod network_state;
 pub mod random;
 pub mod time;
 
+use std::sync::Arc;
+
+use ambient_ability::{Value, VmError};
+use ambient_engine::ability_resolver::{AbilityInterface, DynAbility};
+use ambient_engine::vm::Vm;
+
 /// The runtime bindings interface, as in-language `ability` declarations.
 ///
-/// This source is the portable description of the native runtime: an
+/// This source is the single description of the native runtime: an
 /// embedder parses it, resolves the declarations to content-addressed
 /// identities, registers them as the `runtime` ability prelude for type
 /// checking and compilation, and binds host handlers against the same
-/// identities. The Rust descriptors in the sibling modules hash
-/// identically (asserted by test) until they are retired.
+/// identities by method name (see the `register_*` functions in the
+/// sibling modules).
 pub const ABILITY_DECLARATIONS: &str = include_str!("runtime.ab");
 
-pub use console::{ConsoleAbility, ConsoleRuntimeAbility, CONSOLE};
-pub use execute::ExecuteRuntimeAbility;
-pub use fs::{FsAbility, FsRuntimeAbility, FS};
-pub use log::{LogAbility, LogRuntimeAbility, LOG};
-pub use network::{NetworkAbility, NetworkRuntimeAbility, NETWORK};
-pub use random::{RandomAbility, RandomRuntimeAbility, RANDOM};
-pub use time::{TimeAbility, TimeRuntimeAbility, TIME};
+pub use console::{register_console, register_console_with_collector, ConsoleConfig};
+pub use execute::{register_execute, ExecuteConfig, ExecuteGrants};
+pub use fs::register_fs;
+pub use log::{register_log, LogConfig};
+pub use network::{register_network, NetworkConfig};
+pub use random::register_random;
+pub use time::register_time;
 
-// Re-export RuntimeAbility trait for convenience
-pub use ambient_ability::RuntimeAbility;
-
-use ambient_core::{AbilityDescriptor, AbilityProvider, TypeFactory};
-
-/// Provider for runtime abilities (Console, Time, Random, Log, Fs, Network, Execute).
+/// Method ID for a named method of the resolved bindings interface.
 ///
-/// This is parameterized by the type system's Type representation,
-/// allowing it to work with different type systems.
-pub struct RuntimeAbilities<T: 'static> {
-    abilities: Vec<AbilityDescriptor<T>>,
+/// Panics if the declaration is missing the method — that means the
+/// bindings interface and this handler set have drifted.
+pub(crate) fn require(ability: &AbilityInterface, method: &str) -> u16 {
+    ability
+        .method_id(method)
+        .unwrap_or_else(|| panic!("runtime bindings interface has no method `{method}`"))
 }
 
-impl<T: Clone + 'static> RuntimeAbilities<T> {
-    /// Create a new runtime abilities provider.
-    ///
-    /// The type factory is used to construct type signatures for methods.
-    pub fn new(factory: &dyn TypeFactory<T>) -> Self {
-        Self {
-            abilities: vec![
-                ConsoleRuntimeAbility::new().descriptor(factory),
-                TimeRuntimeAbility::new().descriptor(factory),
-                RandomRuntimeAbility::new().descriptor(factory),
-                LogRuntimeAbility::new().descriptor(factory),
-                FsRuntimeAbility::new().descriptor(factory),
-                NetworkRuntimeAbility::new().descriptor(factory),
-                ExecuteRuntimeAbility::new().descriptor(factory),
-            ],
+/// Register the zero-config native abilities (Console, Time, Random,
+/// Log, Fs) with default settings against the resolved bindings
+/// interface. Network and Execute need external resources; register
+/// them separately.
+///
+/// # Panics
+///
+/// Panics if a prelude ability with one of those names is missing a
+/// method its handler set expects (the bindings interface and this
+/// crate have drifted).
+pub fn register_defaults(vm: &mut Vm, prelude: &[Arc<DynAbility>]) {
+    for ability in prelude {
+        let interface = AbilityInterface::from(&**ability);
+        match ability.name.as_ref() {
+            "Console" => register_console(vm, &interface, ConsoleConfig::default()),
+            "Time" => register_time(vm, &interface),
+            "Random" => register_random(vm, &interface),
+            "Log" => register_log(vm, &interface, LogConfig::default()),
+            "Fs" => register_fs(vm, &interface),
+            _ => {}
         }
     }
 }
 
-impl<T: Clone + 'static> AbilityProvider<T> for RuntimeAbilities<T> {
-    fn abilities(&self) -> &[AbilityDescriptor<T>] {
-        &self.abilities
+// ═══════════════════════════════════════════════════════════════════════════
+// Argument extraction helpers shared by handler implementations
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Extract a string from the first argument.
+pub(crate) fn extract_string(args: &[Value]) -> Result<String, VmError> {
+    match args.first() {
+        Some(Value::String(s)) => Ok(s.to_string()),
+        Some(other) => Err(VmError::TypeErrorOwned {
+            expected: "string".to_string(),
+            got: other.type_name().to_string(),
+        }),
+        None => Err(VmError::TypeErrorOwned {
+            expected: "string".to_string(),
+            got: "no argument".to_string(),
+        }),
+    }
+}
+
+/// Extract a number from the first argument.
+pub(crate) fn extract_number(args: &[Value]) -> Result<f64, VmError> {
+    match args.first() {
+        Some(Value::Number(n)) => Ok(*n),
+        Some(other) => Err(VmError::TypeErrorOwned {
+            expected: "number".to_string(),
+            got: other.type_name().to_string(),
+        }),
+        None => Err(VmError::TypeErrorOwned {
+            expected: "number".to_string(),
+            got: "no argument".to_string(),
+        }),
+    }
+}
+
+/// Extract bytes from a Bytes value.
+pub(crate) fn extract_bytes(value: &Value) -> Result<Vec<u8>, VmError> {
+    match value {
+        Value::Bytes(bytes) => Ok(bytes.as_ref().clone()),
+        other => Err(VmError::TypeErrorOwned {
+            expected: "bytes".to_string(),
+            got: other.type_name().to_string(),
+        }),
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::Arc;
+
+    use ambient_engine::ability_resolver::{AbilityInterface, DynAbility, DynMethod};
+    use ambient_engine::types::Type;
+
+    /// A hand-built interface: method IDs are declaration indices, which
+    /// is exactly what `resolve_ability_declarations` produces.
+    pub fn test_interface(name: &str, byte: u8, methods: &[&str]) -> AbilityInterface {
+        #[allow(clippy::cast_possible_truncation)]
+        let methods = methods
+            .iter()
+            .enumerate()
+            .map(|(idx, method)| DynMethod {
+                id: idx as u16,
+                name: Arc::from(*method),
+                params: vec![],
+                ret: Type::Unit,
+                quantified: vec![],
+            })
+            .collect();
+        let ability = DynAbility {
+            id: ambient_core::AbilityId::from_bytes([byte; 32]),
+            name: Arc::from(name),
+            methods,
+            dependencies: vec![],
+        };
+        AbilityInterface::from(&ability)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ambient_engine::bytecode::{BytecodeBuilder, Opcode};
 
-    #[derive(Clone, Debug, PartialEq)]
-    enum TestType {
-        Unit,
-        Bool,
-        Number,
-        String,
-        Bytes,
-        Never,
-        Var(u32),
-        List(Box<TestType>),
-    }
-
-    struct TestTypeFactory {
-        next_var: std::cell::Cell<u32>,
-    }
-
-    impl TestTypeFactory {
-        fn new() -> Self {
-            Self {
-                next_var: std::cell::Cell::new(0),
-            }
-        }
-    }
-
-    impl TypeFactory<TestType> for TestTypeFactory {
-        fn unit(&self) -> TestType {
-            TestType::Unit
-        }
-        fn bool(&self) -> TestType {
-            TestType::Bool
-        }
-        fn number(&self) -> TestType {
-            TestType::Number
-        }
-        fn string(&self) -> TestType {
-            TestType::String
-        }
-        fn bytes(&self) -> TestType {
-            TestType::Bytes
-        }
-        fn never(&self) -> TestType {
-            TestType::Never
-        }
-        fn type_var(&self) -> TestType {
-            let id = self.next_var.get();
-            self.next_var.set(id + 1);
-            TestType::Var(id)
-        }
-        fn list(&self, element: TestType) -> TestType {
-            TestType::List(Box::new(element))
-        }
-    }
-
+    /// `register_defaults` binds handlers against whatever identities the
+    /// prelude declarations resolved to, keyed by ability name.
     #[test]
-    fn test_runtime_abilities_provider() {
-        let factory = TestTypeFactory::new();
-        let runtime = RuntimeAbilities::new(&factory);
+    fn register_defaults_binds_by_ability_name() {
+        use ambient_engine::ability_resolver::DynMethod;
+        use ambient_engine::types::Type;
 
-        // 7 abilities: Console, Time, Random, Log, Fs, Network, Execute
-        assert_eq!(runtime.abilities().len(), 7);
+        let time = DynAbility {
+            id: ambient_core::AbilityId::from_bytes([9; 32]),
+            name: Arc::from("Time"),
+            methods: vec![
+                DynMethod {
+                    id: 0,
+                    name: Arc::from("now"),
+                    params: vec![],
+                    ret: Type::Number,
+                    quantified: vec![],
+                },
+                DynMethod {
+                    id: 1,
+                    name: Arc::from("wait"),
+                    params: vec![Type::Number],
+                    ret: Type::Unit,
+                    quantified: vec![],
+                },
+            ],
+            dependencies: vec![],
+        };
+        let prelude = vec![Arc::new(time)];
 
-        // Check Console
-        let console = runtime.get_ability("Console");
-        assert!(console.is_some());
-        let console = console.unwrap();
-        assert_eq!(console.methods.len(), 3);
+        let mut vm = Vm::new();
+        register_defaults(&mut vm, &prelude);
 
-        // Check Time
-        let time = runtime.get_ability("Time");
-        assert!(time.is_some());
-        let time = time.unwrap();
-        assert_eq!(time.methods.len(), 2);
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_suspend(prelude[0].id, 0, 0);
+        builder.emit(Opcode::Perform);
+        builder.emit(Opcode::Return);
+        let func = builder.build(0, 0);
+        let hash = func.hash;
+        vm.load_function(func);
 
-        // Check Random
-        let random = runtime.get_ability("Random");
-        assert!(random.is_some());
-        let random = random.unwrap();
-        assert_eq!(random.methods.len(), 2);
-
-        // Check Log
-        let log = runtime.get_ability("Log");
-        assert!(log.is_some());
-        let log = log.unwrap();
-        assert_eq!(log.methods.len(), 4);
-
-        // Check Fs
-        let fs_ab = runtime.get_ability("Fs");
-        assert!(fs_ab.is_some());
-        let fs_ab = fs_ab.unwrap();
-        assert_eq!(fs_ab.methods.len(), 8);
-
-        // Check Network
-        let network_ab = runtime.get_ability("Network");
-        assert!(network_ab.is_some());
-        let network_ab = network_ab.unwrap();
-        assert_eq!(network_ab.methods.len(), 9);
-
-        // Check Execute
-        let execute_ab = runtime.get_ability("Execute");
-        assert!(execute_ab.is_some());
-        let execute_ab = execute_ab.unwrap();
-        assert_eq!(execute_ab.methods.len(), 6);
-    }
-
-    #[test]
-    fn test_ability_ids() {
-        // Every ability's content-addressed identity must be distinct: the
-        // interfaces differ, so the interface hashes must differ too.
-        let ids = [
-            ("Console", console::ability_id()),
-            ("Time", time::ability_id()),
-            ("Random", random::ability_id()),
-            ("Log", log::ability_id()),
-            ("Fs", fs::ability_id()),
-            ("Network", network::ability_id()),
-            ("Execute", execute::ability_id()),
-            ("Exception", ambient_core::exception::ability_id()),
-        ];
-
-        for (i, (name_a, id_a)) in ids.iter().enumerate() {
-            for (name_b, id_b) in &ids[i + 1..] {
-                assert_ne!(
-                    id_a, id_b,
-                    "abilities {name_a} and {name_b} must not share an identity"
-                );
-            }
-        }
+        let result = vm.call(&hash, vec![]);
+        assert!(
+            matches!(result, Ok(Value::Number(n)) if n > 0.0),
+            "Time.now must dispatch to the bound handler: {result:?}"
+        );
     }
 }

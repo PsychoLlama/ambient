@@ -818,7 +818,7 @@ impl Vm {
                 // ─────────────────────────────────────────────────────────────
                 Opcode::ToString => {
                     let value = self.pop()?;
-                    let s = crate::abilities::format_value(&value);
+                    let s = crate::format::format_value(&value);
                     self.stack.push(Value::string(s));
                 }
 

@@ -1,7 +1,7 @@
 //! Execute ability for server-side function execution.
 //!
-//! This ability enables a server to execute functions by their content-addressed
-//! hash, supporting the remote execution protocol.
+//! This ability enables a server to execute functions by their
+//! content-addressed hash, supporting the remote execution protocol.
 //!
 //! # API
 //!
@@ -9,273 +9,304 @@
 //! - `get_dependencies(hash: string) -> List<string>` - Get function dependencies
 //! - `load_functions(data: Bytes) -> ()` - Load portable functions
 //! - `run<T, R>(hash: string, args: T) -> R` - Execute function by hash
+//! - `get_functions(hashes: List<string>) -> Bytes` - Ship functions with dependencies
+//! - `run_with<T, U, R>(hash: string, args: T, handler: U) -> R` - Execute with a
+//!   handler value installed at the base of the isolated VM
 
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex};
 
-use ambient_ability::{HostHandler, RuntimeAbility};
-use ambient_core::{
-    hash_interface, AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature,
-    TypeFactory,
-};
+use ambient_ability::{SuspendedAbility, Value, VmError};
+use ambient_engine::ability_resolver::AbilityInterface;
+use ambient_engine::store::Store;
+use ambient_engine::vm::Vm;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Method IDs
-// ═══════════════════════════════════════════════════════════════════════════════
+use crate::{extract_bytes, extract_string, require};
 
-/// Method: has_function(hash: string) -> bool
-pub const METHOD_HAS_FUNCTION: MethodId = 0x0000;
+/// Callback that grants abilities to an isolated execution VM.
+pub type ExecuteGrants = Arc<dyn Fn(&mut Vm) + Send + Sync>;
 
-/// Method: get_dependencies(hash: string) -> List<string>
-pub const METHOD_GET_DEPENDENCIES: MethodId = 0x0001;
-
-/// Method: load_functions(data: List<number>) -> ()
-pub const METHOD_LOAD_FUNCTIONS: MethodId = 0x0002;
-
-/// Method: run<T, R>(hash: string, args: T) -> R
-pub const METHOD_RUN: MethodId = 0x0003;
-
-/// Method: get_functions(hashes: List<string>) -> Bytes
-pub const METHOD_GET_FUNCTIONS: MethodId = 0x0004;
-
-/// Method: `run_with<T, H, R>(hash: string, args: T, handler: H) -> R`
+/// Configuration for the Execute ability.
 ///
-/// Like `run`, but installs the given handler value at the base of the
-/// isolated VM before calling, so the executed function's performs
-/// dispatch to handler code that shipped with it.
-pub const METHOD_RUN_WITH: MethodId = 0x0005;
+/// Execute enables server-side function execution by content-addressed hash.
+pub struct ExecuteConfig {
+    /// Store for function lookup.
+    pub store: Arc<Mutex<Store>>,
 
-/// The Execute ability's method set, instantiated for any type system.
+    /// Host policy for what executed code may do: called on every fresh
+    /// isolated VM to register granted host handlers (e.g. Console). With
+    /// no grants, remote code runs pure — any perform that reaches the
+    /// host is an unhandled-ability error. The remote must provide all
+    /// ability handlers; nothing proxies back to the caller.
+    pub grants: Option<ExecuteGrants>,
+}
+
+/// Register the Execute ability handlers on a VM.
 ///
-/// Single source of truth for the interface: the content-addressed
-/// [`ability_id`] and the engine-facing descriptor both derive from it.
-fn methods<T: Clone + 'static>() -> Vec<MethodDescriptor<T>> {
-    vec![
-        MethodDescriptor {
-            id: METHOD_HAS_FUNCTION,
-            name: "has_function",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.string()],
-                return_type: |f| f.bool(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_GET_DEPENDENCIES,
-            name: "get_dependencies",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.string()],
-                return_type: |f| f.list(f.string()),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_LOAD_FUNCTIONS,
-            name: "load_functions",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.bytes()], // serialized data
-                return_type: |f| f.unit(),
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_RUN,
-            name: "run",
-            signature: MethodSignature {
-                param_count: 2,
-                param_types: |f| vec![f.string(), f.type_var()], // hash, args
-                return_type: |f| f.type_var(),                   // result
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_GET_FUNCTIONS,
-            name: "get_functions",
-            signature: MethodSignature {
-                param_count: 1,
-                param_types: |f| vec![f.list(f.string())], // list of hashes
-                return_type: |f| f.bytes(),                // serialized functions
-            },
-        },
-        MethodDescriptor {
-            id: METHOD_RUN_WITH,
-            name: "run_with",
-            signature: MethodSignature {
-                param_count: 3,
-                // hash, args, handler (Handler<A> is not expressible via
-                // the factory surface; a type variable keeps it loose).
-                param_types: |f| vec![f.string(), f.type_var(), f.type_var()],
-                return_type: |f| f.type_var(), // result
-            },
-        },
-    ]
-}
-
-/// The content-addressed identity of the Execute ability.
-#[must_use]
-pub fn ability_id() -> AbilityId {
-    static ID: OnceLock<AbilityId> = OnceLock::new();
-    *ID.get_or_init(|| hash_interface(ExecuteAbility::NAME, &methods()))
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Execute Ability Constant
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Marker struct for the Execute ability.
-pub struct ExecuteAbility;
-
-impl ExecuteAbility {
-    /// The name of this ability as it appears in Ambient code.
-    pub const NAME: &'static str = "Execute";
-
-    /// The content-addressed identity of the Execute ability.
-    #[must_use]
-    pub fn ability_id() -> AbilityId {
-        ability_id()
-    }
-}
-
-/// Constant for use in other modules.
-pub const EXECUTE: ExecuteAbility = ExecuteAbility;
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Execute RuntimeAbility Implementation
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Execute ability implementation providing type descriptors.
+/// Provides server-side function execution:
+/// - `has_function(hash)` - Check if function exists
+/// - `get_dependencies(hash)` - Get function dependencies
+/// - `load_functions(data)` - Load functions from serialized data
+/// - `run(hash, args)` - Execute function by hash
+/// - `get_functions(hashes)` - Serialize functions for shipping
+/// - `run_with(hash, args, handler)` - Execute with a shipped handler installed
 ///
-/// Note: Execute handlers require runtime configuration (function store, VM)
-/// so this only provides the descriptor. Use `register_execute` in ambient-engine
-/// to set up handlers.
-#[derive(Default, Clone)]
-pub struct ExecuteRuntimeAbility;
+/// # Panics
+///
+/// Panics if the resolved interface is missing an expected method — the
+/// bindings interface and this handler set have drifted.
+#[allow(clippy::too_many_lines)]
+pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: ExecuteConfig) {
+    let store = config.store;
+    let grants = config.grants;
 
-impl ExecuteRuntimeAbility {
-    /// Create a new Execute ability.
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
-}
+    // Execute.has_function(hash: string) -> bool
+    let store_clone = Arc::clone(&store);
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "has_function"),
+        Box::new(move |ability: &SuspendedAbility| {
+            let hash_str = extract_string(&ability.args)?;
+            let hash = parse_hash(&hash_str)
+                .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
 
-impl RuntimeAbility for ExecuteRuntimeAbility {
-    fn name(&self) -> &'static str {
-        "Execute"
-    }
+            let store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            Ok(Value::Bool(store.contains(&hash)))
+        }),
+    );
 
-    fn ability_id(&self) -> AbilityId {
-        ability_id()
-    }
+    // Execute.get_dependencies(hash: string) -> List<string>
+    let store_clone = Arc::clone(&store);
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "get_dependencies"),
+        Box::new(move |ability: &SuspendedAbility| {
+            let hash_str = extract_string(&ability.args)?;
+            let hash = parse_hash(&hash_str)
+                .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
 
-    fn descriptor<T: Clone + 'static>(
-        &self,
-        _factory: &dyn TypeFactory<T>,
-    ) -> AbilityDescriptor<T> {
-        AbilityDescriptor {
-            id: ability_id(),
-            name: ExecuteAbility::NAME,
-            methods: Box::leak(methods::<T>().into_boxed_slice()),
-        }
-    }
+            let store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let deps = store.missing_dependencies(&hash);
+            let dep_strings: Vec<Value> = deps
+                .iter()
+                .map(|h| Value::string(h.to_hex().to_string()))
+                .collect();
+            Ok(Value::list(dep_strings))
+        }),
+    );
 
-    fn handlers(&self) -> Vec<(MethodId, HostHandler)> {
-        // Handlers are registered separately via register_execute()
-        // since they need access to the function store and VM
-        Vec::new()
-    }
-}
+    // Execute.load_functions(data: Bytes) -> ()
+    let store_clone = Arc::clone(&store);
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "load_functions"),
+        Box::new(move |ability: &SuspendedAbility| {
+            let data = match ability.args.first() {
+                Some(v) => extract_bytes(v)?,
+                None => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "bytes".to_string(),
+                        got: "no argument".to_string(),
+                    })
+                }
+            };
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+            // Decode the canonical object pack. Hashes are recomputed from
+            // the object bytes, never trusted from the sender.
+            let mut store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            store
+                .add_pack(&data)
+                .map_err(|e| VmError::IoError(format!("invalid function pack: {e}")))?;
+            Ok(Value::Unit)
+        }),
+    );
 
-    #[derive(Clone, Debug, PartialEq)]
-    enum TestType {
-        Unit,
-        Bool,
-        Number,
-        String,
-        Bytes,
-        Never,
-        Var(u32),
-        List(Box<TestType>),
-    }
-
-    struct TestTypeFactory {
-        next_var: std::cell::Cell<u32>,
-    }
-
-    impl TestTypeFactory {
-        fn new() -> Self {
-            Self {
-                next_var: std::cell::Cell::new(0),
+    // Execute.run(hash: string, args: T) -> R
+    // Executes a function by its content-addressed hash with the given argument.
+    // This creates a new VM instance, loads the function and its dependencies,
+    // and executes it in isolation.
+    let store_clone = Arc::clone(&store);
+    let grants_clone = grants.clone();
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "run"),
+        Box::new(move |ability: &SuspendedAbility| {
+            if ability.args.len() < 2 {
+                return Err(VmError::TypeErrorOwned {
+                    expected: "2 arguments (hash, args)".to_string(),
+                    got: format!("{} arguments", ability.args.len()),
+                });
             }
-        }
+
+            let hash_str = match &ability.args[0] {
+                Value::String(s) => s.to_string(),
+                other => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "string".to_string(),
+                        got: other.type_name().to_string(),
+                    })
+                }
+            };
+
+            let arg = ability.args[1].clone();
+
+            // Parse the hash
+            let hash = parse_hash(&hash_str)
+                .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
+
+            // Get the function and all its dependencies from the store
+            let store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+
+            // Extract the function with all transitive dependencies
+            let subset = store.extract_with_dependencies(&hash);
+            drop(store);
+
+            // Create a new VM for isolated execution, with whatever
+            // abilities the host granted.
+            let mut exec_vm = Vm::new();
+            if let Some(grants) = &grants_clone {
+                grants(&mut exec_vm);
+            }
+
+            // Load all functions (the target and its dependencies)
+            for func_hash in subset.hashes() {
+                if let Some(func) = subset.get(&func_hash) {
+                    exec_vm.load_function(func.as_ref().clone());
+                }
+            }
+
+            // Execute the function with the provided argument
+            exec_vm.call(&hash, vec![arg])
+        }),
+    );
+
+    // Execute.run_with(hash: string, args: T, handler: Handler<A>) -> R
+    // Like run, but installs the handler value at the base of the isolated
+    // VM first, so the executed function's performs dispatch to handler
+    // code that shipped with it. The handler's method functions (and their
+    // dependencies) are loaded from the store alongside the target.
+    let store_clone = Arc::clone(&store);
+    let grants_clone2 = grants.clone();
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "run_with"),
+        Box::new(move |ability: &SuspendedAbility| {
+            if ability.args.len() < 3 {
+                return Err(VmError::TypeErrorOwned {
+                    expected: "3 arguments (hash, args, handler)".to_string(),
+                    got: format!("{} arguments", ability.args.len()),
+                });
+            }
+
+            let hash_str = match &ability.args[0] {
+                Value::String(s) => s.to_string(),
+                other => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "string".to_string(),
+                        got: other.type_name().to_string(),
+                    })
+                }
+            };
+            let arg = ability.args[1].clone();
+            let handler_value = match &ability.args[2] {
+                Value::Handler(h) => Arc::clone(h),
+                other => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "handler".to_string(),
+                        got: other.type_name().to_string(),
+                    })
+                }
+            };
+
+            let hash = parse_hash(&hash_str)
+                .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
+
+            let store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let mut subset = store.extract_with_dependencies(&hash);
+            for method_hash in handler_value.methods.values() {
+                subset.merge(&store.extract_with_dependencies(method_hash));
+            }
+            drop(store);
+
+            let mut exec_vm = Vm::new();
+            if let Some(grants) = &grants_clone2 {
+                grants(&mut exec_vm);
+            }
+            for func_hash in subset.hashes() {
+                if let Some(func) = subset.get(&func_hash) {
+                    exec_vm.load_function(func.as_ref().clone());
+                }
+            }
+
+            exec_vm.install_base_handler(handler_value);
+            exec_vm.call(&hash, vec![arg])
+        }),
+    );
+
+    // Execute.get_functions(hashes: List<string>) -> Bytes
+    let store_clone = Arc::clone(&store);
+    vm.register_host_handler(
+        ability.id,
+        require(ability, "get_functions"),
+        Box::new(move |ability: &SuspendedAbility| {
+            let hashes = match ability.args.first() {
+                Some(Value::List(list)) => list.clone(),
+                Some(other) => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "list".to_string(),
+                        got: other.type_name().to_string(),
+                    })
+                }
+                None => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "list".to_string(),
+                        got: "no argument".to_string(),
+                    })
+                }
+            };
+
+            let store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+
+            // Collect every requested function plus transitive dependencies
+            // into one deduplicated store, then ship its canonical objects
+            // as a pack.
+            let mut subset = Store::new();
+            for hash_value in hashes.iter() {
+                let hash_str = match hash_value {
+                    Value::String(s) => s,
+                    other => {
+                        return Err(VmError::TypeErrorOwned {
+                            expected: "string".to_string(),
+                            got: other.type_name().to_string(),
+                        })
+                    }
+                };
+
+                let hash = parse_hash(hash_str)
+                    .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
+
+                subset.merge(&store.extract_with_dependencies(&hash));
+            }
+            drop(store);
+
+            let bytes = subset
+                .serialize()
+                .map_err(|e| VmError::IoError(format!("serialize error: {e}")))?;
+
+            Ok(Value::bytes(bytes))
+        }),
+    );
+}
+
+/// Parse a hex-encoded hash string.
+fn parse_hash(hex_str: &str) -> Result<blake3::Hash, String> {
+    let bytes = hex::decode(hex_str).map_err(|e| format!("invalid hex: {e}"))?;
+    if bytes.len() != 32 {
+        return Err(format!(
+            "invalid hash length: expected 32 bytes, got {}",
+            bytes.len()
+        ));
     }
-
-    impl TypeFactory<TestType> for TestTypeFactory {
-        fn unit(&self) -> TestType {
-            TestType::Unit
-        }
-        fn bool(&self) -> TestType {
-            TestType::Bool
-        }
-        fn number(&self) -> TestType {
-            TestType::Number
-        }
-        fn string(&self) -> TestType {
-            TestType::String
-        }
-        fn bytes(&self) -> TestType {
-            TestType::Bytes
-        }
-        fn never(&self) -> TestType {
-            TestType::Never
-        }
-        fn type_var(&self) -> TestType {
-            let id = self.next_var.get();
-            self.next_var.set(id + 1);
-            TestType::Var(id)
-        }
-        fn list(&self, element: TestType) -> TestType {
-            TestType::List(Box::new(element))
-        }
-    }
-
-    #[test]
-    fn test_ability_id() {
-        // Identity is stable across calls.
-        assert_eq!(ability_id(), ExecuteAbility::ability_id());
-    }
-
-    #[test]
-    fn test_ability_name() {
-        let ability = ExecuteRuntimeAbility::new();
-        assert_eq!(ability.name(), "Execute");
-    }
-
-    #[test]
-    fn test_descriptor() {
-        let ability = ExecuteRuntimeAbility::new();
-        let factory = TestTypeFactory::new();
-        let descriptor = ability.descriptor(&factory);
-
-        assert_eq!(descriptor.id, ability_id());
-        assert_eq!(descriptor.name, "Execute");
-        assert_eq!(descriptor.methods.len(), 6);
-
-        // Check method names
-        let names: Vec<&str> = descriptor.methods.iter().map(|m| m.name).collect();
-        assert!(names.contains(&"has_function"));
-        assert!(names.contains(&"get_dependencies"));
-        assert!(names.contains(&"load_functions"));
-        assert!(names.contains(&"run"));
-        assert!(names.contains(&"get_functions"));
-    }
-
-    #[test]
-    fn test_handlers_empty() {
-        let ability = ExecuteRuntimeAbility::new();
-        // Handlers are registered separately
-        assert!(ability.handlers().is_empty());
-    }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&bytes);
+    Ok(blake3::Hash::from_bytes(arr))
 }

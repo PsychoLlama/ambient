@@ -902,10 +902,15 @@ fn test_ability_returned_from_function() {
         .expect_number(42.0);
 }
 
+/// Synthetic ability identity for the MakeHandler tests: the opcode only
+/// carries an ability id and method slots, so no resolved interface is
+/// needed.
+const ABILITY_HANDLER_TEST: crate::types::AbilityId = crate::types::AbilityId::from_bytes([42; 32]);
+const HANDLER_METHOD_A: u16 = 0;
+const HANDLER_METHOD_B: u16 = 1;
+
 #[test]
 fn test_make_handler_creates_handler_value() {
-    use crate::abilities::console;
-
     // Create a simple handler method function that returns unit.
     let mut handler_builder = BytecodeBuilder::new();
     handler_builder.emit_const(Value::Unit);
@@ -916,12 +921,8 @@ fn test_make_handler_creates_handler_value() {
     // Create main function that makes a handler and returns it.
     let mut builder = BytecodeBuilder::new();
 
-    // Emit MakeHandler: Console ability, 1 method (print), 0 captures.
-    builder.emit_make_handler(
-        console::ability_id(),
-        &[(console::METHOD_PRINT, handler_hash)],
-        0,
-    );
+    // Emit MakeHandler: 1 method, 0 captures.
+    builder.emit_make_handler(ABILITY_HANDLER_TEST, &[(HANDLER_METHOD_A, handler_hash)], 0);
 
     // Return the handler value.
     builder.emit(Opcode::Return);
@@ -938,8 +939,8 @@ fn test_make_handler_creates_handler_value() {
     // Should return a handler value.
     assert!(result.is_ok(), "Should succeed: {:?}", result);
     if let Ok(Value::Handler(handler)) = result {
-        assert_eq!(handler.ability_id, console::ability_id());
-        assert!(handler.handles_method(console::METHOD_PRINT));
+        assert_eq!(handler.ability_id, ABILITY_HANDLER_TEST);
+        assert!(handler.handles_method(HANDLER_METHOD_A));
         assert_eq!(handler.methods.len(), 1);
     } else {
         panic!("Expected Handler value, got {:?}", result);
@@ -948,28 +949,26 @@ fn test_make_handler_creates_handler_value() {
 
 #[test]
 fn test_make_handler_with_multiple_methods() {
-    use crate::abilities::console;
-
     // Create handler method functions.
-    let mut print_builder = BytecodeBuilder::new();
-    print_builder.emit_const(Value::Unit);
-    print_builder.emit(Opcode::Return);
-    let print_func = print_builder.build(2, 2);
-    let print_hash = print_func.hash;
+    let mut method_a_builder = BytecodeBuilder::new();
+    method_a_builder.emit_const(Value::Unit);
+    method_a_builder.emit(Opcode::Return);
+    let method_a_func = method_a_builder.build(2, 2);
+    let method_a_hash = method_a_func.hash;
 
-    let mut eprint_builder = BytecodeBuilder::new();
-    eprint_builder.emit_const(Value::Unit);
-    eprint_builder.emit(Opcode::Return);
-    let eprint_func = eprint_builder.build(2, 2);
-    let eprint_hash = eprint_func.hash;
+    let mut method_b_builder = BytecodeBuilder::new();
+    method_b_builder.emit_const(Value::Unit);
+    method_b_builder.emit(Opcode::Return);
+    let method_b_func = method_b_builder.build(2, 2);
+    let method_b_hash = method_b_func.hash;
 
     // Create main function that makes a handler with 2 methods.
     let mut builder = BytecodeBuilder::new();
     builder.emit_make_handler(
-        console::ability_id(),
+        ABILITY_HANDLER_TEST,
         &[
-            (console::METHOD_PRINT, print_hash),
-            (console::METHOD_EPRINT, eprint_hash),
+            (HANDLER_METHOD_A, method_a_hash),
+            (HANDLER_METHOD_B, method_b_hash),
         ],
         0,
     );
@@ -979,17 +978,17 @@ fn test_make_handler_with_multiple_methods() {
     let main_hash = main_func.hash;
 
     let mut vm = Vm::new();
-    vm.load_function(print_func);
-    vm.load_function(eprint_func);
+    vm.load_function(method_a_func);
+    vm.load_function(method_b_func);
     vm.load_function(main_func);
 
     let result = vm.call(&main_hash, vec![]);
 
     assert!(result.is_ok(), "Should succeed: {:?}", result);
     if let Ok(Value::Handler(handler)) = result {
-        assert_eq!(handler.ability_id, console::ability_id());
-        assert!(handler.handles_method(console::METHOD_PRINT));
-        assert!(handler.handles_method(console::METHOD_EPRINT));
+        assert_eq!(handler.ability_id, ABILITY_HANDLER_TEST);
+        assert!(handler.handles_method(HANDLER_METHOD_A));
+        assert!(handler.handles_method(HANDLER_METHOD_B));
         assert_eq!(handler.methods.len(), 2);
     } else {
         panic!("Expected Handler value, got {:?}", result);
