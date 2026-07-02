@@ -777,10 +777,22 @@ fn build_import_env(
     for (name, resolved_import) in imports {
         match resolved_import {
             ResolvedImport::Module(target_path) => {
-                // For module imports, we create a synthetic module type
-                // For now, we skip this as it requires qualified name resolution
-                // TODO: Support `utils.helper()` syntax
-                let _ = target_path;
+                // Whole-module import (`use pkg.utils;` / `use core.list;`):
+                // bind every public export under the qualified name
+                // `<alias>.<export>`, which is how qualified expressions
+                // look it up (see `ExprKind::Name` inference).
+                if let Some(module_info) = registry.get(&target_path) {
+                    for export in registry.get_public_exports(&target_path) {
+                        if let Some(scheme) =
+                            get_symbol_scheme(infer, &module_info.module, &export.name, export.kind)
+                        {
+                            let qualified: Arc<str> = format!("{name}.{}", export.name).into();
+                            let binding_id = next_binding_id;
+                            next_binding_id += 1;
+                            env.insert(binding_id, qualified, scheme);
+                        }
+                    }
+                }
             }
             ResolvedImport::Symbol {
                 from_module,
@@ -796,6 +808,25 @@ fn build_import_env(
                         env.insert(binding_id, name, scheme);
                     }
                 }
+            }
+        }
+    }
+
+    // Core modules are always in scope under their fully qualified names
+    // (`core.list.map`), no import required.
+    for module_info in registry.all_modules() {
+        let path = module_info.path.clone();
+        if !path.to_string().starts_with("core.") {
+            continue;
+        }
+        for export in registry.get_public_exports(&path) {
+            if let Some(scheme) =
+                get_symbol_scheme(infer, &module_info.module, &export.name, export.kind)
+            {
+                let qualified: Arc<str> = format!("{path}.{}", export.name).into();
+                let binding_id = next_binding_id;
+                next_binding_id += 1;
+                env.insert(binding_id, qualified, scheme);
             }
         }
     }

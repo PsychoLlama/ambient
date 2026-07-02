@@ -1,28 +1,39 @@
-// Core library: String utilities
+// Core library: string utilities.
 //
-// Common operations on strings.
+// Helpers built on the string intrinsics (core.string.length,
+// core.string.concat, ...).
 
-// Get the length of a string
-pub fn len(s: string): number {
-    s.len()
-}
-
-// Check if a string is empty
 pub fn is_empty(s: string): bool {
-    len(s) == 0
+    core.string.length(s) == 0
 }
 
-// Concatenate two strings
-pub fn concat(a: string, b: string): string {
-    a ++ b
-}
-
-// Convert a number to string
 pub fn from_number(n: number): string {
-    to_string(n)
+    core.convert.to_string(n)
 }
 
-// Convert a bool to string
 pub fn from_bool(b: bool): string {
     if b { "true" } else { "false" }
+}
+
+// Pad on the left with `pad` until the string is at least `width` long.
+pub fn pad_start(s: string, width: number, pad: string): string {
+    if core.string.length(s) >= width {
+        s
+    } else {
+        pad_start(core.string.concat(pad, s), width, pad)
+    }
+}
+
+// Pad on the right with `pad` until the string is at least `width` long.
+pub fn pad_end(s: string, width: number, pad: string): string {
+    if core.string.length(s) >= width {
+        s
+    } else {
+        pad_end(core.string.concat(s, pad), width, pad)
+    }
+}
+
+// Split into lines.
+pub fn lines(s: string): List<string> {
+    core.string.split(s, "\n")
 }

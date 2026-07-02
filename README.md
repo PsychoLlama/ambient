@@ -108,9 +108,11 @@ body or dependency changes always ripple.
 
 ## Status
 
-Experimental but coherent: packages, modules and imports, traits with
-static content-addressed dispatch, ability inference and enforcement,
-delimited-continuation handlers, a persisted self-verifying store with
-introspection tooling, a REPL, an LSP, and remote function execution over
-TCP all work today. See `ref/architecture.md` § Future Work for what's
-next (real module system, platform-binding architecture, WASM target).
+Experimental but coherent: packages, modules and imports (item,
+whole-module, and a standard library compiled as ordinary Ambient
+modules), traits with static content-addressed dispatch, ability inference
+and enforcement, delimited-continuation handlers, a persisted
+self-verifying store with introspection tooling, a REPL, an LSP, and
+remote function execution over TCP all work today. See
+`ref/architecture.md` § Future Work for what's next (platform-binding
+architecture, enum constructors, WASM target).

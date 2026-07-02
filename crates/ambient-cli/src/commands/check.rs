@@ -1,10 +1,13 @@
 //! Check command implementation.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::{bail, Result};
 
-use super::read_source;
+use ambient_engine::module_path::ModulePath;
+
+use super::{core_context, read_source};
 use crate::diagnostic::print_diagnostic;
 
 /// Check an Ambient source file for errors.
@@ -20,8 +23,12 @@ pub fn cmd_check(file: &Path) -> Result<()> {
         }
     };
 
-    // Type check.
-    let result = ambient_engine::infer::check_module(module);
+    // Type check with the core modules visible.
+    let mut core = core_context()?;
+    let main_path = ModulePath::root();
+    core.registry.register(&main_path, Arc::new(module.clone()));
+    let result =
+        ambient_engine::infer::check_module_with_registry(module, &main_path, &core.registry);
 
     if result.is_ok() {
         eprintln!("No errors found in {}", file.display());

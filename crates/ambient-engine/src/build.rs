@@ -115,6 +115,11 @@ pub fn build_package(
     let mut module_function_hashes: HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>> =
         HashMap::new();
 
+    // Core modules compile first: they are ordinary Ambient modules and
+    // every user module may reference them.
+    let core_compiled = compile_core_modules(&mut registry, &mut module_function_hashes, parse)?;
+    all_compiled.merge(&core_compiled);
+
     for (idx, module_path) in module_order.iter().enumerate() {
         let module = pkg
             .get_module(module_path)
@@ -215,7 +220,11 @@ fn get_compilation_order(pkg: &Package, main_path: &ModulePath) -> Vec<ModulePat
 }
 
 /// Build imported function hashes from already-compiled modules.
-fn build_imported_hashes_from_compiled(
+///
+/// Public so the CLI's diagnostics-oriented build path can share it.
+#[must_use]
+#[allow(clippy::implicit_hasher)]
+pub fn build_imported_hashes_from_compiled(
     module_path: &ModulePath,
     registry: &ModuleRegistry,
     compiled_hashes: &HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>>,
@@ -224,17 +233,39 @@ fn build_imported_hashes_from_compiled(
 
     if let Ok(imports) = registry.resolve_imports(module_path) {
         for (local_name, resolved) in imports {
-            if let ResolvedImport::Symbol {
-                from_module,
-                export_kind: _,
-            } = resolved
-            {
-                if let Some(module_hashes) = compiled_hashes.get(&from_module) {
-                    if let Some(hash) = module_hashes.get(&local_name) {
-                        hashes.insert(local_name, *hash);
+            match resolved {
+                ResolvedImport::Symbol {
+                    from_module,
+                    export_kind: _,
+                } => {
+                    if let Some(module_hashes) = compiled_hashes.get(&from_module) {
+                        if let Some(hash) = module_hashes.get(&local_name) {
+                            hashes.insert(local_name, *hash);
+                        }
+                    }
+                }
+                ResolvedImport::Module(target_path) => {
+                    // Whole-module import: every function is callable as
+                    // `<alias>.<name>`, which is exactly the key the
+                    // compiler builds for a qualified call.
+                    if let Some(module_hashes) = compiled_hashes.get(&target_path) {
+                        for (fn_name, hash) in module_hashes {
+                            hashes.insert(format!("{local_name}.{fn_name}").into(), *hash);
+                        }
                     }
                 }
             }
+        }
+    }
+
+    // Core modules are always in scope under their fully qualified names
+    // (`core.list.map`), no import required.
+    for (path, module_hashes) in compiled_hashes {
+        if !path.to_string().starts_with("core.") {
+            continue;
+        }
+        for (fn_name, hash) in module_hashes {
+            hashes.insert(format!("{path}.{fn_name}").into(), *hash);
         }
     }
 
@@ -251,6 +282,87 @@ fn build_imported_hashes_from_compiled(
     }
 
     hashes
+}
+
+/// Register and compile the embedded core library modules.
+///
+/// Core modules are registered in the registry under their reserved
+/// `core.*` paths (so type checking can see them), compiled through the
+/// ordinary pipeline, and their per-module function hashes are recorded
+/// into `module_function_hashes` (so calls link).
+///
+/// Returns the merged compiled core module. The caller merges it into the
+/// final build so core functions execute like any others.
+///
+/// # Errors
+///
+/// Returns an error if a core module fails to parse, check, or compile —
+/// all of which are bugs in the embedded sources rather than user error.
+#[allow(clippy::implicit_hasher)]
+pub fn compile_core_modules(
+    registry: &mut ModuleRegistry,
+    module_function_hashes: &mut HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>>,
+    parse: impl Fn(&str) -> Result<Module, String>,
+) -> Result<CompiledModule, BuildError> {
+    let core_paths = crate::core_library::register_core_modules(registry, parse).map_err(
+        |(module, error)| BuildError::Parse {
+            module: format!("core.{module}"),
+            error,
+        },
+    )?;
+
+    let mut merged = CompiledModule::new();
+    for core_path in core_paths {
+        let ast = registry
+            .get(&core_path)
+            .map(|info| info.module.clone())
+            .ok_or_else(|| BuildError::PackageOpen(format!("core module {core_path} vanished")))?;
+
+        let check_result =
+            crate::infer::check_module_with_registry((*ast).clone(), &core_path, registry);
+        if !check_result.is_ok() {
+            return Err(BuildError::TypeCheck {
+                module: core_path.to_string(),
+                errors: check_result
+                    .errors
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+            });
+        }
+
+        let imported_hashes =
+            build_imported_hashes_from_compiled(&core_path, registry, module_function_hashes);
+        let compiled =
+            crate::compiler::compile_module_with_imports(&check_result.module, imported_hashes)
+                .map_err(|e| BuildError::Compile {
+                    module: core_path.to_string(),
+                    error: e.to_string(),
+                })?;
+
+        let mut func_hashes = HashMap::new();
+        for (name, hash) in &compiled.function_names {
+            func_hashes.insert(Arc::clone(name), *hash);
+        }
+
+        // Core modules share plain names (`list.map`, `option.map`, ...).
+        // The merged artifact binds them fully qualified so they never
+        // collide with each other or with user functions.
+        let mut compiled = compiled;
+        compiled.function_names = compiled
+            .function_names
+            .iter()
+            .map(|(name, hash)| {
+                let qualified: Arc<str> = format!("{core_path}.{name}").into();
+                (qualified, *hash)
+            })
+            .collect();
+
+        module_function_hashes.insert(core_path, func_hashes);
+        merged.merge(&compiled);
+    }
+
+    Ok(merged)
 }
 
 /// Load a module and all its dependencies recursively.

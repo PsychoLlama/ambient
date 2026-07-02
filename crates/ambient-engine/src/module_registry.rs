@@ -27,10 +27,6 @@ pub enum RegistryError {
     /// Symbol is not public.
     #[error("symbol `{symbol}` in module `{module}` is not public")]
     NotPublic { module: String, symbol: String },
-
-    /// Core imports are handled separately.
-    #[error("core imports are handled separately")]
-    CoreHandledSeparately,
 }
 
 /// A resolved import - what a name refers to after processing `use` statements.
@@ -244,7 +240,7 @@ impl ModuleRegistry {
     ) -> Result<ModulePath, RegistryError> {
         let import_prefix = match prefix {
             UsePrefix::Pkg => ImportPrefix::Pkg,
-            UsePrefix::Core => return Err(RegistryError::CoreHandledSeparately),
+            UsePrefix::Core => ImportPrefix::Core,
             UsePrefix::Self_ => ImportPrefix::Self_,
             UsePrefix::Super(count) => ImportPrefix::Super(*count),
         };
@@ -275,11 +271,6 @@ impl ModuleRegistry {
         // Process use statements from the module's AST
         for item in &info.module.items {
             if let ItemKind::Use(use_def) = &item.kind {
-                // Skip core imports for now (handled separately)
-                if matches!(use_def.prefix, UsePrefix::Core) {
-                    continue;
-                }
-
                 // Extract just the names from the path (ignoring spans)
                 let path_names: Vec<_> =
                     use_def.path.iter().map(|(name, _)| name.clone()).collect();
@@ -580,11 +571,10 @@ mod tests {
         let from = ModulePath::from_str_segments(&["main"]).unwrap();
         let path = vec![Arc::from("list")];
 
-        let resolved = registry.resolve_use_path(&from, &UsePrefix::Core, &path);
-        assert!(matches!(
-            resolved,
-            Err(RegistryError::CoreHandledSeparately)
-        ));
+        let resolved = registry
+            .resolve_use_path(&from, &UsePrefix::Core, &path)
+            .expect("core resolves under the reserved root");
+        assert_eq!(resolved.to_string(), "core.list");
     }
 
     #[test]

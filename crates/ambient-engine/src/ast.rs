@@ -93,6 +93,22 @@ impl PartialEq for QualifiedName {
 impl Eq for QualifiedName {}
 
 impl QualifiedName {
+    /// The full dotted form of this name (`core.list.map`), or just the
+    /// name when the path is empty.
+    #[must_use]
+    pub fn joined(&self) -> Arc<str> {
+        if self.path.is_empty() {
+            return Arc::clone(&self.name);
+        }
+        let mut s = String::new();
+        for segment in &self.path {
+            s.push_str(segment);
+            s.push('.');
+        }
+        s.push_str(&self.name);
+        s.into()
+    }
+
     /// Create a simple unqualified name.
     #[must_use]
     pub fn simple(name: impl Into<Arc<str>>) -> Self {

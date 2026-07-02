@@ -83,6 +83,46 @@ impl CoreLibrary {
     }
 }
 
+/// Core modules that participate in the module system, in compilation
+/// order. Excludes `traits`: the operator traits (Add, Eq, Ord, ...) are
+/// the hardcoded prelude in `TraitRegistry::with_prelude`, and registering
+/// a second copy would collide with it.
+pub const REGISTERED_CORE_MODULES: &[&str] = &["math", "string", "list"];
+
+/// Parse every registered core module and register it in a module
+/// registry under its reserved `core.*` path.
+///
+/// The engine cannot parse Ambient source itself (the parser depends on
+/// the engine), so the caller supplies the parse function.
+///
+/// # Errors
+///
+/// Returns the module name and parse error if a core module fails to
+/// parse — which is a bug in the embedded sources, not user error.
+///
+/// # Panics
+///
+/// Panics if an entry in `REGISTERED_CORE_MODULES` has no embedded
+/// source (a compile-time inconsistency in this file).
+#[allow(clippy::arc_with_non_send_sync)]
+pub fn register_core_modules(
+    registry: &mut crate::module_registry::ModuleRegistry,
+    parse: impl Fn(&str) -> Result<crate::ast::Module, String>,
+) -> Result<Vec<ModulePath>, (String, String)> {
+    let sources = get_core_modules();
+    let mut paths = Vec::new();
+    for name in REGISTERED_CORE_MODULES {
+        let source = sources
+            .get(name)
+            .unwrap_or_else(|| panic!("core module {name} must be embedded"));
+        let module = parse(source).map_err(|e| ((*name).to_string(), e))?;
+        let path = CoreLibrary::to_module_path(&[Arc::from(*name)]);
+        registry.register(&path, Arc::new(module));
+        paths.push(path);
+    }
+    Ok(paths)
+}
+
 /// Convert a path to a module name.
 fn path_to_name(path: &[Arc<str>]) -> String {
     path.iter().map(AsRef::as_ref).collect::<Vec<_>>().join(".")
@@ -91,8 +131,6 @@ fn path_to_name(path: &[Arc<str>]) -> String {
 /// Get the map of core modules and their source code.
 fn get_core_modules() -> HashMap<&'static str, &'static str> {
     let mut modules = HashMap::new();
-    modules.insert("option", include_str!("core_lib/option.ab"));
-    modules.insert("result", include_str!("core_lib/result.ab"));
     modules.insert("list", include_str!("core_lib/list.ab"));
     modules.insert("string", include_str!("core_lib/string.ab"));
     modules.insert("math", include_str!("core_lib/math.ab"));
@@ -106,30 +144,30 @@ mod tests {
 
     #[test]
     fn test_has_module() {
-        assert!(CoreLibrary::has_module(&[Arc::from("option")]));
         assert!(CoreLibrary::has_module(&[Arc::from("list")]));
+        assert!(CoreLibrary::has_module(&[Arc::from("math")]));
         assert!(!CoreLibrary::has_module(&[Arc::from("nonexistent")]));
     }
 
     #[test]
     fn test_get_source() {
-        let source = CoreLibrary::get_source(&[Arc::from("option")]);
+        let source = CoreLibrary::get_source(&[Arc::from("list")]);
         assert!(source.is_ok());
-        assert!(source.unwrap().contains("is_some"));
+        assert!(source.unwrap().contains("fold"));
     }
 
     #[test]
     fn test_available_modules() {
         let modules = CoreLibrary::available_modules();
-        assert!(modules.contains(&"option"));
         assert!(modules.contains(&"list"));
         assert!(modules.contains(&"math"));
+        assert!(modules.contains(&"string"));
     }
 
     #[test]
     fn test_to_module_path() {
-        let path = CoreLibrary::to_module_path(&[Arc::from("option")]);
-        assert_eq!(path.to_string(), "core.option");
+        let path = CoreLibrary::to_module_path(&[Arc::from("list")]);
+        assert_eq!(path.to_string(), "core.list");
     }
 
     #[test]

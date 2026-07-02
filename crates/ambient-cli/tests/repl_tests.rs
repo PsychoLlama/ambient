@@ -289,14 +289,18 @@ fn test_core_list_dot_shows_function_completions() {
     let output = test.output();
     eprintln!("RAW OUTPUT for core.list. completion:\n{}", output);
 
-    // Should show at least one of the core.list functions
-    // The core.list module has: len, is_empty, first, last, map, filter, fold
+    // Should show at least one core.list function — either from the
+    // compiled core module (map, filter, fold, any, all, range, sum) or
+    // from the intrinsics (first, last, length, ...).
     let has_completion = output.contains("first")
         || output.contains("last")
         || output.contains("map")
         || output.contains("filter")
         || output.contains("fold")
-        || output.contains("len");
+        || output.contains("any")
+        || output.contains("all")
+        || output.contains("sum")
+        || output.contains("length");
 
     assert!(
         has_completion,

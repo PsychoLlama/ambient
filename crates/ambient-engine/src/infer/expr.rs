@@ -27,6 +27,48 @@ impl Infer {
     /// Returns a `TypeError` if type inference fails.
     #[allow(clippy::too_many_lines)]
     pub fn infer_expr(&mut self, env: &TypeEnv, expr: &mut Expr) -> InferResult<Type> {
+        // Disambiguate module-qualified calls from trait method calls.
+        // `utils.helper(x)` parses as a method call on the value `utils`,
+        // but when `utils` is not a value in scope and `utils.helper` is a
+        // module member (whole-module import), it is a qualified call:
+        // rewrite the node so both this checker and the compiler see it
+        // that way. Locals deliberately shadow module aliases.
+        let rewrite = if let ExprKind::MethodCall {
+            receiver,
+            method,
+            args,
+            ..
+        } = &mut expr.kind
+        {
+            if let ExprKind::Name(name) = &receiver.kind {
+                let is_module_member = name.path.is_empty()
+                    && env.get_by_name(&name.name).is_none()
+                    && env
+                        .get_by_name(&format!("{}.{}", name.name, method))
+                        .is_some();
+                if is_module_member {
+                    let callee = Expr {
+                        kind: ExprKind::Name(crate::ast::QualifiedName::qualified(
+                            vec![Arc::clone(&name.name)],
+                            Arc::clone(method),
+                        )),
+                        span: receiver.span,
+                        ty: None,
+                    };
+                    Some(ExprKind::Call(Box::new(callee), std::mem::take(args)))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some(kind) = rewrite {
+            expr.kind = kind;
+        }
+
         let span = (expr.span.start, expr.span.end);
         let ty = match &mut expr.kind {
             ExprKind::Unit => Type::Unit,
@@ -42,10 +84,19 @@ impl Infer {
             }
 
             ExprKind::Name(name) => {
-                let scheme = env.get_by_name(&name.name).ok_or_else(|| {
+                // Qualified names (`core.list.map`, `utils.helper` after a
+                // whole-module import) are bound in the env under their
+                // joined dotted form by import resolution; plain names look
+                // up directly.
+                let scheme = if name.path.is_empty() {
+                    env.get_by_name(&name.name)
+                } else {
+                    env.get_by_name(&name.joined())
+                };
+                let scheme = scheme.ok_or_else(|| {
                     type_error(
                         TypeErrorKind::UndefinedVariable {
-                            name: name.name.clone(),
+                            name: name.joined(),
                         },
                         span,
                     )

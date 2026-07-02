@@ -32,10 +32,28 @@ pub fn multiply(x: number, y: number): number {
 
 ### Modules
 
+Modules map 1:1 to files under `src/`. Import prefixes: `pkg` (package
+root), `self` (same directory), `super` (parent), `core` (standard
+library).
+
 ```ambient
-use some_library.mod.{a, b.c.d};  // Import specific items
-use some_library.utils;            // Import a module
+use pkg.utils.{a, b};   // Item import: a and b as bare names
+use self.utils;         // Whole-module import: call utils.helper(...)
+use core.list;          // Core modules import the same way: list.map(...)
+use core.list.{map};    // ... or by item
 ```
+
+Core modules (`core.list`, `core.math`, `core.string`) are also always in
+scope fully qualified with no import: `core.list.map([1], f)`. They are
+ordinary Ambient modules — compiled, content-addressed, and stored exactly
+like user code (see `crates/ambient-engine/src/core_lib/`). Beneath them
+sits a fixed set of *intrinsics* (`core.math.sqrt`, `core.list.length`,
+`core.string.concat`, ...) that compile to dedicated opcodes; intrinsics
+take precedence over compiled functions at the same path. `core` is a
+keyword, so user modules can never collide with the standard library.
+
+A local binding shadows a module alias: after `let utils = ...;`,
+`utils.method()` is a trait-method call on the value.
 
 ### Types
 
@@ -629,10 +647,15 @@ fn test_my_function(): () {
 
 Roughly in priority order:
 
-- **Real module system.** Today most functionality is shoehorned into the
-  `core` and `runtime` namespaces. Standard library code should live in
-  ordinary modules imported with `use`, organized at roughly the
-  granularity of Go's or Node's standard libraries.
+- **Grow the standard library as ordinary modules.** The module system now
+  treats `core` as a real package (compiled `.ab` modules, whole-module and
+  item imports, qualified calls), but the library itself is small
+  (list/math/string helpers) and many operations still live only as
+  intrinsics. Target roughly the granularity of Go's or Node's standard
+  libraries. Blockers worth fixing along the way: enum variant
+  constructors (`Some(x)`) are not available in expression position, so
+  Option/Result helpers cannot yet be written in Ambient; generic trait
+  bounds would unlock `contains`/`sort_by`.
 - **Pure engine + platform bindings.** The engine is currently coupled to
   the built-in effect handlers (Console, Network, ...). The goal is a
   WASM-like split: the language core is pure, and *hosts* provide

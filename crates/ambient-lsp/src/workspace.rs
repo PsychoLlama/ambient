@@ -701,14 +701,14 @@ mod tests {
     #[test]
     fn test_available_core_modules() {
         let modules = WorkspaceIndex::available_core_modules();
-        assert!(modules.contains(&"option"));
         assert!(modules.contains(&"list"));
+        assert!(modules.contains(&"string"));
         assert!(modules.contains(&"math"));
     }
 
     #[test]
     fn test_core_module_exists() {
-        assert!(WorkspaceIndex::core_module_exists(&[Arc::from("option")]));
+        assert!(WorkspaceIndex::core_module_exists(&[Arc::from("list")]));
         assert!(WorkspaceIndex::core_module_exists(&[Arc::from("math")]));
         assert!(!WorkspaceIndex::core_module_exists(&[Arc::from(
             "nonexistent"

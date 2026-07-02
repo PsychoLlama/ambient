@@ -1095,9 +1095,9 @@ mod tests {
     #[test]
     fn test_core_module_completions_all() {
         let items = get_core_module_completions("");
-        assert!(items.len() >= 5); // option, result, list, string, math
-        assert!(items.iter().any(|i| i.label == "option"));
+        assert!(items.len() >= 3); // list, string, math (+ traits)
         assert!(items.iter().any(|i| i.label == "list"));
+        assert!(items.iter().any(|i| i.label == "string"));
         assert!(items.iter().any(|i| i.label == "math"));
     }
 

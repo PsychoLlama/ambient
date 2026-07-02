@@ -9,6 +9,7 @@ use anyhow::{bail, Context, Result};
 
 use ambient_engine::abilities::{register_execute, register_network, ExecuteConfig, NetworkConfig};
 use ambient_engine::ast::{ItemKind, UsePrefix};
+use ambient_engine::build::{build_imported_hashes_from_compiled, compile_core_modules};
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::format::format_value_colored;
 use ambient_engine::module_path::{ImportPrefix, ModulePath};
@@ -79,6 +80,14 @@ fn compile_package(path: &Path) -> Result<CompiledModule> {
     let mut all_compiled = CompiledModule::new();
     let mut module_function_hashes: HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>> =
         HashMap::new();
+
+    // Core modules compile first: they are ordinary Ambient modules and
+    // every user module may reference them.
+    let core_compiled = compile_core_modules(&mut registry, &mut module_function_hashes, |s| {
+        ambient_parser::parse(s).map_err(|e| e.to_string())
+    })
+    .map_err(|e| anyhow::anyhow!("core library failed to build: {e}"))?;
+    all_compiled.merge(&core_compiled);
 
     for module_path in module_order {
         let module = pkg
@@ -154,54 +163,6 @@ fn get_compilation_order(pkg: &Package, main_path: &ModulePath) -> Vec<ModulePat
 
     visit(pkg, main_path, &mut visited, &mut order);
     order
-}
-
-/// Build imported function hashes from already-compiled modules.
-fn build_imported_hashes_from_compiled(
-    module_path: &ModulePath,
-    registry: &ModuleRegistry,
-    compiled_hashes: &HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>>,
-) -> HashMap<Arc<str>, blake3::Hash> {
-    use ambient_engine::module_registry::ResolvedImport;
-
-    let mut hashes = HashMap::new();
-
-    if let Ok(imports) = registry.resolve_imports(module_path) {
-        for (local_name, resolved) in imports {
-            match resolved {
-                ResolvedImport::Symbol {
-                    from_module,
-                    export_kind: _,
-                } => {
-                    // Look up the actual hash from the compiled source module.
-                    if let Some(module_hashes) = compiled_hashes.get(&from_module) {
-                        // The function might be exported under a different name.
-                        // For now, assume the local name matches the original.
-                        if let Some(hash) = module_hashes.get(&local_name) {
-                            hashes.insert(local_name, *hash);
-                        }
-                    }
-                }
-                ResolvedImport::Module(_) => {
-                    // Module imports don't need hashes
-                }
-            }
-        }
-    }
-
-    // Trait impl methods dispatch through canonical `uuid::Trait::method`
-    // symbols rather than imported names, and the symbols are globally
-    // unique (UUID-keyed). Make every already-compiled impl method
-    // resolvable so cross-module method calls link.
-    for module_hashes in compiled_hashes.values() {
-        for (name, hash) in module_hashes {
-            if name.contains("::") {
-                hashes.insert(Arc::clone(name), *hash);
-            }
-        }
-    }
-
-    hashes
 }
 
 /// Load a module and all its dependencies recursively.

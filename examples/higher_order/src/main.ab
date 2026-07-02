@@ -1,0 +1,24 @@
+// Higher-order functions from the core library.
+//
+// core.list's map/filter/fold are ordinary Ambient functions — compiled,
+// content-addressed, and stored exactly like user code. They can be called
+// fully qualified (core.list.map), through a whole-module import
+// (use core.list; list.map), or as bare names (use core.list.{map}).
+
+use core.list.{map, filter, fold};
+use self.stats;
+
+pub fn run(): () with Console {
+    let numbers = core.list.range(1, 11);
+
+    let squares = map(numbers, (x: number) => x * x);
+    let evens = filter(squares, (x: number) => is_even(x));
+    let total = fold(evens, 0, (acc: number, x: number) => acc + x);
+
+    runtime.Console.print!(core.string.from_number(total));
+    runtime.Console.print!(core.string.from_number(stats.mean(squares)));
+}
+
+fn is_even(x: number): bool {
+    x - core.math.floor(x / 2) * 2 == 0
+}

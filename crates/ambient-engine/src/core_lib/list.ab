@@ -1,67 +1,90 @@
-// Core library: List utilities
+// Core library: list utilities.
 //
-// Common operations on lists.
+// Higher-order operations built on the list intrinsics (core.list.length,
+// core.list.get, core.list.append). Compiled as ordinary Ambient modules
+// and content-addressed like user code.
 
-// Get the length of a list
-pub fn len<T>(list: List<T>): number {
-    // Built-in operation
-    list.len()
-}
-
-// Check if a list is empty
-pub fn is_empty<T>(list: List<T>): bool {
-    len(list) == 0
-}
-
-// Get the first element
-pub fn first<T>(list: List<T>): Option<T> {
-    if is_empty(list) {
-        None
-    } else {
-        Some(list[0])
-    }
-}
-
-// Get the last element
-pub fn last<T>(list: List<T>): Option<T> {
-    if is_empty(list) {
-        None
-    } else {
-        Some(list[len(list) - 1])
-    }
-}
-
-// Map a function over a list
+// Transform every element.
 pub fn map<T, U>(list: List<T>, f: (T) -> U): List<U> {
-    let result = [];
-    let i = 0;
-    while i < len(list) {
-        result = result ++ [f(list[i])];
-        i = i + 1;
-    };
-    result
+    map_from(list, f, 0, [])
 }
 
-// Filter a list
+fn map_from<T, U>(list: List<T>, f: (T) -> U, i: number, acc: List<U>): List<U> {
+    if i >= core.list.length(list) {
+        acc
+    } else {
+        map_from(list, f, i + 1, core.list.append(acc, f(core.list.get(list, i))))
+    }
+}
+
+// Keep only elements matching the predicate.
 pub fn filter<T>(list: List<T>, pred: (T) -> bool): List<T> {
-    let result = [];
-    let i = 0;
-    while i < len(list) {
-        if pred(list[i]) {
-            result = result ++ [list[i]];
-        };
-        i = i + 1;
-    };
-    result
+    filter_from(list, pred, 0, [])
 }
 
-// Fold a list from the left
+fn filter_from<T>(list: List<T>, pred: (T) -> bool, i: number, acc: List<T>): List<T> {
+    if i >= core.list.length(list) {
+        acc
+    } else {
+        let item = core.list.get(list, i);
+        let next = if pred(item) { core.list.append(acc, item) } else { acc };
+        filter_from(list, pred, i + 1, next)
+    }
+}
+
+// Fold from the left: fold([1, 2, 3], 0, (acc, x) => acc + x) == 6.
 pub fn fold<T, A>(list: List<T>, init: A, f: (A, T) -> A): A {
-    let acc = init;
-    let i = 0;
-    while i < len(list) {
-        acc = f(acc, list[i]);
-        i = i + 1;
-    };
-    acc
+    fold_from(list, init, f, 0)
+}
+
+fn fold_from<T, A>(list: List<T>, acc: A, f: (A, T) -> A, i: number): A {
+    if i >= core.list.length(list) {
+        acc
+    } else {
+        fold_from(list, f(acc, core.list.get(list, i)), f, i + 1)
+    }
+}
+
+// True if any element matches the predicate.
+pub fn any<T>(list: List<T>, pred: (T) -> bool): bool {
+    any_from(list, pred, 0)
+}
+
+fn any_from<T>(list: List<T>, pred: (T) -> bool, i: number): bool {
+    if i >= core.list.length(list) {
+        false
+    } else if pred(core.list.get(list, i)) {
+        true
+    } else {
+        any_from(list, pred, i + 1)
+    }
+}
+
+// True if every element matches the predicate.
+pub fn all<T>(list: List<T>, pred: (T) -> bool): bool {
+    all_from(list, pred, 0)
+}
+
+fn all_from<T>(list: List<T>, pred: (T) -> bool, i: number): bool {
+    if i >= core.list.length(list) {
+        true
+    } else if pred(core.list.get(list, i)) {
+        all_from(list, pred, i + 1)
+    } else {
+        false
+    }
+}
+
+// The numbers start..end (end exclusive): range(1, 4) == [1, 2, 3].
+pub fn range(start: number, end: number): List<number> {
+    if start >= end {
+        []
+    } else {
+        core.list.concat([start], range(start + 1, end))
+    }
+}
+
+// Sum of a list of numbers.
+pub fn sum(list: List<number>): number {
+    fold(list, 0, (acc: number, x: number) => acc + x)
 }

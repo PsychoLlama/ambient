@@ -34,10 +34,6 @@ pub enum ResolutionError {
     #[error("import escapes package root (too many `super` segments)")]
     EscapedPackageRoot,
 
-    /// The `core` prefix is handled separately from package modules.
-    #[error("core imports are handled separately")]
-    CoreHandledSeparately,
-
     /// The module path is empty.
     #[error("empty module path")]
     EmptyPath,
@@ -160,7 +156,13 @@ impl ModulePath {
                     segments: path.to_vec(),
                 })
             }
-            ImportPrefix::Core => Err(ResolutionError::CoreHandledSeparately),
+            ImportPrefix::Core => {
+                // Core modules live under the reserved `core` root. `core`
+                // is a lexer keyword, so user modules can never collide.
+                let mut segments: Vec<Arc<str>> = vec![Arc::from("core")];
+                segments.extend(path.iter().cloned());
+                Ok(ModulePath { segments })
+            }
             ImportPrefix::Self_ => {
                 // Same directory as current module
                 let dir = self.containing_dir();
@@ -340,10 +342,10 @@ mod tests {
         let current = ModulePath::root();
         let path = vec![Arc::from("list")];
 
-        let err = current
+        let resolved = current
             .resolve_relative(&ImportPrefix::Core, &path)
-            .unwrap_err();
-        assert!(matches!(err, ResolutionError::CoreHandledSeparately));
+            .expect("core paths resolve under the reserved `core` root");
+        assert_eq!(resolved.to_string(), "core.list");
     }
 
     #[test]

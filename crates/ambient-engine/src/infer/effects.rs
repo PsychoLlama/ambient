@@ -23,11 +23,13 @@ impl Infer {
         ability_call: &mut AbilityCall,
         span: (u32, u32),
     ) -> InferResult<Type> {
-        // Infer types of arguments
+        // Infer types of arguments — on the real nodes, not clones:
+        // inference records resolutions in the AST (trait method symbols,
+        // operator overloads, module-call rewrites) that the compiler
+        // depends on.
         let mut arg_tys = Vec::with_capacity(ability_call.args.len());
-        for arg in &mut ability_call.args.clone() {
-            let mut arg_clone = arg.clone();
-            arg_tys.push(self.infer_expr(env, &mut arg_clone)?);
+        for arg in &mut ability_call.args {
+            arg_tys.push(self.infer_expr(env, arg)?);
         }
 
         // Look up the ability and method to get return type and additional abilities
@@ -57,11 +59,13 @@ impl Infer {
         ability_call: &mut AbilityCall,
         span: (u32, u32),
     ) -> InferResult<Type> {
-        // Infer types of arguments
+        // Infer types of arguments — on the real nodes, not clones:
+        // inference records resolutions in the AST (trait method symbols,
+        // operator overloads, module-call rewrites) that the compiler
+        // depends on.
         let mut arg_tys = Vec::with_capacity(ability_call.args.len());
-        for arg in &mut ability_call.args.clone() {
-            let mut arg_clone = arg.clone();
-            arg_tys.push(self.infer_expr(env, &mut arg_clone)?);
+        for arg in &mut ability_call.args {
+            arg_tys.push(self.infer_expr(env, arg)?);
         }
 
         // Look up the ability and method to get return type

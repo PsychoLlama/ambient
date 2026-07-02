@@ -441,10 +441,10 @@ mod tests {
         let service = CompletionService::new();
         let completions = service.get_completions("core.list.", 10);
 
-        // Should show core.list functions like first, map, filter
+        // Should show core.list functions like map, filter, fold
         assert!(
-            completions.iter().any(|c| c.label == "first"),
-            "Should show first function, got: {:?}",
+            completions.iter().any(|c| c.label == "map"),
+            "Should show map function, got: {:?}",
             completions.iter().map(|c| &c.label).collect::<Vec<_>>()
         );
         assert!(

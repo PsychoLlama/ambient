@@ -1,0 +1,5 @@
+// A user module, imported whole with `use self.stats;`.
+
+pub fn mean(values: List<number>): number {
+    core.list.sum(values) / core.list.length(values)
+}

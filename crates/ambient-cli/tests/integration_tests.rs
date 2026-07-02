@@ -1408,3 +1408,148 @@ fn test_ambiguous_method_is_error() {
     )
     .expect_error("render");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Module System Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_core_functions_fully_qualified() {
+    // Compiled core functions (not intrinsics) callable with no import.
+    let (dir, pkg) = temp_package(
+        r"
+        pub fn run(): number {
+            core.list.sum(core.list.map([1, 2, 3], (x: number) => x * 2))
+        }
+        ",
+    );
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("12"));
+    drop(dir);
+}
+
+#[test]
+fn test_core_whole_module_import_alias() {
+    // `use core.list;` binds the alias `list` for qualified calls.
+    let (dir, pkg) = temp_package(
+        r"
+        use core.list;
+
+        pub fn run(): number {
+            list.fold(list.range(1, 5), 0, (acc: number, x: number) => acc + x)
+        }
+        ",
+    );
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("10"));
+    drop(dir);
+}
+
+#[test]
+fn test_core_item_import() {
+    // `use core.list.{map, sum};` binds plain names.
+    let (dir, pkg) = temp_package(
+        r"
+        use core.list.{map, sum};
+
+        pub fn run(): number {
+            sum(map([1, 2, 3], (x: number) => x + 10))
+        }
+        ",
+    );
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("36"));
+    drop(dir);
+}
+
+#[test]
+fn test_whole_module_user_import() {
+    // `use self.utils;` then `utils.helper()` — qualified module-member
+    // calls on user modules.
+    let (dir, pkg) = temp_multi_package(&[
+        (
+            "main.ab",
+            r"
+            use self.utils;
+
+            pub fn run(): number {
+                utils.triple(7) + utils.triple(1)
+            }
+            ",
+        ),
+        (
+            "utils.ab",
+            r"
+            pub fn triple(x: number): number { x * 3 }
+            ",
+        ),
+    ]);
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("24"));
+    drop(dir);
+}
+
+#[test]
+fn test_local_variable_shadows_module_alias() {
+    // A local binding named like a module alias wins: `utils.triple` is
+    // then a (failing) trait-method call on the value, not a module call.
+    let (dir, pkg) = temp_multi_package(&[
+        (
+            "main.ab",
+            r"
+            use self.utils;
+
+            pub fn run(): number {
+                let utils = 5;
+                utils.triple(7)
+            }
+            ",
+        ),
+        (
+            "utils.ab",
+            r"
+            pub fn triple(x: number): number { x * 3 }
+            ",
+        ),
+    ]);
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(
+        !output.status.success(),
+        "shadowed alias must not resolve as a module call: {output:?}"
+    );
+    drop(dir);
+}
+
+#[test]
+fn test_method_call_resolves_inside_perform_arguments() {
+    // Regression: perform/suspend arguments used to be type-checked on
+    // CLONES of the argument expressions, so resolutions recorded during
+    // inference (trait method symbols, operator overloads) were silently
+    // discarded and compilation failed.
+    let (dir, pkg) = temp_package(
+        r#"
+        unique(aaaabbbb-cccc-dddd-eeee-ffff00001111) type Point { x: number }
+
+        trait Doubled {
+            fn doubled(self): number;
+        }
+
+        impl Doubled for Point {
+            fn doubled(self): number { self.x * 2 }
+        }
+
+        pub fn run(): () with Console {
+            let p = Point { x: 21 };
+            runtime.Console.print!(core.convert.to_string(p.doubled()));
+        }
+        "#,
+    );
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("42"));
+    drop(dir);
+}
