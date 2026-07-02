@@ -37,7 +37,11 @@ impl ReplLspBridge {
                 ReplItemKind::Function => ExternalSymbolKind::Function,
                 ReplItemKind::Constant => ExternalSymbolKind::Constant,
             };
-            symbols.push(ExternalSymbol::new(name.to_string(), kind));
+            // Names are keyed internally by their dotted path (e.g.
+            // `core.list.any`), but namespaces are surfaced to the user with
+            // `::`. Translate so completions read `core::list::any`. The eval
+            // path translates the accepted `::` back to `.` for lookup.
+            symbols.push(ExternalSymbol::new(name.replace('.', "::"), kind));
         }
 
         self.service.set_external_symbols(symbols);
