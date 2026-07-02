@@ -203,12 +203,12 @@ mod tests {
     }
 
     #[test]
-    fn test_completer_console_dot() {
+    fn test_completer_console_scope() {
         let completer = test_completer();
         let history = rustyline::history::DefaultHistory::new();
         let ctx = rustyline::Context::new(&history);
 
-        let result = completer.complete("Console.", 8, &ctx);
+        let result = completer.complete("Console::", 9, &ctx);
         assert!(result.is_ok());
         let (_, pairs) = result.unwrap();
 
@@ -300,16 +300,16 @@ mod tests {
     }
 
     #[test]
-    fn test_completer_core_list_dot() {
+    fn test_completer_core_list_scope() {
         let completer = test_completer();
         let history = rustyline::history::DefaultHistory::new();
         let ctx = rustyline::Context::new(&history);
 
-        let result = completer.complete("core.list.", 10, &ctx);
+        let result = completer.complete("core::list::", 12, &ctx);
         assert!(result.is_ok());
         let (_, pairs) = result.unwrap();
 
-        // Should show core.list functions like first, last, map, etc.
+        // Should show core::list functions like first, last, map, etc.
         let replacements: Vec<_> = pairs.iter().map(|p| p.replacement.as_str()).collect();
         assert!(
             replacements

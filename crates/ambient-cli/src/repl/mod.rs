@@ -216,18 +216,20 @@ fn eval_repl_input(
     ctx: &mut ReplContext,
     line: &str,
 ) -> Result<Option<ambient_engine::value::Value>, String> {
-    // Check if the input is a module path (e.g., "core", "core.math", "Console").
-    // This allows users to inspect modules by just typing their name.
+    // Check if the input is a module path (e.g., "core", "core::math", "Console").
+    // This allows users to inspect modules by just typing their name. Modules are
+    // keyed internally by their dotted path, so translate the `::` the user types.
     let trimmed = line.trim();
-    if let Some(module) = ctx.get_module(trimmed) {
+    let lookup = trimmed.replace("::", ".");
+    if let Some(module) = ctx.get_module(&lookup) {
         return Ok(Some(ambient_engine::value::Value::Module(
             std::sync::Arc::clone(module),
         )));
     }
 
-    // Check if the input is a module member path (e.g., "core.list.first").
+    // Check if the input is a module member path (e.g., "core::list::first").
     // This allows users to inspect functions and constants from modules.
-    if let Some(kind) = ctx.get_module_member(trimmed) {
+    if let Some(kind) = ctx.get_module_member(&lookup) {
         use ambient_engine::value::ModuleMemberRef;
         return Ok(Some(ambient_engine::value::Value::ModuleMember(
             std::sync::Arc::new(ModuleMemberRef {

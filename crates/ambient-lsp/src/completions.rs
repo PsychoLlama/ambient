@@ -63,79 +63,55 @@ impl<'a> CompletionContext<'a> {
             .map_or(0, |i| i + 1);
         let word_prefix = &line_prefix[word_start..];
 
-        // Check if we're after a dot.
+        // Namespace / path access uses `::`; value field access uses `.`.
         let before_word = &line_prefix[..word_start];
-        let after_dot = before_word.trim_end().ends_with('.');
+        let trimmed_before = before_word.trim_end();
+        let after_dot = trimmed_before.ends_with('.');
+        let after_scope = trimmed_before.ends_with("::");
 
-        // Check if we're after `core.` (for core library completions)
-        // or after `core.<submodule>.` (for core submodule member completions)
-        let (after_core_dot, after_core_submodule_dot) = if after_dot {
-            let trimmed = before_word.trim_end();
-            let without_dot = trimmed.strip_suffix('.').unwrap_or(trimmed);
-
-            // Find the start of the qualified name (everything after the last non-ident char)
-            let qualified_start = without_dot
-                .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
+        // The qualified path immediately before a trailing `::`
+        // (e.g. `core`, `core::list`, `platform::Console`).
+        let scope_path = if after_scope {
+            let without_sep = trimmed_before.strip_suffix("::").unwrap_or(trimmed_before);
+            let start = without_sep
+                .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != ':')
                 .map_or(0, |i| i + 1);
-            let qualified_name = &without_dot[qualified_start..];
-
-            // Check for `core.<submodule>` pattern (e.g., "core.list")
-            if let Some(stripped) = qualified_name.strip_prefix("core.") {
-                // Extract the submodule name (part after "core." before any further dots)
-                let submodule_end = stripped
-                    .find(|c: char| !c.is_alphanumeric() && c != '_')
-                    .unwrap_or(stripped.len());
-                let submodule = &stripped[..submodule_end];
-
-                // Check if this is a valid core submodule
-                if CoreLibrary::available_modules().contains(&submodule) {
-                    (false, Some(submodule))
-                } else {
-                    (false, None)
-                }
-            } else {
-                // Check for `core.` pattern (just "core" before the dot)
-                (qualified_name == "core", None)
-            }
+            Some(&without_sep[start..])
         } else {
-            (false, None)
+            None
         };
 
-        // Check if we're after an ability name (e.g., "Console.") or a module name
-        let (after_ability_dot, after_pkg_module_dot) =
-            if after_dot && !after_core_dot && after_core_submodule_dot.is_none() {
-                // Look for the identifier/path before the dot
-                let trimmed = before_word.trim_end();
-                let without_dot = trimmed.strip_suffix('.').unwrap_or(trimmed);
-
-                // Find the start of the qualified name (allows dots for module paths)
-                let qualified_start = without_dot
-                    .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
-                    .map_or(0, |i| i + 1);
-                let qualified_name = &without_dot[qualified_start..];
-
-                // Get just the first identifier (for ability check)
-                let first_ident_end = qualified_name
-                    .find(|c: char| !c.is_alphanumeric() && c != '_')
-                    .unwrap_or(qualified_name.len());
-                let first_ident = &qualified_name[..first_ident_end];
-
-                if TokenKind::builtin_abilities().contains(&first_ident) {
-                    (Some(first_ident), None)
-                } else if !qualified_name.is_empty()
-                    && qualified_name
-                        .chars()
-                        .next()
-                        .is_some_and(char::is_lowercase)
+        // Core library completions: `core::` offers submodules; `core::list::`
+        // offers that submodule's members.
+        let (after_core_dot, after_core_submodule_dot) = match scope_path {
+            Some("core") => (true, None),
+            Some(path) => match path.strip_prefix("core::") {
+                Some(sub)
+                    if !sub.contains("::") && CoreLibrary::available_modules().contains(&sub) =>
                 {
-                    // Looks like a module path (starts with lowercase, not an ability)
-                    (None, Some(qualified_name))
+                    (false, Some(sub))
+                }
+                _ => (false, None),
+            },
+            None => (false, None),
+        };
+
+        // Ability method completion (`Console::`, `platform::Console::`) and
+        // pkg module member completion (`utils::`).
+        let (after_ability_dot, after_pkg_module_dot) = match scope_path {
+            Some(path) if !after_core_dot && after_core_submodule_dot.is_none() => {
+                let last = path.rsplit("::").next().unwrap_or(path);
+                if TokenKind::builtin_abilities().contains(&last) {
+                    (Some(last), None)
+                } else if path.chars().next().is_some_and(char::is_lowercase) {
+                    // Looks like a module path (starts lowercase, not an ability).
+                    (None, Some(path))
                 } else {
                     (None, None)
                 }
-            } else {
-                (None, None)
-            };
+            }
+            _ => (None, None),
+        };
 
         // Check if we're inside `unique(` for nominal type UUID completion.
         // Look for "unique(" before the cursor on the current line, with no closing paren.
@@ -348,7 +324,7 @@ fn get_core_submodule_member_completions(submodule: &str, prefix: &str) -> Vec<C
             CompletionItem {
                 label: name.clone(),
                 kind: Some(item_kind),
-                detail: Some(format!("core.{submodule}.{name} ({detail})")),
+                detail: Some(format!("core::{submodule}::{name} ({detail})")),
                 ..Default::default()
             }
         })
@@ -361,7 +337,8 @@ fn get_pkg_module_completions(
     module_path: &str,
     prefix: &str,
 ) -> Vec<CompletionItem> {
-    let Ok(symbols) = db.get_module_symbols(module_path) else {
+    // The symbol database keys modules by their internal dotted path.
+    let Ok(symbols) = db.get_module_symbols(&module_path.replace("::", ".")) else {
         return Vec::new();
     };
 
@@ -381,7 +358,7 @@ fn get_pkg_module_completions(
                 SymbolKind::Ability => CompletionItemKind::INTERFACE,
             };
 
-            let detail = format!("{module_path}.{name}");
+            let detail = format!("{module_path}::{name}");
 
             Some(CompletionItem {
                 label: name.to_string(),
@@ -1021,23 +998,23 @@ mod tests {
     }
 
     #[test]
-    fn test_completion_context_after_dot() {
-        let source = "Console.pr";
-        let ctx = CompletionContext::new(source, 10);
+    fn test_completion_context_after_scope() {
+        let source = "Console::pr";
+        let ctx = CompletionContext::new(source, 11);
 
         assert_eq!(ctx.word_prefix, "pr");
-        assert!(ctx.after_dot);
+        assert!(!ctx.after_dot);
         assert_eq!(ctx.after_ability_dot, Some("Console"));
         assert!(!ctx.after_core_dot);
     }
 
     #[test]
-    fn test_completion_context_after_core_dot() {
-        let source = "use core.ma";
-        let ctx = CompletionContext::new(source, 11);
+    fn test_completion_context_after_core_scope() {
+        let source = "use core::ma";
+        let ctx = CompletionContext::new(source, 12);
 
         assert_eq!(ctx.word_prefix, "ma");
-        assert!(ctx.after_dot);
+        assert!(!ctx.after_dot);
         assert!(ctx.after_ability_dot.is_none());
         assert!(ctx.after_core_dot);
         assert!(ctx.in_use_statement);

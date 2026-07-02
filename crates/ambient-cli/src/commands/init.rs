@@ -22,7 +22,7 @@ src = "src"
 
 /// Default content for src/main.ab.
 const MAIN_CONTENT: &str = r#"pub fn run(): () with Console {
-    platform.Console.print!("Hello, world!");
+    platform::Console::print!("Hello, world!");
 }
 "#;
 

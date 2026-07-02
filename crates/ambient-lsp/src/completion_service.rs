@@ -324,9 +324,9 @@ mod tests {
     }
 
     #[test]
-    fn test_completion_service_after_ability_dot() {
+    fn test_completion_service_after_ability_scope() {
         let service = CompletionService::new();
-        let completions = service.get_completions("Console.", 8);
+        let completions = service.get_completions("Console::", 9);
 
         // Should show Console methods
         assert!(
@@ -421,7 +421,7 @@ mod tests {
     #[test]
     fn test_repl_completions_strip_snippets() {
         let service = CompletionService::new();
-        let completions = service.get_completions("Console.", 8);
+        let completions = service.get_completions("Console::", 9);
 
         // Find a method completion
         let print_completion = completions.iter().find(|c| c.label == "print!");
@@ -437,11 +437,11 @@ mod tests {
     }
 
     #[test]
-    fn test_completion_service_after_core_submodule_dot() {
+    fn test_completion_service_after_core_submodule_scope() {
         let service = CompletionService::new();
-        let completions = service.get_completions("core.list.", 10);
+        let completions = service.get_completions("core::list::", 12);
 
-        // Should show core.list functions like map, filter, fold
+        // Should show core::list functions like map, filter, fold
         assert!(
             completions.iter().any(|c| c.label == "map"),
             "Should show map function, got: {:?}",

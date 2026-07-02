@@ -80,7 +80,7 @@ fn test_ability_completion_console() {
 #[test]
 fn test_ability_method_completion_print() {
     LspTest::new()
-        .with_source("fn foo() { Console.pr/*|*/ }")
+        .with_source("fn foo() { Console::pr/*|*/ }")
         .complete_at("0")
         .expect_items(&["print!", "println!"])
         .expect_item_kind("print!", CompletionItemKind::METHOD)
@@ -91,7 +91,7 @@ fn test_ability_method_completion_print() {
 #[test]
 fn test_ability_method_completion_all_console() {
     LspTest::new()
-        .with_source("fn foo() { Console./*|*/ }")
+        .with_source("fn foo() { Console::/*|*/ }")
         .complete_at("0")
         .expect_items(&["print!", "println!", "eprint!"])
         .expect_count(3)
@@ -170,7 +170,7 @@ fn test_no_completion_for_unknown_prefix() {
 #[test]
 fn test_core_module_completion() {
     LspTest::new()
-        .with_source("use core.ma/*|*/")
+        .with_source("use core::ma/*|*/")
         .complete_at("0")
         .expect_item("math")
         .expect_item_kind("math", CompletionItemKind::MODULE)
@@ -191,7 +191,7 @@ fn test_use_prefix_completion() {
 #[test]
 fn test_random_ability_methods() {
     LspTest::new()
-        .with_source("fn foo() { Random./*|*/ }")
+        .with_source("fn foo() { Random::/*|*/ }")
         .complete_at("0")
         .expect_items(&["seed!", "in_range!"])
         .done()
@@ -201,7 +201,7 @@ fn test_random_ability_methods() {
 #[test]
 fn test_time_ability_methods() {
     LspTest::new()
-        .with_source("fn foo() { Time./*|*/ }")
+        .with_source("fn foo() { Time::/*|*/ }")
         .complete_at("0")
         .expect_items(&["now!", "wait!"])
         .done()
