@@ -110,9 +110,15 @@ body or dependency changes always ripple.
 
 Experimental but coherent: packages, modules and imports (item,
 whole-module, and a standard library compiled as ordinary Ambient
-modules), traits with static content-addressed dispatch, ability inference
-and enforcement, delimited-continuation handlers, a persisted
-self-verifying store with introspection tooling, a REPL, an LSP, and
-remote function execution over TCP all work today. See
-`ref/architecture.md` § Future Work for what's next (platform-binding
-architecture, enum constructors, WASM target).
+modules), traits with static content-addressed dispatch, enums with
+constructors and typed patterns, ability inference and enforcement,
+delimited-continuation handlers, and a persisted self-verifying store
+with introspection tooling all work today — plus a REPL and an LSP.
+
+Abilities are content-addressed like functions: identity is the blake3
+hash of the canonical interface, `ability` declarations work in-language,
+and remote execution over TCP ships *effectful* functions — the executing
+host grants capabilities (wasm-style), and handlers themselves travel by
+hash (`Execute.run_with`). See `ref/architecture.md` § Future Work for
+what's next (finishing the platform-binding split, cross-module ability
+imports, WASM target).
