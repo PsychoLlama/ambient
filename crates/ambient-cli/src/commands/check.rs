@@ -7,7 +7,7 @@ use anyhow::{bail, Result};
 
 use ambient_engine::module_path::ModulePath;
 
-use super::{core_context, prelude_resolver, read_source, runtime_prelude};
+use super::{core_context, platform_prelude, prelude_resolver, read_source};
 use crate::diagnostic::print_diagnostic;
 
 /// Check an Ambient source file for errors.
@@ -23,11 +23,11 @@ pub fn cmd_check(file: &Path) -> Result<()> {
         }
     };
 
-    // Type check with the core modules and runtime prelude visible.
+    // Type check with the core modules and platform prelude visible.
     let mut core = core_context()?;
     let main_path = ModulePath::root();
     core.registry.register(&main_path, Arc::new(module.clone()));
-    let prelude = runtime_prelude()?;
+    let prelude = platform_prelude()?;
     let result = ambient_engine::infer::check_module_with_registry_and_resolver(
         module,
         &main_path,

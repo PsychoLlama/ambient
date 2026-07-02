@@ -17,7 +17,7 @@ use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::package::{LoadedModule, Package};
 use ambient_engine::store::Store;
 use ambient_engine::vm::Vm;
-use ambient_runtime::{
+use ambient_platform::{
     register_console, register_execute, register_log, register_network, ConsoleConfig,
     ExecuteConfig, LogConfig, NetworkConfig,
 };
@@ -258,8 +258,8 @@ fn compile_loaded_module_with_registry(
     registry: &ModuleRegistry,
     imported_hashes: HashMap<Arc<str>, blake3::Hash>,
 ) -> Result<CompiledModule> {
-    // Type check with cross-module support and the runtime prelude.
-    let prelude = super::runtime_prelude()?;
+    // Type check with cross-module support and the platform prelude.
+    let prelude = super::platform_prelude()?;
     let check_result = ambient_engine::infer::check_module_with_registry_and_resolver(
         loaded.ast.clone(),
         module_path,
@@ -294,13 +294,13 @@ fn compile_loaded_module_with_registry(
     Ok(compiled)
 }
 
-/// The named ability's interface from the resolved runtime prelude.
+/// The named ability's interface from the resolved platform prelude.
 fn prelude_interface(prelude: &[Arc<DynAbility>], name: &str) -> Result<AbilityInterface> {
     prelude
         .iter()
         .find(|ability| ability.name.as_ref() == name)
         .map(|ability| AbilityInterface::from(&**ability))
-        .ok_or_else(|| anyhow::anyhow!("runtime prelude is missing the `{name}` ability"))
+        .ok_or_else(|| anyhow::anyhow!("platform prelude is missing the `{name}` ability"))
 }
 
 /// Run a compiled module.
@@ -308,12 +308,12 @@ fn run_compiled(compiled: &CompiledModule, entry: &str) -> Result<()> {
     // Create tokio runtime for async operations (Remote ability).
     let runtime = tokio::runtime::Runtime::new().context("failed to create async runtime")?;
 
-    // Bind host handlers against the resolved runtime prelude: handlers
+    // Bind host handlers against the resolved platform prelude: handlers
     // are keyed by method name against the declaration identities the
     // program was compiled with.
-    let prelude = super::runtime_prelude()?;
+    let prelude = super::platform_prelude()?;
     let mut vm = Vm::new();
-    ambient_runtime::register_defaults(&mut vm, &prelude);
+    ambient_platform::register_defaults(&mut vm, &prelude);
 
     let network_interface = prelude_interface(&prelude, "Network")?;
     let execute_interface = prelude_interface(&prelude, "Execute")?;

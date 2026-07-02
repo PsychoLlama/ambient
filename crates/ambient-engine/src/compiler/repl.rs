@@ -31,7 +31,7 @@ pub struct ReplContext {
     pub item_kinds: HashMap<Arc<str>, ReplItemKind>,
     /// Available modules for introspection (path -> module value).
     pub modules: HashMap<Arc<str>, Arc<ModuleValue>>,
-    /// Prelude abilities (e.g. the runtime bindings interface) that
+    /// Prelude abilities (e.g. the platform bindings interface) that
     /// ability calls compile against.
     pub prelude_abilities: Vec<Arc<crate::ability_resolver::DynAbility>>,
 }

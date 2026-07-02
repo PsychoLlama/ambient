@@ -4,7 +4,7 @@ default-members = ["crates/ambient-cli"]
 members = [
   "crates/ambient-core",
   "crates/ambient-ability",
-  "crates/ambient-runtime",
+  "crates/ambient-platform",
   "crates/ambient-engine",
   "crates/ambient-parser",
   "crates/ambient-lsp",

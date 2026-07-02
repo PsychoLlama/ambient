@@ -486,7 +486,7 @@ struct ModuleContext {
     /// the compiler never re-derives interface hashes.
     abilities: HashMap<Arc<str>, CompiledAbilityInfo>,
     /// Prelude abilities (embedder-resolved declaration modules, e.g. the
-    /// runtime bindings interface), kept apart from locals so a local
+    /// platform bindings interface), kept apart from locals so a local
     /// declaration and a namespaced prelude ability of the same name
     /// resolve independently.
     prelude_abilities: HashMap<Arc<str>, CompiledAbilityInfo>,
@@ -549,7 +549,7 @@ impl ModuleContext {
     }
 
     /// Register prelude abilities (declaration modules resolved by the
-    /// embedder, e.g. the `runtime` bindings interface) so ability calls
+    /// embedder, e.g. the `platform` bindings interface) so ability calls
     /// and handler literals compile against their content-hash
     /// identities.
     fn register_prelude_abilities(
@@ -693,7 +693,7 @@ pub struct CompileOptions<'a> {
     /// Imported function names mapped to their content-addressed hashes.
     pub imported_hashes: Option<HashMap<Arc<str>, blake3::Hash>>,
     /// Prelude abilities (embedder-resolved declaration modules, e.g. the
-    /// runtime bindings interface). Local declarations shadow them.
+    /// platform bindings interface). Local declarations shadow them.
     pub prelude_abilities: &'a [std::sync::Arc<crate::ability_resolver::DynAbility>],
 }
 

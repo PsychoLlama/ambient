@@ -1313,14 +1313,14 @@ fn test_private_function_ability_inference() {
         }
 
         fn ping(n: number) {
-            if n > 0 { runtime.Console.print!("ping"); pong(n - 1); } else { () }
+            if n > 0 { platform.Console.print!("ping"); pong(n - 1); } else { () }
         }
 
         fn pong(n: number) {
-            if n > 0 { runtime.Console.print!("pong"); ping(n - 1); } else { () }
+            if n > 0 { platform.Console.print!("pong"); ping(n - 1); } else { () }
         }
 
-        fn helper_inner() { runtime.Console.print!("inner"); }
+        fn helper_inner() { platform.Console.print!("inner"); }
         fn helper_outer() { helper_inner(); }
     "#,
     )
@@ -1339,7 +1339,7 @@ fn test_public_function_must_declare_inferred_abilities() {
         }
 
         fn leaky() {
-            runtime.Console.print!("leak");
+            platform.Console.print!("leak");
         }
     "#,
     )
@@ -1544,7 +1544,7 @@ fn test_method_call_resolves_inside_perform_arguments() {
 
         pub fn run(): () with Console {
             let p = Point { x: 21 };
-            runtime.Console.print!(core.convert.to_string(p.doubled()));
+            platform.Console.print!(core.convert.to_string(p.doubled()));
         }
         "#,
     );
@@ -1870,14 +1870,14 @@ fn test_execute_run_with_granted_ability() {
     CliTest::new(
         r#"
         fn shout(x: number): number with Log {
-            runtime.Log.info!("computing remotely");
+            platform.Log.info!("computing remotely");
             x * 2
         }
 
         pub fn run(): number with Execute {
             let thunk = (x) => shout(x);
             let hash = core.protocol.closure_hash(thunk);
-            runtime.Execute.run!(hash, 21)
+            platform.Execute.run!(hash, 21)
         }
         "#,
     )
@@ -1891,14 +1891,14 @@ fn test_execute_run_ungranted_ability_is_unhandled() {
     CliTest::new(
         r#"
         fn phone_home(x: number): number with Network {
-            let conn = runtime.Network.connect!("127.0.0.1:1");
+            let conn = platform.Network.connect!("127.0.0.1:1");
             x
         }
 
         pub fn run(): number with Execute {
             let thunk = (x) => phone_home(x);
             let hash = core.protocol.closure_hash(thunk);
-            runtime.Execute.run!(hash, 1)
+            platform.Execute.run!(hash, 1)
         }
         "#,
     )
@@ -1926,7 +1926,7 @@ fn test_execute_run_with_shipped_handler() {
             let oracle = { answer() => resume(40) };
             let thunk = (x) => consult(x);
             let hash = core.protocol.closure_hash(thunk);
-            runtime.Execute.run_with!(hash, 2, oracle)
+            platform.Execute.run_with!(hash, 2, oracle)
         }
         ",
     )
@@ -2117,7 +2117,7 @@ fn test_host_raised_exception_is_catchable() {
     CliTest::new(
         r#"
         fn try_connect(): string with Network {
-            let conn = runtime.Network.connect!("127.0.0.1:9");
+            let conn = platform.Network.connect!("127.0.0.1:9");
             "connected"
         }
 
@@ -2139,7 +2139,7 @@ fn test_host_raised_exception_resume_substitute() {
     CliTest::new(
         r#"
         fn try_connect(): number with Network {
-            let conn = runtime.Network.connect!("127.0.0.1:9");
+            let conn = platform.Network.connect!("127.0.0.1:9");
             conn + 1000
         }
 
@@ -2164,8 +2164,8 @@ fn test_fs_write_read_roundtrip() {
     CliTest::new(format!(
         r#"
         pub fn run(): string with FileSystem {{
-            runtime.FileSystem.write!("{path}", "hello from ambient");
-            runtime.FileSystem.read!("{path}")
+            platform.FileSystem.write!("{path}", "hello from ambient");
+            platform.FileSystem.read!("{path}")
         }}
         "#,
         path = path.display()
@@ -2180,7 +2180,7 @@ fn test_fs_read_missing_file_is_catchable_exception() {
     CliTest::new(
         r#"
         fn try_read(): string with FileSystem {
-            runtime.FileSystem.read!("/nonexistent/ambient_fs_test/missing.txt")
+            platform.FileSystem.read!("/nonexistent/ambient_fs_test/missing.txt")
         }
 
         pub fn run(): string with FileSystem {
@@ -2200,9 +2200,9 @@ fn test_fs_exists_false_then_true() {
     CliTest::new(format!(
         r#"
         pub fn run(): () with FileSystem, Console {{
-            runtime.Console.println!(core.convert.to_string(runtime.FileSystem.exists!("{path}")));
-            runtime.FileSystem.write!("{path}", "x");
-            runtime.Console.println!(core.convert.to_string(runtime.FileSystem.exists!("{path}")));
+            platform.Console.println!(core.convert.to_string(platform.FileSystem.exists!("{path}")));
+            platform.FileSystem.write!("{path}", "x");
+            platform.Console.println!(core.convert.to_string(platform.FileSystem.exists!("{path}")));
         }}
         "#,
         path = path.display()
@@ -2217,9 +2217,9 @@ fn test_fs_list_returns_written_entries() {
     CliTest::new(format!(
         r#"
         pub fn run(): number with FileSystem {{
-            runtime.FileSystem.write!("{base}/a.txt", "1");
-            runtime.FileSystem.write!("{base}/b.txt", "2");
-            core.list.length(runtime.FileSystem.list!("{base}"))
+            platform.FileSystem.write!("{base}/a.txt", "1");
+            platform.FileSystem.write!("{base}/b.txt", "2");
+            core.list.length(platform.FileSystem.list!("{base}"))
         }}
         "#
     ))
@@ -2233,9 +2233,9 @@ fn test_fs_remove_then_exists_is_false() {
     CliTest::new(format!(
         r#"
         pub fn run(): bool with FileSystem {{
-            runtime.FileSystem.write!("{path}", "gone soon");
-            runtime.FileSystem.remove!("{path}");
-            runtime.FileSystem.exists!("{path}")
+            platform.FileSystem.write!("{path}", "gone soon");
+            platform.FileSystem.remove!("{path}");
+            platform.FileSystem.exists!("{path}")
         }}
         "#,
         path = path.display()
@@ -2251,14 +2251,14 @@ fn test_execute_run_fs_is_not_granted() {
     CliTest::new(
         r#"
         fn sneaky(x: number): number with FileSystem {
-            let content = runtime.FileSystem.read!("/etc/hostname");
+            let content = platform.FileSystem.read!("/etc/hostname");
             x
         }
 
         pub fn run(): number with Execute {
             let thunk = (x) => sneaky(x);
             let hash = core.protocol.closure_hash(thunk);
-            runtime.Execute.run!(hash, 1)
+            platform.Execute.run!(hash, 1)
         }
         "#,
     )

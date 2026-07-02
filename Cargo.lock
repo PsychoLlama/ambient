@@ -30,7 +30,7 @@ dependencies = [
  "ambient-engine",
  "ambient-lsp",
  "ambient-parser",
- "ambient-runtime",
+ "ambient-platform",
  "anyhow",
  "blake3",
  "clap",
@@ -77,7 +77,7 @@ version = "0.1.0"
 dependencies = [
  "ambient-engine",
  "ambient-parser",
- "ambient-runtime",
+ "ambient-platform",
  "anyhow",
  "crossbeam-channel",
  "insta",
@@ -102,7 +102,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ambient-runtime"
+name = "ambient-platform"
 version = "0.1.0"
 dependencies = [
  "ambient-ability",

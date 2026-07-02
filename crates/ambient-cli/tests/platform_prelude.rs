@@ -1,5 +1,5 @@
-//! The runtime bindings interface (`runtime.ab`) is the sole source of
-//! truth for the native runtime.
+//! The platform bindings interface (`platform.ab`) is the sole source of
+//! truth for the native platform.
 //!
 //! Type checking and compilation resolve performs through the parsed
 //! declarations, and host handlers bind by method name against the same
@@ -14,12 +14,12 @@ use std::sync::Arc;
 use ambient_engine::ability_resolver::DynAbility;
 
 fn resolved_prelude() -> HashMap<String, Arc<DynAbility>> {
-    let mut module = ambient_parser::parse(ambient_runtime::ABILITY_DECLARATIONS)
-        .expect("runtime bindings interface must parse");
+    let mut module = ambient_parser::parse(ambient_platform::ABILITY_DECLARATIONS)
+        .expect("platform bindings interface must parse");
     let (abilities, errors) = ambient_engine::infer::resolve_ability_declarations(&mut module);
     assert!(
         errors.is_empty(),
-        "runtime bindings interface must resolve: {errors:?}"
+        "platform bindings interface must resolve: {errors:?}"
     );
     abilities
         .into_iter()
@@ -79,13 +79,13 @@ fn declarations_expose_the_expected_interfaces() {
     assert_eq!(
         prelude.len(),
         expected.len(),
-        "runtime.ab must declare exactly the 7 runtime abilities"
+        "platform.ab must declare exactly the 7 platform abilities"
     );
 
     for (name, methods) in expected {
         let ability = prelude
             .get(name)
-            .unwrap_or_else(|| panic!("runtime.ab must declare {name}"));
+            .unwrap_or_else(|| panic!("platform.ab must declare {name}"));
 
         let declared: Vec<&str> = ability.methods.iter().map(|m| m.name.as_ref()).collect();
         assert_eq!(

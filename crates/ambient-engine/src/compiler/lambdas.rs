@@ -485,7 +485,7 @@ pub(super) fn compile_handler_literal(
 // ─────────────────────────────────────────────────────────────────────────────
 
 // These consult the engine's builtin ability set, which is core-only
-// (Exception). Runtime abilities resolve through the module context's
+// (Exception). Platform abilities resolve through the module context's
 // registered abilities (prelude + local declarations) before reaching
 // these fallbacks.
 

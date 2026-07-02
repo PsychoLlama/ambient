@@ -23,7 +23,7 @@ pub fn run(): () with Console {
 
 // Private functions infer their abilities — no annotation needed.
 fn greet(name: string) {
-  runtime.Console.print!("Hello, ${name}!");
+  platform.Console.print!("Hello, ${name}!");
 }
 ```
 
@@ -47,10 +47,10 @@ sandbox untrusted code, or intercept and transform operations:
 
 ```ambient
 handle {
-  runtime.Console.print!("hello");
+  platform.Console.print!("hello");
 } {
-  runtime.Console.print(msg) => {
-    runtime.Console.print!(core.string.concat("[LOG] ", msg));
+  platform.Console.print(msg) => {
+    platform.Console.print!(core.string.concat("[LOG] ", msg));
     resume(())
   }
 }
@@ -89,7 +89,7 @@ by the test suite (`cargo test -p ambient-cli --test examples`).
 | `crates/ambient-parser` | Hand-written lexer + parser (CST → AST) |
 | `crates/ambient-cli` | The `ambient` binary |
 | `crates/ambient-lsp` | Language server |
-| `crates/ambient-core` / `-ability` / `-runtime` | Ability descriptors, runtime values, host abilities |
+| `crates/ambient-core` / `-ability` / `-platform` | Ability descriptors, runtime values, host abilities |
 | `ref/` | Language design docs (`architecture.md` is the source of truth) |
 | `examples/` | Runnable example packages with golden-tested output |
 | `tree-sitter-ambient/`, `ambient.nvim/` | Editor tooling |

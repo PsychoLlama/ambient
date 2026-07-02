@@ -776,7 +776,7 @@ fn register_abilities(
 /// the module.
 ///
 /// This is the entry point for **ability preludes**: an embedder parses a
-/// module containing only `ability` declarations (e.g. the runtime
+/// module containing only `ability` declarations (e.g. the platform
 /// bindings interface), resolves them here, and registers the results as
 /// namespaced dynamics on the resolver it threads into checking — and as
 /// the identity/method-id source when binding host handlers on the VM.
@@ -897,7 +897,7 @@ pub fn check_module_with_registry(
 /// Check a single module with a custom ability resolver.
 ///
 /// Like [`check_module`], but the resolver decides which abilities are
-/// in scope (e.g. an embedder-registered runtime prelude).
+/// in scope (e.g. an embedder-registered platform prelude).
 #[must_use]
 pub fn check_module_with_resolver(
     module: crate::ast::Module,

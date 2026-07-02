@@ -116,8 +116,8 @@ fn run_dev_iteration(file: &Path, entry: &str) {
 
     let compile_time = start.elapsed();
 
-    // Create and configure VM with the runtime prelude's default abilities.
-    let prelude = match super::runtime_prelude() {
+    // Create and configure VM with the platform prelude's default abilities.
+    let prelude = match super::platform_prelude() {
         Ok(prelude) => prelude,
         Err(e) => {
             eprintln!("\x1b[1;31merror\x1b[0m: {e}");
@@ -125,7 +125,7 @@ fn run_dev_iteration(file: &Path, entry: &str) {
         }
     };
     let mut vm = Vm::new();
-    ambient_runtime::register_defaults(&mut vm, &prelude);
+    ambient_platform::register_defaults(&mut vm, &prelude);
 
     // Load all functions into the VM.
     for func in compiled.functions.values() {

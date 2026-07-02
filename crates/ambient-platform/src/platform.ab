@@ -1,10 +1,10 @@
-//! The runtime bindings interface.
+//! The platform bindings interface.
 //!
 //! These declarations are the single description of what the native
-//! runtime can do. Each ability's identity is the blake3 hash of its
+//! platform can do. Each ability's identity is the blake3 hash of its
 //! canonical interface; the host registers handlers keyed by that hash,
 //! so shipping this module *is* shipping the binding contract. Perform
-//! with the `runtime.` prefix: `runtime.Console.print!("hi")`.
+//! with the `platform.` prefix: `platform.Console.print!("hi")`.
 //!
 //! Operational failures (missing files, refused connections, ...) do not
 //! return `Result`: handlers raise catchable `Exception`s through the

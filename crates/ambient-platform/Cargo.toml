@@ -1,8 +1,8 @@
 [package]
-name = "ambient-runtime"
+name = "ambient-platform"
 version = "0.1.0"
 edition = "2021"
-description = "Host-provided runtime abilities for the Ambient language"
+description = "Host-provided platform abilities for the Ambient language"
 
 [dependencies]
 ambient-ability = { path = "../ambient-ability" }

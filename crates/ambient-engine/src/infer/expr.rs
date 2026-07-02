@@ -1103,7 +1103,7 @@ mod tests {
 
         let mut infer = Infer::new();
         infer.ability_resolver.register_dynamic_in_namespace(
-            "runtime",
+            "platform",
             DynAbility {
                 id: crate::types::AbilityId::from_bytes([7; 32]),
                 name: "Printer".into(),
@@ -1118,7 +1118,7 @@ mod tests {
             },
         );
         infer.ability_resolver.register_dynamic_in_namespace(
-            "runtime",
+            "platform",
             DynAbility {
                 id: crate::types::AbilityId::from_bytes([8; 32]),
                 name: "Clock".into(),

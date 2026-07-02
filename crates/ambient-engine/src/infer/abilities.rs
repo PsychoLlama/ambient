@@ -68,7 +68,7 @@ impl Infer {
         let ability_name = &ability.name;
 
         // Namespaced dynamic abilities (ability preludes, e.g. the
-        // `runtime` module) resolve qualified performs with full declared
+        // `platform` module) resolve qualified performs with full declared
         // signatures. They take precedence over the builtin-descriptor
         // path below so a prelude declaration supersedes any descriptor
         // registered under the same name.
@@ -203,9 +203,9 @@ mod tests {
         (0, 0)
     }
 
-    /// Create a qualified name with the `runtime.` prefix.
-    fn runtime_ability(name: &str) -> QualifiedName {
-        QualifiedName::qualified(vec!["runtime"], name)
+    /// Create a qualified name with the `platform.` prefix.
+    fn platform_ability(name: &str) -> QualifiedName {
+        QualifiedName::qualified(vec!["platform"], name)
     }
 
     /// A prelude-style test ability: `Printer.go(message: string): ()`.
@@ -231,9 +231,9 @@ mod tests {
         let mut infer = Infer::new();
         infer
             .ability_resolver
-            .register_dynamic_in_namespace("runtime", printer_ability(7));
+            .register_dynamic_in_namespace("platform", printer_ability(7));
 
-        let qualified = QualifiedName::qualified(vec!["runtime"], "Printer");
+        let qualified = QualifiedName::qualified(vec!["platform"], "Printer");
         let (id, ret, _) = infer
             .lookup_ability_method(&qualified, "go", &[Type::String], span())
             .expect("qualified perform should resolve");
@@ -287,7 +287,7 @@ mod tests {
         let mut infer = Infer::new();
         infer
             .ability_resolver
-            .register_dynamic_in_namespace("runtime", printer_ability(7));
+            .register_dynamic_in_namespace("platform", printer_ability(7));
 
         // Exception is the only engine builtin; prelude abilities resolve
         // by bare name too (effect rows, handler arms).
@@ -332,7 +332,7 @@ mod tests {
         let mut infer = Infer::new();
         infer
             .ability_resolver
-            .register_dynamic_in_namespace("runtime", printer_ability(7));
+            .register_dynamic_in_namespace("platform", printer_ability(7));
 
         // "go" exists only in Printer.
         let methods: Vec<Arc<str>> = vec!["go".into()];
@@ -346,23 +346,23 @@ mod tests {
     }
 
     #[test]
-    fn test_runtime_namespace_required() {
+    fn test_platform_namespace_required() {
         let mut infer = Infer::new();
         infer
             .ability_resolver
-            .register_dynamic_in_namespace("runtime", printer_ability(7));
+            .register_dynamic_in_namespace("platform", printer_ability(7));
 
         // A namespaced prelude ability performed bare should fail.
         let bare = QualifiedName::simple("Printer");
         let result = infer.lookup_ability_method(&bare, "go", &[Type::String], span());
         assert!(
             result.is_err(),
-            "Printer without runtime. prefix should fail"
+            "Printer without platform. prefix should fail"
         );
 
         // The same perform with the namespace succeeds.
-        let qualified = runtime_ability("Printer");
+        let qualified = platform_ability("Printer");
         let result = infer.lookup_ability_method(&qualified, "go", &[Type::String], span());
-        assert!(result.is_ok(), "runtime.Printer.go should succeed");
+        assert!(result.is_ok(), "platform.Printer.go should succeed");
     }
 }

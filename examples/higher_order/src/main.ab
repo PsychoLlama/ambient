@@ -15,8 +15,8 @@ pub fn run(): () with Console {
     let evens = filter(squares, (x: number) => is_even(x));
     let total = fold(evens, 0, (acc: number, x: number) => acc + x);
 
-    runtime.Console.print!(core.string.from_number(total));
-    runtime.Console.print!(core.string.from_number(stats.mean(squares)));
+    platform.Console.print!(core.string.from_number(total));
+    platform.Console.print!(core.string.from_number(stats.mean(squares)));
 }
 
 fn is_even(x: number): bool {

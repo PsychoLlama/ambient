@@ -234,7 +234,7 @@ An ability is identified by the **blake3 hash of its canonical
 interface**: its name plus the ordered list of method names and
 canonicalized signatures (type variables numbered by first occurrence,
 so `<T>(T) -> U` encodes identically everywhere). Every ability hashes
-through the same scheme (`ambient-core/src/canonical.rs`) — the runtime
+through the same scheme (`ambient-core/src/canonical.rs`) — the platform
 builtins are ordinary in-language declarations, not a special case.
 
 This is the same trick the language plays for functions, and it is what
@@ -270,8 +270,8 @@ ability Log with Console {
 }
 ```
 
-The runtime abilities (Console, FileSystem, Network, ...) are themselves plain
-`ability` declarations — see "The runtime module" below. User abilities
+The platform abilities (Console, FileSystem, Network, ...) are themselves plain
+`ability` declarations — see "The platform module" below. User abilities
 are handled in-language (`handle` blocks or handler values); a performed
 ability with no handler in scope — in-language or host — is a runtime
 error. Current limits: declarations are visible in the declaring module
@@ -361,20 +361,20 @@ sandbox {
 }
 ```
 
-### The runtime module and host bindings
+### The platform module and host bindings
 
 Builtin abilities are not defined in engine code. The engine's only
 native ability is `Exception` (part of the language). Everything else —
 Console, Time, Random, Log, FileSystem, Network, Execute — is declared once, in
-Ambient source, in the **runtime bindings interface**
-(`crates/ambient-runtime/src/runtime.ab`), and performed under the
-`runtime` namespace: `runtime.FileSystem.read!(path)`.
+Ambient source, in the **platform bindings interface**
+(`crates/ambient-platform/src/platform.ab`), and performed under the
+`platform` namespace: `platform.FileSystem.read!(path)`.
 
 An embedder wires the two halves together:
 
 1. Parse the declarations and resolve them
    (`resolve_ability_declarations`) into content-addressed interfaces.
-2. Register them as the `runtime` ability prelude on the resolver used
+2. Register them as the `platform` ability prelude on the resolver used
    for type checking and in `CompileOptions::prelude_abilities` for
    compilation. Performs then type-check against the full declared
    signatures — the same path user-declared abilities take.
@@ -382,8 +382,8 @@ An embedder wires the two halves together:
    interfaces (`AbilityInterface`: identity plus name→method-id map) via
    `vm.register_host_handler(id, method_id, handler)`.
 
-`ambient-runtime` is one such embedder, packaged as a library: it ships
-`runtime.ab` plus native handler sets (std::fs, TCP via tokio, ...) and
+`ambient-platform` is one such embedder, packaged as a library: it ships
+`platform.ab` plus native handler sets (std::fs, TCP via tokio, ...) and
 registration functions (`register_defaults`, `register_network`,
 `register_execute`). The engine crate does not depend on it — another
 crate can use the engine the same way with entirely different
@@ -396,7 +396,7 @@ second copy of the interface to fall out of sync.
 ## Concurrency
 
 All IO is blocking. There is no `Async` ability and no async/await-style
-primitives — this is intentional. A perform like `runtime.Network.receive!`
+primitives — this is intentional. A perform like `platform.Network.receive!`
 simply blocks the calling code until the host handler returns.
 
 The planned direction is an Erlang-inspired process model: lightweight
@@ -457,7 +457,7 @@ succeeded:
 
 ```ambient
 fn fetch_or_default(): number with Network {
-  handle runtime.Network.connect!("10.0.0.1:9") {
+  handle platform.Network.connect!("10.0.0.1:9") {
     Exception.throw(msg) => resume(0 - 1)  // substitute connection id
   }
 }
@@ -511,7 +511,7 @@ after the fact.
 ### Core Abilities
 
 The authoritative declarations live in
-`crates/ambient-runtime/src/runtime.ab`; excerpts:
+`crates/ambient-platform/src/platform.ab`; excerpts:
 
 ```ambient
 ability Time {
@@ -754,7 +754,7 @@ dedicated `serve` command.
 
 ```ambient
 pub fn run(): () with Console {
-  runtime.Console.print!("Hello, world!");
+  platform.Console.print!("Hello, world!");
 }
 ```
 
@@ -819,8 +819,8 @@ Roughly in priority order:
   intrinsics. Target roughly the granularity of Go's or Node's standard
   libraries. Generic trait bounds would unlock `contains`/`sort_by`.
 - **Cross-module ability imports.** The platform-bindings split is
-  done: runtime abilities are pure in-language declarations
-  (`runtime.ab`) embodied by host FFI, the engine crate knows only
+  done: platform abilities are pure in-language declarations
+  (`platform.ab`) embodied by host FFI, the engine crate knows only
   Exception, and embedders wire declaration hashes to handlers by
   method name. What remains is the general form: exporting an
   `ability` from one user module and importing it in another (exports

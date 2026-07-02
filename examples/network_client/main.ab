@@ -8,27 +8,27 @@
 
 /// Entry point that connects to a server and sends messages.
 pub fn run(): () with Console, Network {
-    runtime.Console.print!("Client: connecting to 127.0.0.1:9000...");
-    let conn = runtime.Network.connect!("127.0.0.1:9000");
+    platform.Console.print!("Client: connecting to 127.0.0.1:9000...");
+    let conn = platform.Network.connect!("127.0.0.1:9000");
 
-    let local = runtime.Network.local_addr!(conn);
-    runtime.Console.print!(core.string.concat("Client: connected from ", local));
+    let local = platform.Network.local_addr!(conn);
+    platform.Console.print!(core.string.concat("Client: connected from ", local));
 
     // Send a message as Bytes
     let message = string_to_bytes("Hello from Ambient!");
-    runtime.Console.print!(core.string.concat("Client: sending ", core.string.concat(core.convert.to_string(core.bytes.length(message)), " bytes...")));
-    runtime.Network.send!(conn, message);
+    platform.Console.print!(core.string.concat("Client: sending ", core.string.concat(core.convert.to_string(core.bytes.length(message)), " bytes...")));
+    platform.Network.send!(conn, message);
 
     // Receive the echo
-    let response = runtime.Network.receive!(conn);
-    runtime.Console.print!(core.string.concat("Client: received ", core.string.concat(core.convert.to_string(core.bytes.length(response)), " bytes back")));
+    let response = platform.Network.receive!(conn);
+    platform.Console.print!(core.string.concat("Client: received ", core.string.concat(core.convert.to_string(core.bytes.length(response)), " bytes back")));
 
     // Send empty message to signal quit
-    runtime.Console.print!("Client: sending empty message to quit...");
-    runtime.Network.send!(conn, core.bytes.from([]));
+    platform.Console.print!("Client: sending empty message to quit...");
+    platform.Network.send!(conn, core.bytes.from([]));
 
-    runtime.Network.close!(conn);
-    runtime.Console.print!("Client: done")
+    platform.Network.close!(conn);
+    platform.Console.print!("Client: done")
 }
 
 /// Convert a string to Bytes (ASCII).

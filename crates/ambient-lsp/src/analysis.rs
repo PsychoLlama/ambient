@@ -78,8 +78,8 @@ pub fn analyze_with_registry_and_resolver(
     };
 
     // Type check the module - use the registry if available. Without an
-    // explicit resolver, abilities resolve against the runtime prelude.
-    let resolver = resolver.unwrap_or_else(runtime_prelude_resolver);
+    // explicit resolver, abilities resolve against the platform prelude.
+    let resolver = resolver.unwrap_or_else(platform_prelude_resolver);
     let check_result = match (module_path, registry) {
         (Some(path), Some(reg)) => {
             check_module_with_registry_and_resolver(module, path, reg, resolver)
@@ -94,14 +94,14 @@ pub fn analyze_with_registry_and_resolver(
     }
 }
 
-/// An ability resolver with the runtime bindings interface registered
-/// under the `runtime` namespace, mirroring how the CLI checks code.
-fn runtime_prelude_resolver() -> AbilityResolver {
+/// An ability resolver with the platform bindings interface registered
+/// under the `platform` namespace, mirroring how the CLI checks code.
+fn platform_prelude_resolver() -> AbilityResolver {
     let mut resolver = ambient_engine::ability_resolver::core_abilities();
-    if let Ok(mut module) = parse(ambient_runtime::ABILITY_DECLARATIONS) {
+    if let Ok(mut module) = parse(ambient_platform::ABILITY_DECLARATIONS) {
         let (abilities, _errors) = ambient_engine::infer::resolve_ability_declarations(&mut module);
         for ability in abilities {
-            resolver.register_dynamic_in_namespace("runtime", (*ability).clone());
+            resolver.register_dynamic_in_namespace("platform", (*ability).clone());
         }
     }
     resolver

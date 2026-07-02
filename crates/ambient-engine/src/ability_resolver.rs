@@ -1,6 +1,6 @@
 //! Ability resolver for looking up abilities from registered providers.
 //!
-//! The `AbilityResolver` aggregates abilities from multiple providers (core, runtime,
+//! The `AbilityResolver` aggregates abilities from multiple providers (core, platform,
 //! and any user-defined providers) and provides lookup methods for the type checker
 //! and compiler.
 
@@ -127,7 +127,7 @@ impl From<&DynAbility> for AbilityInterface {
 /// Two populations live here: builtin descriptors (registered from
 /// providers/config) and dynamic, module-declared abilities. Name lookups
 /// prefer dynamic abilities, so a module declaration shadows a builtin of
-/// the same name (except the `runtime.`-namespaced ones, which the type
+/// the same name (except the `platform.`-namespaced ones, which the type
 /// checker guards separately).
 pub struct AbilityResolver {
     /// Map from ability name to descriptor.
@@ -149,9 +149,9 @@ pub struct AbilityResolver {
     /// Namespaced dynamic abilities: name → (namespace, ability).
     ///
     /// These come from ability preludes (declaration modules an embedder
-    /// registers, e.g. the `runtime` module). Unlike local dynamics they
+    /// registers, e.g. the `platform` module). Unlike local dynamics they
     /// must be performed with their namespace prefix
-    /// (`runtime.Console.print!`); bare names still resolve in effect
+    /// (`platform.Console.print!`); bare names still resolve in effect
     /// rows and handler arms, where no qualification exists today.
     namespaced_by_name: HashMap<Arc<str>, (Arc<str>, Arc<DynAbility>)>,
 }
@@ -615,7 +615,7 @@ impl TypeFactory<Type> for EngineTypeFactory {
 /// Create an `AbilityResolver` with the language-level core abilities
 /// (Exception).
 ///
-/// This is the engine's only builtin ability set. Runtime abilities
+/// This is the engine's only builtin ability set. Platform abilities
 /// (Console, `FileSystem`, Network, ...) are not engine builtins: embedders
 /// resolve their declaration modules with
 /// [`crate::infer::resolve_ability_declarations`] and register the
@@ -640,7 +640,7 @@ mod tests {
         // Exception is the engine's only builtin ability.
         assert!(resolver.get_by_name("Exception").is_some());
 
-        // Runtime abilities are not engine builtins.
+        // Platform abilities are not engine builtins.
         assert!(resolver.get_by_name("Console").is_none());
         assert!(resolver.get_by_name("FileSystem").is_none());
     }
@@ -648,7 +648,7 @@ mod tests {
     #[test]
     fn test_infer_ability_from_methods() {
         let mut resolver = core_abilities();
-        resolver.register_dynamic_in_namespace("runtime", dyn_ability("Printer", 7));
+        resolver.register_dynamic_in_namespace("platform", dyn_ability("Printer", 7));
 
         // Methods that match the namespaced dynamic.
         let methods = vec![Arc::from("go")];
@@ -679,14 +679,14 @@ mod tests {
     #[test]
     fn namespaced_dynamics_resolve_qualified_and_bare() {
         let mut resolver = AbilityResolver::new();
-        resolver.register_dynamic_in_namespace("runtime", dyn_ability("Printer", 7));
+        resolver.register_dynamic_in_namespace("platform", dyn_ability("Printer", 7));
 
         // Qualified lookup finds it; the wrong namespace does not.
-        assert!(resolver.get_namespaced("runtime", "Printer").is_some());
+        assert!(resolver.get_namespaced("platform", "Printer").is_some());
         assert!(resolver.get_namespaced("other", "Printer").is_none());
         assert_eq!(
             resolver.dynamic_namespace_of("Printer").map(AsRef::as_ref),
-            Some("runtime")
+            Some("platform")
         );
 
         // Bare names still resolve for effect rows and handler arms.
@@ -716,7 +716,7 @@ mod tests {
     #[test]
     fn local_dynamics_shadow_namespaced_in_bare_lookups() {
         let mut resolver = AbilityResolver::new();
-        resolver.register_dynamic_in_namespace("runtime", dyn_ability("Printer", 7));
+        resolver.register_dynamic_in_namespace("platform", dyn_ability("Printer", 7));
         resolver.register_dynamic(dyn_ability("Printer", 9));
 
         assert_eq!(
@@ -725,7 +725,7 @@ mod tests {
         );
         // The namespaced one remains reachable via qualification.
         assert_eq!(
-            resolver.get_namespaced("runtime", "Printer").map(|a| a.id),
+            resolver.get_namespaced("platform", "Printer").map(|a| a.id),
             Some(AbilityId::from_bytes([7; 32]))
         );
     }

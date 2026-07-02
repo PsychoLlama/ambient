@@ -41,15 +41,15 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
         None => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     };
 
-    // Create shared REPL context for completions, with the runtime
+    // Create shared REPL context for completions, with the platform
     // prelude registered so ability calls compile.
-    let prelude = crate::commands::runtime_prelude()?;
+    let prelude = crate::commands::platform_prelude()?;
     let repl_ctx = Arc::new(Mutex::new(ReplContext::with_prelude(prelude.clone())));
 
     let mut vm = Vm::new();
 
     // Register standard abilities for the REPL against the resolved prelude.
-    ambient_runtime::register_defaults(&mut vm, &prelude);
+    ambient_platform::register_defaults(&mut vm, &prelude);
 
     // Register built-in modules for introspection and compile core library.
     {
@@ -121,7 +121,7 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
                         ReplCommand::Clear => {
                             // Clear the VM state by creating a fresh VM.
                             vm = Vm::new();
-                            ambient_runtime::register_defaults(&mut vm, &prelude);
+                            ambient_platform::register_defaults(&mut vm, &prelude);
                             *repl_ctx.lock().unwrap() = ReplContext::with_prelude(prelude.clone());
                             eprintln!("State cleared.");
                         }

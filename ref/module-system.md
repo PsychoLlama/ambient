@@ -145,7 +145,7 @@ pub fn run(): () with Console, Filesystem {
 - Abilities are optional (default: none)
 - No parameters
 
-The runtime provides handlers for core abilities (`Console`, `Filesystem`, `Time`, `Random`, etc.) automatically.
+The platform provides handlers for core abilities (`Console`, `Filesystem`, `Time`, `Random`, etc.) automatically.
 
 ## Visibility Semantics
 

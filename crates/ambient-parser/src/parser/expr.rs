@@ -1358,7 +1358,7 @@ impl Parser<'_> {
 /// Handles:
 /// - `Ident` → single-segment qualified name
 /// - `QualifiedName` → as-is
-/// - Chain of `Field` accesses → multi-segment qualified name (e.g., `runtime.Console`)
+/// - Chain of `Field` accesses → multi-segment qualified name (e.g., `platform.Console`)
 ///
 /// Returns `None` if the expression cannot be converted to a qualified name.
 fn expr_to_qualified_name(expr: &CstExpr) -> Option<CstQualifiedName> {

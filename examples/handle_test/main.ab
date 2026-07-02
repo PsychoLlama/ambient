@@ -10,7 +10,7 @@ fn simple_function(): number {
 /// Tests a simple handle with no ability use.
 fn test_simple_handle(): number {
   handle simple_function() {
-    runtime.Console.print(msg) => {
+    platform.Console.print(msg) => {
       resume(())
     }
   }
@@ -19,7 +19,7 @@ fn test_simple_handle(): number {
 /// Tests handle expression with multiple handlers.
 fn test_multiple_handlers(): number {
   handle simple_function() {
-    runtime.Console.print(msg) => {
+    platform.Console.print(msg) => {
       resume(())
     },
     Exception.throw(e) => {

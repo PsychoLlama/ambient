@@ -1,7 +1,7 @@
-//! Runtime abilities for the Ambient language.
+//! Platform abilities for the Ambient language.
 //!
 //! This crate is the native embedder layer over `ambient-engine`. It
-//! ships the runtime bindings interface as in-language `ability`
+//! ships the platform bindings interface as in-language `ability`
 //! declarations ([`ABILITY_DECLARATIONS`]) and provides host handler
 //! implementations that bind against the *resolved* declarations by
 //! method name — there is no parallel Rust description of the interface.
@@ -37,15 +37,15 @@ use ambient_ability::{Value, VmError};
 use ambient_engine::ability_resolver::{AbilityInterface, DynAbility};
 use ambient_engine::vm::Vm;
 
-/// The runtime bindings interface, as in-language `ability` declarations.
+/// The platform bindings interface, as in-language `ability` declarations.
 ///
-/// This source is the single description of the native runtime: an
+/// This source is the single description of the native platform: an
 /// embedder parses it, resolves the declarations to content-addressed
-/// identities, registers them as the `runtime` ability prelude for type
+/// identities, registers them as the `platform` ability prelude for type
 /// checking and compilation, and binds host handlers against the same
 /// identities by method name (see the `register_*` functions in the
 /// sibling modules).
-pub const ABILITY_DECLARATIONS: &str = include_str!("runtime.ab");
+pub const ABILITY_DECLARATIONS: &str = include_str!("platform.ab");
 
 pub use console::{register_console, register_console_with_collector, ConsoleConfig};
 pub use execute::{register_execute, ExecuteConfig, ExecuteGrants};
@@ -62,7 +62,7 @@ pub use time::register_time;
 pub(crate) fn require(ability: &AbilityInterface, method: &str) -> u16 {
     ability
         .method_id(method)
-        .unwrap_or_else(|| panic!("runtime bindings interface has no method `{method}`"))
+        .unwrap_or_else(|| panic!("platform bindings interface has no method `{method}`"))
 }
 
 /// Register the zero-config native abilities (Console, Time, Random,

@@ -30,28 +30,28 @@ use ambient_engine::module_registry::ModuleRegistry;
 
 use crate::diagnostic::print_diagnostic;
 
-/// The `runtime` ability prelude: the bindings interface shipped by
-/// `ambient-runtime`, resolved to content-addressed identities.
+/// The `platform` ability prelude: the bindings interface shipped by
+/// `ambient-platform`, resolved to content-addressed identities.
 ///
 /// Resolution is cheap (one small declaration module), and the resolved
 /// types are `Rc`-based, so this is recomputed rather than cached in a
 /// static.
-pub fn runtime_prelude() -> Result<Vec<Arc<DynAbility>>> {
-    let mut module = ambient_parser::parse(ambient_runtime::ABILITY_DECLARATIONS)
-        .map_err(|e| anyhow::anyhow!("runtime bindings interface failed to parse: {e}"))?;
+pub fn platform_prelude() -> Result<Vec<Arc<DynAbility>>> {
+    let mut module = ambient_parser::parse(ambient_platform::ABILITY_DECLARATIONS)
+        .map_err(|e| anyhow::anyhow!("platform bindings interface failed to parse: {e}"))?;
     let (abilities, errors) = ambient_engine::infer::resolve_ability_declarations(&mut module);
     if let Some(error) = errors.first() {
-        bail!("runtime bindings interface failed to resolve: {error}");
+        bail!("platform bindings interface failed to resolve: {error}");
     }
     Ok(abilities)
 }
 
-/// An ability resolver with the runtime prelude registered under the
-/// `runtime` namespace, on top of the core abilities (Exception).
+/// An ability resolver with the platform prelude registered under the
+/// `platform` namespace, on top of the core abilities (Exception).
 pub fn prelude_resolver(prelude: &[Arc<DynAbility>]) -> AbilityResolver {
     let mut resolver = core_abilities();
     for ability in prelude {
-        resolver.register_dynamic_in_namespace("runtime", (**ability).clone());
+        resolver.register_dynamic_in_namespace("platform", (**ability).clone());
     }
     resolver
 }
@@ -119,8 +119,8 @@ pub fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
     let main_path = ModulePath::root();
     core.registry.register(&main_path, Arc::new(module.clone()));
 
-    // Type check with the core modules and runtime prelude visible.
-    let prelude = runtime_prelude()?;
+    // Type check with the core modules and platform prelude visible.
+    let prelude = platform_prelude()?;
     let check_result = ambient_engine::infer::check_module_with_registry_and_resolver(
         module,
         &main_path,
