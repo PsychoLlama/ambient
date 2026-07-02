@@ -1,25 +1,25 @@
-//! File I/O example using the Fs ability.
+//! File I/O example using the FileSystem ability.
 //!
 //! Writes a file, reads it back, recovers from a missing-file read with
 //! an Exception handler, then cleans up.
 
 /// Entry point demonstrating filesystem operations.
-pub fn run(): () with Fs, Console {
+pub fn run(): () with FileSystem, Console {
     let path = "/tmp/ambient_file_io_example.txt";
 
     // Write a file, then read it back.
-    runtime.Fs.write!(path, "Hello from the Fs ability!");
-    let content = runtime.Fs.read!(path);
+    runtime.FileSystem.write!(path, "Hello from the FileSystem ability!");
+    let content = runtime.FileSystem.read!(path);
     runtime.Console.println!(content);
 
     // Reading a missing file raises a catchable exception.
     let fallback = handle {
-        runtime.Fs.read!("/tmp/ambient_file_io_missing.txt")
+        runtime.FileSystem.read!("/tmp/ambient_file_io_missing.txt")
     } {
         Exception.throw(msg) => "missing file, using a fallback"
     };
     runtime.Console.println!(fallback);
 
     // Clean up.
-    runtime.Fs.remove!(path);
+    runtime.FileSystem.remove!(path);
 }

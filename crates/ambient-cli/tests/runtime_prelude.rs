@@ -37,7 +37,7 @@ fn declarations_expose_the_expected_interfaces() {
         ("Random", &["seed", "in_range"]),
         ("Log", &["debug", "info", "warn", "error"]),
         (
-            "Fs",
+            "FileSystem",
             &[
                 "read",
                 "write",

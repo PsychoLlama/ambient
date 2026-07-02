@@ -212,8 +212,8 @@ mod tests {
         // is irrelevant...
         let read = || MethodDescriptor::new(0, "read", 1, |f| vec![f.string()], |f| f.string());
         let write = || MethodDescriptor::new(1, "write", 1, |f| vec![f.string()], |f| f.unit());
-        let a = hash_interface("Fs", &[read(), write()]);
-        let b = hash_interface("Fs", &[write(), read()]);
+        let a = hash_interface("FileSystem", &[read(), write()]);
+        let b = hash_interface("FileSystem", &[write(), read()]);
         assert_eq!(a, b);
     }
 
@@ -221,14 +221,14 @@ mod tests {
     fn method_id_mapping_changes_identity() {
         // ...but which ID maps to which method is part of the identity.
         let a = hash_interface(
-            "Fs",
+            "FileSystem",
             &[
                 MethodDescriptor::new(0, "read", 1, |f| vec![f.string()], |f| f.string()),
                 MethodDescriptor::new(1, "write", 1, |f| vec![f.string()], |f| f.unit()),
             ],
         );
         let b = hash_interface(
-            "Fs",
+            "FileSystem",
             &[
                 MethodDescriptor::new(1, "read", 1, |f| vec![f.string()], |f| f.string()),
                 MethodDescriptor::new(0, "write", 1, |f| vec![f.string()], |f| f.unit()),

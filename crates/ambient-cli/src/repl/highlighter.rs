@@ -25,7 +25,7 @@ const KEYWORDS: &[&str] = &[
 /// Built-in type names and abilities.
 const BUILTINS: &[&str] = &[
     "Console",
-    "Fs",
+    "FileSystem",
     "Network",
     "Time",
     "Random",

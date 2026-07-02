@@ -253,7 +253,7 @@ exactly like a builtin from then on (effect rows, `handle`, handler
 values, generic methods):
 
 ```ambient
-ability Fs {
+ability FileSystem {
   fn read(path: string): string;
   fn write(path: string, content: string): ();
   fn exists(path: string): bool;
@@ -270,7 +270,7 @@ ability Log with Console {
 }
 ```
 
-The runtime abilities (Console, Fs, Network, ...) are themselves plain
+The runtime abilities (Console, FileSystem, Network, ...) are themselves plain
 `ability` declarations — see "The runtime module" below. User abilities
 are handled in-language (`handle` blocks or handler values); a performed
 ability with no handler in scope — in-language or host — is a runtime
@@ -282,16 +282,16 @@ them.
 
 ```ambient
 // Perform with !
-let content = Fs.read!("file.txt");
+let content = FileSystem.read!("file.txt");
 ```
 
 ### Ability Syntax in Type Signatures
 
 ```ambient
 fn read_config(path: Path): Config
-  with Fs
+  with FileSystem
 {
-  let content = Fs.read!(path);
+  let content = FileSystem.read!(path);
   parse_config(content)
 }
 
@@ -314,7 +314,7 @@ fn map<T, U, E!>(list: List<T>, f: (T) -> U with E): List<U>
 
 // Partial annotation with _
 pub fn transform(x: Input): Output
-  with Fs, _
+  with FileSystem, _
 { ... }
 ```
 
@@ -323,7 +323,7 @@ pub fn transform(x: Input): Output
 ```ambient
 fn run(): () {
   handle read_config("config.toml") {
-    Fs.read(path) => {
+    FileSystem.read(path) => {
       let content = "contents from anywhere";
       resume(content)
     }
@@ -334,7 +334,7 @@ fn run(): () {
 ### Handlers as Values
 
 ```ambient
-let mock_fs: Handler<Fs> = {
+let mock_fs: Handler<FileSystem> = {
   read(path) => resume("mock content"),
   write(path, content) => resume(()),
   exists(path) => resume(true),
@@ -345,7 +345,7 @@ handle unit_test() with mock_fs, mock_network {}
 
 // Override specific methods
 handle unit_test() with mock_fs {
-  Fs.read(path) => resume("intercepted")
+  FileSystem.read(path) => resume("intercepted")
 }
 ```
 
@@ -365,10 +365,10 @@ sandbox {
 
 Builtin abilities are not defined in engine code. The engine's only
 native ability is `Exception` (part of the language). Everything else —
-Console, Time, Random, Log, Fs, Network, Execute — is declared once, in
+Console, Time, Random, Log, FileSystem, Network, Execute — is declared once, in
 Ambient source, in the **runtime bindings interface**
 (`crates/ambient-runtime/src/runtime.ab`), and performed under the
-`runtime` namespace: `runtime.Fs.read!(path)`.
+`runtime` namespace: `runtime.FileSystem.read!(path)`.
 
 An embedder wires the two halves together:
 
@@ -482,7 +482,7 @@ structured error returns `Result`. They are values you match on.
 data the caller asked for; it is an interruption of an effect, and it
 travels through the effect system as an Exception. No builtin ability
 returns `Result` to signal failure. This keeps IO signatures honest
-(`Fs.read` returns `string`, not `Result<string, _>`) while `handle`
+(`FileSystem.read` returns `string`, not `Result<string, _>`) while `handle`
 gives callers strictly more power than matching: they can substitute a
 fallback for the failing call and continue, not just observe the error
 after the fact.
@@ -537,7 +537,7 @@ ability Log {
   fn error(message: string): ();
 }
 
-ability Fs {
+ability FileSystem {
   fn read(path: string): string;              // UTF-8 text
   fn write(path: string, content: string): ();  // create/truncate
   fn read_bytes(path: string): Bytes;
@@ -549,7 +549,7 @@ ability Fs {
 }
 ```
 
-Fs failures (missing files, permission errors, invalid UTF-8) raise
+FileSystem failures (missing files, permission errors, invalid UTF-8) raise
 catchable `Exception`s, recoverable with
 `handle ... { Exception.throw(msg) => ... }`. Only `exists` is
 infallible: it returns `false` when the path can't be inspected.
@@ -790,7 +790,7 @@ fn run(): bool {
 ### Testing with Mocks
 
 ```ambient
-let mock_fs: Handler<Fs> = {
+let mock_fs: Handler<FileSystem> = {
   read(path) => resume("mock content"),
   write(path, content) => resume(()),
   exists(path) => resume(true),

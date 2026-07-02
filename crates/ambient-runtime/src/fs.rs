@@ -1,4 +1,4 @@
-//! Fs ability - filesystem operations.
+//! `FileSystem` ability - filesystem operations.
 //!
 //! Whole-file and directory operations at the abstraction level of
 //! Node/Go/Python file APIs (no file descriptors or streaming). Backed
@@ -63,76 +63,78 @@ fn arg_bytes(args: &[Value], index: usize) -> Result<Vec<u8>, VmError> {
 // Handlers
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// `Fs.read(path: string) -> string` (UTF-8; invalid UTF-8 is an exception)
+/// `FileSystem.read(path: string) -> string` (UTF-8; invalid UTF-8 is an exception)
 fn read(ability: &SuspendedAbility) -> Result<Value, VmError> {
     let path = arg_string(&ability.args, 0)?;
-    let content =
-        std::fs::read_to_string(&path).map_err(|e| VmError::exception(format!("Fs.read: {e}")))?;
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| VmError::exception(format!("FileSystem.read: {e}")))?;
     Ok(Value::string(content))
 }
 
-/// `Fs.write(path: string, content: string) -> ()`
+/// `FileSystem.write(path: string, content: string) -> ()`
 fn write(ability: &SuspendedAbility) -> Result<Value, VmError> {
     let path = arg_string(&ability.args, 0)?;
     let content = arg_string(&ability.args, 1)?;
-    std::fs::write(&path, content).map_err(|e| VmError::exception(format!("Fs.write: {e}")))?;
+    std::fs::write(&path, content)
+        .map_err(|e| VmError::exception(format!("FileSystem.write: {e}")))?;
     Ok(Value::Unit)
 }
 
-/// `Fs.read_bytes(path: string) -> Bytes`
+/// `FileSystem.read_bytes(path: string) -> Bytes`
 fn read_bytes(ability: &SuspendedAbility) -> Result<Value, VmError> {
     let path = arg_string(&ability.args, 0)?;
-    let data =
-        std::fs::read(&path).map_err(|e| VmError::exception(format!("Fs.read_bytes: {e}")))?;
+    let data = std::fs::read(&path)
+        .map_err(|e| VmError::exception(format!("FileSystem.read_bytes: {e}")))?;
     Ok(Value::bytes(data))
 }
 
-/// `Fs.write_bytes(path: string, data: Bytes) -> ()`
+/// `FileSystem.write_bytes(path: string, data: Bytes) -> ()`
 fn write_bytes(ability: &SuspendedAbility) -> Result<Value, VmError> {
     let path = arg_string(&ability.args, 0)?;
     let data = arg_bytes(&ability.args, 1)?;
-    std::fs::write(&path, data).map_err(|e| VmError::exception(format!("Fs.write_bytes: {e}")))?;
+    std::fs::write(&path, data)
+        .map_err(|e| VmError::exception(format!("FileSystem.write_bytes: {e}")))?;
     Ok(Value::Unit)
 }
 
-/// `Fs.exists(path: string) -> bool` (infallible: false when uninspectable)
+/// `FileSystem.exists(path: string) -> bool` (infallible: false when uninspectable)
 fn exists(ability: &SuspendedAbility) -> Result<Value, VmError> {
     let path = arg_string(&ability.args, 0)?;
     Ok(Value::Bool(std::path::Path::new(&path).exists()))
 }
 
-/// `Fs.list(path: string) -> List<string>` (sorted entry names)
+/// `FileSystem.list(path: string) -> List<string>` (sorted entry names)
 fn list(ability: &SuspendedAbility) -> Result<Value, VmError> {
     let path = arg_string(&ability.args, 0)?;
-    let entries =
-        std::fs::read_dir(&path).map_err(|e| VmError::exception(format!("Fs.list: {e}")))?;
+    let entries = std::fs::read_dir(&path)
+        .map_err(|e| VmError::exception(format!("FileSystem.list: {e}")))?;
     let mut names = Vec::new();
     for entry in entries {
-        let entry = entry.map_err(|e| VmError::exception(format!("Fs.list: {e}")))?;
+        let entry = entry.map_err(|e| VmError::exception(format!("FileSystem.list: {e}")))?;
         names.push(entry.file_name().to_string_lossy().into_owned());
     }
     names.sort();
     Ok(Value::list(names.into_iter().map(Value::string).collect()))
 }
 
-/// `Fs.remove(path: string) -> ()` (file first, then empty directory)
+/// `FileSystem.remove(path: string) -> ()` (file first, then empty directory)
 fn remove(ability: &SuspendedAbility) -> Result<Value, VmError> {
     let path = arg_string(&ability.args, 0)?;
     std::fs::remove_file(&path)
         .or_else(|_| std::fs::remove_dir(&path))
-        .map_err(|e| VmError::exception(format!("Fs.remove: {e}")))?;
+        .map_err(|e| VmError::exception(format!("FileSystem.remove: {e}")))?;
     Ok(Value::Unit)
 }
 
-/// `Fs.create_dir(path: string) -> ()` (`mkdir -p`)
+/// `FileSystem.create_dir(path: string) -> ()` (`mkdir -p`)
 fn create_dir(ability: &SuspendedAbility) -> Result<Value, VmError> {
     let path = arg_string(&ability.args, 0)?;
     std::fs::create_dir_all(&path)
-        .map_err(|e| VmError::exception(format!("Fs.create_dir: {e}")))?;
+        .map_err(|e| VmError::exception(format!("FileSystem.create_dir: {e}")))?;
     Ok(Value::Unit)
 }
 
-/// Register the Fs ability handlers on a VM.
+/// Register the `FileSystem` ability handlers on a VM.
 ///
 /// IO failures raise catchable exceptions.
 ///

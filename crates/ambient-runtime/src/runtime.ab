@@ -45,7 +45,7 @@ ability Log {
 }
 
 /// File system access at scripting-language granularity.
-ability Fs {
+ability FileSystem {
   /// Read a file as UTF-8 text.
   fn read(path: string): string;
   /// Create or truncate a file with the given text.

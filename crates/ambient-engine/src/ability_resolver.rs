@@ -616,7 +616,7 @@ impl TypeFactory<Type> for EngineTypeFactory {
 /// (Exception).
 ///
 /// This is the engine's only builtin ability set. Runtime abilities
-/// (Console, Fs, Network, ...) are not engine builtins: embedders
+/// (Console, `FileSystem`, Network, ...) are not engine builtins: embedders
 /// resolve their declaration modules with
 /// [`crate::infer::resolve_ability_declarations`] and register the
 /// results as namespaced dynamics.
@@ -642,7 +642,7 @@ mod tests {
 
         // Runtime abilities are not engine builtins.
         assert!(resolver.get_by_name("Console").is_none());
-        assert!(resolver.get_by_name("Fs").is_none());
+        assert!(resolver.get_by_name("FileSystem").is_none());
     }
 
     #[test]

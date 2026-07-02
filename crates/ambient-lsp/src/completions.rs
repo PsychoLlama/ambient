@@ -572,7 +572,7 @@ fn get_ability_methods(ability_name: &str) -> &'static [AbilityMethod] {
                 params: &["message"],
             },
         ],
-        "Fs" => &[
+        "FileSystem" => &[
             AbilityMethod {
                 name: "read",
                 signature: "(path: string): string",

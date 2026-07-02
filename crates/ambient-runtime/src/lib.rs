@@ -66,7 +66,7 @@ pub(crate) fn require(ability: &AbilityInterface, method: &str) -> u16 {
 }
 
 /// Register the zero-config native abilities (Console, Time, Random,
-/// Log, Fs) with default settings against the resolved bindings
+/// Log, `FileSystem`) with default settings against the resolved bindings
 /// interface. Network and Execute need external resources; register
 /// them separately.
 ///
@@ -83,7 +83,7 @@ pub fn register_defaults(vm: &mut Vm, prelude: &[Arc<DynAbility>]) {
             "Time" => register_time(vm, &interface),
             "Random" => register_random(vm, &interface),
             "Log" => register_log(vm, &interface, LogConfig::default()),
-            "Fs" => register_fs(vm, &interface),
+            "FileSystem" => register_fs(vm, &interface),
             _ => {}
         }
     }

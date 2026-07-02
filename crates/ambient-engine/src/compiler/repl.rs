@@ -234,11 +234,11 @@ impl ReplContext {
             ),
         );
 
-        // Fs ability
+        // FileSystem ability
         self.register_module(
-            "Fs",
+            "FileSystem",
             ModuleValue::new(
-                "Fs",
+                "FileSystem",
                 vec![
                     ModuleExport::new("read!", ModuleExportKind::Function),
                     ModuleExport::new("write!", ModuleExportKind::Function),
