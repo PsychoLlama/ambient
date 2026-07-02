@@ -12,7 +12,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Entry point that starts the server.
-pub fn run(): () with Console, Network {
+pub fn run(): () with Console, Network, Execute {
     runtime.Console.print!("Server: listening on 127.0.0.1:8080...");
     let listener = runtime.Network.listen!("127.0.0.1:8080");
 

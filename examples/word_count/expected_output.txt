@@ -1,0 +1,1 @@
+"Text:\nHello, world!\nThis is a sample text.\nIt has multiple lines.\n\nAnd some blank lines too.\nLet's count everything!\n\nStats: 6 lines, 20 words, 110 characters"
