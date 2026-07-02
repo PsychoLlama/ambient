@@ -542,6 +542,29 @@ impl ModuleContext {
         }
     }
 
+    /// Register prelude abilities (declaration modules resolved by the
+    /// embedder, e.g. the `runtime` bindings interface) so ability calls
+    /// and handler literals compile against their content-hash
+    /// identities. Local declarations registered later shadow these.
+    fn register_prelude_abilities(
+        &mut self,
+        prelude: &[std::sync::Arc<crate::ability_resolver::DynAbility>],
+    ) {
+        for ability in prelude {
+            self.abilities.insert(
+                Arc::clone(&ability.name),
+                CompiledAbilityInfo {
+                    id: ability.id,
+                    methods: ability
+                        .methods
+                        .iter()
+                        .map(|m| Arc::clone(&m.name))
+                        .collect(),
+                },
+            );
+        }
+    }
+
     /// Register a module's `ability` declarations from their type-checked
     /// identities.
     fn register_abilities(&mut self, module: &Module) -> Result<(), CompileError> {
@@ -626,13 +649,42 @@ impl ModuleContext {
 // Module Compilation
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Options for module compilation.
+///
+/// The zero-value default compiles without debug info, imports, or
+/// prelude abilities.
+#[derive(Default)]
+pub struct CompileOptions<'a> {
+    /// Original source code, for debug info (line/column mapping).
+    pub source: Option<&'a str>,
+    /// Source file path, for display in stack traces.
+    pub source_file: Option<&'a str>,
+    /// Imported function names mapped to their content-addressed hashes.
+    pub imported_hashes: Option<HashMap<Arc<str>, blake3::Hash>>,
+    /// Prelude abilities (embedder-resolved declaration modules, e.g. the
+    /// runtime bindings interface). Local declarations shadow them.
+    pub prelude_abilities: &'a [std::sync::Arc<crate::ability_resolver::DynAbility>],
+}
+
 /// Compile a module to bytecode.
 ///
 /// # Errors
 ///
 /// Returns a `CompileError` if compilation fails.
 pub fn compile_module(module: &Module) -> Result<CompiledModule, CompileError> {
-    compile_module_impl(module, None, None, None)
+    compile_module_impl(module, CompileOptions::default())
+}
+
+/// Compile a module with explicit [`CompileOptions`].
+///
+/// # Errors
+///
+/// Returns a `CompileError` if compilation fails.
+pub fn compile_module_with_options(
+    module: &Module,
+    options: CompileOptions,
+) -> Result<CompiledModule, CompileError> {
+    compile_module_impl(module, options)
 }
 
 /// Compile a module with imported function references.
@@ -653,7 +705,13 @@ pub fn compile_module_with_imports(
     module: &Module,
     imported_hashes: HashMap<Arc<str>, blake3::Hash>,
 ) -> Result<CompiledModule, CompileError> {
-    compile_module_impl(module, None, None, Some(imported_hashes))
+    compile_module_impl(
+        module,
+        CompileOptions {
+            imported_hashes: Some(imported_hashes),
+            ..CompileOptions::default()
+        },
+    )
 }
 
 /// Compile a module to bytecode with debug information.
@@ -675,7 +733,14 @@ pub fn compile_module_with_source(
     source: &str,
     source_file: &str,
 ) -> Result<CompiledModule, CompileError> {
-    compile_module_impl(module, Some(source), Some(source_file), None)
+    compile_module_impl(
+        module,
+        CompileOptions {
+            source: Some(source),
+            source_file: Some(source_file),
+            ..CompileOptions::default()
+        },
+    )
 }
 
 /// Compile a module with imported function references and debug information.
@@ -701,19 +766,26 @@ pub fn compile_module_with_imports_and_source(
 ) -> Result<CompiledModule, CompileError> {
     compile_module_impl(
         module,
-        Some(source),
-        Some(source_file),
-        Some(imported_hashes),
+        CompileOptions {
+            source: Some(source),
+            source_file: Some(source_file),
+            imported_hashes: Some(imported_hashes),
+            ..CompileOptions::default()
+        },
     )
 }
 
 /// Implementation of module compilation with optional debug info.
 fn compile_module_impl(
     module: &Module,
-    source: Option<&str>,
-    source_file: Option<&str>,
-    imported_hashes: Option<HashMap<Arc<str>, blake3::Hash>>,
+    options: CompileOptions,
 ) -> Result<CompiledModule, CompileError> {
+    let CompileOptions {
+        source,
+        source_file,
+        imported_hashes,
+        prelude_abilities,
+    } = options;
     // Collect function definitions.
     let functions: Vec<&FunctionDef> = module
         .items
@@ -772,6 +844,7 @@ fn compile_module_impl(
     // compilation, with the module's enum constructors registered.
     let mut ctx = ModuleContext::new();
     ctx.register_enums(module);
+    ctx.register_prelude_abilities(prelude_abilities);
     ctx.register_abilities(module)?;
 
     // Phase 2: Compile each function using temporary hashes.

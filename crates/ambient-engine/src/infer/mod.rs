@@ -65,7 +65,8 @@ mod pattern;
 mod unify;
 
 pub use check::{
-    check_module, check_module_with_registry, check_module_with_registry_and_resolver, CheckResult,
+    check_module, check_module_with_registry, check_module_with_registry_and_resolver,
+    resolve_ability_declarations, CheckResult,
 };
 pub use env::{Scheme, TypeEnv};
 pub use error::{BoxedTypeError, BoxedTypeErrorExt, InferResult, TypeError, TypeErrorKind};

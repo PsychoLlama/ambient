@@ -172,7 +172,7 @@ pub enum TypeErrorKind {
     /// Ability requires a namespace prefix.
     AbilityRequiresNamespace {
         ability: Arc<str>,
-        expected_namespace: &'static str,
+        expected_namespace: Arc<str>,
     },
 
     // ─────────────────────────────────────────────────────────────────────────

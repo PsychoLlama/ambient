@@ -104,7 +104,20 @@ pub struct AbilityResolver {
     dynamic_by_name: HashMap<Arc<str>, Arc<DynAbility>>,
 
     /// Module-declared abilities by identity.
+    ///
+    /// Covers both local and namespaced dynamics, so identity-keyed
+    /// lookups (`id_to_name`, method signatures, handler-literal
+    /// inference) treat them uniformly.
     dynamic_by_id: HashMap<AbilityId, Arc<DynAbility>>,
+
+    /// Namespaced dynamic abilities: name → (namespace, ability).
+    ///
+    /// These come from ability preludes (declaration modules an embedder
+    /// registers, e.g. the `runtime` module). Unlike local dynamics they
+    /// must be performed with their namespace prefix
+    /// (`runtime.Console.print!`); bare names still resolve in effect
+    /// rows and handler arms, where no qualification exists today.
+    namespaced_by_name: HashMap<Arc<str>, (Arc<str>, Arc<DynAbility>)>,
 }
 
 impl AbilityResolver {
@@ -116,6 +129,7 @@ impl AbilityResolver {
             by_id: HashMap::new(),
             dynamic_by_name: HashMap::new(),
             dynamic_by_id: HashMap::new(),
+            namespaced_by_name: HashMap::new(),
         }
     }
 
@@ -130,10 +144,40 @@ impl AbilityResolver {
         self.dynamic_by_id.insert(ability.id, ability);
     }
 
+    /// Register a dynamic ability under a namespace.
+    ///
+    /// Namespaced abilities are performed with their namespace prefix
+    /// (`<namespace>.<Ability>.<method>!`); they do not shadow bare-name
+    /// lookups of local declarations.
+    #[allow(clippy::arc_with_non_send_sync)]
+    pub fn register_dynamic_in_namespace(&mut self, namespace: &str, ability: DynAbility) {
+        let ability = Arc::new(ability);
+        self.namespaced_by_name.insert(
+            Arc::clone(&ability.name),
+            (Arc::from(namespace), Arc::clone(&ability)),
+        );
+        self.dynamic_by_id.insert(ability.id, ability);
+    }
+
     /// Look up a module-declared ability by name.
     #[must_use]
     pub fn get_dynamic(&self, name: &str) -> Option<&Arc<DynAbility>> {
         self.dynamic_by_name.get(name)
+    }
+
+    /// Look up a namespaced dynamic ability by namespace and name.
+    #[must_use]
+    pub fn get_namespaced(&self, namespace: &str, name: &str) -> Option<&Arc<DynAbility>> {
+        self.namespaced_by_name
+            .get(name)
+            .filter(|(ns, _)| ns.as_ref() == namespace)
+            .map(|(_, ability)| ability)
+    }
+
+    /// The namespace a dynamic ability was registered under, if any.
+    #[must_use]
+    pub fn dynamic_namespace_of(&self, name: &str) -> Option<&Arc<str>> {
+        self.namespaced_by_name.get(name).map(|(ns, _)| ns)
     }
 
     /// Look up a module-declared ability by identity.
@@ -197,9 +241,17 @@ impl AbilityResolver {
     }
 
     /// Convert an ability name to its ID.
+    ///
+    /// Bare names resolve through local dynamics, then namespaced
+    /// dynamics, then builtin descriptors: effect rows and handler arms
+    /// name abilities without qualification, so prelude abilities must be
+    /// reachable here, while local declarations still shadow them.
     #[must_use]
     pub fn name_to_id(&self, name: &str) -> Option<AbilityId> {
         if let Some(dynamic) = self.dynamic_by_name.get(name) {
+            return Some(dynamic.id);
+        }
+        if let Some((_, dynamic)) = self.namespaced_by_name.get(name) {
             return Some(dynamic.id);
         }
         self.by_name.get(name).map(|a| a.id)
@@ -222,6 +274,10 @@ impl AbilityResolver {
         method_name: &str,
     ) -> Option<(AbilityId, MethodId)> {
         if let Some(dynamic) = self.dynamic_by_name.get(ability_name) {
+            let method = dynamic.method(method_name)?;
+            return Some((dynamic.id, method.id));
+        }
+        if let Some((_, dynamic)) = self.namespaced_by_name.get(ability_name) {
             let method = dynamic.method(method_name)?;
             return Some((dynamic.id, method.id));
         }
@@ -336,6 +392,9 @@ impl AbilityResolver {
         if let Some(dynamic) = self.dynamic_by_name.get(ability_name) {
             return dynamic.method(method_name).map(|m| m.ret.clone());
         }
+        if let Some((_, dynamic)) = self.namespaced_by_name.get(ability_name) {
+            return dynamic.method(method_name).map(|m| m.ret.clone());
+        }
         let ability = self.by_name.get(ability_name)?;
         let method = ability.get_method(method_name)?;
         Some((method.signature.return_type)(type_factory))
@@ -345,6 +404,9 @@ impl AbilityResolver {
     #[must_use]
     pub fn has_method(&self, ability_name: &str, method_name: &str) -> bool {
         if let Some(dynamic) = self.dynamic_by_name.get(ability_name) {
+            return dynamic.method(method_name).is_some();
+        }
+        if let Some((_, dynamic)) = self.namespaced_by_name.get(ability_name) {
             return dynamic.method(method_name).is_some();
         }
         self.by_name
@@ -602,6 +664,75 @@ mod tests {
         let methods = vec![Arc::from("throw")];
         let result = resolver.infer_ability_from_methods(&methods);
         assert_eq!(result, Some(ambient_core::exception::ability_id()));
+    }
+
+    fn dyn_ability(name: &str, byte: u8) -> DynAbility {
+        DynAbility {
+            id: AbilityId::from_bytes([byte; 32]),
+            name: Arc::from(name),
+            methods: vec![DynMethod {
+                id: 0,
+                name: Arc::from("go"),
+                params: vec![Type::String],
+                ret: Type::Unit,
+                quantified: vec![],
+            }],
+            dependencies: vec![],
+        }
+    }
+
+    #[test]
+    fn namespaced_dynamics_resolve_qualified_and_bare() {
+        let mut resolver = AbilityResolver::new();
+        resolver.register_dynamic_in_namespace("runtime", dyn_ability("Printer", 7));
+
+        // Qualified lookup finds it; the wrong namespace does not.
+        assert!(resolver.get_namespaced("runtime", "Printer").is_some());
+        assert!(resolver.get_namespaced("other", "Printer").is_none());
+        assert_eq!(
+            resolver.dynamic_namespace_of("Printer").map(AsRef::as_ref),
+            Some("runtime")
+        );
+
+        // Bare names still resolve for effect rows and handler arms.
+        assert_eq!(
+            resolver.name_to_id("Printer"),
+            Some(AbilityId::from_bytes([7; 32]))
+        );
+        assert_eq!(
+            resolver.get_method("Printer", "go"),
+            Some((AbilityId::from_bytes([7; 32]), 0))
+        );
+        assert!(resolver.has_method("Printer", "go"));
+
+        // Identity-keyed lookups treat namespaced dynamics uniformly.
+        assert_eq!(
+            resolver.id_to_name(AbilityId::from_bytes([7; 32])),
+            Some("Printer")
+        );
+        assert!(resolver
+            .get_dynamic_by_id(AbilityId::from_bytes([7; 32]))
+            .is_some());
+
+        // But it is not a local dynamic.
+        assert!(resolver.get_dynamic("Printer").is_none());
+    }
+
+    #[test]
+    fn local_dynamics_shadow_namespaced_in_bare_lookups() {
+        let mut resolver = AbilityResolver::new();
+        resolver.register_dynamic_in_namespace("runtime", dyn_ability("Printer", 7));
+        resolver.register_dynamic(dyn_ability("Printer", 9));
+
+        assert_eq!(
+            resolver.name_to_id("Printer"),
+            Some(AbilityId::from_bytes([9; 32]))
+        );
+        // The namespaced one remains reachable via qualification.
+        assert_eq!(
+            resolver.get_namespaced("runtime", "Printer").map(|a| a.id),
+            Some(AbilityId::from_bytes([7; 32]))
+        );
     }
 
     #[test]

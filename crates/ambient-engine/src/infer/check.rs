@@ -682,9 +682,10 @@ fn register_abilities(
     infer: &mut Infer,
     module: &mut crate::ast::Module,
     errors: &mut Vec<BoxedTypeError>,
-) {
+) -> Vec<Arc<crate::ability_resolver::DynAbility>> {
     use crate::ability_resolver::{CanonicalTypeRenderer, DynAbility, DynMethod};
 
+    let mut resolved = Vec::new();
     for item in &mut module.items {
         let crate::ast::ItemKind::Ability(def) = &mut item.kind else {
             continue;
@@ -764,7 +765,34 @@ fn register_abilities(
             methods,
             dependencies,
         });
+        if let Some(ability) = infer.ability_resolver.get_dynamic(&def.name) {
+            resolved.push(Arc::clone(ability));
+        }
     }
+    resolved
+}
+
+/// Resolve a module's `ability` declarations without checking the rest of
+/// the module.
+///
+/// This is the entry point for **ability preludes**: an embedder parses a
+/// module containing only `ability` declarations (e.g. the runtime
+/// bindings interface), resolves them here, and registers the results as
+/// namespaced dynamics on the resolver it threads into checking — and as
+/// the identity/method-id source when binding host handlers on the VM.
+///
+/// Each declaration's `resolved_id` is written back into the AST, exactly
+/// as during a full module check.
+pub fn resolve_ability_declarations(
+    module: &mut crate::ast::Module,
+) -> (
+    Vec<Arc<crate::ability_resolver::DynAbility>>,
+    Vec<BoxedTypeError>,
+) {
+    let mut infer = Infer::new();
+    let mut errors = Vec::new();
+    let abilities = register_abilities(&mut infer, module, &mut errors);
+    (abilities, errors)
 }
 
 /// Register the module's enum declarations and bring every visible
@@ -1033,4 +1061,163 @@ fn get_symbol_scheme(
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn span() -> crate::ast::Span {
+        crate::ast::Span { start: 0, end: 0 }
+    }
+
+    fn method(
+        name: &str,
+        type_params: &[&str],
+        params: &[(&str, Type)],
+        ret_ty: Type,
+    ) -> crate::ast::AbilityMethod {
+        crate::ast::AbilityMethod {
+            name: Arc::from(name),
+            type_params: type_params
+                .iter()
+                .map(|name| crate::ast::TypeParam {
+                    name: Arc::from(*name),
+                    span: span(),
+                })
+                .collect(),
+            params: params
+                .iter()
+                .map(|(name, ty)| (Arc::from(*name), ty.clone()))
+                .collect(),
+            ret_ty,
+            span: span(),
+        }
+    }
+
+    fn ability_module(name: &str, methods: Vec<crate::ast::AbilityMethod>) -> crate::ast::Module {
+        crate::ast::Module {
+            name: Arc::from("test"),
+            doc: None,
+            items: vec![crate::ast::Item {
+                kind: crate::ast::ItemKind::Ability(crate::ast::AbilityDef {
+                    name: Arc::from(name),
+                    name_span: span(),
+                    dependencies: vec![],
+                    methods,
+                    resolved_id: None,
+                }),
+                span: span(),
+                doc: None,
+            }],
+        }
+    }
+
+    /// A named type-parameter reference as the parser lowers it.
+    fn ty_param(name: &str) -> Type {
+        Type::Named(crate::types::NamedType::new(Arc::from(name), vec![]))
+    }
+
+    /// The in-language declaration of a builtin must hash to the same
+    /// identity as its Rust descriptor: this is what lets host handlers
+    /// keyed by the descriptor id serve performs compiled against the
+    /// declaration.
+    #[test]
+    fn console_declaration_hashes_like_the_builtin_descriptor() {
+        let mut module = ability_module(
+            "Console",
+            vec![
+                method("print", &[], &[("message", Type::String)], Type::Unit),
+                method("eprint", &[], &[("message", Type::String)], Type::Unit),
+                method("println", &[], &[("message", Type::String)], Type::Unit),
+            ],
+        );
+
+        let (abilities, errors) = resolve_ability_declarations(&mut module);
+        assert!(errors.is_empty());
+        assert_eq!(abilities.len(), 1);
+
+        let console = &abilities[0];
+        assert_eq!(console.id, ambient_runtime::console::ability_id());
+        assert_eq!(
+            console.method("print").map(|m| m.id),
+            Some(ambient_runtime::console::METHOD_PRINT)
+        );
+        assert_eq!(
+            console.method("eprint").map(|m| m.id),
+            Some(ambient_runtime::console::METHOD_EPRINT)
+        );
+        assert_eq!(
+            console.method("println").map(|m| m.id),
+            Some(ambient_runtime::console::METHOD_PRINTLN)
+        );
+
+        // The identity is also written back for the compiler.
+        let crate::ast::ItemKind::Ability(def) = &module.items[0].kind else {
+            panic!("expected ability item");
+        };
+        assert_eq!(def.resolved_id, Some(console.id));
+    }
+
+    /// Generic methods are the risky parity case: the descriptor renders
+    /// each `type_var()` occurrence as an independent `varN`, so the
+    /// declaration must use a distinct type parameter per position
+    /// (`run<T, R>` — never one parameter in two positions).
+    #[test]
+    fn execute_declaration_hashes_like_the_builtin_descriptor() {
+        let list_of_string = Type::named("List", vec![Type::String]);
+        let mut module = ability_module(
+            "Execute",
+            vec![
+                method("has_function", &[], &[("hash", Type::String)], Type::Bool),
+                method(
+                    "get_dependencies",
+                    &[],
+                    &[("hash", Type::String)],
+                    list_of_string.clone(),
+                ),
+                method(
+                    "load_functions",
+                    &[],
+                    &[("bundle", Type::Bytes)],
+                    Type::Unit,
+                ),
+                method(
+                    "run",
+                    &["T", "R"],
+                    &[("hash", Type::String), ("args", ty_param("T"))],
+                    ty_param("R"),
+                ),
+                method(
+                    "get_functions",
+                    &[],
+                    &[("hashes", list_of_string)],
+                    Type::Bytes,
+                ),
+                method(
+                    "run_with",
+                    &["T", "U", "R"],
+                    &[
+                        ("hash", Type::String),
+                        ("args", ty_param("T")),
+                        ("handler", ty_param("U")),
+                    ],
+                    ty_param("R"),
+                ),
+            ],
+        );
+
+        let (abilities, errors) = resolve_ability_declarations(&mut module);
+        assert!(errors.is_empty());
+        let execute = &abilities[0];
+        assert_eq!(execute.id, ambient_runtime::execute::ability_id());
+        assert_eq!(
+            execute.method("run").map(|m| m.id),
+            Some(ambient_runtime::execute::METHOD_RUN)
+        );
+        assert_eq!(
+            execute.method("run_with").map(|m| m.id),
+            Some(ambient_runtime::execute::METHOD_RUN_WITH)
+        );
+    }
 }

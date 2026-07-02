@@ -77,6 +77,21 @@ impl Infer {
     ) -> InferResult<(AbilityId, Type, AbilitySet)> {
         let ability_name = &ability.name;
 
+        // Namespaced dynamic abilities (ability preludes, e.g. the
+        // `runtime` module) resolve qualified performs with full declared
+        // signatures. They take precedence over the builtin-descriptor
+        // path below so a prelude declaration supersedes any descriptor
+        // registered under the same name.
+        if ability.path.len() == 1 {
+            if let Some(dynamic) = self
+                .ability_resolver
+                .get_namespaced(&ability.path[0], ability_name)
+                .cloned()
+            {
+                return self.lookup_dynamic_method(&dynamic, method_name, arg_tys, span);
+            }
+        }
+
         // Validate namespace for runtime abilities
         if is_runtime_ability(ability_name) {
             let has_runtime_prefix =
@@ -85,7 +100,7 @@ impl Infer {
                 return Err(type_error(
                     TypeErrorKind::AbilityRequiresNamespace {
                         ability: ability_name.clone(),
-                        expected_namespace: "runtime",
+                        expected_namespace: Arc::from("runtime"),
                     },
                     span,
                 ));
@@ -100,6 +115,18 @@ impl Infer {
             if let Some(dynamic) = self.ability_resolver.get_dynamic(ability_name).cloned() {
                 return self.lookup_dynamic_method(&dynamic, method_name, arg_tys, span);
             }
+        }
+
+        // A namespaced dynamic that wasn't matched above was named bare or
+        // under the wrong qualifier: performing it requires its namespace.
+        if let Some(namespace) = self.ability_resolver.dynamic_namespace_of(ability_name) {
+            return Err(type_error(
+                TypeErrorKind::AbilityRequiresNamespace {
+                    ability: ability_name.clone(),
+                    expected_namespace: Arc::clone(namespace),
+                },
+                span,
+            ));
         }
 
         let ability_id = self.ability_name_to_id(ability_name).ok_or_else(|| {
@@ -204,6 +231,47 @@ mod tests {
     /// Create a qualified name with the `runtime.` prefix.
     fn runtime_ability(name: &str) -> QualifiedName {
         QualifiedName::qualified(vec!["runtime"], name)
+    }
+
+    /// Namespaced dynamics (ability preludes) resolve qualified performs
+    /// with full argument checking, superseding the descriptor path.
+    #[test]
+    fn namespaced_dynamic_resolves_qualified_perform() {
+        use crate::ability_resolver::{DynAbility, DynMethod};
+
+        let mut infer = Infer::new();
+        infer.ability_resolver.register_dynamic_in_namespace(
+            "runtime",
+            DynAbility {
+                id: aid(7),
+                name: Arc::from("Printer"),
+                methods: vec![DynMethod {
+                    id: 0,
+                    name: Arc::from("go"),
+                    params: vec![Type::String],
+                    ret: Type::Unit,
+                    quantified: vec![],
+                }],
+                dependencies: vec![],
+            },
+        );
+
+        let qualified = QualifiedName::qualified(vec!["runtime"], "Printer");
+        let (id, ret, _) = infer
+            .lookup_ability_method(&qualified, "go", &[Type::String], span())
+            .expect("qualified perform should resolve");
+        assert_eq!(id, aid(7));
+        assert_eq!(ret, Type::Unit);
+
+        // Declared signatures are enforced: wrong argument type fails.
+        let err = infer.lookup_ability_method(&qualified, "go", &[Type::Number], span());
+        assert!(err.is_err(), "argument type mismatch should be rejected");
+
+        // The wrong namespace does not resolve.
+        let wrong = QualifiedName::qualified(vec!["other"], "Printer");
+        assert!(infer
+            .lookup_ability_method(&wrong, "go", &[Type::String], span())
+            .is_err());
     }
 
     #[test]
