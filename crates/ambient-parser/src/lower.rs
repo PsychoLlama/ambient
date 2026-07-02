@@ -458,7 +458,7 @@ fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, P
                 method: method.name.clone(),
                 method_span: Span::new(method.span.start, method.span.end),
                 args: lowered_args,
-                resolved_hash: None,
+                resolved_method: None,
             }
         }
 
@@ -1171,7 +1171,7 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
                 ret_ty,
                 body,
                 span: m.span,
-                resolved_hash: None,
+                resolved_symbol: None,
             })
         })
         .collect::<Result<Vec<_>, _>>()?;

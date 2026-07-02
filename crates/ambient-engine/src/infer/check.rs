@@ -7,8 +7,7 @@ use crate::ability_resolver::AbilityResolver;
 use crate::ast::BindingId;
 use crate::module_path::ModulePath;
 use crate::module_registry::{ExportKind, ModuleRegistry, ResolvedImport};
-use crate::types::{AbilityId, AbilitySet, TraitDef, TraitId, TraitMethodDef, Type, TypeVarId};
-use uuid::Uuid;
+use crate::types::{AbilityId, AbilitySet, TraitDef, TraitMethodDef, Type, TypeVarId};
 
 use super::env::{Scheme, TypeEnv};
 use super::error::{BoxedTypeError, BoxedTypeErrorExt, TypeError, TypeErrorKind};
@@ -281,16 +280,21 @@ fn check_single_impl(
     // Check that all required methods are implemented
     check_impl_completeness(impl_def, &trait_def, span, errors);
 
-    // Register the impl with placeholder hashes for each method
-    // These hashes uniquely identify each impl method for later resolution during compilation
+    // Register the impl, assigning each method its canonical function symbol.
+    // The compiler registers method bodies under these symbols so they are
+    // content-addressed like ordinary functions; call sites resolve the
+    // symbol through the same name→hash table as regular calls.
     let mut impl_record = crate::types::TraitImpl::new(trait_id, nominal_type.clone());
     for method in &mut impl_def.methods {
-        // Generate a placeholder hash based on trait_id, type UUID, and method name
-        // This hash is used during type checking to resolve method calls
-        let hash = generate_impl_method_hash(trait_id, &nominal_type.uuid, &method.name);
-        impl_record.methods.insert(Arc::clone(&method.name), hash);
-        // Also store the hash in the method AST for use during compilation
-        method.resolved_hash = Some(hash);
+        let symbol = crate::types::impl_method_symbol(
+            &nominal_type.uuid,
+            &impl_def.trait_name.name,
+            &method.name,
+        );
+        impl_record
+            .methods
+            .insert(Arc::clone(&method.name), Arc::clone(&symbol));
+        method.resolved_symbol = Some(symbol);
     }
     infer.trait_registry.register_impl(impl_record);
 }
@@ -864,28 +868,4 @@ fn get_symbol_scheme(
         }
     }
     None
-}
-
-/// Generate a deterministic hash for an impl method.
-/// This hash uniquely identifies the method based on:
-/// - The trait ID
-/// - The implementing type's UUID
-/// - The method name
-///
-/// This is used during type checking to resolve method calls.
-/// During compilation, this same hash is used to identify which
-/// impl method code to emit.
-fn generate_impl_method_hash(
-    trait_id: TraitId,
-    type_uuid: &Uuid,
-    method_name: &str,
-) -> blake3::Hash {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"impl_method:");
-    hasher.update(&trait_id.to_le_bytes());
-    hasher.update(b":");
-    hasher.update(type_uuid.as_bytes());
-    hasher.update(b":");
-    hasher.update(method_name.as_bytes());
-    hasher.finalize()
 }

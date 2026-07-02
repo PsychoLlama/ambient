@@ -1019,3 +1019,126 @@ fn test_multiple_traits_same_type() {
     )
     .expect_output("25");
 }
+
+#[test]
+fn test_impl_method_calls_top_level_function() {
+    // Regression: impl methods are compiled through the same hash
+    // finalization as ordinary functions, so calls from an impl method to a
+    // top-level function must resolve at runtime. (Previously the call was
+    // left as an unresolved temporary hash: UnknownFunction at runtime.)
+    CliTest::new(
+        r#"
+        trait Show {
+            fn show(self): number;
+        }
+
+        unique(a1b2c3d4-0000-0000-0000-000000000006) type Wrapper { value: number }
+
+        fn double(n: number): number { n * 2 }
+
+        impl Show for Wrapper {
+            fn show(self): number {
+                double(self.value)
+            }
+        }
+
+        fn run(): number {
+            let w = Wrapper { value: 21 };
+            w.show()
+        }
+    "#,
+    )
+    .expect_output("42");
+}
+
+#[test]
+fn test_impl_method_with_lambda() {
+    // Regression: lambdas inside impl methods must be compiled and linked.
+    // (Previously impl methods used a throwaway module context, so their
+    // lambdas were silently dropped.)
+    CliTest::new(
+        r#"
+        trait Transform {
+            fn apply(self): number;
+        }
+
+        unique(a1b2c3d4-0000-0000-0000-000000000007) type Box { value: number }
+
+        impl Transform for Box {
+            fn apply(self): number {
+                let f = (x) => x + 1;
+                f(self.value)
+            }
+        }
+
+        fn run(): number {
+            let b = Box { value: 41 };
+            b.apply()
+        }
+    "#,
+    )
+    .expect_output("42");
+}
+
+#[test]
+fn test_operator_overloading_ne() {
+    // `!=` must negate the Eq trait's `eq` result.
+    CliTest::new(
+        r#"
+        trait Eq {
+            fn eq(self, other: Self): bool;
+        }
+
+        unique(a1b2c3d4-0000-0000-0000-000000000008) type Id { value: number }
+
+        impl Eq for Id {
+            fn eq(self, other: Id): bool {
+                self.value == other.value
+            }
+        }
+
+        fn run(): bool {
+            let a = Id { value: 1 };
+            let b = Id { value: 2 };
+            a != b
+        }
+    "#,
+    )
+    .expect_output("true");
+}
+
+#[test]
+fn test_operator_overloading_ordering() {
+    // `<`, `<=`, `>`, `>=` must compare the Ord trait's `cmp` result
+    // (-1/0/1) against zero rather than returning it directly.
+    CliTest::new(
+        r#"
+        trait Ord {
+            fn cmp(self, other: Self): number;
+        }
+
+        unique(a1b2c3d4-0000-0000-0000-000000000009) type Money { cents: number }
+
+        impl Ord for Money {
+            fn cmp(self, other: Money): number {
+                if self.cents < other.cents { 0 - 1 } else {
+                    if self.cents > other.cents { 1 } else { 0 }
+                }
+            }
+        }
+
+        fn run(): number {
+            let small = Money { cents: 50 };
+            let big = Money { cents: 100 };
+
+            let c1 = if small < big { 1 } else { 0 };
+            let c2 = if big > small { 1 } else { 0 };
+            let c3 = if small <= small { 1 } else { 0 };
+            let c4 = if big >= small { 1 } else { 0 };
+            let c5 = if big < small { 0 } else { 1 };
+            c1 + c2 + c3 + c4 + c5
+        }
+    "#,
+    )
+    .expect_output("5");
+}

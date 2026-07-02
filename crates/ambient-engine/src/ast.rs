@@ -224,8 +224,9 @@ pub enum ExprKind {
         method: Arc<str>,
         method_span: Span,
         args: Vec<Expr>,
-        /// Resolved trait method hash (filled in during type checking).
-        resolved_hash: Option<blake3::Hash>,
+        /// Canonical impl-method symbol (filled in during type checking).
+        /// The compiler resolves this like an ordinary function name.
+        resolved_method: Option<Arc<str>>,
     },
 
     /// List literal: `[a, b, c]`.
@@ -241,8 +242,9 @@ pub enum ExprKind {
         op: BinaryOp,
         left: Box<Expr>,
         right: Box<Expr>,
-        /// Resolved trait method hash for overloaded operators (filled during type checking).
-        resolved_op: Option<blake3::Hash>,
+        /// Canonical impl-method symbol for overloaded operators (filled during
+        /// type checking). The compiler resolves this like an ordinary function name.
+        resolved_op: Option<Arc<str>>,
     },
 
     /// Unary operation: `-x`, `!x`.
@@ -927,9 +929,11 @@ pub struct ImplMethod {
     pub body: Expr,
     /// Source span.
     pub span: Span,
-    /// Resolved hash for this method implementation.
-    /// Filled in during type checking based on `trait_id`, type UUID, and method name.
-    pub resolved_hash: Option<blake3::Hash>,
+    /// Canonical function symbol for this method implementation
+    /// (see `types::impl_method_symbol`). Filled in during type checking;
+    /// the compiler registers the method under this name so it is
+    /// content-addressed like any other function.
+    pub resolved_symbol: Option<Arc<str>>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -363,9 +363,9 @@ impl Infer {
                 method,
                 method_span,
                 args,
-                resolved_hash,
+                resolved_method,
             } => {
-                self.infer_method_call(env, receiver, method, *method_span, args, resolved_hash)?
+                self.infer_method_call(env, receiver, method, *method_span, args, resolved_method)?
             }
         };
 
@@ -567,7 +567,7 @@ impl Infer {
         op: BinaryOp,
         left: &mut Expr,
         right: &mut Expr,
-        resolved_op: &mut Option<blake3::Hash>,
+        resolved_op: &mut Option<Arc<str>>,
         span: (u32, u32),
     ) -> InferResult<Type> {
         let left_ty = self.infer_expr(env, left)?;
@@ -584,17 +584,17 @@ impl Infer {
                 // Look up the trait
                 if let Some(trait_id) = self.trait_registry.lookup_trait(trait_name) {
                     // Check if the type implements this trait
-                    let method_hash = self
+                    let method_symbol = self
                         .trait_registry
                         .get_impl(trait_id, nominal.uuid)
-                        .and_then(|impl_| impl_.methods.get(method_name).copied());
+                        .and_then(|impl_| impl_.methods.get(method_name).cloned());
 
-                    if let Some(hash) = method_hash {
+                    if let Some(symbol) = method_symbol {
                         // Unify operands (both must be the same nominal type)
                         self.unify(&left_ty, &right_ty, span)?;
 
-                        // Store the resolved hash for compilation
-                        *resolved_op = Some(hash);
+                        // Store the resolved dispatch symbol for compilation
+                        *resolved_op = Some(symbol);
 
                         // Return type depends on the operator category
                         return Ok(operator_return_type(op, &left_ty));
@@ -648,7 +648,7 @@ impl Infer {
         method_name: &Arc<str>,
         method_span: crate::ast::Span,
         args: &mut [Expr],
-        resolved_hash: &mut Option<blake3::Hash>,
+        resolved_method: &mut Option<Arc<str>>,
     ) -> InferResult<Type> {
         // Infer the receiver type
         let receiver_ty = self.infer_expr(env, receiver)?;
@@ -667,7 +667,7 @@ impl Infer {
         };
 
         // Look up the method in the trait registry
-        let Some((trait_id, method_def, method_hash)) =
+        let Some((trait_id, method_def, method_symbol)) =
             self.trait_registry.find_method(nominal.uuid, method_name)
         else {
             return Err(type_error(
@@ -682,8 +682,8 @@ impl Infer {
         // Clone the method definition to release the borrow on trait_registry
         let method_def = method_def.clone();
 
-        // Store the resolved hash for compilation
-        *resolved_hash = Some(method_hash);
+        // Store the resolved dispatch symbol for compilation
+        *resolved_method = Some(method_symbol);
 
         // Infer argument types
         let mut arg_tys = Vec::new();

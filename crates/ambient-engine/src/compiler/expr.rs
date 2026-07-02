@@ -206,9 +206,37 @@ pub(super) fn compile_expr(
                     compile_expr(fc, right, ctx)?;
 
                     // Check if we have a resolved trait method for operator overloading
-                    if let Some(hash) = resolved_op {
-                        // Operator is overloaded - call the trait method
-                        fc.builder.emit_call(*hash, 2);
+                    if let Some(symbol) = resolved_op {
+                        // Operator is overloaded - call the trait method.
+                        let Some(&hash) = fc.function_hashes.get(symbol) else {
+                            return Err(CompileError::new(
+                                CompileErrorKind::UndefinedFunction {
+                                    name: Arc::clone(symbol),
+                                },
+                                (expr.span.start, expr.span.end),
+                            ));
+                        };
+                        fc.builder.emit_call(hash, 2);
+
+                        // Adapt the trait method's result to the operator's
+                        // semantics: `Eq.eq` provides `==` directly, `!=` is
+                        // its negation; `Ord.cmp` returns -1/0/1 which each
+                        // ordering operator compares against 0.
+                        match op {
+                            BinaryOp::Ne => {
+                                fc.builder.emit(Opcode::Not);
+                            }
+                            BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+                                fc.builder.emit_const(Value::Number(0.0));
+                                fc.builder.emit(match op {
+                                    BinaryOp::Lt => Opcode::Lt,
+                                    BinaryOp::Le => Opcode::Le,
+                                    BinaryOp::Gt => Opcode::Gt,
+                                    _ => Opcode::Ge,
+                                });
+                            }
+                            _ => {}
+                        }
                     } else {
                         // Built-in operator
                         let opcode = match op {
@@ -406,16 +434,24 @@ pub(super) fn compile_expr(
         ExprKind::MethodCall {
             receiver,
             args,
-            resolved_hash,
+            resolved_method,
             ..
         } => {
-            // Method calls are compiled as regular function calls.
-            // The resolved_hash was filled in during type checking.
-            // Safety: type checking always sets this for valid method calls.
-            let Some(hash) = resolved_hash else {
+            // Method calls are compiled as regular function calls: type
+            // checking resolved the call to a canonical impl-method symbol,
+            // which we look up in the same name→hash table as ordinary calls.
+            let Some(symbol) = resolved_method else {
                 return Err(CompileError::new(
                     CompileErrorKind::Internal {
-                        message: "method call missing resolved hash",
+                        message: "method call missing resolved symbol",
+                    },
+                    (expr.span.start, expr.span.end),
+                ));
+            };
+            let Some(&hash) = fc.function_hashes.get(symbol) else {
+                return Err(CompileError::new(
+                    CompileErrorKind::UndefinedFunction {
+                        name: Arc::clone(symbol),
                     },
                     (expr.span.start, expr.span.end),
                 ));
@@ -432,7 +468,7 @@ pub(super) fn compile_expr(
             // Emit call with arity = self + args
             #[allow(clippy::cast_possible_truncation)]
             let arity = (1 + args.len()) as u8;
-            fc.builder.emit_call(*hash, arity);
+            fc.builder.emit_call(hash, arity);
         }
     }
 

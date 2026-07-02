@@ -10,4 +10,5 @@ thiserror = "2.0"
 uuid = { version = "1.11", features = ["v4"] }
 
 [dev-dependencies]
+blake3 = "1.5.5"
 proptest = "1.5"

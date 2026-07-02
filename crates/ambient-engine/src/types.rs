@@ -488,8 +488,12 @@ pub struct TraitImpl {
     /// The type implementing the trait (must be nominal).
     pub implementing_type: NominalType,
 
-    /// Compiled method hashes: method name -> function hash.
-    pub methods: HashMap<Arc<str>, blake3::Hash>,
+    /// Method dispatch symbols: method name -> canonical impl-method symbol.
+    ///
+    /// The symbol (see [`impl_method_symbol`]) names the compiled method
+    /// function; the compiler resolves it to a content-addressed hash the
+    /// same way it resolves ordinary function names.
+    pub methods: HashMap<Arc<str>, Arc<str>>,
 }
 
 impl TraitImpl {
@@ -505,10 +509,24 @@ impl TraitImpl {
 
     /// Add a method implementation.
     #[must_use]
-    pub fn with_method(mut self, name: impl Into<Arc<str>>, hash: blake3::Hash) -> Self {
-        self.methods.insert(name.into(), hash);
+    pub fn with_method(mut self, name: impl Into<Arc<str>>, symbol: impl Into<Arc<str>>) -> Self {
+        self.methods.insert(name.into(), symbol.into());
         self
     }
+}
+
+/// The canonical function symbol for an impl method.
+///
+/// Impl methods are compiled as ordinary named functions under this symbol,
+/// so they flow through the same content-addressed hash finalization as any
+/// other function. The symbol is derived only from source-stable data (the
+/// nominal type's UUID and source-level names) — never from compilation-order
+/// artifacts like trait IDs — so it is deterministic across compilation
+/// contexts. The `::` separator cannot appear in module-qualified names
+/// (which use `.`), so these symbols never collide with user functions.
+#[must_use]
+pub fn impl_method_symbol(type_uuid: &Uuid, trait_name: &str, method_name: &str) -> Arc<str> {
+    format!("{type_uuid}::{trait_name}::{method_name}").into()
 }
 
 /// Registry of trait definitions and implementations.
@@ -582,22 +600,22 @@ impl TraitRegistry {
     }
 
     /// Find a method by name for a given nominal type.
-    /// Returns (`trait_id`, method signature, method hash) if found.
+    /// Returns (`trait_id`, method signature, dispatch symbol) if found.
     #[must_use]
     pub fn find_method(
         &self,
         type_uuid: Uuid,
         method_name: &str,
-    ) -> Option<(TraitId, &TraitMethodDef, blake3::Hash)> {
+    ) -> Option<(TraitId, &TraitMethodDef, Arc<str>)> {
         for impl_ in self.impls_for_type(type_uuid) {
-            if let Some(hash) = impl_.methods.get(method_name) {
+            if let Some(symbol) = impl_.methods.get(method_name) {
                 if let Some(trait_def) = self.get_trait(impl_.trait_id) {
                     if let Some(method) = trait_def
                         .methods
                         .iter()
                         .find(|m| m.name.as_ref() == method_name)
                     {
-                        return Some((impl_.trait_id, method, *hash));
+                        return Some((impl_.trait_id, method, Arc::clone(symbol)));
                     }
                 }
             }

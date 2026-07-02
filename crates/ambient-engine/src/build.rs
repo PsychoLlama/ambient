@@ -238,6 +238,18 @@ fn build_imported_hashes_from_compiled(
         }
     }
 
+    // Trait impl methods dispatch through canonical `uuid::Trait::method`
+    // symbols rather than imported names, and the symbols are globally
+    // unique (UUID-keyed). Make every already-compiled impl method
+    // resolvable so cross-module method calls link.
+    for module_hashes in compiled_hashes.values() {
+        for (name, hash) in module_hashes {
+            if name.contains("::") {
+                hashes.insert(Arc::clone(name), *hash);
+            }
+        }
+    }
+
     hashes
 }
 
