@@ -106,15 +106,26 @@ pub(super) fn compile_handle_expr(
     handle_expr: &crate::ast::HandleExpr,
     ctx: &mut ModuleContext,
 ) -> Result<(), CompileError> {
-    let mut handler_hashes = Vec::new();
-    let mut handler_ability_ids = Vec::new();
+    // The handle expression compiles to a *body thunk*: a zero-parameter
+    // closure whose frame delimits the handled computation.
+    //
+    //   installer:  <thunk capture loads> MakeClosure(thunk) CallClosure(0)
+    //   thunk:      <install handlers> <body> <Unhandle...> [<else>] Return
+    //
+    // Delimitation falls out of ordinary call discipline: a handler arm
+    // that returns without resuming delivers its value exactly where the
+    // thunk's return value would have landed (the instruction after
+    // CallClosure), and `resume` reinstates the thunk's frames above the
+    // arm so the thunk's eventual return becomes the resume expression's
+    // value. See vm/abilities.rs for the runtime half.
+    let mut thunk_fc = FunctionCompiler::new_for_closure(
+        fc.function_hashes.clone(),
+        fc.locals.clone(),
+        fc.local_names.clone(),
+    );
 
-    // Track jump offsets for handler values (from `with` clause)
-    let mut handler_value_jump_offsets = Vec::new();
-
-    // Compile handler values from `with` clause
-    // Each handler value expression evaluates to a HandlerValue on the stack,
-    // then HandleWithValue pops it and installs it as a handler.
+    // Install handler values from the `with` clause. The expressions are
+    // compiled inside the thunk; free names capture through it.
     for handler_value in &handle_expr.handler_values {
         // The type checker guarantees this is a Handler type and records it
         // on the expression. A missing/mismatched type here means inference
@@ -136,133 +147,149 @@ pub(super) fn compile_handle_expr(
             }
         }
 
-        // Compile the handler value expression - this leaves a HandlerValue on the stack.
-        compile_expr(fc, handler_value, ctx)?;
-
-        // Emit HandleWithValue to pop the handler and install it
-        let jump_offset = fc.builder.emit_handle_with_value();
-        handler_value_jump_offsets.push(jump_offset);
+        compile_expr(&mut thunk_fc, handler_value, ctx)?;
+        thunk_fc.builder.emit_handle_with_value();
     }
 
-    // First, compile each inline handler as a separate function.
+    // Compile each inline handler arm as a separate function and install
+    // it. Arms are compiled with the *installer* as parent scope (that is
+    // the environment they close over); their captured values are loaded
+    // in the thunk (capturing through it on demand) and packaged with
+    // MakeClosure so the Handle instruction can install the arm closure.
     for handler in &handle_expr.handlers {
-        // Get ability ID for this handler. Module-declared abilities take
-        // precedence over bare-name builtins, matching the type checker.
-        let ability_name = &handler.ability.name;
-        let ability_id = ctx
-            .abilities
-            .get(ability_name)
-            .map(|info| info.id)
-            .or_else(|| get_ability_id(ability_name))
-            .ok_or_else(|| {
-                CompileError::new(
-                    CompileErrorKind::Unsupported {
-                        feature: format!("unknown ability: {ability_name}"),
-                    },
-                    (handler.span.start, handler.span.end),
-                )
-            })?;
-
-        // Create a new FunctionCompiler for the handler.
-        // Handler functions have implicit parameters:
-        // - slot 0: continuation
-        // - slot 1: suspended ability value
-        // - slot 2+: ability method arguments
-        let mut handler_fc = FunctionCompiler::new(fc.function_hashes.clone());
-
-        // Allocate implicit slots for continuation and suspended ability.
-        let _continuation_slot =
-            handler_fc.alloc_local_with_name(0, &Arc::from(super::HANDLER_PARAM_CONTINUATION))?;
-        let _ability_slot = handler_fc
-            .alloc_local_with_name(0, &Arc::from(super::HANDLER_PARAM_SUSPENDED_ABILITY))?;
-
-        // At the start of the handler, extract ability arguments and store to param slots.
-        // For each param, we need to:
-        // 1. Load the suspended ability from slot 1
-        // 2. Extract the argument at the corresponding index
-        // 3. Store to the param's slot
-        for (i, param) in handler.params.iter().enumerate() {
-            // Allocate slot for this param.
-            handler_fc.alloc_local_with_name(param.id, &param.name)?;
-
-            // Load suspended ability from slot 1.
-            handler_fc.builder.emit_u16(Opcode::LoadLocal, 1);
-
-            // Extract argument at index i.
-            handler_fc.builder.emit_get_ability_arg(i as u8);
-
-            // Store to the param slot (slot 2+i).
-            handler_fc
-                .builder
-                .emit_u16(Opcode::StoreLocal, 2 + i as u16);
-        }
-
-        // Compile the handler body.
-        compile_expr(&mut handler_fc, &handler.body, ctx)?;
-
-        // Emit return instruction.
-        handler_fc.builder.emit(Opcode::Return);
-
-        // Build the handler function.
-        let local_count = handler_fc.next_local;
-        // Handler receives 2 implicit params: continuation and suspended ability.
-        let param_count = 2;
-        let handler_func = handler_fc.builder.build(local_count, param_count);
-
-        // Register the handler function (associates it with current parent function).
-        let handler_hash = ctx.register_lambda(handler_func);
-
-        handler_hashes.push(handler_hash);
-        handler_ability_ids.push(ability_id);
+        compile_handler_arm(fc, &mut thunk_fc, handler, ctx)?;
     }
 
-    // Now emit the handle expression code.
-    // Install handlers and compile the body.
+    // Compile the body expression inside the thunk.
+    compile_expr(&mut thunk_fc, &handle_expr.body, ctx)?;
 
-    // Store the handle instruction jump offsets for patching.
-    let mut handle_jump_offsets = Vec::new();
-
-    // Emit Handle instructions for each handler.
-    for (i, (ability_id, handler_hash)) in handler_ability_ids
-        .iter()
-        .zip(handler_hashes.iter())
-        .enumerate()
-    {
-        let _ = i; // Silence unused warning.
-        let jump_offset = fc.builder.emit_handle(*ability_id, *handler_hash);
-        handle_jump_offsets.push(jump_offset);
+    // Pop this handle expression's handlers (normal completion path; a
+    // fired handler drains them into the captured continuation instead).
+    for _ in 0..(handle_expr.handlers.len() + handle_expr.handler_values.len()) {
+        thunk_fc.builder.emit(Opcode::Unhandle);
     }
 
-    // Compile the body expression.
-    compile_expr(fc, &handle_expr.body, ctx)?;
-
-    // Emit Unhandle for each handler (in reverse order).
-    // First unhandle inline handlers (most recently installed)
-    for _ in &handle_expr.handlers {
-        fc.builder.emit(Opcode::Unhandle);
-    }
-    // Then unhandle handler values (installed first)
-    for _ in &handle_expr.handler_values {
-        fc.builder.emit(Opcode::Unhandle);
-    }
-
-    // Patch all the handle instruction jump offsets to point here.
-    // Patch inline handler offsets
-    for offset in handle_jump_offsets {
-        fc.builder.patch_handle(offset);
-    }
-    // Patch handler value offsets
-    for offset in handler_value_jump_offsets {
-        fc.builder.patch_handle_with_value(offset);
-    }
-
-    // Handle else clause if present.
+    // Apply the else clause to the body's result on normal completion.
+    // `else` is a transform `(result) => expr`; handler arms bypass it.
     if let Some(else_clause) = &handle_expr.else_clause {
-        // The else clause wraps the result of normal completion.
-        // For now, just compile it and drop the body result.
-        fc.builder.emit(Opcode::Pop);
-        compile_expr(fc, else_clause, ctx)?;
+        let tmp_slot = thunk_fc.alloc_local_with_name(0, &Arc::from("__handle_result"))?;
+        thunk_fc.builder.emit_u16(Opcode::StoreLocal, tmp_slot);
+        compile_expr(&mut thunk_fc, else_clause, ctx)?;
+        thunk_fc.builder.emit_u16(Opcode::LoadLocal, tmp_slot);
+        thunk_fc.builder.emit_call_closure(1);
     }
+
+    thunk_fc.builder.emit(Opcode::Return);
+
+    // Build the thunk (zero parameters) and emit the installer code:
+    // load thunk captures, make the closure, call it.
+    let local_count = thunk_fc.next_local;
+    let capture_names = thunk_fc.get_capture_names_in_order();
+    let thunk_func = thunk_fc.builder.build(local_count, 0);
+    let thunk_hash = ctx.register_lambda(thunk_func);
+
+    for (name, _slot) in &capture_names {
+        if let Some(&slot) = fc.local_names.get(name) {
+            fc.builder.emit_u16(Opcode::LoadLocal, slot);
+        } else if let Some(&capture_slot) = fc.capture_names.get(name) {
+            fc.builder.emit_load_capture(capture_slot);
+        } else {
+            return Err(CompileError::new(
+                CompileErrorKind::Unsupported {
+                    feature: format!("unknown capture in handle expression: {name}"),
+                },
+                (0, 0),
+            ));
+        }
+    }
+    fc.builder
+        .emit_make_closure(thunk_hash, capture_names.len() as u8);
+    fc.builder.emit_call_closure(0);
+
+    Ok(())
+}
+
+/// Compile one inline handler arm and emit its installation in the thunk.
+///
+/// The arm is compiled as a separate function with the *installer* as its
+/// parent scope. Arm functions have implicit parameters:
+/// - slot 0: continuation
+/// - slot 1: suspended ability value
+/// - slot 2+: ability method arguments
+///
+/// The arm's captured values are loaded in the thunk (capturing through it
+/// on demand), packaged with `MakeClosure`, and installed with `Handle`.
+fn compile_handler_arm(
+    fc: &mut FunctionCompiler,
+    thunk_fc: &mut FunctionCompiler,
+    handler: &crate::ast::Handler,
+    ctx: &mut ModuleContext,
+) -> Result<(), CompileError> {
+    // Get ability ID for this handler. Module-declared abilities take
+    // precedence over bare-name builtins, matching the type checker.
+    let ability_name = &handler.ability.name;
+    let ability_id = ctx
+        .abilities
+        .get(ability_name)
+        .map(|info| info.id)
+        .or_else(|| get_ability_id(ability_name))
+        .ok_or_else(|| {
+            CompileError::new(
+                CompileErrorKind::Unsupported {
+                    feature: format!("unknown ability: {ability_name}"),
+                },
+                (handler.span.start, handler.span.end),
+            )
+        })?;
+
+    let mut arm_fc = FunctionCompiler::new_for_closure(
+        fc.function_hashes.clone(),
+        fc.locals.clone(),
+        fc.local_names.clone(),
+    );
+
+    // Allocate implicit slots for continuation and suspended ability.
+    let _continuation_slot =
+        arm_fc.alloc_local_with_name(0, &Arc::from(super::HANDLER_PARAM_CONTINUATION))?;
+    let _ability_slot =
+        arm_fc.alloc_local_with_name(0, &Arc::from(super::HANDLER_PARAM_SUSPENDED_ABILITY))?;
+
+    // At the start of the arm, extract ability arguments into param slots.
+    for (i, param) in handler.params.iter().enumerate() {
+        arm_fc.alloc_local_with_name(param.id, &param.name)?;
+
+        // Load suspended ability from slot 1, extract argument i,
+        // store to the param slot (slot 2+i).
+        arm_fc.builder.emit_u16(Opcode::LoadLocal, 1);
+        arm_fc.builder.emit_get_ability_arg(i as u8);
+        arm_fc.builder.emit_u16(Opcode::StoreLocal, 2 + i as u16);
+    }
+
+    // Compile the arm body.
+    compile_expr(&mut arm_fc, &handler.body, ctx)?;
+    arm_fc.builder.emit(Opcode::Return);
+
+    // Build the arm function (2 implicit params).
+    let local_count = arm_fc.next_local;
+    let capture_names = arm_fc.get_capture_names_in_order();
+    let arm_func = arm_fc.builder.build(local_count, 2);
+    let arm_hash = ctx.register_lambda(arm_func);
+
+    // In the thunk: load the arm's captured values (capturing through
+    // the thunk when they come from the installer), then create the
+    // arm closure and install it.
+    for (name, _slot) in &capture_names {
+        if let Some(&slot) = thunk_fc.local_names.get(name) {
+            thunk_fc.builder.emit_u16(Opcode::LoadLocal, slot);
+        } else {
+            let capture_slot = thunk_fc.get_or_create_capture_by_name(Arc::clone(name));
+            thunk_fc.builder.emit_load_capture(capture_slot);
+        }
+    }
+    thunk_fc
+        .builder
+        .emit_make_closure(arm_hash, capture_names.len() as u8);
+    thunk_fc.builder.emit_handle(ability_id);
 
     Ok(())
 }

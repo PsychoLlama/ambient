@@ -1,19 +1,42 @@
 //! Ability handling operations for the VM.
 //!
-//! This module contains the complex logic for handling ability operations:
-//! - Suspend: Creates a suspended ability value
-//! - Perform: Executes an ability, finding handlers and capturing continuations
-//! - Handle: Installs an ability handler
-//! - Resume: Resumes a captured continuation
+//! This module implements the delimited-continuation semantics of handle
+//! expressions:
 //!
-//! Extracted from dispatch.rs for better code organization.
+//! - `Suspend` packages a method call's arguments into a suspended ability.
+//! - `Perform` executes it: bytecode handlers capture the delimited
+//!   continuation and run the handler arm; host handlers run synchronously.
+//! - `Handle` / `HandleWithValue` install handlers that delimit the
+//!   *current frame* (the handle expression's body thunk).
+//! - `Resume` reinstates a captured continuation, rebased onto the
+//!   current stack and frame heights.
+//!
+//! The delimitation invariants:
+//!
+//! - A handle expression compiles its body into a thunk closure; the
+//!   `Handle` instructions execute inside that thunk, so a handler's
+//!   `boundary_frame_idx` is the thunk's own frame.
+//! - Performing a handled ability captures `frames[boundary..]`, the value
+//!   stack above the boundary frame's base pointer, and every handler
+//!   entry delimiting any captured frame. The handler arm then runs *in
+//!   place of the thunk call*: if it returns without resuming, its value
+//!   lands exactly where the thunk's return value would have (the handle
+//!   expression's completion point), and the captured computation is
+//!   dropped.
+//! - `resume(v)` reinstates the captured frames above the arm's own frame.
+//!   When the reinstated thunk eventually returns, its value is delivered
+//!   to the arm as the value of the `resume` expression (deep handler
+//!   semantics: the arm observes the final result of the rest of the
+//!   handled body, and its own return value remains the handle
+//!   expression's result).
 
 use std::sync::Arc;
 
-use ambient_ability::{CapturedFrame, SuspendedAbility, Value, VmError};
-use ambient_core::AbilityId;
+use ambient_ability::{
+    CapturedFrame, CapturedHandler, HandlerImpl, SuspendedAbility, Value, VmError,
+};
 
-use super::core::{CallFrame, HandlerFrame, HandlerKind, ReturnAction, Vm};
+use super::core::{CallFrame, HandlerFrame, Vm};
 
 impl Vm {
     /// Handle the Suspend opcode: create a suspended ability value.
@@ -22,7 +45,7 @@ impl Vm {
     /// value that can later be performed.
     pub(super) fn op_suspend(
         &mut self,
-        ability_id: AbilityId,
+        ability_id: ambient_core::AbilityId,
         method_id: u16,
         arg_count: u8,
     ) -> Result<(), VmError> {
@@ -116,67 +139,109 @@ impl Vm {
         self.perform_with_bytecode_handler(idx, throw)
     }
 
-    /// Perform an ability using a bytecode handler.
+    /// Perform an ability using the bytecode handler at `handler_idx`.
     ///
-    /// Captures the continuation (stack and frames from handler point to current)
-    /// and calls the handler function with the continuation and suspended ability.
+    /// Captures the delimited continuation (frames, stack segment, and
+    /// handler entries above the fired handler's boundary), removes it
+    /// from the live VM state, and calls the handler arm in its place.
     fn perform_with_bytecode_handler(
         &mut self,
         handler_idx: usize,
         ability: Arc<SuspendedAbility>,
     ) -> Result<(), VmError> {
-        let handler = self.handlers[handler_idx].clone();
+        let fired = self.handlers[handler_idx].clone();
 
-        // Determine the handler function based on handler kind
-        let handler_func = match &handler.handler {
-            HandlerKind::Inline { handler_func } => *handler_func,
-            HandlerKind::Value { handler_value } => {
-                match handler_value.get_method(ability.method_id) {
-                    Some(func) => func,
-                    None => {
-                        return Err(VmError::UnhandledAbility {
-                            ability_id: ability.ability_id,
-                            method_id: ability.method_id,
-                        });
-                    }
+        // Determine the arm function (and its environment) by handler kind.
+        let (arm_func, arm_captures) = match &fired.handler {
+            HandlerImpl::Inline { func, captures } => (*func, captures.clone()),
+            HandlerImpl::Value { handler } => match handler.get_method(ability.method_id) {
+                Some(func) => (func, handler.captures.clone()),
+                None => {
+                    return Err(VmError::UnhandledAbility {
+                        ability_id: ability.ability_id,
+                        method_id: ability.method_id,
+                    });
                 }
-            }
+            },
         };
 
-        // Capture the continuation
-        let captured_stack = self.stack.split_off(handler.stack_height);
-        let captured_frames: Vec<CapturedFrame> = self.frames[handler.call_frame_idx..]
+        let boundary = fired.boundary_frame_idx;
+        debug_assert!(
+            boundary < self.frames.len(),
+            "handler boundary out of range"
+        );
+        let base_stack = self.frames[boundary].bp;
+
+        // Every handler entry delimiting a frame inside the captured region
+        // travels with the continuation. Live handler boundaries are
+        // monotonically non-decreasing (a live entry's boundary frame is
+        // still on the frame stack, so anything installed later sits at the
+        // same depth or deeper), so the group is a suffix of the stack.
+        let group_start = self
+            .handlers
             .iter()
-            .map(|f| CapturedFrame {
-                function_hash: f.function.hash,
-                ip: f.ip,
-                bp: f.bp,
+            .position(|h| h.boundary_frame_idx >= boundary)
+            .unwrap_or(handler_idx);
+
+        let captured_handlers: Vec<CapturedHandler> = self
+            .handlers
+            .drain(group_start..)
+            .map(|h| CapturedHandler {
+                ability_id: h.ability_id,
+                handler: h.handler,
+                boundary: h.boundary_frame_idx - boundary,
             })
             .collect();
 
-        // Truncate frames and handlers
-        self.frames.truncate(handler.call_frame_idx);
-        self.handlers.truncate(handler_idx);
+        let captured_stack = self.stack.split_off(base_stack);
+        let captured_frames: Vec<CapturedFrame> = self
+            .frames
+            .drain(boundary..)
+            .map(|f| CapturedFrame {
+                function_hash: f.function.hash,
+                ip: f.ip,
+                bp: f.bp - base_stack,
+                captures: f.captures,
+                return_action: f.return_action,
+            })
+            .collect();
 
-        // Create continuation and push arguments for handler
-        let continuation = Value::continuation(captured_stack, captured_frames);
+        // Call the arm in place of the boundary frame's call: its return
+        // value (if it never resumes) lands exactly where the handle
+        // expression's body thunk would have returned.
+        let continuation = Value::continuation(captured_stack, captured_frames, captured_handlers);
         self.stack.push(continuation);
         self.stack.push(Value::SuspendedAbility(ability));
-
-        // Call the handler function
-        self.push_frame(&handler_func, 2)?;
+        self.push_frame_with_captures(&arm_func, 2, arm_captures)?;
 
         Ok(())
     }
 
     /// Handle the `Handle` opcode: install an inline ability handler.
-    pub(super) fn op_handle(&mut self, ability_id: AbilityId, handler_func: blake3::Hash) {
+    ///
+    /// Pops the handler arm closure from the stack. The current frame (the
+    /// handle expression's body thunk) becomes the delimitation boundary.
+    pub(super) fn op_handle(&mut self, ability_id: ambient_core::AbilityId) -> Result<(), VmError> {
+        let arm = match self.pop()? {
+            Value::Closure(c) => c,
+            other => {
+                return Err(VmError::TypeError {
+                    expected: "closure",
+                    got: other.type_name(),
+                    operation: "handle",
+                })
+            }
+        };
+
         self.handlers.push(HandlerFrame {
             ability_id,
-            handler: HandlerKind::Inline { handler_func },
-            call_frame_idx: self.frames.len() - 1,
-            stack_height: self.stack.len(),
+            handler: HandlerImpl::Inline {
+                func: arm.function_hash,
+                captures: arm.environment.clone(),
+            },
+            boundary_frame_idx: self.frames.len() - 1,
         });
+        Ok(())
     }
 
     /// Handle the `HandleWithValue` opcode: install a handler from a `HandlerValue`.
@@ -197,9 +262,10 @@ impl Vm {
 
         self.handlers.push(HandlerFrame {
             ability_id: handler_value.ability_id,
-            handler: HandlerKind::Value { handler_value },
-            call_frame_idx: self.frames.len() - 1,
-            stack_height: self.stack.len(),
+            handler: HandlerImpl::Value {
+                handler: handler_value,
+            },
+            boundary_frame_idx: self.frames.len() - 1,
         });
 
         Ok(())
@@ -207,7 +273,9 @@ impl Vm {
 
     /// Handle the Resume opcode: resume a captured continuation.
     ///
-    /// Restores the captured stack and frames, then pushes the resume value.
+    /// Reinstates the captured stack, frames, and handler entries above the
+    /// current (arm) frame, rebased onto the current heights, then pushes
+    /// the resume value as the result of the original perform.
     pub(super) fn op_resume(&mut self) -> Result<(), VmError> {
         let value = self.pop()?;
         let continuation = match self.pop()? {
@@ -224,10 +292,13 @@ impl Vm {
             return Err(VmError::ContinuationAlreadyResumed);
         }
 
+        let base_frame = self.frames.len();
+        let base_stack = self.stack.len();
+
         // Restore the captured stack
         self.stack.extend(continuation.stack.iter().cloned());
 
-        // Restore the captured frames
+        // Restore the captured frames, rebasing base pointers
         for captured in &continuation.frames {
             let function = self
                 .functions
@@ -238,13 +309,24 @@ impl Vm {
             self.frames.push(CallFrame {
                 function,
                 ip: captured.ip,
-                bp: captured.bp,
-                captures: Vec::new(),
-                return_action: ReturnAction::None,
+                bp: captured.bp + base_stack,
+                captures: captured.captures.clone(),
+                return_action: captured.return_action.clone(),
             });
         }
 
-        // Push the resume value
+        // Reinstall the captured handler entries, rebasing boundaries.
+        // This preserves deep handler semantics: performs in the resumed
+        // body dispatch to the same handlers as before capture.
+        for captured in &continuation.handlers {
+            self.handlers.push(HandlerFrame {
+                ability_id: captured.ability_id,
+                handler: captured.handler.clone(),
+                boundary_frame_idx: captured.boundary + base_frame,
+            });
+        }
+
+        // Push the resume value as the result of the original perform
         self.stack.push(value);
 
         Ok(())

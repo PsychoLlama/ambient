@@ -296,8 +296,6 @@ impl Vm {
 
                 Opcode::Handle => {
                     let ability_idx = self.read_u16()?;
-                    let handler_idx = self.read_u16()?;
-                    let _completion_offset = self.read_i16()?; // Reserved for future optimization
                     let ability_id = match self.get_constant(ability_idx)? {
                         Value::AbilityRef(id) => id,
                         other => {
@@ -308,17 +306,7 @@ impl Vm {
                             })
                         }
                     };
-                    let handler_func = match self.get_constant(handler_idx)? {
-                        Value::FunctionRef(h) => h,
-                        other => {
-                            return Err(VmError::TypeError {
-                                expected: "function",
-                                got: other.type_name(),
-                                operation: "handle",
-                            })
-                        }
-                    };
-                    self.op_handle(ability_id, handler_func);
+                    self.op_handle(ability_id)?;
                 }
 
                 Opcode::Unhandle => {
@@ -470,7 +458,6 @@ impl Vm {
                 }
 
                 Opcode::HandleWithValue => {
-                    let _completion_offset = self.read_i16()?; // Reserved for future optimization
                     self.op_handle_with_value()?;
                 }
 

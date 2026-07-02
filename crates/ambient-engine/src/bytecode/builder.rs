@@ -153,27 +153,13 @@ impl BytecodeBuilder {
     }
 
     /// Emit a Handle instruction to install an ability handler.
-    /// Returns the offset for patching the normal completion jump.
-    pub fn emit_handle(&mut self, ability_id: AbilityId, handler_func: blake3::Hash) -> usize {
+    ///
+    /// Expects the handler arm closure on top of the stack; the instruction
+    /// pops it and installs it as a handler delimiting the current frame.
+    pub fn emit_handle(&mut self, ability_id: AbilityId) {
         let ability_idx = self.add_constant(Value::AbilityRef(ability_id));
-        let handler_idx = self.add_constant(Value::FunctionRef(handler_func));
         self.code.push(Opcode::Handle as u8);
         self.code.extend_from_slice(&ability_idx.to_le_bytes());
-        self.code.extend_from_slice(&handler_idx.to_le_bytes());
-        let jump_offset = self.code.len();
-        self.code.extend_from_slice(&[0, 0]); // Placeholder for normal completion jump
-        jump_offset
-    }
-
-    /// Patch the normal completion jump offset for a Handle instruction.
-    pub fn patch_handle(&mut self, handle_jump_offset: usize) {
-        let target = self.code.len();
-        // The offset is from the end of the Handle instruction
-        let handle_start = handle_jump_offset - 4; // Back to ability_id start
-        let relative = (target as isize - handle_start as isize - 7) as i16;
-        let bytes = relative.to_le_bytes();
-        self.code[handle_jump_offset] = bytes[0];
-        self.code[handle_jump_offset + 1] = bytes[1];
     }
 
     /// Emit a `MakeClosure` instruction.
@@ -232,24 +218,10 @@ impl BytecodeBuilder {
 
     /// Emit a `HandleWithValue` instruction.
     ///
-    /// Expects a `HandlerValue` on the stack. Pops it and installs as the handler
-    /// for the ability. Returns the offset for patching the normal completion jump.
-    pub fn emit_handle_with_value(&mut self) -> usize {
+    /// Expects a `HandlerValue` on the stack. Pops it and installs it as a
+    /// handler delimiting the current frame.
+    pub fn emit_handle_with_value(&mut self) {
         self.code.push(Opcode::HandleWithValue as u8);
-        let jump_offset = self.code.len();
-        self.code.extend_from_slice(&[0, 0]); // Placeholder for normal completion jump
-        jump_offset
-    }
-
-    /// Patch the normal completion jump offset for a `HandleWithValue` instruction.
-    pub fn patch_handle_with_value(&mut self, handle_jump_offset: usize) {
-        let target = self.code.len();
-        // The offset is from right after the HandleWithValue opcode
-        let instruction_end = handle_jump_offset + 2; // After the i16 offset field
-        let relative = (target as isize - instruction_end as isize) as i16;
-        let bytes = relative.to_le_bytes();
-        self.code[handle_jump_offset] = bytes[0];
-        self.code[handle_jump_offset + 1] = bytes[1];
     }
 
     /// Emit a `LoadCapture` instruction.

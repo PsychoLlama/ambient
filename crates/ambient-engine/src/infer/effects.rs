@@ -91,6 +91,21 @@ impl Infer {
             }
         }
 
+        // The handle expression's result type. Without an else clause it is
+        // the body's type; with one, it is the else transform's return type
+        // (`else` is `(result) => expr`, applied on normal completion).
+        let result_ty = if let Some(else_clause) = &mut handle_expr.else_clause {
+            let else_ty = self.infer_expr(env, else_clause)?;
+            let handle_ty = self.fresh();
+            let effects = self.fresh_ability_var();
+            let expected =
+                Type::function_with_abilities(vec![body_ty.clone()], handle_ty.clone(), effects);
+            self.unify(&expected, &else_ty, span)?;
+            handle_ty
+        } else {
+            body_ty.clone()
+        };
+
         // Collect handled abilities from inline handlers
         for handler in &mut handle_expr.handlers {
             if let Some(ability_id) = self.ability_name_to_id(&handler.ability.name) {
@@ -104,11 +119,11 @@ impl Infer {
                 handler_env.insert_mono(param.id, param.name.clone(), param_ty);
             }
 
-            // Handler body should produce the same type as the overall handle
-            // expression (when resume is called, it continues with the body's
-            // result type). Inferred on the real body so resolutions persist.
+            // A handler arm's value becomes the handle expression's result
+            // (arms bypass the else transform). Inferred on the real body so
+            // resolutions persist.
             let handler_ty = self.infer_expr(&handler_env, &mut handler.body)?;
-            self.unify(&body_ty, &handler_ty, span)?;
+            self.unify(&result_ty, &handler_ty, span)?;
         }
 
         // Compute remaining unhandled abilities
@@ -132,12 +147,6 @@ impl Infer {
         // Restore saved abilities and add remaining
         self.current_abilities = saved_abilities.union(&remaining_abilities);
 
-        // Handle else clause if present
-        if let Some(else_clause) = &mut handle_expr.else_clause {
-            let else_ty = self.infer_expr(env, else_clause)?;
-            self.unify(&body_ty, &else_ty, span)?;
-        }
-
-        Ok(body_ty)
+        Ok(result_ty)
     }
 }

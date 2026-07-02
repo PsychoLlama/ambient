@@ -72,7 +72,12 @@ pub const OBJECT_MAGIC: [u8; 4] = *b"ABOB";
 ///
 /// v2: constant pools may contain ability references (tag 6), the 32-byte
 /// content hash of an ability interface.
-pub const OBJECT_VERSION: u8 = 2;
+///
+/// v3: handle expressions compile to body thunks; the `Handle` instruction
+/// pops its arm closure and carries only the ability constant index, and
+/// `HandleWithValue` has no operands. Bytecode from earlier versions
+/// decodes differently and must not be executed.
+pub const OBJECT_VERSION: u8 = 3;
 
 const KIND_PLAIN: u8 = 0;
 const KIND_GROUP: u8 = 1;

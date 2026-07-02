@@ -632,18 +632,55 @@ impl HandlerValue {
 
 /// A captured continuation representing suspended computation.
 ///
+/// Everything inside is *relative to the continuation's base*: the base
+/// is the stack height and frame index of the delimiting handler boundary
+/// at capture time. On resume, the VM rebases all offsets onto the current
+/// stack and frame heights, so a continuation can be resumed from a
+/// different context than it was captured in.
+///
 /// Single-shot: can only be resumed once. Attempting to resume twice
 /// is a runtime error.
 #[derive(Debug)]
 pub struct Continuation {
-    /// The captured value stack segment.
+    /// The captured value stack segment (from the boundary frame's base
+    /// pointer upward).
     pub stack: Vec<Value>,
 
-    /// The captured call frames.
+    /// The captured call frames, base pointers relative to `stack`.
     pub frames: Vec<CapturedFrame>,
+
+    /// Handler entries that delimited regions within the captured
+    /// computation, boundary indexes relative to `frames`. Re-installed
+    /// on resume so performs in the resumed body dispatch exactly as
+    /// they would have originally (deep handler semantics).
+    pub handlers: Vec<CapturedHandler>,
 
     /// Whether this continuation has been resumed (single-shot enforcement).
     resumed: AtomicBool,
+}
+
+/// Action to perform when a call frame returns.
+///
+/// This enables "continuation frames" for operations like `Option.map`
+/// that call a closure and then wrap the result in an enum.
+#[derive(Debug, Clone, Default)]
+pub enum ReturnAction {
+    /// Normal return - just push the result onto the caller's stack.
+    #[default]
+    None,
+
+    /// Wrap the result in `Some(result)` for `Option.map`.
+    WrapSome,
+
+    /// For `Option.and_then` - the closure returns `Option<U>`, pass through as-is.
+    /// This is essentially the same as `None` but documents intent.
+    PassThrough,
+
+    /// Wrap the result in `Ok(result)` for `Result.map`.
+    WrapOk,
+
+    /// Wrap the result in `Err(result)` for `Result.map_err`.
+    WrapErr,
 }
 
 /// A captured call frame for continuations.
@@ -655,17 +692,61 @@ pub struct CapturedFrame {
     /// The instruction pointer when captured.
     pub ip: usize,
 
-    /// The base pointer when captured.
+    /// The base pointer, relative to the continuation's captured stack.
     pub bp: usize,
+
+    /// Captured closure environment of the frame (empty for plain calls).
+    pub captures: Vec<Value>,
+
+    /// The frame's pending return action (e.g. enum wrapping for
+    /// intrinsic closure calls), preserved across suspension.
+    pub return_action: ReturnAction,
+}
+
+/// The implementation behind an installed ability handler.
+#[derive(Debug, Clone)]
+pub enum HandlerImpl {
+    /// An inline handler arm: one function for all methods of the ability,
+    /// with the environment it captured from its enclosing scope.
+    Inline {
+        /// The compiled arm function (receives continuation + suspended ability).
+        func: blake3::Hash,
+        /// Values captured from the scope enclosing the handle expression.
+        captures: Vec<Value>,
+    },
+
+    /// A first-class handler value with per-method functions.
+    Value {
+        /// The handler value (methods + captures).
+        handler: Arc<HandlerValue>,
+    },
+}
+
+/// A handler entry captured into a continuation.
+#[derive(Debug, Clone)]
+pub struct CapturedHandler {
+    /// The ability this handler intercepts.
+    pub ability_id: AbilityId,
+
+    /// The handler implementation.
+    pub handler: HandlerImpl,
+
+    /// The delimiting frame index, relative to the continuation's frames.
+    pub boundary: usize,
 }
 
 impl Continuation {
     /// Create a new continuation.
     #[must_use]
-    pub fn new(stack: Vec<Value>, frames: Vec<CapturedFrame>) -> Self {
+    pub fn new(
+        stack: Vec<Value>,
+        frames: Vec<CapturedFrame>,
+        handlers: Vec<CapturedHandler>,
+    ) -> Self {
         Self {
             stack,
             frames,
+            handlers,
             resumed: AtomicBool::new(false),
         }
     }
@@ -753,8 +834,12 @@ impl Value {
 
     /// Create a new continuation value.
     #[must_use]
-    pub fn continuation(stack: Vec<Value>, frames: Vec<CapturedFrame>) -> Self {
-        Self::Continuation(Arc::new(Continuation::new(stack, frames)))
+    pub fn continuation(
+        stack: Vec<Value>,
+        frames: Vec<CapturedFrame>,
+        handlers: Vec<CapturedHandler>,
+    ) -> Self {
+        Self::Continuation(Arc::new(Continuation::new(stack, frames, handlers)))
     }
 
     /// Create a new closure value.
@@ -1148,7 +1233,7 @@ mod tests {
 
     #[test]
     fn test_continuation_single_shot() {
-        let cont = Continuation::new(vec![], vec![]);
+        let cont = Continuation::new(vec![], vec![], vec![]);
         assert!(!cont.is_resumed());
         assert!(cont.mark_resumed());
         assert!(cont.is_resumed());

@@ -1951,3 +1951,204 @@ fn test_handler_methods_intrinsic() {
     )
     .expect_output("1");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Delimited handler semantics (catch-and-continue, resume, else)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_handle_catch_and_continue() {
+    // A non-resuming arm's value becomes the handle expression's value,
+    // and execution continues after the handle expression. This is the
+    // essential try/catch shape.
+    CliTest::new(
+        r#"
+        fn risky(): number with Exception {
+            Exception.throw!("kaboom");
+            1
+        }
+
+        pub fn run(): number {
+            let caught = handle risky() {
+                Exception.throw(msg) => 0 - 1
+            };
+            caught + 100
+        }
+        "#,
+    )
+    .expect_output("99");
+}
+
+#[test]
+fn test_resume_restores_locals() {
+    // Locals bound before the perform must be intact after resume.
+    // Regression test: continuations used to be captured with absolute
+    // base pointers, so the resumed frames read the wrong stack slots.
+    CliTest::new(
+        r#"
+        ability Oracle {
+            fn ask(q: string): number;
+        }
+
+        fn asker(): number with Oracle {
+            let base = 100;
+            let answer = Oracle.ask!("q");
+            base + answer
+        }
+
+        pub fn run(): number {
+            handle asker() {
+                Oracle.ask(q) => resume(42)
+            }
+        }
+        "#,
+    )
+    .expect_output("142");
+}
+
+#[test]
+fn test_handle_multi_perform_with_capturing_arm() {
+    // Deep handler semantics: the handler stays installed across resumes,
+    // so a body performing three times fires the same arm three times.
+    // The arm also captures a local from the enclosing scope.
+    CliTest::new(
+        r"
+        ability Counter {
+            fn next(): number;
+        }
+
+        fn count_three(): number with Counter {
+            let a = Counter.next!();
+            let b = Counter.next!();
+            let c = Counter.next!();
+            a + b + c
+        }
+
+        pub fn run(): number {
+            let step = 10;
+            handle count_three() {
+                Counter.next() => resume(step)
+            }
+        }
+        ",
+    )
+    .expect_output("30");
+}
+
+#[test]
+fn test_handle_else_transforms_normal_completion() {
+    // The else clause transforms the body's value on normal completion;
+    // handler arms bypass it.
+    CliTest::new(
+        r"
+        pub fn run(): number {
+            handle 5 {
+                Exception.throw(msg) => 0
+                else { (r) => r * 2 }
+            }
+        }
+        ",
+    )
+    .expect_output("10");
+}
+
+#[test]
+fn test_exception_unwinds_through_inner_handle() {
+    // A throw crosses an inner (non-Exception) handler region to reach
+    // the outer Exception handler, and the inner handler is fully
+    // uninstalled afterwards.
+    CliTest::new(
+        r#"
+        ability Ping {
+            fn ping(): number;
+        }
+
+        fn inner(): number with Ping, Exception {
+            let p = Ping.ping!();
+            Exception.throw!("escape");
+            p
+        }
+
+        fn middle(): number with Exception {
+            handle inner() {
+                Ping.ping() => resume(7)
+            }
+        }
+
+        pub fn run(): number {
+            let x = handle middle() {
+                Exception.throw(msg) => 50
+            };
+            let y = handle inner() {
+                Ping.ping() => resume(1)
+                Exception.throw(msg) => 2
+            };
+            x + y
+        }
+        "#,
+    )
+    .expect_output("52");
+}
+
+#[test]
+fn test_uncaught_exception_reports_value() {
+    // With no handler in scope, the thrown value surfaces in the error.
+    let output = CliTest::new(
+        r#"
+        pub fn run(): number with Exception {
+            Exception.throw!("boom with value 7");
+            0
+        }
+        "#,
+    )
+    .execute();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("uncaught exception") && stderr.contains("boom with value 7"),
+        "expected uncaught exception with thrown value, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_host_raised_exception_is_catchable() {
+    // A failing host operation (network connect to a closed port) raises
+    // a catchable exception instead of aborting the VM.
+    CliTest::new(
+        r#"
+        fn try_connect(): string with Network {
+            let conn = runtime.Network.connect!("127.0.0.1:9");
+            "connected"
+        }
+
+        pub fn run(): string with Network {
+            handle try_connect() {
+                Exception.throw(msg) => "failed"
+            }
+        }
+        "#,
+    )
+    .expect_output("failed");
+}
+
+#[test]
+fn test_host_raised_exception_resume_substitute() {
+    // The Exception handler receives the continuation of the failed host
+    // call, so it can resume with a substitute value: try_connect
+    // continues executing after the failed connect.
+    CliTest::new(
+        r#"
+        fn try_connect(): number with Network {
+            let conn = runtime.Network.connect!("127.0.0.1:9");
+            conn + 1000
+        }
+
+        pub fn run(): number with Network {
+            handle try_connect() {
+                Exception.throw(msg) => resume(0 - 1)
+            }
+        }
+        "#,
+    )
+    .expect_output("999");
+}

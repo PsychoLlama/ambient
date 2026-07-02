@@ -9,29 +9,7 @@ use ambient_core::AbilityId;
 use crate::bytecode::{CompiledFunction, Opcode};
 use crate::runtime_config::RuntimeConfig;
 
-/// Action to perform when a call frame returns.
-///
-/// This enables "continuation frames" for operations like `Option.map` that need
-/// to call a closure and then wrap the result in an enum.
-#[derive(Debug, Clone, Default)]
-pub(super) enum ReturnAction {
-    /// Normal return - just push the result onto the caller's stack.
-    #[default]
-    None,
-
-    /// Wrap the result in `Some(result)` for `Option.map`.
-    WrapSome,
-
-    /// For `Option.and_then` - the closure returns `Option<U>`, pass through as-is.
-    /// This is essentially the same as `None` but documents intent.
-    PassThrough,
-
-    /// Wrap the result in `Ok(result)` for `Result.map`.
-    WrapOk,
-
-    /// Wrap the result in `Err(result)` for `Result.map_err`.
-    WrapErr,
-}
+pub(super) use ambient_ability::ReturnAction;
 
 /// A single stack frame representing an active function call.
 #[derive(Debug, Clone)]
@@ -54,34 +32,24 @@ pub(super) struct CallFrame {
     pub return_action: ReturnAction,
 }
 
-/// The kind of handler installed in a handler frame.
-#[derive(Debug, Clone)]
-pub(super) enum HandlerKind {
-    /// An inline handler with a single function for all methods.
-    /// The function receives (continuation, `suspended_ability`) and must dispatch by method.
-    Inline { handler_func: blake3::Hash },
-
-    /// A handler value with separate functions for each method.
-    /// When an ability is performed, the `method_id` is used to look up the function.
-    Value {
-        handler_value: Arc<crate::value::HandlerValue>,
-    },
-}
-
 /// An installed ability handler that can intercept ability operations.
+///
+/// A handler delimits the computation of the frame it was installed in
+/// (the handle expression's body thunk, or the entry frame for base
+/// handlers). Everything at or above `boundary_frame_idx` is inside the
+/// delimited region: performing the handled ability there captures
+/// `frames[boundary..]` (and the stack from the boundary frame's base
+/// pointer) into a continuation.
 #[derive(Debug, Clone)]
 pub(super) struct HandlerFrame {
     /// The ability ID this handler handles.
     pub ability_id: AbilityId,
 
-    /// The handler implementation (inline function or handler value).
-    pub handler: HandlerKind,
+    /// The handler implementation (inline arm closure or handler value).
+    pub handler: ambient_ability::HandlerImpl,
 
-    /// The call frame index where this handler was installed.
-    pub call_frame_idx: usize,
-
-    /// The stack height when the handler was installed.
-    pub stack_height: usize,
+    /// Index of the first call frame inside the delimited region.
+    pub boundary_frame_idx: usize,
 }
 
 /// The Ambient virtual machine.
@@ -187,11 +155,10 @@ impl Vm {
         for handler_value in &base {
             self.handlers.push(HandlerFrame {
                 ability_id: handler_value.ability_id,
-                handler: HandlerKind::Value {
-                    handler_value: Arc::clone(handler_value),
+                handler: ambient_ability::HandlerImpl::Value {
+                    handler: Arc::clone(handler_value),
                 },
-                call_frame_idx: 0,
-                stack_height: 0,
+                boundary_frame_idx: 0,
             });
         }
         self.base_handlers = base;

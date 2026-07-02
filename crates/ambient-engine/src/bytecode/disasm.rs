@@ -22,9 +22,6 @@ enum Operands {
     I16,
     /// u16 followed by u8 (e.g. `Call`: constant index + arg count).
     U16U8,
-    /// `Handle`: ability constant index, handler constant index,
-    /// completion offset.
-    U16U16I16,
     /// u16, u16, u8 (`Suspend`: ability constant index, method, arg count).
     U16U16U8,
     /// u16, u16, u16, u8 (`MakeEnum`).
@@ -46,16 +43,16 @@ fn operands(op: Opcode) -> Operands {
         | O::LoadCapture
         | O::MakeList
         | O::MakeSet
-        | O::EnumIs => Operands::U16,
+        | O::EnumIs
+        | O::Handle => Operands::U16,
 
-        O::Jump | O::JumpIf | O::JumpIfNot | O::HandleWithValue => Operands::I16,
+        O::Jump | O::JumpIf | O::JumpIfNot => Operands::I16,
 
         O::MakeTuple | O::TupleGet | O::MakeRecord | O::GetAbilityArg | O::CallClosure => {
             Operands::U8
         }
 
         O::Call | O::MakeClosure => Operands::U16U8,
-        O::Handle => Operands::U16U16I16,
         O::Suspend => Operands::U16U16U8,
         O::MakeEnum => Operands::U16U16U16U8,
         O::MakeHandler => Operands::Handler,
@@ -164,7 +161,9 @@ fn instruction_detail(
             .u8()
             .map_or_else(|| TRUNCATED.to_string(), |v| format!(" {v}")),
         Operands::U16 => match cur.u16() {
-            Some(v) if op == Opcode::PushConst => format!(" {}", const_at(v)),
+            Some(v) if op == Opcode::PushConst || op == Opcode::Handle => {
+                format!(" {}", const_at(v))
+            }
             Some(v) => format!(" {v}"),
             None => TRUNCATED.to_string(),
         },
@@ -182,12 +181,6 @@ fn instruction_detail(
                 format!(" {}, n={b}", const_at(a))
             }
             (Some(a), Some(b)) => format!(" {a}, {b}"),
-            _ => TRUNCATED.to_string(),
-        },
-        Operands::U16U16I16 => match (cur.u16(), cur.u16(), cur.u16()) {
-            (Some(a), Some(b), Some(_)) => {
-                format!(" ability={}, handler={}", const_at(a), const_at(b))
-            }
             _ => TRUNCATED.to_string(),
         },
         Operands::U16U16U8 => match (cur.u16(), cur.u16(), cur.u8()) {

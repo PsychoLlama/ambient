@@ -36,15 +36,6 @@ pub struct VmTest {
     host_handlers: Vec<(AbilityId, u16, HostHandler)>,
     call_args: Vec<Value>,
     predetermined_hash: Option<blake3::Hash>,
-    pending_handles: Vec<PendingHandle>,
-}
-
-struct PendingHandle {
-    /// The ability ID for this handle.
-    /// Stored for debugging purposes but not currently read.
-    #[allow(dead_code)]
-    ability_id: AbilityId,
-    jump_offset: usize,
 }
 
 impl Default for VmTest {
@@ -65,7 +56,6 @@ impl VmTest {
             host_handlers: Vec::new(),
             call_args: Vec::new(),
             predetermined_hash: None,
-            pending_handles: Vec::new(),
         }
     }
 
@@ -385,23 +375,21 @@ impl VmTest {
     }
 
     /// Install a bytecode handler for an ability.
+    ///
+    /// The handler function is packaged as a capture-free closure (the
+    /// Handle instruction pops the arm closure from the stack). The
+    /// current frame becomes the delimitation boundary.
     #[must_use]
     pub fn handle(mut self, ability_id: AbilityId, handler_hash: blake3::Hash) -> Self {
-        let jump_offset = self.builder.emit_handle(ability_id, handler_hash);
-        self.pending_handles.push(PendingHandle {
-            ability_id,
-            jump_offset,
-        });
+        self.builder.emit_make_closure(handler_hash, 0);
+        self.builder.emit_handle(ability_id);
         self
     }
 
-    /// Remove the most recent handler and patch its jump target.
+    /// Remove the most recent handler.
     #[must_use]
     pub fn unhandle(mut self) -> Self {
         self.builder.emit(Opcode::Unhandle);
-        if let Some(pending) = self.pending_handles.pop() {
-            self.builder.patch_handle(pending.jump_offset);
-        }
         self
     }
 

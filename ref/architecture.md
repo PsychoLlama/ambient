@@ -383,19 +383,21 @@ nothing in the current runtime implements it.
 
 ## Error Handling
 
-Errors are abilities:
+Errors are abilities. `Exception.throw!` raises; the nearest enclosing
+`handle` block for Exception catches. A handler arm's value becomes the
+handle expression's value, and execution continues after the handle
+expression (catch-and-continue). The optional `else` clause transforms
+the body's value on *normal* completion only; arms bypass it.
 
 ```ambient
-ability Exception<E> {
-  fn throw(error: E): !;  // ! = never returns normally
+ability Exception {
+  fn throw(error: string): !;  // ! = never returns normally
 }
 
-fn parse_int(s: string): number
-  with Exception<ParseError>
-{
+fn parse_int(s: string): number with Exception {
   match try_parse(s) {
     Some(n) => n,
-    None => Exception.throw!(ParseError { input: s }),
+    None => Exception.throw!("not a number"),
   }
 }
 
@@ -403,11 +405,40 @@ fn parse_int(s: string): number
 fn safe_parse(s: string): Option<number> {
   handle parse_int(s) {
     Exception.throw(e) => None
-  } else {
-    (result) => Some(result)
+    else { (result) => Some(result) }
   }
 }
 ```
+
+An uncaught throw halts the program with `uncaught exception: <value>`,
+carrying the actual thrown value.
+
+### Host failures are catchable exceptions
+
+Fallible host operations (file not found, connection refused, ...) do not
+return `Result` values and do not kill the VM: the host handler raises
+`Exception.throw(message)` *at the perform site*. The calling program
+catches it like any in-language throw. Because the Exception handler
+receives the continuation of the failed call, it can even `resume` with a
+substitute value, and the IO caller continues as if the operation had
+succeeded:
+
+```ambient
+fn fetch_or_default(): number with Network {
+  handle runtime.Network.connect!("10.0.0.1:9") {
+    Exception.throw(msg) => resume(0 - 1)  // substitute connection id
+  }
+}
+```
+
+Engine-level faults (stack overflow, type errors in bytecode, arity
+mismatches) remain fatal `VmError`s - they indicate bugs, not conditions
+programs should handle.
+
+Current limits: `Exception` is not generic yet (`throw` takes a string;
+`Exception<E>` with an error trait bound is the planned evolution), and
+`!` (never) does not yet unify with other types, so `throw` works in
+statement position but not as the value of a typed expression.
 
 ---
 
@@ -561,6 +592,16 @@ Abilities implemented using single-shot delimited continuations.
 - Continuation can be resumed at most once (runtime error on double resume)
 - Supports: exceptions, I/O, state
 - Does not support: backtracking, multi-shot operators
+
+A handle expression compiles its body into a thunk closure whose call
+frame delimits the handled computation. A perform captures the frames,
+stack segment, and handler entries above that boundary into the
+continuation (all offsets relative, so resume rebases them anywhere),
+then runs the handler arm in place of the thunk call: a non-resuming arm
+returns straight to the handle expression's completion point. Handlers
+are *deep*: resuming re-installs the captured handlers, so a body that
+performs repeatedly fires the same arm each time. Handler arms are
+closures and may capture from the enclosing scope.
 
 ### Execution Model
 

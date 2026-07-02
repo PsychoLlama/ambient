@@ -50,8 +50,9 @@ pub use error::{RuntimeError, StackTraceFrame, VmError};
 pub use format::{format_value, format_value_colored, format_value_display};
 pub use handler::{HostHandler, RuntimeAbility};
 pub use value::{
-    CapturedFrame, Closure, Continuation, EnumValue, HandlerValue, MapValue, ModuleExport,
-    ModuleExportKind, ModuleMemberRef, ModuleValue, SetValue, SuspendedAbility, Value,
+    CapturedFrame, CapturedHandler, Closure, Continuation, EnumValue, HandlerImpl, HandlerValue,
+    MapValue, ModuleExport, ModuleExportKind, ModuleMemberRef, ModuleValue, ReturnAction, SetValue,
+    SuspendedAbility, Value,
 };
 
 // Re-export commonly used types from ambient-core
