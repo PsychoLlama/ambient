@@ -203,40 +203,6 @@ pub fn register_console_with_collector(
 // Exception Ability Implementation
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Error type for unhandled exceptions.
-#[derive(Debug, Clone, PartialEq)]
-pub struct UnhandledException {
-    /// The error value that was thrown.
-    pub error: Value,
-}
-
-impl std::fmt::Display for UnhandledException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "unhandled exception: {}", format_value(&self.error))
-    }
-}
-
-impl std::error::Error for UnhandledException {}
-
-/// Register a default Exception handler that returns `VmError`.
-///
-/// Note: Exception handling is typically done via bytecode handlers (try/catch),
-/// not host handlers. This provides a fallback for unhandled exceptions.
-pub fn register_exception_fallback(vm: &mut Vm) {
-    vm.register_host_handler(
-        exception::ability_id(),
-        exception::METHOD_THROW,
-        Box::new(|_ability: &SuspendedAbility| {
-            // Return an error - this stops execution
-            // The actual error value is in ability.args[0] but we return UnhandledAbility
-            Err(VmError::UnhandledAbility {
-                ability_id: exception::ability_id(),
-                method_id: exception::METHOD_THROW,
-            })
-        }),
-    );
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Time Ability Registration
 // ═══════════════════════════════════════════════════════════════════════════
@@ -470,7 +436,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
             let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
             let id = state
                 .listen(&addr)
-                .map_err(|e| VmError::IoError(e.to_string()))?;
+                .map_err(|e| VmError::exception(format!("Network.listen: {e}")))?;
             #[allow(clippy::cast_precision_loss)]
             Ok(Value::Number(id as f64))
         }),
@@ -487,7 +453,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
             let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
             let id = state
                 .accept(listener_id)
-                .map_err(|e| VmError::IoError(e.to_string()))?;
+                .map_err(|e| VmError::exception(format!("Network.accept: {e}")))?;
             #[allow(clippy::cast_precision_loss)]
             Ok(Value::Number(id as f64))
         }),
@@ -504,7 +470,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
             let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
             state
                 .close_listener(listener_id)
-                .map_err(|e| VmError::IoError(e.to_string()))?;
+                .map_err(|e| VmError::exception(format!("Network.close_listener: {e}")))?;
             Ok(Value::Unit)
         }),
     );
@@ -519,7 +485,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
             let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
             let id = state
                 .connect(&addr)
-                .map_err(|e| VmError::IoError(e.to_string()))?;
+                .map_err(|e| VmError::exception(format!("Network.connect: {e}")))?;
             #[allow(clippy::cast_precision_loss)]
             Ok(Value::Number(id as f64))
         }),
@@ -536,7 +502,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
             let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
             state
                 .close(conn_id)
-                .map_err(|e| VmError::IoError(e.to_string()))?;
+                .map_err(|e| VmError::exception(format!("Network.close: {e}")))?;
             Ok(Value::Unit)
         }),
     );
@@ -570,7 +536,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
             let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
             state
                 .send(conn_id, &data)
-                .map_err(|e| VmError::IoError(e.to_string()))?;
+                .map_err(|e| VmError::exception(format!("Network.send: {e}")))?;
             Ok(Value::Unit)
         }),
     );
@@ -587,7 +553,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
             let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
             let data = state
                 .receive(conn_id)
-                .map_err(|e| VmError::IoError(e.to_string()))?;
+                .map_err(|e| VmError::exception(format!("Network.receive: {e}")))?;
 
             Ok(Value::bytes(data))
         }),
@@ -605,7 +571,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
             let state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
             let addr = state
                 .local_addr(conn_id)
-                .map_err(|e| VmError::IoError(e.to_string()))?;
+                .map_err(|e| VmError::exception(format!("Network.local_addr: {e}")))?;
             Ok(Value::string(addr))
         }),
     );
@@ -622,7 +588,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
             let state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
             let addr = state
                 .peer_addr(conn_id)
-                .map_err(|e| VmError::IoError(e.to_string()))?;
+                .map_err(|e| VmError::exception(format!("Network.peer_addr: {e}")))?;
             Ok(Value::string(addr))
         }),
     );
@@ -961,11 +927,11 @@ fn parse_hash(hex_str: &str) -> Result<blake3::Hash, String> {
 
 /// Register all standard ability handlers on a VM.
 ///
-/// This includes Console, Exception (fallback), Time, Random, and Log.
-/// Note: Network and Execute require external configuration and are not included.
+/// This includes Console, Time, Random, and Log. Exception semantics are
+/// built into the VM and need no registration. Note: Network and Execute
+/// require external configuration and are not included.
 pub fn register_all_standard_abilities(vm: &mut Vm) {
     register_console(vm, ConsoleConfig::default());
-    register_exception_fallback(vm);
     register_time(vm);
     register_random(vm);
     register_log(vm, LogConfig::default());

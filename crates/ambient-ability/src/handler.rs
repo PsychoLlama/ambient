@@ -11,6 +11,18 @@ use crate::value::{SuspendedAbility, Value};
 /// They receive the suspended ability (containing the method ID and arguments)
 /// and return either a value or an error.
 ///
+/// # Errors
+///
+/// Handlers have two failure channels:
+///
+/// - `Err(VmError::Exception(value))` raises a *catchable* language-level
+///   exception at the perform site — the VM performs `Exception.throw(value)`
+///   there, so the calling program's nearest `handle` block for Exception
+///   catches it. Use [`VmError::exception`] for the common string-message
+///   case. This is how fallible operations (file not found, connection
+///   refused, ...) should report failure.
+/// - Any other `VmError` is a fatal engine error that aborts execution.
+///
 /// # Example
 ///
 /// ```ignore

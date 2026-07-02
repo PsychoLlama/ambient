@@ -1,5 +1,7 @@
 //! VM error types for ability handlers.
 
+use crate::value::Value;
+
 /// A single frame in a runtime stack trace.
 #[derive(Debug, Clone)]
 pub struct StackTraceFrame {
@@ -193,11 +195,34 @@ pub enum VmError {
     /// Feature not yet implemented.
     Unsupported { operation: &'static str },
 
+    /// A language-level exception.
+    ///
+    /// This is the raise channel for host handlers: returning
+    /// `Err(VmError::Exception(value))` from a [`HostHandler`] makes the VM
+    /// perform `Exception.throw(value)` at the call site, where the nearest
+    /// in-language `handle { Exception.throw(e) => ... }` block catches it.
+    /// The variant only surfaces as a hard error when no Exception handler
+    /// is in scope — an uncaught exception.
+    ///
+    /// [`HostHandler`]: crate::HostHandler
+    Exception(Value),
+
     /// I/O error (from Remote ability or other I/O operations).
     IoError(String),
 
     /// A mutex lock was poisoned.
     LockPoisoned,
+}
+
+impl VmError {
+    /// Construct a catchable exception carrying a string error message.
+    ///
+    /// This is the common case for host handlers reporting fallible-operation
+    /// failures (file not found, connection refused, ...).
+    #[must_use]
+    pub fn exception(message: impl Into<String>) -> Self {
+        Self::Exception(Value::string(message))
+    }
 }
 
 impl std::fmt::Display for VmError {
@@ -270,6 +295,13 @@ impl std::fmt::Display for VmError {
             }
             Self::Unsupported { operation } => {
                 write!(f, "unsupported operation: {operation}")
+            }
+            Self::Exception(value) => {
+                write!(
+                    f,
+                    "uncaught exception: {}",
+                    crate::format::format_value(value)
+                )
             }
             Self::IoError(msg) => write!(f, "I/O error: {msg}"),
             Self::LockPoisoned => write!(f, "mutex lock poisoned"),

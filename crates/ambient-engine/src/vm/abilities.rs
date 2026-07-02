@@ -66,8 +66,22 @@ impl Vm {
             .get(&(ability.ability_id, ability.method_id))
         {
             // Fall back to host handler
-            let result = handler(&ability)?;
-            self.stack.push(result);
+            match handler(&ability) {
+                Ok(result) => self.stack.push(result),
+                // A host handler raising an exception behaves exactly like
+                // `Exception.throw!` at the perform site: the caller's frames
+                // are intact, so the nearest in-language Exception handler
+                // catches it (and may even `resume` the continuation with a
+                // substitute value for the failed operation).
+                Err(VmError::Exception(error)) => self.raise_exception(error)?,
+                Err(other) => return Err(other),
+            }
+        } else if ability.ability_id == ambient_core::exception::ability_id() {
+            // Exception is core language semantics, not a host capability:
+            // a throw with no handler in scope is an uncaught exception
+            // carrying the thrown value, regardless of host registration.
+            let error = ability.args.first().cloned().unwrap_or(Value::Unit);
+            return Err(VmError::Exception(error));
         } else {
             return Err(VmError::UnhandledAbility {
                 ability_id: ability.ability_id,
@@ -76,6 +90,30 @@ impl Vm {
         }
 
         Ok(())
+    }
+
+    /// Raise a language-level exception at the current execution point.
+    ///
+    /// Performs `Exception.throw(error)` against the nearest in-language
+    /// Exception handler, exactly as if the currently executing code had
+    /// called `Exception.throw!` itself. With no handler in scope the
+    /// exception is uncaught and surfaces as [`VmError::Exception`].
+    pub(super) fn raise_exception(&mut self, error: Value) -> Result<(), VmError> {
+        let ability_id = ambient_core::exception::ability_id();
+        let Some(idx) = self
+            .handlers
+            .iter()
+            .rposition(|h| h.ability_id == ability_id)
+        else {
+            return Err(VmError::Exception(error));
+        };
+
+        let throw = Arc::new(SuspendedAbility {
+            ability_id,
+            method_id: ambient_core::exception::METHOD_THROW,
+            args: vec![error],
+        });
+        self.perform_with_bytecode_handler(idx, throw)
     }
 
     /// Perform an ability using a bytecode handler.
