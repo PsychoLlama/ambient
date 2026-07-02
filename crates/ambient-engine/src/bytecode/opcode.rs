@@ -280,24 +280,6 @@ pub enum Opcode {
     GetAbilityArg = 0x85,
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Concurrency (Milestone 9)
-    // ─────────────────────────────────────────────────────────────────────────
-    /// Perform multiple suspended abilities concurrently and collect all results.
-    /// Operand: u8 (count - number of ability values on stack)
-    ///
-    /// Pops `count` suspended ability values from the stack, performs them all
-    /// (potentially concurrently), and pushes a tuple of results in the same order.
-    AsyncAll = 0x90,
-
-    /// Race multiple suspended abilities, returning the first to complete.
-    /// Operand: u8 (count - number of ability values on stack)
-    ///
-    /// Pops `count` suspended ability values from the stack, performs them
-    /// (potentially concurrently), and pushes the result of the first to complete.
-    /// Other operations are cancelled.
-    AsyncRace = 0x91,
-
-    // ─────────────────────────────────────────────────────────────────────────
     // Closures
     // ─────────────────────────────────────────────────────────────────────────
     /// Create a closure from a function and captured variables.
@@ -856,9 +838,6 @@ impl Opcode {
             0x83 => Some(Self::Unhandle),
             0x84 => Some(Self::Resume),
             0x85 => Some(Self::GetAbilityArg),
-            // Concurrency
-            0x90 => Some(Self::AsyncAll),
-            0x91 => Some(Self::AsyncRace),
             // Closures
             0xA0 => Some(Self::MakeClosure),
             0xA1 => Some(Self::CallClosure),

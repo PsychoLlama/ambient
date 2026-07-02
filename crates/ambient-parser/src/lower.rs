@@ -480,23 +480,6 @@ fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, P
             })
         }
 
-        CstExprKind::Suspend {
-            ability,
-            method,
-            args,
-        } => {
-            let lowered_args = args
-                .iter()
-                .map(|e| lower_expression(ctx, e))
-                .collect::<Result<Vec<_>, _>>()?;
-            ExprKind::Suspend(AbilityCall {
-                ability: lower_qualified_name(ability),
-                method: method.name.clone(),
-                args: lowered_args,
-                span: expr.span,
-            })
-        }
-
         CstExprKind::Handle(handle) => {
             let body = lower_expression(ctx, &handle.body)?;
 

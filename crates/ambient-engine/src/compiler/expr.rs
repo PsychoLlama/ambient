@@ -407,11 +407,7 @@ pub(super) fn compile_expr(
         // Abilities
         // ─────────────────────────────────────────────────────────────────────
         ExprKind::Perform(ability_call) => {
-            compile_ability_call(fc, ability_call, true, ctx)?;
-        }
-
-        ExprKind::Suspend(ability_call) => {
-            compile_ability_call(fc, ability_call, false, ctx)?;
+            compile_ability_call(fc, ability_call, ctx)?;
         }
 
         ExprKind::Handle(handle_expr) => {

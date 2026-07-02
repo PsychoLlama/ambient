@@ -546,20 +546,6 @@ fn get_ability_methods(ability_name: &str) -> &'static [AbilityMethod] {
                 params: &["range"],
             },
         ],
-        "Async" => &[
-            AbilityMethod {
-                name: "all",
-                signature: "<T, A!>(ops: List<Ability<T, A!>>): List<T>",
-                doc: "Wait for all operations",
-                params: &["ops"],
-            },
-            AbilityMethod {
-                name: "race",
-                signature: "<T, A!>(ops: List<Ability<T, A!>>): T",
-                doc: "Race operations, first wins",
-                params: &["ops"],
-            },
-        ],
         "Log" => &[
             AbilityMethod {
                 name: "debug",
@@ -851,7 +837,6 @@ fn collect_locals_in_scope(
         | ExprKind::Local(_)
         | ExprKind::Name(_)
         | ExprKind::Perform(_)
-        | ExprKind::Suspend(_)
         | ExprKind::Resume(_)
         | ExprKind::HandlerLiteral(_)
         | ExprKind::MethodCall { .. } => {}

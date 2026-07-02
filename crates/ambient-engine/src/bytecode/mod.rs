@@ -388,9 +388,6 @@ mod tests {
             Opcode::Handle,
             Opcode::Unhandle,
             Opcode::Resume,
-            // Concurrency
-            Opcode::AsyncAll,
-            Opcode::AsyncRace,
             // Closures
             Opcode::MakeClosure,
             Opcode::CallClosure,

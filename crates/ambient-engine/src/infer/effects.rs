@@ -2,7 +2,6 @@
 //!
 //! This module handles type inference for effect-related expressions:
 //! - Perform: Immediately execute an ability operation
-//! - Suspend: Create a suspended ability value
 //! - Handle: Install handlers for abilities
 //!
 //! These are extracted from the main `infer_expr` function to improve
@@ -43,45 +42,10 @@ impl Infer {
         // Add primary ability to current requirements
         self.require_ability(ability_id);
 
-        // Add any additional abilities (e.g., underlying abilities from Async.all/race)
+        // Add any additional abilities (e.g., declared dependencies of module abilities)
         self.require_abilities(&additional_abilities);
 
         Ok(result_ty)
-    }
-
-    /// Infer the type of a suspend expression.
-    ///
-    /// Suspend creates a suspended ability value without executing it.
-    /// Returns `Ability<result_ty, ability_id>`.
-    pub(super) fn infer_suspend(
-        &mut self,
-        env: &TypeEnv,
-        ability_call: &mut AbilityCall,
-        span: (u32, u32),
-    ) -> InferResult<Type> {
-        // Infer types of arguments — on the real nodes, not clones:
-        // inference records resolutions in the AST (trait method symbols,
-        // operator overloads, module-call rewrites) that the compiler
-        // depends on.
-        let mut arg_tys = Vec::with_capacity(ability_call.args.len());
-        for arg in &mut ability_call.args {
-            arg_tys.push(self.infer_expr(env, arg)?);
-        }
-
-        // Look up the ability and method to get return type
-        // Note: For suspend, we ignore additional_abilities since we're just creating a value
-        let (ability_id, result_ty, _additional_abilities) = self.lookup_ability_method(
-            &ability_call.ability,
-            &ability_call.method,
-            &arg_tys,
-            span,
-        )?;
-
-        // Return Ability<result_ty, ability_id> - a suspended ability value
-        Ok(Type::ability_value(
-            result_ty,
-            AbilitySet::single(ability_id),
-        ))
     }
 
     /// Infer the type of a handle expression.

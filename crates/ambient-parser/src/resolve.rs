@@ -442,7 +442,7 @@ impl Resolver {
                 Ok(())
             }
 
-            ExprKind::Perform(call) | ExprKind::Suspend(call) => {
+            ExprKind::Perform(call) => {
                 // Resolve the ability name
                 self.resolve_qualified_name(&call.ability, call.span)?;
 

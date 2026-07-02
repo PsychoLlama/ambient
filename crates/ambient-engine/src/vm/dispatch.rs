@@ -339,59 +339,6 @@ impl Vm {
                 }
 
                 // ─────────────────────────────────────────────────────────────
-                // Concurrency (Milestone 9)
-                // ─────────────────────────────────────────────────────────────
-                Opcode::AsyncAll => {
-                    let count = self.read_u8()?;
-
-                    // Pop all suspended abilities (in reverse order)
-                    let mut abilities = Vec::with_capacity(count as usize);
-                    for _ in 0..count {
-                        let ability = match self.pop()? {
-                            Value::SuspendedAbility(a) => a,
-                            other => {
-                                return Err(VmError::ExpectedSuspendedAbility {
-                                    got: other.type_name(),
-                                })
-                            }
-                        };
-                        abilities.push(ability);
-                    }
-                    abilities.reverse(); // Restore original order
-
-                    // Perform all abilities and collect results
-                    let results = self.perform_all_abilities(&abilities)?;
-
-                    // Push tuple of results
-                    self.stack.push(Value::tuple(results));
-                }
-
-                Opcode::AsyncRace => {
-                    let count = self.read_u8()?;
-
-                    // Pop all suspended abilities (in reverse order)
-                    let mut abilities = Vec::with_capacity(count as usize);
-                    for _ in 0..count {
-                        let ability = match self.pop()? {
-                            Value::SuspendedAbility(a) => a,
-                            other => {
-                                return Err(VmError::ExpectedSuspendedAbility {
-                                    got: other.type_name(),
-                                })
-                            }
-                        };
-                        abilities.push(ability);
-                    }
-                    abilities.reverse(); // Restore original order
-
-                    // Race: perform abilities concurrently, return first result
-                    let result = self.perform_race_abilities(&abilities)?;
-
-                    // Push the winning result
-                    self.stack.push(result);
-                }
-
-                // ─────────────────────────────────────────────────────────────
                 // Closures
                 // ─────────────────────────────────────────────────────────────
                 Opcode::MakeClosure => {

@@ -50,13 +50,9 @@ fn operands(op: Opcode) -> Operands {
 
         O::Jump | O::JumpIf | O::JumpIfNot | O::HandleWithValue => Operands::I16,
 
-        O::MakeTuple
-        | O::TupleGet
-        | O::MakeRecord
-        | O::GetAbilityArg
-        | O::AsyncAll
-        | O::AsyncRace
-        | O::CallClosure => Operands::U8,
+        O::MakeTuple | O::TupleGet | O::MakeRecord | O::GetAbilityArg | O::CallClosure => {
+            Operands::U8
+        }
 
         O::Call | O::MakeClosure => Operands::U16U8,
         O::Handle => Operands::U16U16I16,

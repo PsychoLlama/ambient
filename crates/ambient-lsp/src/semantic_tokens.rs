@@ -365,7 +365,7 @@ impl<'a> TokenCollector<'a> {
                     self.visit_expr(arg);
                 }
             }
-            ExprKind::Perform(call) | ExprKind::Suspend(call) => self.visit_ability_call(call),
+            ExprKind::Perform(call) => self.visit_ability_call(call),
             ExprKind::Handle(h) => self.visit_handle_expr(h),
             ExprKind::Resume(value) => self.visit_expr(value),
             ExprKind::HandlerLiteral(h) => self.visit_handler_literal(h),

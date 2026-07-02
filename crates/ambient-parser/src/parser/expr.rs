@@ -226,12 +226,9 @@ impl Parser<'_> {
                 } else {
                     let field = self.parse_ident()?;
 
-                    // Check for ability method call (requires ! or ~ sigil)
-                    if self.check(TokenKind::Bang) || self.check(TokenKind::Tilde) {
-                        let is_perform = self.consume(TokenKind::Bang).is_some();
-                        if !is_perform {
-                            self.expect(TokenKind::Tilde)?; // consume the ~
-                        }
+                    // Check for ability method call (requires ! sigil)
+                    if self.check(TokenKind::Bang) {
+                        self.advance();
                         self.expect(TokenKind::LParen)?;
                         let args = self.parse_args()?;
                         let end = self.expect(TokenKind::RParen)?.span.end;
@@ -248,24 +245,13 @@ impl Parser<'_> {
                         })?;
 
                         let span = Span::new(expr.span.start, end);
-                        expr = if is_perform {
-                            CstExpr {
-                                kind: CstExprKind::Perform {
-                                    ability,
-                                    method: field,
-                                    args,
-                                },
-                                span,
-                            }
-                        } else {
-                            CstExpr {
-                                kind: CstExprKind::Suspend {
-                                    ability,
-                                    method: field,
-                                    args,
-                                },
-                                span,
-                            }
+                        expr = CstExpr {
+                            kind: CstExprKind::Perform {
+                                ability,
+                                method: field,
+                                args,
+                            },
+                            span,
                         };
                     } else if self.check(TokenKind::LParen) {
                         // Method call: receiver.method(args)
@@ -559,8 +545,8 @@ impl Parser<'_> {
             }
 
             if segments.len() > 1 {
-                // Check for ability method call pattern: Ability.method!(args) or Ability.method~(args)
-                if self.check(TokenKind::Bang) || self.check(TokenKind::Tilde) {
+                // Check for ability method call pattern: Ability.method!(args)
+                if self.check(TokenKind::Bang) {
                     return self.parse_ability_call(segments);
                 }
 
@@ -607,12 +593,9 @@ impl Parser<'_> {
         })
     }
 
-    /// Parse an ability call pattern: Ability.method!(args) or Ability.method~(args)
+    /// Parse an ability call pattern: Ability.method!(args)
     fn parse_ability_call(&mut self, mut segments: Vec<CstIdent>) -> Result<CstExpr, ParseError> {
-        let is_perform = self.consume(TokenKind::Bang).is_some();
-        if !is_perform {
-            self.expect(TokenKind::Tilde)?;
-        }
+        self.expect(TokenKind::Bang)?;
         self.expect(TokenKind::LParen)?;
         let args = self.parse_args()?;
         let end = self.expect(TokenKind::RParen)?.span.end;
@@ -630,18 +613,10 @@ impl Parser<'_> {
         let span = Span::new(ability_span.start, end);
 
         Ok(CstExpr {
-            kind: if is_perform {
-                CstExprKind::Perform {
-                    ability,
-                    method,
-                    args,
-                }
-            } else {
-                CstExprKind::Suspend {
-                    ability,
-                    method,
-                    args,
-                }
+            kind: CstExprKind::Perform {
+                ability,
+                method,
+                args,
             },
             span,
         })

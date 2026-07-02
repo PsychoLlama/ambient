@@ -293,7 +293,7 @@ fn run_compiled(compiled: &CompiledModule, entry: &str) -> Result<()> {
     // Create tokio runtime for async operations (Remote ability).
     let runtime = tokio::runtime::Runtime::new().context("failed to create async runtime")?;
 
-    // Create VM with native abilities (Console, Time, Random, Async, Log).
+    // Create VM with native abilities (Console, Time, Random, Log).
     let config = RuntimeConfig::native();
     let mut vm = Vm::with_runtime(&config);
 

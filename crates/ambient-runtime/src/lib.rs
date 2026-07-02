@@ -7,7 +7,6 @@
 //! Core abilities that the language depends on (like Exception) are defined
 //! in `ambient-core` instead.
 
-pub mod async_ability;
 pub mod console;
 pub mod execute;
 pub mod log;
@@ -15,7 +14,6 @@ pub mod network;
 pub mod random;
 pub mod time;
 
-pub use async_ability::{AsyncAbility, AsyncRuntimeAbility, ASYNC};
 pub use console::{ConsoleAbility, ConsoleRuntimeAbility, CONSOLE};
 pub use execute::ExecuteRuntimeAbility;
 pub use log::{LogAbility, LogRuntimeAbility, LOG};
@@ -28,7 +26,7 @@ pub use ambient_ability::RuntimeAbility;
 
 use ambient_core::{AbilityDescriptor, AbilityProvider, TypeFactory};
 
-/// Provider for runtime abilities (Console, Time, Random, Async, Log, Network, Execute).
+/// Provider for runtime abilities (Console, Time, Random, Log, Network, Execute).
 ///
 /// This is parameterized by the type system's Type representation,
 /// allowing it to work with different type systems.
@@ -46,7 +44,6 @@ impl<T: Clone + 'static> RuntimeAbilities<T> {
                 ConsoleRuntimeAbility::new().descriptor(factory),
                 TimeRuntimeAbility::new().descriptor(factory),
                 RandomRuntimeAbility::new().descriptor(factory),
-                AsyncRuntimeAbility::new().descriptor(factory),
                 LogRuntimeAbility::new().descriptor(factory),
                 NetworkRuntimeAbility::new().descriptor(factory),
                 ExecuteRuntimeAbility::new().descriptor(factory),
@@ -123,8 +120,8 @@ mod tests {
         let factory = TestTypeFactory::new();
         let runtime = RuntimeAbilities::new(&factory);
 
-        // 7 abilities: Console, Time, Random, Async, Log, Network, Execute
-        assert_eq!(runtime.abilities().len(), 7);
+        // 6 abilities: Console, Time, Random, Log, Network, Execute
+        assert_eq!(runtime.abilities().len(), 6);
 
         // Check Console
         let console = runtime.get_ability("Console");
@@ -143,12 +140,6 @@ mod tests {
         assert!(random.is_some());
         let random = random.unwrap();
         assert_eq!(random.methods.len(), 2);
-
-        // Check Async
-        let async_ab = runtime.get_ability("Async");
-        assert!(async_ab.is_some());
-        let async_ab = async_ab.unwrap();
-        assert_eq!(async_ab.methods.len(), 2);
 
         // Check Log
         let log = runtime.get_ability("Log");
@@ -177,7 +168,6 @@ mod tests {
             ("Console", console::ability_id()),
             ("Time", time::ability_id()),
             ("Random", random::ability_id()),
-            ("Async", async_ability::ability_id()),
             ("Log", log::ability_id()),
             ("Network", network::ability_id()),
             ("Execute", execute::ability_id()),

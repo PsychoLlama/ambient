@@ -293,9 +293,6 @@ pub enum ExprKind {
     /// Ability method call with explicit perform: `Console.print!("hello")`.
     Perform(AbilityCall),
 
-    /// Suspended ability value: `Console.print("hello")` (no `!`).
-    Suspend(AbilityCall),
-
     /// Handle expression: `handle expr { handlers }`.
     Handle(HandleExpr),
 

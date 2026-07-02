@@ -31,7 +31,6 @@ const BUILTINS: &[&str] = &[
     "Random",
     "Log",
     "Exception",
-    "Async",
     "Option",
     "Result",
     "List",

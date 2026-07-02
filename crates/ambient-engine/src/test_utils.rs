@@ -369,20 +369,6 @@ impl VmTest {
         self
     }
 
-    /// Perform multiple suspended abilities concurrently and collect all results.
-    #[must_use]
-    pub fn async_all(mut self, count: u8) -> Self {
-        self.builder.emit_u8(Opcode::AsyncAll, count);
-        self
-    }
-
-    /// Race multiple suspended abilities, returning the first to complete.
-    #[must_use]
-    pub fn async_race(mut self, count: u8) -> Self {
-        self.builder.emit_u8(Opcode::AsyncRace, count);
-        self
-    }
-
     // =========================================================================
     // Handlers
     // =========================================================================

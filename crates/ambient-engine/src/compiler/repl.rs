@@ -215,18 +215,6 @@ impl ReplContext {
             ),
         );
 
-        // Async ability
-        self.register_module(
-            "Async",
-            ModuleValue::new(
-                "Async",
-                vec![
-                    ModuleExport::new("all!", ModuleExportKind::Function),
-                    ModuleExport::new("race!", ModuleExportKind::Function),
-                ],
-            ),
-        );
-
         // Filesystem ability
         self.register_module(
             "Filesystem",

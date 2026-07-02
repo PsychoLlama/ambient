@@ -574,7 +574,6 @@ mod tests {
         assert!(resolver.get_by_name("Console").is_some());
         assert!(resolver.get_by_name("Time").is_some());
         assert!(resolver.get_by_name("Random").is_some());
-        assert!(resolver.get_by_name("Async").is_some());
         assert!(resolver.get_by_name("Log").is_some());
     }
 
@@ -617,7 +616,6 @@ mod tests {
         assert!(resolver.get_by_name("Console").is_some());
         assert!(resolver.get_by_name("Time").is_some());
         assert!(resolver.get_by_name("Random").is_some());
-        assert!(resolver.get_by_name("Async").is_some());
         assert!(resolver.get_by_name("Log").is_some());
     }
 

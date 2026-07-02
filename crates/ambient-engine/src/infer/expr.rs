@@ -408,8 +408,6 @@ impl Infer {
             // Effect expressions are handled by helper methods in effects.rs
             ExprKind::Perform(ability_call) => self.infer_perform(env, ability_call, span)?,
 
-            ExprKind::Suspend(ability_call) => self.infer_suspend(env, ability_call, span)?,
-
             ExprKind::Handle(handle_expr) => self.infer_handle(env, handle_expr, span)?,
 
             ExprKind::Resume(value) => {

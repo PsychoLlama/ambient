@@ -153,7 +153,6 @@ fn find_expr_in_tree(expr: &Expr, offset: u32) -> Option<&Expr> {
         | ExprKind::Local(_)
         | ExprKind::Name(_)
         | ExprKind::Perform(_)
-        | ExprKind::Suspend(_)
         | ExprKind::Resume(_)
         | ExprKind::HandlerLiteral(_) => Some(expr),
 

@@ -267,11 +267,10 @@ pub(super) fn compile_handle_expr(
     Ok(())
 }
 
-/// Compile an ability call (either perform or suspend).
+/// Compile an ability call (perform).
 pub(super) fn compile_ability_call(
     fc: &mut FunctionCompiler,
     ability_call: &crate::ast::AbilityCall,
-    perform: bool,
     ctx: &mut ModuleContext,
 ) -> Result<(), CompileError> {
     // Compile arguments.
@@ -306,14 +305,10 @@ pub(super) fn compile_ability_call(
             )
         })?;
 
-    // Emit suspend instruction.
+    // Emit suspend instruction (packages the args), then perform.
     fc.builder
         .emit_suspend(ability_id, method_id, ability_call.args.len() as u8);
-
-    // If performing, emit perform instruction.
-    if perform {
-        fc.builder.emit(Opcode::Perform);
-    }
+    fc.builder.emit(Opcode::Perform);
 
     Ok(())
 }

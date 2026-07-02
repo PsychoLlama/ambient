@@ -1526,7 +1526,7 @@ fn test_local_variable_shadows_module_alias() {
 
 #[test]
 fn test_method_call_resolves_inside_perform_arguments() {
-    // Regression: perform/suspend arguments used to be type-checked on
+    // Regression: perform arguments used to be type-checked on
     // CLONES of the argument expressions, so resolutions recorded during
     // inference (trait method symbols, operator overloads) were silently
     // discarded and compilation failed.
@@ -1840,10 +1840,9 @@ fn test_user_ability_unknown_dependency_is_error() {
 }
 
 #[test]
-fn test_user_ability_suspend_form_compiles() {
-    // The `~` form suspends a user-ability call as a first-class value.
-    // (Standalone `op!` perform syntax is not implemented yet, so this
-    // only exercises suspension of a dynamic ability.)
+fn test_suspend_form_is_removed() {
+    // The `~` suspend-call syntax was removed from the language; using it
+    // is now a parse error.
     CliTest::new(
         r#"
         ability Greeter {
@@ -1856,7 +1855,7 @@ fn test_user_ability_suspend_form_compiles() {
         }
         "#,
     )
-    .expect_output("7");
+    .expect_failure();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

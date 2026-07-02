@@ -2,7 +2,7 @@
 //!
 //! This module provides host handler implementations for abilities.
 //! Ability IDs and descriptors are defined in `ambient-core` (for Exception)
-//! and `ambient-runtime` (for Console, Time, Random, Async, Log).
+//! and `ambient-runtime` (for Console, Time, Random, Log).
 //!
 //! This module re-exports the ability ID modules for backward compatibility.
 
@@ -40,11 +40,6 @@ pub mod random {
     pub use ambient_runtime::random::*;
 }
 
-/// Async ability - for concurrent execution of abilities.
-pub mod async_ability {
-    pub use ambient_runtime::async_ability::*;
-}
-
 /// Network ability - for TCP client/server operations.
 pub mod network {
     pub use ambient_runtime::network::*;
@@ -62,8 +57,8 @@ pub mod log {
 
 // Re-export RuntimeAbility implementations for convenience
 pub use ambient_runtime::{
-    AsyncRuntimeAbility, ConsoleRuntimeAbility, ExecuteRuntimeAbility, LogRuntimeAbility,
-    NetworkRuntimeAbility, RandomRuntimeAbility, TimeRuntimeAbility,
+    ConsoleRuntimeAbility, ExecuteRuntimeAbility, LogRuntimeAbility, NetworkRuntimeAbility,
+    RandomRuntimeAbility, TimeRuntimeAbility,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════

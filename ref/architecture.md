@@ -279,14 +279,8 @@ ability imports yet), and the REPL does not register them.
 ### Using Abilities
 
 ```ambient
-// Perform immediately with !
+// Perform with !
 let content = Filesystem.read!("file.txt");
-
-// Suspend as value with ~
-let read_op = Filesystem.read~("file.txt");  // type: Ability<string, Filesystem!>
-
-// Perform later
-let content = read_op!;
 ```
 
 ### Ability Syntax in Type Signatures
@@ -369,20 +363,21 @@ sandbox {
 
 ## Concurrency
 
-```ambient
-ability Async {
-  fn all<T, A!>(ops: List<Ability<T, A!>>): List<T>;
-  fn race<T, A!>(ops: List<Ability<T, A!>>): T;
-}
+All IO is blocking. There is no `Async` ability and no async/await-style
+primitives — this is intentional. A perform like `runtime.Network.receive!`
+simply blocks the calling code until the host handler returns.
 
-// Concurrent execution
-let op1 = Network.fetch~(request1);
-let op2 = Network.fetch~(request2);
-let [r1, r2] = runtime.Async.all!([op1, op2]);
+The planned direction is an Erlang-inspired process model: lightweight
+green processes with isolated state, communicating by message passing,
+organized under supervisors. This design is chosen for live-upgrade
+correctness — hot code replacement needs a well-defined unit of state to
+hand off, and a process mailbox/state boundary provides exactly that.
+Blocking IO composes naturally with that model (a blocked process yields
+its scheduler thread), whereas async/await would thread a second
+concurrency model through the language.
 
-// Race: first to complete wins, others cancelled
-let winner = runtime.Async.race!([op1, op2]);
-```
+This process model is future work: it is not yet designed in detail and
+nothing in the current runtime implements it.
 
 ---
 
@@ -564,16 +559,15 @@ The store exists in three forms, all sharing the canonical object encoding:
 
 Abilities implemented using single-shot delimited continuations.
 - Continuation can be resumed at most once (runtime error on double resume)
-- Supports: exceptions, I/O, state, async
+- Supports: exceptions, I/O, state
 - Does not support: backtracking, multi-shot operators
 
 ### Execution Model
 
-Single-threaded with cooperative concurrency:
-1. User code runs on single thread
-2. Ability handlers may delegate to host thread pool
-3. `runtime.Async.all!`/`runtime.Async.race!` suspend operations for concurrent host execution
-4. No shared mutable state between concurrent operations
+Single-threaded with blocking IO:
+1. User code runs on a single thread
+2. Ability handlers block until the host operation completes
+3. Concurrency is future work: an Erlang-style process model (see Concurrency)
 
 ---
 
@@ -681,17 +675,6 @@ fn run(): bool {
   let b = Vec2 { x: 3, y: 4 };
   let c = a + b;              // Vec2 { x: 4, y: 6 }
   c == Vec2 { x: 4, y: 6 }    // true
-}
-```
-
-### Concurrent Fetching
-
-```ambient
-pub fn fetch_all(urls: List<Url>): List<Response>
-  with Network, Async
-{
-  let ops = List.map(urls, (url) => Network.fetch~(Request { url: url, method: Get }));
-  runtime.Async.all!(ops)
 }
 ```
 

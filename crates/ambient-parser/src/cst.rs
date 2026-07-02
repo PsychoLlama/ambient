@@ -663,13 +663,6 @@ pub enum CstExprKind {
         args: Vec<CstExpr>,
     },
 
-    /// Suspended ability: `Console.print("hello")`.
-    Suspend {
-        ability: CstQualifiedName,
-        method: CstIdent,
-        args: Vec<CstExpr>,
-    },
-
     /// Handle expression.
     Handle(Box<CstHandleExpr>),
 

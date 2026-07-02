@@ -3,9 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ambient_ability::{
-    HostHandler, RuntimeError, StackTraceFrame, SuspendedAbility, Value, VmError,
-};
+use ambient_ability::{HostHandler, RuntimeError, StackTraceFrame, Value, VmError};
 use ambient_core::AbilityId;
 
 use crate::bytecode::{CompiledFunction, Opcode};
@@ -358,109 +356,6 @@ impl Vm {
         });
 
         Ok(())
-    }
-
-    /// Perform a single suspended ability using a host handler.
-    ///
-    /// Returns an error if no host handler is registered for this ability.
-    /// Note: This does not support bytecode handlers - only host handlers.
-    pub(super) fn perform_ability_host(
-        &self,
-        ability: &SuspendedAbility,
-    ) -> Result<Value, VmError> {
-        if let Some(handler) = self
-            .host_handlers
-            .get(&(ability.ability_id, ability.method_id))
-        {
-            handler(ability)
-        } else {
-            Err(VmError::UnhandledAbility {
-                ability_id: ability.ability_id,
-                method_id: ability.method_id,
-            })
-        }
-    }
-
-    /// Perform all abilities concurrently and collect results.
-    ///
-    /// Uses `std::thread::scope` for safe parallelism. Each ability is executed
-    /// in its own thread, and results are collected in order.
-    pub(super) fn perform_all_abilities(
-        &self,
-        abilities: &[Arc<SuspendedAbility>],
-    ) -> Result<Vec<Value>, VmError> {
-        if abilities.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // For a single ability, no need for threading overhead
-        if abilities.len() == 1 {
-            return Ok(vec![self.perform_ability_host(&abilities[0])?]);
-        }
-
-        // Use thread::scope for safe concurrent execution
-        std::thread::scope(|s| {
-            // Spawn a thread for each ability
-            let handles: Vec<_> = abilities
-                .iter()
-                .map(|ability| s.spawn(|| self.perform_ability_host(ability)))
-                .collect();
-
-            // Collect results in order
-            let mut results = Vec::with_capacity(handles.len());
-            for handle in handles {
-                let result = handle.join().map_err(|_| VmError::StackOverflow)?;
-                results.push(result?);
-            }
-            Ok(results)
-        })
-    }
-
-    /// Race abilities concurrently and return the first result.
-    ///
-    /// Uses `std::thread::scope` with channels for true racing. The first
-    /// ability to complete wins, and its result is returned. Other threads
-    /// continue to completion but their results are discarded.
-    ///
-    /// Note: True cancellation would require cooperative cancellation tokens
-    /// in the ability handlers. For now, we let threads complete but only
-    /// use the first result.
-    pub(super) fn perform_race_abilities(
-        &self,
-        abilities: &[Arc<SuspendedAbility>],
-    ) -> Result<Value, VmError> {
-        if abilities.is_empty() {
-            return Err(VmError::StackUnderflow);
-        }
-
-        // For a single ability, no need for threading overhead
-        if abilities.len() == 1 {
-            return self.perform_ability_host(&abilities[0]);
-        }
-
-        // Use a channel to receive the first result
-        let (tx, rx) = std::sync::mpsc::channel();
-
-        std::thread::scope(|s| {
-            // Spawn a thread for each ability
-            for (idx, ability) in abilities.iter().enumerate() {
-                let tx = tx.clone();
-                s.spawn(move || {
-                    let result = self.perform_ability_host(ability);
-                    // Send result with index (for debugging/ordering if needed)
-                    let _ = tx.send((idx, result));
-                });
-            }
-
-            // Drop our sender so the channel closes when all threads complete
-            drop(tx);
-
-            // Return the first result we receive
-            match rx.recv() {
-                Ok((_idx, result)) => result,
-                Err(_) => Err(VmError::StackUnderflow), // All threads failed to send
-            }
-        })
     }
 
     /// Fetch the next opcode from the current frame's bytecode.
