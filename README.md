@@ -1,3 +1,106 @@
 # Ambient
 
-A programming language for ambient systems.
+A content-addressed programming language with algebraic effects, inspired by
+Unison, Rust, TypeScript, and Nushell.
+
+Every function is identified by the hash of its implementation and its
+dependencies. That buys perfect incremental compilation, deduplication, and —
+the long-term goal — live program upgrades and remote execution by shipping
+hashes instead of source: a client and server that share a content-addressed
+store can exchange functions as data, request missing dependencies by hash,
+and hot-swap behavior by pointing at a new root.
+
+Unlike Unison, the filesystem stays the source of truth: programs are plain
+`.ab` text files, and language semantics map 1:1 to what's on disk.
+
+## Taste of the language
+
+```ambient
+// Effects are explicit capabilities ("abilities"), tracked in types.
+pub fn run(): () with Console {
+  greet("world");
+}
+
+// Private functions infer their abilities — no annotation needed.
+fn greet(name: string) {
+  runtime.Console.print!("Hello, ${name}!");
+}
+```
+
+```ambient
+// Nominal types + traits. Operator traits (Add, Eq, Ord, ...) are prelude.
+unique(b3c4d5e6-f7a8-9012-bcde-f12345678902) type Vec2 { x: number, y: number }
+
+impl Add for Vec2 {
+  fn add(self, other: Vec2): Vec2 {
+    Vec2 { x: self.x + other.x, y: self.y + other.y }
+  }
+}
+
+fn example(): bool {
+  Vec2 { x: 1, y: 2 } + Vec2 { x: 3, y: 4 } == Vec2 { x: 4, y: 6 }
+}
+```
+
+Effect handlers are delimited continuations — mock any capability in tests,
+sandbox untrusted code, or intercept and transform operations:
+
+```ambient
+handle {
+  runtime.Console.print!("hello");
+} {
+  runtime.Console.print(msg) => {
+    runtime.Console.print!(core.string.concat("[LOG] ", msg));
+    resume(())
+  }
+}
+```
+
+## Getting started
+
+```bash
+cargo build --workspace          # or: nix develop
+
+ambient init my_project          # scaffold a package
+ambient run my_project           # compile + run
+ambient repl                     # interactive REPL
+ambient dev my_project/src/main.ab   # hot-reload loop
+ambient lsp                      # language server (see ambient.nvim/)
+```
+
+The `examples/` directory has ~25 runnable programs, from `hello` to a
+TCP echo server and a remote-execution client/server pair — all exercised
+by the test suite (`cargo test -p ambient-cli --test examples`).
+
+## Repository layout
+
+| Path | What it is |
+|------|------------|
+| `crates/ambient-engine` | Type inference, compiler, bytecode VM, content-addressed store |
+| `crates/ambient-parser` | Hand-written lexer + parser (CST → AST) |
+| `crates/ambient-cli` | The `ambient` binary |
+| `crates/ambient-lsp` | Language server |
+| `crates/ambient-core` / `-ability` / `-runtime` | Ability descriptors, runtime values, host abilities |
+| `ref/` | Language design docs (`architecture.md` is the source of truth) |
+| `examples/` | Runnable example packages with golden-tested output |
+| `tree-sitter-ambient/`, `ambient.nvim/` | Editor tooling |
+
+## Development
+
+```bash
+just check    # format check + clippy + build + all tests; must pass before commit
+```
+
+Language regressions are caught at three levels: unit tests in the engine,
+golden tests over every example program, and content-addressing invariant
+tests (`crates/ambient-parser/tests/content_addressing.rs`) that pin the
+hash semantics: same source → same hash, declaration order never matters,
+body or dependency changes always ripple.
+
+## Status
+
+Experimental but coherent: packages, modules and imports, traits with
+static content-addressed dispatch, ability inference and enforcement,
+delimited-continuation handlers, a REPL, an LSP, and remote function
+execution over TCP all work today. See `ref/architecture.md` § Future Work
+for what's next (persisted store, generic traits, WASM target).
