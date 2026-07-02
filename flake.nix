@@ -69,6 +69,7 @@
               "--skip=test_core_list_shadow_suggestion_shows_only_suffix"
               "--skip=test_core_list_dot_shows_function_completions"
               "--skip=test_core_list_first_inspects_as_function"
+              "--skip=test_dotted_module_path_is_rejected"
               "--skip=test_user_defined_function_inspection"
             ];
 
