@@ -102,7 +102,7 @@ fn test_goto_cross_file_imported_function() {
         .with_file(
             "src/main.ab",
             r#"
-use pkg.utils.{helper};
+use pkg::utils::{helper};
 fn run() { helper/*use*/() }
 "#,
         )
@@ -130,7 +130,7 @@ fn run() { helper/*use*/() }
 
 #[test]
 fn test_goto_cross_file_specific_import() {
-    // Go to definition with specific item import (use pkg.module.{item})
+    // Go to definition with specific item import (use pkg::module::{item})
     let (test, locations) = LspTest::new()
         .with_package()
         .with_file(
@@ -143,7 +143,7 @@ pub fn second(): number { 2 }
         .with_file(
             "src/main.ab",
             r#"
-use pkg.helpers.{first, second};
+use pkg::helpers::{first, second};
 fn run() { second/*use*/() }
 "#,
         )
@@ -185,7 +185,7 @@ pub fn third(): number { 3 }
         .with_file(
             "src/main.ab",
             r#"
-use pkg.funcs.{second};
+use pkg::funcs::{second};
 fn run() { second/*use*/() }
 "#,
         )
@@ -223,7 +223,7 @@ fn test_goto_cross_file_expect_file_helper() {
         .with_file(
             "src/main.ab",
             r#"
-use pkg.target.{defined_here};
+use pkg::target::{defined_here};
 fn run() { defined_here/*use*/() }
 "#,
         )

@@ -533,7 +533,7 @@ fn test_handler_value_with_inline() {
         fn test_mixed(): number {
             let mock_console = { print(msg) => resume(()) };
             handle simple_function() with mock_console {
-                Exception.throw(err) => {
+                Exception::throw(err) => {
                     resume(())
                 }
             }
@@ -1196,7 +1196,7 @@ fn test_cross_module_trait_dispatch() {
         (
             "money.ab",
             r#"
-            use core.traits.Add;
+            use core::traits::Add;
 
             pub unique(aaaabbbb-cccc-dddd-eeee-ffff00001111) type Money { cents: number }
 
@@ -1224,7 +1224,7 @@ fn test_cross_module_trait_dispatch() {
         (
             "main.ab",
             r#"
-            use pkg.money.{Money, make};
+            use pkg::money::{Money, make};
 
             pub fn run(): number {
                 let total = make(100) + make(50);
@@ -1313,14 +1313,14 @@ fn test_private_function_ability_inference() {
         }
 
         fn ping(n: number) {
-            if n > 0 { platform.Console.print!("ping"); pong(n - 1); } else { () }
+            if n > 0 { platform::Console::print!("ping"); pong(n - 1); } else { () }
         }
 
         fn pong(n: number) {
-            if n > 0 { platform.Console.print!("pong"); ping(n - 1); } else { () }
+            if n > 0 { platform::Console::print!("pong"); ping(n - 1); } else { () }
         }
 
-        fn helper_inner() { platform.Console.print!("inner"); }
+        fn helper_inner() { platform::Console::print!("inner"); }
         fn helper_outer() { helper_inner(); }
     "#,
     )
@@ -1339,7 +1339,7 @@ fn test_public_function_must_declare_inferred_abilities() {
         }
 
         fn leaky() {
-            platform.Console.print!("leak");
+            platform::Console::print!("leak");
         }
     "#,
     )
@@ -1419,7 +1419,7 @@ fn test_core_functions_fully_qualified() {
     let (dir, pkg) = temp_package(
         r"
         pub fn run(): number {
-            core.list.sum(core.list.map([1, 2, 3], (x: number) => x * 2))
+            core::list::sum(core::list::map([1, 2, 3], (x: number) => x * 2))
         }
         ",
     );
@@ -1431,13 +1431,13 @@ fn test_core_functions_fully_qualified() {
 
 #[test]
 fn test_core_whole_module_import_alias() {
-    // `use core.list;` binds the alias `list` for qualified calls.
+    // `use core::list;` binds the alias `list` for qualified calls.
     let (dir, pkg) = temp_package(
         r"
-        use core.list;
+        use core::list;
 
         pub fn run(): number {
-            list.fold(list.range(1, 5), 0, (acc: number, x: number) => acc + x)
+            list::fold(list::range(1, 5), 0, (acc: number, x: number) => acc + x)
         }
         ",
     );
@@ -1449,10 +1449,10 @@ fn test_core_whole_module_import_alias() {
 
 #[test]
 fn test_core_item_import() {
-    // `use core.list.{map, sum};` binds plain names.
+    // `use core::list::{map, sum};` binds plain names.
     let (dir, pkg) = temp_package(
         r"
-        use core.list.{map, sum};
+        use core::list::{map, sum};
 
         pub fn run(): number {
             sum(map([1, 2, 3], (x: number) => x + 10))
@@ -1467,16 +1467,16 @@ fn test_core_item_import() {
 
 #[test]
 fn test_whole_module_user_import() {
-    // `use self.utils;` then `utils.helper()` — qualified module-member
+    // `use self::utils;` then `utils::helper()` — qualified module-member
     // calls on user modules.
     let (dir, pkg) = temp_multi_package(&[
         (
             "main.ab",
             r"
-            use self.utils;
+            use self::utils;
 
             pub fn run(): number {
-                utils.triple(7) + utils.triple(1)
+                utils::triple(7) + utils::triple(1)
             }
             ",
         ),
@@ -1501,7 +1501,7 @@ fn test_local_variable_shadows_module_alias() {
         (
             "main.ab",
             r"
-            use self.utils;
+            use self::utils;
 
             pub fn run(): number {
                 let utils = 5;
@@ -1544,7 +1544,7 @@ fn test_method_call_resolves_inside_perform_arguments() {
 
         pub fn run(): () with Console {
             let p = Point { x: 21 };
-            platform.Console.print!(core.convert.to_string(p.doubled()));
+            platform::Console::print!(core::convert::to_string(p.doubled()));
         }
         "#,
     );
@@ -1588,9 +1588,9 @@ fn test_option_constructors_and_core_helpers() {
     let (dir, pkg) = temp_package(
         r"
         pub fn run(): number {
-            let doubled = core.option.map(Some(20), (x: number) => x * 2);
-            core.option.unwrap_or(doubled, 0)
-                + core.option.unwrap_or(core.option.map(nothing(), (x: number) => x), 2)
+            let doubled = core::option::map(Some(20), (x: number) => x * 2);
+            core::option::unwrap_or(doubled, 0)
+                + core::option::unwrap_or(core::option::map(nothing(), (x: number) => x), 2)
         }
 
         fn nothing(): Option<number> {
@@ -1609,10 +1609,10 @@ fn test_result_constructors_and_chaining() {
     let (dir, pkg) = temp_package(
         r#"
         pub fn run(): string {
-            let ok = core.result.map(parse(5), (x: number) => x * 10);
+            let ok = core::result::map(parse(5), (x: number) => x * 10);
             let err = parse(0 - 3);
-            match core.result.and_then(ok, (x: number) => parse(x)) {
-                Ok(v) => core.string.from_number(v),
+            match core::result::and_then(ok, (x: number) => parse(x)) {
+                Ok(v) => core::string::from_number(v),
                 Err(e) => e,
             }
         }
@@ -1730,13 +1730,13 @@ fn test_user_ability_inline_handler() {
         }
 
         fn hello(): string with Greeter {
-            Greeter.greet!("world")
+            Greeter::greet!("world")
         }
 
         pub fn run(): string {
             handle hello() {
-                Greeter.greet(name) => {
-                    resume(core.string.concat("hi ", name))
+                Greeter::greet(name) => {
+                    resume(core::string::concat("hi ", name))
                 }
             }
         }
@@ -1759,7 +1759,7 @@ fn test_user_ability_handler_value_and_generic_method() {
         }
 
         fn choose(): number with Picker {
-            Picker.pick!(10, 32)
+            Picker::pick!(10, 32)
         }
 
         pub fn run(): number {
@@ -1784,7 +1784,7 @@ fn test_user_ability_unhandled_is_runtime_error() {
         }
 
         pub fn run(): string with Missing {
-            Missing.gone!()
+            Missing::gone!()
         }
         "#,
     )
@@ -1800,7 +1800,7 @@ fn test_user_ability_unknown_method_is_type_error() {
         }
 
         pub fn run(): string with Greeter {
-            Greeter.shout!("hi")
+            Greeter::shout!("hi")
         }
         "#,
     )
@@ -1816,7 +1816,7 @@ fn test_user_ability_wrong_arg_type_is_type_error() {
         }
 
         pub fn run(): string with Greeter {
-            Greeter.greet!(42)
+            Greeter::greet!(42)
         }
         "#,
     )
@@ -1850,7 +1850,7 @@ fn test_suspend_form_is_removed() {
         }
 
         pub fn run(): number {
-            let op = Greeter.greet~("later");
+            let op = Greeter::greet~("later");
             7
         }
         "#,
@@ -1870,14 +1870,14 @@ fn test_execute_run_with_granted_ability() {
     CliTest::new(
         r#"
         fn shout(x: number): number with Log {
-            platform.Log.info!("computing remotely");
+            platform::Log::info!("computing remotely");
             x * 2
         }
 
         pub fn run(): number with Execute {
             let thunk = (x) => shout(x);
-            let hash = core.protocol.closure_hash(thunk);
-            platform.Execute.run!(hash, 21)
+            let hash = core::protocol::closure_hash(thunk);
+            platform::Execute::run!(hash, 21)
         }
         "#,
     )
@@ -1891,14 +1891,14 @@ fn test_execute_run_ungranted_ability_is_unhandled() {
     CliTest::new(
         r#"
         fn phone_home(x: number): number with Network {
-            let conn = platform.Network.connect!("127.0.0.1:1");
+            let conn = platform::Network::connect!("127.0.0.1:1");
             x
         }
 
         pub fn run(): number with Execute {
             let thunk = (x) => phone_home(x);
-            let hash = core.protocol.closure_hash(thunk);
-            platform.Execute.run!(hash, 1)
+            let hash = core::protocol::closure_hash(thunk);
+            platform::Execute::run!(hash, 1)
         }
         "#,
     )
@@ -1919,14 +1919,14 @@ fn test_execute_run_with_shipped_handler() {
         }
 
         fn consult(x: number): number with Oracle {
-            x + Oracle.answer!()
+            x + Oracle::answer!()
         }
 
         pub fn run(): number with Execute {
             let oracle = { answer() => resume(40) };
             let thunk = (x) => consult(x);
-            let hash = core.protocol.closure_hash(thunk);
-            platform.Execute.run_with!(hash, 2, oracle)
+            let hash = core::protocol::closure_hash(thunk);
+            platform::Execute::run_with!(hash, 2, oracle)
         }
         ",
     )
@@ -1945,7 +1945,7 @@ fn test_handler_methods_intrinsic() {
 
         pub fn run(): number {
             let oracle = { answer() => resume(42) };
-            core.list.length(core.protocol.handler_methods(oracle))
+            core::list::length(core::protocol::handler_methods(oracle))
         }
         ",
     )
@@ -1964,13 +1964,13 @@ fn test_handle_catch_and_continue() {
     CliTest::new(
         r#"
         fn risky(): number with Exception {
-            Exception.throw!("kaboom");
+            Exception::throw!("kaboom");
             1
         }
 
         pub fn run(): number {
             let caught = handle risky() {
-                Exception.throw(msg) => 0 - 1
+                Exception::throw(msg) => 0 - 1
             };
             caught + 100
         }
@@ -1992,13 +1992,13 @@ fn test_resume_restores_locals() {
 
         fn asker(): number with Oracle {
             let base = 100;
-            let answer = Oracle.ask!("q");
+            let answer = Oracle::ask!("q");
             base + answer
         }
 
         pub fn run(): number {
             handle asker() {
-                Oracle.ask(q) => resume(42)
+                Oracle::ask(q) => resume(42)
             }
         }
         "#,
@@ -2018,16 +2018,16 @@ fn test_handle_multi_perform_with_capturing_arm() {
         }
 
         fn count_three(): number with Counter {
-            let a = Counter.next!();
-            let b = Counter.next!();
-            let c = Counter.next!();
+            let a = Counter::next!();
+            let b = Counter::next!();
+            let c = Counter::next!();
             a + b + c
         }
 
         pub fn run(): number {
             let step = 10;
             handle count_three() {
-                Counter.next() => resume(step)
+                Counter::next() => resume(step)
             }
         }
         ",
@@ -2043,7 +2043,7 @@ fn test_handle_else_transforms_normal_completion() {
         r"
         pub fn run(): number {
             handle 5 {
-                Exception.throw(msg) => 0
+                Exception::throw(msg) => 0
                 else { (r) => r * 2 }
             }
         }
@@ -2064,24 +2064,24 @@ fn test_exception_unwinds_through_inner_handle() {
         }
 
         fn inner(): number with Ping, Exception {
-            let p = Ping.ping!();
-            Exception.throw!("escape");
+            let p = Ping::ping!();
+            Exception::throw!("escape");
             p
         }
 
         fn middle(): number with Exception {
             handle inner() {
-                Ping.ping() => resume(7)
+                Ping::ping() => resume(7)
             }
         }
 
         pub fn run(): number {
             let x = handle middle() {
-                Exception.throw(msg) => 50
+                Exception::throw(msg) => 50
             };
             let y = handle inner() {
-                Ping.ping() => resume(1)
-                Exception.throw(msg) => 2
+                Ping::ping() => resume(1)
+                Exception::throw(msg) => 2
             };
             x + y
         }
@@ -2096,7 +2096,7 @@ fn test_uncaught_exception_reports_value() {
     let output = CliTest::new(
         r#"
         pub fn run(): number with Exception {
-            Exception.throw!("boom with value 7");
+            Exception::throw!("boom with value 7");
             0
         }
         "#,
@@ -2117,13 +2117,13 @@ fn test_host_raised_exception_is_catchable() {
     CliTest::new(
         r#"
         fn try_connect(): string with Network {
-            let conn = platform.Network.connect!("127.0.0.1:9");
+            let conn = platform::Network::connect!("127.0.0.1:9");
             "connected"
         }
 
         pub fn run(): string with Network {
             handle try_connect() {
-                Exception.throw(msg) => "failed"
+                Exception::throw(msg) => "failed"
             }
         }
         "#,
@@ -2139,13 +2139,13 @@ fn test_host_raised_exception_resume_substitute() {
     CliTest::new(
         r#"
         fn try_connect(): number with Network {
-            let conn = platform.Network.connect!("127.0.0.1:9");
+            let conn = platform::Network::connect!("127.0.0.1:9");
             conn + 1000
         }
 
         pub fn run(): number with Network {
             handle try_connect() {
-                Exception.throw(msg) => resume(0 - 1)
+                Exception::throw(msg) => resume(0 - 1)
             }
         }
         "#,
@@ -2164,8 +2164,8 @@ fn test_fs_write_read_roundtrip() {
     CliTest::new(format!(
         r#"
         pub fn run(): string with FileSystem {{
-            platform.FileSystem.write!("{path}", "hello from ambient");
-            platform.FileSystem.read!("{path}")
+            platform::FileSystem::write!("{path}", "hello from ambient");
+            platform::FileSystem::read!("{path}")
         }}
         "#,
         path = path.display()
@@ -2180,12 +2180,12 @@ fn test_fs_read_missing_file_is_catchable_exception() {
     CliTest::new(
         r#"
         fn try_read(): string with FileSystem {
-            platform.FileSystem.read!("/nonexistent/ambient_fs_test/missing.txt")
+            platform::FileSystem::read!("/nonexistent/ambient_fs_test/missing.txt")
         }
 
         pub fn run(): string with FileSystem {
             handle try_read() {
-                Exception.throw(msg) => "caught"
+                Exception::throw(msg) => "caught"
             }
         }
         "#,
@@ -2200,9 +2200,9 @@ fn test_fs_exists_false_then_true() {
     CliTest::new(format!(
         r#"
         pub fn run(): () with FileSystem, Console {{
-            platform.Console.println!(core.convert.to_string(platform.FileSystem.exists!("{path}")));
-            platform.FileSystem.write!("{path}", "x");
-            platform.Console.println!(core.convert.to_string(platform.FileSystem.exists!("{path}")));
+            platform::Console::println!(core::convert::to_string(platform::FileSystem::exists!("{path}")));
+            platform::FileSystem::write!("{path}", "x");
+            platform::Console::println!(core::convert::to_string(platform::FileSystem::exists!("{path}")));
         }}
         "#,
         path = path.display()
@@ -2217,9 +2217,9 @@ fn test_fs_list_returns_written_entries() {
     CliTest::new(format!(
         r#"
         pub fn run(): number with FileSystem {{
-            platform.FileSystem.write!("{base}/a.txt", "1");
-            platform.FileSystem.write!("{base}/b.txt", "2");
-            core.list.length(platform.FileSystem.list!("{base}"))
+            platform::FileSystem::write!("{base}/a.txt", "1");
+            platform::FileSystem::write!("{base}/b.txt", "2");
+            core::list::length(platform::FileSystem::list!("{base}"))
         }}
         "#
     ))
@@ -2233,9 +2233,9 @@ fn test_fs_remove_then_exists_is_false() {
     CliTest::new(format!(
         r#"
         pub fn run(): bool with FileSystem {{
-            platform.FileSystem.write!("{path}", "gone soon");
-            platform.FileSystem.remove!("{path}");
-            platform.FileSystem.exists!("{path}")
+            platform::FileSystem::write!("{path}", "gone soon");
+            platform::FileSystem::remove!("{path}");
+            platform::FileSystem::exists!("{path}")
         }}
         "#,
         path = path.display()
@@ -2251,14 +2251,14 @@ fn test_execute_run_fs_is_not_granted() {
     CliTest::new(
         r#"
         fn sneaky(x: number): number with FileSystem {
-            let content = platform.FileSystem.read!("/etc/hostname");
+            let content = platform::FileSystem::read!("/etc/hostname");
             x
         }
 
         pub fn run(): number with Execute {
             let thunk = (x) => sneaky(x);
-            let hash = core.protocol.closure_hash(thunk);
-            platform.Execute.run!(hash, 1)
+            let hash = core::protocol::closure_hash(thunk);
+            platform::Execute::run!(hash, 1)
         }
         "#,
     )

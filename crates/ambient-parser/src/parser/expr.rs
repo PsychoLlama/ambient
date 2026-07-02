@@ -463,81 +463,19 @@ impl Parser<'_> {
     fn parse_ident_or_qualified(&mut self) -> Result<CstExpr, ParseError> {
         let start = self.current().span.start;
 
-        // Handle module prefixes (pkg, core, super) as the first segment
-        // Only these keywords start qualified names - regular identifiers followed by
-        // dots are field accesses handled by postfix parsing.
-        // Note: `self` is NOT a module prefix in expressions - it's the instance reference
-        // in impl methods. It should be treated as a regular identifier.
-        let is_module_prefix = matches!(
-            self.current_kind(),
-            TokenKind::Pkg | TokenKind::Core | TokenKind::Super
-        );
+        // Parse the head segment. Module-prefix keywords (`pkg`, `core`,
+        // `super`) and `self` are lexed as their own token kinds rather than as
+        // `Ident`, so accept them explicitly as the head of a path. In an
+        // expression `self` is normally the instance reference, but it may also
+        // head a qualified name, so it is handled uniformly here.
+        let ident = self.parse_path_segment()?;
 
-        let first_segment = if is_module_prefix {
-            let token = self.advance();
-            let trailing_trivia = self.skip_trivia();
-            CstIdent {
-                name: token.text.into(),
-                span: token.span,
-                trailing_trivia,
-            }
-        } else if self.current_kind() == TokenKind::Self_ {
-            // Handle `self` as a regular identifier (the instance in impl methods)
-            let token = self.advance();
-            let trailing_trivia = self.skip_trivia();
-            CstIdent {
-                name: token.text.into(),
-                span: token.span,
-                trailing_trivia,
-            }
-        } else {
-            self.parse_ident()?
-        };
-        let ident = first_segment;
-
-        // Only build qualified names for module prefixes (pkg, core, self, super)
-        // For regular identifiers, return immediately and let postfix parsing
-        // handle field access like `id.value`
-        if !is_module_prefix {
-            // Check for typed record construction: TypeName { field: value, ... }
-            if self.check(TokenKind::LBrace) && self.is_record_literal_start() {
-                let ident_span = ident.span;
-                let qualified_name = CstQualifiedName {
-                    segments: vec![ident],
-                    span: ident_span,
-                };
-                return self.parse_typed_record_literal(qualified_name, start);
-            }
-
-            let span = ident.span;
-            return Ok(CstExpr {
-                kind: CstExprKind::Ident(ident),
-                span,
-            });
-        }
-
-        // For module prefixes, check for qualified name (but not tuple index)
-        if self.check(TokenKind::Dot) {
-            // Peek ahead to see if this is a tuple index (Dot followed by Number)
-            // If so, don't consume the dot - let parse_postfix_expr handle it
-            let saved_pos = self.pos;
-            self.skip_trivia();
-            self.pos += 1; // skip the dot token
-            self.skip_trivia();
-            let is_tuple_index = self.current_kind() == TokenKind::Number;
-            self.pos = saved_pos;
-
-            if is_tuple_index {
-                // Return just the identifier, let postfix parsing handle the .0
-                let span = ident.span;
-                return Ok(CstExpr {
-                    kind: CstExprKind::Ident(ident),
-                    span,
-                });
-            }
-
+        // A `::` after the head starts a qualified name (`core::math::abs`,
+        // `platform::FileSystem`, `stats::mean`). A plain `.` is left to postfix
+        // parsing, where it means field access, method call, or tuple index.
+        if self.check(TokenKind::ColonColon) {
             let mut segments = vec![ident];
-            while self.consume(TokenKind::Dot).is_some() {
+            while self.consume(TokenKind::ColonColon).is_some() {
                 if !self.check(TokenKind::Ident) {
                     break;
                 }
@@ -545,7 +483,7 @@ impl Parser<'_> {
             }
 
             if segments.len() > 1 {
-                // Check for ability method call pattern: Ability.method!(args)
+                // Ability method call pattern: `Ability::method!(args)`
                 if self.check(TokenKind::Bang) {
                     return self.parse_ability_call(segments);
                 }
@@ -556,7 +494,7 @@ impl Parser<'_> {
                 );
                 let qualified_name = CstQualifiedName { segments, span };
 
-                // Check for typed record construction: QualifiedName { field: value, ... }
+                // Typed record construction: `Qualified::Name { field: value }`
                 if self.check(TokenKind::LBrace) && self.is_record_literal_start() {
                     return self.parse_typed_record_literal(qualified_name, start);
                 }
@@ -566,31 +504,51 @@ impl Parser<'_> {
                     span,
                 });
             }
-            // Only one segment, return as ident
+
+            // A trailing `::` with no following identifier: fall through and
+            // treat the head as a bare identifier.
             let single_ident = segments.into_iter().next().expect("segments not empty");
-
-            // Check for typed record construction: TypeName { field: value, ... }
-            if self.check(TokenKind::LBrace) && self.is_record_literal_start() {
-                let ident_span = single_ident.span;
-                let qualified_name = CstQualifiedName {
-                    segments: vec![single_ident],
-                    span: ident_span,
-                };
-                return self.parse_typed_record_literal(qualified_name, start);
-            }
-
+            let span = single_ident.span;
             return Ok(CstExpr {
                 kind: CstExprKind::Ident(single_ident),
-                span: Span::new(start, self.current().span.start),
+                span,
             });
         }
 
-        // Module prefix with no dot after it - return as identifier
+        // No `::` — a bare identifier. It may still introduce a typed record
+        // literal: `TypeName { field: value, ... }`.
+        if self.check(TokenKind::LBrace) && self.is_record_literal_start() {
+            let ident_span = ident.span;
+            let qualified_name = CstQualifiedName {
+                segments: vec![ident],
+                span: ident_span,
+            };
+            return self.parse_typed_record_literal(qualified_name, start);
+        }
+
         let span = ident.span;
         Ok(CstExpr {
             kind: CstExprKind::Ident(ident),
             span,
         })
+    }
+
+    /// Parse a single path-segment head: a regular identifier, or one of the
+    /// module-prefix keywords (`pkg`, `core`, `super`, `self`) which are lexed
+    /// as their own token kinds rather than as `Ident`.
+    fn parse_path_segment(&mut self) -> Result<CstIdent, ParseError> {
+        match self.current_kind() {
+            TokenKind::Pkg | TokenKind::Core | TokenKind::Super | TokenKind::Self_ => {
+                let token = self.advance();
+                let trailing_trivia = self.skip_trivia();
+                Ok(CstIdent {
+                    name: token.text.into(),
+                    span: token.span,
+                    trailing_trivia,
+                })
+            }
+            _ => self.parse_ident(),
+        }
     }
 
     /// Parse an ability call pattern: Ability.method!(args)

@@ -899,10 +899,10 @@ impl<'src> Parser<'src> {
     ///
     /// Grammar:
     /// ```text
-    /// use_def = ["pub"] "use" use_prefix "." path_rest ";"
+    /// use_def = ["pub"] "use" use_prefix "::" path_rest ";"
     /// use_prefix = "pkg" | "core" | "self" | super_chain
-    /// super_chain = "super" ("." "super")*
-    /// path_rest = (ident ".")* (ident | "{" ident_list "}")
+    /// super_chain = "super" ("::" "super")*
+    /// path_rest = (ident "::")* (ident | "{" ident_list "}")
     /// ident_list = ident ("," ident)* [","]
     /// ```
     fn parse_use(&mut self, is_public: bool) -> Result<CstUseDef, ParseError> {
@@ -912,8 +912,8 @@ impl<'src> Parser<'src> {
         // Parse the prefix (pkg, core, self, super)
         let prefix = self.parse_use_prefix()?;
 
-        // Expect dot after prefix
-        self.expect(TokenKind::Dot)?;
+        // Expect path separator after prefix
+        self.expect(TokenKind::ColonColon)?;
 
         // Parse the rest of the path
         let mut path = Vec::new();
@@ -952,7 +952,7 @@ impl<'src> Parser<'src> {
             path.push(self.parse_ident()?);
 
             // Check if there's more path to parse
-            if self.consume(TokenKind::Dot).is_none() {
+            if self.consume(TokenKind::ColonColon).is_none() {
                 break;
             }
         }
@@ -1018,15 +1018,15 @@ impl<'src> Parser<'src> {
                     self.advance();
                     self.skip_trivia();
 
-                    // Check for another super after dot
-                    if self.check(TokenKind::Dot) {
+                    // Check for another super after the path separator
+                    if self.check(TokenKind::ColonColon) {
                         // Peek ahead to see if it's followed by super
-                        // We need to commit to the dot only if next is super
+                        // We need to commit to the separator only if next is super
                         let next_pos = self.pos + 1;
                         if next_pos < self.tokens.len() {
                             let next_kind = self.tokens[next_pos].kind;
                             if next_kind == TokenKind::Super {
-                                self.advance(); // consume the dot
+                                self.advance(); // consume the `::`
                                 self.skip_trivia();
                                 continue;
                             }
@@ -1066,7 +1066,7 @@ impl<'src> Parser<'src> {
 
         segments.push(self.parse_ident()?);
 
-        while self.consume(TokenKind::Dot).is_some() {
+        while self.consume(TokenKind::ColonColon).is_some() {
             if !self.check(TokenKind::Ident) {
                 break;
             }
@@ -1463,7 +1463,7 @@ mod tests {
 
     #[test]
     fn test_parse_use_pkg_module() {
-        let source = "use pkg.utils;";
+        let source = "use pkg::utils;";
         let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         assert_eq!(module.items.len(), 1);
@@ -1481,7 +1481,7 @@ mod tests {
 
     #[test]
     fn test_parse_use_pkg_nested() {
-        let source = "use pkg.utils.format;";
+        let source = "use pkg::utils::format;";
         let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
@@ -1498,7 +1498,7 @@ mod tests {
 
     #[test]
     fn test_parse_use_pkg_items() {
-        let source = "use pkg.utils.{format, parse};";
+        let source = "use pkg::utils::{format, parse};";
         let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
@@ -1521,7 +1521,7 @@ mod tests {
 
     #[test]
     fn test_parse_use_core() {
-        let source = "use core.io;";
+        let source = "use core::io;";
         let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
@@ -1536,7 +1536,7 @@ mod tests {
 
     #[test]
     fn test_parse_use_self() {
-        let source = "use self.sibling;";
+        let source = "use self::sibling;";
         let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
@@ -1551,7 +1551,7 @@ mod tests {
 
     #[test]
     fn test_parse_use_super() {
-        let source = "use super.parent;";
+        let source = "use super::parent;";
         let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
@@ -1571,7 +1571,7 @@ mod tests {
 
     #[test]
     fn test_parse_use_super_super() {
-        let source = "use super.super.grandparent;";
+        let source = "use super::super::grandparent;";
         let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
@@ -1591,7 +1591,7 @@ mod tests {
 
     #[test]
     fn test_parse_pub_use() {
-        let source = "pub use pkg.utils;";
+        let source = "pub use pkg::utils;";
         let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {

@@ -175,6 +175,8 @@ pub enum TokenKind {
     Semi,
     /// `:`
     Colon,
+    /// `::`
+    ColonColon,
     /// `.`
     Dot,
 
@@ -609,7 +611,11 @@ impl<'src> Lexer<'src> {
             }
             ':' => {
                 self.advance();
-                Ok(self.make_token(TokenKind::Colon, start))
+                if self.consume_if(':') {
+                    Ok(self.make_token(TokenKind::ColonColon, start))
+                } else {
+                    Ok(self.make_token(TokenKind::Colon, start))
+                }
             }
             '.' => {
                 self.advance();

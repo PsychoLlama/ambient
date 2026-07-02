@@ -1,14 +1,14 @@
 // Core library: string utilities.
 //
-// Helpers built on the string intrinsics (core.string.length,
-// core.string.concat, ...).
+// Helpers built on the string intrinsics (core::string::length,
+// core::string::concat, ...).
 
 pub fn is_empty(s: string): bool {
-    core.string.length(s) == 0
+    core::string::length(s) == 0
 }
 
 pub fn from_number(n: number): string {
-    core.convert.to_string(n)
+    core::convert::to_string(n)
 }
 
 pub fn from_bool(b: bool): string {
@@ -17,23 +17,23 @@ pub fn from_bool(b: bool): string {
 
 // Pad on the left with `pad` until the string is at least `width` long.
 pub fn pad_start(s: string, width: number, pad: string): string {
-    if core.string.length(s) >= width {
+    if core::string::length(s) >= width {
         s
     } else {
-        pad_start(core.string.concat(pad, s), width, pad)
+        pad_start(core::string::concat(pad, s), width, pad)
     }
 }
 
 // Pad on the right with `pad` until the string is at least `width` long.
 pub fn pad_end(s: string, width: number, pad: string): string {
-    if core.string.length(s) >= width {
+    if core::string::length(s) >= width {
         s
     } else {
-        pad_end(core.string.concat(s, pad), width, pad)
+        pad_end(core::string::concat(s, pad), width, pad)
     }
 }
 
 // Split into lines.
 pub fn lines(s: string): List<string> {
-    core.string.split(s, "\n")
+    core::string::split(s, "\n")
 }

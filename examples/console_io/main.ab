@@ -5,16 +5,16 @@
 
 /// Entry point demonstrating effect handler interception.
 pub fn run(): () with Console {
-    // Handler intercepts platform.Console.print and adds a prefix
+    // Handler intercepts platform::Console::print and adds a prefix
     handle {
-        platform.Console.print!("Hello from inside the handler!");
+        platform::Console::print!("Hello from inside the handler!");
     } {
-        platform.Console.print(msg) => {
-            platform.Console.print!(core.string.concat("[LOG] ", msg));
+        platform::Console::print(msg) => {
+            platform::Console::print!(core::string::concat("[LOG] ", msg));
             resume(())
         }
     };
 
     // Outside the handler - prints directly without interception
-    platform.Console.print!("Hello from outside");
+    platform::Console::print!("Hello from outside");
 }

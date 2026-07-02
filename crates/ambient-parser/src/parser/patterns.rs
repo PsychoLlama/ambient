@@ -153,9 +153,9 @@ impl Parser<'_> {
             }
 
             // Check for qualified variant
-            if self.check(TokenKind::Dot) {
+            if self.check(TokenKind::ColonColon) {
                 let mut segments = vec![ident];
-                while self.consume(TokenKind::Dot).is_some() {
+                while self.consume(TokenKind::ColonColon).is_some() {
                     segments.push(self.parse_ident()?);
                 }
 

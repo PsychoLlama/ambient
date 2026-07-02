@@ -7,21 +7,21 @@
 ///
 /// Returns an empty list on failure.
 fn parse_line(line: string): List<(string, string)> {
-    let trimmed = core.string.trim(line);
+    let trimmed = core::string::trim(line);
 
     // Skip empty lines and comments
-    if core.string.length(trimmed) == 0 {
+    if core::string::length(trimmed) == 0 {
         []
-    } else if core.string.starts_with(trimmed, "#") {
+    } else if core::string::starts_with(trimmed, "#") {
         []
     } else {
         // Find the = separator
-        let parts = core.string.split(trimmed, "=");
-        if core.list.length(parts) >= 2 {
-            let key = core.string.trim(core.list.get(parts, 0));
+        let parts = core::string::split(trimmed, "=");
+        if core::list::length(parts) >= 2 {
+            let key = core::string::trim(core::list::get(parts, 0));
             // Join remaining parts in case value contains =
-            let value_parts = core.list.tail(parts);
-            let value = core.string.trim(core.string.join(value_parts, "="));
+            let value_parts = core::list::tail(parts);
+            let value = core::string::trim(core::string::join(value_parts, "="));
             [(key, value)]
         } else {
             []
@@ -31,36 +31,36 @@ fn parse_line(line: string): List<(string, string)> {
 
 /// Parses multiple lines of config into key-value pairs.
 fn parse_config(text: string): List<(string, string)> {
-    let lines = core.string.split(text, "\n");
+    let lines = core::string::split(text, "\n");
     parse_lines(lines, [])
 }
 
 fn parse_lines(lines: List<string>, acc: List<(string, string)>): List<(string, string)> {
-    if core.list.is_empty(lines) {
+    if core::list::is_empty(lines) {
         acc
     } else {
-        let line = core.list.head(lines);
-        let rest = core.list.tail(lines);
+        let line = core::list::head(lines);
+        let rest = core::list::tail(lines);
         let parsed = parse_line(line);
-        if core.list.is_empty(parsed) {
+        if core::list::is_empty(parsed) {
             parse_lines(rest, acc)
         } else {
-            parse_lines(rest, core.list.concat(acc, parsed))
+            parse_lines(rest, core::list::concat(acc, parsed))
         }
     }
 }
 
 /// Looks up a value by key, returns default if not found.
 fn get_config(config: List<(string, string)>, key: string, default: string): string {
-    if core.list.is_empty(config) {
+    if core::list::is_empty(config) {
         default
     } else {
-        let entry = core.list.head(config);
+        let entry = core::list::head(config);
         let entry_key = entry.0;
         if entry_key == key {
             entry.1
         } else {
-            get_config(core.list.tail(config), key, default)
+            get_config(core::list::tail(config), key, default)
         }
     }
 }
@@ -89,8 +89,8 @@ debug=true
     let missing = get_config(config, "nonexistent", "default_value");
 
     // Build a connection string
-    let conn = core.string.concat(host, core.string.concat(":", port));
+    let conn = core::string::concat(host, core::string::concat(":", port));
 
     // Return summary
-    core.string.concat("Connection: ", core.string.concat(conn, core.string.concat(", debug=", debug)))
+    core::string::concat("Connection: ", core::string::concat(conn, core::string::concat(", debug=", debug)))
 }

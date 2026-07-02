@@ -2,12 +2,12 @@
 //!
 //! Demonstrates importing from sibling modules using `self.`
 
-use self.math_utils.{abs, approx_eq};
-use self.list_utils.{sum, average, maximum, minimum};
+use self::math_utils::{abs, approx_eq};
+use self::list_utils::{sum, average, maximum, minimum};
 
 /// Calculates the variance of a list of numbers.
 pub fn variance(xs: List<number>): number {
-    let len = core.list.length(xs);
+    let len = core::list::length(xs);
     if len == 0 {
         0
     } else {
@@ -17,17 +17,17 @@ pub fn variance(xs: List<number>): number {
 }
 
 fn sum_squared_diff(xs: List<number>, mean: number, acc: number): number {
-    if core.list.length(xs) == 0 {
+    if core::list::length(xs) == 0 {
         acc
     } else {
-        let diff = core.list.head(xs) - mean;
-        sum_squared_diff(core.list.tail(xs), mean, acc + diff * diff)
+        let diff = core::list::head(xs) - mean;
+        sum_squared_diff(core::list::tail(xs), mean, acc + diff * diff)
     }
 }
 
 /// Calculates the range (max - min) of a list.
 pub fn range(xs: List<number>): number {
-    if core.list.length(xs) == 0 {
+    if core::list::length(xs) == 0 {
         0
     } else {
         maximum(xs) - minimum(xs)

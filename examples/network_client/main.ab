@@ -8,33 +8,33 @@
 
 /// Entry point that connects to a server and sends messages.
 pub fn run(): () with Console, Network {
-    platform.Console.print!("Client: connecting to 127.0.0.1:9000...");
-    let conn = platform.Network.connect!("127.0.0.1:9000");
+    platform::Console::print!("Client: connecting to 127.0.0.1:9000...");
+    let conn = platform::Network::connect!("127.0.0.1:9000");
 
-    let local = platform.Network.local_addr!(conn);
-    platform.Console.print!(core.string.concat("Client: connected from ", local));
+    let local = platform::Network::local_addr!(conn);
+    platform::Console::print!(core::string::concat("Client: connected from ", local));
 
     // Send a message as Bytes
     let message = string_to_bytes("Hello from Ambient!");
-    platform.Console.print!(core.string.concat("Client: sending ", core.string.concat(core.convert.to_string(core.bytes.length(message)), " bytes...")));
-    platform.Network.send!(conn, message);
+    platform::Console::print!(core::string::concat("Client: sending ", core::string::concat(core::convert::to_string(core::bytes::length(message)), " bytes...")));
+    platform::Network::send!(conn, message);
 
     // Receive the echo
-    let response = platform.Network.receive!(conn);
-    platform.Console.print!(core.string.concat("Client: received ", core.string.concat(core.convert.to_string(core.bytes.length(response)), " bytes back")));
+    let response = platform::Network::receive!(conn);
+    platform::Console::print!(core::string::concat("Client: received ", core::string::concat(core::convert::to_string(core::bytes::length(response)), " bytes back")));
 
     // Send empty message to signal quit
-    platform.Console.print!("Client: sending empty message to quit...");
-    platform.Network.send!(conn, core.bytes.from([]));
+    platform::Console::print!("Client: sending empty message to quit...");
+    platform::Network::send!(conn, core::bytes::from([]));
 
-    platform.Network.close!(conn);
-    platform.Console.print!("Client: done")
+    platform::Network::close!(conn);
+    platform::Console::print!("Client: done")
 }
 
 /// Convert a string to Bytes (ASCII).
 fn string_to_bytes(s: string): Bytes {
     // For now, just create a simple test payload
-    // In a real implementation, we'd use core.string.bytes or similar
+    // In a real implementation, we'd use core::string::bytes or similar
     // "Hello from Ambient!" in ASCII
-    core.bytes.from([72, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 65, 109, 98, 105, 101, 110, 116, 33])
+    core::bytes::from([72, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 65, 109, 98, 105, 101, 110, 116, 33])
 }

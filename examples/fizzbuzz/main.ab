@@ -16,7 +16,7 @@ fn fizzbuzz(n: number): string {
     } else if div5 {
         "Buzz"
     } else {
-        core.convert.to_string(n)
+        core::convert::to_string(n)
     }
 }
 
@@ -25,11 +25,11 @@ fn fizzbuzz_range(start: number, end: number, acc: List<string>): List<string> {
     if start > end {
         acc
     } else {
-        fizzbuzz_range(start + 1, end, core.list.append(acc, fizzbuzz(start)))
+        fizzbuzz_range(start + 1, end, core::list::append(acc, fizzbuzz(start)))
     }
 }
 
 pub fn run(): string {
     let results = fizzbuzz_range(1, 20, []);
-    core.string.join(results, ", ")
+    core::string::join(results, ", ")
 }

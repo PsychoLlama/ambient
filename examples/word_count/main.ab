@@ -5,23 +5,23 @@
 
 /// Counts the number of characters in text.
 fn count_chars(text: string): number {
-    core.string.length(text)
+    core::string::length(text)
 }
 
 /// Counts the number of lines in text.
 fn count_lines(text: string): number {
-    if core.string.length(text) == 0 {
+    if core::string::length(text) == 0 {
         0
     } else {
-        let parts = core.string.split(text, "\n");
-        core.list.length(parts)
+        let parts = core::string::split(text, "\n");
+        core::list::length(parts)
     }
 }
 
 /// Checks if a character is part of a word.
 fn is_word_char(c: string): bool {
     // Check if character is alphanumeric (simplified)
-    let code = core.string.length(c);  // Can't get char code, so use a workaround
+    let code = core::string::length(c);  // Can't get char code, so use a workaround
     c != " " && c != "\t" && c != "\n" && c != "\r" &&
     c != "." && c != "," && c != "!" && c != "?" &&
     c != ":" && c != ";" && c != "\"" && c != "'"
@@ -29,11 +29,11 @@ fn is_word_char(c: string): bool {
 
 /// Counts words by iterating through characters.
 fn count_words_impl(text: string, idx: number, in_word: bool, count: number): number {
-    if idx >= core.string.length(text) {
+    if idx >= core::string::length(text) {
         // End of string - add 1 if we were in a word
         if in_word { count + 1 } else { count }
     } else {
-        let c = core.string.slice(text, idx, idx + 1);
+        let c = core::string::slice(text, idx, idx + 1);
         let is_word = is_word_char(c);
 
         if in_word && !is_word {
@@ -60,9 +60,9 @@ fn wc(text: string): string {
     let words = count_words(text);
     let chars = count_chars(text);
 
-    core.string.concat(core.convert.to_string(lines), core.string.concat(" lines, ",
-    core.string.concat(core.convert.to_string(words), core.string.concat(" words, ",
-    core.string.concat(core.convert.to_string(chars), " characters")))))
+    core::string::concat(core::convert::to_string(lines), core::string::concat(" lines, ",
+    core::string::concat(core::convert::to_string(words), core::string::concat(" words, ",
+    core::string::concat(core::convert::to_string(chars), " characters")))))
 }
 
 pub fn run(): string {
@@ -75,5 +75,5 @@ Let's count everything!";
 
     let stats = wc(sample);
 
-    core.string.concat("Text:\n", core.string.concat(sample, core.string.concat("\n\nStats: ", stats)))
+    core::string::concat("Text:\n", core::string::concat(sample, core::string::concat("\n\nStats: ", stats)))
 }

@@ -8,10 +8,10 @@ pub fn sum(xs: List<number>): number {
 }
 
 fn sum_helper(xs: List<number>, acc: number): number {
-    if core.list.length(xs) == 0 {
+    if core::list::length(xs) == 0 {
         acc
     } else {
-        sum_helper(core.list.tail(xs), acc + core.list.head(xs))
+        sum_helper(core::list::tail(xs), acc + core::list::head(xs))
     }
 }
 
@@ -21,54 +21,54 @@ pub fn product(xs: List<number>): number {
 }
 
 fn product_helper(xs: List<number>, acc: number): number {
-    if core.list.length(xs) == 0 {
+    if core::list::length(xs) == 0 {
         acc
     } else {
-        product_helper(core.list.tail(xs), acc * core.list.head(xs))
+        product_helper(core::list::tail(xs), acc * core::list::head(xs))
     }
 }
 
 /// Finds the maximum value in a list.
 pub fn maximum(xs: List<number>): number {
-    if core.list.length(xs) == 0 {
+    if core::list::length(xs) == 0 {
         0
     } else {
-        max_helper(core.list.tail(xs), core.list.head(xs))
+        max_helper(core::list::tail(xs), core::list::head(xs))
     }
 }
 
 fn max_helper(xs: List<number>, current: number): number {
-    if core.list.length(xs) == 0 {
+    if core::list::length(xs) == 0 {
         current
     } else {
-        let h = core.list.head(xs);
+        let h = core::list::head(xs);
         let new_max = if h > current { h } else { current };
-        max_helper(core.list.tail(xs), new_max)
+        max_helper(core::list::tail(xs), new_max)
     }
 }
 
 /// Finds the minimum value in a list.
 pub fn minimum(xs: List<number>): number {
-    if core.list.length(xs) == 0 {
+    if core::list::length(xs) == 0 {
         0
     } else {
-        min_helper(core.list.tail(xs), core.list.head(xs))
+        min_helper(core::list::tail(xs), core::list::head(xs))
     }
 }
 
 fn min_helper(xs: List<number>, current: number): number {
-    if core.list.length(xs) == 0 {
+    if core::list::length(xs) == 0 {
         current
     } else {
-        let h = core.list.head(xs);
+        let h = core::list::head(xs);
         let new_min = if h < current { h } else { current };
-        min_helper(core.list.tail(xs), new_min)
+        min_helper(core::list::tail(xs), new_min)
     }
 }
 
 /// Calculates the average of a list of numbers.
 pub fn average(xs: List<number>): number {
-    let len = core.list.length(xs);
+    let len = core::list::length(xs);
     if len == 0 {
         0
     } else {

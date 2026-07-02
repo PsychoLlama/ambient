@@ -1,18 +1,18 @@
 //! Multi-module example.
 //!
 //! Demonstrates the module system with imports:
-//! - `use pkg.module;` for package-relative imports
+//! - `use pkg::module;` for package-relative imports
 //! - `use self.sibling;` for same-directory imports
-//! - `use pkg.module.{item1, item2};` for specific items
+//! - `use pkg::module::{item1, item2};` for specific items
 
 // Import specific functions from math_utils
-use pkg.math_utils.{abs, min, max, gcd, lcm};
+use pkg::math_utils::{abs, min, max, gcd, lcm};
 
 // Import specific functions from list_utils
-use pkg.list_utils.{sum, product, maximum, minimum};
+use pkg::list_utils::{sum, product, maximum, minimum};
 
 // Import from statistics (which itself imports from siblings)
-use pkg.statistics.{variance, range};
+use pkg::statistics::{variance, range};
 
 /// Entry point that demonstrates using functions from multiple modules.
 pub fn run(): number {

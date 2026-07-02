@@ -1,7 +1,7 @@
 //! Math utility functions.
 //!
 //! This module provides common mathematical operations that can be
-//! imported into other modules using `use pkg.math_utils.*;`
+//! imported into other modules using `use pkg::math_utils.*;`
 
 /// Returns the absolute value of a number.
 pub fn abs(x: number): number {

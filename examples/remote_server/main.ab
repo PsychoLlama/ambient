@@ -13,21 +13,21 @@
 
 /// Entry point that starts the server.
 pub fn run(): () with Console, Network, Execute {
-    platform.Console.print!("Server: listening on 127.0.0.1:8080...");
-    let listener = platform.Network.listen!("127.0.0.1:8080");
+    platform::Console::print!("Server: listening on 127.0.0.1:8080...");
+    let listener = platform::Network::listen!("127.0.0.1:8080");
 
-    platform.Console.print!("Server: waiting for connection...");
-    let conn = platform.Network.accept!(listener);
+    platform::Console::print!("Server: waiting for connection...");
+    let conn = platform::Network::accept!(listener);
 
-    let peer = platform.Network.peer_addr!(conn);
-    platform.Console.print!(core.string.concat("Server: client connected from ", peer));
+    let peer = platform::Network::peer_addr!(conn);
+    platform::Console::print!(core::string::concat("Server: client connected from ", peer));
 
     // Handle the remote execution request
     serve_request(conn);
 
-    platform.Network.close!(conn);
-    platform.Network.close_listener!(listener);
-    platform.Console.print!("Server: done")
+    platform::Network::close!(conn);
+    platform::Network::close_listener!(listener);
+    platform::Console::print!("Server: done")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -36,19 +36,19 @@ pub fn run(): () with Console, Network, Execute {
 
 /// Serve a remote execution request.
 fn serve_request(conn: number): () with Console, Network, Execute {
-    let bytes = platform.Network.receive!(conn);
+    let bytes = platform::Network::receive!(conn);
 
-    if core.bytes.length(bytes) == 0 {
-        platform.Console.print!("Server: connection closed")
+    if core::bytes::length(bytes) == 0 {
+        platform::Console::print!("Server: connection closed")
     } else {
-        let msg_type = core.bytes.get(bytes, 0);
+        let msg_type = core::bytes::get(bytes, 0);
 
         if msg_type == 1 {
             // Execute message
-            let payload = core.bytes.slice(bytes, 1, core.bytes.length(bytes));
+            let payload = core::bytes::slice(bytes, 1, core::bytes::length(bytes));
             handle_execute(conn, payload)
         } else {
-            platform.Console.print!("Server: unknown message type")
+            platform::Console::print!("Server: unknown message type")
         }
     }
 }
@@ -56,23 +56,23 @@ fn serve_request(conn: number): () with Console, Network, Execute {
 /// Handle an Execute request.
 fn handle_execute(conn: number, payload: Bytes): () with Console, Network, Execute {
     // Parse hash length and hash
-    let hash_len = core.bytes.get(payload, 0);
-    let rest = core.bytes.slice(payload, 1, core.bytes.length(payload));
-    let hash_bytes = core.bytes.slice(rest, 0, hash_len);
-    let captures = core.bytes.slice(rest, hash_len, core.bytes.length(rest));
+    let hash_len = core::bytes::get(payload, 0);
+    let rest = core::bytes::slice(payload, 1, core::bytes::length(payload));
+    let hash_bytes = core::bytes::slice(rest, 0, hash_len);
+    let captures = core::bytes::slice(rest, hash_len, core::bytes::length(rest));
 
     // Deserialize hash string
-    let hash_opt = core.protocol.deserialize_value(hash_bytes);
-    let hash = core.option.unwrap_or(hash_opt, "");
+    let hash_opt = core::protocol::deserialize_value(hash_bytes);
+    let hash = core::option::unwrap_or(hash_opt, "");
 
-    platform.Console.print!(core.string.concat("Server: received Execute for hash ", hash));
+    platform::Console::print!(core::string::concat("Server: received Execute for hash ", hash));
 
     // Check if we have the function
-    if platform.Execute.has_function!(hash) {
-        platform.Console.print!("Server: function found locally");
+    if platform::Execute::has_function!(hash) {
+        platform::Console::print!("Server: function found locally");
         execute_function(conn, hash, captures)
     } else {
-        platform.Console.print!("Server: function not found, requesting from client");
+        platform::Console::print!("Server: function not found, requesting from client");
         request_function(conn, hash);
         // After receiving the function, execute it
         execute_function(conn, hash, captures)
@@ -82,40 +82,40 @@ fn handle_execute(conn: number, payload: Bytes): () with Console, Network, Execu
 /// Request a function from the client.
 fn request_function(conn: number, hash: string): () with Console, Network, Execute {
     // Send NeedDeps message with the hash
-    let serialized = core.protocol.serialize_value([hash]);
-    let msg = core.bytes.concat(core.bytes.from([2]), serialized);
-    platform.Network.send!(conn, msg);
+    let serialized = core::protocol::serialize_value([hash]);
+    let msg = core::bytes::concat(core::bytes::from([2]), serialized);
+    platform::Network::send!(conn, msg);
 
     // Receive Provide message
-    let response = platform.Network.receive!(conn);
-    let msg_type = core.bytes.get(response, 0);
+    let response = platform::Network::receive!(conn);
+    let msg_type = core::bytes::get(response, 0);
 
     if msg_type == 3 {
-        let payload = core.bytes.slice(response, 1, core.bytes.length(response));
-        platform.Execute.load_functions!(payload);
-        platform.Console.print!("Server: loaded function from client")
+        let payload = core::bytes::slice(response, 1, core::bytes::length(response));
+        platform::Execute::load_functions!(payload);
+        platform::Console::print!("Server: loaded function from client")
     } else {
-        platform.Console.print!("Server: unexpected response to NeedDeps")
+        platform::Console::print!("Server: unexpected response to NeedDeps")
     }
 }
 
 /// Execute the function and send the result.
 fn execute_function(conn: number, hash: string, captures: Bytes): () with Console, Network, Execute {
     // Deserialize captures
-    let arg_opt = core.protocol.deserialize_value(captures);
-    let arg: number = core.option.unwrap_or(arg_opt, 0);
+    let arg_opt = core::protocol::deserialize_value(captures);
+    let arg: number = core::option::unwrap_or(arg_opt, 0);
 
-    platform.Console.print!(core.string.concat("Server: executing with arg = ", core.convert.to_string(arg)));
+    platform::Console::print!(core::string::concat("Server: executing with arg = ", core::convert::to_string(arg)));
 
     // Execute the function remotely using the loaded bytecode
-    let result: number = platform.Execute.run!(hash, arg);
+    let result: number = platform::Execute::run!(hash, arg);
 
-    platform.Console.print!(core.string.concat("Server: result = ", core.convert.to_string(result)));
+    platform::Console::print!(core::string::concat("Server: result = ", core::convert::to_string(result)));
 
     // Send Result message
-    let result_bytes = core.protocol.serialize_value(result);
-    let msg = core.bytes.concat(core.bytes.from([4]), result_bytes);
-    platform.Network.send!(conn, msg);
+    let result_bytes = core::protocol::serialize_value(result);
+    let msg = core::bytes::concat(core::bytes::from([4]), result_bytes);
+    platform::Network::send!(conn, msg);
 
-    platform.Console.print!("Server: sent result to client")
+    platform::Console::print!("Server: sent result to client")
 }

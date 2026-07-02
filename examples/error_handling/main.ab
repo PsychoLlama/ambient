@@ -10,7 +10,7 @@ pub fn run(): number {
         // No error here, just return a value
         42
     } {
-        Exception.throw(msg) => {
+        Exception::throw(msg) => {
             // On error, return -1
             0 - 1
         }
@@ -24,7 +24,7 @@ pub fn run(): number {
         let step3 = step2 + 5;  // 25
         step3
     } {
-        Exception.throw(msg) => {
+        Exception::throw(msg) => {
             0 - 1
         }
     };
@@ -35,13 +35,13 @@ pub fn run(): number {
         let inner = handle {
             100
         } {
-            Exception.throw(msg) => {
+            Exception::throw(msg) => {
                 0 - 50
             }
         };
         inner + 23  // 123
     } {
-        Exception.throw(msg) => {
+        Exception::throw(msg) => {
             0 - 999
         }
     };

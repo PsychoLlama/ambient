@@ -39,9 +39,9 @@ fn fib_list_helper(remaining: number, acc: List<number>): List<number> {
     if remaining <= 0 {
         acc
     } else {
-        let len = core.list.length(acc);
-        let next = core.list.get(acc, len - 1) + core.list.get(acc, len - 2);
-        fib_list_helper(remaining - 1, core.list.append(acc, next))
+        let len = core::list::length(acc);
+        let next = core::list::get(acc, len - 1) + core::list::get(acc, len - 2);
+        fib_list_helper(remaining - 1, core::list::append(acc, next))
     }
 }
 
@@ -69,7 +69,7 @@ pub fn run(): number {
 
     // Test fib list generation
     let fibs = fib_list(10);
-    let r3 = core.list.length(fibs);  // Expected: 10
+    let r3 = core::list::length(fibs);  // Expected: 10
 
     // Test is_fibonacci
     let r4 = if is_fibonacci(13) { 1 } else { 0 };  // Expected: 1 (13 is fib)
