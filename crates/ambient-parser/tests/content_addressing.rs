@@ -419,3 +419,46 @@ fn renaming_a_non_recursive_function_keeps_its_hash() {
         "names of non-recursive functions must not affect their hashes"
     );
 }
+
+/// The disassembler's operand table must stay in sync with the compiler's
+/// emission (and the VM's dispatch): disassembling real compiled code that
+/// exercises jumps, calls, closures, handlers, and enums must decode every
+/// instruction — a desynced table shows up as `??` or `<truncated>` lines.
+#[test]
+fn disassembler_decodes_all_compiled_instructions() {
+    let source = r#"
+        fn choose(n: number): number {
+            if n > 3 { n * 2 } else { n + 1 }
+        }
+
+        fn is_even(n: number): bool {
+            if n == 0 { true } else { is_odd(n - 1) }
+        }
+
+        fn is_odd(n: number): bool {
+            if n == 0 { false } else { is_even(n - 1) }
+        }
+
+        fn apply(f: (number) -> number, x: number): number {
+            f(x)
+        }
+
+        fn run(): number {
+            let doubler = (x: number) => x * 2;
+            let list = [1, 2, 3];
+            let tuple = (1, "two");
+            let record = { a: 1, b: "x" };
+            apply(doubler, choose(5)) + record.a
+        }
+    "#;
+
+    let module = compile(source);
+    assert!(!module.functions.is_empty());
+    for (hash, func) in &module.functions {
+        let listing = ambient_engine::bytecode::disassemble(func);
+        assert!(
+            !listing.contains("??") && !listing.contains("<truncated>"),
+            "disassembler failed to decode function {hash}:\n{listing}"
+        );
+    }
+}

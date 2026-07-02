@@ -13,7 +13,7 @@ mod diagnostic;
 mod repl;
 
 use cli::{Args, Command};
-use commands::{cmd_check, cmd_compile, cmd_dev, cmd_init, cmd_run};
+use commands::{cmd_check, cmd_compile, cmd_dev, cmd_init, cmd_run, cmd_store};
 use diagnostic::print_diagnostic;
 use repl::cmd_repl;
 
@@ -29,6 +29,7 @@ pub fn main() -> Result<()> {
         Command::Repl { project } => cmd_repl(project.as_deref())?,
         Command::Lsp => cmd_lsp()?,
         Command::Dev { file, entry, watch } => cmd_dev(&file, &entry, watch.as_deref())?,
+        Command::Store { package, command } => cmd_store(&package, &command)?,
     }
 
     Ok(())

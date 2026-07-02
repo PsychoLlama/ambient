@@ -77,6 +77,17 @@ pub enum Command {
     /// It is typically invoked by an editor or IDE, not run manually.
     Lsp,
 
+    /// Inspect and maintain a package's content-addressed store.
+    Store {
+        /// Package directory (defaults to the current directory; searches
+        /// upward for ambient.toml).
+        #[arg(long, value_name = "DIR", default_value = ".")]
+        package: PathBuf,
+
+        #[command(subcommand)]
+        command: StoreCommand,
+    },
+
     /// Run an Ambient program with hot reload.
     ///
     /// Watches for file changes and automatically recompiles and restarts.
@@ -93,4 +104,34 @@ pub enum Command {
         #[arg(long, value_name = "DIR")]
         watch: Option<Vec<PathBuf>>,
     },
+}
+
+/// Subcommands for `ambient store`.
+#[derive(Subcommand, Debug)]
+pub enum StoreCommand {
+    /// Show object counts, sizes, and binding counts.
+    Stats,
+
+    /// List named bindings and their hashes.
+    Ls,
+
+    /// Show an object: metadata, dependencies, and disassembly.
+    ///
+    /// REF is a bound name (see `ambient store ls`) or a hash prefix.
+    Show {
+        #[arg(value_name = "REF")]
+        reference: String,
+    },
+
+    /// Print the transitive dependency tree of a function.
+    Deps {
+        #[arg(value_name = "REF")]
+        reference: String,
+    },
+
+    /// Verify every object: decode, re-hash, and check references.
+    Verify,
+
+    /// Delete objects unreachable from the names index.
+    Gc,
 }

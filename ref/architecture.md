@@ -444,19 +444,63 @@ Stack-based VM with:
 
 ### Content-Addressing
 
-Every function identified by hash of:
-1. Fully-resolved type signature (including abilities)
-2. Implementation (normalized bytecode)
-3. Hashes of all called functions
+A function's hash is the blake3 of its **canonical object encoding**
+(`crates/ambient-engine/src/object.rs`). The encoding covers the bytecode,
+the constant pool (with call sites resolved to the final hashes of their
+callees), arity/locals metadata, and the dependency list — so the hash pins
+the implementation *and* every transitive dependency. One encoding serves as
+the unit of hashing, storage, and network transfer, which makes every object
+self-verifying: re-hash the bytes and compare.
 
-Mutually recursive functions are hashed as a group (SCC).
+Two kinds of objects:
+
+- **Plain** — one non-recursive function. `hash = blake3(encoding)`.
+  Names are *not* part of the encoding: renaming never changes the hash.
+- **Group** — one strongly connected component of mutually (or self-)
+  recursive functions, stored as a single unit. References between members
+  are encoded as member indices, which breaks the circularity that makes
+  recursive functions otherwise un-hashable. Member hashes derive from the
+  group: the group hash itself for singletons, else
+  `blake3("ambient/member/v1" ‖ group_hash ‖ index)`. Named members sort by
+  name (names of cycle members are part of the group identity — they are the
+  only way to distinguish members); lambdas order by first reference.
 
 Invariants (pinned by `crates/ambient-parser/tests/content_addressing.rs`):
 - Compiling the same source twice yields identical hashes.
-- Declaration order and unrelated declarations never affect a hash.
+- Declaration order and unrelated declarations never affect a hash
+  (including unrelated lambdas vs. recursive groups).
 - Changing a function's body, or any transitive dependency, changes its hash.
+- Renaming a non-recursive function never changes its hash.
+- Every compiled function is reproducible byte-for-byte from its object.
 - Trait impl methods are ordinary functions named
   `<type-uuid>::<Trait>::<method>` and obey all of the above.
+
+### The Store
+
+The store exists in three forms, all sharing the canonical object encoding:
+
+1. **In-memory** (`store.rs`) — runtime view; materialized functions plus
+   their objects. Used by the VM and the Execute ability.
+2. **On disk** (`disk_store.rs`) — persisted per package at
+   `<pkg>/.ambient/store/`, git-style:
+
+   ```
+   .ambient/store/
+     format                    version marker
+     names                     "<hex-hash> <name>" per binding
+     objects/<2hex>/<62hex>    one canonical object per file
+   ```
+
+   An object file's path is the blake3 of its bytes, so every read
+   self-verifies and corruption is always detected. Objects are immutable;
+   writes are atomic renames, so no locking is needed. `ambient run`
+   persists every build. Inspect with `ambient store`
+   (stats/ls/show/deps/verify/gc) — `show` includes a full disassembly.
+3. **Packs** (`"ABPK"`) — a batch of objects for transfer: the wire format
+   of the Execute ability (remote code shipping) and the content of
+   `.ambient` artifact files (which add name bindings and an entry point).
+   Receivers recompute all hashes from object bytes; a tampered pack cannot
+   smuggle code under a false hash.
 
 ### Delimited Continuations
 
@@ -493,10 +537,12 @@ The remote must provide all ability handlers. No ability proxying back to caller
 
 ```bash
 ambient init my_project    # Scaffold a new package
-ambient run <pkg-dir>      # Compile and run a package (or a .ambient file)
+ambient run <pkg-dir>      # Compile and run a package (or a .ambient artifact)
 ambient check foo.ab       # Type-check only
-ambient compile foo.ab     # Compile to foo.ambient
+ambient compile foo.ab     # Compile to a foo.ambient artifact pack
 ambient ast foo.ab         # Dump the parsed AST
+ambient store stats        # Inspect the package store (also: ls, show,
+                           #   deps, verify, gc; show disassembles)
 ambient repl               # Interactive REPL
 ambient dev foo.ab         # Hot reload development
 ambient lsp                # Start the language server
@@ -581,12 +627,24 @@ fn test_my_function(): () {
 
 ## Future Work
 
-- Persisted content-addressed store (store is in-memory; .ambient is JSON)
-- Generic traits, supertraits, trait bounds (`fn foo<T: Eq>(x: T)`)
+Roughly in priority order:
+
+- **Real module system.** Today most functionality is shoehorned into the
+  `core` and `runtime` namespaces. Standard library code should live in
+  ordinary modules imported with `use`, organized at roughly the
+  granularity of Go's or Node's standard libraries.
+- **Pure engine + platform bindings.** The engine is currently coupled to
+  the built-in effect handlers (Console, Network, ...). The goal is a
+  WASM-like split: the language core is pure, and *hosts* provide
+  capabilities by binding effectful implementations to pure ability
+  signatures (e.g. an `io.unix` module whose declarations are embodied by
+  host FFI). Different embeddings expose different capability sets; the
+  language must be embeddable, so hosts can do this programmatically.
+- Generic traits, supertraits, trait bounds (`fn foo<T: Eq>(x: T)`) — only
+  if needed; traits exist to support polymorphic operators
+- Incremental compilation backed by the persisted store
 - WASM target
-- Embedded target (FFI/crate)
-- Package manager
+- Package manager (stores are rsync-friendly by construction)
 - Type unions (`A | B`)
 - Multi-shot continuations
 - Mutable references (`Store<T>` or affine types)
-- Incremental compilation

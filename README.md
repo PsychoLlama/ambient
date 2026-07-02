@@ -62,11 +62,20 @@ handle {
 cargo build --workspace          # or: nix develop
 
 ambient init my_project          # scaffold a package
-ambient run my_project           # compile + run
+ambient run my_project           # compile + run (persists to .ambient/store)
+ambient store show run           # inspect any function: deps + disassembly
 ambient repl                     # interactive REPL
 ambient dev my_project/src/main.ab   # hot-reload loop
 ambient lsp                      # language server (see ambient.nvim/)
 ```
+
+Every build lands in a per-package content-addressed store
+(`.ambient/store/`) laid out git-style: one file per canonical object,
+named by the blake3 of its bytes, so everything on disk is self-verifying.
+`ambient store` gives you `stats`, `ls`, `show` (with disassembly), `deps`,
+`verify`, and `gc`. `ambient compile` emits a single-file `.ambient`
+artifact — the same object format plus name bindings and an entry point —
+that `ambient run` executes after recomputing every hash from content.
 
 The `examples/` directory has ~25 runnable programs, from `hello` to a
 TCP echo server and a remote-execution client/server pair — all exercised
@@ -101,6 +110,7 @@ body or dependency changes always ripple.
 
 Experimental but coherent: packages, modules and imports, traits with
 static content-addressed dispatch, ability inference and enforcement,
-delimited-continuation handlers, a REPL, an LSP, and remote function
-execution over TCP all work today. See `ref/architecture.md` § Future Work
-for what's next (persisted store, generic traits, WASM target).
+delimited-continuation handlers, a persisted self-verifying store with
+introspection tooling, a REPL, an LSP, and remote function execution over
+TCP all work today. See `ref/architecture.md` § Future Work for what's
+next (real module system, platform-binding architecture, WASM target).

@@ -17,10 +17,12 @@
 
 mod builder;
 mod debug;
+mod disasm;
 mod opcode;
 
 pub use builder::BytecodeBuilder;
 pub use debug::{DebugInfo, SourceMapping};
+pub use disasm::disassemble;
 pub use opcode::Opcode;
 
 use crate::value::Value;

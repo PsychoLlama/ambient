@@ -7,12 +7,14 @@ mod compile;
 mod dev;
 mod init;
 mod run;
+mod store;
 
 pub use check::cmd_check;
 pub use compile::cmd_compile;
 pub use dev::cmd_dev;
 pub use init::cmd_init;
 pub use run::cmd_run;
+pub use store::cmd_store;
 
 use std::fs;
 use std::path::Path;
