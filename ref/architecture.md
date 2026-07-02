@@ -233,9 +233,9 @@ Abilities are the mechanism for controlled side effects.
 An ability is identified by the **blake3 hash of its canonical
 interface**: its name plus the ordered list of method names and
 canonicalized signatures (type variables numbered by first occurrence,
-so `<T>(T) -> U` encodes identically everywhere). Builtin abilities and
-in-language declarations hash through the same scheme
-(`ambient-core/src/canonical.rs`).
+so `<T>(T) -> U` encodes identically everywhere). Every ability hashes
+through the same scheme (`ambient-core/src/canonical.rs`) — the runtime
+builtins are ordinary in-language declarations, not a special case.
 
 This is the same trick the language plays for functions, and it is what
 makes abilities portable: compiled bytecode references abilities by hash
@@ -270,11 +270,13 @@ ability Log with Console {
 }
 ```
 
-User abilities are handled in-language (`handle` blocks or handler
-values); the host only provides handlers for builtins. A performed user
-ability with no handler in scope is a runtime error. Current limits:
-declarations are visible in the declaring module (no cross-module
-ability imports yet), and the REPL does not register them.
+The runtime abilities (Console, Fs, Network, ...) are themselves plain
+`ability` declarations — see "The runtime module" below. User abilities
+are handled in-language (`handle` blocks or handler values); a performed
+ability with no handler in scope — in-language or host — is a runtime
+error. Current limits: declarations are visible in the declaring module
+(no cross-module ability imports yet), and the REPL does not register
+them.
 
 ### Using Abilities
 
@@ -358,6 +360,36 @@ sandbox {
   pure_untrusted_code()  // No abilities - pure computation only
 }
 ```
+
+### The runtime module and host bindings
+
+Builtin abilities are not defined in engine code. The engine's only
+native ability is `Exception` (part of the language). Everything else —
+Console, Time, Random, Log, Fs, Network, Execute — is declared once, in
+Ambient source, in the **runtime bindings interface**
+(`crates/ambient-runtime/src/runtime.ab`), and performed under the
+`runtime` namespace: `runtime.Fs.read!(path)`.
+
+An embedder wires the two halves together:
+
+1. Parse the declarations and resolve them
+   (`resolve_ability_declarations`) into content-addressed interfaces.
+2. Register them as the `runtime` ability prelude on the resolver used
+   for type checking and in `CompileOptions::prelude_abilities` for
+   compilation. Performs then type-check against the full declared
+   signatures — the same path user-declared abilities take.
+3. Bind host handlers **by method name** against the resolved
+   interfaces (`AbilityInterface`: identity plus name→method-id map) via
+   `vm.register_host_handler(id, method_id, handler)`.
+
+`ambient-runtime` is one such embedder, packaged as a library: it ships
+`runtime.ab` plus native handler sets (std::fs, TCP via tokio, ...) and
+registration functions (`register_defaults`, `register_network`,
+`register_execute`). The engine crate does not depend on it — another
+crate can use the engine the same way with entirely different
+declarations and bindings. Because handlers bind by name at wiring time,
+editing a declaration re-keys everything consistently; there is no
+second copy of the interface to fall out of sync.
 
 ---
 
@@ -478,22 +510,27 @@ after the fact.
 
 ### Core Abilities
 
+The authoritative declarations live in
+`crates/ambient-runtime/src/runtime.ab`; excerpts:
+
 ```ambient
 ability Time {
-  fn now(): Timestamp;
-  fn wait(duration: Duration): ();
+  fn now(): number;               // ms since the Unix epoch
+  fn wait(duration: number): (); // ms
 }
 
 ability Random {
   fn seed(): number;              // 0.0 to 1.0
-  fn in_range(range: Range): number;
+  fn in_range(max: number): number;
 }
 
 ability Console {
   fn print(message: string): ();
+  fn eprint(message: string): ();
+  fn println(message: string): ();
 }
 
-ability Log with Console {
+ability Log {
   fn debug(message: string): ();
   fn info(message: string): ();
   fn warn(message: string): ();
@@ -776,14 +813,14 @@ Roughly in priority order:
   (list/math/string helpers) and many operations still live only as
   intrinsics. Target roughly the granularity of Go's or Node's standard
   libraries. Generic trait bounds would unlock `contains`/`sort_by`.
-- **Finish the platform-bindings split.** Ability identity is now
-  content-addressed, `ability` declarations work in-language, and
-  isolated execution takes host-granted capability sets — but builtin
-  abilities are still *defined* in Rust descriptor code rather than as
-  pure in-language declarations embodied by host FFI (the `io.unix`
-  model), and the top-level VM still hardwires the native handler set.
-  Cross-module ability imports and a `sandbox` expression fall out of
-  the same work.
+- **Cross-module ability imports.** The platform-bindings split is
+  done: runtime abilities are pure in-language declarations
+  (`runtime.ab`) embodied by host FFI, the engine crate knows only
+  Exception, and embedders wire declaration hashes to handlers by
+  method name. What remains is the general form: exporting an
+  `ability` from one user module and importing it in another (exports
+  carry the kind but consumers don't hydrate them yet), plus REPL
+  registration of user-declared abilities.
 - Generic traits, supertraits, trait bounds (`fn foo<T: Eq>(x: T)`) — only
   if needed; traits exist to support polymorphic operators
 - Incremental compilation backed by the persisted store
