@@ -448,6 +448,12 @@ impl Infer {
                 let _fn_ty = self.infer_expr(env, &mut args[0])?;
                 Ok(Some(Type::Bytes))
             }
+            (["core", "protocol"], "handler_methods") if args.len() == 1 => {
+                // fn handler_methods<A>(h: Handler<A>): List<string>
+                // Accept any handler, return the method function hashes.
+                let _handler_ty = self.infer_expr(env, &mut args[0])?;
+                Ok(Some(Type::named("List", vec![Type::String])))
+            }
             (["core", "protocol"], "hex_to_bytes") if args.len() == 1 => {
                 // fn hex_to_bytes(hex: string): Option<Bytes>
                 let hex_ty = self.infer_expr(env, &mut args[0])?;

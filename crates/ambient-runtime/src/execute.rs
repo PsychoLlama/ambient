@@ -37,6 +37,13 @@ pub const METHOD_RUN: MethodId = 0x0003;
 /// Method: get_functions(hashes: List<string>) -> Bytes
 pub const METHOD_GET_FUNCTIONS: MethodId = 0x0004;
 
+/// Method: `run_with<T, H, R>(hash: string, args: T, handler: H) -> R`
+///
+/// Like `run`, but installs the given handler value at the base of the
+/// isolated VM before calling, so the executed function's performs
+/// dispatch to handler code that shipped with it.
+pub const METHOD_RUN_WITH: MethodId = 0x0005;
+
 /// The Execute ability's method set, instantiated for any type system.
 ///
 /// Single source of truth for the interface: the content-addressed
@@ -86,6 +93,17 @@ fn methods<T: Clone + 'static>() -> Vec<MethodDescriptor<T>> {
                 param_count: 1,
                 param_types: |f| vec![f.list(f.string())], // list of hashes
                 return_type: |f| f.bytes(),                // serialized functions
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_RUN_WITH,
+            name: "run_with",
+            signature: MethodSignature {
+                param_count: 3,
+                // hash, args, handler (Handler<A> is not expressible via
+                // the factory surface; a type variable keeps it loose).
+                param_types: |f| vec![f.string(), f.type_var(), f.type_var()],
+                return_type: |f| f.type_var(), // result
             },
         },
     ]
@@ -243,7 +261,7 @@ mod tests {
 
         assert_eq!(descriptor.id, ability_id());
         assert_eq!(descriptor.name, "Execute");
-        assert_eq!(descriptor.methods.len(), 5);
+        assert_eq!(descriptor.methods.len(), 6);
 
         // Check method names
         let names: Vec<&str> = descriptor.methods.iter().map(|m| m.name).collect();

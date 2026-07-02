@@ -1858,3 +1858,97 @@ fn test_user_ability_suspend_form_compiles() {
     )
     .expect_output("7");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Remote Execution with Ability Dispatch
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_execute_run_with_granted_ability() {
+    // Execute.run runs code in an isolated VM. The host grants output
+    // abilities (Console/Log) to executed code, so an effectful function
+    // can be run by hash and its logs land on the executing host.
+    CliTest::new(
+        r#"
+        fn shout(x: number): number with Log {
+            runtime.Log.info!("computing remotely");
+            x * 2
+        }
+
+        pub fn run(): number with Execute {
+            let thunk = (x) => shout(x);
+            let hash = core.protocol.closure_hash(thunk);
+            runtime.Execute.run!(hash, 21)
+        }
+        "#,
+    )
+    .expect_output("42");
+}
+
+#[test]
+fn test_execute_run_ungranted_ability_is_unhandled() {
+    // Network is NOT granted to executed code: performing it inside an
+    // isolated VM is an unhandled-ability error, not a silent escape.
+    CliTest::new(
+        r#"
+        fn phone_home(x: number): number with Network {
+            let conn = runtime.Network.connect!("127.0.0.1:1");
+            x
+        }
+
+        pub fn run(): number with Execute {
+            let thunk = (x) => phone_home(x);
+            let hash = core.protocol.closure_hash(thunk);
+            runtime.Execute.run!(hash, 1)
+        }
+        "#,
+    )
+    .expect_error("unhandled ability");
+}
+
+#[test]
+fn test_execute_run_with_shipped_handler() {
+    // The flagship composition: a user-declared (content-addressed)
+    // ability, a first-class handler value whose methods are
+    // content-addressed functions, and Execute.run_with installing that
+    // handler at the base of the isolated VM. The shipped code performs
+    // the ability; the shipped handler answers it.
+    CliTest::new(
+        r"
+        ability Oracle {
+            fn answer(): number;
+        }
+
+        fn consult(x: number): number with Oracle {
+            x + Oracle.answer!()
+        }
+
+        pub fn run(): number with Execute {
+            let oracle = { answer() => resume(40) };
+            let thunk = (x) => consult(x);
+            let hash = core.protocol.closure_hash(thunk);
+            runtime.Execute.run_with!(hash, 2, oracle)
+        }
+        ",
+    )
+    .expect_output("42");
+}
+
+#[test]
+fn test_handler_methods_intrinsic() {
+    // handler_methods exposes a handler's content-addressed method
+    // hashes so clients can ship the handler's code alongside a function.
+    CliTest::new(
+        r"
+        ability Oracle {
+            fn answer(): number;
+        }
+
+        pub fn run(): number {
+            let oracle = { answer() => resume(42) };
+            core.list.length(core.protocol.handler_methods(oracle))
+        }
+        ",
+    )
+    .expect_output("1");
+}

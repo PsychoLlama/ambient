@@ -7,7 +7,10 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
-use ambient_engine::abilities::{register_execute, register_network, ExecuteConfig, NetworkConfig};
+use ambient_engine::abilities::{
+    register_console, register_execute, register_log, register_network, ConsoleConfig,
+    ExecuteConfig, LogConfig, NetworkConfig,
+};
 use ambient_engine::ast::{ItemKind, UsePrefix};
 use ambient_engine::build::{build_imported_hashes_from_compiled, compile_core_modules};
 use ambient_engine::compiler::CompiledModule;
@@ -309,10 +312,17 @@ fn run_compiled(compiled: &CompiledModule, entry: &str) -> Result<()> {
     );
 
     // Register Execute ability for server-side function execution.
+    // Grant output abilities (Console, Log) to executed code: remotely
+    // received functions may print/log on this host, but get no Network,
+    // Time, Random, or (recursive) Execute access.
     register_execute(
         &mut vm,
         ExecuteConfig {
             store: Arc::clone(&store),
+            grants: Some(Arc::new(|exec_vm: &mut Vm| {
+                register_console(exec_vm, ConsoleConfig::default());
+                register_log(exec_vm, LogConfig::default());
+            })),
         },
     );
 

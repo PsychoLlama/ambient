@@ -583,6 +583,12 @@ static INTRINSICS: &[Intrinsic] = &[
     },
     Intrinsic {
         path: &["core", "protocol"],
+        name: "handler_methods",
+        arity: 1,
+        emit: EmitStrategy::Opcode(Opcode::HandlerMethods),
+    },
+    Intrinsic {
+        path: &["core", "protocol"],
         name: "hex_to_bytes",
         arity: 1,
         emit: EmitStrategy::Opcode(Opcode::HexToBytes),

@@ -13,7 +13,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A function we want to execute remotely.
-fn double(x: number): number {
+///
+/// It is effectful: the Log perform runs on the *server*, dispatched to
+/// the Log handler the server's host granted to executed code.
+fn double(x: number): number with Log {
+    runtime.Log.info!("doubling remotely");
     x * 2
 }
 
@@ -34,7 +38,7 @@ pub fn run(): () with Console, Network, Execute {
     runtime.Console.print!(core.string.concat("Client: sending double(", core.string.concat(core.convert.to_string(value), ") for remote execution...")));
 
     // Send the Execute message
-    let result = send_and_receive(conn, thunk, value);
+    let result = send_and_receive(conn, value, thunk);
 
     runtime.Console.print!(core.string.concat("Client: got result = ", core.convert.to_string(result)));
 
@@ -47,7 +51,7 @@ pub fn run(): () with Console, Network, Execute {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Send a function for remote execution and receive the result.
-fn send_and_receive<A>(conn: number, thunk: (A) -> number, arg: A): number with Console, Network, Execute {
+fn send_and_receive<A>(conn: number, arg: A, thunk: (A) -> number with Log): number with Console, Network, Execute {
     let hash = core.protocol.closure_hash(thunk);
     let captures = core.protocol.serialize_value(arg);
 
@@ -67,7 +71,7 @@ fn send_and_receive<A>(conn: number, thunk: (A) -> number, arg: A): number with 
 }
 
 /// Handle server response.
-fn handle_response<A>(conn: number, thunk: (A) -> number): number with Console, Network, Execute {
+fn handle_response<A>(conn: number, thunk: (A) -> number with Log): number with Console, Network, Execute {
     let response = runtime.Network.receive!(conn);
 
     if core.bytes.length(response) == 0 {

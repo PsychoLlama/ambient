@@ -632,12 +632,22 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
 // Execute Ability Configuration and Registration
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Callback that grants abilities to an isolated execution VM.
+pub type ExecuteGrants = Arc<dyn Fn(&mut Vm) + Send + Sync>;
+
 /// Configuration for the Execute ability.
 ///
 /// Execute enables server-side function execution by content-addressed hash.
 pub struct ExecuteConfig {
     /// Store for function lookup.
     pub store: Arc<Mutex<Store>>,
+
+    /// Host policy for what executed code may do: called on every fresh
+    /// isolated VM to register granted host handlers (e.g. Console). With
+    /// no grants, remote code runs pure — any perform that reaches the
+    /// host is an unhandled-ability error. The remote must provide all
+    /// ability handlers; nothing proxies back to the caller.
+    pub grants: Option<ExecuteGrants>,
 }
 
 /// Register the Execute ability handlers on a VM.
@@ -650,6 +660,7 @@ pub struct ExecuteConfig {
 #[allow(clippy::too_many_lines)]
 pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
     let store = config.store;
+    let grants = config.grants;
 
     // Execute.has_function(hash: string) -> bool
     let store_clone = Arc::clone(&store);
@@ -717,6 +728,7 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
     // This creates a new VM instance, loads the function and its dependencies,
     // and executes it in isolation.
     let store_clone = Arc::clone(&store);
+    let grants_clone = grants.clone();
     vm.register_host_handler(
         execute::ability_id(),
         execute::METHOD_RUN,
@@ -751,8 +763,12 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
             let subset = store.extract_with_dependencies(&hash);
             drop(store);
 
-            // Create a new VM for isolated execution
+            // Create a new VM for isolated execution, with whatever
+            // abilities the host granted.
             let mut exec_vm = crate::vm::Vm::new();
+            if let Some(grants) = &grants_clone {
+                grants(&mut exec_vm);
+            }
 
             // Load all functions (the target and its dependencies)
             for func_hash in subset.hashes() {
@@ -762,6 +778,69 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
             }
 
             // Execute the function with the provided argument
+            exec_vm.call(&hash, vec![arg])
+        }),
+    );
+
+    // Execute.run_with(hash: string, args: T, handler: Handler<A>) -> R
+    // Like run, but installs the handler value at the base of the isolated
+    // VM first, so the executed function's performs dispatch to handler
+    // code that shipped with it. The handler's method functions (and their
+    // dependencies) are loaded from the store alongside the target.
+    let store_clone = Arc::clone(&store);
+    let grants_clone2 = grants.clone();
+    vm.register_host_handler(
+        execute::ability_id(),
+        execute::METHOD_RUN_WITH,
+        Box::new(move |ability: &SuspendedAbility| {
+            if ability.args.len() < 3 {
+                return Err(VmError::TypeErrorOwned {
+                    expected: "3 arguments (hash, args, handler)".to_string(),
+                    got: format!("{} arguments", ability.args.len()),
+                });
+            }
+
+            let hash_str = match &ability.args[0] {
+                Value::String(s) => s.to_string(),
+                other => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "string".to_string(),
+                        got: other.type_name().to_string(),
+                    })
+                }
+            };
+            let arg = ability.args[1].clone();
+            let handler_value = match &ability.args[2] {
+                Value::Handler(h) => Arc::clone(h),
+                other => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "handler".to_string(),
+                        got: other.type_name().to_string(),
+                    })
+                }
+            };
+
+            let hash = parse_hash(&hash_str)
+                .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
+
+            let store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
+            let mut subset = store.extract_with_dependencies(&hash);
+            for method_hash in handler_value.methods.values() {
+                subset.merge(&store.extract_with_dependencies(method_hash));
+            }
+            drop(store);
+
+            let mut exec_vm = crate::vm::Vm::new();
+            if let Some(grants) = &grants_clone2 {
+                grants(&mut exec_vm);
+            }
+            for func_hash in subset.hashes() {
+                if let Some(func) = subset.get(&func_hash) {
+                    exec_vm.load_function(func.as_ref().clone());
+                }
+            }
+
+            exec_vm.install_base_handler(handler_value);
             exec_vm.call(&hash, vec![arg])
         }),
     );

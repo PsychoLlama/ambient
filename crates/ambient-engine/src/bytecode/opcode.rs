@@ -778,6 +778,14 @@ pub enum Opcode {
     /// Stack: `[bytes, bytes] -> [bytes]`
     BytesConcat = 0x68,
 
+    /// Get a handler value's method function hashes.
+    ///
+    /// Stack: `[handler] -> [list<string>]`
+    /// Returns the hex-encoded content hashes of the handler's method
+    /// functions (sorted by method ID), so callers can ship the handler's
+    /// code alongside a function for remote execution.
+    HandlerMethods = 0x69,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Special
     // ─────────────────────────────────────────────────────────────────────────
@@ -938,6 +946,7 @@ impl Opcode {
             0x66 => Some(Self::BytesGet),
             0x67 => Some(Self::BytesSlice),
             0x68 => Some(Self::BytesConcat),
+            0x69 => Some(Self::HandlerMethods),
             0xFF => Some(Self::Halt),
             _ => None,
         }

@@ -141,7 +141,10 @@ impl Infer {
             return Ok((ability_id, result_ty, additional_abilities));
         }
 
-        // For other abilities, look up the return type from the resolver
+        // For other abilities, look up the return type from the resolver.
+        // Builtin descriptors produce `Hole` for their type variables
+        // (e.g. Execute.run's R); resolve to fresh inference variables so
+        // the result unifies with whatever the call site expects.
         let factory = EngineTypeFactory;
         let result_ty = self
             .ability_resolver
@@ -155,6 +158,7 @@ impl Infer {
                     span,
                 )
             })?;
+        let result_ty = self.resolve_holes(&result_ty);
 
         Ok((ability_id, result_ty, AbilitySet::Empty))
     }

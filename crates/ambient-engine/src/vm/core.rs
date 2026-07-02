@@ -97,6 +97,10 @@ pub struct Vm {
     /// The handler stack for installed ability handlers.
     pub(super) handlers: Vec<HandlerFrame>,
 
+    /// Handlers installed under every call (see `install_base_handler`).
+    /// Re-installed after each `call`/`call_closure` state reset.
+    pub(super) base_handlers: Vec<Arc<ambient_ability::HandlerValue>>,
+
     /// Host-provided ability handlers (for abilities like Console, Filesystem).
     /// Maps `(ability_id, method_id)` to handler functions.
     pub(super) host_handlers: HashMap<(AbilityId, u16), HostHandler>,
@@ -123,6 +127,7 @@ impl Vm {
             frames: Vec::with_capacity(64),
             handlers: Vec::with_capacity(16),
             host_handlers: HashMap::new(),
+            base_handlers: Vec::new(),
             functions: HashMap::new(),
             max_call_depth: 1000,
         }
@@ -166,12 +171,41 @@ impl Vm {
         self.host_handlers.insert((ability_id, method_id), handler);
     }
 
+    /// Install a first-class handler value at the base of the VM.
+    ///
+    /// Base handlers sit under every call frame, so performs anywhere in a
+    /// subsequent `call` dispatch to them (taking priority over host
+    /// handlers, like any bytecode handler). They survive the state reset
+    /// at the start of each `call`. This is how isolated execution
+    /// installs handlers that shipped with the code: the handler value's
+    /// method functions must already be loaded into this VM.
+    pub fn install_base_handler(&mut self, handler_value: Arc<ambient_ability::HandlerValue>) {
+        self.base_handlers.push(handler_value);
+    }
+
+    /// Push handler frames for every installed base handler.
+    fn install_base_frames(&mut self) {
+        let base = std::mem::take(&mut self.base_handlers);
+        for handler_value in &base {
+            self.handlers.push(HandlerFrame {
+                ability_id: handler_value.ability_id,
+                handler: HandlerKind::Value {
+                    handler_value: Arc::clone(handler_value),
+                },
+                call_frame_idx: 0,
+                stack_height: 0,
+            });
+        }
+        self.base_handlers = base;
+    }
+
     /// Call a function by its hash with the given arguments.
     pub fn call(&mut self, hash: &blake3::Hash, args: Vec<Value>) -> Result<Value, VmError> {
         // Reset state
         self.stack.clear();
         self.frames.clear();
         self.handlers.clear();
+        self.install_base_frames();
 
         let arg_count = args.len() as u8;
 
@@ -213,6 +247,7 @@ impl Vm {
         self.stack.clear();
         self.frames.clear();
         self.handlers.clear();
+        self.install_base_frames();
 
         let arg_count = args.len() as u8;
 

@@ -219,7 +219,8 @@ fn remote_pair_executes() {
         std::thread::sleep(Duration::from_millis(200));
     };
 
-    // The client sends `double` (x * 2) with arg 21 for remote execution.
+    // The client sends `double` (x * 2, logging via the Log ability) with
+    // arg 21 for remote execution.
     assert!(
         stdout.contains("42"),
         "remote execution result missing from client output:\n{stdout}"
@@ -234,5 +235,16 @@ fn remote_pair_executes() {
     assert!(
         !server_err.contains("Runtime error"),
         "server reported a runtime error:\n{server_err}"
+    );
+
+    // The shipped function performs Log; the server's host granted Log to
+    // executed code, so the log line must appear on the SERVER's output.
+    let mut server_out = String::new();
+    if let Some(out) = server.0.stdout.as_mut() {
+        let _ = out.read_to_string(&mut server_out);
+    }
+    assert!(
+        server_out.contains("doubling remotely"),
+        "remote Log perform missing from server output:\n{server_out}"
     );
 }

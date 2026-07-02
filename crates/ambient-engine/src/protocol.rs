@@ -57,27 +57,48 @@ enum SerializableValue {
     },
     FunctionRef(String),
     AbilityRef(String),
+    Handler {
+        ability: String,
+        methods: Vec<(u16, String)>,
+        captures: Vec<SerializableValue>,
+    },
 }
 
-impl From<&Value> for SerializableValue {
-    fn from(value: &Value) -> Self {
-        match value {
+impl SerializableValue {
+    /// Convert a runtime value into wire form.
+    ///
+    /// # Errors
+    ///
+    /// Values whose meaning cannot survive the wire (closures with live
+    /// environments, continuations, suspended abilities, maps/sets,
+    /// modules) are a hard error, never silently degraded. Handler values
+    /// cross by reference: their methods are content-addressed function
+    /// hashes, so the receiver can fetch the code and reconstruct the
+    /// handler exactly.
+    pub fn try_from_value(value: &Value) -> Result<Self, &'static str> {
+        Ok(match value {
             Value::Unit => SerializableValue::Unit,
             Value::Bool(b) => SerializableValue::Bool(*b),
             Value::Number(n) => SerializableValue::Number(*n),
             Value::String(s) => SerializableValue::String((**s).clone()),
             Value::Bytes(b) => SerializableValue::Bytes((**b).clone()),
-            Value::Tuple(elements) => {
-                SerializableValue::Tuple(elements.iter().map(SerializableValue::from).collect())
-            }
-            Value::List(elements) => {
-                SerializableValue::List(elements.iter().map(SerializableValue::from).collect())
-            }
+            Value::Tuple(elements) => SerializableValue::Tuple(
+                elements
+                    .iter()
+                    .map(Self::try_from_value)
+                    .collect::<Result<_, _>>()?,
+            ),
+            Value::List(elements) => SerializableValue::List(
+                elements
+                    .iter()
+                    .map(Self::try_from_value)
+                    .collect::<Result<_, _>>()?,
+            ),
             Value::Record(fields) => SerializableValue::Record(
                 fields
                     .iter()
-                    .map(|(k, v)| (k.to_string(), SerializableValue::from(v)))
-                    .collect(),
+                    .map(|(k, v)| Ok((k.to_string(), Self::try_from_value(v)?)))
+                    .collect::<Result<_, &'static str>>()?,
             ),
             Value::Enum(e) => SerializableValue::Enum {
                 type_name: e.type_name.to_string(),
@@ -86,23 +107,36 @@ impl From<&Value> for SerializableValue {
                 payload: e
                     .payload
                     .as_ref()
-                    .map(|p| Box::new(SerializableValue::from(p.as_ref()))),
+                    .map(|p| Self::try_from_value(p.as_ref()).map(Box::new))
+                    .transpose()?,
             },
             Value::FunctionRef(hash) => SerializableValue::FunctionRef(hash.to_string()),
             Value::AbilityRef(id) => SerializableValue::AbilityRef(id.to_hex()),
-            // Complex values that can't be serialized directly
-            Value::Closure(_)
-            | Value::Handler(_)
-            | Value::SuspendedAbility(_)
-            | Value::Continuation(_)
-            | Value::Map(_)
-            | Value::Set(_)
-            | Value::Module(_)
-            | Value::ModuleMember(_) => {
-                // For now, represent as Unit - these shouldn't be serialized over the wire
-                SerializableValue::Unit
+            Value::Handler(h) => {
+                let mut methods: Vec<(u16, String)> = h
+                    .methods
+                    .iter()
+                    .map(|(id, hash)| (*id, hash.to_hex().to_string()))
+                    .collect();
+                methods.sort_by_key(|(id, _)| *id);
+                SerializableValue::Handler {
+                    ability: h.ability_id.to_hex(),
+                    methods,
+                    captures: h
+                        .captures
+                        .iter()
+                        .map(Self::try_from_value)
+                        .collect::<Result<_, _>>()?,
+                }
             }
-        }
+            Value::Closure(_) => return Err("closure"),
+            Value::SuspendedAbility(_) => return Err("suspended ability"),
+            Value::Continuation(_) => return Err("continuation"),
+            Value::Map(_) => return Err("map"),
+            Value::Set(_) => return Err("set"),
+            Value::Module(_) => return Err("module"),
+            Value::ModuleMember(_) => return Err("module member"),
+        })
     }
 }
 
@@ -150,15 +184,37 @@ impl From<SerializableValue> for Value {
                     .unwrap_or_else(|| ambient_core::AbilityId::from_bytes([0u8; 32]));
                 Value::AbilityRef(parsed)
             }
+            SerializableValue::Handler {
+                ability,
+                methods,
+                captures,
+            } => {
+                let ability = ambient_core::AbilityId::from_hex(&ability)
+                    .unwrap_or_else(|| ambient_core::AbilityId::from_bytes([0u8; 32]));
+                let methods = methods
+                    .into_iter()
+                    .filter_map(|(id, hex)| {
+                        blake3::Hash::from_hex(&hex).ok().map(|hash| (id, hash))
+                    })
+                    .collect();
+                let captures = captures.into_iter().map(Value::from).collect();
+                Value::Handler(std::sync::Arc::new(
+                    ambient_ability::HandlerValue::with_captures(ability, methods, captures),
+                ))
+            }
         }
     }
 }
 
 /// Serialize a Value to bytes using bincode.
-#[must_use]
-pub fn serialize_value(value: &Value) -> Vec<u8> {
-    let serializable = SerializableValue::from(value);
-    bincode::serialize(&serializable).unwrap_or_default()
+///
+/// # Errors
+///
+/// Returns the offending kind's name when the value cannot cross the wire
+/// (see [`SerializableValue::try_from_value`]).
+pub fn serialize_value(value: &Value) -> Result<Vec<u8>, &'static str> {
+    let serializable = SerializableValue::try_from_value(value)?;
+    Ok(bincode::serialize(&serializable).unwrap_or_default())
 }
 
 /// Deserialize bytes to a Value using bincode.
@@ -593,7 +649,7 @@ mod tests {
     #[test]
     fn test_serialize_unit() {
         let value = Value::Unit;
-        let bytes = serialize_value(&value);
+        let bytes = serialize_value(&value).expect("serializable");
         let result = deserialize_value(&bytes).unwrap();
         assert!(matches!(result, Value::Unit));
     }
@@ -601,7 +657,7 @@ mod tests {
     #[test]
     fn test_serialize_bool() {
         let value = Value::Bool(true);
-        let bytes = serialize_value(&value);
+        let bytes = serialize_value(&value).expect("serializable");
         let result = deserialize_value(&bytes).unwrap();
         assert!(matches!(result, Value::Bool(true)));
     }
@@ -609,7 +665,7 @@ mod tests {
     #[test]
     fn test_serialize_number() {
         let value = Value::Number(42.5);
-        let bytes = serialize_value(&value);
+        let bytes = serialize_value(&value).expect("serializable");
         let result = deserialize_value(&bytes).unwrap();
         match result {
             Value::Number(n) => assert!((n - 42.5).abs() < f64::EPSILON),
@@ -620,7 +676,7 @@ mod tests {
     #[test]
     fn test_serialize_string() {
         let value = Value::string("hello".to_string());
-        let bytes = serialize_value(&value);
+        let bytes = serialize_value(&value).expect("serializable");
         let result = deserialize_value(&bytes).unwrap();
         match result {
             Value::String(s) => assert_eq!(&*s, "hello"),
@@ -631,7 +687,7 @@ mod tests {
     #[test]
     fn test_serialize_list() {
         let value = Value::list(vec![Value::Number(1.0), Value::Number(2.0)]);
-        let bytes = serialize_value(&value);
+        let bytes = serialize_value(&value).expect("serializable");
         let result = deserialize_value(&bytes).unwrap();
         match result {
             Value::List(elements) => {
@@ -644,7 +700,7 @@ mod tests {
     #[test]
     fn test_serialize_option_some() {
         let value = Value::some(Value::Number(42.0));
-        let bytes = serialize_value(&value);
+        let bytes = serialize_value(&value).expect("serializable");
         let result = deserialize_value(&bytes).unwrap();
         match result {
             Value::Enum(e) => {
@@ -658,7 +714,7 @@ mod tests {
     #[test]
     fn test_serialize_option_none() {
         let value = Value::none();
-        let bytes = serialize_value(&value);
+        let bytes = serialize_value(&value).expect("serializable");
         let result = deserialize_value(&bytes).unwrap();
         match result {
             Value::Enum(e) => {

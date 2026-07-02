@@ -1429,7 +1429,12 @@ impl Vm {
                 // ─────────────────────────────────────────────────────────────
                 Opcode::SerializeValue => {
                     let value = self.pop()?;
-                    let bytes = crate::protocol::serialize_value(&value);
+                    let bytes = crate::protocol::serialize_value(&value).map_err(|kind| {
+                        VmError::TypeErrorOwned {
+                            expected: "wire-serializable value".to_string(),
+                            got: format!("{kind} (cannot cross the wire)"),
+                        }
+                    })?;
                     self.stack.push(Value::bytes(bytes));
                 }
 
@@ -1465,6 +1470,26 @@ impl Vm {
                         .push(Value::string(closure.function_hash.to_string()));
                 }
 
+                Opcode::HandlerMethods => {
+                    let handler = match self.pop()? {
+                        Value::Handler(h) => h,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "handler",
+                                got: other.type_name(),
+                                operation: "handler_methods",
+                            })
+                        }
+                    };
+                    let mut methods: Vec<_> = handler.methods.iter().collect();
+                    methods.sort_by_key(|(id, _)| **id);
+                    let hashes: Vec<Value> = methods
+                        .into_iter()
+                        .map(|(_, hash)| Value::string(hash.to_hex().to_string()))
+                        .collect();
+                    self.stack.push(Value::list(hashes));
+                }
+
                 Opcode::ClosureCaptures => {
                     let closure = match self.pop()? {
                         Value::Closure(c) => c,
@@ -1478,7 +1503,13 @@ impl Vm {
                     };
                     // Serialize captures as bytes
                     let captures_value = Value::list(closure.environment.clone());
-                    let bytes = crate::protocol::serialize_value(&captures_value);
+                    let bytes =
+                        crate::protocol::serialize_value(&captures_value).map_err(|kind| {
+                            VmError::TypeErrorOwned {
+                                expected: "wire-serializable captures".to_string(),
+                                got: format!("{kind} (cannot cross the wire)"),
+                            }
+                        })?;
                     self.stack.push(Value::bytes(bytes));
                 }
 
