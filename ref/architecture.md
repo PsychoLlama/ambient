@@ -161,13 +161,13 @@ let equal = a == b;         // Calls a.eq(b)
 
 For primitive types (`number`, `bool`, `string`), operators use built-in implementations.
 
-### Standard Library Traits
+### Prelude Traits
 
-The `core/traits` module provides standard traits:
-
-```ambient
-use core.traits.{Add, Sub, Mul, Div, Mod, Eq, Ord};
-```
+The operator traits (`Add`, `Sub`, `Mul`, `Div`, `Mod`, `Eq`, `Ord`) are
+part of the prelude: they are always in scope, and implementing one enables
+the corresponding operator. `core.traits` mirrors their definitions for
+documentation. A module that declares its own trait with the same name
+shadows the prelude entry.
 
 The `Ord` trait is used for comparison operators:
 
@@ -176,6 +176,22 @@ trait Ord {
   fn cmp(self, other: Self): number;  // -1, 0, or 1
 }
 ```
+
+Comparison operators adapt the trait method's result: `!=` negates
+`Eq.eq`, and `<`, `<=`, `>`, `>=` compare `Ord.cmp`'s result against 0.
+
+### Trait Dispatch and Content-Addressing
+
+Method calls dispatch statically: the receiver's concrete nominal type is
+known during type checking, which resolves the call to a canonical method
+symbol `<type-uuid>::<Trait>::<method>`. Impl methods compile as ordinary
+named functions under that symbol, so they are content-addressed exactly
+like any other function (hash = bytecode + constants + dependency hashes),
+and call sites link against the content hash. There is no runtime trait
+registry and no dynamic dispatch.
+
+Traits and impls declared anywhere in a package are visible to every module
+in it (impl coherence is global per package).
 
 ---
 
@@ -346,10 +362,14 @@ fn safe_parse(s: string): Option<number> {
 
 ## Type Inference Rules
 
-1. **Private functions**: Types and abilities fully inferred
-2. **Public functions**: Return type and abilities must be declared
-3. **Local variables**: Always inferred
-4. **Lambdas**: Parameter types inferred from context
+1. **Functions**: Abilities must be declared (`with ...`); a function using
+   an undeclared ability is a type error. (Planned: full ability inference
+   for private functions.) Return types of public functions must be declared.
+2. **Local variables**: Always inferred
+3. **Lambdas**: Parameter types inferred from context; the lambda's ability
+   set is inferred from its body and carried on its function type
+4. **Effect propagation**: Calling a function requires the caller to provide
+   (declare or handle) the callee's abilities
 
 ---
 
@@ -427,6 +447,13 @@ Every function identified by hash of:
 
 Mutually recursive functions are hashed as a group (SCC).
 
+Invariants (pinned by `crates/ambient-parser/tests/content_addressing.rs`):
+- Compiling the same source twice yields identical hashes.
+- Declaration order and unrelated declarations never affect a hash.
+- Changing a function's body, or any transitive dependency, changes its hash.
+- Trait impl methods are ordinary functions named
+  `<type-uuid>::<Trait>::<method>` and obey all of the above.
+
 ### Delimited Continuations
 
 Abilities implemented using single-shot delimited continuations.
@@ -461,13 +488,19 @@ The remote must provide all ability handlers. No ability proxying back to caller
 ## CLI
 
 ```bash
-ambient compile foo.ab     # Compile to foo.ambient
-ambient run foo.ab         # Compile and run
+ambient init my_project    # Scaffold a new package
+ambient run <pkg-dir>      # Compile and run a package (or a .ambient file)
 ambient check foo.ab       # Type-check only
+ambient compile foo.ab     # Compile to foo.ambient
+ambient ast foo.ab         # Dump the parsed AST
 ambient repl               # Interactive REPL
 ambient dev foo.ab         # Hot reload development
-ambient serve foo.ambient  # Start remote execution server
+ambient lsp                # Start the language server
 ```
+
+Remote execution servers are written in Ambient itself using the `Network`
+and `Execute` abilities (see `examples/remote_server`); there is no
+dedicated `serve` command.
 
 ---
 
@@ -492,6 +525,7 @@ fn factorial(n: number): number {
 ### Vector Math with Traits
 
 ```ambient
+// Add and Eq come from the prelude; implementing them enables + and ==.
 unique(a1b2c3d4-0000-0000-0000-000000000001) type Vec2 { x: number, y: number }
 
 impl Add for Vec2 {
@@ -543,11 +577,13 @@ fn test_my_function(): () {
 
 ## Future Work
 
+- Ability inference for private functions (annotations currently required)
+- Persisted content-addressed store (store is in-memory; .ambient is JSON)
+- Generic traits, supertraits, trait bounds (`fn foo<T: Eq>(x: T)`)
 - WASM target
 - Embedded target (FFI/crate)
 - Package manager
 - Type unions (`A | B`)
 - Multi-shot continuations
-- Trait bounds on type parameters (`fn foo<T: Eq>(x: T)`)
 - Mutable references (`Store<T>` or affine types)
 - Incremental compilation
