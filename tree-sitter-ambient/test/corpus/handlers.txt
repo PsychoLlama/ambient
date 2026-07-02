@@ -4,7 +4,7 @@ Handle expression
 
 fn test(): number {
   handle compute() {
-    Exception.throw(e) => {
+    Exception::throw(e) => {
       resume(0)
     }
   }

@@ -48,6 +48,18 @@
   (member_expression
     (identifier) @function.call .))
 
+; Namespace-qualified call: `core::math::abs(...)`
+(call_expression
+  (scoped_identifier
+    name: (identifier) @function.call))
+
+; Path segments of a namespace path read as namespaces/modules.
+(scoped_identifier
+  path: (identifier) @namespace)
+(scoped_identifier
+  path: (scoped_identifier
+    name: (identifier) @namespace))
+
 ; Abilities
 (ability_definition
   name: (identifier) @type)
@@ -118,6 +130,7 @@
   ","
   ";"
   ":"
+  "::"
   "."
 ] @punctuation.delimiter
 

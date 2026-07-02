@@ -150,8 +150,8 @@ module.exports = grammar({
     use_path: ($) =>
       seq(
         $.identifier,
-        repeat(seq(".", $.identifier)),
-        optional(choice(seq(".", "*"), seq(".", $.use_group)))
+        repeat(seq("::", $.identifier)),
+        optional(choice(seq("::", "*"), seq("::", $.use_group)))
       ),
 
     use_group: ($) => seq("{", $.identifier_list, "}"),
@@ -251,6 +251,7 @@ module.exports = grammar({
         $.unary_expression,
         $.call_expression,
         $.perform_expression,
+        $.scoped_identifier,
         $.member_expression,
         $.tuple_index_expression,
         $.index_expression,
@@ -303,6 +304,18 @@ module.exports = grammar({
 
     perform_expression: ($) => prec(PREC.PERFORM, seq($._expression, "!")),
 
+    // Namespace / path access uses `::` (`core::math::abs`, `platform::Fs`).
+    scoped_identifier: ($) =>
+      prec(
+        PREC.MEMBER,
+        seq(
+          field("path", choice($.identifier, $.scoped_identifier)),
+          "::",
+          field("name", $.identifier)
+        )
+      ),
+
+    // Value member access uses `.` (`record.field`).
     member_expression: ($) =>
       prec(PREC.MEMBER, seq($._expression, ".", $.identifier)),
 
@@ -443,7 +456,7 @@ module.exports = grammar({
     handler_arm: ($) =>
       seq(
         field("ability", $.identifier),
-        ".",
+        "::",
         field("method", $.identifier),
         $.parameter_list,
         "=>",

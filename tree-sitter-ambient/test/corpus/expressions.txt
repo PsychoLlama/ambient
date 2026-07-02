@@ -96,7 +96,7 @@ Lambda expression
 ================================================================================
 
 fn test(): number {
-  List.map(nums, (x) => x + 1)
+  List::map(nums, (x) => x + 1)
 }
 
 --------------------------------------------------------------------------------
@@ -108,7 +108,7 @@ fn test(): number {
     return_type: (identifier)
     body: (block
       (call_expression
-        (member_expression (identifier) (identifier))
+        (scoped_identifier path: (identifier) name: (identifier))
         (argument_list
           (identifier)
           (lambda
@@ -202,7 +202,7 @@ Perform expression
 fn test(): ()
   with Console
 {
-  Console.print!("hello")
+  Console::print!("hello")
 }
 
 --------------------------------------------------------------------------------
@@ -216,7 +216,7 @@ fn test(): ()
     body: (block
       (call_expression
         (perform_expression
-          (member_expression (identifier) (identifier)))
+          (scoped_identifier path: (identifier) name: (identifier)))
         (argument_list (string (string_content)))))))
 
 ================================================================================
@@ -265,3 +265,69 @@ fn test(): number {
         (match_arm
           pattern: (wildcard_pattern)
           body: (number))))))
+
+================================================================================
+Scoped identifier (namespace path)
+================================================================================
+
+fn test(): number {
+  core::math::abs(1, 2)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (call_expression
+        (scoped_identifier
+          path: (scoped_identifier path: (identifier) name: (identifier))
+          name: (identifier))
+        (argument_list (number) (number))))))
+
+================================================================================
+Qualified perform on a namespaced ability
+================================================================================
+
+fn test(): string
+  with FileSystem
+{
+  platform::FileSystem::read!(path)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    (ability_clause (identifier))
+    body: (block
+      (call_expression
+        (perform_expression
+          (scoped_identifier
+            path: (scoped_identifier path: (identifier) name: (identifier))
+            name: (identifier)))
+        (argument_list (identifier))))))
+
+================================================================================
+Field access stays a member expression
+================================================================================
+
+fn test(): number {
+  point.x
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (member_expression (identifier) (identifier)))))
