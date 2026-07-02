@@ -321,11 +321,10 @@ fn run_compiled(compiled: &CompiledModule, entry: &str) -> Result<()> {
     let config = RuntimeConfig::native();
     let mut vm = Vm::with_runtime(&config);
 
-    // Create store for function dependencies (used by Remote ability).
+    // Create store for function dependencies (used by the Execute ability).
+    // add_module registers canonical objects so functions can be shipped.
     let mut store = Store::new();
-    for func in compiled.functions.values() {
-        store.add(func.clone());
-    }
+    store.add_module(compiled);
     let store = Arc::new(std::sync::Mutex::new(store));
 
     // Register Network ability for TCP operations.

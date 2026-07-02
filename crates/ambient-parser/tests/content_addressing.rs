@@ -260,3 +260,162 @@ fn call_sites_reference_final_method_hashes() {
         "run must depend on Show::show's content hash"
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Canonical object invariants
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Every function's identity is the blake3 of its canonical object encoding,
+/// and materializing the object reproduces the function byte-for-byte.
+#[test]
+fn every_function_is_materializable_from_a_self_verifying_object() {
+    use ambient_engine::object::StoredObject;
+
+    let module = compile(MONEY_MODULE);
+    assert!(!module.objects.is_empty(), "module must carry objects");
+
+    // Object keys are the blake3 of their encodings (redirects excepted:
+    // they live at derived member hashes and are verified via their group).
+    let mut materialized: HashMap<blake3::Hash, ambient_engine::bytecode::CompiledFunction> =
+        HashMap::new();
+    for (hash, object) in &module.objects {
+        if matches!(object, StoredObject::Redirect { .. }) {
+            continue;
+        }
+        assert_eq!(
+            *hash,
+            blake3::hash(&object.encode()),
+            "object key must be the hash of its encoding"
+        );
+        for (func_hash, func) in object.materialize().expect("object materializes") {
+            materialized.insert(func_hash, func);
+        }
+    }
+
+    // Every compiled function must be reproducible from its object.
+    for (hash, func) in &module.functions {
+        let from_object = materialized
+            .get(hash)
+            .unwrap_or_else(|| panic!("function {hash} has no canonical object"));
+        assert_eq!(from_object.bytecode, func.bytecode);
+        assert_eq!(from_object.constants, func.constants);
+        assert_eq!(from_object.local_count, func.local_count);
+        assert_eq!(from_object.param_count, func.param_count);
+        assert_eq!(from_object.dependencies, func.dependencies);
+    }
+}
+
+const MUTUAL_RECURSION: &str = r"
+    fn is_even(n: number): bool {
+        if n == 0 { true } else { is_odd(n - 1) }
+    }
+
+    fn is_odd(n: number): bool {
+        if n == 0 { false } else { is_even(n - 1) }
+    }
+
+    fn run(): bool {
+        is_even(10)
+    }
+";
+
+#[test]
+fn mutually_recursive_functions_share_a_group_object() {
+    use ambient_engine::object::StoredObject;
+
+    let module = compile(MUTUAL_RECURSION);
+    let names = named_hashes(&module);
+    let even = names["is_even"];
+    let odd = names["is_odd"];
+
+    // Both members resolve to the same group via redirects.
+    let group_of = |h: &blake3::Hash| match module.objects.get(h) {
+        Some(StoredObject::Redirect { group, .. }) => *group,
+        other => panic!("expected redirect at member hash, got {other:?}"),
+    };
+    assert_eq!(group_of(&even), group_of(&odd));
+
+    // The group object exists and yields exactly these member hashes.
+    let group = module
+        .objects
+        .get(&group_of(&even))
+        .expect("group object stored");
+    let members: Vec<blake3::Hash> = group
+        .materialize()
+        .expect("group materializes")
+        .into_iter()
+        .map(|(h, _)| h)
+        .collect();
+    assert!(members.contains(&even));
+    assert!(members.contains(&odd));
+}
+
+#[test]
+fn recursive_functions_survive_pack_roundtrip() {
+    let module = compile(MUTUAL_RECURSION);
+    let names = named_hashes(&module);
+
+    let mut store = ambient_engine::store::Store::new();
+    store.add_module(&module);
+
+    let pack = store
+        .extract_pack(&names["run"])
+        .expect("run and its recursive deps must be shippable");
+    let restored = ambient_engine::store::Store::deserialize(&pack).expect("pack decodes");
+
+    for name in ["run", "is_even", "is_odd"] {
+        assert!(
+            restored.contains(&names[name]),
+            "{name} must survive the pack roundtrip with its hash intact"
+        );
+    }
+}
+
+#[test]
+fn recursive_group_hash_ignores_unrelated_lambdas() {
+    // A recursive cycle that includes a lambda: `countdown` recurses through
+    // a lambda, so the SCC is {countdown, <lambda>}. Lambda identity within
+    // a group must come from canonical traversal order, not from
+    // compilation-wide lambda counters — otherwise unrelated lambdas
+    // elsewhere in the module would shift the hash.
+    let base = r"
+        fn countdown(n: number): number {
+            let step = (k: number) => countdown(k);
+            if n <= 0 { 0 } else { step(n - 1) }
+        }
+
+        fn run(): number { countdown(3) }
+    ";
+    let with_unrelated_lambda_first = r"
+        fn unrelated(): number {
+            let f = (x: number) => x * 2;
+            f(21)
+        }
+
+        fn countdown(n: number): number {
+            let step = (k: number) => countdown(k);
+            if n <= 0 { 0 } else { step(n - 1) }
+        }
+
+        fn run(): number { countdown(3) }
+    ";
+
+    let a = compile(base);
+    let b = compile(with_unrelated_lambda_first);
+    assert_eq!(
+        named_hashes(&a)["countdown"],
+        named_hashes(&b)["countdown"],
+        "an unrelated lambda earlier in the module must not change a recursive function's hash"
+    );
+}
+
+#[test]
+fn renaming_a_non_recursive_function_keeps_its_hash() {
+    let a = compile("fn helper(): number { 41 + 1 }");
+    let b = compile("fn renamed(): number { 41 + 1 }");
+    assert_eq!(
+        named_hashes(&a)["helper"],
+        named_hashes(&b)["renamed"],
+        "names of non-recursive functions must not affect their hashes"
+    );
+}

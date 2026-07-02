@@ -1,215 +1,177 @@
-//! Content-addressed hash computation for compiled functions.
+//! Content-addressed hash finalization.
 //!
-//! This module implements the hash finalization phase of compilation,
-//! which computes content-addressed hashes for all functions in a module.
-//! Functions are identified by the hash of their bytecode content, enabling:
-//! - Deduplication of identical functions
-//! - Caching of compilation results
-//! - Efficient equality checking
+//! This is the final phase of compilation. Functions are compiled against
+//! temporary name-derived hashes; this phase groups them into canonical
+//! objects (see [`crate::object`]) and derives every function's final hash
+//! from its object's encoding:
 //!
-//! # Hash Computation Strategy
+//! - Non-recursive functions become **plain objects**:
+//!   `hash = blake3(encoding)`.
+//! - Each strongly connected component of recursive functions becomes one
+//!   **group object**. Intra-group references are encoded as member indices,
+//!   breaking the circularity; member hashes are derived from the group hash.
 //!
-//! Functions are categorized and hashed differently:
-//! 1. **Non-recursive functions**: Hash computed directly from bytecode
-//! 2. **Self-recursive functions**: Hash excludes self-reference placeholder
-//! 3. **Mutually recursive functions (SCC)**: Group hash computed for entire cycle
+//! Because a hash is literally the blake3 of the object's bytes, any object
+//! can be verified anywhere (disk, wire, another machine) without trusting
+//! the sender: re-hash the bytes and compare.
 //!
-//! Dependencies are resolved in topological order to ensure each function's
-//! hash incorporates the final hashes of all its dependencies.
+//! # Determinism
+//!
+//! Group members are ordered canonically (named members sorted by name, then
+//! lambdas in first-reference order), so hashes do not depend on declaration
+//! order or on compilation-internal counters. Names of recursive functions
+//! are part of their group's identity — members of a cycle are only
+//! distinguishable by name — so renaming a recursive function changes its
+//! hash. Renaming a non-recursive function never does.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::bytecode::CompiledFunction;
-use crate::store::compute_sccs;
+use crate::object::{function_from_compiled, member_hash, GroupMember, ObjectRef, StoredObject};
+use crate::store::compute_sccs_with_cmp;
 use crate::value::Value;
 
 use super::error::{CompileError, CompileErrorKind};
-use super::{CompiledModule, FunctionEntry};
+use super::CompiledModule;
 
-/// Finalize module hashes by computing content-addressed hashes.
-///
-/// This is the final phase of compilation that:
-/// 1. Non-recursive functions: compute hash from bytecode content
-/// 2. Recursive functions (SCCs): compute group hash for mutual recursion
-/// 3. Lambdas: added to functions and `lambda_parents` (not `function_names`)
+/// A function awaiting finalization.
+struct Node {
+    /// Temporary (pre-finalization) hash: name-derived for named functions,
+    /// counter-derived for lambdas.
+    temp: blake3::Hash,
+    /// Source name; `None` for lambdas.
+    name: Option<Arc<str>>,
+    func: CompiledFunction,
+    is_main: bool,
+    lambda_parent: Option<Arc<str>>,
+}
+
+fn internal_error(message: &'static str) -> CompileError {
+    CompileError::new(CompileErrorKind::Internal { message }, (0, 0))
+}
+
+/// Compute final content-addressed hashes for all functions in a module.
 ///
 /// # Errors
 ///
-/// Returns an error if hash computation fails due to internal inconsistencies.
-#[allow(clippy::too_many_lines)]
+/// Returns an error if a constant pool contains values that cannot be
+/// content-addressed, or on internal inconsistencies.
 pub(super) fn finalize_module_hashes(
     compiled_functions: Vec<(Arc<str>, CompiledFunction, bool)>,
     lambdas: Vec<(blake3::Hash, Arc<str>, CompiledFunction)>,
-    temp_hashes: &HashMap<Arc<str>, blake3::Hash>,
 ) -> Result<CompiledModule, CompileError> {
-    // Build reverse mapping: temp_hash -> name
-    let temp_to_name: HashMap<blake3::Hash, Arc<str>> = temp_hashes
-        .iter()
-        .map(|(name, hash)| (*hash, Arc::clone(name)))
-        .collect();
-
-    // Combine named functions and lambdas for call graph analysis.
-    // Lambdas use synthetic names like "__lambda_{hash}" for the call graph.
-    let mut all_functions: Vec<FunctionEntry> = Vec::new();
+    // References to imported functions already carry final hashes and pass
+    // through unchanged; only references to local temp hashes get rewritten.
+    let mut nodes: Vec<Node> = Vec::new();
     for (name, func, is_main) in compiled_functions {
-        all_functions.push((name, func, is_main, None)); // None = not a lambda
+        nodes.push(Node {
+            temp: func.hash,
+            name: Some(name),
+            func,
+            is_main,
+            lambda_parent: None,
+        });
     }
-    for (temp_hash, parent_name, func) in lambdas {
-        let lambda_key: Arc<str> = format!("__lambda_{temp_hash}").into();
-        all_functions.push((lambda_key, func, false, Some(parent_name))); // Some = lambda with parent
+    for (temp, parent, func) in lambdas {
+        nodes.push(Node {
+            temp,
+            name: None,
+            func,
+            is_main: false,
+            lambda_parent: Some(parent),
+        });
     }
 
-    // Build call graph: for each function, which other functions does it call?
-    // We detect this by looking at FunctionRef values in the constant pool.
-    let mut call_graph: HashMap<Arc<str>, Vec<Arc<str>>> = HashMap::new();
-    for (name, func, _, _) in &all_functions {
-        let mut calls = Vec::new();
-        for constant in &func.constants {
-            if let Value::FunctionRef(hash) = constant {
-                if let Some(called_name) = temp_to_name.get(hash) {
-                    calls.push(Arc::clone(called_name));
+    // Temp hash -> node index, for classifying references as local.
+    let local: HashMap<blake3::Hash, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (n.temp, i)).collect();
+
+    // Call graph over node indices, from constant-pool function references.
+    let mut graph: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (i, node) in nodes.iter().enumerate() {
+        let mut edges = Vec::new();
+        for constant in &node.func.constants {
+            if let Value::FunctionRef(h) = constant {
+                if let Some(&j) = local.get(h) {
+                    edges.push(j);
                 }
             }
         }
-        call_graph.insert(Arc::clone(name), calls);
+        graph.insert(i, edges);
     }
 
-    // Find SCCs using Tarjan's algorithm (generic implementation from store module)
-    let scc_analysis = compute_sccs(&call_graph);
+    // SCCs in reverse topological order: dependencies before dependents.
+    let sccs = compute_sccs_with_cmp(&graph, std::cmp::Ord::cmp);
 
-    // Compute final hashes in topological order (dependencies before dependents)
-    let mut final_hashes: HashMap<Arc<str>, blake3::Hash> = HashMap::new();
+    let mut final_hashes: HashMap<usize, blake3::Hash> = HashMap::new();
+    let mut objects: HashMap<blake3::Hash, StoredObject> = HashMap::new();
 
-    // Pre-populate with imported function hashes.
-    // Imported functions are already content-addressed, so we can use them directly.
-    // They're in temp_hashes but not in all_functions.
-    let local_names: HashSet<&Arc<str>> = all_functions.iter().map(|(n, _, _, _)| n).collect();
-    for (name, hash) in temp_hashes {
-        if !local_names.contains(name) {
-            // This is an imported function - use its hash directly
-            final_hashes.insert(Arc::clone(name), *hash);
-        }
-    }
+    for scc in &sccs.components {
+        let members: HashSet<usize> = scc.members.iter().copied().collect();
 
-    for scc in &scc_analysis.components {
-        if scc.is_singleton() {
-            // Single function - might be self-recursive or not
-            let name = &scc.members[0];
+        let is_cycle = scc.members.len() > 1 || {
+            let i = scc.members[0];
+            graph[&i].contains(&i)
+        };
 
-            // Skip if this is an imported function (already in final_hashes)
-            if final_hashes.contains_key(name) {
-                continue;
-            }
-
-            let func = all_functions
-                .iter()
-                .find(|(n, _, _, _)| n == name)
-                .map(|(_, f, _, _)| f)
-                .ok_or_else(|| {
-                    CompileError::new(
-                        CompileErrorKind::Internal {
-                            message: "function should exist in all_functions",
-                        },
-                        (0, 0),
-                    )
-                })?;
-
-            // Check if it's self-recursive
-            let is_self_recursive = call_graph
-                .get(name)
-                .is_some_and(|calls| calls.contains(name));
-
-            if is_self_recursive {
-                // Self-recursive: compute hash excluding self-reference
-                let hash =
-                    compute_scc_hash(&scc.members, &all_functions, &final_hashes, temp_hashes);
-                final_hashes.insert(Arc::clone(name), hash);
-            } else {
-                // Non-recursive: compute hash with resolved dependencies
-                let hash = compute_content_hash(func, &final_hashes, temp_hashes);
-                final_hashes.insert(Arc::clone(name), hash);
-            }
+        if is_cycle {
+            finalize_group(
+                &scc.members,
+                &members,
+                &nodes,
+                &local,
+                &mut final_hashes,
+                &mut objects,
+            )?;
         } else {
-            // Multiple functions in SCC - mutual recursion
-            // Filter out imported functions (already in final_hashes)
-            let local_members: Vec<&Arc<str>> = scc
-                .members
-                .iter()
-                .filter(|name| !final_hashes.contains_key(*name))
-                .collect();
-
-            if local_members.is_empty() {
-                // All members are imported - skip
-                continue;
-            }
-
-            // Compute a group hash for the entire SCC
-            let scc_hash =
-                compute_scc_hash(&scc.members, &all_functions, &final_hashes, temp_hashes);
-
-            // Each local function in the SCC gets a derived hash
-            for (idx, name) in local_members.iter().enumerate() {
-                let mut hasher = blake3::Hasher::new();
-                hasher.update(scc_hash.as_bytes());
-                hasher.update(&(idx as u32).to_le_bytes());
-                let hash = hasher.finalize();
-                final_hashes.insert(Arc::clone(name), hash);
-            }
+            let i = scc.members[0];
+            let subst = build_substitution(&[i], &members, &nodes, &local, &final_hashes, &|_| {
+                // Unreachable: a non-cycle singleton has no internal refs.
+                ObjectRef::External(nodes[i].temp)
+            })?;
+            let object = StoredObject::Plain(
+                function_from_compiled(&nodes[i].func, &|h| resolve_ref(&subst, h)).map_err(
+                    |_| internal_error("constant pool value cannot be content-addressed"),
+                )?,
+            );
+            let hash = object.hash();
+            final_hashes.insert(i, hash);
+            objects.insert(hash, object);
         }
     }
 
-    // Phase 4: Update all functions with final hashes
+    // Build the final module: substitute final hashes into every function.
     let mut result = CompiledModule::new();
+    result.objects = objects;
 
-    for (name, mut func, is_main, lambda_parent) in all_functions {
-        // Update FunctionRef values in constant pool
+    for (i, node) in nodes.iter().enumerate() {
+        let final_hash = *final_hashes
+            .get(&i)
+            .ok_or_else(|| internal_error("all functions should have final hashes"))?;
+
+        let mut func = node.func.clone();
         for constant in &mut func.constants {
-            if let Value::FunctionRef(ref mut hash) = constant {
-                if let Some(called_name) = temp_to_name.get(hash) {
-                    if let Some(&final_hash) = final_hashes.get(called_name) {
-                        *hash = final_hash;
-                    }
+            if let Value::FunctionRef(h) = constant {
+                if let Some(j) = local.get(h) {
+                    *h = final_hashes[j];
                 }
             }
         }
-
-        // Update dependencies
         func.dependencies = func
             .dependencies
             .iter()
-            .filter_map(|dep| {
-                temp_to_name
-                    .get(dep)
-                    .and_then(|dep_name| final_hashes.get(dep_name))
-                    .copied()
-            })
+            .map(|dep| local.get(dep).map_or(*dep, |j| final_hashes[j]))
             .collect();
-
-        // Get the final hash for this function
-        let final_hash = final_hashes.get(&name).copied().ok_or_else(|| {
-            CompileError::new(
-                CompileErrorKind::Internal {
-                    message: "all functions should have final hashes",
-                },
-                (0, 0),
-            )
-        })?;
-
-        // Update the function's hash field
         func.hash = final_hash;
 
-        // Add to functions map (both named functions and lambdas)
         result.functions.insert(final_hash, func);
 
-        if let Some(parent_name) = lambda_parent {
-            // This is a lambda - add to lambda_parents, not function_names
-            result.lambda_parents.insert(final_hash, parent_name);
-        } else {
-            // This is a named function - add to function_names
-            result.function_names.insert(name, final_hash);
-
-            if is_main {
+        if let Some(parent) = &node.lambda_parent {
+            result.lambda_parents.insert(final_hash, Arc::clone(parent));
+        } else if let Some(name) = &node.name {
+            result.function_names.insert(Arc::clone(name), final_hash);
+            if node.is_main {
                 result.entry_point = Some(final_hash);
             }
         }
@@ -218,298 +180,158 @@ pub(super) fn finalize_module_hashes(
     Ok(result)
 }
 
-/// Compute content-addressed hash for a non-recursive function.
-fn compute_content_hash(
-    func: &CompiledFunction,
-    final_hashes: &HashMap<Arc<str>, blake3::Hash>,
-    temp_hashes: &HashMap<Arc<str>, blake3::Hash>,
-) -> blake3::Hash {
-    let temp_to_name: HashMap<blake3::Hash, Arc<str>> = temp_hashes
+/// Finalize one recursive SCC as a group object.
+fn finalize_group(
+    scc_members: &[usize],
+    member_set: &HashSet<usize>,
+    nodes: &[Node],
+    local: &HashMap<blake3::Hash, usize>,
+    final_hashes: &mut HashMap<usize, blake3::Hash>,
+    objects: &mut HashMap<blake3::Hash, StoredObject>,
+) -> Result<(), CompileError> {
+    let order = canonical_member_order(scc_members, member_set, nodes, local);
+
+    let index_of: HashMap<usize, u32> = order
         .iter()
-        .map(|(name, hash)| (*hash, Arc::clone(name)))
+        .enumerate()
+        .map(|(k, &i)| (i, k as u32))
         .collect();
 
-    let mut hasher = blake3::Hasher::new();
+    let subst = build_substitution(&order, member_set, nodes, local, final_hashes, &|j| {
+        ObjectRef::Internal(index_of[&j])
+    })?;
 
-    // Hash bytecode
-    hasher.update(&(func.bytecode.len() as u32).to_le_bytes());
-    hasher.update(&func.bytecode);
+    let members = order
+        .iter()
+        .map(|&i| {
+            Ok(GroupMember {
+                name: nodes[i].name.as_ref().map(std::string::ToString::to_string),
+                function: function_from_compiled(&nodes[i].func, &|h| resolve_ref(&subst, h))
+                    .map_err(|_| {
+                        internal_error("constant pool value cannot be content-addressed")
+                    })?,
+            })
+        })
+        .collect::<Result<Vec<_>, CompileError>>()?;
 
-    // Hash constants with resolved function references
-    hasher.update(&(func.constants.len() as u32).to_le_bytes());
-    for constant in &func.constants {
-        match constant {
-            Value::FunctionRef(hash) => {
-                // Resolve to final hash if available
-                let resolved = temp_to_name
-                    .get(hash)
-                    .and_then(|name| final_hashes.get(name))
-                    .copied()
-                    .unwrap_or(*hash);
-                hasher.update(&[6u8]); // TYPE_FUNCTION_REF
-                hasher.update(resolved.as_bytes());
-            }
-            _ => hash_value_for_content(&mut hasher, constant),
+    let object = StoredObject::Group(members);
+    let group_hash = object.hash();
+    let count = order.len() as u32;
+
+    for (k, &i) in order.iter().enumerate() {
+        final_hashes.insert(i, member_hash(&group_hash, k as u32, count));
+    }
+    objects.insert(group_hash, object);
+
+    // Multi-member groups also get redirect stubs so each member's hash
+    // resolves to its group in the store.
+    if count > 1 {
+        for (k, &i) in order.iter().enumerate() {
+            objects.insert(
+                final_hashes[&i],
+                StoredObject::Redirect {
+                    group: group_hash,
+                    index: k as u32,
+                },
+            );
         }
     }
 
-    // Hash metadata
-    hasher.update(&func.local_count.to_le_bytes());
-    hasher.update(&[func.param_count]);
-
-    // Hash resolved dependencies
-    let resolved_deps: Vec<blake3::Hash> = func
-        .dependencies
-        .iter()
-        .filter_map(|dep| {
-            temp_to_name
-                .get(dep)
-                .and_then(|name| final_hashes.get(name))
-                .copied()
-        })
-        .collect();
-
-    hasher.update(&(resolved_deps.len() as u32).to_le_bytes());
-    for dep in &resolved_deps {
-        hasher.update(dep.as_bytes());
-    }
-
-    hasher.finalize()
+    Ok(())
 }
 
-/// Compute a combined hash for a strongly connected component (recursive functions).
-fn compute_scc_hash(
-    scc: &[Arc<str>],
-    all_functions: &[FunctionEntry],
-    final_hashes: &HashMap<Arc<str>, blake3::Hash>,
-    temp_hashes: &HashMap<Arc<str>, blake3::Hash>,
-) -> blake3::Hash {
-    let temp_to_name: HashMap<blake3::Hash, Arc<str>> = temp_hashes
+/// Canonical member ordering for a recursive group.
+///
+/// Named members first, sorted by name; then lambdas in the order they are
+/// first referenced while scanning already-ordered members' constant pools.
+/// Every lambda in a cycle is reachable from a named member of that cycle
+/// (lambdas cannot recurse by name), so this covers all members; a trailing
+/// temp-hash-ordered fallback guards against the impossible.
+fn canonical_member_order(
+    scc_members: &[usize],
+    member_set: &HashSet<usize>,
+    nodes: &[Node],
+    local: &HashMap<blake3::Hash, usize>,
+) -> Vec<usize> {
+    let mut order: Vec<usize> = scc_members
         .iter()
-        .map(|(name, hash)| (*hash, Arc::clone(name)))
+        .copied()
+        .filter(|&i| nodes[i].name.is_some())
         .collect();
+    order.sort_by(|&a, &b| nodes[a].name.cmp(&nodes[b].name));
 
-    // Create a set of names in this SCC for quick lookup
-    let scc_set: std::collections::HashSet<&Arc<str>> = scc.iter().collect();
-
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"__scc__");
-    hasher.update(&(scc.len() as u32).to_le_bytes());
-
-    // Sort SCC members for deterministic ordering
-    let mut sorted_scc: Vec<_> = scc.to_vec();
-    sorted_scc.sort();
-
-    for name in &sorted_scc {
-        // All functions in the SCC must exist in all_functions because the SCC
-        // was computed from this same set of functions.
-        #[allow(clippy::expect_used)]
-        let func = all_functions
-            .iter()
-            .find(|(n, _, _, _)| n == name)
-            .map(|(_, f, _, _)| f)
-            .expect("SCC function must exist in all_functions");
-
-        // Hash the function name (for position in SCC)
-        hasher.update(&(name.len() as u32).to_le_bytes());
-        hasher.update(name.as_bytes());
-
-        // Hash bytecode
-        hasher.update(&(func.bytecode.len() as u32).to_le_bytes());
-        hasher.update(&func.bytecode);
-
-        // Hash constants, but use placeholders for SCC-internal references
-        hasher.update(&(func.constants.len() as u32).to_le_bytes());
-        for constant in &func.constants {
-            match constant {
-                Value::FunctionRef(hash) => {
-                    if let Some(called_name) = temp_to_name.get(hash) {
-                        if scc_set.contains(called_name) {
-                            // Internal SCC reference - use canonical placeholder
-                            hasher.update(&[6u8]); // TYPE_FUNCTION_REF
-                            hasher.update(b"__scc_internal__");
-                            hasher.update(called_name.as_bytes());
-                        } else if let Some(&final_hash) = final_hashes.get(called_name) {
-                            // External reference - use final hash
-                            hasher.update(&[6u8]);
-                            hasher.update(final_hash.as_bytes());
-                        } else {
-                            // Unknown reference - use temp hash
-                            hasher.update(&[6u8]);
-                            hasher.update(hash.as_bytes());
-                        }
-                    } else {
-                        hasher.update(&[6u8]);
-                        hasher.update(hash.as_bytes());
+    let mut placed: HashSet<usize> = order.iter().copied().collect();
+    let mut cursor = 0;
+    while cursor < order.len() {
+        let i = order[cursor];
+        cursor += 1;
+        for constant in &nodes[i].func.constants {
+            if let Value::FunctionRef(h) = constant {
+                if let Some(&j) = local.get(h) {
+                    if member_set.contains(&j) && placed.insert(j) {
+                        order.push(j);
                     }
                 }
-                _ => hash_value_for_content(&mut hasher, constant),
             }
         }
-
-        // Hash metadata
-        hasher.update(&func.local_count.to_le_bytes());
-        hasher.update(&[func.param_count]);
     }
 
-    hasher.finalize()
+    let mut rest: Vec<usize> = scc_members
+        .iter()
+        .copied()
+        .filter(|i| !placed.contains(i))
+        .collect();
+    debug_assert!(rest.is_empty(), "unreachable member in recursive group");
+    rest.sort_by(|&a, &b| nodes[a].temp.as_bytes().cmp(nodes[b].temp.as_bytes()));
+    order.extend(rest);
+
+    order
 }
 
-/// Hash a value for content-addressing (mirrors bytecode.rs but accessible here).
-#[allow(clippy::too_many_lines)]
-fn hash_value_for_content(hasher: &mut blake3::Hasher, value: &Value) {
-    const TYPE_UNIT: u8 = 0;
-    const TYPE_BOOL: u8 = 1;
-    const TYPE_NUMBER: u8 = 2;
-    const TYPE_STRING: u8 = 3;
-    const TYPE_TUPLE: u8 = 4;
-    const TYPE_RECORD: u8 = 5;
-    const TYPE_FUNCTION_REF: u8 = 6;
-    const TYPE_SUSPENDED_ABILITY: u8 = 7;
-    const TYPE_CONTINUATION: u8 = 8;
-
-    match value {
-        Value::Unit => {
-            hasher.update(&[TYPE_UNIT]);
-        }
-        Value::Bool(b) => {
-            hasher.update(&[TYPE_BOOL, u8::from(*b)]);
-        }
-        Value::Number(n) => {
-            hasher.update(&[TYPE_NUMBER]);
-            hasher.update(&n.to_bits().to_le_bytes());
-        }
-        Value::String(s) => {
-            hasher.update(&[TYPE_STRING]);
-            hasher.update(&(s.len() as u32).to_le_bytes());
-            hasher.update(s.as_bytes());
-        }
-        Value::Bytes(b) => {
-            const TYPE_BYTES: u8 = 17;
-            hasher.update(&[TYPE_BYTES]);
-            hasher.update(&(b.len() as u32).to_le_bytes());
-            hasher.update(b);
-        }
-        Value::Tuple(elements) => {
-            hasher.update(&[TYPE_TUPLE]);
-            hasher.update(&(elements.len() as u32).to_le_bytes());
-            for elem in elements.iter() {
-                hash_value_for_content(hasher, elem);
+/// Precompute the reference substitution for a set of functions being
+/// encoded together: SCC-internal refs map via `internal`, refs to other
+/// local functions map to their (already finalized) hashes, everything else
+/// passes through as an external hash.
+fn build_substitution(
+    order: &[usize],
+    member_set: &HashSet<usize>,
+    nodes: &[Node],
+    local: &HashMap<blake3::Hash, usize>,
+    final_hashes: &HashMap<usize, blake3::Hash>,
+    internal: &dyn Fn(usize) -> ObjectRef,
+) -> Result<HashMap<blake3::Hash, ObjectRef>, CompileError> {
+    let mut subst: HashMap<blake3::Hash, ObjectRef> = HashMap::new();
+    for &i in order {
+        let func = &nodes[i].func;
+        let refs = func
+            .constants
+            .iter()
+            .filter_map(|c| match c {
+                Value::FunctionRef(h) => Some(*h),
+                _ => None,
+            })
+            .chain(func.dependencies.iter().copied());
+        for h in refs {
+            if subst.contains_key(&h) {
+                continue;
             }
-        }
-        Value::Record(fields) => {
-            hasher.update(&[TYPE_RECORD]);
-            let mut sorted_fields: Vec<_> = fields.iter().collect();
-            sorted_fields.sort_by(|a, b| a.0.cmp(b.0));
-            hasher.update(&(sorted_fields.len() as u32).to_le_bytes());
-            for (key, val) in sorted_fields {
-                hasher.update(&(key.len() as u32).to_le_bytes());
-                hasher.update(key.as_bytes());
-                hash_value_for_content(hasher, val);
-            }
-        }
-        Value::FunctionRef(h) => {
-            hasher.update(&[TYPE_FUNCTION_REF]);
-            hasher.update(h.as_bytes());
-        }
-        Value::SuspendedAbility(ability) => {
-            hasher.update(&[TYPE_SUSPENDED_ABILITY]);
-            hasher.update(&ability.ability_id.to_le_bytes());
-            hasher.update(&ability.method_id.to_le_bytes());
-            hasher.update(&(ability.args.len() as u32).to_le_bytes());
-            for arg in &ability.args {
-                hash_value_for_content(hasher, arg);
-            }
-        }
-        Value::Continuation(_) => {
-            hasher.update(&[TYPE_CONTINUATION]);
-        }
-        Value::Closure(closure) => {
-            const TYPE_CLOSURE: u8 = 9;
-            hasher.update(&[TYPE_CLOSURE]);
-            hasher.update(closure.function_hash.as_bytes());
-            hasher.update(&(closure.environment.len() as u32).to_le_bytes());
-            for val in &closure.environment {
-                hash_value_for_content(hasher, val);
-            }
-        }
-        Value::Handler(handler) => {
-            const TYPE_HANDLER: u8 = 10;
-            hasher.update(&[TYPE_HANDLER]);
-            hasher.update(&handler.ability_id.to_le_bytes());
-            // Hash methods in sorted order for deterministic hashing
-            let mut methods: Vec<_> = handler.methods.iter().collect();
-            methods.sort_by_key(|(k, _)| *k);
-            hasher.update(&(methods.len() as u32).to_le_bytes());
-            for (method_id, func_hash) in methods {
-                hasher.update(&method_id.to_le_bytes());
-                hasher.update(func_hash.as_bytes());
-            }
-            // Hash captures
-            hasher.update(&(handler.captures.len() as u32).to_le_bytes());
-            for val in &handler.captures {
-                hash_value_for_content(hasher, val);
-            }
-        }
-        Value::List(elements) => {
-            const TYPE_LIST: u8 = 11;
-            hasher.update(&[TYPE_LIST]);
-            hasher.update(&(elements.len() as u32).to_le_bytes());
-            for elem in elements.iter() {
-                hash_value_for_content(hasher, elem);
-            }
-        }
-        Value::Map(map) => {
-            const TYPE_MAP: u8 = 12;
-            hasher.update(&[TYPE_MAP]);
-            // BTreeMap is already sorted, so iteration order is deterministic
-            hasher.update(&(map.entries.len() as u32).to_le_bytes());
-            for (key, val) in &map.entries {
-                hasher.update(&(key.len() as u32).to_le_bytes());
-                hasher.update(key.as_bytes());
-                hash_value_for_content(hasher, val);
-            }
-        }
-        Value::Set(set) => {
-            const TYPE_SET: u8 = 13;
-            hasher.update(&[TYPE_SET]);
-            hasher.update(&(set.elements.len() as u32).to_le_bytes());
-            for elem in &set.elements {
-                hash_value_for_content(hasher, elem);
-            }
-        }
-        Value::Enum(e) => {
-            const TYPE_ENUM: u8 = 14;
-            hasher.update(&[TYPE_ENUM]);
-            // Hash type name
-            hasher.update(&(e.type_name.len() as u32).to_le_bytes());
-            hasher.update(e.type_name.as_bytes());
-            // Hash tag
-            hasher.update(&e.tag.to_le_bytes());
-            // Hash variant name
-            hasher.update(&(e.variant_name.len() as u32).to_le_bytes());
-            hasher.update(e.variant_name.as_bytes());
-            // Hash payload (if any)
-            if let Some(payload) = e.payload.as_deref() {
-                hasher.update(&[1u8]); // has payload marker
-                hash_value_for_content(hasher, payload);
-            } else {
-                hasher.update(&[0u8]); // no payload marker
-            }
-        }
-        Value::Module(m) => {
-            const TYPE_MODULE: u8 = 15;
-            hasher.update(&[TYPE_MODULE]);
-            hasher.update(&(m.path.len() as u32).to_le_bytes());
-            hasher.update(m.path.as_bytes());
-        }
-        Value::ModuleMember(m) => {
-            const TYPE_MODULE_MEMBER: u8 = 16;
-            hasher.update(&[TYPE_MODULE_MEMBER]);
-            hasher.update(&(m.path.len() as u32).to_le_bytes());
-            hasher.update(m.path.as_bytes());
+            let resolved = match local.get(&h) {
+                Some(&j) if member_set.contains(&j) => internal(j),
+                Some(j) => ObjectRef::External(
+                    *final_hashes
+                        .get(j)
+                        .ok_or_else(|| internal_error("dependency finalized out of order"))?,
+                ),
+                None => ObjectRef::External(h),
+            };
+            subst.insert(h, resolved);
         }
     }
+    Ok(subst)
+}
+
+fn resolve_ref(subst: &HashMap<blake3::Hash, ObjectRef>, h: &blake3::Hash) -> ObjectRef {
+    subst.get(h).copied().unwrap_or(ObjectRef::External(*h))
 }
 
 /// Compute a temporary hash for a function based on its name.

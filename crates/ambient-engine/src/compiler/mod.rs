@@ -62,15 +62,6 @@ const HANDLER_PARAM_CONTINUATION: &str = "__continuation";
 /// Name for the implicit suspended ability parameter in handler functions (slot 1).
 const HANDLER_PARAM_SUSPENDED_ABILITY: &str = "__suspended_ability";
 
-/// A compiled function entry with metadata for hash finalization.
-///
-/// Fields: (name, function, `is_main`, `lambda_parent`)
-/// - `name`: Function name or synthetic lambda key
-/// - `function`: The compiled function
-/// - `is_main`: Whether this is the module entry point
-/// - `lambda_parent`: If Some, this is a lambda and contains the parent function name
-type FunctionEntry = (Arc<str>, CompiledFunction, bool, Option<Arc<str>>);
-
 /// Helper to convert `Arc<str>` to `Value::String` (which uses `Arc<String>`).
 fn str_to_value(s: &Arc<str>) -> Value {
     Value::String(Arc::new(s.to_string()))
@@ -118,6 +109,15 @@ pub struct CompiledModule {
 
     /// The entry point function (typically "run").
     pub entry_point: Option<blake3::Hash>,
+
+    /// Canonical storage objects, keyed by object hash.
+    ///
+    /// Every function in `functions` is materialized from exactly one of
+    /// these objects; recursive groups are stored as a single group object
+    /// plus redirect stubs at each member hash. These are the bytes whose
+    /// blake3 hash *is* the function identity — persist or transmit these,
+    /// not the runtime `functions`.
+    pub objects: HashMap<blake3::Hash, crate::object::StoredObject>,
 }
 
 impl CompiledModule {
@@ -129,6 +129,7 @@ impl CompiledModule {
             function_names: HashMap::new(),
             lambda_parents: HashMap::new(),
             entry_point: None,
+            objects: HashMap::new(),
         }
     }
 
@@ -163,6 +164,9 @@ impl CompiledModule {
             self.lambda_parents
                 .entry(*hash)
                 .or_insert_with(|| Arc::clone(parent));
+        }
+        for (hash, object) in &other.objects {
+            self.objects.entry(*hash).or_insert_with(|| object.clone());
         }
         // Don't overwrite entry point if we already have one
         if self.entry_point.is_none() {
@@ -618,18 +622,11 @@ fn compile_module_impl(
         compiled_functions.push((Arc::clone(symbol), compiled, false));
     }
 
-    // Collect lambda info: (temp_hash, parent_name, compiled_func)
-    // We need temp hashes for the call graph, but lambdas go to lambda_parents not function_names.
+    // Collect lambda info: (temp_hash, parent_name, compiled_func).
     let lambdas: Vec<(blake3::Hash, Arc<str>, CompiledFunction)> = ctx.lambdas;
-    for (lambda_hash, _parent, _func) in &lambdas {
-        // Add to temp_hashes so call graph analysis works.
-        // Use hash as "name" for the temp mapping.
-        let lambda_key: Arc<str> = format!("__lambda_{lambda_hash}").into();
-        temp_hashes.insert(lambda_key, *lambda_hash);
-    }
 
     // Phase 3: Compute content-addressed hashes and finalize the module.
-    finalize_module_hashes(compiled_functions, lambdas, &temp_hashes)
+    finalize_module_hashes(compiled_functions, lambdas)
 }
 
 /// Compile a function with pre-determined hash.

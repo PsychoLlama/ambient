@@ -427,9 +427,8 @@ pub fn register_log(vm: &mut Vm, config: LogConfig) {
 
 use tokio::runtime::Handle as RuntimeHandle;
 
-use crate::bytecode::CompiledFunction;
 use crate::network_state::NetworkState;
-use crate::store::{PortableFunction, Store};
+use crate::store::Store;
 
 /// Configuration for the Network ability.
 pub struct NetworkConfig {
@@ -695,16 +694,12 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
                 }
             };
 
-            // Deserialize the portable functions from JSON
-            let portable_functions: Vec<PortableFunction> = serde_json::from_slice(&data)
-                .map_err(|e| VmError::IoError(format!("deserialize error: {e}")))?;
-
+            // Decode the canonical object pack. Hashes are recomputed from
+            // the object bytes, never trusted from the sender.
             let mut store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            for pf in portable_functions {
-                let func = CompiledFunction::try_from(pf)
-                    .map_err(|e| VmError::IoError(format!("invalid function: {e}")))?;
-                store.add(func);
-            }
+            store
+                .add_pack(&data)
+                .map_err(|e| VmError::IoError(format!("invalid function pack: {e}")))?;
             Ok(Value::Unit)
         }),
     );
@@ -786,8 +781,11 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
             };
 
             let store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            let mut portable_functions = Vec::new();
 
+            // Collect every requested function plus transitive dependencies
+            // into one deduplicated store, then ship its canonical objects
+            // as a pack.
+            let mut subset = crate::store::Store::new();
             for hash_value in hashes.iter() {
                 let hash_str = match hash_value {
                     Value::String(s) => s,
@@ -802,19 +800,12 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
                 let hash = parse_hash(hash_str)
                     .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
 
-                // Extract the function and all dependencies
-                let subset = store.extract_with_dependencies(&hash);
-                for func_hash in subset.hashes() {
-                    if let Some(func) = subset.get(&func_hash) {
-                        portable_functions.push(PortableFunction::from(func.as_ref()));
-                    }
-                }
+                subset.merge(&store.extract_with_dependencies(&hash));
             }
-
             drop(store);
 
-            // Serialize using JSON (same format as load_functions expects)
-            let bytes = serde_json::to_vec(&portable_functions)
+            let bytes = subset
+                .serialize()
                 .map_err(|e| VmError::IoError(format!("serialize error: {e}")))?;
 
             Ok(Value::bytes(bytes))

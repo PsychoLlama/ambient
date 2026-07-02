@@ -29,7 +29,6 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::store::PortableFunction;
 use crate::value::Value;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -194,8 +193,10 @@ pub enum Message {
 
     /// Client provides requested functions.
     Provide {
-        /// The functions being provided.
-        functions: Vec<PortableFunction>,
+        /// A canonical object pack (see [`crate::store::encode_pack`]),
+        /// base64-encoded for JSON transport. The receiver decodes the pack
+        /// and recomputes every hash from the object bytes.
+        pack: String,
     },
 
     /// Successful execution result.

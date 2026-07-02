@@ -1,24 +1,43 @@
-//! Content-addressed store for compiled functions.
+//! Content-addressed store for compiled code.
 //!
-//! This module provides a content-addressed storage system where functions are
-//! identified by the hash of their implementation and type signature.
+//! The store holds two views of the same code:
+//!
+//! - **Objects** ([`StoredObject`]) — the canonical, self-verifying encoding.
+//!   An object's hash is the blake3 of its bytes, so objects can be
+//!   persisted, transmitted, and re-verified anywhere. These are the unit of
+//!   exchange (serialization, remote execution, disk).
+//! - **Functions** ([`CompiledFunction`]) — the runnable view, materialized
+//!   from objects. A plain object yields one function; a recursive group
+//!   object yields one function per member.
+//!
+//! Functions added directly (without a canonical object, e.g. hand-built in
+//! tests or REPL scratch code) are runnable but not portable: they cannot be
+//! serialized or shipped, and [`Store::extract_pack`] reports them as
+//! missing objects.
 //!
 //! # SCC Detection
 //!
-//! For mutually recursive functions, we use Tarjan's algorithm to detect strongly
-//! connected components (SCCs). Functions in the same SCC are hashed together
-//! to ensure consistent identification.
+//! For mutually recursive functions, we use Tarjan's algorithm to detect
+//! strongly connected components (SCCs). Functions in the same SCC are
+//! hashed together as one group object.
 
 #![allow(clippy::must_use_candidate)]
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
+// Pack length prefixes are u32 by design (canonical fixed-width encoding).
+#![allow(clippy::cast_possible_truncation)]
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
-
 use crate::bytecode::CompiledFunction;
+use crate::object::{ObjectError, StoredObject};
+
+/// Magic bytes identifying a pack (a batch of objects with roots).
+pub const PACK_MAGIC: [u8; 4] = *b"ABPK";
+
+/// Current pack encoding version.
+pub const PACK_VERSION: u8 = 1;
 
 /// A content-addressed store for compiled functions.
 ///
@@ -28,8 +47,12 @@ use crate::bytecode::CompiledFunction;
 /// - Serialization for remote execution
 #[derive(Debug, Default)]
 pub struct Store {
-    /// Hash -> compiled function
+    /// Function hash -> runnable function (materialized view).
     functions: HashMap<blake3::Hash, Arc<CompiledFunction>>,
+    /// Object hash -> canonical object (plain functions and groups).
+    objects: HashMap<blake3::Hash, StoredObject>,
+    /// Function hash -> hash of the object that provides it.
+    providers: HashMap<blake3::Hash, blake3::Hash>,
 }
 
 impl Store {
@@ -40,10 +63,61 @@ impl Store {
     }
 
     /// Add a function to the store. Returns the hash.
+    ///
+    /// The function is runnable but has no canonical object, so it cannot be
+    /// serialized or shipped. Prefer [`Store::add_object`] or
+    /// [`Store::add_module`] for code that must be portable.
     pub fn add(&mut self, func: CompiledFunction) -> blake3::Hash {
         let hash = func.hash;
         self.functions.insert(hash, Arc::new(func));
         hash
+    }
+
+    /// Add a canonical object, materializing its function(s).
+    ///
+    /// Returns the object hash. Redirects are rejected: they are a
+    /// disk-layout artifact, not portable content.
+    pub fn add_object(&mut self, object: StoredObject) -> Result<blake3::Hash, StoreError> {
+        let materialized = object.materialize().map_err(StoreError::Object)?;
+        let object_hash = object.hash();
+        for (func_hash, func) in materialized {
+            // Keep an existing entry if present: it may carry debug info.
+            self.functions
+                .entry(func_hash)
+                .or_insert_with(|| Arc::new(func));
+            self.providers.insert(func_hash, object_hash);
+        }
+        self.objects.insert(object_hash, object);
+        Ok(object_hash)
+    }
+
+    /// Add everything from a compiled module: canonical objects first, then
+    /// the module's own functions (which may carry debug info) as the
+    /// materialized view.
+    pub fn add_module(&mut self, module: &crate::compiler::CompiledModule) {
+        for object in module.objects.values() {
+            if matches!(object, StoredObject::Redirect { .. }) {
+                continue;
+            }
+            // Objects from a compiled module are well-formed by construction.
+            let _ = self.add_object(object.clone());
+        }
+        for (hash, func) in &module.functions {
+            self.functions.insert(*hash, Arc::new(func.clone()));
+        }
+    }
+
+    /// Get the canonical object that provides a function.
+    #[must_use]
+    pub fn object_for(&self, func_hash: &blake3::Hash) -> Option<&StoredObject> {
+        let object_hash = self.providers.get(func_hash)?;
+        self.objects.get(object_hash)
+    }
+
+    /// All canonical objects in the store, keyed by object hash.
+    #[must_use]
+    pub fn objects(&self) -> &HashMap<blake3::Hash, StoredObject> {
+        &self.objects
     }
 
     /// Get a function by its hash.
@@ -123,27 +197,80 @@ impl Store {
         }
     }
 
-    /// Serialize the store to a portable format.
+    /// Serialize every canonical object in the store as a pack.
+    ///
+    /// Functions without canonical objects are not included; use
+    /// [`Store::extract_pack`] to fail loudly when a specific function must
+    /// be shipped.
     pub fn serialize(&self) -> Result<Vec<u8>, StoreError> {
-        let portable: PortableStore = self.into();
-        serde_json::to_vec(&portable).map_err(|e| StoreError::Serialization(e.to_string()))
+        let mut hashes: Vec<&blake3::Hash> = self.objects.keys().collect();
+        hashes.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        let objects: Vec<&StoredObject> = hashes.iter().map(|h| &self.objects[*h]).collect();
+        Ok(encode_pack(&objects))
     }
 
-    /// Deserialize a store from a portable format.
+    /// Deserialize a store from a pack.
+    ///
+    /// Every object is decoded from its canonical bytes, so hashes are
+    /// recomputed (never trusted) and corruption is unrepresentable: a
+    /// flipped bit yields a different object with a different hash.
     pub fn deserialize(data: &[u8]) -> Result<Self, StoreError> {
-        let portable: PortableStore =
-            serde_json::from_slice(data).map_err(|e| StoreError::Deserialization(e.to_string()))?;
-        portable.try_into()
+        let mut store = Store::new();
+        store.add_pack(data)?;
+        Ok(store)
+    }
+
+    /// Decode a pack and add every object in it. Redirects are skipped.
+    pub fn add_pack(&mut self, data: &[u8]) -> Result<(), StoreError> {
+        for object in decode_pack(data)? {
+            if matches!(object, StoredObject::Redirect { .. }) {
+                continue;
+            }
+            self.add_object(object)?;
+        }
+        Ok(())
+    }
+
+    /// Serialize a function and all its transitive dependencies as a pack.
+    ///
+    /// Fails if the function (or any dependency) has no canonical object.
+    pub fn extract_pack(&self, hash: &blake3::Hash) -> Result<Vec<u8>, StoreError> {
+        let subset = self.extract_with_dependencies(hash);
+        let mut object_hashes: Vec<blake3::Hash> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut function_hashes: Vec<blake3::Hash> = subset.hashes();
+        function_hashes.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        for func_hash in function_hashes {
+            let object_hash = self
+                .providers
+                .get(&func_hash)
+                .ok_or(StoreError::MissingObject(func_hash))?;
+            if seen.insert(*object_hash) {
+                object_hashes.push(*object_hash);
+            }
+        }
+        let objects: Vec<&StoredObject> = object_hashes
+            .iter()
+            .filter_map(|h| self.objects.get(h))
+            .collect();
+        Ok(encode_pack(&objects))
     }
 
     /// Merge another store into this one.
     ///
-    /// Functions from the other store are added if they don't already exist.
+    /// Functions and objects from the other store are added if they don't
+    /// already exist.
     pub fn merge(&mut self, other: &Store) {
         for (hash, func) in &other.functions {
             if !self.contains(hash) {
                 self.functions.insert(*hash, Arc::clone(func));
             }
+        }
+        for (hash, object) in &other.objects {
+            self.objects.entry(*hash).or_insert_with(|| object.clone());
+        }
+        for (func_hash, object_hash) in &other.providers {
+            self.providers.entry(*func_hash).or_insert(*object_hash);
         }
     }
 
@@ -173,8 +300,79 @@ impl Store {
             }
             // Then add the function itself
             result.functions.insert(*hash, Arc::clone(&func));
+            if let Some(object_hash) = self.providers.get(hash) {
+                result.providers.insert(*hash, *object_hash);
+                if let Some(object) = self.objects.get(object_hash) {
+                    result
+                        .objects
+                        .entry(*object_hash)
+                        .or_insert_with(|| object.clone());
+                }
+            }
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pack encoding
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Encode a batch of objects as a pack:
+/// `"ABPK" | version u8 | count u32 | (len u32, object bytes)*`
+/// (integers little-endian).
+#[must_use]
+pub fn encode_pack(objects: &[&StoredObject]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&PACK_MAGIC);
+    out.push(PACK_VERSION);
+    out.extend_from_slice(&(objects.len() as u32).to_le_bytes());
+    for object in objects {
+        let encoded = object.encode();
+        out.extend_from_slice(&(encoded.len() as u32).to_le_bytes());
+        out.extend_from_slice(&encoded);
+    }
+    out
+}
+
+/// Decode a pack into its objects.
+pub fn decode_pack(data: &[u8]) -> Result<Vec<StoredObject>, StoreError> {
+    let err = |msg: &str| StoreError::Deserialization(msg.to_string());
+    if data.len() < 9 {
+        return Err(err("pack is truncated"));
+    }
+    if data[0..4] != PACK_MAGIC {
+        return Err(err("not an Ambient pack (bad magic)"));
+    }
+    if data[4] != PACK_VERSION {
+        return Err(StoreError::Deserialization(format!(
+            "unsupported pack version {}",
+            data[4]
+        )));
+    }
+    let count = u32::from_le_bytes([data[5], data[6], data[7], data[8]]) as usize;
+    let mut objects = Vec::with_capacity(count.min(1024));
+    let mut pos: usize = 9;
+    for _ in 0..count {
+        let end = pos.checked_add(4).ok_or_else(|| err("pack is truncated"))?;
+        if end > data.len() {
+            return Err(err("pack is truncated"));
+        }
+        let len =
+            u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
+        pos = end;
+        let end = pos
+            .checked_add(len)
+            .ok_or_else(|| err("pack is truncated"))?;
+        if end > data.len() {
+            return Err(err("pack is truncated"));
+        }
+        objects.push(StoredObject::decode(&data[pos..end]).map_err(StoreError::Object)?);
+        pos = end;
+    }
+    if pos != data.len() {
+        return Err(err("trailing bytes after pack"));
+    }
+    Ok(objects)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -410,17 +608,16 @@ impl Store {
 }
 
 /// Error type for store operations.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StoreError {
     /// Serialization failed.
     Serialization(String),
     /// Deserialization failed.
     Deserialization(String),
-    /// Hash mismatch during deserialization.
-    HashMismatch {
-        expected: blake3::Hash,
-        computed: blake3::Hash,
-    },
+    /// A canonical object was malformed.
+    Object(ObjectError),
+    /// A function has no canonical object and cannot be shipped.
+    MissingObject(blake3::Hash),
 }
 
 impl std::fmt::Display for StoreError {
@@ -428,139 +625,15 @@ impl std::fmt::Display for StoreError {
         match self {
             Self::Serialization(msg) => write!(f, "serialization error: {msg}"),
             Self::Deserialization(msg) => write!(f, "deserialization error: {msg}"),
-            Self::HashMismatch { expected, computed } => {
-                write!(f, "hash mismatch: expected {expected}, computed {computed}")
+            Self::Object(e) => write!(f, "object error: {e}"),
+            Self::MissingObject(hash) => {
+                write!(f, "function {hash} has no canonical object; cannot ship it")
             }
         }
     }
 }
 
 impl std::error::Error for StoreError {}
-
-/// Portable representation of a store for serialization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PortableStore {
-    /// Version number for format compatibility.
-    pub version: u32,
-    /// The functions in the store.
-    pub functions: Vec<PortableFunction>,
-}
-
-impl From<&Store> for PortableStore {
-    fn from(store: &Store) -> Self {
-        Self {
-            version: 1,
-            functions: store
-                .functions
-                .values()
-                .map(|f| PortableFunction::from(f.as_ref()))
-                .collect(),
-        }
-    }
-}
-
-impl TryFrom<PortableStore> for Store {
-    type Error = StoreError;
-
-    fn try_from(portable: PortableStore) -> Result<Self, Self::Error> {
-        let mut store = Store::new();
-        for pf in portable.functions {
-            let func = CompiledFunction::try_from(pf)?;
-            store.add(func);
-        }
-        Ok(store)
-    }
-}
-
-/// Portable representation of a compiled function for serialization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PortableFunction {
-    /// The content hash (hex-encoded for JSON compatibility).
-    pub hash: String,
-    /// The bytecode as base64.
-    pub bytecode: String,
-    /// Constants as JSON values.
-    pub constants: Vec<crate::value::Value>,
-    /// Number of local slots.
-    pub local_count: u16,
-    /// Number of parameters.
-    pub param_count: u8,
-    /// Dependencies (hex-encoded hashes).
-    pub dependencies: Vec<String>,
-}
-
-impl From<&CompiledFunction> for PortableFunction {
-    fn from(func: &CompiledFunction) -> Self {
-        use base64::Engine;
-        Self {
-            hash: func.hash.to_hex().to_string(),
-            bytecode: base64::engine::general_purpose::STANDARD.encode(&func.bytecode),
-            constants: func.constants.clone(),
-            local_count: func.local_count,
-            param_count: func.param_count,
-            dependencies: func
-                .dependencies
-                .iter()
-                .map(|h| h.to_hex().to_string())
-                .collect(),
-        }
-    }
-}
-
-impl TryFrom<PortableFunction> for CompiledFunction {
-    type Error = StoreError;
-
-    fn try_from(pf: PortableFunction) -> Result<Self, Self::Error> {
-        use base64::Engine;
-
-        // Decode bytecode
-        let bytecode = base64::engine::general_purpose::STANDARD
-            .decode(&pf.bytecode)
-            .map_err(|e| StoreError::Deserialization(format!("invalid base64: {e}")))?;
-
-        // Decode dependencies
-        let deps: Vec<blake3::Hash> = pf
-            .dependencies
-            .iter()
-            .map(|s| parse_hash(s))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        // Create function with computed hash
-        let func = CompiledFunction::with_dependencies(
-            bytecode,
-            pf.constants,
-            pf.local_count,
-            pf.param_count,
-            deps,
-        );
-
-        // Verify hash matches
-        let expected = parse_hash(&pf.hash)?;
-        if func.hash != expected {
-            return Err(StoreError::HashMismatch {
-                expected,
-                computed: func.hash,
-            });
-        }
-
-        Ok(func)
-    }
-}
-
-/// Parse a hex-encoded hash string.
-fn parse_hash(s: &str) -> Result<blake3::Hash, StoreError> {
-    let bytes =
-        hex::decode(s).map_err(|e| StoreError::Deserialization(format!("invalid hex: {e}")))?;
-    if bytes.len() != 32 {
-        return Err(StoreError::Deserialization(format!(
-            "invalid hash length: expected 32, got {}",
-            bytes.len()
-        )));
-    }
-    let mut arr = [0u8; 32];
-    arr.copy_from_slice(&bytes);
-    Ok(blake3::Hash::from_bytes(arr))
-}
 
 #[cfg(test)]
 mod tests {
@@ -581,12 +654,16 @@ mod tests {
         func
     }
 
-    /// Create a function with a content-derived hash for serialization testing.
-    fn make_content_addressed_function(return_value: f64) -> CompiledFunction {
-        let mut builder = BytecodeBuilder::new();
-        builder.emit_const(Value::Number(return_value));
-        builder.emit(Opcode::Return);
-        builder.build(0, 0)
+    /// Create a canonical plain object for serialization testing.
+    fn make_plain_object(return_value: f64) -> StoredObject {
+        use crate::object::{ObjectConstant, ObjectFunction};
+        StoredObject::Plain(ObjectFunction {
+            bytecode: vec![1, 2, 3],
+            constants: vec![ObjectConstant::Number(return_value)],
+            local_count: 0,
+            param_count: 0,
+            dependencies: vec![],
+        })
     }
 
     #[test]
@@ -712,10 +789,8 @@ mod tests {
     fn test_store_serialize_roundtrip() {
         let mut store = Store::new();
 
-        // Use content-addressed function for serialization test
-        let func = make_content_addressed_function(42.0);
-        let hash = func.hash;
-        store.add(func);
+        let object = make_plain_object(42.0);
+        let hash = store.add_object(object).expect("add_object failed");
 
         // Serialize
         let data = store.serialize().expect("serialization failed");
@@ -733,20 +808,21 @@ mod tests {
 
     #[test]
     fn test_store_serialize_with_dependencies() {
+        use crate::object::{ObjectConstant, ObjectFunction, ObjectRef};
+
         let mut store = Store::new();
 
-        // Create two content-addressed functions with a dependency relationship
-        let dep_func = make_content_addressed_function(1.0);
-        let dep_hash = dep_func.hash;
+        let dep_object = make_plain_object(1.0);
+        let dep_hash = store.add_object(dep_object).expect("add dep failed");
 
-        let mut main_builder = BytecodeBuilder::new();
-        main_builder.emit_call(dep_hash, 0);
-        main_builder.emit(Opcode::Return);
-        let main_func = main_builder.build_with_dependencies(0, 0, vec![dep_hash]);
-        let main_hash = main_func.hash;
-
-        store.add(dep_func);
-        store.add(main_func);
+        let main_object = StoredObject::Plain(ObjectFunction {
+            bytecode: vec![9, 9],
+            constants: vec![ObjectConstant::Ref(ObjectRef::External(dep_hash))],
+            local_count: 0,
+            param_count: 0,
+            dependencies: vec![ObjectRef::External(dep_hash)],
+        });
+        let main_hash = store.add_object(main_object).expect("add main failed");
 
         // Serialize and deserialize
         let data = store.serialize().expect("serialization failed");
@@ -758,6 +834,59 @@ mod tests {
 
         let main2 = store2.get(&main_hash).expect("main function not found");
         assert_eq!(main2.dependencies, vec![dep_hash]);
+    }
+
+    #[test]
+    fn test_recursive_group_survives_roundtrip() {
+        use crate::object::{member_hash, GroupMember, ObjectConstant, ObjectFunction, ObjectRef};
+
+        // Mutually recursive pair, stored as one group object.
+        let make_member = |name: &str, other: u32| GroupMember {
+            name: Some(name.to_string()),
+            function: ObjectFunction {
+                bytecode: vec![7],
+                constants: vec![ObjectConstant::Ref(ObjectRef::Internal(other))],
+                local_count: 0,
+                param_count: 1,
+                dependencies: vec![ObjectRef::Internal(other)],
+            },
+        };
+        let group = StoredObject::Group(vec![make_member("even", 1), make_member("odd", 0)]);
+        let group_hash = group.hash();
+
+        let mut store = Store::new();
+        store.add_object(group).expect("add group failed");
+
+        let even_hash = member_hash(&group_hash, 0, 2);
+        let odd_hash = member_hash(&group_hash, 1, 2);
+        assert!(store.contains(&even_hash));
+        assert!(store.contains(&odd_hash));
+
+        // The old JSON format failed hash verification for recursive
+        // functions (member hashes are not recomputable from a single
+        // function). The pack format ships the group object, so recursion
+        // survives serialization.
+        let data = store.extract_pack(&even_hash).expect("extract failed");
+        let store2 = Store::deserialize(&data).expect("deserialize failed");
+        assert!(store2.contains(&even_hash));
+        assert!(store2.contains(&odd_hash));
+        assert_eq!(
+            store2.get(&even_hash).expect("even missing").dependencies,
+            vec![odd_hash]
+        );
+    }
+
+    #[test]
+    fn test_extract_pack_rejects_unportable_function() {
+        let mut store = Store::new();
+        let func = make_test_function("test::scratch", 1.0);
+        let hash = func.hash;
+        store.add(func);
+
+        assert!(matches!(
+            store.extract_pack(&hash),
+            Err(StoreError::MissingObject(h)) if h == hash
+        ));
     }
 
     // =========================================================================

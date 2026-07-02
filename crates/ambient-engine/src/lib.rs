@@ -25,6 +25,7 @@ pub mod manifest;
 pub mod module_path;
 pub mod module_registry;
 pub mod network_state;
+pub mod object;
 pub mod package;
 pub mod protocol;
 pub mod runtime_config;

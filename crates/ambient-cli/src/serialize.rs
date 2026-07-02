@@ -142,6 +142,7 @@ pub fn deserialize_module(serialized: &SerializedModule) -> Result<CompiledModul
         function_names,
         lambda_parents: HashMap::new(), // Lambdas not serialized
         entry_point,
+        objects: HashMap::new(), // Legacy format carries no canonical objects
     })
 }
 
