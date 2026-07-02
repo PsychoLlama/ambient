@@ -217,26 +217,31 @@ fn eval_repl_input(
     line: &str,
 ) -> Result<Option<ambient_engine::value::Value>, String> {
     // Check if the input is a module path (e.g., "core", "core::math", "Console").
-    // This allows users to inspect modules by just typing their name. Modules are
+    // This allows users to inspect modules by just typing their name. Namespaces
+    // are addressed with `::`; a `.` is value/field access and must never resolve
+    // a namespace, so a dotted path (e.g. `core.math.sign`) is not a module
+    // inspection — it falls through to the parser, which rejects it. Modules are
     // keyed internally by their dotted path, so translate the `::` the user types.
     let trimmed = line.trim();
-    let lookup = trimmed.replace("::", ".");
-    if let Some(module) = ctx.get_module(&lookup) {
-        return Ok(Some(ambient_engine::value::Value::Module(
-            std::sync::Arc::clone(module),
-        )));
-    }
+    if !trimmed.contains('.') {
+        let lookup = trimmed.replace("::", ".");
+        if let Some(module) = ctx.get_module(&lookup) {
+            return Ok(Some(ambient_engine::value::Value::Module(
+                std::sync::Arc::clone(module),
+            )));
+        }
 
-    // Check if the input is a module member path (e.g., "core::list::first").
-    // This allows users to inspect functions and constants from modules.
-    if let Some(kind) = ctx.get_module_member(&lookup) {
-        use ambient_engine::value::ModuleMemberRef;
-        return Ok(Some(ambient_engine::value::Value::ModuleMember(
-            std::sync::Arc::new(ModuleMemberRef {
-                path: trimmed.into(),
-                kind,
-            }),
-        )));
+        // Check if the input is a module member path (e.g., "core::list::first").
+        // This allows users to inspect functions and constants from modules.
+        if let Some(kind) = ctx.get_module_member(&lookup) {
+            use ambient_engine::value::ModuleMemberRef;
+            return Ok(Some(ambient_engine::value::Value::ModuleMember(
+                std::sync::Arc::new(ModuleMemberRef {
+                    path: trimmed.into(),
+                    kind,
+                }),
+            )));
+        }
     }
 
     // Parse the input as either an item or an expression.

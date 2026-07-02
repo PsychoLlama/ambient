@@ -330,6 +330,18 @@ fn test_core_list_first_inspects_as_function() {
 }
 
 #[test]
+fn test_dotted_module_path_is_rejected() {
+    // Namespaces are addressed with `::`. A dotted path like `core.math.sign`
+    // is value/field access, not a namespace, so it must NOT resolve as a module
+    // member — it parses as field access on the (undefined) value `core`.
+    ReplTest::new()
+        .wait_ready()
+        .type_line("core.math.sign")
+        .expect_error("undefined")
+        .shutdown();
+}
+
+#[test]
 fn test_user_defined_function_inspection() {
     // For comparison: user-defined functions should also be inspectable
     ReplTest::new()

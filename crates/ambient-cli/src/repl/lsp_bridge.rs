@@ -13,7 +13,7 @@ use ambient_lsp::{CompletionService, ExternalSymbol, ExternalSymbolKind, ReplCom
 pub struct ReplLspBridge {
     /// The underlying completion service.
     service: CompletionService,
-    /// Discovered project module paths for `pkg.` completions.
+    /// Discovered project module paths for `pkg::` completions.
     module_paths: Vec<String>,
 }
 
@@ -45,13 +45,13 @@ impl ReplLspBridge {
 
     /// Get completions for REPL input.
     ///
-    /// Handles REPL-specific completion logic like `pkg.` module completions
+    /// Handles REPL-specific completion logic like `pkg::` module completions
     /// and delegates to the LSP service for standard completions.
     pub fn get_completions(&mut self, line: &str, pos: usize) -> Vec<ReplCompletion> {
-        // Find the word being typed (including dots for qualified names)
+        // Find the word being typed (including `::` for qualified names).
         let before_cursor = &line[..pos];
         let word_start = before_cursor
-            .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
+            .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != ':')
             .map_or(0, |i| i + 1);
         let full_prefix = &before_cursor[word_start..];
 
@@ -87,9 +87,10 @@ impl ReplLspBridge {
             return None;
         }
 
-        // Find the full prefix (including dots for qualified names like "core.list")
+        // Find the full prefix (including `::` for qualified names like
+        // "core::list").
         let word_start = line
-            .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
+            .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != ':')
             .map_or(0, |i| i + 1);
         let full_prefix = &line[word_start..];
 
@@ -101,11 +102,11 @@ impl ReplLspBridge {
 
         // Show the best match as ghost text
         completions.first().map(|c| {
-            // Completions after a dot only replace the part after the dot.
-            // For example, typing "core.list" gets completions like "list" (not "core.list").
-            // We need to match against the part after the last dot.
-            let match_prefix = if let Some(dot_pos) = full_prefix.rfind('.') {
-                &full_prefix[dot_pos + 1..]
+            // Completions after a `::` scope only replace the trailing segment.
+            // For example, typing "core::list" gets completions like "list" (not
+            // "core::list"), so match against the part after the last `::`.
+            let match_prefix = if let Some(sep) = full_prefix.rfind("::") {
+                &full_prefix[sep + 2..]
             } else {
                 full_prefix
             };
@@ -123,38 +124,42 @@ impl ReplLspBridge {
     ///
     /// Returns `None` if standard LSP completions should be used.
     fn get_repl_specific_completions(&self, full_prefix: &str) -> Option<Vec<ReplCompletion>> {
-        // Check for dot in prefix
-        if let Some(dot_pos) = full_prefix.rfind('.') {
-            let before_dot = &full_prefix[..dot_pos];
-            let after_dot = &full_prefix[dot_pos + 1..];
+        // Namespace paths are addressed with `::`.
+        if let Some(sep) = full_prefix.rfind("::") {
+            let before_scope = &full_prefix[..sep];
+            let after_scope = &full_prefix[sep + 2..];
 
-            // `pkg.` - complete project module names
-            if before_dot == "pkg" {
-                return Some(self.get_pkg_module_completions(after_dot, "pkg."));
+            // `pkg::` - complete project module names
+            if before_scope == "pkg" {
+                return Some(self.get_pkg_module_completions(after_scope));
             }
 
-            // `pkg.module.` - complete module members (not supported yet, return empty)
-            if before_dot.starts_with("pkg.") {
+            // `pkg::module::` - complete module members (not supported yet, return empty)
+            if before_scope.starts_with("pkg::") {
                 // For now, we don't have module member introspection from LSP
                 // This could be enhanced later
                 return Some(Vec::new());
             }
 
-            // `core.` is handled by LSP
-            // Ability methods (Console., etc.) are handled by LSP
+            // `core::` is handled by LSP
+            // Ability methods (Console::, etc.) are handled by LSP
         }
 
         None
     }
 
-    /// Get project module completions for `pkg.` prefix.
-    fn get_pkg_module_completions(&self, prefix: &str, insert_prefix: &str) -> Vec<ReplCompletion> {
+    /// Get project module completions for `pkg::` prefix.
+    ///
+    /// The replacement is the module path *relative* to `pkg::` (e.g. `math`,
+    /// not `pkg::math`): the completer replaces from just after the trailing
+    /// `::`, so the `pkg::` the user already typed must not be repeated.
+    fn get_pkg_module_completions(&self, prefix: &str) -> Vec<ReplCompletion> {
         self.module_paths
             .iter()
             .filter(|p| p.starts_with(prefix))
             .map(|p| ReplCompletion {
                 label: p.clone(),
-                replacement: format!("{insert_prefix}{p}"),
+                replacement: p.clone(),
                 detail: Some("project module".to_string()),
                 priority: 15,
             })
@@ -236,7 +241,8 @@ fn path_to_module(path: &Path, src_root: &Path) -> Option<String> {
         }
     }
 
-    Some(segments.join("."))
+    // Qualified module paths are addressed with `::` (e.g. `pkg::foo::bar`).
+    Some(segments.join("::"))
 }
 
 #[cfg(test)]
@@ -254,12 +260,17 @@ mod tests {
         let mut bridge = ReplLspBridge::new(Path::new("/nonexistent"));
         bridge.module_paths = vec!["utils".to_string(), "math".to_string()];
 
-        let completions = bridge.get_repl_specific_completions("pkg.");
+        let completions = bridge.get_repl_specific_completions("pkg::");
         assert!(completions.is_some());
         let completions = completions.unwrap();
         assert_eq!(completions.len(), 2);
         assert!(completions.iter().any(|c| c.label == "utils"));
         assert!(completions.iter().any(|c| c.label == "math"));
+        // Replacements are relative to `pkg::` (never dotted, never re-prefixed).
+        assert!(completions.iter().all(|c| !c.replacement.contains('.')));
+        assert!(completions
+            .iter()
+            .all(|c| !c.replacement.starts_with("pkg::")));
     }
 
     #[test]
@@ -267,11 +278,12 @@ mod tests {
         let mut bridge = ReplLspBridge::new(Path::new("/nonexistent"));
         bridge.module_paths = vec!["utils".to_string(), "math".to_string()];
 
-        let completions = bridge.get_repl_specific_completions("pkg.ma");
+        let completions = bridge.get_repl_specific_completions("pkg::ma");
         assert!(completions.is_some());
         let completions = completions.unwrap();
         assert_eq!(completions.len(), 1);
         assert_eq!(completions[0].label, "math");
+        assert_eq!(completions[0].replacement, "math");
     }
 
     #[test]
@@ -280,7 +292,7 @@ mod tests {
 
         // Standard completions should return None (use LSP)
         assert!(bridge.get_repl_specific_completions("Con").is_none());
-        assert!(bridge.get_repl_specific_completions("Console.").is_none());
-        assert!(bridge.get_repl_specific_completions("core.").is_none());
+        assert!(bridge.get_repl_specific_completions("Console::").is_none());
+        assert!(bridge.get_repl_specific_completions("core::").is_none());
     }
 }
