@@ -10,7 +10,7 @@
 
 use super::{type_error, Infer, InferResult, TypeEnv, TypeErrorKind};
 use crate::ast::{AbilityCall, HandleExpr};
-use crate::types::{AbilitySet, Type};
+use crate::types::{AbilityId, AbilitySet, Type};
 
 impl Infer {
     /// Infer the type of a perform expression.
@@ -115,7 +115,7 @@ impl Infer {
             } else {
                 return Err(type_error(
                     TypeErrorKind::TypeMismatch {
-                        expected: Type::handler(0), // Generic Handler type
+                        expected: Type::handler(AbilityId::from_bytes([0; 32])), // Generic Handler type
                         actual: handler_ty,
                     },
                     (handler_value.span.start, handler_value.span.end),

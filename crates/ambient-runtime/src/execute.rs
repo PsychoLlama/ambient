@@ -10,13 +10,13 @@
 //! - `load_functions(data: Bytes) -> ()` - Load portable functions
 //! - `run<T, R>(hash: string, args: T) -> R` - Execute function by hash
 
+use std::sync::OnceLock;
+
 use ambient_ability::{HostHandler, RuntimeAbility};
 use ambient_core::{
-    AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature, TypeFactory,
+    hash_interface, AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature,
+    TypeFactory,
 };
-
-/// Execute ability ID (0x0009).
-pub const ABILITY_ID: AbilityId = 0x0009;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Method IDs
@@ -37,6 +37,67 @@ pub const METHOD_RUN: MethodId = 0x0003;
 /// Method: get_functions(hashes: List<string>) -> Bytes
 pub const METHOD_GET_FUNCTIONS: MethodId = 0x0004;
 
+/// The Execute ability's method set, instantiated for any type system.
+///
+/// Single source of truth for the interface: the content-addressed
+/// [`ability_id`] and the engine-facing descriptor both derive from it.
+fn methods<T: Clone + 'static>() -> Vec<MethodDescriptor<T>> {
+    vec![
+        MethodDescriptor {
+            id: METHOD_HAS_FUNCTION,
+            name: "has_function",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.string()],
+                return_type: |f| f.bool(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_GET_DEPENDENCIES,
+            name: "get_dependencies",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.string()],
+                return_type: |f| f.list(f.string()),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_LOAD_FUNCTIONS,
+            name: "load_functions",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.bytes()], // serialized data
+                return_type: |f| f.unit(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_RUN,
+            name: "run",
+            signature: MethodSignature {
+                param_count: 2,
+                param_types: |f| vec![f.string(), f.type_var()], // hash, args
+                return_type: |f| f.type_var(),                   // result
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_GET_FUNCTIONS,
+            name: "get_functions",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.list(f.string())], // list of hashes
+                return_type: |f| f.bytes(),                // serialized functions
+            },
+        },
+    ]
+}
+
+/// The content-addressed identity of the Execute ability.
+#[must_use]
+pub fn ability_id() -> AbilityId {
+    static ID: OnceLock<AbilityId> = OnceLock::new();
+    *ID.get_or_init(|| hash_interface(ExecuteAbility::NAME, &methods()))
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Execute Ability Constant
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -47,6 +108,12 @@ pub struct ExecuteAbility;
 impl ExecuteAbility {
     /// The name of this ability as it appears in Ambient code.
     pub const NAME: &'static str = "Execute";
+
+    /// The content-addressed identity of the Execute ability.
+    #[must_use]
+    pub fn ability_id() -> AbilityId {
+        ability_id()
+    }
 }
 
 /// Constant for use in other modules.
@@ -78,7 +145,7 @@ impl RuntimeAbility for ExecuteRuntimeAbility {
     }
 
     fn ability_id(&self) -> AbilityId {
-        ABILITY_ID
+        ability_id()
     }
 
     fn descriptor<T: Clone + 'static>(
@@ -86,55 +153,9 @@ impl RuntimeAbility for ExecuteRuntimeAbility {
         _factory: &dyn TypeFactory<T>,
     ) -> AbilityDescriptor<T> {
         AbilityDescriptor {
-            id: ABILITY_ID,
-            name: "Execute",
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: METHOD_HAS_FUNCTION,
-                    name: "has_function",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.bool(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_GET_DEPENDENCIES,
-                    name: "get_dependencies",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.list(f.string()),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_LOAD_FUNCTIONS,
-                    name: "load_functions",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.bytes()], // serialized data
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_RUN,
-                    name: "run",
-                    signature: MethodSignature {
-                        param_count: 2,
-                        param_types: |f| vec![f.string(), f.type_var()], // hash, args
-                        return_type: |f| f.type_var(),                   // result
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_GET_FUNCTIONS,
-                    name: "get_functions",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.list(f.string())], // list of hashes
-                        return_type: |f| f.bytes(),                // serialized functions
-                    },
-                },
-            ])),
+            id: ability_id(),
+            name: ExecuteAbility::NAME,
+            methods: Box::leak(methods::<T>().into_boxed_slice()),
         }
     }
 
@@ -204,7 +225,8 @@ mod tests {
 
     #[test]
     fn test_ability_id() {
-        assert_eq!(ABILITY_ID, 0x0009);
+        // Identity is stable across calls.
+        assert_eq!(ability_id(), ExecuteAbility::ability_id());
     }
 
     #[test]
@@ -219,7 +241,7 @@ mod tests {
         let factory = TestTypeFactory::new();
         let descriptor = ability.descriptor(&factory);
 
-        assert_eq!(descriptor.id, 0x0009);
+        assert_eq!(descriptor.id, ability_id());
         assert_eq!(descriptor.name, "Execute");
         assert_eq!(descriptor.methods.len(), 5);
 

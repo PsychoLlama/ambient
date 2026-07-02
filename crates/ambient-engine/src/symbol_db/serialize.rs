@@ -98,7 +98,7 @@ pub fn serialize_type_value(ty: &Type) -> Value {
         // Handler type
         Type::Handler(handler) => json!({
             "t": "handler",
-            "ability": handler.ability
+            "ability": handler.ability.to_hex()
         }),
     }
 }
@@ -114,11 +114,14 @@ pub fn serialize_ability_set(abilities: &AbilitySet) -> String {
 pub fn serialize_ability_set_value(abilities: &AbilitySet) -> Value {
     match abilities {
         AbilitySet::Empty => json!({"kind": "empty"}),
-        AbilitySet::Concrete(ids) => json!({"kind": "concrete", "abilities": ids}),
+        AbilitySet::Concrete(ids) => json!({
+            "kind": "concrete",
+            "abilities": ids.iter().map(AbilityId::to_hex).collect::<Vec<_>>()
+        }),
         AbilitySet::Var(id) => json!({"kind": "var", "id": id}),
         AbilitySet::Row { concrete, tail } => json!({
             "kind": "row",
-            "concrete": concrete,
+            "concrete": concrete.iter().map(AbilityId::to_hex).collect::<Vec<_>>(),
             "tail": tail
         }),
         // Unresolved names never survive type checking; nothing serialized
@@ -318,10 +321,11 @@ pub fn deserialize_type_value(value: &Value) -> Result<Type, DeserializeError> {
         "handler" => {
             let ability = value
                 .get("ability")
-                .and_then(Value::as_u64)
+                .and_then(Value::as_str)
+                .and_then(AbilityId::from_hex)
                 .ok_or_else(|| {
                     DeserializeError::InvalidFormat("missing 'ability' for handler".to_string())
-                })? as AbilityId;
+                })?;
             Ok(Type::Handler(HandlerType::new(ability)))
         }
 
@@ -359,8 +363,8 @@ pub fn deserialize_ability_set_value(value: &Value) -> Result<AbilitySet, Deseri
                 })?;
             let abilities: Vec<AbilityId> = abilities
                 .iter()
-                .filter_map(Value::as_u64)
-                .map(|v| v as AbilityId)
+                .filter_map(Value::as_str)
+                .filter_map(AbilityId::from_hex)
                 .collect();
             Ok(AbilitySet::from_abilities(abilities))
         }
@@ -379,8 +383,8 @@ pub fn deserialize_ability_set_value(value: &Value) -> Result<AbilitySet, Deseri
                 })?;
             let concrete: Vec<AbilityId> = concrete
                 .iter()
-                .filter_map(Value::as_u64)
-                .map(|v| v as AbilityId)
+                .filter_map(Value::as_str)
+                .filter_map(AbilityId::from_hex)
                 .collect();
             let tail = value.get("tail").and_then(Value::as_u64).ok_or_else(|| {
                 DeserializeError::InvalidFormat("missing 'tail' for row".to_string())
@@ -396,6 +400,12 @@ pub fn deserialize_ability_set_value(value: &Value) -> Result<AbilitySet, Deseri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::AbilityId;
+
+    /// A distinct, recognizable AbilityId for tests.
+    fn aid(n: u8) -> AbilityId {
+        AbilityId::from_bytes([n; 32])
+    }
 
     #[test]
     fn test_primitive_round_trip() {
@@ -434,7 +444,7 @@ mod tests {
         let ty = Type::function_with_abilities(
             vec![Type::Number, Type::String],
             Type::Bool,
-            AbilitySet::from_abilities([1, 2]),
+            AbilitySet::from_abilities([aid(1), aid(2)]),
         );
         let json = serialize_type(&ty);
         let result = deserialize_type(&json).expect("deserialize failed");
@@ -465,10 +475,10 @@ mod tests {
     fn test_ability_set_round_trip() {
         let sets = vec![
             AbilitySet::Empty,
-            AbilitySet::from_abilities([1, 2, 3]),
+            AbilitySet::from_abilities([aid(1), aid(2), aid(3)]),
             AbilitySet::Var(42),
             AbilitySet::Row {
-                concrete: vec![1, 2],
+                concrete: vec![aid(1), aid(2)],
                 tail: 99,
             },
         ];
@@ -490,7 +500,7 @@ mod tests {
 
     #[test]
     fn test_handler_round_trip() {
-        let ty = Type::handler(42);
+        let ty = Type::handler(aid(42));
         let json = serialize_type(&ty);
         let result = deserialize_type(&json).expect("deserialize failed");
         assert_eq!(ty, result);
@@ -498,7 +508,7 @@ mod tests {
 
     #[test]
     fn test_ability_value_round_trip() {
-        let ty = Type::ability_value(Type::String, AbilitySet::from_abilities([1, 2]));
+        let ty = Type::ability_value(Type::String, AbilitySet::from_abilities([aid(1), aid(2)]));
         let json = serialize_type(&ty);
         let result = deserialize_type(&json).expect("deserialize failed");
         assert_eq!(ty, result);

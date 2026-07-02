@@ -235,13 +235,18 @@ fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
                 hash_value(hasher, val);
             }
         }
+        Value::AbilityRef(id) => {
+            const TYPE_ABILITY_REF: u8 = 18;
+            hasher.update(&[TYPE_ABILITY_REF]);
+            hasher.update(id.as_bytes());
+        }
         Value::FunctionRef(h) => {
             hasher.update(&[TYPE_FUNCTION_REF]);
             hasher.update(h.as_bytes());
         }
         Value::SuspendedAbility(ability) => {
             hasher.update(&[TYPE_SUSPENDED_ABILITY]);
-            hasher.update(&ability.ability_id.to_le_bytes());
+            hasher.update(ability.ability_id.as_bytes());
             hasher.update(&ability.method_id.to_le_bytes());
             hasher.update(&(ability.args.len() as u32).to_le_bytes());
             for arg in &ability.args {
@@ -265,7 +270,7 @@ fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
         Value::Handler(handler) => {
             const TYPE_HANDLER: u8 = 10;
             hasher.update(&[TYPE_HANDLER]);
-            hasher.update(&handler.ability_id.to_le_bytes());
+            hasher.update(handler.ability_id.as_bytes());
             // Hash methods in sorted order for deterministic hashing
             let mut methods: Vec<_> = handler.methods.iter().collect();
             methods.sort_by_key(|(k, _)| *k);

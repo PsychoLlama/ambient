@@ -357,6 +357,12 @@ impl Infer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::AbilityId;
+
+    /// A distinct, recognizable AbilityId for tests.
+    fn aid(n: u8) -> AbilityId {
+        AbilityId::from_bytes([n; 32])
+    }
 
     #[test]
     fn test_type_error_display() {
@@ -377,8 +383,8 @@ mod tests {
     fn test_ability_error_display() {
         let err = TypeError::new(
             TypeErrorKind::AbilityMismatch {
-                expected: AbilitySet::from_abilities([1]),
-                actual: AbilitySet::from_abilities([2]),
+                expected: AbilitySet::from_abilities([aid(1)]),
+                actual: AbilitySet::from_abilities([aid(2)]),
             },
             (0, 10),
         );
@@ -477,7 +483,7 @@ mod tests {
     fn test_error_display_missing_ability() {
         let err = TypeError::new(
             TypeErrorKind::MissingAbility {
-                required: 1,
+                required: aid(1),
                 available: AbilitySet::Empty,
             },
             (0, 10),

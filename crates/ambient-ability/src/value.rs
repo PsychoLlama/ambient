@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use ambient_core::AbilityId;
 use serde::{Deserialize, Serialize};
 
 /// Represents a runtime value in the language.
@@ -39,6 +40,12 @@ pub enum Value {
 
     /// Reference to a content-addressed function.
     FunctionRef(blake3::Hash),
+
+    /// Reference to a content-addressed ability interface.
+    ///
+    /// Appears in compiled constant pools: `Suspend`/`Handle`/`MakeHandler`
+    /// name the ability they target through one of these.
+    AbilityRef(AbilityId),
 
     /// A suspended ability operation that can be performed later.
     ///
@@ -488,8 +495,8 @@ impl ModuleExport {
 /// transmitted, and executed remotely.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SuspendedAbility {
-    /// The ability being invoked (e.g., "Filesystem", "Console").
-    pub ability_id: u16,
+    /// The content-addressed identity of the ability being invoked.
+    pub ability_id: AbilityId,
 
     /// The method being called on the ability (e.g., "read", "print").
     pub method_id: u16,
@@ -501,7 +508,7 @@ pub struct SuspendedAbility {
 impl SuspendedAbility {
     /// Create a new suspended ability.
     #[must_use]
-    pub fn new(ability_id: u16, method_id: u16, args: Vec<Value>) -> Self {
+    pub fn new(ability_id: AbilityId, method_id: u16, args: Vec<Value>) -> Self {
         Self {
             ability_id,
             method_id,
@@ -549,8 +556,8 @@ impl Closure {
 /// They can be composed with other handlers and used in handle expressions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandlerValue {
-    /// The ability that this handler handles.
-    pub ability_id: u16,
+    /// The content-addressed identity of the ability this handler handles.
+    pub ability_id: AbilityId,
 
     /// Method implementations: `method_id` -> function hash that implements the handler.
     /// Each handler function receives implicit parameters: (continuation, `suspended_ability`)
@@ -566,7 +573,7 @@ pub struct HandlerValue {
 impl HandlerValue {
     /// Create a new handler value.
     #[must_use]
-    pub fn new(ability_id: u16, methods: HashMap<u16, blake3::Hash>) -> Self {
+    pub fn new(ability_id: AbilityId, methods: HashMap<u16, blake3::Hash>) -> Self {
         Self {
             ability_id,
             methods,
@@ -577,7 +584,7 @@ impl HandlerValue {
     /// Create a new handler value with captured environment.
     #[must_use]
     pub fn with_captures(
-        ability_id: u16,
+        ability_id: AbilityId,
         methods: HashMap<u16, blake3::Hash>,
         captures: Vec<Value>,
     ) -> Self {
@@ -718,6 +725,7 @@ impl Value {
             Self::Tuple(_) => "tuple",
             Self::Record(_) => "record",
             Self::FunctionRef(_) => "function",
+            Self::AbilityRef(_) => "ability",
             Self::SuspendedAbility(_) => "suspended_ability",
             Self::Continuation(_) => "continuation",
             Self::Closure(_) => "closure",
@@ -739,7 +747,7 @@ impl Value {
 
     /// Create a new suspended ability value.
     #[must_use]
-    pub fn suspended_ability(ability_id: u16, method_id: u16, args: Vec<Value>) -> Self {
+    pub fn suspended_ability(ability_id: AbilityId, method_id: u16, args: Vec<Value>) -> Self {
         Self::SuspendedAbility(Arc::new(SuspendedAbility::new(ability_id, method_id, args)))
     }
 
@@ -757,14 +765,14 @@ impl Value {
 
     /// Create a new handler value.
     #[must_use]
-    pub fn handler(ability_id: u16, methods: HashMap<u16, blake3::Hash>) -> Self {
+    pub fn handler(ability_id: AbilityId, methods: HashMap<u16, blake3::Hash>) -> Self {
         Self::Handler(Arc::new(HandlerValue::new(ability_id, methods)))
     }
 
     /// Create a new handler value with captured environment.
     #[must_use]
     pub fn handler_with_captures(
-        ability_id: u16,
+        ability_id: AbilityId,
         methods: HashMap<u16, blake3::Hash>,
         captures: Vec<Value>,
     ) -> Self {
@@ -901,6 +909,7 @@ impl PartialEq for Value {
             // Sets are structurally equal
             (Self::Set(a), Self::Set(b)) => a == b,
             (Self::FunctionRef(a), Self::FunctionRef(b)) => a == b,
+            (Self::AbilityRef(a), Self::AbilityRef(b)) => a == b,
             // Suspended abilities are equal if they have the same ability/method/args
             (Self::SuspendedAbility(a), Self::SuspendedAbility(b)) => {
                 a.ability_id == b.ability_id && a.method_id == b.method_id && a.args == b.args
@@ -1130,8 +1139,9 @@ mod tests {
 
     #[test]
     fn test_suspended_ability() {
-        let ability = SuspendedAbility::new(1, 2, vec![Value::Number(42.0)]);
-        assert_eq!(ability.ability_id, 1);
+        let id = AbilityId::from_bytes([7; 32]);
+        let ability = SuspendedAbility::new(id, 2, vec![Value::Number(42.0)]);
+        assert_eq!(ability.ability_id, id);
         assert_eq!(ability.method_id, 2);
         assert_eq!(ability.args.len(), 1);
     }
@@ -1150,9 +1160,10 @@ mod tests {
     fn test_handler_value_methods() {
         let mut methods = HashMap::new();
         methods.insert(0u16, blake3::hash(b"test"));
-        let handler = HandlerValue::new(1, methods);
+        let id = AbilityId::from_bytes([7; 32]);
+        let handler = HandlerValue::new(id, methods);
 
-        assert_eq!(handler.ability_id, 1);
+        assert_eq!(handler.ability_id, id);
         assert!(handler.handles_method(0));
         assert!(!handler.handles_method(1));
         assert!(handler.get_method(0).is_some());
@@ -1163,11 +1174,11 @@ mod tests {
     fn test_handler_value_compose() {
         let mut methods1 = HashMap::new();
         methods1.insert(0u16, blake3::hash(b"method0"));
-        let handler1 = HandlerValue::new(1, methods1);
+        let handler1 = HandlerValue::new(AbilityId::from_bytes([7; 32]), methods1);
 
         let mut methods2 = HashMap::new();
         methods2.insert(1u16, blake3::hash(b"method1"));
-        let handler2 = HandlerValue::new(1, methods2);
+        let handler2 = HandlerValue::new(AbilityId::from_bytes([7; 32]), methods2);
 
         let composed = handler1.compose(&handler2);
         assert!(composed.is_some());
@@ -1178,8 +1189,8 @@ mod tests {
 
     #[test]
     fn test_handler_value_compose_different_abilities_fails() {
-        let handler1 = HandlerValue::new(1, HashMap::new());
-        let handler2 = HandlerValue::new(2, HashMap::new());
+        let handler1 = HandlerValue::new(AbilityId::from_bytes([1; 32]), HashMap::new());
+        let handler2 = HandlerValue::new(AbilityId::from_bytes([2; 32]), HashMap::new());
         assert!(handler1.compose(&handler2).is_none());
     }
 

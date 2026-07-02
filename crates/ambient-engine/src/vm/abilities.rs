@@ -11,6 +11,7 @@
 use std::sync::Arc;
 
 use ambient_ability::{CapturedFrame, SuspendedAbility, Value, VmError};
+use ambient_core::AbilityId;
 
 use super::core::{CallFrame, HandlerFrame, HandlerKind, ReturnAction, Vm};
 
@@ -21,7 +22,7 @@ impl Vm {
     /// value that can later be performed.
     pub(super) fn op_suspend(
         &mut self,
-        ability_id: u16,
+        ability_id: AbilityId,
         method_id: u16,
         arg_count: u8,
     ) -> Result<(), VmError> {
@@ -131,7 +132,7 @@ impl Vm {
     }
 
     /// Handle the `Handle` opcode: install an inline ability handler.
-    pub(super) fn op_handle(&mut self, ability_id: u16, handler_func: blake3::Hash) {
+    pub(super) fn op_handle(&mut self, ability_id: AbilityId, handler_func: blake3::Hash) {
         self.handlers.push(HandlerFrame {
             ability_id,
             handler: HandlerKind::Inline { handler_func },

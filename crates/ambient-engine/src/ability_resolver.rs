@@ -296,7 +296,7 @@ mod tests {
         let result = resolver.get_method("Console", "print");
         assert!(result.is_some());
         let (ability_id, method_id) = result.unwrap();
-        assert_eq!(ability_id, ambient_runtime::console::ABILITY_ID);
+        assert_eq!(ability_id, ambient_runtime::console::ability_id());
         assert_eq!(method_id, ambient_runtime::console::METHOD_PRINT);
     }
 
@@ -307,12 +307,12 @@ mod tests {
         // Methods that match Console
         let methods = vec![Arc::from("print"), Arc::from("println")];
         let result = resolver.infer_ability_from_methods(&methods);
-        assert_eq!(result, Some(ambient_runtime::console::ABILITY_ID));
+        assert_eq!(result, Some(ambient_runtime::console::ability_id()));
 
         // Methods that match Exception
         let methods = vec![Arc::from("throw")];
         let result = resolver.infer_ability_from_methods(&methods);
-        assert_eq!(result, Some(ambient_core::exception::ABILITY_ID));
+        assert_eq!(result, Some(ambient_core::exception::ability_id()));
     }
 
     #[test]

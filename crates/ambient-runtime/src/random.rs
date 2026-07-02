@@ -1,22 +1,52 @@
 //! Random ability - for random number generation.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use ambient_ability::{HostHandler, RuntimeAbility, SuspendedAbility, Value};
 use ambient_core::{
-    AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature, TypeFactory,
+    hash_interface, AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature,
+    TypeFactory,
 };
-
-/// Random ability ID.
-///
-/// This uses the historical ID 0x0004 for backward compatibility.
-pub const ABILITY_ID: AbilityId = 0x0004;
 
 /// Method: get a random number between 0.0 and 1.0.
 pub const METHOD_SEED: u16 = 0x0000;
 
 /// Method: get a random number in a range.
 pub const METHOD_IN_RANGE: u16 = 0x0001;
+
+/// The Random ability's method set, instantiated for any type system.
+///
+/// Single source of truth for the interface: the content-addressed
+/// [`ability_id`] and the engine-facing descriptor both derive from it.
+fn methods<T: Clone + 'static>() -> Vec<MethodDescriptor<T>> {
+    vec![
+        MethodDescriptor {
+            id: METHOD_SEED,
+            name: "seed",
+            signature: MethodSignature {
+                param_count: 0,
+                param_types: |_f| vec![],
+                return_type: |f| f.number(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_IN_RANGE,
+            name: "in_range",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.number()],
+                return_type: |f| f.number(),
+            },
+        },
+    ]
+}
+
+/// The content-addressed identity of the Random ability.
+#[must_use]
+pub fn ability_id() -> AbilityId {
+    static ID: OnceLock<AbilityId> = OnceLock::new();
+    *ID.get_or_init(|| hash_interface(RandomAbility::NAME, &methods()))
+}
 
 /// Random ability marker.
 pub const RANDOM: RandomAbility = RandomAbility;
@@ -26,11 +56,14 @@ pub const RANDOM: RandomAbility = RandomAbility;
 pub struct RandomAbility;
 
 impl RandomAbility {
-    /// Ability ID.
-    pub const ABILITY_ID: AbilityId = ABILITY_ID;
-
     /// Ability name.
     pub const NAME: &'static str = "Random";
+
+    /// The content-addressed identity of the Random ability.
+    #[must_use]
+    pub fn ability_id() -> AbilityId {
+        ability_id()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -55,7 +88,7 @@ impl RuntimeAbility for RandomRuntimeAbility {
     }
 
     fn ability_id(&self) -> AbilityId {
-        ABILITY_ID
+        ability_id()
     }
 
     fn descriptor<T: Clone + 'static>(
@@ -63,28 +96,9 @@ impl RuntimeAbility for RandomRuntimeAbility {
         _factory: &dyn TypeFactory<T>,
     ) -> AbilityDescriptor<T> {
         AbilityDescriptor {
-            id: ABILITY_ID,
-            name: "Random",
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: METHOD_SEED,
-                    name: "seed",
-                    signature: MethodSignature {
-                        param_count: 0,
-                        param_types: |_f| vec![],
-                        return_type: |f| f.number(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_IN_RANGE,
-                    name: "in_range",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()],
-                        return_type: |f| f.number(),
-                    },
-                },
-            ])),
+            id: ability_id(),
+            name: RandomAbility::NAME,
+            methods: Box::leak(methods::<T>().into_boxed_slice()),
         }
     }
 
@@ -192,16 +206,17 @@ mod tests {
 
     #[test]
     fn test_random_ability_constants() {
-        assert_eq!(ABILITY_ID, 0x0004);
         assert_eq!(METHOD_SEED, 0x0000);
         assert_eq!(METHOD_IN_RANGE, 0x0001);
+        // Identity is stable across calls.
+        assert_eq!(ability_id(), RandomAbility::ability_id());
     }
 
     #[test]
     fn test_random_runtime_ability_name() {
         let random = RandomRuntimeAbility::new();
         assert_eq!(random.name(), "Random");
-        assert_eq!(random.ability_id(), ABILITY_ID);
+        assert_eq!(random.ability_id(), ability_id());
     }
 
     #[test]
@@ -210,7 +225,7 @@ mod tests {
         let factory = TestTypeFactory;
         let descriptor = random.descriptor(&factory);
 
-        assert_eq!(descriptor.id, ABILITY_ID);
+        assert_eq!(descriptor.id, ability_id());
         assert_eq!(descriptor.name, "Random");
         assert_eq!(descriptor.methods.len(), 2);
 
@@ -227,7 +242,7 @@ mod tests {
         let (_, seed_handler) = handlers.iter().find(|(id, _)| *id == METHOD_SEED).unwrap();
 
         let ability = SuspendedAbility {
-            ability_id: ABILITY_ID,
+            ability_id: ability_id(),
             method_id: METHOD_SEED,
             args: vec![],
         };
@@ -238,7 +253,7 @@ mod tests {
             assert!(result.is_ok());
 
             if let Value::Number(n) = result.unwrap() {
-                assert!(n >= 0.0 && n <= 1.0, "Expected 0 <= {n} <= 1");
+                assert!((0.0..=1.0).contains(&n), "Expected 0 <= {n} <= 1");
             } else {
                 panic!("Expected Number value");
             }
@@ -256,7 +271,7 @@ mod tests {
             .unwrap();
 
         let ability = SuspendedAbility {
-            ability_id: ABILITY_ID,
+            ability_id: ability_id(),
             method_id: METHOD_IN_RANGE,
             args: vec![Value::Number(100.0)],
         };
@@ -265,7 +280,7 @@ mod tests {
         assert!(result.is_ok());
 
         if let Value::Number(n) = result.unwrap() {
-            assert!(n >= 0.0 && n <= 100.0, "Expected 0 <= {n} <= 100");
+            assert!((0.0..=100.0).contains(&n), "Expected 0 <= {n} <= 100");
         } else {
             panic!("Expected Number value");
         }
@@ -279,7 +294,7 @@ mod tests {
         let (_, seed_handler) = handlers.iter().find(|(id, _)| *id == METHOD_SEED).unwrap();
 
         let ability = SuspendedAbility {
-            ability_id: ABILITY_ID,
+            ability_id: ability_id(),
             method_id: METHOD_SEED,
             args: vec![],
         };

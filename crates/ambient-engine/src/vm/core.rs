@@ -6,6 +6,7 @@ use std::sync::Arc;
 use ambient_ability::{
     HostHandler, RuntimeError, StackTraceFrame, SuspendedAbility, Value, VmError,
 };
+use ambient_core::AbilityId;
 
 use crate::bytecode::{CompiledFunction, Opcode};
 use crate::runtime_config::RuntimeConfig;
@@ -73,7 +74,7 @@ pub(super) enum HandlerKind {
 #[derive(Debug, Clone)]
 pub(super) struct HandlerFrame {
     /// The ability ID this handler handles.
-    pub ability_id: u16,
+    pub ability_id: AbilityId,
 
     /// The handler implementation (inline function or handler value).
     pub handler: HandlerKind,
@@ -98,7 +99,7 @@ pub struct Vm {
 
     /// Host-provided ability handlers (for abilities like Console, Filesystem).
     /// Maps `(ability_id, method_id)` to handler functions.
-    pub(super) host_handlers: HashMap<(u16, u16), HostHandler>,
+    pub(super) host_handlers: HashMap<(AbilityId, u16), HostHandler>,
 
     /// Content-addressed function store.
     pub(super) functions: HashMap<blake3::Hash, Arc<CompiledFunction>>,
@@ -156,7 +157,12 @@ impl Vm {
     ///
     /// Host handlers are called synchronously when an ability is performed
     /// and no bytecode handler is installed.
-    pub fn register_host_handler(&mut self, ability_id: u16, method_id: u16, handler: HostHandler) {
+    pub fn register_host_handler(
+        &mut self,
+        ability_id: AbilityId,
+        method_id: u16,
+        handler: HostHandler,
+    ) {
         self.host_handlers.insert((ability_id, method_id), handler);
     }
 

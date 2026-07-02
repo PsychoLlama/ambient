@@ -583,7 +583,12 @@ impl DefinitionResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ambient_engine::types::AbilitySet;
+    use ambient_engine::types::{AbilityId, AbilitySet};
+
+    /// A distinct, recognizable AbilityId for tests.
+    fn aid(n: u8) -> AbilityId {
+        AbilityId::from_bytes([n; 32])
+    }
 
     #[test]
     fn test_analyze_valid() {
@@ -645,7 +650,7 @@ mod tests {
         let func = Type::function_with_abilities(
             vec![Type::String],
             Type::Unit,
-            AbilitySet::Concrete(vec![1].into_iter().collect()),
+            AbilitySet::Concrete(vec![aid(1)].into_iter().collect()),
         );
         let formatted = format_type(&func);
         assert!(formatted.contains("(string) -> ()"));
@@ -770,9 +775,12 @@ mod tests {
     fn test_format_ability_set() {
         assert_eq!(format_ability_set(&AbilitySet::Empty), "pure");
 
-        let concrete = AbilitySet::Concrete(vec![1, 2].into_iter().collect());
+        let concrete = AbilitySet::Concrete(vec![aid(1), aid(2)].into_iter().collect());
         let formatted = format_ability_set(&concrete);
-        assert!(formatted.contains("#1") && formatted.contains("#2"));
+        assert!(
+            formatted.contains(&format!("#{}", aid(1)))
+                && formatted.contains(&format!("#{}", aid(2)))
+        );
 
         let var = AbilitySet::Var(5);
         assert_eq!(format_ability_set(&var), "E5!");

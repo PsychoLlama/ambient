@@ -69,7 +69,10 @@ use crate::value::Value;
 pub const OBJECT_MAGIC: [u8; 4] = *b"ABOB";
 
 /// Current object encoding version.
-pub const OBJECT_VERSION: u8 = 1;
+///
+/// v2: constant pools may contain ability references (tag 6), the 32-byte
+/// content hash of an ability interface.
+pub const OBJECT_VERSION: u8 = 2;
 
 const KIND_PLAIN: u8 = 0;
 const KIND_GROUP: u8 = 1;
@@ -84,6 +87,7 @@ const CONST_NUMBER: u8 = 2;
 const CONST_STRING: u8 = 3;
 const CONST_BYTES: u8 = 4;
 const CONST_REF: u8 = 5;
+const CONST_ABILITY: u8 = 6;
 
 /// A reference to another function, from inside an object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +107,8 @@ pub enum ObjectConstant {
     String(String),
     Bytes(Vec<u8>),
     Ref(ObjectRef),
+    /// The content-addressed identity of an ability interface.
+    Ability(ambient_core::AbilityId),
 }
 
 /// The body of one function inside an object.
@@ -396,6 +402,7 @@ pub fn constant_from_value(
         Value::String(s) => ObjectConstant::String((**s).clone()),
         Value::Bytes(b) => ObjectConstant::Bytes((**b).clone()),
         Value::FunctionRef(h) => ObjectConstant::Ref(resolve(h)),
+        Value::AbilityRef(id) => ObjectConstant::Ability(*id),
         Value::Tuple(_) => return Err(ObjectError::UnsupportedConstant("tuple")),
         Value::Record(_) => return Err(ObjectError::UnsupportedConstant("record")),
         Value::List(_) => return Err(ObjectError::UnsupportedConstant("list")),
@@ -465,6 +472,7 @@ fn to_compiled(
                 ObjectConstant::String(s) => Value::String(Arc::new(s.clone())),
                 ObjectConstant::Bytes(b) => Value::bytes(b.clone()),
                 ObjectConstant::Ref(r) => Value::FunctionRef(resolve(r)?),
+                ObjectConstant::Ability(id) => Value::AbilityRef(*id),
             })
         })
         .collect::<Result<Vec<_>, ObjectError>>()?;
@@ -557,6 +565,10 @@ fn encode_constant(out: &mut Vec<u8>, constant: &ObjectConstant) {
         ObjectConstant::Ref(r) => {
             out.push(CONST_REF);
             encode_ref(out, r);
+        }
+        ObjectConstant::Ability(id) => {
+            out.push(CONST_ABILITY);
+            out.extend_from_slice(id.as_bytes());
         }
     }
 }
@@ -659,6 +671,11 @@ fn decode_constant(r: &mut Reader<'_>) -> Result<ObjectConstant, ObjectError> {
             ObjectConstant::Bytes(r.take(len)?.to_vec())
         }
         CONST_REF => ObjectConstant::Ref(decode_ref(r)?),
+        CONST_ABILITY => {
+            let mut bytes = [0u8; 32];
+            bytes.copy_from_slice(r.take(32)?);
+            ObjectConstant::Ability(ambient_core::AbilityId::from_bytes(bytes))
+        }
         t => return Err(ObjectError::BadTag(t)),
     })
 }
@@ -689,6 +706,7 @@ mod tests {
                 ObjectConstant::String("hello".to_string()),
                 ObjectConstant::Bytes(vec![0xde, 0xad]),
                 ObjectConstant::Ref(ObjectRef::External(blake3::hash(b"dep"))),
+                ObjectConstant::Ability(ambient_core::AbilityId::from_bytes([0xab; 32])),
             ],
             local_count: 3,
             param_count: 2,

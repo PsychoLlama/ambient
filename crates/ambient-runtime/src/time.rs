@@ -1,20 +1,52 @@
 //! Time ability - for time-related operations.
 
+use std::sync::OnceLock;
+
 use ambient_ability::{HostHandler, RuntimeAbility, SuspendedAbility, Value};
 use ambient_core::{
-    AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature, TypeFactory,
+    hash_interface, AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature,
+    TypeFactory,
 };
-
-/// Time ability ID.
-///
-/// This uses the historical ID 0x0003 for backward compatibility.
-pub const ABILITY_ID: AbilityId = 0x0003;
 
 /// Method: get current timestamp in milliseconds.
 pub const METHOD_NOW: u16 = 0x0000;
 
 /// Method: wait for a duration in milliseconds.
 pub const METHOD_WAIT: u16 = 0x0001;
+
+/// The Time ability's method set, instantiated for any type system.
+///
+/// Single source of truth for the interface: the content-addressed
+/// [`ability_id`] and the engine-facing descriptor both derive from it.
+fn methods<T: Clone + 'static>() -> Vec<MethodDescriptor<T>> {
+    vec![
+        MethodDescriptor {
+            id: METHOD_NOW,
+            name: "now",
+            signature: MethodSignature {
+                param_count: 0,
+                param_types: |_f| vec![],
+                return_type: |f| f.number(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_WAIT,
+            name: "wait",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.number()],
+                return_type: |f| f.unit(),
+            },
+        },
+    ]
+}
+
+/// The content-addressed identity of the Time ability.
+#[must_use]
+pub fn ability_id() -> AbilityId {
+    static ID: OnceLock<AbilityId> = OnceLock::new();
+    *ID.get_or_init(|| hash_interface(TimeAbility::NAME, &methods()))
+}
 
 /// Time ability marker.
 pub const TIME: TimeAbility = TimeAbility;
@@ -24,11 +56,14 @@ pub const TIME: TimeAbility = TimeAbility;
 pub struct TimeAbility;
 
 impl TimeAbility {
-    /// Ability ID.
-    pub const ABILITY_ID: AbilityId = ABILITY_ID;
-
     /// Ability name.
     pub const NAME: &'static str = "Time";
+
+    /// The content-addressed identity of the Time ability.
+    #[must_use]
+    pub fn ability_id() -> AbilityId {
+        ability_id()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -53,7 +88,7 @@ impl RuntimeAbility for TimeRuntimeAbility {
     }
 
     fn ability_id(&self) -> AbilityId {
-        ABILITY_ID
+        ability_id()
     }
 
     fn descriptor<T: Clone + 'static>(
@@ -61,28 +96,9 @@ impl RuntimeAbility for TimeRuntimeAbility {
         _factory: &dyn TypeFactory<T>,
     ) -> AbilityDescriptor<T> {
         AbilityDescriptor {
-            id: ABILITY_ID,
-            name: "Time",
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: METHOD_NOW,
-                    name: "now",
-                    signature: MethodSignature {
-                        param_count: 0,
-                        param_types: |_f| vec![],
-                        return_type: |f| f.number(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_WAIT,
-                    name: "wait",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-            ])),
+            id: ability_id(),
+            name: TimeAbility::NAME,
+            methods: Box::leak(methods::<T>().into_boxed_slice()),
         }
     }
 
@@ -149,16 +165,17 @@ mod tests {
 
     #[test]
     fn test_time_ability_constants() {
-        assert_eq!(ABILITY_ID, 0x0003);
         assert_eq!(METHOD_NOW, 0x0000);
         assert_eq!(METHOD_WAIT, 0x0001);
+        // Identity is stable across calls.
+        assert_eq!(ability_id(), TimeAbility::ability_id());
     }
 
     #[test]
     fn test_time_runtime_ability_name() {
         let time = TimeRuntimeAbility::new();
         assert_eq!(time.name(), "Time");
-        assert_eq!(time.ability_id(), ABILITY_ID);
+        assert_eq!(time.ability_id(), ability_id());
     }
 
     #[test]
@@ -167,7 +184,7 @@ mod tests {
         let factory = TestTypeFactory;
         let descriptor = time.descriptor(&factory);
 
-        assert_eq!(descriptor.id, ABILITY_ID);
+        assert_eq!(descriptor.id, ability_id());
         assert_eq!(descriptor.name, "Time");
         assert_eq!(descriptor.methods.len(), 2);
 
@@ -185,7 +202,7 @@ mod tests {
         let (_, now_handler) = handlers.iter().find(|(id, _)| *id == METHOD_NOW).unwrap();
 
         let ability = SuspendedAbility {
-            ability_id: ABILITY_ID,
+            ability_id: ability_id(),
             method_id: METHOD_NOW,
             args: vec![],
         };
@@ -212,7 +229,7 @@ mod tests {
 
         // Wait for 1 millisecond
         let ability = SuspendedAbility {
-            ability_id: ABILITY_ID,
+            ability_id: ability_id(),
             method_id: METHOD_WAIT,
             args: vec![Value::Number(1.0)],
         };
@@ -231,7 +248,7 @@ mod tests {
 
         // Negative duration should be treated as 0
         let ability = SuspendedAbility {
-            ability_id: ABILITY_ID,
+            ability_id: ability_id(),
             method_id: METHOD_WAIT,
             args: vec![Value::Number(-100.0)],
         };

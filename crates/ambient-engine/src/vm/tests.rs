@@ -556,8 +556,9 @@ fn test_fibonacci_values() {
 // Milestone 2: Abilities and Handlers
 // =========================================================================
 
-const ABILITY_CONSOLE: u16 = 1;
-const ABILITY_MATH: u16 = 2;
+/// Distinct, recognizable synthetic AbilityIds for tests.
+const ABILITY_CONSOLE: crate::types::AbilityId = crate::types::AbilityId::from_bytes([1; 32]);
+const ABILITY_MATH: crate::types::AbilityId = crate::types::AbilityId::from_bytes([2; 32]);
 const METHOD_PRINT: u16 = 0;
 const METHOD_DOUBLE: u16 = 0;
 const METHOD_ADD_TEN: u16 = 1;
@@ -1231,8 +1232,8 @@ fn test_async_race_true_concurrency() {
     let start = Instant::now();
 
     // Use different ability IDs to have different handlers
-    const SLOW_ABILITY: u16 = 0x0010;
-    const FAST_ABILITY: u16 = 0x0011;
+    const SLOW_ABILITY: crate::types::AbilityId = crate::types::AbilityId::from_bytes([0x10; 32]);
+    const FAST_ABILITY: crate::types::AbilityId = crate::types::AbilityId::from_bytes([0x11; 32]);
 
     let result = VmTest::new()
         .push(1.0)
@@ -1293,7 +1294,7 @@ fn test_make_handler_creates_handler_value() {
 
     // Emit MakeHandler: Console ability, 1 method (print), 0 captures.
     builder.emit_make_handler(
-        console::ABILITY_ID,
+        console::ability_id(),
         &[(console::METHOD_PRINT, handler_hash)],
         0,
     );
@@ -1313,7 +1314,7 @@ fn test_make_handler_creates_handler_value() {
     // Should return a handler value.
     assert!(result.is_ok(), "Should succeed: {:?}", result);
     if let Ok(Value::Handler(handler)) = result {
-        assert_eq!(handler.ability_id, console::ABILITY_ID);
+        assert_eq!(handler.ability_id, console::ability_id());
         assert!(handler.handles_method(console::METHOD_PRINT));
         assert_eq!(handler.methods.len(), 1);
     } else {
@@ -1341,7 +1342,7 @@ fn test_make_handler_with_multiple_methods() {
     // Create main function that makes a handler with 2 methods.
     let mut builder = BytecodeBuilder::new();
     builder.emit_make_handler(
-        console::ABILITY_ID,
+        console::ability_id(),
         &[
             (console::METHOD_PRINT, print_hash),
             (console::METHOD_EPRINT, eprint_hash),
@@ -1362,7 +1363,7 @@ fn test_make_handler_with_multiple_methods() {
 
     assert!(result.is_ok(), "Should succeed: {:?}", result);
     if let Ok(Value::Handler(handler)) = result {
-        assert_eq!(handler.ability_id, console::ABILITY_ID);
+        assert_eq!(handler.ability_id, console::ability_id());
         assert!(handler.handles_method(console::METHOD_PRINT));
         assert!(handler.handles_method(console::METHOD_EPRINT));
         assert_eq!(handler.methods.len(), 2);

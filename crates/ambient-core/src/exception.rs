@@ -4,24 +4,41 @@
 //! semantics. It provides the `throw` method for raising errors that can
 //! be caught by handlers.
 
-use crate::descriptor::{
-    AbilityDescriptor, AbilityProvider, MethodDescriptor, MethodSignature, TypeFactory,
-};
-use crate::AbilityId;
+use std::sync::OnceLock;
 
-/// Exception ability ID.
-///
-/// This uses the historical ID 0x0002 for backward compatibility with
-/// existing bytecode.
-pub const ABILITY_ID: AbilityId = 0x0002;
+use crate::canonical::hash_interface;
+use crate::descriptor::{AbilityDescriptor, AbilityProvider, MethodDescriptor, TypeFactory};
+use crate::AbilityId;
 
 /// Method ID for `throw`.
 pub const METHOD_THROW: u16 = 0x0000;
 
-/// Exception ability descriptor.
+/// The Exception ability's method set, instantiated for any type system.
+///
+/// This is the single source of truth for the interface: both the
+/// content-addressed [`ability_id`] and the engine-facing descriptor are
+/// derived from it.
+fn methods<T: Clone + 'static>() -> Vec<MethodDescriptor<T>> {
+    vec![MethodDescriptor::new(
+        METHOD_THROW,
+        ExceptionAbility::METHOD_THROW_NAME,
+        1,
+        |f| vec![f.string()], // Error message is a string
+        |f| f.never(),        // throw never returns
+    )]
+}
+
+/// The content-addressed identity of the Exception ability.
+#[must_use]
+pub fn ability_id() -> AbilityId {
+    static ID: OnceLock<AbilityId> = OnceLock::new();
+    *ID.get_or_init(|| hash_interface(ExceptionAbility::NAME, &methods()))
+}
+
+/// Exception ability descriptor constant.
 ///
 /// Note: The actual type-aware descriptor is constructed by the engine
-/// using `CoreAbilities::new()`. This constant provides the IDs and names.
+/// using `CoreAbilities::new()`. This constant provides the names.
 pub const EXCEPTION: ExceptionAbility = ExceptionAbility;
 
 /// Marker type for the Exception ability.
@@ -29,9 +46,6 @@ pub const EXCEPTION: ExceptionAbility = ExceptionAbility;
 pub struct ExceptionAbility;
 
 impl ExceptionAbility {
-    /// Ability ID.
-    pub const ABILITY_ID: AbilityId = ABILITY_ID;
-
     /// Method ID for throw.
     pub const METHOD_THROW: u16 = METHOD_THROW;
 
@@ -40,6 +54,12 @@ impl ExceptionAbility {
 
     /// Method name for throw.
     pub const METHOD_THROW_NAME: &'static str = "throw";
+
+    /// The content-addressed identity of the Exception ability.
+    #[must_use]
+    pub fn ability_id() -> AbilityId {
+        ability_id()
+    }
 }
 
 /// Provider for core abilities (Exception, and future Map/List/etc).
@@ -56,17 +76,9 @@ impl<T: Clone + 'static> CoreAbilities<T> {
     /// The type factory is used to construct type signatures for methods.
     pub fn new(factory: &dyn TypeFactory<T>) -> Self {
         let exception = AbilityDescriptor {
-            id: ABILITY_ID,
+            id: ability_id(),
             name: ExceptionAbility::NAME,
-            methods: Box::leak(Box::new([MethodDescriptor {
-                id: METHOD_THROW,
-                name: ExceptionAbility::METHOD_THROW_NAME,
-                signature: MethodSignature {
-                    param_count: 1,
-                    param_types: |f| vec![f.string()], // Error message is a string
-                    return_type: |f| f.never(),        // throw never returns
-                },
-            }])),
+            methods: Box::leak(methods::<T>().into_boxed_slice()),
         };
 
         // Factory is used when getting types from signatures
@@ -143,8 +155,8 @@ mod tests {
     }
 
     #[test]
-    fn test_exception_ability_ids() {
-        assert_eq!(ExceptionAbility::ABILITY_ID, 0x0002);
+    fn test_exception_ability_id_stable() {
+        assert_eq!(ExceptionAbility::ability_id(), ability_id());
         assert_eq!(ExceptionAbility::METHOD_THROW, 0x0000);
     }
 
@@ -159,7 +171,7 @@ mod tests {
         assert!(exception.is_some());
 
         let exception = exception.unwrap();
-        assert_eq!(exception.id, ABILITY_ID);
+        assert_eq!(exception.id, ability_id());
         assert_eq!(exception.name, "Exception");
         assert_eq!(exception.methods.len(), 1);
 

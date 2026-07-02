@@ -147,6 +147,11 @@ mod tests {
     #[derive(Clone, Debug, PartialEq)]
     struct TestType(String);
 
+    /// A distinct, recognizable AbilityId for tests.
+    fn test_id(byte: u8) -> crate::AbilityId {
+        crate::AbilityId::from_bytes([byte; 32])
+    }
+
     struct TestTypeFactory;
 
     impl TypeFactory<TestType> for TestTypeFactory {
@@ -224,16 +229,17 @@ mod tests {
 
     #[test]
     fn test_ability_descriptor_new() {
-        let ability = AbilityDescriptor::<TestType>::new(0x1234, "TestAbility", &TEST_METHODS);
+        let ability =
+            AbilityDescriptor::<TestType>::new(test_id(0x12), "TestAbility", &TEST_METHODS);
 
-        assert_eq!(ability.id, 0x1234);
+        assert_eq!(ability.id, test_id(0x12));
         assert_eq!(ability.name, "TestAbility");
         assert_eq!(ability.methods.len(), 2);
     }
 
     #[test]
     fn test_ability_descriptor_get_method() {
-        let ability = AbilityDescriptor::<TestType>::new(1, "TestAbility", &TEST_METHODS);
+        let ability = AbilityDescriptor::<TestType>::new(test_id(1), "TestAbility", &TEST_METHODS);
 
         let method_a = ability.get_method("method_a");
         assert!(method_a.is_some());
@@ -249,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_ability_descriptor_get_method_by_id() {
-        let ability = AbilityDescriptor::<TestType>::new(1, "TestAbility", &TEST_METHODS);
+        let ability = AbilityDescriptor::<TestType>::new(test_id(1), "TestAbility", &TEST_METHODS);
 
         let method_0 = ability.get_method_by_id(0);
         assert!(method_0.is_some());
@@ -277,18 +283,18 @@ mod tests {
     fn test_ability_provider_get_ability() {
         let provider = TestProvider {
             abilities: vec![
-                AbilityDescriptor::new(1, "Ability1", &[]),
-                AbilityDescriptor::new(2, "Ability2", &[]),
+                AbilityDescriptor::new(test_id(1), "Ability1", &[]),
+                AbilityDescriptor::new(test_id(2), "Ability2", &[]),
             ],
         };
 
         let ability1 = provider.get_ability("Ability1");
         assert!(ability1.is_some());
-        assert_eq!(ability1.expect("should exist").id, 1);
+        assert_eq!(ability1.expect("should exist").id, test_id(1));
 
         let ability2 = provider.get_ability("Ability2");
         assert!(ability2.is_some());
-        assert_eq!(ability2.expect("should exist").id, 2);
+        assert_eq!(ability2.expect("should exist").id, test_id(2));
 
         let missing = provider.get_ability("NonExistent");
         assert!(missing.is_none());
@@ -298,20 +304,20 @@ mod tests {
     fn test_ability_provider_get_ability_by_id() {
         let provider = TestProvider {
             abilities: vec![
-                AbilityDescriptor::new(100, "AbilityA", &[]),
-                AbilityDescriptor::new(200, "AbilityB", &[]),
+                AbilityDescriptor::new(test_id(100), "AbilityA", &[]),
+                AbilityDescriptor::new(test_id(200), "AbilityB", &[]),
             ],
         };
 
-        let ability_100 = provider.get_ability_by_id(100);
+        let ability_100 = provider.get_ability_by_id(test_id(100));
         assert!(ability_100.is_some());
         assert_eq!(ability_100.expect("should exist").name, "AbilityA");
 
-        let ability_200 = provider.get_ability_by_id(200);
+        let ability_200 = provider.get_ability_by_id(test_id(200));
         assert!(ability_200.is_some());
         assert_eq!(ability_200.expect("should exist").name, "AbilityB");
 
-        let missing = provider.get_ability_by_id(999);
+        let missing = provider.get_ability_by_id(test_id(255));
         assert!(missing.is_none());
     }
 

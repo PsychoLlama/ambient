@@ -77,6 +77,14 @@ fn format_value_impl(value: &Value, mode: FormatMode) -> String {
         Value::List(elements) => format_sequence(elements, "[", "]", mode),
         Value::Record(fields) => format_record(fields, color, mode),
         Value::FunctionRef(hash) => format_function_ref(hash, color),
+        Value::AbilityRef(id) => {
+            let hex = id.short_hex();
+            if color {
+                format!("{}<ability {hex}>{}", colors::DIM, colors::RESET)
+            } else {
+                format!("<ability {hex}>")
+            }
+        }
         Value::SuspendedAbility(ability) => format_suspended_ability(ability, color),
         Value::Continuation(_) => format_continuation(color),
         Value::Closure(closure) => format_closure(closure, color),
@@ -194,7 +202,7 @@ fn format_function_ref(hash: &blake3::Hash, color: bool) -> String {
 }
 
 fn format_suspended_ability(ability: &crate::value::SuspendedAbility, color: bool) -> String {
-    let ability_id = ability.ability_id;
+    let ability_id = ability.ability_id.short_hex();
     let method_id = ability.method_id;
     let arg_count = ability.args.len();
     if color {

@@ -10,6 +10,7 @@ use super::debug::DebugInfo;
 use super::opcode::Opcode;
 use super::CompiledFunction;
 use crate::value::Value;
+use ambient_core::AbilityId;
 
 /// A builder for constructing bytecode sequences.
 ///
@@ -139,19 +140,25 @@ impl BytecodeBuilder {
     }
 
     /// Emit a Suspend instruction to create a suspended ability value.
-    pub fn emit_suspend(&mut self, ability_id: u16, method_id: u16, arg_count: u8) {
+    ///
+    /// The ability's content hash goes through the constant pool; the
+    /// operand is the pool index, keeping the instruction compact while the
+    /// compiled bytes still commit to the full ability identity.
+    pub fn emit_suspend(&mut self, ability_id: AbilityId, method_id: u16, arg_count: u8) {
+        let idx = self.add_constant(Value::AbilityRef(ability_id));
         self.code.push(Opcode::Suspend as u8);
-        self.code.extend_from_slice(&ability_id.to_le_bytes());
+        self.code.extend_from_slice(&idx.to_le_bytes());
         self.code.extend_from_slice(&method_id.to_le_bytes());
         self.code.push(arg_count);
     }
 
     /// Emit a Handle instruction to install an ability handler.
     /// Returns the offset for patching the normal completion jump.
-    pub fn emit_handle(&mut self, ability_id: u16, handler_func: blake3::Hash) -> usize {
+    pub fn emit_handle(&mut self, ability_id: AbilityId, handler_func: blake3::Hash) -> usize {
+        let ability_idx = self.add_constant(Value::AbilityRef(ability_id));
         let handler_idx = self.add_constant(Value::FunctionRef(handler_func));
         self.code.push(Opcode::Handle as u8);
-        self.code.extend_from_slice(&ability_id.to_le_bytes());
+        self.code.extend_from_slice(&ability_idx.to_le_bytes());
         self.code.extend_from_slice(&handler_idx.to_le_bytes());
         let jump_offset = self.code.len();
         self.code.extend_from_slice(&[0, 0]); // Placeholder for normal completion jump
@@ -198,7 +205,7 @@ impl BytecodeBuilder {
     /// Methods is a list of (`method_id`, `function_hash`) pairs.
     pub fn emit_make_handler(
         &mut self,
-        ability_id: u16,
+        ability_id: AbilityId,
         methods: &[(u16, blake3::Hash)],
         capture_count: u8,
     ) {
@@ -209,8 +216,9 @@ impl BytecodeBuilder {
             }
         }
 
+        let ability_idx = self.add_constant(Value::AbilityRef(ability_id));
         self.code.push(Opcode::MakeHandler as u8);
-        self.code.extend_from_slice(&ability_id.to_le_bytes());
+        self.code.extend_from_slice(&ability_idx.to_le_bytes());
         self.code.push(methods.len() as u8);
         self.code.push(capture_count);
 

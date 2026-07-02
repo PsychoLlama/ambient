@@ -22,14 +22,16 @@ enum Operands {
     I16,
     /// u16 followed by u8 (e.g. `Call`: constant index + arg count).
     U16U8,
-    /// `Handle`: ability id, handler constant index, completion offset.
+    /// `Handle`: ability constant index, handler constant index,
+    /// completion offset.
     U16U16I16,
-    /// u16, u16, u8 (`Suspend`: ability, method, arg count).
+    /// u16, u16, u8 (`Suspend`: ability constant index, method, arg count).
     U16U16U8,
     /// u16, u16, u16, u8 (`MakeEnum`).
     U16U16U16U8,
-    /// `MakeHandler`: u16 ability, u8 method count, u8 capture count,
-    /// then per method (u16 method id, u16 function constant index).
+    /// `MakeHandler`: u16 ability constant index, u8 method count,
+    /// u8 capture count, then per method (u16 method id, u16 function
+    /// constant index).
     Handler,
 }
 
@@ -73,6 +75,7 @@ fn format_constant(value: &Value) -> String {
             let hex = hash.to_hex();
             format!("fn {}", &hex.as_str()[..12])
         }
+        Value::AbilityRef(id) => format!("ability {}", id.short_hex()),
         Value::String(s) => {
             let s = s.as_str();
             if s.chars().count() > 40 {
@@ -186,11 +189,15 @@ fn instruction_detail(
             _ => TRUNCATED.to_string(),
         },
         Operands::U16U16I16 => match (cur.u16(), cur.u16(), cur.u16()) {
-            (Some(a), Some(b), Some(_)) => format!(" ability={a}, handler={}", const_at(b)),
+            (Some(a), Some(b), Some(_)) => {
+                format!(" ability={}, handler={}", const_at(a), const_at(b))
+            }
             _ => TRUNCATED.to_string(),
         },
         Operands::U16U16U8 => match (cur.u16(), cur.u16(), cur.u8()) {
-            (Some(a), Some(b), Some(c)) => format!(" ability={a}, method={b}, n={c}"),
+            (Some(a), Some(b), Some(c)) => {
+                format!(" ability={}, method={b}, n={c}", const_at(a))
+            }
             _ => TRUNCATED.to_string(),
         },
         Operands::U16U16U16U8 => match (cur.u16(), cur.u16(), cur.u16(), cur.u8()) {
@@ -205,7 +212,10 @@ fn instruction_detail(
         },
         Operands::Handler => match (cur.u16(), cur.u8(), cur.u8()) {
             (Some(ability), Some(methods), Some(captures)) => {
-                let mut s = format!(" ability={ability}, methods={methods}, captures={captures}");
+                let mut s = format!(
+                    " ability={}, methods={methods}, captures={captures}",
+                    const_at(ability)
+                );
                 for _ in 0..methods {
                     if let (Some(id), Some(func_idx)) = (cur.u16(), cur.u16()) {
                         let _ = write!(s, "\n{:>10}method {id} -> {}", "", const_at(func_idx));

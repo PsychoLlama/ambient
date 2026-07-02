@@ -24,8 +24,9 @@ pub type TypeVarId = u32;
 /// A unique identifier for ability variables, used during ability inference.
 pub type AbilityVarId = u32;
 
-/// An ability identifier (matches runtime ability IDs from abilities.rs).
-pub type AbilityId = u16;
+/// An ability identifier: the content-addressed identity of the ability's
+/// canonical interface (re-exported from `ambient-core`).
+pub use ambient_core::AbilityId;
 
 /// A unique identifier for traits.
 pub type TraitId = u16;
@@ -1489,6 +1490,11 @@ impl fmt::Display for Type {
 mod tests {
     use super::*;
 
+    /// A distinct, recognizable AbilityId for tests.
+    fn aid(n: u8) -> AbilityId {
+        AbilityId::from_bytes([n; 32])
+    }
+
     #[test]
     fn test_primitive_types_display() {
         assert_eq!(Type::Unit.to_string(), "()");
@@ -1629,29 +1635,29 @@ mod tests {
         let empty = AbilitySet::empty();
         assert!(empty.is_empty());
         assert!(empty.is_pure());
-        assert!(!empty.contains(1));
+        assert!(!empty.contains(aid(1)));
         assert_eq!(empty.to_string(), "{}");
     }
 
     #[test]
     fn test_ability_set_single() {
-        let single = AbilitySet::single(1);
+        let single = AbilitySet::single(aid(1));
         assert!(!single.is_empty());
         assert!(!single.is_pure());
-        assert!(single.contains(1));
-        assert!(!single.contains(2));
-        assert_eq!(single.to_string(), "{#1}");
+        assert!(single.contains(aid(1)));
+        assert!(!single.contains(aid(2)));
+        assert_eq!(single.to_string(), format!("{{#{}}}", aid(1)));
     }
 
     #[test]
     fn test_ability_set_from_abilities() {
-        let abilities = AbilitySet::from_abilities([3, 1, 2, 1]); // duplicates should be removed
-        assert!(abilities.contains(1));
-        assert!(abilities.contains(2));
-        assert!(abilities.contains(3));
-        assert!(!abilities.contains(4));
+        let abilities = AbilitySet::from_abilities([aid(3), aid(1), aid(2), aid(1)]); // duplicates should be removed
+        assert!(abilities.contains(aid(1)));
+        assert!(abilities.contains(aid(2)));
+        assert!(abilities.contains(aid(3)));
+        assert!(!abilities.contains(aid(4)));
         // Should be sorted
-        assert_eq!(abilities.concrete_abilities(), &[1, 2, 3]);
+        assert_eq!(abilities.concrete_abilities(), &[aid(1), aid(2), aid(3)]);
     }
 
     #[test]
@@ -1665,22 +1671,25 @@ mod tests {
 
     #[test]
     fn test_ability_set_row() {
-        let row = AbilitySet::row([1, 2], 99);
+        let row = AbilitySet::row([aid(1), aid(2)], 99);
         assert!(!row.is_empty());
-        assert!(row.contains(1));
-        assert!(row.contains(2));
+        assert!(row.contains(aid(1)));
+        assert!(row.contains(aid(2)));
         assert_eq!(row.ability_var(), Some(99));
-        assert_eq!(row.to_string(), "{#1, #2, E99!}");
+        assert_eq!(
+            row.to_string(),
+            format!("{{#{}, #{}, E99!}}", aid(1), aid(2))
+        );
     }
 
     #[test]
     fn test_ability_set_union() {
-        let a = AbilitySet::from_abilities([1, 2]);
-        let b = AbilitySet::from_abilities([2, 3]);
+        let a = AbilitySet::from_abilities([aid(1), aid(2)]);
+        let b = AbilitySet::from_abilities([aid(2), aid(3)]);
         let union = a.union(&b);
 
         if let AbilitySet::Concrete(abilities) = union {
-            assert_eq!(abilities, vec![1, 2, 3]);
+            assert_eq!(abilities, vec![aid(1), aid(2), aid(3)]);
         } else {
             panic!("Expected concrete ability set");
         }
@@ -1688,12 +1697,12 @@ mod tests {
 
     #[test]
     fn test_ability_set_union_with_var() {
-        let concrete = AbilitySet::from_abilities([1, 2]);
+        let concrete = AbilitySet::from_abilities([aid(1), aid(2)]);
         let var = AbilitySet::var(0);
         let union = concrete.union(&var);
 
         if let AbilitySet::Row { concrete, tail } = union {
-            assert_eq!(concrete, vec![1, 2]);
+            assert_eq!(concrete, vec![aid(1), aid(2)]);
             assert_eq!(tail, 0);
         } else {
             panic!("Expected row ability set");
@@ -1705,24 +1714,24 @@ mod tests {
         let empty = AbilitySet::empty();
         assert!(empty.free_ability_vars().is_empty());
 
-        let concrete = AbilitySet::from_abilities([1, 2]);
+        let concrete = AbilitySet::from_abilities([aid(1), aid(2)]);
         assert!(concrete.free_ability_vars().is_empty());
 
         let var = AbilitySet::var(5);
         assert_eq!(var.free_ability_vars(), vec![5]);
 
-        let row = AbilitySet::row([1, 2], 10);
+        let row = AbilitySet::row([aid(1), aid(2)], 10);
         assert_eq!(row.free_ability_vars(), vec![10]);
     }
 
     #[test]
     fn test_ability_value_type() {
-        let av = Type::ability_value(Type::String, AbilitySet::single(1));
-        assert_eq!(av.to_string(), "Ability<string, {#1}>");
+        let av = Type::ability_value(Type::String, AbilitySet::single(aid(1)));
+        assert_eq!(av.to_string(), format!("Ability<string, {{#{}}}>", aid(1)));
 
         if let Type::AbilityValue(avt) = av {
             assert_eq!(*avt.result, Type::String);
-            assert!(avt.ability.contains(1));
+            assert!(avt.ability.contains(aid(1)));
         } else {
             panic!("Expected AbilityValue type");
         }
@@ -1733,15 +1742,18 @@ mod tests {
         let func = Type::function_with_abilities(
             vec![Type::String],
             Type::Unit,
-            AbilitySet::from_abilities([1, 2]),
+            AbilitySet::from_abilities([aid(1), aid(2)]),
         );
 
-        assert_eq!(func.to_string(), "(string) -> () with {#1, #2}");
+        assert_eq!(
+            func.to_string(),
+            format!("(string) -> () with {{#{}, #{}}}", aid(1), aid(2))
+        );
 
         if let Type::Function(ft) = func {
             assert!(!ft.is_pure());
-            assert!(ft.abilities.contains(1));
-            assert!(ft.abilities.contains(2));
+            assert!(ft.abilities.contains(aid(1)));
+            assert!(ft.abilities.contains(aid(2)));
         } else {
             panic!("Expected function type");
         }
@@ -1785,7 +1797,7 @@ mod tests {
         let av = Type::ability_value(Type::String, AbilitySet::var(0));
         assert!(!av.is_concrete());
 
-        let av_concrete = Type::ability_value(Type::String, AbilitySet::single(1));
+        let av_concrete = Type::ability_value(Type::String, AbilitySet::single(aid(1)));
         assert!(av_concrete.is_concrete());
     }
 
@@ -1816,14 +1828,14 @@ mod tests {
 
         let type_subst: HashMap<TypeVarId, Type> = [(0, Type::Number)].into_iter().collect();
         let ability_subst: HashMap<AbilityVarId, AbilitySet> =
-            [(1, AbilitySet::single(99))].into_iter().collect();
+            [(1, AbilitySet::single(aid(99)))].into_iter().collect();
 
         let result = func.substitute_all(&type_subst, &ability_subst);
 
         if let Type::Function(ft) = result {
             assert_eq!(ft.params, vec![Type::Number]);
             assert_eq!(*ft.ret, Type::Number);
-            assert_eq!(ft.abilities, AbilitySet::single(99));
+            assert_eq!(ft.abilities, AbilitySet::single(aid(99)));
         } else {
             panic!("Expected function type");
         }
@@ -1848,10 +1860,10 @@ mod tests {
 
         let info = AbilityInfo::new("Console").with_method("print", vec![Type::String], Type::Unit);
 
-        registry.register(1, info);
+        registry.register(aid(1), info);
 
-        assert!(registry.get(1).is_some());
-        assert_eq!(registry.lookup("Console"), Some(1));
+        assert!(registry.get(aid(1)).is_some());
+        assert_eq!(registry.lookup("Console"), Some(aid(1)));
         assert_eq!(registry.lookup("Unknown"), None);
     }
 
@@ -1860,47 +1872,53 @@ mod tests {
         let mut registry = AbilityRegistry::new();
 
         // IO is a base ability
-        registry.register(1, AbilityInfo::new("IO"));
+        registry.register(aid(1), AbilityInfo::new("IO"));
 
         // FileSystem depends on IO
-        registry.register(2, AbilityInfo::new("FileSystem").with_dependency(1));
+        registry.register(
+            aid(2),
+            AbilityInfo::new("FileSystem").with_dependency(aid(1)),
+        );
 
         // Database depends on IO
-        registry.register(3, AbilityInfo::new("Database").with_dependency(1));
+        registry.register(aid(3), AbilityInfo::new("Database").with_dependency(aid(1)));
 
         // App depends on FileSystem and Database
         registry.register(
-            4,
+            aid(4),
             AbilityInfo::new("App")
-                .with_dependency(2)
-                .with_dependency(3),
+                .with_dependency(aid(2))
+                .with_dependency(aid(3)),
         );
 
         // Check transitive dependencies
-        assert!(registry.transitive_dependencies(1).is_empty());
-        assert_eq!(registry.transitive_dependencies(2), vec![1]);
-        assert_eq!(registry.transitive_dependencies(3), vec![1]);
+        assert!(registry.transitive_dependencies(aid(1)).is_empty());
+        assert_eq!(registry.transitive_dependencies(aid(2)), vec![aid(1)]);
+        assert_eq!(registry.transitive_dependencies(aid(3)), vec![aid(1)]);
 
         // App should transitively depend on IO via both FileSystem and Database
-        let app_deps = registry.transitive_dependencies(4);
-        assert!(app_deps.contains(&1)); // IO
-        assert!(app_deps.contains(&2)); // FileSystem
-        assert!(app_deps.contains(&3)); // Database
+        let app_deps = registry.transitive_dependencies(aid(4));
+        assert!(app_deps.contains(&aid(1))); // IO
+        assert!(app_deps.contains(&aid(2))); // FileSystem
+        assert!(app_deps.contains(&aid(3))); // Database
     }
 
     #[test]
     fn test_ability_with_dependencies() {
         let mut registry = AbilityRegistry::new();
 
-        registry.register(1, AbilityInfo::new("IO"));
-        registry.register(2, AbilityInfo::new("FileSystem").with_dependency(1));
+        registry.register(aid(1), AbilityInfo::new("IO"));
+        registry.register(
+            aid(2),
+            AbilityInfo::new("FileSystem").with_dependency(aid(1)),
+        );
 
-        let set = registry.ability_with_dependencies(2);
+        let set = registry.ability_with_dependencies(aid(2));
 
         // Should include both FileSystem (2) and IO (1)
         if let AbilitySet::Concrete(abilities) = set {
-            assert!(abilities.contains(&1));
-            assert!(abilities.contains(&2));
+            assert!(abilities.contains(&aid(1)));
+            assert!(abilities.contains(&aid(2)));
         } else {
             panic!("Expected concrete ability set");
         }

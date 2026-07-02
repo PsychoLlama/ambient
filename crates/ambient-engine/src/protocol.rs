@@ -56,6 +56,7 @@ enum SerializableValue {
         payload: Option<Box<SerializableValue>>,
     },
     FunctionRef(String),
+    AbilityRef(String),
 }
 
 impl From<&Value> for SerializableValue {
@@ -88,6 +89,7 @@ impl From<&Value> for SerializableValue {
                     .map(|p| Box::new(SerializableValue::from(p.as_ref()))),
             },
             Value::FunctionRef(hash) => SerializableValue::FunctionRef(hash.to_string()),
+            Value::AbilityRef(id) => SerializableValue::AbilityRef(id.to_hex()),
             // Complex values that can't be serialized directly
             Value::Closure(_)
             | Value::Handler(_)
@@ -141,6 +143,12 @@ impl From<SerializableValue> for Value {
                 let parsed = blake3::Hash::from_hex(&hash)
                     .unwrap_or_else(|_| blake3::Hash::from_bytes([0u8; 32]));
                 Value::FunctionRef(parsed)
+            }
+            SerializableValue::AbilityRef(hex) => {
+                // Parse the hash, falling back to an all-zeros identity if invalid
+                let parsed = ambient_core::AbilityId::from_hex(&hex)
+                    .unwrap_or_else(|| ambient_core::AbilityId::from_bytes([0u8; 32]));
+                Value::AbilityRef(parsed)
             }
         }
     }

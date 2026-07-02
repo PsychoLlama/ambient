@@ -29,7 +29,9 @@ impl Infer {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Well-known ability ID for Async (needed for special polymorphic handling).
-    pub(crate) const ABILITY_ASYNC: AbilityId = 0x0005;
+    pub(crate) fn ability_async() -> AbilityId {
+        ambient_runtime::async_ability::ability_id()
+    }
 
     /// Convert an ability name to its ID using the resolver.
     pub(crate) fn ability_name_to_id(&self, name: &str) -> Option<AbilityId> {
@@ -106,7 +108,7 @@ impl Infer {
         })?;
 
         // Special handling for Async methods which are polymorphic
-        if ability_id == Self::ABILITY_ASYNC {
+        if ability_id == Self::ability_async() {
             let (result_ty, additional_abilities) = match method_name {
                 "all" => {
                     // Async.all: List<Ability<T, A!>> -> List<T> with Async, A
@@ -232,7 +234,12 @@ mod tests {
     use super::*;
     use crate::ast::QualifiedName;
     use crate::infer::Infer;
-    use crate::types::{AbilityInfo, AbilityRegistry, AbilitySet, Type};
+    use crate::types::{AbilityId, AbilityInfo, AbilityRegistry, AbilitySet, Type};
+
+    /// A distinct, recognizable AbilityId for tests.
+    fn aid(n: u8) -> AbilityId {
+        AbilityId::from_bytes([n; 32])
+    }
 
     fn span() -> (u32, u32) {
         (0, 0)
@@ -251,13 +258,13 @@ mod tests {
         assert!(infer.current_abilities().is_pure());
 
         // Require an ability
-        infer.require_ability(1);
-        assert!(infer.current_abilities().contains(1));
+        infer.require_ability(aid(1));
+        assert!(infer.current_abilities().contains(aid(1)));
 
         // Require another ability
-        infer.require_ability(2);
-        assert!(infer.current_abilities().contains(1));
-        assert!(infer.current_abilities().contains(2));
+        infer.require_ability(aid(2));
+        assert!(infer.current_abilities().contains(aid(1)));
+        assert!(infer.current_abilities().contains(aid(2)));
 
         // Reset
         infer.reset_abilities();
@@ -277,11 +284,26 @@ mod tests {
     #[test]
     fn test_ability_name_to_id() {
         let infer = Infer::new();
-        assert_eq!(infer.ability_name_to_id("Console"), Some(1));
-        assert_eq!(infer.ability_name_to_id("Exception"), Some(2));
-        assert_eq!(infer.ability_name_to_id("Time"), Some(3));
-        assert_eq!(infer.ability_name_to_id("Random"), Some(4));
-        assert_eq!(infer.ability_name_to_id("Async"), Some(5));
+        assert_eq!(
+            infer.ability_name_to_id("Console"),
+            Some(ambient_runtime::console::ability_id())
+        );
+        assert_eq!(
+            infer.ability_name_to_id("Exception"),
+            Some(ambient_core::exception::ability_id())
+        );
+        assert_eq!(
+            infer.ability_name_to_id("Time"),
+            Some(ambient_runtime::time::ability_id())
+        );
+        assert_eq!(
+            infer.ability_name_to_id("Random"),
+            Some(ambient_runtime::random::ability_id())
+        );
+        assert_eq!(
+            infer.ability_name_to_id("Async"),
+            Some(ambient_runtime::async_ability::ability_id())
+        );
         assert_eq!(infer.ability_name_to_id("Unknown"), None);
     }
 
@@ -290,20 +312,23 @@ mod tests {
         let mut registry = AbilityRegistry::new();
 
         // IO is ability 1
-        registry.register(1, AbilityInfo::new("IO"));
+        registry.register(aid(1), AbilityInfo::new("IO"));
 
         // FileSystem (2) depends on IO (1)
-        registry.register(2, AbilityInfo::new("FileSystem").with_dependency(1));
+        registry.register(
+            aid(2),
+            AbilityInfo::new("FileSystem").with_dependency(aid(1)),
+        );
 
         let mut infer = Infer::with_registry(registry);
 
         // When we require FileSystem, IO should also be required
-        infer.require_ability(2);
+        infer.require_ability(aid(2));
 
         let abilities = infer.current_abilities();
         if let AbilitySet::Concrete(ids) = abilities {
-            assert!(ids.contains(&1), "IO should be required");
-            assert!(ids.contains(&2), "FileSystem should be required");
+            assert!(ids.contains(&aid(1)), "IO should be required");
+            assert!(ids.contains(&aid(2)), "FileSystem should be required");
         } else {
             panic!("Expected concrete ability set");
         }
@@ -318,7 +343,10 @@ mod tests {
         let mut infer = Infer::new();
 
         // Create argument type: List<Ability<string, Console!>>
-        let ability_value = Type::ability_value(Type::String, AbilitySet::single(1)); // Console = 1
+        let ability_value = Type::ability_value(
+            Type::String,
+            AbilitySet::single(ambient_runtime::console::ability_id()),
+        );
         let list_of_abilities = Type::named("List", vec![ability_value]);
 
         // Look up Async.all with this argument
@@ -336,7 +364,11 @@ mod tests {
         let (ability_id, result_ty, additional_abilities) = result.unwrap();
 
         // Should return Async ability ID
-        assert_eq!(ability_id, 5, "Should return Async ability ID");
+        assert_eq!(
+            ability_id,
+            ambient_runtime::async_ability::ability_id(),
+            "Should return Async ability ID"
+        );
 
         // Should return List<string> (the result type wrapped in List)
         if let Type::Named(named) = &result_ty {
@@ -349,7 +381,7 @@ mod tests {
 
         // Should include Console in additional abilities
         assert!(
-            matches!(&additional_abilities, AbilitySet::Concrete(ids) if ids.contains(&1)),
+            matches!(&additional_abilities, AbilitySet::Concrete(ids) if ids.contains(&ambient_runtime::console::ability_id())),
             "Should include Console ability in additional_abilities"
         );
     }
@@ -359,7 +391,10 @@ mod tests {
         let mut infer = Infer::new();
 
         // Create argument type: List<Ability<number, Time!>>
-        let ability_value = Type::ability_value(Type::Number, AbilitySet::single(3)); // Time = 3
+        let ability_value = Type::ability_value(
+            Type::Number,
+            AbilitySet::single(ambient_runtime::time::ability_id()),
+        );
         let list_of_abilities = Type::named("List", vec![ability_value]);
 
         // Look up Async.race with this argument
@@ -377,7 +412,11 @@ mod tests {
         let (ability_id, result_ty, additional_abilities) = result.unwrap();
 
         // Should return Async ability ID
-        assert_eq!(ability_id, 5, "Should return Async ability ID");
+        assert_eq!(
+            ability_id,
+            ambient_runtime::async_ability::ability_id(),
+            "Should return Async ability ID"
+        );
 
         // Should return number (the unwrapped result type)
         assert_eq!(
@@ -388,7 +427,7 @@ mod tests {
 
         // Should include Time in additional abilities
         assert!(
-            matches!(&additional_abilities, AbilitySet::Concrete(ids) if ids.contains(&3)),
+            matches!(&additional_abilities, AbilitySet::Concrete(ids) if ids.contains(&ambient_runtime::time::ability_id())),
             "Should include Time ability in additional_abilities"
         );
     }
@@ -440,11 +479,17 @@ mod tests {
         // Try calling Async.all with two arguments
         let arg1 = Type::named(
             "List",
-            vec![Type::ability_value(Type::String, AbilitySet::single(1))],
+            vec![Type::ability_value(
+                Type::String,
+                AbilitySet::single(ambient_runtime::console::ability_id()),
+            )],
         );
         let arg2 = Type::named(
             "List",
-            vec![Type::ability_value(Type::Number, AbilitySet::single(1))],
+            vec![Type::ability_value(
+                Type::Number,
+                AbilitySet::single(ambient_runtime::console::ability_id()),
+            )],
         );
         let result =
             infer.lookup_ability_method(&runtime_ability("Async"), "all", &[arg1, arg2], span());
@@ -493,17 +538,17 @@ mod tests {
         // "print" exists in Console
         let methods: Vec<Arc<str>> = vec!["print".into()];
         let ability = infer.infer_ability_from_methods(&methods);
-        assert_eq!(ability, Some(0x0001)); // Console
+        assert_eq!(ability, Some(ambient_runtime::console::ability_id()));
 
         // "throw" exists only in Exception
         let methods: Vec<Arc<str>> = vec!["throw".into()];
         let ability = infer.infer_ability_from_methods(&methods);
-        assert_eq!(ability, Some(0x0002)); // Exception
+        assert_eq!(ability, Some(ambient_core::exception::ability_id()));
 
         // "now" exists only in Time
         let methods: Vec<Arc<str>> = vec!["now".into()];
         let ability = infer.infer_ability_from_methods(&methods);
-        assert_eq!(ability, Some(0x0003)); // Time
+        assert_eq!(ability, Some(ambient_runtime::time::ability_id()));
     }
 
     #[test]

@@ -20,6 +20,7 @@
 use std::sync::Arc;
 
 use crate::bytecode::{BytecodeBuilder, CompiledFunction, Opcode};
+use crate::types::AbilityId;
 use crate::value::{SuspendedAbility, Value};
 use crate::vm::{HostHandler, Vm, VmError};
 
@@ -32,7 +33,7 @@ pub struct VmTest {
     locals: u16,
     params: u8,
     aux_functions: Vec<CompiledFunction>,
-    host_handlers: Vec<(u16, u16, HostHandler)>,
+    host_handlers: Vec<(AbilityId, u16, HostHandler)>,
     call_args: Vec<Value>,
     predetermined_hash: Option<blake3::Hash>,
     pending_handles: Vec<PendingHandle>,
@@ -42,7 +43,7 @@ struct PendingHandle {
     /// The ability ID for this handle.
     /// Stored for debugging purposes but not currently read.
     #[allow(dead_code)]
-    ability_id: u16,
+    ability_id: AbilityId,
     jump_offset: usize,
 }
 
@@ -356,7 +357,7 @@ impl VmTest {
 
     /// Create a suspended ability value.
     #[must_use]
-    pub fn suspend(mut self, ability_id: u16, method_id: u16, arg_count: u8) -> Self {
+    pub fn suspend(mut self, ability_id: AbilityId, method_id: u16, arg_count: u8) -> Self {
         self.builder.emit_suspend(ability_id, method_id, arg_count);
         self
     }
@@ -388,7 +389,7 @@ impl VmTest {
 
     /// Register a host handler.
     #[must_use]
-    pub fn with_host_handler<F>(mut self, ability_id: u16, method_id: u16, handler: F) -> Self
+    pub fn with_host_handler<F>(mut self, ability_id: AbilityId, method_id: u16, handler: F) -> Self
     where
         F: Fn(&SuspendedAbility) -> Result<Value, VmError> + Send + Sync + 'static,
     {
@@ -399,7 +400,7 @@ impl VmTest {
 
     /// Install a bytecode handler for an ability.
     #[must_use]
-    pub fn handle(mut self, ability_id: u16, handler_hash: blake3::Hash) -> Self {
+    pub fn handle(mut self, ability_id: AbilityId, handler_hash: blake3::Hash) -> Self {
         let jump_offset = self.builder.emit_handle(ability_id, handler_hash);
         self.pending_handles.push(PendingHandle {
             ability_id,
@@ -720,7 +721,7 @@ impl FunctionBuilder {
 
     /// Create a suspended ability.
     #[must_use]
-    pub fn suspend(mut self, ability_id: u16, method_id: u16, arg_count: u8) -> Self {
+    pub fn suspend(mut self, ability_id: AbilityId, method_id: u16, arg_count: u8) -> Self {
         self.builder.emit_suspend(ability_id, method_id, arg_count);
         self
     }

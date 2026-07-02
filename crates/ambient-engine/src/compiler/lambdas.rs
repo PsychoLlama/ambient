@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::ast::{Expr, Lambda};
 use crate::bytecode::{CompiledFunction, Opcode};
+use crate::types::AbilityId;
 
 use super::error::{CompileError, CompileErrorKind};
 use super::{compile_expr, FunctionCompiler, ModuleContext};
@@ -427,40 +428,25 @@ pub(super) fn compile_handler_literal(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Get ability and method IDs using the ability resolver.
-pub(super) fn get_ability_ids(ability: &str, method: &str) -> Option<(u16, u16)> {
+pub(super) fn get_ability_ids(ability: &str, method: &str) -> Option<(AbilityId, u16)> {
     let resolver = crate::ability_resolver::standard_abilities();
     resolver.get_method(ability, method)
 }
 
 /// Get ability ID using the ability resolver.
-pub(super) fn get_ability_id(ability: &str) -> Option<u16> {
+pub(super) fn get_ability_id(ability: &str) -> Option<AbilityId> {
     let resolver = crate::ability_resolver::standard_abilities();
     resolver.name_to_id(ability)
 }
 
 /// Get method ID from ability ID and method name using the ability resolver.
-pub(super) fn get_method_id_for_ability(ability_id: u16, method_name: &str) -> Option<u16> {
+pub(super) fn get_method_id_for_ability(ability_id: AbilityId, method_name: &str) -> Option<u16> {
     let resolver = crate::ability_resolver::standard_abilities();
     resolver.get_method_by_ability_id(ability_id, method_name)
 }
 
 /// Get ability name from ability ID using the ability resolver.
-pub(super) fn get_ability_name(ability_id: u16) -> Option<&'static str> {
-    // Use static names from the ability crates for known abilities.
-    // The resolver returns &str from dynamic data, but these are compile-time constants.
-    use ambient_core::exception::ExceptionAbility;
-    use ambient_runtime::{
-        async_ability::AsyncAbility, console::ConsoleAbility, log::LogAbility,
-        random::RandomAbility, time::TimeAbility,
-    };
-
-    match ability_id {
-        id if id == ConsoleAbility::ABILITY_ID => Some(ConsoleAbility::NAME),
-        id if id == ExceptionAbility::ABILITY_ID => Some(ExceptionAbility::NAME),
-        id if id == TimeAbility::ABILITY_ID => Some(TimeAbility::NAME),
-        id if id == RandomAbility::ABILITY_ID => Some(RandomAbility::NAME),
-        id if id == AsyncAbility::ABILITY_ID => Some(AsyncAbility::NAME),
-        id if id == LogAbility::ABILITY_ID => Some(LogAbility::NAME),
-        _ => None,
-    }
+pub(super) fn get_ability_name(ability_id: AbilityId) -> Option<String> {
+    let resolver = crate::ability_resolver::standard_abilities();
+    resolver.id_to_name(ability_id).map(String::from)
 }

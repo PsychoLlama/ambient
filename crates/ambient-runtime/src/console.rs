@@ -1,14 +1,12 @@
 //! Console ability - for printing to stdout/stderr.
 
+use std::sync::OnceLock;
+
 use ambient_ability::{format_value, HostHandler, RuntimeAbility, SuspendedAbility, Value};
 use ambient_core::{
-    AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature, TypeFactory,
+    hash_interface, AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature,
+    TypeFactory,
 };
-
-/// Console ability ID.
-///
-/// This uses the historical ID 0x0001 for backward compatibility.
-pub const ABILITY_ID: AbilityId = 0x0001;
 
 /// Method: print a message to stdout.
 pub const METHOD_PRINT: u16 = 0x0000;
@@ -19,6 +17,49 @@ pub const METHOD_EPRINT: u16 = 0x0001;
 /// Method: print with newline.
 pub const METHOD_PRINTLN: u16 = 0x0002;
 
+/// The Console ability's method set, instantiated for any type system.
+///
+/// Single source of truth for the interface: the content-addressed
+/// [`ability_id`] and the engine-facing descriptor both derive from it.
+fn methods<T: Clone + 'static>() -> Vec<MethodDescriptor<T>> {
+    vec![
+        MethodDescriptor {
+            id: METHOD_PRINT,
+            name: "print",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.string()],
+                return_type: |f| f.unit(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_PRINTLN,
+            name: "println",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.string()],
+                return_type: |f| f.unit(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_EPRINT,
+            name: "eprint",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.string()],
+                return_type: |f| f.unit(),
+            },
+        },
+    ]
+}
+
+/// The content-addressed identity of the Console ability.
+#[must_use]
+pub fn ability_id() -> AbilityId {
+    static ID: OnceLock<AbilityId> = OnceLock::new();
+    *ID.get_or_init(|| hash_interface(ConsoleAbility::NAME, &methods()))
+}
+
 /// Console ability marker.
 pub const CONSOLE: ConsoleAbility = ConsoleAbility;
 
@@ -27,11 +68,14 @@ pub const CONSOLE: ConsoleAbility = ConsoleAbility;
 pub struct ConsoleAbility;
 
 impl ConsoleAbility {
-    /// Ability ID.
-    pub const ABILITY_ID: AbilityId = ABILITY_ID;
-
     /// Ability name.
     pub const NAME: &'static str = "Console";
+
+    /// The content-addressed identity of the Console ability.
+    #[must_use]
+    pub fn ability_id() -> AbilityId {
+        ability_id()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -54,11 +98,11 @@ impl ConsoleRuntimeAbility {
 
 impl RuntimeAbility for ConsoleRuntimeAbility {
     fn name(&self) -> &'static str {
-        "Console"
+        ConsoleAbility::NAME
     }
 
     fn ability_id(&self) -> AbilityId {
-        ABILITY_ID
+        ability_id()
     }
 
     fn descriptor<T: Clone + 'static>(
@@ -66,37 +110,9 @@ impl RuntimeAbility for ConsoleRuntimeAbility {
         _factory: &dyn TypeFactory<T>,
     ) -> AbilityDescriptor<T> {
         AbilityDescriptor {
-            id: ABILITY_ID,
-            name: "Console",
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: METHOD_PRINT,
-                    name: "print",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_PRINTLN,
-                    name: "println",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_EPRINT,
-                    name: "eprint",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-            ])),
+            id: ability_id(),
+            name: ConsoleAbility::NAME,
+            methods: Box::leak(methods::<T>().into_boxed_slice()),
         }
     }
 
@@ -186,17 +202,18 @@ mod tests {
 
     #[test]
     fn test_console_ability_constants() {
-        assert_eq!(ABILITY_ID, 0x0001);
         assert_eq!(METHOD_PRINT, 0x0000);
         assert_eq!(METHOD_EPRINT, 0x0001);
         assert_eq!(METHOD_PRINTLN, 0x0002);
+        // Identity is stable across calls.
+        assert_eq!(ability_id(), ConsoleAbility::ability_id());
     }
 
     #[test]
     fn test_console_runtime_ability_name() {
         let console = ConsoleRuntimeAbility::new();
         assert_eq!(console.name(), "Console");
-        assert_eq!(console.ability_id(), ABILITY_ID);
+        assert_eq!(console.ability_id(), ability_id());
     }
 
     #[test]
@@ -205,7 +222,7 @@ mod tests {
         let factory = TestTypeFactory;
         let descriptor = console.descriptor(&factory);
 
-        assert_eq!(descriptor.id, ABILITY_ID);
+        assert_eq!(descriptor.id, ability_id());
         assert_eq!(descriptor.name, "Console");
         assert_eq!(descriptor.methods.len(), 3);
 
@@ -240,7 +257,7 @@ mod tests {
 
         // Create a suspended ability with a string argument
         let ability = SuspendedAbility {
-            ability_id: ABILITY_ID,
+            ability_id: ability_id(),
             method_id: METHOD_PRINT,
             args: vec![Value::string("test message")],
         };

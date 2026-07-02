@@ -1,14 +1,12 @@
 //! Async ability - for concurrent execution of abilities.
 
+use std::sync::OnceLock;
+
 use ambient_ability::{HostHandler, RuntimeAbility};
 use ambient_core::{
-    AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature, TypeFactory,
+    hash_interface, AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature,
+    TypeFactory,
 };
-
-/// Async ability ID.
-///
-/// This uses the historical ID 0x0005 for backward compatibility.
-pub const ABILITY_ID: AbilityId = 0x0005;
 
 /// Method: wait for all operations to complete.
 /// Takes a list of suspended abilities, returns a list of results.
@@ -18,6 +16,40 @@ pub const METHOD_ALL: u16 = 0x0000;
 /// Takes a list of suspended abilities, returns the first result.
 pub const METHOD_RACE: u16 = 0x0001;
 
+/// The Async ability's method set, instantiated for any type system.
+///
+/// Single source of truth for the interface: the content-addressed
+/// [`ability_id`] and the engine-facing descriptor both derive from it.
+fn methods<T: Clone + 'static>() -> Vec<MethodDescriptor<T>> {
+    vec![
+        MethodDescriptor {
+            id: METHOD_ALL,
+            name: "all",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.type_var()],
+                return_type: |f| f.type_var(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_RACE,
+            name: "race",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.type_var()],
+                return_type: |f| f.type_var(),
+            },
+        },
+    ]
+}
+
+/// The content-addressed identity of the Async ability.
+#[must_use]
+pub fn ability_id() -> AbilityId {
+    static ID: OnceLock<AbilityId> = OnceLock::new();
+    *ID.get_or_init(|| hash_interface(AsyncAbility::NAME, &methods()))
+}
+
 /// Async ability marker.
 pub const ASYNC: AsyncAbility = AsyncAbility;
 
@@ -26,11 +58,14 @@ pub const ASYNC: AsyncAbility = AsyncAbility;
 pub struct AsyncAbility;
 
 impl AsyncAbility {
-    /// Ability ID.
-    pub const ABILITY_ID: AbilityId = ABILITY_ID;
-
     /// Ability name.
     pub const NAME: &'static str = "Async";
+
+    /// The content-addressed identity of the Async ability.
+    #[must_use]
+    pub fn ability_id() -> AbilityId {
+        ability_id()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -58,7 +93,7 @@ impl RuntimeAbility for AsyncRuntimeAbility {
     }
 
     fn ability_id(&self) -> AbilityId {
-        ABILITY_ID
+        ability_id()
     }
 
     fn descriptor<T: Clone + 'static>(
@@ -66,28 +101,9 @@ impl RuntimeAbility for AsyncRuntimeAbility {
         _factory: &dyn TypeFactory<T>,
     ) -> AbilityDescriptor<T> {
         AbilityDescriptor {
-            id: ABILITY_ID,
-            name: "Async",
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: METHOD_ALL,
-                    name: "all",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.type_var()],
-                        return_type: |f| f.type_var(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_RACE,
-                    name: "race",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.type_var()],
-                        return_type: |f| f.type_var(),
-                    },
-                },
-            ])),
+            id: ability_id(),
+            name: AsyncAbility::NAME,
+            methods: Box::leak(methods::<T>().into_boxed_slice()),
         }
     }
 
@@ -135,16 +151,17 @@ mod tests {
 
     #[test]
     fn test_async_ability_constants() {
-        assert_eq!(ABILITY_ID, 0x0005);
         assert_eq!(METHOD_ALL, 0x0000);
         assert_eq!(METHOD_RACE, 0x0001);
+        // Identity is stable across calls.
+        assert_eq!(ability_id(), AsyncAbility::ability_id());
     }
 
     #[test]
     fn test_async_runtime_ability_name() {
         let async_ability = AsyncRuntimeAbility::new();
         assert_eq!(async_ability.name(), "Async");
-        assert_eq!(async_ability.ability_id(), ABILITY_ID);
+        assert_eq!(async_ability.ability_id(), ability_id());
     }
 
     #[test]
@@ -153,7 +170,7 @@ mod tests {
         let factory = TestTypeFactory;
         let descriptor = async_ability.descriptor(&factory);
 
-        assert_eq!(descriptor.id, ABILITY_ID);
+        assert_eq!(descriptor.id, ability_id());
         assert_eq!(descriptor.name, "Async");
         assert_eq!(descriptor.methods.len(), 2);
 

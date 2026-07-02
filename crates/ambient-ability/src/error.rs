@@ -167,7 +167,10 @@ pub enum VmError {
     ArityMismatch { expected: u8, got: u8 },
 
     /// No handler found for an ability.
-    UnhandledAbility { ability_id: u16, method_id: u16 },
+    UnhandledAbility {
+        ability_id: ambient_core::AbilityId,
+        method_id: u16,
+    },
 
     /// Tried to resume an already-resumed continuation (single-shot violation).
     ContinuationAlreadyResumed,
@@ -237,7 +240,8 @@ impl std::fmt::Display for VmError {
             } => {
                 write!(
                     f,
-                    "unhandled ability: ability {ability_id}, method {method_id}"
+                    "unhandled ability: ability {}, method {method_id}",
+                    ability_id.short_hex()
                 )
             }
             Self::ContinuationAlreadyResumed => {
@@ -356,10 +360,13 @@ mod tests {
     #[test]
     fn test_vm_error_display_unhandled_ability() {
         let err = VmError::UnhandledAbility {
-            ability_id: 1,
+            ability_id: ambient_core::AbilityId::from_bytes([0xab; 32]),
             method_id: 2,
         };
-        assert_eq!(format!("{err}"), "unhandled ability: ability 1, method 2");
+        assert_eq!(
+            format!("{err}"),
+            "unhandled ability: ability abababababab, method 2"
+        );
     }
 
     #[test]

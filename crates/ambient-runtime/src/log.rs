@@ -1,14 +1,12 @@
 //! Log ability - for structured logging with levels.
 
+use std::sync::OnceLock;
+
 use ambient_ability::{format_value, HostHandler, RuntimeAbility, SuspendedAbility, Value};
 use ambient_core::{
-    AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature, TypeFactory,
+    hash_interface, AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature,
+    TypeFactory,
 };
-
-/// Log ability ID.
-///
-/// This uses the historical ID 0x0006 for backward compatibility.
-pub const ABILITY_ID: AbilityId = 0x0006;
 
 /// Method: log a debug message.
 pub const METHOD_DEBUG: u16 = 0x0000;
@@ -22,6 +20,58 @@ pub const METHOD_WARN: u16 = 0x0002;
 /// Method: log an error message.
 pub const METHOD_ERROR: u16 = 0x0003;
 
+/// The Log ability's method set, instantiated for any type system.
+///
+/// Single source of truth for the interface: the content-addressed
+/// [`ability_id`] and the engine-facing descriptor both derive from it.
+fn methods<T: Clone + 'static>() -> Vec<MethodDescriptor<T>> {
+    vec![
+        MethodDescriptor {
+            id: METHOD_DEBUG,
+            name: "debug",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.string()],
+                return_type: |f| f.unit(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_INFO,
+            name: "info",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.string()],
+                return_type: |f| f.unit(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_WARN,
+            name: "warn",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.string()],
+                return_type: |f| f.unit(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_ERROR,
+            name: "error",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.string()],
+                return_type: |f| f.unit(),
+            },
+        },
+    ]
+}
+
+/// The content-addressed identity of the Log ability.
+#[must_use]
+pub fn ability_id() -> AbilityId {
+    static ID: OnceLock<AbilityId> = OnceLock::new();
+    *ID.get_or_init(|| hash_interface(LogAbility::NAME, &methods()))
+}
+
 /// Log ability marker.
 pub const LOG: LogAbility = LogAbility;
 
@@ -30,11 +80,14 @@ pub const LOG: LogAbility = LogAbility;
 pub struct LogAbility;
 
 impl LogAbility {
-    /// Ability ID.
-    pub const ABILITY_ID: AbilityId = ABILITY_ID;
-
     /// Ability name.
     pub const NAME: &'static str = "Log";
+
+    /// The content-addressed identity of the Log ability.
+    #[must_use]
+    pub fn ability_id() -> AbilityId {
+        ability_id()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -61,7 +114,7 @@ impl RuntimeAbility for LogRuntimeAbility {
     }
 
     fn ability_id(&self) -> AbilityId {
-        ABILITY_ID
+        ability_id()
     }
 
     fn descriptor<T: Clone + 'static>(
@@ -69,46 +122,9 @@ impl RuntimeAbility for LogRuntimeAbility {
         _factory: &dyn TypeFactory<T>,
     ) -> AbilityDescriptor<T> {
         AbilityDescriptor {
-            id: ABILITY_ID,
-            name: "Log",
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: METHOD_DEBUG,
-                    name: "debug",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_INFO,
-                    name: "info",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_WARN,
-                    name: "warn",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_ERROR,
-                    name: "error",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-            ])),
+            id: ability_id(),
+            name: LogAbility::NAME,
+            methods: Box::leak(methods::<T>().into_boxed_slice()),
         }
     }
 
@@ -179,18 +195,19 @@ mod tests {
 
     #[test]
     fn test_log_ability_constants() {
-        assert_eq!(ABILITY_ID, 0x0006);
         assert_eq!(METHOD_DEBUG, 0x0000);
         assert_eq!(METHOD_INFO, 0x0001);
         assert_eq!(METHOD_WARN, 0x0002);
         assert_eq!(METHOD_ERROR, 0x0003);
+        // Identity is stable across calls.
+        assert_eq!(ability_id(), LogAbility::ability_id());
     }
 
     #[test]
     fn test_log_runtime_ability_name() {
         let log = LogRuntimeAbility::new();
         assert_eq!(log.name(), "Log");
-        assert_eq!(log.ability_id(), ABILITY_ID);
+        assert_eq!(log.ability_id(), ability_id());
     }
 
     #[test]
@@ -199,7 +216,7 @@ mod tests {
         let factory = TestTypeFactory;
         let descriptor = log.descriptor(&factory);
 
-        assert_eq!(descriptor.id, ABILITY_ID);
+        assert_eq!(descriptor.id, ability_id());
         assert_eq!(descriptor.name, "Log");
         assert_eq!(descriptor.methods.len(), 4);
 
@@ -233,7 +250,7 @@ mod tests {
         let (_, debug_handler) = handlers.iter().find(|(id, _)| *id == METHOD_DEBUG).unwrap();
 
         let ability = SuspendedAbility {
-            ability_id: ABILITY_ID,
+            ability_id: ability_id(),
             method_id: METHOD_DEBUG,
             args: vec![Value::string("test message")],
         };

@@ -507,7 +507,12 @@ mod tests {
     use super::*;
     use crate::infer::env::TypeEnv;
     use crate::infer::Scheme;
-    use crate::types::AbilitySet;
+    use crate::types::{AbilityId, AbilitySet};
+
+    /// A distinct, recognizable AbilityId for tests.
+    fn aid(n: u8) -> AbilityId {
+        AbilityId::from_bytes([n; 32])
+    }
 
     fn span() -> (u32, u32) {
         (0, 0)
@@ -592,8 +597,8 @@ mod tests {
     #[test]
     fn test_unify_same_abilities() {
         let mut infer = Infer::new();
-        let a = AbilitySet::from_abilities([1, 2]);
-        let b = AbilitySet::from_abilities([1, 2]);
+        let a = AbilitySet::from_abilities([aid(1), aid(2)]);
+        let b = AbilitySet::from_abilities([aid(1), aid(2)]);
         let result = infer.unify_abilities(&a, &b, span());
         assert!(result.is_ok());
     }
@@ -601,8 +606,8 @@ mod tests {
     #[test]
     fn test_unify_different_abilities_fails() {
         let mut infer = Infer::new();
-        let a = AbilitySet::from_abilities([1, 2]);
-        let b = AbilitySet::from_abilities([1, 3]);
+        let a = AbilitySet::from_abilities([aid(1), aid(2)]);
+        let b = AbilitySet::from_abilities([aid(1), aid(3)]);
         let result = infer.unify_abilities(&a, &b, span());
         assert!(result.is_err());
     }
@@ -611,7 +616,7 @@ mod tests {
     fn test_unify_ability_var_with_concrete() {
         let mut infer = Infer::new();
         let var = AbilitySet::var(0);
-        let concrete = AbilitySet::from_abilities([1, 2]);
+        let concrete = AbilitySet::from_abilities([aid(1), aid(2)]);
         let result = infer.unify_abilities(&var, &concrete, span());
         assert!(result.is_ok());
 
@@ -643,7 +648,7 @@ mod tests {
     fn test_apply_abilities() {
         let mut infer = Infer::new();
         let var = AbilitySet::var(0);
-        let concrete = AbilitySet::from_abilities([1, 2]);
+        let concrete = AbilitySet::from_abilities([aid(1), aid(2)]);
 
         // Unify the variable with concrete
         infer.unify_abilities(&var, &concrete, span()).unwrap();
@@ -665,13 +670,13 @@ mod tests {
         let f1 = Type::function_with_abilities(
             vec![Type::Number],
             Type::String,
-            AbilitySet::from_abilities([1]),
+            AbilitySet::from_abilities([aid(1)]),
         );
 
         let f2 = Type::function_with_abilities(
             vec![Type::Number],
             Type::String,
-            AbilitySet::from_abilities([1]),
+            AbilitySet::from_abilities([aid(1)]),
         );
 
         let result = infer.unify(&f1, &f2, span());
@@ -685,13 +690,13 @@ mod tests {
         let f1 = Type::function_with_abilities(
             vec![Type::Number],
             Type::String,
-            AbilitySet::from_abilities([1]),
+            AbilitySet::from_abilities([aid(1)]),
         );
 
         let f2 = Type::function_with_abilities(
             vec![Type::Number],
             Type::String,
-            AbilitySet::from_abilities([2]),
+            AbilitySet::from_abilities([aid(2)]),
         );
 
         let result = infer.unify(&f1, &f2, span());
@@ -702,8 +707,8 @@ mod tests {
     fn test_unify_ability_values() {
         let mut infer = Infer::new();
 
-        let av1 = Type::ability_value(Type::String, AbilitySet::single(1));
-        let av2 = Type::ability_value(Type::String, AbilitySet::single(1));
+        let av1 = Type::ability_value(Type::String, AbilitySet::single(aid(1)));
+        let av2 = Type::ability_value(Type::String, AbilitySet::single(aid(1)));
 
         let result = infer.unify(&av1, &av2, span());
         assert!(result.is_ok());
@@ -713,8 +718,8 @@ mod tests {
     fn test_unify_ability_values_different_result_fails() {
         let mut infer = Infer::new();
 
-        let av1 = Type::ability_value(Type::String, AbilitySet::single(1));
-        let av2 = Type::ability_value(Type::Number, AbilitySet::single(1));
+        let av1 = Type::ability_value(Type::String, AbilitySet::single(aid(1)));
+        let av2 = Type::ability_value(Type::Number, AbilitySet::single(aid(1)));
 
         let result = infer.unify(&av1, &av2, span());
         assert!(result.is_err());

@@ -274,9 +274,19 @@ impl Vm {
                 // See vm/abilities.rs for the implementation of these operations.
                 // ─────────────────────────────────────────────────────────────
                 Opcode::Suspend => {
-                    let ability_id = self.read_u16()?;
+                    let ability_idx = self.read_u16()?;
                     let method_id = self.read_u16()?;
                     let arg_count = self.read_u8()?;
+                    let ability_id = match self.get_constant(ability_idx)? {
+                        Value::AbilityRef(id) => id,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "ability",
+                                got: other.type_name(),
+                                operation: "suspend",
+                            })
+                        }
+                    };
                     self.op_suspend(ability_id, method_id, arg_count)?;
                 }
 
@@ -285,9 +295,19 @@ impl Vm {
                 }
 
                 Opcode::Handle => {
-                    let ability_id = self.read_u16()?;
+                    let ability_idx = self.read_u16()?;
                     let handler_idx = self.read_u16()?;
                     let _completion_offset = self.read_i16()?; // Reserved for future optimization
+                    let ability_id = match self.get_constant(ability_idx)? {
+                        Value::AbilityRef(id) => id,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "ability",
+                                got: other.type_name(),
+                                operation: "handle",
+                            })
+                        }
+                    };
                     let handler_func = match self.get_constant(handler_idx)? {
                         Value::FunctionRef(h) => h,
                         other => {
@@ -453,8 +473,18 @@ impl Vm {
                 }
 
                 Opcode::MakeHandler => {
-                    let ability_id = self.read_u16()?;
+                    let ability_idx = self.read_u16()?;
                     let method_count = self.read_u8()?;
+                    let ability_id = match self.get_constant(ability_idx)? {
+                        Value::AbilityRef(id) => id,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "ability",
+                                got: other.type_name(),
+                                operation: "make_handler",
+                            })
+                        }
+                    };
                     let capture_count = self.read_u8()?;
 
                     // Read method mappings.

@@ -1113,7 +1113,7 @@ mod tests {
 
         // Should infer Handler<Console>
         if let Type::Handler(handler_ty) = ty {
-            assert_eq!(handler_ty.ability, 0x0001); // Console ability ID
+            assert_eq!(handler_ty.ability, ambient_runtime::console::ability_id());
         } else {
             panic!("Expected Handler type, got {:?}", ty);
         }
@@ -1135,7 +1135,7 @@ mod tests {
 
         // Should infer Handler<Exception>
         if let Type::Handler(handler_ty) = ty {
-            assert_eq!(handler_ty.ability, 0x0002); // Exception ability ID
+            assert_eq!(handler_ty.ability, ambient_core::exception::ability_id());
         } else {
             panic!("Expected Handler type, got {:?}", ty);
         }
@@ -1156,7 +1156,7 @@ mod tests {
 
         // Should infer Handler<Time>
         if let Type::Handler(handler_ty) = ty {
-            assert_eq!(handler_ty.ability, 0x0003); // Time ability ID
+            assert_eq!(handler_ty.ability, ambient_runtime::time::ability_id());
         } else {
             panic!("Expected Handler type, got {:?}", ty);
         }

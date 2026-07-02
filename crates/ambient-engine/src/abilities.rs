@@ -88,7 +88,7 @@ pub fn register_console(vm: &mut Vm, config: ConsoleConfig) {
     // Console.print - prints with newline
     let print_handler = config.print_handler;
     vm.register_host_handler(
-        console::ABILITY_ID,
+        console::ability_id(),
         console::METHOD_PRINT,
         Box::new(move |ability: &SuspendedAbility| {
             let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
@@ -109,7 +109,7 @@ pub fn register_console(vm: &mut Vm, config: ConsoleConfig) {
 
     // Console.println - same as print (both add newline)
     vm.register_host_handler(
-        console::ABILITY_ID,
+        console::ability_id(),
         console::METHOD_PRINTLN,
         Box::new(|ability: &SuspendedAbility| {
             let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
@@ -128,7 +128,7 @@ pub fn register_console(vm: &mut Vm, config: ConsoleConfig) {
     // Console.eprint - prints to stderr with newline
     let eprint_handler = config.eprint_handler;
     vm.register_host_handler(
-        console::ABILITY_ID,
+        console::ability_id(),
         console::METHOD_EPRINT,
         Box::new(move |ability: &SuspendedAbility| {
             let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
@@ -162,7 +162,7 @@ pub fn register_console_with_collector(
 ) {
     let output_clone = output.clone();
     vm.register_host_handler(
-        console::ABILITY_ID,
+        console::ability_id(),
         console::METHOD_PRINT,
         Box::new(move |ability: &SuspendedAbility| {
             let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
@@ -173,7 +173,7 @@ pub fn register_console_with_collector(
 
     let output_clone = output.clone();
     vm.register_host_handler(
-        console::ABILITY_ID,
+        console::ability_id(),
         console::METHOD_PRINTLN,
         Box::new(move |ability: &SuspendedAbility| {
             let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
@@ -186,7 +186,7 @@ pub fn register_console_with_collector(
     );
 
     vm.register_host_handler(
-        console::ABILITY_ID,
+        console::ability_id(),
         console::METHOD_EPRINT,
         Box::new(move |ability: &SuspendedAbility| {
             let message = format_value(&ability.args.first().cloned().unwrap_or(Value::Unit));
@@ -224,13 +224,13 @@ impl std::error::Error for UnhandledException {}
 /// not host handlers. This provides a fallback for unhandled exceptions.
 pub fn register_exception_fallback(vm: &mut Vm) {
     vm.register_host_handler(
-        exception::ABILITY_ID,
+        exception::ability_id(),
         exception::METHOD_THROW,
         Box::new(|_ability: &SuspendedAbility| {
             // Return an error - this stops execution
             // The actual error value is in ability.args[0] but we return UnhandledAbility
             Err(VmError::UnhandledAbility {
-                ability_id: exception::ABILITY_ID,
+                ability_id: exception::ability_id(),
                 method_id: exception::METHOD_THROW,
             })
         }),
@@ -247,7 +247,7 @@ pub fn register_exception_fallback(vm: &mut Vm) {
 pub fn register_time(vm: &mut Vm) {
     // Time.now() -> returns current timestamp in milliseconds since Unix epoch
     vm.register_host_handler(
-        time::ABILITY_ID,
+        time::ability_id(),
         time::METHOD_NOW,
         Box::new(|_ability: &SuspendedAbility| {
             use std::time::{SystemTime, UNIX_EPOCH};
@@ -263,7 +263,7 @@ pub fn register_time(vm: &mut Vm) {
 
     // Time.wait(duration) -> sleeps for the given number of milliseconds
     vm.register_host_handler(
-        time::ABILITY_ID,
+        time::ability_id(),
         time::METHOD_WAIT,
         Box::new(|ability: &SuspendedAbility| {
             if let Some(Value::Number(ms)) = ability.args.first() {
@@ -324,7 +324,7 @@ pub fn register_random(vm: &mut Vm) {
 
     // Random.seed() -> returns random number between 0.0 and 1.0
     vm.register_host_handler(
-        random::ABILITY_ID,
+        random::ability_id(),
         random::METHOD_SEED,
         Box::new(|_ability: &SuspendedAbility| Ok(Value::Number(next_random()))),
     );
@@ -332,7 +332,7 @@ pub fn register_random(vm: &mut Vm) {
     // Random.in_range(range) -> returns random number in the given range
     // Range is expected as a record { start: number, end: number }
     vm.register_host_handler(
-        random::ABILITY_ID,
+        random::ability_id(),
         random::METHOD_IN_RANGE,
         Box::new(|ability: &SuspendedAbility| {
             if let Some(Value::Record(fields)) = ability.args.first() {
@@ -415,10 +415,18 @@ pub fn register_log(vm: &mut Vm, config: LogConfig) {
         }};
     }
 
-    vm.register_host_handler(log::ABILITY_ID, log::METHOD_DEBUG, log_handler!(0, "DEBUG"));
-    vm.register_host_handler(log::ABILITY_ID, log::METHOD_INFO, log_handler!(1, "INFO"));
-    vm.register_host_handler(log::ABILITY_ID, log::METHOD_WARN, log_handler!(2, "WARN"));
-    vm.register_host_handler(log::ABILITY_ID, log::METHOD_ERROR, log_handler!(3, "ERROR"));
+    vm.register_host_handler(
+        log::ability_id(),
+        log::METHOD_DEBUG,
+        log_handler!(0, "DEBUG"),
+    );
+    vm.register_host_handler(log::ability_id(), log::METHOD_INFO, log_handler!(1, "INFO"));
+    vm.register_host_handler(log::ability_id(), log::METHOD_WARN, log_handler!(2, "WARN"));
+    vm.register_host_handler(
+        log::ability_id(),
+        log::METHOD_ERROR,
+        log_handler!(3, "ERROR"),
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -455,7 +463,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
     // Network.listen(address: string) -> ListenerId (number handle)
     let state_clone = Arc::clone(&state);
     vm.register_host_handler(
-        network::ABILITY_ID,
+        network::ability_id(),
         network::METHOD_LISTEN,
         Box::new(move |ability: &SuspendedAbility| {
             let addr = extract_string(&ability.args)?;
@@ -471,7 +479,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
     // Network.accept(listener: number) -> ConnectionId (number handle)
     let state_clone = Arc::clone(&state);
     vm.register_host_handler(
-        network::ABILITY_ID,
+        network::ability_id(),
         network::METHOD_ACCEPT,
         Box::new(move |ability: &SuspendedAbility| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -488,7 +496,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
     // Network.close_listener(listener: number) -> ()
     let state_clone = Arc::clone(&state);
     vm.register_host_handler(
-        network::ABILITY_ID,
+        network::ability_id(),
         network::METHOD_CLOSE_LISTENER,
         Box::new(move |ability: &SuspendedAbility| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -504,7 +512,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
     // Network.connect(address: string) -> ConnectionId (number handle)
     let state_clone = Arc::clone(&state);
     vm.register_host_handler(
-        network::ABILITY_ID,
+        network::ability_id(),
         network::METHOD_CONNECT,
         Box::new(move |ability: &SuspendedAbility| {
             let addr = extract_string(&ability.args)?;
@@ -520,7 +528,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
     // Network.close(conn: number) -> ()
     let state_clone = Arc::clone(&state);
     vm.register_host_handler(
-        network::ABILITY_ID,
+        network::ability_id(),
         network::METHOD_CLOSE,
         Box::new(move |ability: &SuspendedAbility| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -536,7 +544,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
     // Network.send(conn: number, data: List<number>) -> ()
     let state_clone = Arc::clone(&state);
     vm.register_host_handler(
-        network::ABILITY_ID,
+        network::ability_id(),
         network::METHOD_SEND,
         Box::new(move |ability: &SuspendedAbility| {
             if ability.args.len() < 2 {
@@ -570,7 +578,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
     // Network.receive(conn: number) -> Bytes
     let state_clone = Arc::clone(&state);
     vm.register_host_handler(
-        network::ABILITY_ID,
+        network::ability_id(),
         network::METHOD_RECEIVE,
         Box::new(move |ability: &SuspendedAbility| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -588,7 +596,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
     // Network.local_addr(conn: number) -> string
     let state_clone = Arc::clone(&state);
     vm.register_host_handler(
-        network::ABILITY_ID,
+        network::ability_id(),
         network::METHOD_LOCAL_ADDR,
         Box::new(move |ability: &SuspendedAbility| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -605,7 +613,7 @@ pub fn register_network(vm: &mut Vm, config: NetworkConfig) {
     // Network.peer_addr(conn: number) -> string
     let state_clone = Arc::clone(&state);
     vm.register_host_handler(
-        network::ABILITY_ID,
+        network::ability_id(),
         network::METHOD_PEER_ADDR,
         Box::new(move |ability: &SuspendedAbility| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -646,7 +654,7 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
     // Execute.has_function(hash: string) -> bool
     let store_clone = Arc::clone(&store);
     vm.register_host_handler(
-        execute::ABILITY_ID,
+        execute::ability_id(),
         execute::METHOD_HAS_FUNCTION,
         Box::new(move |ability: &SuspendedAbility| {
             let hash_str = extract_string(&ability.args)?;
@@ -661,7 +669,7 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
     // Execute.get_dependencies(hash: string) -> List<string>
     let store_clone = Arc::clone(&store);
     vm.register_host_handler(
-        execute::ABILITY_ID,
+        execute::ability_id(),
         execute::METHOD_GET_DEPENDENCIES,
         Box::new(move |ability: &SuspendedAbility| {
             let hash_str = extract_string(&ability.args)?;
@@ -681,7 +689,7 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
     // Execute.load_functions(data: Bytes) -> ()
     let store_clone = Arc::clone(&store);
     vm.register_host_handler(
-        execute::ABILITY_ID,
+        execute::ability_id(),
         execute::METHOD_LOAD_FUNCTIONS,
         Box::new(move |ability: &SuspendedAbility| {
             let data = match ability.args.first() {
@@ -710,7 +718,7 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
     // and executes it in isolation.
     let store_clone = Arc::clone(&store);
     vm.register_host_handler(
-        execute::ABILITY_ID,
+        execute::ability_id(),
         execute::METHOD_RUN,
         Box::new(move |ability: &SuspendedAbility| {
             if ability.args.len() < 2 {
@@ -761,7 +769,7 @@ pub fn register_execute(vm: &mut Vm, config: ExecuteConfig) {
     // Execute.get_functions(hashes: List<string>) -> Bytes
     let store_clone = Arc::clone(&store);
     vm.register_host_handler(
-        execute::ABILITY_ID,
+        execute::ability_id(),
         execute::METHOD_GET_FUNCTIONS,
         Box::new(move |ability: &SuspendedAbility| {
             let hashes = match ability.args.first() {
@@ -896,7 +904,7 @@ mod tests {
 
         let mut builder = BytecodeBuilder::new();
         builder.emit_const(Value::string("Hello, World!"));
-        builder.emit_suspend(console::ABILITY_ID, console::METHOD_PRINT, 1);
+        builder.emit_suspend(console::ability_id(), console::METHOD_PRINT, 1);
         builder.emit(Opcode::Perform);
         builder.emit(Opcode::Return);
 
@@ -918,7 +926,7 @@ mod tests {
 
         let mut builder = BytecodeBuilder::new();
         builder.emit_const(Value::Number(42.0));
-        builder.emit_suspend(console::ABILITY_ID, console::METHOD_PRINTLN, 1);
+        builder.emit_suspend(console::ability_id(), console::METHOD_PRINTLN, 1);
         builder.emit(Opcode::Perform);
         builder.emit(Opcode::Return);
 
@@ -955,19 +963,19 @@ mod tests {
 
         // First print
         builder.emit_const(Value::string("one"));
-        builder.emit_suspend(console::ABILITY_ID, console::METHOD_PRINT, 1);
+        builder.emit_suspend(console::ability_id(), console::METHOD_PRINT, 1);
         builder.emit(Opcode::Perform);
         builder.emit(Opcode::Pop);
 
         // Second print
         builder.emit_const(Value::string("two"));
-        builder.emit_suspend(console::ABILITY_ID, console::METHOD_PRINT, 1);
+        builder.emit_suspend(console::ability_id(), console::METHOD_PRINT, 1);
         builder.emit(Opcode::Perform);
         builder.emit(Opcode::Pop);
 
         // Third print
         builder.emit_const(Value::string("three"));
-        builder.emit_suspend(console::ABILITY_ID, console::METHOD_PRINT, 1);
+        builder.emit_suspend(console::ability_id(), console::METHOD_PRINT, 1);
         builder.emit(Opcode::Perform);
 
         builder.emit(Opcode::Return);
@@ -991,7 +999,7 @@ mod tests {
     #[test]
     fn test_time_now() {
         let mut builder = BytecodeBuilder::new();
-        builder.emit_suspend(time::ABILITY_ID, time::METHOD_NOW, 0);
+        builder.emit_suspend(time::ability_id(), time::METHOD_NOW, 0);
         builder.emit(Opcode::Perform);
         builder.emit(Opcode::Return);
 
@@ -1018,7 +1026,7 @@ mod tests {
     fn test_time_wait() {
         let mut builder = BytecodeBuilder::new();
         builder.emit_const(Value::Number(10.0)); // Wait 10ms
-        builder.emit_suspend(time::ABILITY_ID, time::METHOD_WAIT, 1);
+        builder.emit_suspend(time::ability_id(), time::METHOD_WAIT, 1);
         builder.emit(Opcode::Perform);
         builder.emit(Opcode::Return);
 
@@ -1045,7 +1053,7 @@ mod tests {
     #[test]
     fn test_random_seed() {
         let mut builder = BytecodeBuilder::new();
-        builder.emit_suspend(random::ABILITY_ID, random::METHOD_SEED, 0);
+        builder.emit_suspend(random::ability_id(), random::METHOD_SEED, 0);
         builder.emit(Opcode::Perform);
         builder.emit(Opcode::Return);
 
@@ -1074,7 +1082,7 @@ mod tests {
         builder.emit_const(Value::string("end"));
         builder.emit_const(Value::Number(20.0));
         builder.emit_u8(Opcode::MakeRecord, 2);
-        builder.emit_suspend(random::ABILITY_ID, random::METHOD_IN_RANGE, 1);
+        builder.emit_suspend(random::ability_id(), random::METHOD_IN_RANGE, 1);
         builder.emit(Opcode::Perform);
         builder.emit(Opcode::Return);
 
@@ -1098,9 +1106,9 @@ mod tests {
     fn test_random_produces_different_values() {
         let mut builder = BytecodeBuilder::new();
         // Generate two random numbers and return them as a tuple
-        builder.emit_suspend(random::ABILITY_ID, random::METHOD_SEED, 0);
+        builder.emit_suspend(random::ability_id(), random::METHOD_SEED, 0);
         builder.emit(Opcode::Perform);
-        builder.emit_suspend(random::ABILITY_ID, random::METHOD_SEED, 0);
+        builder.emit_suspend(random::ability_id(), random::METHOD_SEED, 0);
         builder.emit(Opcode::Perform);
         builder.emit_u8(Opcode::MakeTuple, 2);
         builder.emit(Opcode::Return);
@@ -1147,7 +1155,7 @@ mod tests {
 
         let mut builder = BytecodeBuilder::new();
         builder.emit_const(Value::string("test message"));
-        builder.emit_suspend(log::ABILITY_ID, log::METHOD_INFO, 1);
+        builder.emit_suspend(log::ability_id(), log::METHOD_INFO, 1);
         builder.emit(Opcode::Perform);
         builder.emit(Opcode::Return);
 
@@ -1186,19 +1194,19 @@ mod tests {
 
         // Log debug (should be filtered)
         builder.emit_const(Value::string("debug msg"));
-        builder.emit_suspend(log::ABILITY_ID, log::METHOD_DEBUG, 1);
+        builder.emit_suspend(log::ability_id(), log::METHOD_DEBUG, 1);
         builder.emit(Opcode::Perform);
         builder.emit(Opcode::Pop);
 
         // Log warn (should pass)
         builder.emit_const(Value::string("warn msg"));
-        builder.emit_suspend(log::ABILITY_ID, log::METHOD_WARN, 1);
+        builder.emit_suspend(log::ability_id(), log::METHOD_WARN, 1);
         builder.emit(Opcode::Perform);
         builder.emit(Opcode::Pop);
 
         // Log error (should pass)
         builder.emit_const(Value::string("error msg"));
-        builder.emit_suspend(log::ABILITY_ID, log::METHOD_ERROR, 1);
+        builder.emit_suspend(log::ability_id(), log::METHOD_ERROR, 1);
         builder.emit(Opcode::Perform);
 
         builder.emit(Opcode::Return);
@@ -1226,7 +1234,7 @@ mod tests {
 
         // Verify we can call Time.now
         let mut builder = BytecodeBuilder::new();
-        builder.emit_suspend(time::ABILITY_ID, time::METHOD_NOW, 0);
+        builder.emit_suspend(time::ability_id(), time::METHOD_NOW, 0);
         builder.emit(Opcode::Perform);
         builder.emit(Opcode::Return);
 

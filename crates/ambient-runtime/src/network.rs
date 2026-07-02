@@ -42,13 +42,13 @@
 //! Network.close!(conn);
 //! ```
 
+use std::sync::OnceLock;
+
 use ambient_ability::{HostHandler, RuntimeAbility};
 use ambient_core::{
-    AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature, TypeFactory,
+    hash_interface, AbilityDescriptor, AbilityId, MethodDescriptor, MethodId, MethodSignature,
+    TypeFactory,
 };
-
-/// Ability ID for Network (next after Remote = 0x0007).
-pub const ABILITY_ID: AbilityId = 0x0008;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Method IDs
@@ -81,6 +81,103 @@ pub const METHOD_LOCAL_ADDR: u16 = 0x0007;
 /// Method: peer_addr(conn: ConnectionId) -> string
 pub const METHOD_PEER_ADDR: u16 = 0x0008;
 
+/// The Network ability's method set, instantiated for any type system.
+///
+/// Single source of truth for the interface: the content-addressed
+/// [`ability_id`] and the engine-facing descriptor both derive from it.
+fn methods<T: Clone + 'static>() -> Vec<MethodDescriptor<T>> {
+    vec![
+        MethodDescriptor {
+            id: METHOD_LISTEN,
+            name: "listen",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.string()],
+                return_type: |f| f.number(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_ACCEPT,
+            name: "accept",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.number()],
+                return_type: |f| f.number(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_CLOSE_LISTENER,
+            name: "close_listener",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.number()],
+                return_type: |f| f.unit(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_CONNECT,
+            name: "connect",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.string()],
+                return_type: |f| f.number(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_CLOSE,
+            name: "close",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.number()],
+                return_type: |f| f.unit(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_SEND,
+            name: "send",
+            signature: MethodSignature {
+                param_count: 2,
+                param_types: |f| vec![f.number(), f.bytes()],
+                return_type: |f| f.unit(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_RECEIVE,
+            name: "receive",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.number()],
+                return_type: |f| f.bytes(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_LOCAL_ADDR,
+            name: "local_addr",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.number()],
+                return_type: |f| f.string(),
+            },
+        },
+        MethodDescriptor {
+            id: METHOD_PEER_ADDR,
+            name: "peer_addr",
+            signature: MethodSignature {
+                param_count: 1,
+                param_types: |f| vec![f.number()],
+                return_type: |f| f.string(),
+            },
+        },
+    ]
+}
+
+/// The content-addressed identity of the Network ability.
+#[must_use]
+pub fn ability_id() -> AbilityId {
+    static ID: OnceLock<AbilityId> = OnceLock::new();
+    *ID.get_or_init(|| hash_interface(NetworkAbility::NAME, &methods()))
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Marker Types
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -92,6 +189,12 @@ pub struct NetworkAbility;
 impl NetworkAbility {
     /// The name of this ability as it appears in Ambient code.
     pub const NAME: &'static str = "Network";
+
+    /// The content-addressed identity of the Network ability.
+    #[must_use]
+    pub fn ability_id() -> AbilityId {
+        ability_id()
+    }
 }
 
 /// Constant for use in other modules.
@@ -123,7 +226,7 @@ impl RuntimeAbility for NetworkRuntimeAbility {
     }
 
     fn ability_id(&self) -> AbilityId {
-        ABILITY_ID
+        ability_id()
     }
 
     fn descriptor<T: Clone + 'static>(
@@ -131,91 +234,9 @@ impl RuntimeAbility for NetworkRuntimeAbility {
         _factory: &dyn TypeFactory<T>,
     ) -> AbilityDescriptor<T> {
         AbilityDescriptor {
-            id: ABILITY_ID,
-            name: "Network",
-            methods: Box::leak(Box::new([
-                MethodDescriptor {
-                    id: METHOD_LISTEN,
-                    name: "listen",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.number(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_ACCEPT,
-                    name: "accept",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()],
-                        return_type: |f| f.number(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_CLOSE_LISTENER,
-                    name: "close_listener",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_CONNECT,
-                    name: "connect",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.string()],
-                        return_type: |f| f.number(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_CLOSE,
-                    name: "close",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_SEND,
-                    name: "send",
-                    signature: MethodSignature {
-                        param_count: 2,
-                        param_types: |f| vec![f.number(), f.bytes()],
-                        return_type: |f| f.unit(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_RECEIVE,
-                    name: "receive",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()],
-                        return_type: |f| f.bytes(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_LOCAL_ADDR,
-                    name: "local_addr",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()],
-                        return_type: |f| f.string(),
-                    },
-                },
-                MethodDescriptor {
-                    id: METHOD_PEER_ADDR,
-                    name: "peer_addr",
-                    signature: MethodSignature {
-                        param_count: 1,
-                        param_types: |f| vec![f.number()],
-                        return_type: |f| f.string(),
-                    },
-                },
-            ])),
+            id: ability_id(),
+            name: NetworkAbility::NAME,
+            methods: Box::leak(methods::<T>().into_boxed_slice()),
         }
     }
 
@@ -264,7 +285,6 @@ mod tests {
 
     #[test]
     fn test_network_ability_constants() {
-        assert_eq!(ABILITY_ID, 0x0008);
         assert_eq!(METHOD_LISTEN, 0x0000);
         assert_eq!(METHOD_ACCEPT, 0x0001);
         assert_eq!(METHOD_CLOSE_LISTENER, 0x0002);
@@ -274,13 +294,15 @@ mod tests {
         assert_eq!(METHOD_RECEIVE, 0x0006);
         assert_eq!(METHOD_LOCAL_ADDR, 0x0007);
         assert_eq!(METHOD_PEER_ADDR, 0x0008);
+        // Identity is stable across calls.
+        assert_eq!(ability_id(), NetworkAbility::ability_id());
     }
 
     #[test]
     fn test_network_runtime_ability_name() {
         let network = NetworkRuntimeAbility::new();
         assert_eq!(network.name(), "Network");
-        assert_eq!(network.ability_id(), ABILITY_ID);
+        assert_eq!(network.ability_id(), ability_id());
     }
 
     #[test]
@@ -289,7 +311,7 @@ mod tests {
         let factory = TestTypeFactory;
         let descriptor = network.descriptor(&factory);
 
-        assert_eq!(descriptor.id, ABILITY_ID);
+        assert_eq!(descriptor.id, ability_id());
         assert_eq!(descriptor.name, "Network");
         assert_eq!(descriptor.methods.len(), 9);
 

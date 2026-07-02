@@ -171,14 +171,26 @@ mod tests {
 
     #[test]
     fn test_ability_ids() {
-        // Verify the historical IDs are correct
-        assert_eq!(console::ABILITY_ID, 0x0001);
-        assert_eq!(time::ABILITY_ID, 0x0003);
-        assert_eq!(random::ABILITY_ID, 0x0004);
-        assert_eq!(async_ability::ABILITY_ID, 0x0005);
-        assert_eq!(log::ABILITY_ID, 0x0006);
-        // 0x0007 was Remote (removed)
-        assert_eq!(network::ABILITY_ID, 0x0008);
-        assert_eq!(execute::ABILITY_ID, 0x0009);
+        // Every ability's content-addressed identity must be distinct: the
+        // interfaces differ, so the interface hashes must differ too.
+        let ids = [
+            ("Console", console::ability_id()),
+            ("Time", time::ability_id()),
+            ("Random", random::ability_id()),
+            ("Async", async_ability::ability_id()),
+            ("Log", log::ability_id()),
+            ("Network", network::ability_id()),
+            ("Execute", execute::ability_id()),
+            ("Exception", ambient_core::exception::ability_id()),
+        ];
+
+        for (i, (name_a, id_a)) in ids.iter().enumerate() {
+            for (name_b, id_b) in &ids[i + 1..] {
+                assert_ne!(
+                    id_a, id_b,
+                    "abilities {name_a} and {name_b} must not share an identity"
+                );
+            }
+        }
     }
 }
