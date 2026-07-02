@@ -258,11 +258,13 @@ fn compile_loaded_module_with_registry(
     registry: &ModuleRegistry,
     imported_hashes: HashMap<Arc<str>, blake3::Hash>,
 ) -> Result<CompiledModule> {
-    // Type check with cross-module support.
-    let check_result = ambient_engine::infer::check_module_with_registry(
+    // Type check with cross-module support and the runtime prelude.
+    let prelude = super::runtime_prelude()?;
+    let check_result = ambient_engine::infer::check_module_with_registry_and_resolver(
         loaded.ast.clone(),
         module_path,
         registry,
+        super::prelude_resolver(&prelude),
     );
 
     if !check_result.is_ok() {
@@ -277,11 +279,15 @@ fn compile_loaded_module_with_registry(
     }
 
     // Compile with debug info and imported hashes.
-    let compiled = ambient_engine::compiler::compile_module_with_imports_and_source(
+    let source_file = file_path.display().to_string();
+    let compiled = ambient_engine::compiler::compile_module_with_options(
         &check_result.module,
-        &loaded.source,
-        &file_path.display().to_string(),
-        imported_hashes,
+        ambient_engine::compiler::CompileOptions {
+            source: Some(&loaded.source),
+            source_file: Some(&source_file),
+            imported_hashes: Some(imported_hashes),
+            prelude_abilities: &prelude,
+        },
     )
     .map_err(|e| anyhow::anyhow!("compile error at {}: {e}", file_path.display()))?;
 

@@ -23,11 +23,38 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
+use ambient_engine::ability_resolver::{standard_abilities, AbilityResolver, DynAbility};
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
 
 use crate::diagnostic::print_diagnostic;
+
+/// The `runtime` ability prelude: the bindings interface shipped by
+/// `ambient-runtime`, resolved to content-addressed identities.
+///
+/// Resolution is cheap (one small declaration module), and the resolved
+/// types are `Rc`-based, so this is recomputed rather than cached in a
+/// static.
+pub fn runtime_prelude() -> Result<Vec<Arc<DynAbility>>> {
+    let mut module = ambient_parser::parse(ambient_runtime::ABILITY_DECLARATIONS)
+        .map_err(|e| anyhow::anyhow!("runtime bindings interface failed to parse: {e}"))?;
+    let (abilities, errors) = ambient_engine::infer::resolve_ability_declarations(&mut module);
+    if let Some(error) = errors.first() {
+        bail!("runtime bindings interface failed to resolve: {error}");
+    }
+    Ok(abilities)
+}
+
+/// An ability resolver with the runtime prelude registered under the
+/// `runtime` namespace, on top of the standard descriptors.
+pub fn prelude_resolver(prelude: &[Arc<DynAbility>]) -> AbilityResolver {
+    let mut resolver = standard_abilities();
+    for ability in prelude {
+        resolver.register_dynamic_in_namespace("runtime", (**ability).clone());
+    }
+    resolver
+}
 
 /// Core library context for single-file compilation: a registry with the
 /// core modules registered, their compiled functions, and the
@@ -92,9 +119,14 @@ pub fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
     let main_path = ModulePath::root();
     core.registry.register(&main_path, Arc::new(module.clone()));
 
-    // Type check with the core modules visible.
-    let check_result =
-        ambient_engine::infer::check_module_with_registry(module, &main_path, &core.registry);
+    // Type check with the core modules and runtime prelude visible.
+    let prelude = runtime_prelude()?;
+    let check_result = ambient_engine::infer::check_module_with_registry_and_resolver(
+        module,
+        &main_path,
+        &core.registry,
+        prelude_resolver(&prelude),
+    );
     if !check_result.is_ok() {
         // Print type errors
         for error in &check_result.errors {
@@ -108,11 +140,15 @@ pub fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
     }
 
     // Compile the type-checked module with debug info, linking core.
-    let mut compiled = ambient_engine::compiler::compile_module_with_imports_and_source(
+    let source_file = file.display().to_string();
+    let mut compiled = ambient_engine::compiler::compile_module_with_options(
         &check_result.module,
-        source,
-        &file.display().to_string(),
-        core.hashes,
+        ambient_engine::compiler::CompileOptions {
+            source: Some(source),
+            source_file: Some(&source_file),
+            imported_hashes: Some(core.hashes),
+            prelude_abilities: &prelude,
+        },
     )
     .map_err(|e| anyhow::anyhow!("compile error at {}: {e}", file.display()))?;
 

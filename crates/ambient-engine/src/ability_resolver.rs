@@ -366,6 +366,11 @@ impl AbilityResolver {
             }
         }
 
+        // A descriptor and a prelude declaration of the same interface
+        // share an identity; count them once.
+        matching_abilities.sort_unstable();
+        matching_abilities.dedup();
+
         // Return only if exactly one ability matches
         if matching_abilities.len() == 1 {
             Some(matching_abilities[0])

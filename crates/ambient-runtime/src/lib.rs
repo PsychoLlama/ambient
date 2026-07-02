@@ -15,6 +15,16 @@ pub mod network;
 pub mod random;
 pub mod time;
 
+/// The runtime bindings interface, as in-language `ability` declarations.
+///
+/// This source is the portable description of the native runtime: an
+/// embedder parses it, resolves the declarations to content-addressed
+/// identities, registers them as the `runtime` ability prelude for type
+/// checking and compilation, and binds host handlers against the same
+/// identities. The Rust descriptors in the sibling modules hash
+/// identically (asserted by test) until they are retired.
+pub const ABILITY_DECLARATIONS: &str = include_str!("runtime.ab");
+
 pub use console::{ConsoleAbility, ConsoleRuntimeAbility, CONSOLE};
 pub use execute::ExecuteRuntimeAbility;
 pub use fs::{FsAbility, FsRuntimeAbility, FS};

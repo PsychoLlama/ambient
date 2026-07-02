@@ -30,6 +30,7 @@ dependencies = [
  "ambient-engine",
  "ambient-lsp",
  "ambient-parser",
+ "ambient-runtime",
  "anyhow",
  "blake3",
  "clap",
