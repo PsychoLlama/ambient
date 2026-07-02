@@ -12,7 +12,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Entry point that starts the server.
-pub fn run() {
+pub fn run(): () with Console, Network {
     runtime.Console.print!("Server: listening on 127.0.0.1:8080...");
     let listener = runtime.Network.listen!("127.0.0.1:8080");
 
@@ -35,7 +35,7 @@ pub fn run() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Serve a remote execution request.
-fn serve_request(conn: number) {
+fn serve_request(conn: number): () with Console, Network, Execute {
     let bytes = runtime.Network.receive!(conn);
 
     if core.bytes.length(bytes) == 0 {
@@ -54,7 +54,7 @@ fn serve_request(conn: number) {
 }
 
 /// Handle an Execute request.
-fn handle_execute(conn: number, payload: Bytes) {
+fn handle_execute(conn: number, payload: Bytes): () with Console, Network, Execute {
     // Parse hash length and hash
     let hash_len = core.bytes.get(payload, 0);
     let rest = core.bytes.slice(payload, 1, core.bytes.length(payload));
@@ -80,7 +80,7 @@ fn handle_execute(conn: number, payload: Bytes) {
 }
 
 /// Request a function from the client.
-fn request_function(conn: number, hash: string) {
+fn request_function(conn: number, hash: string): () with Console, Network, Execute {
     // Send NeedDeps message with the hash
     let serialized = core.protocol.serialize_value([hash]);
     let msg = core.bytes.concat(core.bytes.from([2]), serialized);
@@ -100,7 +100,7 @@ fn request_function(conn: number, hash: string) {
 }
 
 /// Execute the function and send the result.
-fn execute_function(conn: number, hash: string, captures: Bytes) {
+fn execute_function(conn: number, hash: string, captures: Bytes): () with Console, Network, Execute {
     // Deserialize captures
     let arg_opt = core.protocol.deserialize_value(captures);
     let arg: number = core.option.unwrap_or(arg_opt, 0);

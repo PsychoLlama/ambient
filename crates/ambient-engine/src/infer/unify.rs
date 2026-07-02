@@ -197,6 +197,17 @@ impl Infer {
         let a2 = self.apply_abilities(a2);
 
         match (&a1, &a2) {
+            // Unresolved ability names are eliminated by resolve_holes before
+            // unification; reaching here means an annotation bypassed
+            // resolution. Report a mismatch rather than guessing.
+            (AbilitySet::Unresolved(_), _) | (_, AbilitySet::Unresolved(_)) => Err(type_error(
+                TypeErrorKind::AbilityMismatch {
+                    expected: a1.clone(),
+                    actual: a2.clone(),
+                },
+                span,
+            )),
+
             // Both empty - trivially equal
             (AbilitySet::Empty, AbilitySet::Empty) => Ok(()),
 
@@ -356,7 +367,7 @@ impl Infer {
     pub(crate) fn ability_occurs(&self, var: AbilityVarId, abilities: &AbilitySet) -> bool {
         let abilities = self.apply_abilities(abilities);
         match &abilities {
-            AbilitySet::Empty | AbilitySet::Concrete(_) => false,
+            AbilitySet::Empty | AbilitySet::Concrete(_) | AbilitySet::Unresolved(_) => false,
             AbilitySet::Var(id) => *id == var,
             AbilitySet::Row { tail, .. } => *tail == var,
         }
@@ -372,7 +383,9 @@ impl Infer {
     #[must_use]
     pub fn apply_abilities(&self, abilities: &AbilitySet) -> AbilitySet {
         match abilities {
-            AbilitySet::Empty | AbilitySet::Concrete(_) => abilities.clone(),
+            AbilitySet::Empty | AbilitySet::Concrete(_) | AbilitySet::Unresolved(_) => {
+                abilities.clone()
+            }
             AbilitySet::Var(id) => self
                 .ability_subst
                 .get(id)
@@ -456,6 +469,7 @@ impl Infer {
                     ability_resolver: crate::ability_resolver::standard_abilities(),
                     type_aliases: self.type_aliases.clone(),
                     trait_registry: self.trait_registry.clone(),
+                    pending_errors: Vec::new(),
                 };
                 Type::Forall(crate::types::ForallType::with_abilities(
                     f.vars.clone(),

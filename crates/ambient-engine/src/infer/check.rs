@@ -111,41 +111,7 @@ pub fn check_module(mut module: crate::ast::Module) -> CheckResult {
                         }
                     }
 
-                    // Verify declared abilities match inferred abilities
-                    let inferred_abilities = infer.current_abilities().clone();
-                    if !func.abilities.is_empty() {
-                        // Convert declared abilities to AbilitySet
-                        let declared: Vec<AbilityId> = func
-                            .abilities
-                            .iter()
-                            .filter_map(|qn| infer.ability_name_to_id(&qn.name))
-                            .collect();
-                        let declared_set = AbilitySet::from_abilities(declared);
-
-                        // Check that inferred abilities are a subset of declared
-                        if let AbilitySet::Concrete(inferred_ids) = &inferred_abilities {
-                            for ability_id in inferred_ids {
-                                if !declared_set.contains(*ability_id) {
-                                    let span = (item.span.start, item.span.end);
-                                    errors.push(Box::new(
-                                        TypeError::new(
-                                            TypeErrorKind::MissingAbility {
-                                                required: *ability_id,
-                                                available: declared_set.clone(),
-                                            },
-                                            span,
-                                        )
-                                        .with_context(
-                                            format!(
-                                        "function `{}` uses ability #{} but doesn't declare it",
-                                        func.name, ability_id
-                                    ),
-                                        ),
-                                    ));
-                                }
-                            }
-                        }
-                    }
+                    enforce_declared_abilities(&infer, func, item.span, &mut errors);
                 }
                 Err(e) => {
                     errors.push(e.with_context(format!("in function `{}`", func.name)));
@@ -175,7 +141,60 @@ pub fn check_module(mut module: crate::ast::Module) -> CheckResult {
         }
     }
 
+    errors.extend(infer.take_pending_errors());
     CheckResult { errors, module }
+}
+
+/// Verify that a function's inferred abilities are a subset of its declared
+/// abilities.
+///
+/// This runs for every function, including ones with no `with` clause: an
+/// undeclared ability is an error, not an implicit grant. Abilities that
+/// remain polymorphic (variables/rows) after substitution are not enforced —
+/// they are constrained at the call sites that instantiate them.
+fn enforce_declared_abilities(
+    infer: &Infer,
+    func: &crate::ast::FunctionDef,
+    item_span: crate::ast::Span,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    let inferred = infer.apply_abilities(infer.current_abilities());
+
+    let declared: Vec<AbilityId> = func
+        .abilities
+        .iter()
+        .filter_map(|qn| infer.ability_name_to_id(&qn.name))
+        .collect();
+    let declared_set = AbilitySet::from_abilities(declared);
+
+    let inferred_ids = match &inferred {
+        AbilitySet::Concrete(ids) => ids.as_slice(),
+        AbilitySet::Row { concrete, .. } => concrete.as_slice(),
+        AbilitySet::Empty | AbilitySet::Var(_) | AbilitySet::Unresolved(_) => &[],
+    };
+
+    for ability_id in inferred_ids {
+        if !declared_set.contains(*ability_id) {
+            let span = (item_span.start, item_span.end);
+            let name = infer
+                .ability_id_to_name(*ability_id)
+                .unwrap_or("<unknown>")
+                .to_string();
+            errors.push(Box::new(
+                TypeError::new(
+                    TypeErrorKind::MissingAbility {
+                        required: *ability_id,
+                        available: declared_set.clone(),
+                    },
+                    span,
+                )
+                .with_context(format!(
+                    "function `{}` uses ability `{name}` but doesn't declare it",
+                    func.name
+                )),
+            ));
+        }
+    }
 }
 
 /// Register all type aliases from a module into the inferencer.
@@ -566,38 +585,7 @@ pub fn check_module_with_registry(
                         }
                     }
 
-                    let inferred_abilities = infer.current_abilities().clone();
-                    if !func.abilities.is_empty() {
-                        let declared: Vec<AbilityId> = func
-                            .abilities
-                            .iter()
-                            .filter_map(|qn| infer.ability_name_to_id(&qn.name))
-                            .collect();
-                        let declared_set = AbilitySet::from_abilities(declared);
-
-                        if let AbilitySet::Concrete(inferred_ids) = &inferred_abilities {
-                            for ability_id in inferred_ids {
-                                if !declared_set.contains(*ability_id) {
-                                    let span = (item.span.start, item.span.end);
-                                    errors.push(Box::new(
-                                        TypeError::new(
-                                            TypeErrorKind::MissingAbility {
-                                                required: *ability_id,
-                                                available: declared_set.clone(),
-                                            },
-                                            span,
-                                        )
-                                        .with_context(
-                                            format!(
-                                            "function `{}` uses ability #{} but doesn't declare it",
-                                            func.name, ability_id
-                                        ),
-                                        ),
-                                    ));
-                                }
-                            }
-                        }
-                    }
+                    enforce_declared_abilities(&infer, func, item.span, &mut errors);
                 }
                 Err(e) => {
                     errors.push(e.with_context(format!("in function `{}`", func.name)));
@@ -626,6 +614,7 @@ pub fn check_module_with_registry(
         }
     }
 
+    errors.extend(infer.take_pending_errors());
     CheckResult { errors, module }
 }
 
@@ -695,33 +684,7 @@ pub fn check_module_with_registry_and_resolver(
                         }
                     }
 
-                    let inferred_abilities = infer.current_abilities().clone();
-                    if !func.abilities.is_empty() {
-                        let declared: Vec<AbilityId> = func
-                            .abilities
-                            .iter()
-                            .filter_map(|qn| infer.ability_name_to_id(&qn.name))
-                            .collect();
-                        let declared_set = AbilitySet::from_abilities(declared);
-
-                        if let AbilitySet::Concrete(inferred_ids) = &inferred_abilities {
-                            for ability_id in inferred_ids {
-                                if !declared_set.contains(*ability_id) {
-                                    let span = (item.span.start, item.span.end);
-                                    errors.push(Box::new(
-                                        TypeError::new(
-                                            TypeErrorKind::MissingAbility {
-                                                required: *ability_id,
-                                                available: declared_set.clone(),
-                                            },
-                                            span,
-                                        )
-                                        .with_context(format!("in function `{}`", func.name)),
-                                    ));
-                                }
-                            }
-                        }
-                    }
+                    enforce_declared_abilities(&infer, func, item.span, &mut errors);
                 }
                 Err(e) => {
                     errors.push(e.with_context(format!("in function `{}`", func.name)));
@@ -750,6 +713,7 @@ pub fn check_module_with_registry_and_resolver(
         }
     }
 
+    errors.extend(infer.take_pending_errors());
     CheckResult { errors, module }
 }
 

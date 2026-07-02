@@ -104,6 +104,10 @@ pub struct Infer {
     pub(crate) type_aliases: HashMap<Arc<str>, Type>,
     /// Trait registry for trait and impl lookup.
     pub(crate) trait_registry: TraitRegistry,
+    /// Errors recorded outside the normal `InferResult` flow (e.g. unknown
+    /// ability names found while resolving annotations). Drained by the
+    /// module-level check functions.
+    pub(crate) pending_errors: Vec<error::BoxedTypeError>,
 }
 
 impl Default for Infer {
@@ -125,6 +129,7 @@ impl Infer {
             ability_resolver: crate::ability_resolver::standard_abilities(),
             type_aliases: HashMap::new(),
             trait_registry: TraitRegistry::new(),
+            pending_errors: Vec::new(),
         }
     }
 
@@ -140,6 +145,7 @@ impl Infer {
             ability_resolver: crate::ability_resolver::standard_abilities(),
             type_aliases: HashMap::new(),
             trait_registry: TraitRegistry::new(),
+            pending_errors: Vec::new(),
         }
     }
 
@@ -155,6 +161,7 @@ impl Infer {
             ability_resolver: resolver,
             type_aliases: HashMap::new(),
             trait_registry: TraitRegistry::new(),
+            pending_errors: Vec::new(),
         }
     }
 
@@ -224,7 +231,8 @@ impl Infer {
             Type::Function(f) => {
                 let params = f.params.iter().map(|p| self.resolve_holes(p)).collect();
                 let ret = self.resolve_holes(&f.ret);
-                Type::function_with_abilities(params, ret, f.abilities.clone())
+                let abilities = self.resolve_ability_annotation(&f.abilities);
+                Type::function_with_abilities(params, ret, abilities)
             }
             Type::Named(n) => {
                 // Check if this named type corresponds to a registered type alias
@@ -247,7 +255,7 @@ impl Infer {
             )),
             Type::AbilityValue(av) => Type::AbilityValue(AbilityValueType::new(
                 self.resolve_holes(&av.result),
-                av.ability.clone(),
+                self.resolve_ability_annotation(&av.ability),
             )),
             Type::Forall(f) => Type::Forall(ForallType::with_abilities(
                 f.vars.clone(),
@@ -257,6 +265,38 @@ impl Infer {
             // Other types remain unchanged
             _ => ty.clone(),
         }
+    }
+
+    /// Resolve ability names from a source annotation to concrete ability IDs.
+    ///
+    /// Lowering has no ability resolver, so annotations like
+    /// `(T) -> U with Console` arrive as `AbilitySet::Unresolved(["Console"])`.
+    /// Unknown names are recorded in `pending_errors` (drained by the
+    /// module-level check functions) rather than silently dropped.
+    fn resolve_ability_annotation(&mut self, abilities: &AbilitySet) -> AbilitySet {
+        let AbilitySet::Unresolved(names) = abilities else {
+            return abilities.clone();
+        };
+
+        let mut ids = Vec::new();
+        for name in names {
+            if let Some(id) = self.ability_name_to_id(name) {
+                ids.push(id);
+            } else {
+                self.pending_errors.push(Box::new(TypeError::new(
+                    TypeErrorKind::UnknownAbility {
+                        name: Arc::clone(name),
+                    },
+                    (0, 0),
+                )));
+            }
+        }
+        AbilitySet::from_abilities(ids)
+    }
+
+    /// Take any errors recorded outside the normal `InferResult` flow.
+    pub(crate) fn take_pending_errors(&mut self) -> Vec<error::BoxedTypeError> {
+        std::mem::take(&mut self.pending_errors)
     }
 
     /// Instantiate a type scheme with fresh type variables.

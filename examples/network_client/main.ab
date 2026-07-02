@@ -7,7 +7,7 @@
 //! (Make sure the network_server is running first!)
 
 /// Entry point that connects to a server and sends messages.
-pub fn run() {
+pub fn run(): () with Console, Network {
     runtime.Console.print!("Client: connecting to 127.0.0.1:9000...");
     let conn = runtime.Network.connect!("127.0.0.1:9000");
 

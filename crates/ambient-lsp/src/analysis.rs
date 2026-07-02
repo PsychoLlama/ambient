@@ -314,6 +314,10 @@ fn format_ability_set(abilities: &ambient_engine::types::AbilitySet) -> String {
             parts.push(format!("E{tail}!"));
             parts.join(", ")
         }
+        AbilitySet::Unresolved(names) => {
+            let parts: Vec<_> = names.iter().map(ToString::to_string).collect();
+            parts.join(", ")
+        }
     }
 }
 

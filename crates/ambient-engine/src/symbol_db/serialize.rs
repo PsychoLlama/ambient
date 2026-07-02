@@ -121,6 +121,10 @@ pub fn serialize_ability_set_value(abilities: &AbilitySet) -> Value {
             "concrete": concrete,
             "tail": tail
         }),
+        // Unresolved names never survive type checking; nothing serialized
+        // from a checked module should carry them. Serialize as names so a
+        // round-trip is at least lossless.
+        AbilitySet::Unresolved(names) => json!({"kind": "unresolved", "names": names}),
     }
 }
 

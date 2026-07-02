@@ -914,7 +914,7 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
         CstTypeExprKind::Function {
             params,
             ret,
-            abilities: _,
+            abilities,
         } => {
             let param_types = params
                 .iter()
@@ -922,10 +922,24 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
                 .collect::<Result<Vec<_>, _>>()?;
             let return_type = lower_type(ret)?;
 
+            // Ability names can't be resolved to IDs here (lowering has no
+            // ability resolver); pass them through symbolically for the type
+            // checker's resolve_holes to resolve.
+            let ability_set = if abilities.is_empty() {
+                ambient_engine::types::AbilitySet::empty()
+            } else {
+                ambient_engine::types::AbilitySet::Unresolved(
+                    abilities
+                        .iter()
+                        .filter_map(|qn| qn.segments.last().map(|seg| seg.name.clone()))
+                        .collect(),
+                )
+            };
+
             Ok(Type::Function(ambient_engine::types::FunctionType {
                 params: param_types,
                 ret: Box::new(return_type),
-                abilities: ambient_engine::types::AbilitySet::empty(), // TODO: lower abilities
+                abilities: ability_set,
             }))
         }
 

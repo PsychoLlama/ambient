@@ -6,7 +6,7 @@
 //! Run with: `ambient run examples/network_server`
 
 /// Entry point that starts a TCP server and echoes messages.
-pub fn run() {
+pub fn run(): () with Console, Network {
     runtime.Console.print!("Server: binding to 127.0.0.1:9000...");
     let listener = runtime.Network.listen!("127.0.0.1:9000");
 
@@ -26,7 +26,7 @@ pub fn run() {
 }
 
 /// Echo messages back to the client until an empty message is received.
-fn echo_loop(conn: number) {
+fn echo_loop(conn: number): () with Console, Network {
     let msg = runtime.Network.receive!(conn);
     let len = core.bytes.length(msg);
 

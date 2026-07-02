@@ -150,7 +150,7 @@ impl Infer {
                     .collect();
                 AbilitySet::from_abilities(remaining)
             }
-            AbilitySet::Var(_) | AbilitySet::Row { .. } => {
+            AbilitySet::Var(_) | AbilitySet::Row { .. } | AbilitySet::Unresolved(_) => {
                 // Can't statically determine which abilities are handled
                 // For now, assume all handlers match
                 body_abilities.clone()

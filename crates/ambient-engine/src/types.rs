@@ -121,6 +121,12 @@ pub enum AbilitySet {
         /// Polymorphic tail variable.
         tail: AbilityVarId,
     },
+
+    /// Ability names from source annotations that have not been resolved to
+    /// IDs yet (e.g. `(T) -> U with Console`). Produced by lowering, which
+    /// has no ability resolver; eliminated by `Infer::resolve_holes` before
+    /// any unification. Must never survive type checking.
+    Unresolved(Vec<Arc<str>>),
 }
 
 impl AbilitySet {
@@ -184,7 +190,8 @@ impl AbilitySet {
     #[must_use]
     pub fn contains(&self, ability: AbilityId) -> bool {
         match self {
-            Self::Empty | Self::Var(_) => false, // Variable might contain it, but we don't know
+            // Variable might contain it, but we don't know
+            Self::Empty | Self::Var(_) | Self::Unresolved(_) => false,
             Self::Concrete(abilities) => abilities.contains(&ability),
             Self::Row { concrete, .. } => concrete.contains(&ability),
         }
@@ -194,7 +201,7 @@ impl AbilitySet {
     #[must_use]
     pub fn concrete_abilities(&self) -> &[AbilityId] {
         match self {
-            Self::Empty | Self::Var(_) => &[],
+            Self::Empty | Self::Var(_) | Self::Unresolved(_) => &[],
             Self::Concrete(abilities) => abilities,
             Self::Row { concrete, .. } => concrete,
         }
@@ -213,7 +220,7 @@ impl AbilitySet {
     #[must_use]
     pub fn free_ability_vars(&self) -> Vec<AbilityVarId> {
         match self {
-            Self::Empty | Self::Concrete(_) => Vec::new(),
+            Self::Empty | Self::Concrete(_) | Self::Unresolved(_) => Vec::new(),
             Self::Var(id) | Self::Row { tail: id, .. } => vec![*id],
         }
     }
@@ -244,9 +251,13 @@ impl AbilitySet {
                     tail: *tail,
                 }
             }
-            // Two variables or two rows - we can't merge them without unification
-            // Return self for now, unification will handle this
-            (Self::Var(_) | Self::Row { .. }, Self::Var(_) | Self::Row { .. }) => self.clone(),
+            // Two variables or two rows can't merge without unification
+            // (which handles them later). Unresolved names can't be combined
+            // before resolution; resolve_holes eliminates them before unions
+            // matter. Return self in both cases.
+            (Self::Var(_) | Self::Row { .. }, Self::Var(_) | Self::Row { .. })
+            | (Self::Unresolved(_), _)
+            | (_, Self::Unresolved(_)) => self.clone(),
         }
     }
 }
@@ -275,6 +286,16 @@ impl fmt::Display for AbilitySet {
                     write!(f, "#{ability}")?;
                 }
                 write!(f, ", E{tail}!}}")
+            }
+            Self::Unresolved(names) => {
+                write!(f, "{{")?;
+                for (i, name) in names.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{name}?")?;
+                }
+                write!(f, "}}")
             }
         }
     }
@@ -1258,7 +1279,9 @@ fn substitute_ability_set(
     subst: &HashMap<AbilityVarId, AbilitySet>,
 ) -> AbilitySet {
     match ability_set {
-        AbilitySet::Empty | AbilitySet::Concrete(_) => ability_set.clone(),
+        AbilitySet::Empty | AbilitySet::Concrete(_) | AbilitySet::Unresolved(_) => {
+            ability_set.clone()
+        }
         AbilitySet::Var(id) => subst
             .get(id)
             .cloned()

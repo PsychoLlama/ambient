@@ -18,7 +18,7 @@ fn double(x: number): number {
 }
 
 /// Entry point that connects to server and executes a function remotely.
-pub fn run() {
+pub fn run(): () with Console, Network, Execute {
     runtime.Console.print!("Client: connecting to 127.0.0.1:8080...");
     let conn = runtime.Network.connect!("127.0.0.1:8080");
 
@@ -47,7 +47,7 @@ pub fn run() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Send a function for remote execution and receive the result.
-fn send_and_receive<A>(conn: number, thunk: (A) -> number, arg: A): number {
+fn send_and_receive<A>(conn: number, thunk: (A) -> number, arg: A): number with Console, Network, Execute {
     let hash = core.protocol.closure_hash(thunk);
     let captures = core.protocol.serialize_value(arg);
 
@@ -67,7 +67,7 @@ fn send_and_receive<A>(conn: number, thunk: (A) -> number, arg: A): number {
 }
 
 /// Handle server response.
-fn handle_response<A>(conn: number, thunk: (A) -> number): number {
+fn handle_response<A>(conn: number, thunk: (A) -> number): number with Console, Network, Execute {
     let response = runtime.Network.receive!(conn);
 
     if core.bytes.length(response) == 0 {

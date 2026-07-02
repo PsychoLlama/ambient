@@ -309,8 +309,19 @@ impl Infer {
                     lambda_env.insert_mono(param.id, param.name.clone(), param_ty);
                 }
 
-                let ret_ty = self.infer_expr(&lambda_env, &mut lambda.body)?;
-                Type::function(param_tys, ret_ty)
+                // The abilities performed by the lambda's body belong to the
+                // lambda's own function type — the enclosing function only
+                // requires them if it actually calls the lambda.
+                let saved = std::mem::replace(&mut self.current_abilities, AbilitySet::Empty);
+                let body_result = self.infer_expr(&lambda_env, &mut lambda.body);
+                let lambda_abilities = std::mem::replace(&mut self.current_abilities, saved);
+                let ret_ty = body_result?;
+
+                Type::function_with_abilities(
+                    param_tys,
+                    ret_ty,
+                    self.apply_abilities(&lambda_abilities),
+                )
             }
 
             ExprKind::Call(callee, args) => {
@@ -327,9 +338,18 @@ impl Infer {
                     arg_tys.push(self.infer_expr(env, arg)?);
                 }
 
+                // Expect a function whose abilities are a fresh variable:
+                // unification binds it to the callee's actual ability set
+                // (Empty for pure functions), which the caller then requires.
+                // This is what propagates effects across function calls.
                 let ret_ty = self.fresh();
-                let expected_fn_ty = Type::function(arg_tys, ret_ty.clone());
+                let ability_var = self.fresh_ability_var();
+                let expected_fn_ty =
+                    Type::function_with_abilities(arg_tys, ret_ty.clone(), ability_var.clone());
                 self.unify(&callee_ty, &expected_fn_ty, span)?;
+
+                let callee_abilities = self.apply_abilities(&ability_var);
+                self.require_abilities(&callee_abilities);
                 self.apply(&ret_ty)
             }
 
