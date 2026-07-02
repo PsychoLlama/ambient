@@ -550,6 +550,28 @@ pub fn impl_method_symbol(type_uuid: &Uuid, trait_name: &str, method_name: &str)
     format!("{type_uuid}::{trait_name}::{method_name}").into()
 }
 
+/// Result of looking up a method by name on a nominal type.
+#[derive(Debug)]
+pub enum MethodLookup<'a> {
+    /// No trait implemented for the type provides the method.
+    NotFound,
+    /// Exactly one implementation provides the method.
+    Found {
+        /// The trait providing the method.
+        trait_id: TraitId,
+        /// The trait's method signature.
+        method: &'a TraitMethodDef,
+        /// The canonical dispatch symbol (see [`impl_method_symbol`]).
+        symbol: Arc<str>,
+    },
+    /// Multiple traits implemented for the type provide a method with this
+    /// name; the call must be disambiguated.
+    Ambiguous {
+        /// Names of the traits that provide the method.
+        traits: Vec<Arc<str>>,
+    },
+}
+
 /// Registry of trait definitions and implementations.
 #[derive(Debug, Clone, Default)]
 pub struct TraitRegistry {
@@ -634,9 +656,13 @@ impl TraitRegistry {
     }
 
     /// Register a trait implementation.
-    pub fn register_impl(&mut self, impl_: TraitImpl) {
+    ///
+    /// Returns the previously registered impl for the same
+    /// `(trait, type)` pair, if any — a coherence violation the caller
+    /// should report.
+    pub fn register_impl(&mut self, impl_: TraitImpl) -> Option<TraitImpl> {
         let key = (impl_.trait_id, impl_.implementing_type.uuid);
-        self.impls.insert(key, impl_);
+        self.impls.insert(key, impl_)
     }
 
     /// Get implementation for a trait and nominal type.
@@ -646,23 +672,25 @@ impl TraitRegistry {
     }
 
     /// Find all implementations for a nominal type.
+    ///
+    /// Sorted by trait ID so lookups are deterministic (the backing map has
+    /// arbitrary iteration order).
     #[must_use]
     pub fn impls_for_type(&self, type_uuid: Uuid) -> Vec<&TraitImpl> {
-        self.impls
+        let mut impls: Vec<&TraitImpl> = self
+            .impls
             .iter()
             .filter(|((_, uuid), _)| *uuid == type_uuid)
             .map(|(_, impl_)| impl_)
-            .collect()
+            .collect();
+        impls.sort_by_key(|impl_| impl_.trait_id);
+        impls
     }
 
     /// Find a method by name for a given nominal type.
-    /// Returns (`trait_id`, method signature, dispatch symbol) if found.
     #[must_use]
-    pub fn find_method(
-        &self,
-        type_uuid: Uuid,
-        method_name: &str,
-    ) -> Option<(TraitId, &TraitMethodDef, Arc<str>)> {
+    pub fn find_method(&self, type_uuid: Uuid, method_name: &str) -> MethodLookup<'_> {
+        let mut matches: Vec<(TraitId, &TraitMethodDef, Arc<str>)> = Vec::new();
         for impl_ in self.impls_for_type(type_uuid) {
             if let Some(symbol) = impl_.methods.get(method_name) {
                 if let Some(trait_def) = self.get_trait(impl_.trait_id) {
@@ -671,12 +699,30 @@ impl TraitRegistry {
                         .iter()
                         .find(|m| m.name.as_ref() == method_name)
                     {
-                        return Some((impl_.trait_id, method, Arc::clone(symbol)));
+                        matches.push((impl_.trait_id, method, Arc::clone(symbol)));
                     }
                 }
             }
         }
-        None
+
+        match matches.len() {
+            0 => MethodLookup::NotFound,
+            1 => {
+                // Vec::swap_remove on a single-element vec cannot fail.
+                let (trait_id, method, symbol) = matches.swap_remove(0);
+                MethodLookup::Found {
+                    trait_id,
+                    method,
+                    symbol,
+                }
+            }
+            _ => MethodLookup::Ambiguous {
+                traits: matches
+                    .iter()
+                    .filter_map(|(id, _, _)| self.get_trait(*id).map(|t| Arc::clone(&t.name)))
+                    .collect(),
+            },
+        }
     }
 
     /// Check if a type implements a trait.

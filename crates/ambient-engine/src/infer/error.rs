@@ -206,6 +206,9 @@ pub enum TypeErrorKind {
     /// Cannot implement trait for non-nominal type.
     TraitOnStructuralType { trait_name: Arc<str>, ty: Type },
 
+    /// A second impl of the same trait for the same type.
+    DuplicateImpl { trait_name: Arc<str>, ty: Type },
+
     /// Impl method signature doesn't match trait.
     ImplMethodSignatureMismatch {
         trait_name: Arc<str>,
@@ -382,6 +385,13 @@ impl std::fmt::Display for TypeErrorKind {
                 write!(
                     f,
                     "ambiguous method `{method}` for type `{ty}`: could be from {traits}"
+                )
+            }
+            Self::DuplicateImpl { trait_name, ty } => {
+                write!(
+                    f,
+                    "duplicate implementation of trait `{trait_name}` for `{ty}` \
+                     (each trait may be implemented at most once per type in a package)"
                 )
             }
             Self::TraitOnStructuralType { trait_name, ty } => {

@@ -84,7 +84,7 @@ fn check_module_core(
         // Make the rest of the package's types, traits, and impls visible
         // (signatures only). Runs before local registration and import
         // resolution so imported signatures resolve foreign nominal types.
-        register_package_items(&mut infer, module_path, registry);
+        register_package_items(&mut infer, module_path, registry, &mut errors);
         build_import_env(&mut infer, module_path, registry, &mut errors)
     } else {
         TypeEnv::new()
@@ -344,6 +344,7 @@ fn register_package_items(
     infer: &mut Infer,
     current_module: &ModulePath,
     registry: &ModuleRegistry,
+    errors: &mut Vec<BoxedTypeError>,
 ) {
     let foreign_modules: Vec<_> = registry
         .all_modules()
@@ -359,7 +360,7 @@ fn register_package_items(
     for info in &foreign_modules {
         for item in &info.module.items {
             if let crate::ast::ItemKind::Impl(impl_def) = &item.kind {
-                register_foreign_impl(infer, impl_def);
+                register_foreign_impl(infer, impl_def, errors);
             }
         }
     }
@@ -369,7 +370,11 @@ fn register_package_items(
 ///
 /// Skips silently on unresolvable traits or non-nominal types: the impl's
 /// own module reports those errors during its check pass.
-fn register_foreign_impl(infer: &mut Infer, impl_def: &crate::ast::ImplDef) {
+fn register_foreign_impl(
+    infer: &mut Infer,
+    impl_def: &crate::ast::ImplDef,
+    errors: &mut Vec<BoxedTypeError>,
+) {
     let Some(trait_id) = infer.trait_registry.lookup_trait(&impl_def.trait_name.name) else {
         return;
     };
@@ -387,7 +392,17 @@ fn register_foreign_impl(infer: &mut Infer, impl_def: &crate::ast::ImplDef) {
         );
         impl_record.methods.insert(Arc::clone(&method.name), symbol);
     }
-    infer.trait_registry.register_impl(impl_record);
+    if infer.trait_registry.register_impl(impl_record).is_some() {
+        // Two other modules implement the same trait for the same type.
+        // Their dispatch symbols collide, so this is unresolvable ambiguity.
+        errors.push(Box::new(TypeError::new(
+            TypeErrorKind::DuplicateImpl {
+                trait_name: Arc::clone(&impl_def.trait_name.name),
+                ty: for_type.clone(),
+            },
+            (impl_def.span.start, impl_def.span.end),
+        )));
+    }
 }
 
 /// Check impl blocks and register implementations.
@@ -465,7 +480,15 @@ fn check_single_impl(
             .insert(Arc::clone(&method.name), Arc::clone(&symbol));
         method.resolved_symbol = Some(symbol);
     }
-    infer.trait_registry.register_impl(impl_record);
+    if infer.trait_registry.register_impl(impl_record).is_some() {
+        errors.push(Box::new(TypeError::new(
+            TypeErrorKind::DuplicateImpl {
+                trait_name: Arc::clone(&impl_def.trait_name.name),
+                ty: for_type.clone(),
+            },
+            span,
+        )));
+    }
 }
 
 /// Check all methods in an impl block.

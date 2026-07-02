@@ -687,17 +687,33 @@ impl Infer {
         };
 
         // Look up the method in the trait registry
-        let Some((trait_id, method_def, method_symbol)) =
-            self.trait_registry.find_method(nominal.uuid, method_name)
-        else {
-            return Err(type_error(
-                TypeErrorKind::MethodNotFound {
-                    method: Arc::clone(method_name),
-                    ty: receiver_ty.clone(),
-                },
-                span,
-            ));
-        };
+        let (trait_id, method_def, method_symbol) =
+            match self.trait_registry.find_method(nominal.uuid, method_name) {
+                crate::types::MethodLookup::Found {
+                    trait_id,
+                    method,
+                    symbol,
+                } => (trait_id, method, symbol),
+                crate::types::MethodLookup::NotFound => {
+                    return Err(type_error(
+                        TypeErrorKind::MethodNotFound {
+                            method: Arc::clone(method_name),
+                            ty: receiver_ty.clone(),
+                        },
+                        span,
+                    ));
+                }
+                crate::types::MethodLookup::Ambiguous { traits } => {
+                    return Err(type_error(
+                        TypeErrorKind::AmbiguousMethod {
+                            method: Arc::clone(method_name),
+                            ty: receiver_ty.clone(),
+                            candidates: traits,
+                        },
+                        span,
+                    ));
+                }
+            };
 
         // Clone the method definition to release the borrow on trait_registry
         let method_def = method_def.clone();

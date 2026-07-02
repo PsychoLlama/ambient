@@ -1333,3 +1333,66 @@ fn test_public_function_must_declare_inferred_abilities() {
     )
     .expect_error("uses ability `Console` but doesn't declare it");
 }
+
+#[test]
+fn test_duplicate_impl_is_error() {
+    // A trait may be implemented at most once per type: the impl-method
+    // dispatch symbol is derived from (type uuid, trait, method), so a
+    // second impl would collide in the content-addressed store.
+    CliTest::new(
+        r#"
+        trait Show {
+            fn show(self): number;
+        }
+
+        unique(aaaabbbb-cccc-dddd-eeee-ffff00003333) type Id { value: number }
+
+        impl Show for Id {
+            fn show(self): number { self.value }
+        }
+
+        impl Show for Id {
+            fn show(self): number { self.value * 2 }
+        }
+
+        fn run(): number {
+            let i = Id { value: 1 };
+            i.show()
+        }
+    "#,
+    )
+    .expect_error("duplicate implementation of trait `Show`");
+}
+
+#[test]
+fn test_ambiguous_method_is_error() {
+    // Two different traits implemented for the same type both provide a
+    // method named `render`; a bare method call cannot choose between them.
+    CliTest::new(
+        r#"
+        trait Html {
+            fn render(self): number;
+        }
+
+        trait Text {
+            fn render(self): number;
+        }
+
+        unique(aaaabbbb-cccc-dddd-eeee-ffff00004444) type Page { id: number }
+
+        impl Html for Page {
+            fn render(self): number { self.id }
+        }
+
+        impl Text for Page {
+            fn render(self): number { self.id * 2 }
+        }
+
+        fn run(): number {
+            let p = Page { id: 1 };
+            p.render()
+        }
+    "#,
+    )
+    .expect_error("render");
+}
