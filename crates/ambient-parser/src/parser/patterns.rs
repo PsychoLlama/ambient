@@ -186,8 +186,23 @@ impl Parser<'_> {
                 });
             }
 
-            // Simple binding
+            // Bare identifier: uppercase-initial names are unit variant
+            // patterns (`None`, `Nothing`); lowercase names are bindings.
+            // Without this, `None` would bind a variable named "None" that
+            // always matches and shadows the constructor.
             let span = ident.span;
+            if ident.name.chars().next().is_some_and(char::is_uppercase) {
+                return Ok(CstPattern {
+                    kind: CstPatternKind::Variant {
+                        name: CstQualifiedName {
+                            segments: vec![ident],
+                            span,
+                        },
+                        payload: None,
+                    },
+                    span,
+                });
+            }
             return Ok(CstPattern {
                 kind: CstPatternKind::Binding(ident),
                 span,

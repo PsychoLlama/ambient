@@ -117,6 +117,20 @@ pub(super) fn compile_expr(
                     // It's a function reference - push it for later use.
                     fc.builder.emit_const(Value::FunctionRef(hash));
                 }
+            } else if let Some(variant) = ctx.enums.get(var_name).cloned() {
+                // Unit enum variant as a value: `None`, `Nothing`.
+                if variant.has_payload {
+                    return Err(CompileError::new(
+                        CompileErrorKind::Unsupported {
+                            feature: format!(
+                                "constructor `{var_name}` used as a value; apply it: `{var_name}(...)`"
+                            ),
+                        },
+                        (expr.span.start, expr.span.end),
+                    ));
+                }
+                fc.builder
+                    .emit_make_enum(&variant.enum_name, variant.tag, var_name, false);
             } else {
                 return Err(CompileError::new(
                     CompileErrorKind::UndefinedFunction {
@@ -357,6 +371,19 @@ pub(super) fn compile_expr(
                         compile_expr(fc, arg, ctx)?;
                     }
                     fc.builder.emit_call_closure(args.len() as u8);
+                } else if let Some(variant) = ctx.enums.get(&name.name).cloned() {
+                    // Enum variant constructor: `Some(x)`, `Just(v)`.
+                    if !variant.has_payload || args.len() != 1 {
+                        return Err(CompileError::new(
+                            CompileErrorKind::Internal {
+                                message: "enum constructor arity mismatch (checker bug)",
+                            },
+                            (callee.span.start, callee.span.end),
+                        ));
+                    }
+                    compile_expr(fc, &args[0], ctx)?;
+                    fc.builder
+                        .emit_make_enum(&variant.enum_name, variant.tag, &name.name, true);
                 } else {
                     // Unknown function - will error at runtime
                     compile_expr(fc, callee, ctx)?;

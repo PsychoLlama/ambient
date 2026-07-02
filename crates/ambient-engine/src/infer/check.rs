@@ -92,6 +92,7 @@ fn check_module_core(
 
     register_type_aliases(&mut infer, &module);
     register_traits(&mut infer, &module);
+    register_enums(&mut infer, &module, &mut env);
     collect_function_signatures(&mut infer, &module, &mut env);
 
     // Phase 2: impl blocks.
@@ -662,8 +663,43 @@ fn build_function_scheme(
     }
 }
 
+/// Register the module's enum declarations and bring every visible
+/// variant constructor into scope (prelude `Option`/`Result` plus locals;
+/// locals shadow prelude variants of the same name).
+fn register_enums(infer: &mut Infer, module: &crate::ast::Module, env: &mut TypeEnv) {
+    for item in &module.items {
+        if let crate::ast::ItemKind::Enum(enum_def) = &item.kind {
+            infer.enum_registry.register_def(enum_def);
+        }
+    }
+
+    // Synthetic binding ids for constructors, distinct from imports
+    // (2_000_000+) and user bindings.
+    let mut next_binding_id: BindingId = 4_000_000;
+    let enums: Vec<_> = infer.enum_registry.iter().cloned().collect();
+    for info in enums {
+        for (idx, variant) in info.variants.iter().enumerate() {
+            // Respect shadowing: only bind the variant if this enum is its
+            // current owner.
+            let owned = infer
+                .enum_registry
+                .resolve_variant(&variant.name)
+                .is_some_and(|(owner, _)| owner.name == info.name);
+            if !owned {
+                continue;
+            }
+            let scheme = info.constructor_scheme(idx);
+            env.insert(next_binding_id, Arc::clone(&variant.name), scheme);
+            next_binding_id += 1;
+        }
+    }
+}
+
 /// Substitute type parameters in a type with type variables.
-fn substitute_type_params(ty: &Type, type_var_map: &HashMap<Arc<str>, TypeVarId>) -> Type {
+pub(super) fn substitute_type_params(
+    ty: &Type,
+    type_var_map: &HashMap<Arc<str>, TypeVarId>,
+) -> Type {
     match ty {
         Type::Named(named) => {
             // Check if this is a type parameter reference

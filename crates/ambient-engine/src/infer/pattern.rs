@@ -9,9 +9,11 @@
 //! - Record patterns
 //! - Variant patterns (enum destructuring)
 
-use super::{Infer, InferResult, TypeEnv};
+use super::error::TypeErrorKind;
+use super::{type_error, Infer, InferResult, TypeEnv};
 use crate::ast::{Pattern, PatternKind};
 use crate::types::Type;
+use std::sync::Arc;
 
 impl Infer {
     /// Infer types for a pattern and return extended environment.
@@ -29,9 +31,42 @@ impl Infer {
         let mut new_env = env.extend();
 
         match &pattern.kind {
-            PatternKind::Wildcard | PatternKind::Variant(_, _) => {
+            PatternKind::Wildcard => {
                 // Wildcard matches anything
-                // Variant patterns require enum type definitions (future work)
+            }
+
+            PatternKind::Variant(variant_name, inner) => {
+                let Some((info, idx)) = self.enum_registry.resolve_variant(&variant_name.name)
+                else {
+                    return Err(type_error(
+                        TypeErrorKind::UnknownVariant {
+                            name: Arc::clone(&variant_name.name),
+                        },
+                        span,
+                    ));
+                };
+
+                let (enum_ty, payload_ty) = info.instantiate_variant(self, idx);
+                self.unify(expected, &enum_ty, span)?;
+
+                match (payload_ty, inner) {
+                    (Some(payload), Some(inner_pat)) => {
+                        let pat_env = self.infer_pattern(&new_env, inner_pat, &payload)?;
+                        for (id, name, scheme) in pat_env.iter_named() {
+                            new_env.insert(id, name.clone(), scheme.clone());
+                        }
+                    }
+                    (None, None) => {}
+                    (expects_payload, _) => {
+                        return Err(type_error(
+                            TypeErrorKind::VariantPayloadMismatch {
+                                variant: Arc::clone(&variant_name.name),
+                                expects_payload: expects_payload.is_some(),
+                            },
+                            span,
+                        ));
+                    }
+                }
             }
 
             PatternKind::Binding(id, name) => {

@@ -315,12 +315,13 @@ impl Infer {
                 }
 
                 let result_ty = self.fresh();
-                for arm in arms {
+                for arm in arms.iter_mut() {
                     let arm_env = self.infer_pattern(env, &arm.pattern, &scrutinee_ty)?;
-                    // Clone the arm body to avoid mutable borrow issues
-                    let mut body = arm.body.clone();
-                    let arm_ty = self.infer_expr(&arm_env, &mut body)?;
-                    self.unify(&result_ty, &arm_ty, span)?;
+                    // Infer on the real body (not a clone): inference
+                    // records resolutions the compiler depends on.
+                    let arm_ty = self.infer_expr(&arm_env, &mut arm.body)?;
+                    let arm_span = (arm.body.span.start, arm.body.span.end);
+                    self.unify(&result_ty, &arm_ty, arm_span)?;
                 }
                 self.apply(&result_ty)
             }

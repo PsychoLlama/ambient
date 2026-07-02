@@ -196,6 +196,15 @@ pub enum TypeErrorKind {
     /// Method not found on type.
     MethodNotFound { method: Arc<str>, ty: Type },
 
+    /// A pattern or expression referenced an unknown enum variant.
+    UnknownVariant { name: Arc<str> },
+
+    /// A variant pattern's payload shape doesn't match the declaration.
+    VariantPayloadMismatch {
+        variant: Arc<str>,
+        expects_payload: bool,
+    },
+
     /// Ambiguous method call (multiple traits provide the same method).
     AmbiguousMethod {
         method: Arc<str>,
@@ -368,6 +377,22 @@ impl std::fmt::Display for TypeErrorKind {
             }
             Self::TraitNotImplemented { trait_name, ty } => {
                 write!(f, "trait `{trait_name}` is not implemented for `{ty}`")
+            }
+            Self::UnknownVariant { name } => {
+                write!(f, "unknown enum variant: `{name}`")
+            }
+            Self::VariantPayloadMismatch {
+                variant,
+                expects_payload,
+            } => {
+                if *expects_payload {
+                    write!(
+                        f,
+                        "variant `{variant}` carries a payload; use `{variant}(pattern)`"
+                    )
+                } else {
+                    write!(f, "variant `{variant}` has no payload")
+                }
             }
             Self::MethodNotFound { method, ty } => {
                 write!(f, "method `{method}` not found for type `{ty}`")

@@ -1,0 +1,58 @@
+// Core library: Result utilities.
+//
+// `Ok`/`Err` constructors and the Result type are built in; these helpers
+// cover the common combinators.
+
+pub fn is_ok<T, E>(res: Result<T, E>): bool {
+    match res {
+        Ok(_) => true,
+        Err(_) => false,
+    }
+}
+
+pub fn is_err<T, E>(res: Result<T, E>): bool {
+    match res {
+        Ok(_) => false,
+        Err(_) => true,
+    }
+}
+
+// Get the value or a default.
+pub fn unwrap_or<T, E>(res: Result<T, E>, default: T): T {
+    match res {
+        Ok(v) => v,
+        Err(_) => default,
+    }
+}
+
+// Transform the success value.
+pub fn map<T, U, E>(res: Result<T, E>, f: (T) -> U): Result<U, E> {
+    match res {
+        Ok(v) => Ok(f(v)),
+        Err(e) => Err(e),
+    }
+}
+
+// Transform the error value.
+pub fn map_err<T, E, F>(res: Result<T, E>, f: (E) -> F): Result<T, F> {
+    match res {
+        Ok(v) => Ok(v),
+        Err(e) => Err(f(e)),
+    }
+}
+
+// Chain a fallible operation.
+pub fn and_then<T, U, E>(res: Result<T, E>, f: (T) -> Result<U, E>): Result<U, E> {
+    match res {
+        Ok(v) => f(v),
+        Err(e) => Err(e),
+    }
+}
+
+// Convert to an Option, discarding the error.
+pub fn ok<T, E>(res: Result<T, E>): Option<T> {
+    match res {
+        Ok(v) => Some(v),
+        Err(_) => None,
+    }
+}

@@ -56,6 +56,7 @@
 mod abilities;
 mod check;
 mod effects;
+pub mod enums;
 mod env;
 mod error;
 mod expr;
@@ -104,6 +105,9 @@ pub struct Infer {
     pub(crate) type_aliases: HashMap<Arc<str>, Type>,
     /// Trait registry for trait and impl lookup.
     pub(crate) trait_registry: TraitRegistry,
+
+    /// Enums visible to the module being checked (prelude + locals).
+    pub(crate) enum_registry: enums::EnumRegistry,
     /// Errors recorded outside the normal `InferResult` flow (e.g. unknown
     /// ability names found while resolving annotations). Drained by the
     /// module-level check functions.
@@ -129,6 +133,7 @@ impl Infer {
             ability_resolver: crate::ability_resolver::standard_abilities(),
             type_aliases: HashMap::new(),
             trait_registry: TraitRegistry::with_prelude(),
+            enum_registry: enums::EnumRegistry::with_prelude(),
             pending_errors: Vec::new(),
         }
     }
@@ -145,6 +150,7 @@ impl Infer {
             ability_resolver: crate::ability_resolver::standard_abilities(),
             type_aliases: HashMap::new(),
             trait_registry: TraitRegistry::with_prelude(),
+            enum_registry: enums::EnumRegistry::with_prelude(),
             pending_errors: Vec::new(),
         }
     }
@@ -161,6 +167,7 @@ impl Infer {
             ability_resolver: resolver,
             type_aliases: HashMap::new(),
             trait_registry: TraitRegistry::with_prelude(),
+            enum_registry: enums::EnumRegistry::with_prelude(),
             pending_errors: Vec::new(),
         }
     }

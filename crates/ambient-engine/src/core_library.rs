@@ -87,7 +87,7 @@ impl CoreLibrary {
 /// order. Excludes `traits`: the operator traits (Add, Eq, Ord, ...) are
 /// the hardcoded prelude in `TraitRegistry::with_prelude`, and registering
 /// a second copy would collide with it.
-pub const REGISTERED_CORE_MODULES: &[&str] = &["math", "string", "list"];
+pub const REGISTERED_CORE_MODULES: &[&str] = &["math", "string", "list", "option", "result"];
 
 /// Parse every registered core module and register it in a module
 /// registry under its reserved `core.*` path.
@@ -132,6 +132,8 @@ fn path_to_name(path: &[Arc<str>]) -> String {
 fn get_core_modules() -> HashMap<&'static str, &'static str> {
     let mut modules = HashMap::new();
     modules.insert("list", include_str!("core_lib/list.ab"));
+    modules.insert("option", include_str!("core_lib/option.ab"));
+    modules.insert("result", include_str!("core_lib/result.ab"));
     modules.insert("string", include_str!("core_lib/string.ab"));
     modules.insert("math", include_str!("core_lib/math.ab"));
     modules.insert("traits", include_str!("core_lib/traits.ab"));

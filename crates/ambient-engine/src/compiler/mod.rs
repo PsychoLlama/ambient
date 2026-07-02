@@ -477,14 +477,63 @@ struct ModuleContext {
     /// Name of the function currently being compiled.
     /// Used to track lambda parent relationships.
     current_function: Option<Arc<str>>,
+    /// Enum variant constructors in scope: variant name → variant info.
+    /// Seeded with the prelude (Option/Result); local enum declarations
+    /// shadow prelude variants of the same name.
+    enums: HashMap<Arc<str>, VariantInfo>,
+}
+
+/// Compile-time info for one enum variant constructor.
+#[derive(Debug, Clone)]
+pub(crate) struct VariantInfo {
+    pub enum_name: Arc<str>,
+    pub tag: u16,
+    pub has_payload: bool,
 }
 
 impl ModuleContext {
     fn new() -> Self {
+        let mut enums = HashMap::new();
+        // Prelude constructors. Tags match the VM's Option/Result layout.
+        for (enum_name, tag, variant, has_payload) in [
+            ("Option", 0u16, "None", false),
+            ("Option", 1, "Some", true),
+            ("Result", 0, "Ok", true),
+            ("Result", 1, "Err", true),
+        ] {
+            enums.insert(
+                Arc::from(variant),
+                VariantInfo {
+                    enum_name: Arc::from(enum_name),
+                    tag,
+                    has_payload,
+                },
+            );
+        }
         Self {
             lambdas: Vec::new(),
             lambda_counter: 0,
             current_function: None,
+            enums,
+        }
+    }
+
+    /// Register a module's enum declarations, shadowing prelude variants.
+    fn register_enums(&mut self, module: &Module) {
+        for item in &module.items {
+            if let ItemKind::Enum(enum_def) = &item.kind {
+                for (idx, variant) in enum_def.variants.iter().enumerate() {
+                    self.enums.insert(
+                        Arc::clone(&variant.name),
+                        VariantInfo {
+                            enum_name: Arc::clone(&enum_def.name),
+                            #[allow(clippy::cast_possible_truncation)]
+                            tag: idx as u16,
+                            has_payload: variant.payload.is_some(),
+                        },
+                    );
+                }
+            }
         }
     }
 
@@ -661,8 +710,10 @@ fn compile_module_impl(
         temp_hashes.insert(Arc::clone(symbol), compute_temporary_hash(symbol));
     }
 
-    // Create module context for tracking lambdas discovered during compilation.
+    // Create module context for tracking lambdas discovered during
+    // compilation, with the module's enum constructors registered.
     let mut ctx = ModuleContext::new();
+    ctx.register_enums(module);
 
     // Phase 2: Compile each function using temporary hashes.
     let mut compiled_functions: Vec<(Arc<str>, CompiledFunction, bool)> = Vec::new();

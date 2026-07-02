@@ -9,25 +9,6 @@ use crate::value::Value;
 use super::error::{CompileError, CompileErrorKind};
 use super::{compile_expr, str_to_value, FunctionCompiler, ModuleContext};
 
-/// Get the variant tag for a well-known enum variant name.
-///
-/// Tags for Option:
-/// - None = 0
-/// - Some = 1
-///
-/// Tags for Result:
-/// - Ok = 0
-/// - Err = 1
-pub(super) fn get_variant_tag(variant_name: &str) -> Option<u16> {
-    match variant_name {
-        // Tag 0: unit/success variants
-        "None" | "Ok" => Some(0),
-        // Tag 1: payload/error variants
-        "Some" | "Err" => Some(1),
-        _ => None,
-    }
-}
-
 /// Compile a match expression.
 pub(super) fn compile_match(
     fc: &mut FunctionCompiler,
@@ -62,7 +43,7 @@ pub(super) fn compile_match(
         }
 
         // Compile pattern match.
-        let fail_jump = compile_pattern_match(fc, &arm.pattern, is_last)?;
+        let fail_jump = compile_pattern_match(fc, ctx, &arm.pattern, is_last)?;
 
         // If guard exists, compile it.
         if let Some(guard) = &arm.guard {
@@ -109,6 +90,7 @@ pub(super) fn compile_match(
 /// Compile a pattern match. Returns jump offset if pattern can fail.
 fn compile_pattern_match(
     fc: &mut FunctionCompiler,
+    ctx: &ModuleContext,
     pattern: &Pattern,
     is_last: bool,
 ) -> Result<Option<usize>, CompileError> {
@@ -172,14 +154,18 @@ fn compile_pattern_match(
             //   cleanup_and_fail: Pop  (remove dup on fail path)
             //   past_cleanup: <returned as fail_jump for compile_match to patch>
 
-            let tag = get_variant_tag(&variant_name.name).ok_or_else(|| {
-                CompileError::new(
-                    CompileErrorKind::Unsupported {
-                        feature: format!("unknown variant: {}", variant_name.name),
-                    },
-                    (pattern.span.start, pattern.span.end),
-                )
-            })?;
+            let tag = ctx
+                .enums
+                .get(&variant_name.name)
+                .map(|v| v.tag)
+                .ok_or_else(|| {
+                    CompileError::new(
+                        CompileErrorKind::Unsupported {
+                            feature: format!("unknown variant: {}", variant_name.name),
+                        },
+                        (pattern.span.start, pattern.span.end),
+                    )
+                })?;
 
             // Check if the enum matches this variant tag.
             // EnumIs: [enum] -> [enum, bool]
@@ -198,7 +184,7 @@ fn compile_pattern_match(
 
                 // Recursively match the inner pattern against the payload.
                 // is_last=true because we want inner match to consume the payload.
-                compile_pattern_match(fc, inner, true)?;
+                compile_pattern_match(fc, ctx, inner, true)?;
                 // Stack: [orig] (non-last) or [] (last)
             } else {
                 // Unit variant (like None) - pop the matched enum
@@ -212,49 +198,22 @@ fn compile_pattern_match(
             }
             // Stack: []
 
-            // Jump past the cleanup code
-            let past_cleanup_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
+            // Success: jump over the fail-path cleanup AND the fail jump,
+            // landing where compile_match emits the arm body.
+            let to_body_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
 
             // === FAIL PATH (cleanup) ===
             fc.builder.patch_jump(cleanup_jump);
-            // Stack here: [orig, dup] (non-last) or [orig] (last)
-            // JumpIfNot consumed the bool
-
-            // Pop the enum that EnumIs left on stack
+            // JumpIfNot consumed the bool; stack: [orig, dup] (non-last)
+            // or [orig] (last). Pop the enum EnumIs left behind.
             fc.builder.emit(Opcode::Pop);
-            // Stack: [orig] (non-last) or [] (last)
 
-            // For non-last: we now have [orig] which is correct for next arm's Dup
-            // For last: we have [] but there's no next arm anyway
-
-            // Patch the success path's jump to skip over the fail cleanup
-            fc.builder.patch_jump(past_cleanup_jump);
-
-            // Return the fail target for compile_match to use
-            // But wait - we need to return a jump placeholder, not an offset.
-            // The issue is compile_match expects a jump that IT will patch.
-            //
-            // Actually looking at compile_match:
-            //   let fail_jump = compile_pattern_match(...)?;
-            //   ...compile body...
-            //   fc.builder.patch_jump(fj);  // patches to HERE
-            //
-            // So fail_jump should point to AFTER the body. But we've already
-            // handled the fail path cleanup inline. We need a different approach.
-            //
-            // New approach: Don't return a fail_jump. Instead, emit a Jump
-            // placeholder that we return, which compile_match will patch.
-            // On fail, we clean up and then fall through to this Jump.
-
-            // Actually, let me re-read how this works. Looking at the patching:
-            //   fc.builder.patch_jump(fj);
-            // This patches fj to the current bytecode position.
-            //
-            // So if I return a Jump placeholder here, compile_match will patch
-            // it to point to after the arm body. That's what we want!
-
-            // Emit a jump that compile_match will patch to the right place
+            // Then skip the arm body: compile_match patches this to the
+            // next arm (or the end of the match for the last arm).
             let fail_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
+
+            // The arm body starts here.
+            fc.builder.patch_jump(to_body_jump);
 
             Ok(Some(fail_jump))
         }

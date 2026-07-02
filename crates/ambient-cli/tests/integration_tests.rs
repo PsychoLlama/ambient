@@ -1553,3 +1553,166 @@ fn test_method_call_resolves_inside_perform_arguments() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("42"));
     drop(dir);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enum Constructor & Match Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_user_enum_construct_and_match() {
+    let (dir, pkg) = temp_package(
+        r"
+        enum Shape { Circle(number), Square(number), Dot }
+
+        pub fn run(): number {
+            area(Circle(2)) + area(Square(3)) + area(Dot)
+        }
+
+        fn area(s: Shape): number {
+            match s {
+                Circle(r) => 3 * r * r,
+                Square(side) => side * side,
+                Dot => 0,
+            }
+        }
+        ",
+    );
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("21"));
+    drop(dir);
+}
+
+#[test]
+fn test_option_constructors_and_core_helpers() {
+    let (dir, pkg) = temp_package(
+        r"
+        pub fn run(): number {
+            let doubled = core.option.map(Some(20), (x: number) => x * 2);
+            core.option.unwrap_or(doubled, 0)
+                + core.option.unwrap_or(core.option.map(nothing(), (x: number) => x), 2)
+        }
+
+        fn nothing(): Option<number> {
+            None
+        }
+        ",
+    );
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("42"));
+    drop(dir);
+}
+
+#[test]
+fn test_result_constructors_and_chaining() {
+    let (dir, pkg) = temp_package(
+        r#"
+        pub fn run(): string {
+            let ok = core.result.map(parse(5), (x: number) => x * 10);
+            let err = parse(0 - 3);
+            match core.result.and_then(ok, (x: number) => parse(x)) {
+                Ok(v) => core.string.from_number(v),
+                Err(e) => e,
+            }
+        }
+
+        fn parse(n: number): Result<number, string> {
+            if n > 0 { Ok(n) } else { Err("negative") }
+        }
+        "#,
+    );
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("50"));
+    drop(dir);
+}
+
+#[test]
+fn test_match_takes_correct_arm() {
+    // Regression: the pattern compiler's success path used to jump straight
+    // to the fail target, so every variant arm skipped its own body.
+    let (dir, pkg) = temp_package(
+        r"
+        pub fn run(): number {
+            let hit = match Some(41) {
+                Some(v) => v,
+                None => 0 - 1,
+            };
+            let miss = match nothing() {
+                Some(v) => v,
+                None => 100,
+            };
+            hit + miss
+        }
+
+        fn nothing(): Option<number> {
+            None
+        }
+        ",
+    );
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("141"));
+    drop(dir);
+}
+
+#[test]
+fn test_unknown_variant_pattern_is_error() {
+    let (dir, pkg) = temp_package(
+        r"
+        pub fn run(): number {
+            match Some(1) {
+                Sume(v) => v,
+                None => 0,
+            }
+        }
+        ",
+    );
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("unknown enum variant"),
+        "expected unknown-variant error: {output:?}"
+    );
+    drop(dir);
+}
+
+#[test]
+fn test_variant_payload_mismatch_is_error() {
+    let (dir, pkg) = temp_package(
+        r"
+        pub fn run(): number {
+            match Some(1) {
+                Some => 1,
+                None => 0,
+            }
+        }
+        ",
+    );
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("payload"),
+        "expected payload mismatch error: {output:?}"
+    );
+    drop(dir);
+}
+
+#[test]
+fn test_lowercase_pattern_still_binds() {
+    // Only uppercase-initial bare identifiers are variant patterns.
+    let (dir, pkg) = temp_package(
+        r"
+        pub fn run(): number {
+            match 42 {
+                x => x,
+            }
+        }
+        ",
+    );
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("42"));
+    drop(dir);
+}

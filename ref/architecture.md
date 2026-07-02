@@ -68,9 +68,20 @@ bool      // true, false
 (number, string, bool)             // Tuples
 List<T>, Set<T>, Map<K, V>         // Collections
 
-// Enums (tagged unions)
-enum Option<T> { Some(T), None }
-enum Result<T, E> { Ok(T), Err(E) }
+// Enums (tagged unions). Option and Result are built in; their
+// constructors (Some, None, Ok, Err) are always in scope.
+enum Shape { Circle(number), Square(number), Dot }
+
+// Construct with the variant name; destructure with match. In pattern
+// position, bare uppercase-initial identifiers are variant patterns
+// (None, Dot); lowercase identifiers are bindings.
+fn area(s: Shape): number {
+  match s {
+    Circle(r) => 3 * r * r,
+    Square(side) => side * side,
+    Dot => 0,
+  }
+}
 
 // Nominal types (structurally identical but incompatible)
 unique(d098767b-4093-4d5c-ba37-ad92aa7b5d98) type UserId { value: string }
@@ -652,10 +663,7 @@ Roughly in priority order:
   item imports, qualified calls), but the library itself is small
   (list/math/string helpers) and many operations still live only as
   intrinsics. Target roughly the granularity of Go's or Node's standard
-  libraries. Blockers worth fixing along the way: enum variant
-  constructors (`Some(x)`) are not available in expression position, so
-  Option/Result helpers cannot yet be written in Ambient; generic trait
-  bounds would unlock `contains`/`sort_by`.
+  libraries. Generic trait bounds would unlock `contains`/`sort_by`.
 - **Pure engine + platform bindings.** The engine is currently coupled to
   the built-in effect handlers (Console, Network, ...). The goal is a
   WASM-like split: the language core is pure, and *hosts* provide
@@ -668,6 +676,10 @@ Roughly in priority order:
 - Incremental compilation backed by the persisted store
 - WASM target
 - Package manager (stores are rsync-friendly by construction)
+- Match exhaustiveness checking (a failing final variant arm is a
+  runtime error today)
+- Enum variants imported across modules (constructors are currently
+  visible to the declaring module plus the prelude)
 - Type unions (`A | B`)
 - Multi-shot continuations
 - Mutable references (`Store<T>` or affine types)
