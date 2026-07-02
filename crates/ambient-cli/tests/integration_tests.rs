@@ -1142,3 +1142,122 @@ fn test_operator_overloading_ordering() {
     )
     .expect_output("5");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cross-module traits
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Create a temp package with multiple source files: (name, content) pairs,
+/// where name is relative to src/ (e.g. "main.ab", "money.ab").
+fn temp_multi_package(files: &[(&str, &str)]) -> (TempDir, PathBuf) {
+    let dir = TempDir::new().expect("failed to create temp dir");
+    let pkg_dir = dir.path().to_path_buf();
+
+    fs::write(
+        pkg_dir.join("ambient.toml"),
+        r#"[package]
+name = "test_pkg"
+version = "0.1.0"
+
+[build]
+src = "src"
+"#,
+    )
+    .expect("failed to write manifest");
+
+    let src_dir = pkg_dir.join("src");
+    fs::create_dir_all(&src_dir).expect("failed to create src dir");
+    for (name, content) in files {
+        fs::write(src_dir.join(name), content).expect("failed to write source file");
+    }
+
+    (dir, pkg_dir)
+}
+
+#[test]
+fn test_cross_module_trait_dispatch() {
+    // A type, its trait impls (using the prelude Add trait and a local
+    // trait), and its constructor live in one module; another module calls
+    // the operator and the method. Dispatch symbols must link across the
+    // module boundary.
+    let (_dir, pkg) = temp_multi_package(&[
+        (
+            "money.ab",
+            r#"
+            use core.traits.Add;
+
+            pub unique(aaaabbbb-cccc-dddd-eeee-ffff00001111) type Money { cents: number }
+
+            impl Add for Money {
+                fn add(self, other: Money): Money {
+                    Money { cents: self.cents + other.cents }
+                }
+            }
+
+            pub trait Doubled {
+                fn doubled(self): number;
+            }
+
+            impl Doubled for Money {
+                fn doubled(self): number {
+                    self.cents * 2
+                }
+            }
+
+            pub fn make(cents: number): Money {
+                Money { cents: cents }
+            }
+            "#,
+        ),
+        (
+            "main.ab",
+            r#"
+            use pkg.money.{Money, make};
+
+            pub fn run(): number {
+                let total = make(100) + make(50);
+                total.doubled() + total.cents
+            }
+            "#,
+        ),
+    ]);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&pkg)
+        .output()
+        .expect("failed to run ambient");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("450"),
+        "expected 450 in output, got: {stdout}"
+    );
+}
+
+#[test]
+fn test_prelude_traits_no_import_needed() {
+    // The operator traits are prelude: an impl can reference Add without
+    // any use statement or local trait declaration.
+    CliTest::new(
+        r#"
+        unique(aaaabbbb-cccc-dddd-eeee-ffff00002222) type Meters { value: number }
+
+        impl Add for Meters {
+            fn add(self, other: Meters): Meters {
+                Meters { value: self.value + other.value }
+            }
+        }
+
+        fn run(): number {
+            let d = Meters { value: 3 } + Meters { value: 4 };
+            d.value
+        }
+    "#,
+    )
+    .expect_output("7");
+}

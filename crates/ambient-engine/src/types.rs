@@ -573,6 +573,41 @@ impl TraitRegistry {
         Self::default()
     }
 
+    /// Create a registry pre-populated with the prelude traits.
+    ///
+    /// These are the operator traits (`Add`, `Sub`, `Mul`, `Div`, `Mod`,
+    /// `Eq`, `Ord`) that operator overloading dispatches through. They're
+    /// always in scope — `core_lib/traits.ab` mirrors these definitions for
+    /// documentation and tooling. A module that declares its own trait with
+    /// the same name shadows the prelude entry.
+    #[must_use]
+    pub fn with_prelude() -> Self {
+        let mut registry = Self::new();
+        let self_ty = || Type::Named(NamedType::simple("Self"));
+
+        let binary = |registry: &mut Self, trait_name: &str, method: &str, ret: Type| {
+            let id = registry.fresh_id();
+            registry.register_trait(
+                TraitDef::new(id, trait_name).with_method(TraitMethodDef::new(
+                    method,
+                    true,
+                    vec![self_ty()],
+                    ret,
+                )),
+            );
+        };
+
+        binary(&mut registry, "Add", "add", self_ty());
+        binary(&mut registry, "Sub", "sub", self_ty());
+        binary(&mut registry, "Mul", "mul", self_ty());
+        binary(&mut registry, "Div", "div", self_ty());
+        binary(&mut registry, "Mod", "rem", self_ty());
+        binary(&mut registry, "Eq", "eq", Type::Bool);
+        binary(&mut registry, "Ord", "cmp", Type::Number);
+
+        registry
+    }
+
     /// Generate a fresh trait ID.
     pub fn fresh_id(&mut self) -> TraitId {
         let id = self.next_id;

@@ -259,10 +259,20 @@ impl<'src> Parser<'src> {
                 match self.current_kind() {
                     TokenKind::Fn => CstItemKind::Function(self.parse_function(true)?),
                     TokenKind::Use => CstItemKind::Use(self.parse_use(true)?),
+                    // Consts, types, enums, abilities, and traits are
+                    // currently always exported; `pub` on them is accepted
+                    // as documentation of that fact.
+                    TokenKind::Const => CstItemKind::Const(self.parse_const()?),
+                    TokenKind::Type | TokenKind::Unique => {
+                        CstItemKind::TypeAlias(self.parse_type_alias()?)
+                    }
+                    TokenKind::Enum => CstItemKind::Enum(self.parse_enum()?),
+                    TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def()?),
+                    TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def()?),
                     _ => {
                         return Err(ParseError::new(
                             ParseErrorKind::Expected {
-                                expected: "fn or use after pub".into(),
+                                expected: "item declaration after pub".into(),
                                 found: format!("{:?}", self.current_kind()),
                             },
                             self.current().span,

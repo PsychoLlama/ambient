@@ -27,24 +27,8 @@ trait Normalize {
     fn normalize(self): Self;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Standard Traits for Operators
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Add trait for the + operator.
-trait Add {
-    fn add(self, other: Self): Self;
-}
-
-/// Sub trait for the - operator.
-trait Sub {
-    fn sub(self, other: Self): Self;
-}
-
-/// Eq trait for the == operator.
-trait Eq {
-    fn eq(self, other: Self): bool;
-}
+// The operator traits (Add, Sub, Eq, ...) are part of the prelude —
+// implementing them enables the corresponding operators, no import needed.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2D Vector Type

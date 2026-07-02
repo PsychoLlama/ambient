@@ -128,7 +128,7 @@ impl Infer {
             ability_registry: None,
             ability_resolver: crate::ability_resolver::standard_abilities(),
             type_aliases: HashMap::new(),
-            trait_registry: TraitRegistry::new(),
+            trait_registry: TraitRegistry::with_prelude(),
             pending_errors: Vec::new(),
         }
     }
@@ -144,7 +144,7 @@ impl Infer {
             ability_registry: Some(registry),
             ability_resolver: crate::ability_resolver::standard_abilities(),
             type_aliases: HashMap::new(),
-            trait_registry: TraitRegistry::new(),
+            trait_registry: TraitRegistry::with_prelude(),
             pending_errors: Vec::new(),
         }
     }
@@ -160,7 +160,7 @@ impl Infer {
             ability_registry: None,
             ability_resolver: resolver,
             type_aliases: HashMap::new(),
-            trait_registry: TraitRegistry::new(),
+            trait_registry: TraitRegistry::with_prelude(),
             pending_errors: Vec::new(),
         }
     }

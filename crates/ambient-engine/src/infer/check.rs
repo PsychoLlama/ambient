@@ -210,34 +210,99 @@ fn register_type_aliases(infer: &mut Infer, module: &crate::ast::Module) {
 fn register_traits(infer: &mut Infer, module: &crate::ast::Module) {
     for item in &module.items {
         if let crate::ast::ItemKind::Trait(trait_def) = &item.kind {
-            let trait_id = infer.trait_registry.fresh_id();
-
-            // Build method definitions
-            let methods: Vec<TraitMethodDef> = trait_def
-                .methods
-                .iter()
-                .map(|m| {
-                    TraitMethodDef::new(
-                        Arc::clone(&m.name),
-                        m.has_self,
-                        m.params.iter().map(|(_, ty)| ty.clone()).collect(),
-                        m.ret_ty.clone(),
-                    )
-                })
-                .collect();
-
-            // Create and register the trait definition
-            let def = TraitDef {
-                id: trait_id,
-                name: Arc::clone(&trait_def.name),
-                type_params: Vec::new(), // TODO: Handle type params properly
-                methods,
-                supertraits: Vec::new(), // TODO: Resolve supertrait references
-            };
-
-            infer.trait_registry.register_trait(def);
+            register_trait_def(infer, trait_def);
         }
     }
+}
+
+/// Register a single trait definition into the trait registry.
+fn register_trait_def(infer: &mut Infer, trait_def: &crate::ast::TraitDef) {
+    let trait_id = infer.trait_registry.fresh_id();
+
+    // Build method definitions
+    let methods: Vec<TraitMethodDef> = trait_def
+        .methods
+        .iter()
+        .map(|m| {
+            TraitMethodDef::new(
+                Arc::clone(&m.name),
+                m.has_self,
+                m.params.iter().map(|(_, ty)| ty.clone()).collect(),
+                m.ret_ty.clone(),
+            )
+        })
+        .collect();
+
+    // Create and register the trait definition
+    let def = TraitDef {
+        id: trait_id,
+        name: Arc::clone(&trait_def.name),
+        type_params: Vec::new(), // TODO: Handle type params properly
+        methods,
+        supertraits: Vec::new(), // TODO: Resolve supertrait references
+    };
+
+    infer.trait_registry.register_trait(def);
+}
+
+/// Register types, traits, and impls declared in the *other* modules of the
+/// package so they are visible while checking this module.
+///
+/// Foreign items are registered by signature only — their bodies were (or
+/// will be) checked in their own module's check pass. Impls register the
+/// dispatch mapping `(trait, type uuid) → method symbol`; the symbols are
+/// resolved to content hashes at link time like any function name.
+///
+/// This runs before the current module's own registrations, so local
+/// declarations shadow foreign ones on name collisions.
+fn register_package_items(
+    infer: &mut Infer,
+    current_module: &ModulePath,
+    registry: &ModuleRegistry,
+) {
+    let foreign_modules: Vec<_> = registry
+        .all_modules()
+        .filter(|info| &info.path != current_module)
+        .collect();
+
+    // Types and traits first: impl registration needs both resolvable.
+    for info in &foreign_modules {
+        register_type_aliases(infer, &info.module);
+        register_traits(infer, &info.module);
+    }
+
+    for info in &foreign_modules {
+        for item in &info.module.items {
+            if let crate::ast::ItemKind::Impl(impl_def) = &item.kind {
+                register_foreign_impl(infer, impl_def);
+            }
+        }
+    }
+}
+
+/// Register the dispatch mapping for an impl defined in another module.
+///
+/// Skips silently on unresolvable traits or non-nominal types: the impl's
+/// own module reports those errors during its check pass.
+fn register_foreign_impl(infer: &mut Infer, impl_def: &crate::ast::ImplDef) {
+    let Some(trait_id) = infer.trait_registry.lookup_trait(&impl_def.trait_name.name) else {
+        return;
+    };
+    let for_type = infer.resolve_holes(&impl_def.for_type);
+    let Type::Nominal(nominal_type) = &for_type else {
+        return;
+    };
+
+    let mut impl_record = crate::types::TraitImpl::new(trait_id, nominal_type.clone());
+    for method in &impl_def.methods {
+        let symbol = crate::types::impl_method_symbol(
+            &nominal_type.uuid,
+            &impl_def.trait_name.name,
+            &method.name,
+        );
+        impl_record.methods.insert(Arc::clone(&method.name), symbol);
+    }
+    infer.trait_registry.register_impl(impl_record);
 }
 
 /// Check impl blocks and register implementations.
@@ -540,6 +605,11 @@ pub fn check_module_with_registry(
     let mut infer = Infer::new();
     let mut errors = Vec::new();
 
+    // Make the rest of the package's types, traits, and impls visible
+    // (signatures only). Runs before local registration and import
+    // resolution so imported signatures resolve foreign nominal types.
+    register_package_items(&mut infer, module_path, registry);
+
     // Build initial environment from imports
     let mut env = build_import_env(&mut infer, module_path, registry, &mut errors);
 
@@ -638,6 +708,11 @@ pub fn check_module_with_registry_and_resolver(
 ) -> CheckResult {
     let mut infer = Infer::with_resolver(resolver);
     let mut errors = Vec::new();
+
+    // Make the rest of the package's types, traits, and impls visible
+    // (signatures only). Runs before local registration and import
+    // resolution so imported signatures resolve foreign nominal types.
+    register_package_items(&mut infer, module_path, registry);
 
     // Build initial environment from imports
     let mut env = build_import_env(&mut infer, module_path, registry, &mut errors);
