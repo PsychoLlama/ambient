@@ -1283,3 +1283,53 @@ fn test_zero_parameter_lambda() {
     )
     .expect_output("56");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ability inference for private functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_private_function_ability_inference() {
+    // Private helpers need no `with` annotations: their abilities are
+    // inferred from their bodies (including through mutual recursion and
+    // calls to functions defined later) and propagate to callers.
+    CliTest::new(
+        r#"
+        pub fn run(): () with Console {
+            ping(2);
+            helper_outer();
+        }
+
+        fn ping(n: number) {
+            if n > 0 { runtime.Console.print!("ping"); pong(n - 1); } else { () }
+        }
+
+        fn pong(n: number) {
+            if n > 0 { runtime.Console.print!("pong"); ping(n - 1); } else { () }
+        }
+
+        fn helper_inner() { runtime.Console.print!("inner"); }
+        fn helper_outer() { helper_inner(); }
+    "#,
+    )
+    .expect_output("ping");
+}
+
+#[test]
+fn test_public_function_must_declare_inferred_abilities() {
+    // Inferred abilities from private helpers still count against a public
+    // function's declarations — declaring pure while transitively performing
+    // Console is an error, even when the helper is defined after the caller.
+    CliTest::new(
+        r#"
+        pub fn run(): () {
+            leaky();
+        }
+
+        fn leaky() {
+            runtime.Console.print!("leak");
+        }
+    "#,
+    )
+    .expect_error("uses ability `Console` but doesn't declare it");
+}

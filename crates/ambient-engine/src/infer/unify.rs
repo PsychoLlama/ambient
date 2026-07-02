@@ -380,24 +380,43 @@ impl Infer {
     }
 
     /// Apply ability substitution to an ability set.
+    ///
+    /// Resolves substitution chains fully (`a → b → {Console}` yields
+    /// `{Console}`, not `b`) — enforcement and effect propagation depend on
+    /// reaching the concrete set at the end of a chain. Cycles (from
+    /// recursive bindings) stop resolving and return the set as-is.
     #[must_use]
     pub fn apply_abilities(&self, abilities: &AbilitySet) -> AbilitySet {
+        self.apply_abilities_impl(abilities, &mut Vec::new())
+    }
+
+    fn apply_abilities_impl(
+        &self,
+        abilities: &AbilitySet,
+        visiting: &mut Vec<AbilityVarId>,
+    ) -> AbilitySet {
         match abilities {
             AbilitySet::Empty | AbilitySet::Concrete(_) | AbilitySet::Unresolved(_) => {
                 abilities.clone()
             }
-            AbilitySet::Var(id) => self
-                .ability_subst
-                .get(id)
-                .cloned()
-                .unwrap_or_else(|| abilities.clone()),
-            AbilitySet::Row { concrete, tail } => {
-                if let Some(tail_set) = self.ability_subst.get(tail) {
-                    AbilitySet::from_abilities(concrete.iter().copied()).union(tail_set)
-                } else {
-                    abilities.clone()
+            AbilitySet::Var(id) => match self.ability_subst.get(id) {
+                Some(bound) if !visiting.contains(id) => {
+                    visiting.push(*id);
+                    let resolved = self.apply_abilities_impl(bound, visiting);
+                    visiting.pop();
+                    resolved
                 }
-            }
+                _ => abilities.clone(),
+            },
+            AbilitySet::Row { concrete, tail } => match self.ability_subst.get(tail) {
+                Some(tail_set) if !visiting.contains(tail) => {
+                    visiting.push(*tail);
+                    let resolved_tail = self.apply_abilities_impl(tail_set, visiting);
+                    visiting.pop();
+                    AbilitySet::from_abilities(concrete.iter().copied()).union(&resolved_tail)
+                }
+                _ => abilities.clone(),
+            },
         }
     }
 

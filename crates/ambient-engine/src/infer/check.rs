@@ -57,50 +57,67 @@ impl CheckResult {
 /// }
 /// ```
 #[must_use]
-pub fn check_module(mut module: crate::ast::Module) -> CheckResult {
-    let mut infer = Infer::new();
+pub fn check_module(module: crate::ast::Module) -> CheckResult {
+    check_module_core(Infer::new(), module, None)
+}
+
+/// The shared checking pipeline behind all `check_module*` entry points.
+///
+/// Phases:
+/// 1. Registration — foreign package items (if cross-module), imports, local
+///    type aliases, traits, and function signatures.
+/// 2. Impl blocks — method bodies checked, dispatch symbols assigned.
+/// 3. Function/const bodies — types inferred; each unannotated private
+///    function's ability variable is bound to its body's inferred effects.
+/// 4. Ability enforcement — deferred until all bodies are checked so calls
+///    to functions defined later (whose ability variables bind in phase 3)
+///    resolve before their callers are judged.
+fn check_module_core(
+    mut infer: Infer,
+    mut module: crate::ast::Module,
+    cross_module: Option<(&ModulePath, &ModuleRegistry)>,
+) -> CheckResult {
     let mut errors = Vec::new();
-    let mut env = TypeEnv::new();
 
-    // Phase 1a: Register all type aliases so parameter types resolve correctly.
+    // Phase 1: registration.
+    let mut env = if let Some((module_path, registry)) = cross_module {
+        // Make the rest of the package's types, traits, and impls visible
+        // (signatures only). Runs before local registration and import
+        // resolution so imported signatures resolve foreign nominal types.
+        register_package_items(&mut infer, module_path, registry);
+        build_import_env(&mut infer, module_path, registry, &mut errors)
+    } else {
+        TypeEnv::new()
+    };
+
     register_type_aliases(&mut infer, &module);
-
-    // Phase 1b: Register all trait definitions.
     register_traits(&mut infer, &module);
-
-    // Phase 1c: Collect all function signatures into the environment.
     collect_function_signatures(&mut infer, &module, &mut env);
 
-    // Phase 2: Type-check impl blocks.
+    // Phase 2: impl blocks.
     check_impls(&mut infer, &mut module, &env, &mut errors);
 
-    // Phase 3: Type-check each function body.
-    for item in &mut module.items {
+    // Phase 3: function and const bodies.
+    // Records (item index, raw inferred abilities) for deferred enforcement.
+    let mut inferred_abilities: Vec<(usize, AbilitySet)> = Vec::new();
+
+    for (idx, item) in module.items.iter_mut().enumerate() {
         if let crate::ast::ItemKind::Function(func) = &mut item.kind {
-            // Reset ability tracking for each function
             infer.reset_abilities();
 
-            // Create function-local environment with parameters
             let mut func_env = env.extend();
-
-            // Build expected return type
             let expected_ret_ty = func.ret_ty.clone().map(|ty| infer.resolve_holes(&ty));
 
-            // Add parameters to the environment
-            let mut param_types = Vec::new();
             for param in &func.params {
                 let param_ty = match &param.ty {
                     Some(ty) => infer.resolve_holes(ty),
                     None => infer.fresh(),
                 };
-                param_types.push(param_ty.clone());
                 func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
             }
 
-            // Infer the body type
             match infer.infer_expr(&func_env, &mut func.body) {
                 Ok(body_ty) => {
-                    // Check return type matches if declared
                     if let Some(ref expected) = expected_ret_ty {
                         let span = (func.body.span.start, func.body.span.end);
                         if let Err(e) = infer.unify(expected, &body_ty, span) {
@@ -111,7 +128,8 @@ pub fn check_module(mut module: crate::ast::Module) -> CheckResult {
                         }
                     }
 
-                    enforce_declared_abilities(&infer, func, item.span, &mut errors);
+                    bind_inferred_abilities(&mut infer, &env, func);
+                    inferred_abilities.push((idx, infer.current_abilities().clone()));
                 }
                 Err(e) => {
                     errors.push(e.with_context(format!("in function `{}`", func.name)));
@@ -119,7 +137,6 @@ pub fn check_module(mut module: crate::ast::Module) -> CheckResult {
             }
         }
 
-        // Type-check constants
         if let crate::ast::ItemKind::Const(const_def) = &mut item.kind {
             infer.reset_abilities();
             let expected_ty = infer.resolve_holes(&const_def.ty);
@@ -141,24 +158,92 @@ pub fn check_module(mut module: crate::ast::Module) -> CheckResult {
         }
     }
 
+    // Phase 4: enforce declared abilities with final substitutions applied.
+    for (idx, inferred) in inferred_abilities {
+        if let crate::ast::ItemKind::Function(func) = &module.items[idx].kind {
+            enforce_declared_abilities(
+                &infer,
+                func,
+                module.items[idx].span,
+                &inferred,
+                &mut errors,
+            );
+        }
+    }
+
     errors.extend(infer.take_pending_errors());
     CheckResult { errors, module }
+}
+
+/// Bind an unannotated private function's ability variable to its body's
+/// inferred effects, making the real effect set visible at call sites.
+///
+/// Annotated and public functions are skipped: their scheme carries the
+/// declared (possibly empty) ability set, which enforcement checks instead.
+fn bind_inferred_abilities(infer: &mut Infer, env: &TypeEnv, func: &crate::ast::FunctionDef) {
+    if !func.abilities.is_empty() || func.is_public {
+        return;
+    }
+    let Some(scheme) = env.get_by_name(&func.name) else {
+        return;
+    };
+    let Type::Function(f) = &scheme.ty else {
+        return;
+    };
+    let AbilitySet::Var(var_id) = f.abilities else {
+        return;
+    };
+
+    // Call sites checked before this body may have unified the scheme's
+    // variable with their own fresh variables (var → var links). Binding at
+    // `var_id` directly would sever those links, leaving the callers'
+    // variables dangling — follow the chain and bind its representative.
+    let mut root = var_id;
+    let mut seen = vec![var_id];
+    while let Some(AbilitySet::Var(next)) = infer.ability_subst.get(&root) {
+        if seen.contains(next) {
+            break;
+        }
+        root = *next;
+        seen.push(root);
+    }
+
+    let inferred = infer.apply_abilities(infer.current_abilities());
+
+    // Self-recursion makes the body require the function's own variable:
+    // `var = concrete ∪ var` solves to `var = concrete`.
+    let bound = match inferred {
+        AbilitySet::Var(id) if seen.contains(&id) => AbilitySet::Empty,
+        AbilitySet::Row { concrete, tail } if seen.contains(&tail) => {
+            AbilitySet::from_abilities(concrete)
+        }
+        other => other,
+    };
+    infer.ability_subst.insert(root, bound);
 }
 
 /// Verify that a function's inferred abilities are a subset of its declared
 /// abilities.
 ///
-/// This runs for every function, including ones with no `with` clause: an
-/// undeclared ability is an error, not an implicit grant. Abilities that
-/// remain polymorphic (variables/rows) after substitution are not enforced —
-/// they are constrained at the call sites that instantiate them.
+/// Applies to annotated functions and to public functions (where no `with`
+/// clause means "pure"). Unannotated private functions are skipped — their
+/// abilities are inferred, not declared. Abilities that remain polymorphic
+/// after substitution are not enforced; they are constrained at the call
+/// sites that instantiate them.
 fn enforce_declared_abilities(
     infer: &Infer,
     func: &crate::ast::FunctionDef,
     item_span: crate::ast::Span,
+    inferred: &AbilitySet,
     errors: &mut Vec<BoxedTypeError>,
 ) {
-    let inferred = infer.apply_abilities(infer.current_abilities());
+    if func.abilities.is_empty() && !func.is_public {
+        // Abilities were inferred (bind_inferred_abilities), nothing declared
+        // to enforce against.
+        return;
+    }
+
+    let inferred = infer.apply_abilities(inferred);
 
     let declared: Vec<AbilityId> = func
         .abilities
@@ -479,14 +564,23 @@ fn collect_function_signatures(infer: &mut Infer, module: &crate::ast::Module, e
         if let crate::ast::ItemKind::Function(func) = &item.kind {
             let binding_id = next_binding_id;
             next_binding_id += 1;
-            let scheme = build_function_scheme(infer, func);
+            let scheme = build_function_scheme(infer, func, true);
             env.insert(binding_id, Arc::clone(&func.name), scheme);
         }
     }
 }
 
 /// Build a type scheme for a function from its signature.
-fn build_function_scheme(infer: &mut Infer, func: &crate::ast::FunctionDef) -> Scheme {
+///
+/// `infer_abilities` controls what an absent `with` clause means: for local
+/// private functions (true) the scheme gets a fresh ability variable that
+/// [`bind_inferred_abilities`] later binds to the body's inferred effects;
+/// for public or foreign functions (false) it means "pure".
+fn build_function_scheme(
+    infer: &mut Infer,
+    func: &crate::ast::FunctionDef,
+    infer_abilities: bool,
+) -> Scheme {
     // Collect type variables from type parameters
     let mut type_var_map: HashMap<Arc<str>, TypeVarId> = HashMap::new();
     let mut quantified_vars = Vec::new();
@@ -522,7 +616,11 @@ fn build_function_scheme(infer: &mut Infer, func: &crate::ast::FunctionDef) -> S
 
     // Build ability set from declared abilities
     let abilities = if func.abilities.is_empty() {
-        AbilitySet::Empty
+        if infer_abilities && !func.is_public {
+            infer.fresh_ability_var()
+        } else {
+            AbilitySet::Empty
+        }
     } else {
         let ability_ids: Vec<AbilityId> = func
             .abilities
@@ -598,198 +696,30 @@ fn substitute_type_params(ty: &Type, type_var_map: &HashMap<Arc<str>, TypeVarId>
 /// * `registry` - The module registry containing all loaded modules
 #[must_use]
 pub fn check_module_with_registry(
-    mut module: crate::ast::Module,
+    module: crate::ast::Module,
     module_path: &ModulePath,
     registry: &ModuleRegistry,
 ) -> CheckResult {
-    let mut infer = Infer::new();
-    let mut errors = Vec::new();
-
-    // Make the rest of the package's types, traits, and impls visible
-    // (signatures only). Runs before local registration and import
-    // resolution so imported signatures resolve foreign nominal types.
-    register_package_items(&mut infer, module_path, registry);
-
-    // Build initial environment from imports
-    let mut env = build_import_env(&mut infer, module_path, registry, &mut errors);
-
-    // Phase 1a: Register all type aliases so parameter types resolve correctly.
-    register_type_aliases(&mut infer, &module);
-
-    // Phase 1b: Register all trait definitions.
-    register_traits(&mut infer, &module);
-
-    // Phase 1c: Collect all function signatures into the environment.
-    collect_function_signatures(&mut infer, &module, &mut env);
-
-    // Phase 2: Type-check impl blocks.
-    check_impls(&mut infer, &mut module, &env, &mut errors);
-
-    // Phase 3: Type-check each function body
-    for item in &mut module.items {
-        if let crate::ast::ItemKind::Function(func) = &mut item.kind {
-            infer.reset_abilities();
-
-            let mut func_env = env.extend();
-            let expected_ret_ty = func.ret_ty.clone().map(|ty| infer.resolve_holes(&ty));
-
-            let mut param_types = Vec::new();
-            for param in &func.params {
-                let param_ty = match &param.ty {
-                    Some(ty) => infer.resolve_holes(ty),
-                    None => infer.fresh(),
-                };
-                param_types.push(param_ty.clone());
-                func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
-            }
-
-            match infer.infer_expr(&func_env, &mut func.body) {
-                Ok(body_ty) => {
-                    if let Some(ref expected) = expected_ret_ty {
-                        let span = (func.body.span.start, func.body.span.end);
-                        if let Err(e) = infer.unify(expected, &body_ty, span) {
-                            errors.push(e.with_context(format!(
-                                "in function `{}`: return type mismatch",
-                                func.name
-                            )));
-                        }
-                    }
-
-                    enforce_declared_abilities(&infer, func, item.span, &mut errors);
-                }
-                Err(e) => {
-                    errors.push(e.with_context(format!("in function `{}`", func.name)));
-                }
-            }
-        }
-
-        if let crate::ast::ItemKind::Const(const_def) = &mut item.kind {
-            infer.reset_abilities();
-            let expected_ty = infer.resolve_holes(&const_def.ty);
-
-            match infer.infer_expr(&env, &mut const_def.value) {
-                Ok(actual_ty) => {
-                    let span = (const_def.value.span.start, const_def.value.span.end);
-                    if let Err(e) = infer.unify(&expected_ty, &actual_ty, span) {
-                        errors.push(e.with_context(format!(
-                            "in constant `{}`: type mismatch",
-                            const_def.name
-                        )));
-                    }
-                }
-                Err(e) => {
-                    errors.push(e.with_context(format!("in constant `{}`", const_def.name)));
-                }
-            }
-        }
-    }
-
-    errors.extend(infer.take_pending_errors());
-    CheckResult { errors, module }
+    check_module_core(Infer::new(), module, Some((module_path, registry)))
 }
 
 /// Check a module with cross-module support and a custom ability resolver.
 ///
-/// This variant allows specifying which abilities are available at compile time,
-/// which is useful for LSP and other tools that need to respect package configuration.
-///
-/// # Arguments
-///
-/// * `module` - The module to type check
-/// * `module_path` - The path of this module in the package
-/// * `registry` - The module registry containing all loaded modules
-/// * `resolver` - The ability resolver specifying available abilities
+/// This variant allows specifying which abilities are available at compile
+/// time, which is useful for LSP and other tools that need to respect
+/// package configuration.
 #[must_use]
 pub fn check_module_with_registry_and_resolver(
-    mut module: crate::ast::Module,
+    module: crate::ast::Module,
     module_path: &ModulePath,
     registry: &ModuleRegistry,
     resolver: AbilityResolver,
 ) -> CheckResult {
-    let mut infer = Infer::with_resolver(resolver);
-    let mut errors = Vec::new();
-
-    // Make the rest of the package's types, traits, and impls visible
-    // (signatures only). Runs before local registration and import
-    // resolution so imported signatures resolve foreign nominal types.
-    register_package_items(&mut infer, module_path, registry);
-
-    // Build initial environment from imports
-    let mut env = build_import_env(&mut infer, module_path, registry, &mut errors);
-
-    // Phase 1a: Register all type aliases so parameter types resolve correctly.
-    register_type_aliases(&mut infer, &module);
-
-    // Phase 1b: Register all trait definitions.
-    register_traits(&mut infer, &module);
-
-    // Phase 1c: Collect all function signatures into the environment.
-    collect_function_signatures(&mut infer, &module, &mut env);
-
-    // Phase 2: Type-check impl blocks.
-    check_impls(&mut infer, &mut module, &env, &mut errors);
-
-    // Phase 3: Type-check each function body
-    for item in &mut module.items {
-        if let crate::ast::ItemKind::Function(func) = &mut item.kind {
-            infer.reset_abilities();
-
-            let mut func_env = env.extend();
-            let expected_ret_ty = func.ret_ty.clone().map(|ty| infer.resolve_holes(&ty));
-
-            let mut param_types = Vec::new();
-            for param in &func.params {
-                let param_ty = match &param.ty {
-                    Some(ty) => infer.resolve_holes(ty),
-                    None => infer.fresh(),
-                };
-                param_types.push(param_ty.clone());
-                func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
-            }
-
-            match infer.infer_expr(&func_env, &mut func.body) {
-                Ok(body_ty) => {
-                    if let Some(ref expected) = expected_ret_ty {
-                        let span = (func.body.span.start, func.body.span.end);
-                        if let Err(e) = infer.unify(expected, &body_ty, span) {
-                            errors.push(e.with_context(format!(
-                                "in function `{}`: return type mismatch",
-                                func.name
-                            )));
-                        }
-                    }
-
-                    enforce_declared_abilities(&infer, func, item.span, &mut errors);
-                }
-                Err(e) => {
-                    errors.push(e.with_context(format!("in function `{}`", func.name)));
-                }
-            }
-        }
-
-        if let crate::ast::ItemKind::Const(const_def) = &mut item.kind {
-            infer.reset_abilities();
-            let expected_ty = infer.resolve_holes(&const_def.ty);
-
-            match infer.infer_expr(&env, &mut const_def.value) {
-                Ok(actual_ty) => {
-                    let span = (const_def.value.span.start, const_def.value.span.end);
-                    if let Err(e) = infer.unify(&expected_ty, &actual_ty, span) {
-                        errors.push(e.with_context(format!(
-                            "in constant `{}`: type mismatch",
-                            const_def.name
-                        )));
-                    }
-                }
-                Err(e) => {
-                    errors.push(e.with_context(format!("in constant `{}`", const_def.name)));
-                }
-            }
-        }
-    }
-
-    errors.extend(infer.take_pending_errors());
-    CheckResult { errors, module }
+    check_module_core(
+        Infer::with_resolver(resolver),
+        module,
+        Some((module_path, registry)),
+    )
 }
 
 /// Build a type environment from imported modules.
@@ -861,7 +791,9 @@ fn get_symbol_scheme(
         match (&item.kind, kind) {
             (crate::ast::ItemKind::Function(func), ExportKind::Function) => {
                 if func.name.as_ref() == name {
-                    return Some(build_function_scheme(infer, func));
+                    // Foreign function: no ability inference — an absent
+                    // `with` clause on an export means pure.
+                    return Some(build_function_scheme(infer, func, false));
                 }
             }
             (crate::ast::ItemKind::Const(const_def), ExportKind::Const) => {

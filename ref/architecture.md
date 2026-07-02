@@ -362,14 +362,18 @@ fn safe_parse(s: string): Option<number> {
 
 ## Type Inference Rules
 
-1. **Functions**: Abilities must be declared (`with ...`); a function using
-   an undeclared ability is a type error. (Planned: full ability inference
-   for private functions.) Return types of public functions must be declared.
-2. **Local variables**: Always inferred
-3. **Lambdas**: Parameter types inferred from context; the lambda's ability
+1. **Public functions**: Abilities must be declared (`with ...`); no clause
+   means pure. Using an undeclared ability is a type error. Return types
+   must be declared.
+2. **Private functions**: Abilities are inferred from the body when no
+   `with` clause is given (a clause, if present, is enforced). Inferred
+   abilities propagate to callers and count against the declarations of any
+   public function that transitively reaches them.
+3. **Local variables**: Always inferred
+4. **Lambdas**: Parameter types inferred from context; the lambda's ability
    set is inferred from its body and carried on its function type
-4. **Effect propagation**: Calling a function requires the caller to provide
-   (declare or handle) the callee's abilities
+5. **Effect propagation**: Calling a function requires the caller to provide
+   (declare, infer, or handle) the callee's abilities
 
 ---
 
@@ -577,7 +581,6 @@ fn test_my_function(): () {
 
 ## Future Work
 
-- Ability inference for private functions (annotations currently required)
 - Persisted content-addressed store (store is in-memory; .ambient is JSON)
 - Generic traits, supertraits, trait bounds (`fn foo<T: Eq>(x: T)`)
 - WASM target
