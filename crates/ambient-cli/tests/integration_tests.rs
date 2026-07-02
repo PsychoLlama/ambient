@@ -287,9 +287,21 @@ fn test_compile_creates_output_file() {
     assert!(output.status.success(), "command failed: {:?}", output);
     assert!(output_path.exists(), "output file not created");
 
-    // Verify the output file contains valid JSON
-    let contents = fs::read_to_string(&output_path).expect("failed to read output");
-    let _: serde_json::Value = serde_json::from_str(&contents).expect("output is not valid JSON");
+    // The artifact is a binary pack; running it must produce the result.
+    let run_output = ambient_cmd()
+        .arg("run")
+        .arg(&output_path)
+        .output()
+        .expect("failed to execute run");
+    assert!(
+        run_output.status.success(),
+        "running the artifact failed: {run_output:?}"
+    );
+    let stdout = String::from_utf8_lossy(&run_output.stdout);
+    assert!(
+        stdout.contains("42"),
+        "artifact run produced unexpected output: {stdout}"
+    );
 
     drop(dir);
 }

@@ -205,8 +205,12 @@ impl Store {
     pub fn serialize(&self) -> Result<Vec<u8>, StoreError> {
         let mut hashes: Vec<&blake3::Hash> = self.objects.keys().collect();
         hashes.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
-        let objects: Vec<&StoredObject> = hashes.iter().map(|h| &self.objects[*h]).collect();
-        Ok(encode_pack(&objects))
+        let pack = Pack {
+            entry_point: None,
+            names: Vec::new(),
+            objects: hashes.iter().map(|h| self.objects[*h].clone()).collect(),
+        };
+        Ok(pack.encode())
     }
 
     /// Deserialize a store from a pack.
@@ -222,7 +226,7 @@ impl Store {
 
     /// Decode a pack and add every object in it. Redirects are skipped.
     pub fn add_pack(&mut self, data: &[u8]) -> Result<(), StoreError> {
-        for object in decode_pack(data)? {
+        for object in Pack::decode(data)?.objects {
             if matches!(object, StoredObject::Redirect { .. }) {
                 continue;
             }
@@ -249,11 +253,15 @@ impl Store {
                 object_hashes.push(*object_hash);
             }
         }
-        let objects: Vec<&StoredObject> = object_hashes
-            .iter()
-            .filter_map(|h| self.objects.get(h))
-            .collect();
-        Ok(encode_pack(&objects))
+        let pack = Pack {
+            entry_point: None,
+            names: Vec::new(),
+            objects: object_hashes
+                .iter()
+                .filter_map(|h| self.objects.get(h).cloned())
+                .collect(),
+        };
+        Ok(pack.encode())
     }
 
     /// Merge another store into this one.
@@ -317,62 +325,154 @@ impl Store {
 // Pack encoding
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Encode a batch of objects as a pack:
-/// `"ABPK" | version u8 | count u32 | (len u32, object bytes)*`
-/// (integers little-endian).
-#[must_use]
-pub fn encode_pack(objects: &[&StoredObject]) -> Vec<u8> {
-    let mut out = Vec::new();
-    out.extend_from_slice(&PACK_MAGIC);
-    out.push(PACK_VERSION);
-    out.extend_from_slice(&(objects.len() as u32).to_le_bytes());
-    for object in objects {
-        let encoded = object.encode();
-        out.extend_from_slice(&(encoded.len() as u32).to_le_bytes());
-        out.extend_from_slice(&encoded);
-    }
-    out
+/// A batch of canonical objects, optionally with an entry point and name
+/// bindings — the unit of exchange between stores, over the wire, and the
+/// content of `.ambient` artifact files.
+///
+/// Layout (integers little-endian):
+///
+/// ```text
+/// "ABPK" | version u8
+/// | has_entry u8 (0|1) | entry hash [32] (if has_entry)
+/// | name_count u32 | names: (hash [32] | len u32 | utf8)*
+/// | object_count u32 | objects: (len u32 | object bytes)*
+/// ```
+///
+/// A wire pack (function shipping) carries no entry or names; an artifact
+/// pack carries both so the program is runnable by name.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Pack {
+    /// The program entry point, if this pack is a runnable artifact.
+    pub entry_point: Option<blake3::Hash>,
+    /// Name → function-hash bindings.
+    pub names: Vec<(String, blake3::Hash)>,
+    /// The canonical objects.
+    pub objects: Vec<StoredObject>,
 }
 
-/// Decode a pack into its objects.
-pub fn decode_pack(data: &[u8]) -> Result<Vec<StoredObject>, StoreError> {
-    let err = |msg: &str| StoreError::Deserialization(msg.to_string());
-    if data.len() < 9 {
-        return Err(err("pack is truncated"));
-    }
-    if data[0..4] != PACK_MAGIC {
-        return Err(err("not an Ambient pack (bad magic)"));
-    }
-    if data[4] != PACK_VERSION {
-        return Err(StoreError::Deserialization(format!(
-            "unsupported pack version {}",
-            data[4]
-        )));
-    }
-    let count = u32::from_le_bytes([data[5], data[6], data[7], data[8]]) as usize;
-    let mut objects = Vec::with_capacity(count.min(1024));
-    let mut pos: usize = 9;
-    for _ in 0..count {
-        let end = pos.checked_add(4).ok_or_else(|| err("pack is truncated"))?;
-        if end > data.len() {
-            return Err(err("pack is truncated"));
+impl Pack {
+    /// Encode this pack to bytes.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&PACK_MAGIC);
+        out.push(PACK_VERSION);
+        match &self.entry_point {
+            Some(hash) => {
+                out.push(1);
+                out.extend_from_slice(hash.as_bytes());
+            }
+            None => out.push(0),
         }
-        let len =
-            u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
-        pos = end;
-        let end = pos
-            .checked_add(len)
-            .ok_or_else(|| err("pack is truncated"))?;
-        if end > data.len() {
-            return Err(err("pack is truncated"));
+        out.extend_from_slice(&(self.names.len() as u32).to_le_bytes());
+        for (name, hash) in &self.names {
+            out.extend_from_slice(hash.as_bytes());
+            out.extend_from_slice(&(name.len() as u32).to_le_bytes());
+            out.extend_from_slice(name.as_bytes());
         }
-        objects.push(StoredObject::decode(&data[pos..end]).map_err(StoreError::Object)?);
-        pos = end;
+        out.extend_from_slice(&(self.objects.len() as u32).to_le_bytes());
+        for object in &self.objects {
+            let encoded = object.encode();
+            out.extend_from_slice(&(encoded.len() as u32).to_le_bytes());
+            out.extend_from_slice(&encoded);
+        }
+        out
     }
-    if pos != data.len() {
-        return Err(err("trailing bytes after pack"));
+
+    /// Decode a pack from bytes.
+    pub fn decode(data: &[u8]) -> Result<Self, StoreError> {
+        let mut r = PackReader { data, pos: 0 };
+        if r.take(4)? != PACK_MAGIC {
+            return Err(StoreError::Deserialization(
+                "not an Ambient pack (bad magic)".to_string(),
+            ));
+        }
+        let version = r.u8()?;
+        if version != PACK_VERSION {
+            return Err(StoreError::Deserialization(format!(
+                "unsupported pack version {version}"
+            )));
+        }
+
+        let entry_point = match r.u8()? {
+            0 => None,
+            1 => Some(r.hash()?),
+            t => {
+                return Err(StoreError::Deserialization(format!(
+                    "bad entry-point tag {t}"
+                )))
+            }
+        };
+
+        let name_count = r.u32()? as usize;
+        let mut names = Vec::with_capacity(name_count.min(r.remaining()));
+        for _ in 0..name_count {
+            let hash = r.hash()?;
+            let len = r.u32()? as usize;
+            let raw = r.take(len)?;
+            let name = std::str::from_utf8(raw)
+                .map_err(|_| StoreError::Deserialization("name is not UTF-8".to_string()))?
+                .to_string();
+            names.push((name, hash));
+        }
+
+        let object_count = r.u32()? as usize;
+        let mut objects = Vec::with_capacity(object_count.min(r.remaining()));
+        for _ in 0..object_count {
+            let len = r.u32()? as usize;
+            let raw = r.take(len)?;
+            objects.push(StoredObject::decode(raw).map_err(StoreError::Object)?);
+        }
+
+        if r.pos != data.len() {
+            return Err(StoreError::Deserialization(
+                "trailing bytes after pack".to_string(),
+            ));
+        }
+
+        Ok(Self {
+            entry_point,
+            names,
+            objects,
+        })
     }
-    Ok(objects)
+}
+
+struct PackReader<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> PackReader<'a> {
+    fn remaining(&self) -> usize {
+        self.data.len().saturating_sub(self.pos)
+    }
+
+    fn take(&mut self, n: usize) -> Result<&'a [u8], StoreError> {
+        let end = self
+            .pos
+            .checked_add(n)
+            .filter(|&end| end <= self.data.len())
+            .ok_or_else(|| StoreError::Deserialization("pack is truncated".to_string()))?;
+        let slice = &self.data[self.pos..end];
+        self.pos = end;
+        Ok(slice)
+    }
+
+    fn u8(&mut self) -> Result<u8, StoreError> {
+        Ok(self.take(1)?[0])
+    }
+
+    fn u32(&mut self) -> Result<u32, StoreError> {
+        let b = self.take(4)?;
+        Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    }
+
+    fn hash(&mut self) -> Result<blake3::Hash, StoreError> {
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(self.take(32)?);
+        Ok(blake3::Hash::from_bytes(bytes))
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

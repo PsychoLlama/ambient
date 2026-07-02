@@ -173,6 +173,87 @@ impl CompiledModule {
             self.entry_point = other.entry_point;
         }
     }
+
+    /// Package this module as a runnable artifact pack: every canonical
+    /// object plus the name bindings and entry point.
+    #[must_use]
+    pub fn to_pack(&self) -> crate::store::Pack {
+        let mut names: Vec<(String, blake3::Hash)> = self
+            .function_names
+            .iter()
+            .map(|(name, hash)| (name.to_string(), *hash))
+            .collect();
+        names.sort_by(|a, b| a.0.cmp(&b.0));
+
+        // Redirects are derived from groups, so packs never carry them.
+        let mut object_hashes: Vec<&blake3::Hash> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| !matches!(o, crate::object::StoredObject::Redirect { .. }))
+            .map(|(h, _)| h)
+            .collect();
+        object_hashes.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+
+        crate::store::Pack {
+            entry_point: self.entry_point,
+            names,
+            objects: object_hashes
+                .iter()
+                .map(|h| self.objects[*h].clone())
+                .collect(),
+        }
+    }
+
+    /// Reconstruct a runnable module from an artifact pack.
+    ///
+    /// Every function is materialized from its canonical object, so all
+    /// hashes are recomputed from content — a tampered pack cannot smuggle
+    /// code under a false hash.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if an object is malformed.
+    pub fn from_pack(pack: &crate::store::Pack) -> Result<Self, crate::store::StoreError> {
+        let mut module = Self::new();
+        module.entry_point = pack.entry_point;
+
+        for object in &pack.objects {
+            if matches!(object, crate::object::StoredObject::Redirect { .. }) {
+                // Legacy safety: packs shouldn't carry redirects, and one
+                // without its group is meaningless. Regenerated below.
+                continue;
+            }
+            let object_hash = object.hash();
+            let materialized = object
+                .materialize()
+                .map_err(crate::store::StoreError::Object)?;
+            let is_group =
+                matches!(object, crate::object::StoredObject::Group(members) if members.len() > 1);
+            for (index, (hash, func)) in materialized.into_iter().enumerate() {
+                if is_group {
+                    // Re-derive the redirect stubs a disk store needs to
+                    // resolve member hashes back to their group.
+                    module.objects.insert(
+                        hash,
+                        crate::object::StoredObject::Redirect {
+                            group: object_hash,
+                            index: index as u32,
+                        },
+                    );
+                }
+                module.functions.insert(hash, func);
+            }
+            module.objects.insert(object_hash, object.clone());
+        }
+
+        for (name, hash) in &pack.names {
+            module
+                .function_names
+                .insert(Arc::from(name.as_str()), *hash);
+        }
+
+        Ok(module)
+    }
 }
 
 impl Default for CompiledModule {

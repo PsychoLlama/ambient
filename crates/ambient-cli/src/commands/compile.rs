@@ -8,7 +8,6 @@ use anyhow::{Context, Result};
 use ambient_engine::build::{build_package, BuildError};
 
 use super::{compile_source, read_source};
-use crate::serialize::serialize_module;
 
 /// Parse source code into an AST (wrapper for ambient_parser::parse).
 fn parse_source(source: &str) -> Result<ambient_engine::ast::Module, String> {
@@ -41,10 +40,9 @@ pub fn cmd_compile(file: &Path, output: Option<&Path>) -> Result<()> {
         std::path::Path::to_path_buf,
     );
 
-    // Serialize and write the compiled module.
-    let serialized = serde_json::to_string_pretty(&serialize_module(&compiled))
-        .context("failed to serialize")?;
-    fs::write(&output_path, serialized).context("failed to write output")?;
+    // Write the compiled module as a binary artifact pack: canonical
+    // objects + name bindings + entry point. Self-verifying on load.
+    fs::write(&output_path, compiled.to_pack().encode()).context("failed to write output")?;
 
     eprintln!("Compiled {} -> {}", file.display(), output_path.display());
 

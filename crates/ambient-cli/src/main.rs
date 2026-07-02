@@ -11,7 +11,6 @@ mod cli;
 mod commands;
 mod diagnostic;
 mod repl;
-mod serialize;
 
 use cli::{Args, Command};
 use commands::{cmd_check, cmd_compile, cmd_dev, cmd_init, cmd_run};

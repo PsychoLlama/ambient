@@ -19,12 +19,11 @@ use ambient_engine::store::Store;
 use ambient_engine::vm::Vm;
 
 use crate::diagnostic::print_diagnostic;
-use crate::serialize::deserialize_module;
 
-/// Run an Ambient package or pre-compiled bytecode.
+/// Run an Ambient package or pre-compiled artifact.
 ///
 /// If `path` is a directory (or contains an `ambient.toml`), runs the package.
-/// If `path` is a `.ambient` file, runs the pre-compiled bytecode.
+/// If `path` is a `.ambient` file, runs the pre-compiled artifact pack.
 pub fn cmd_run(path: &Path, entry: &str) -> Result<()> {
     let compiled = load_compiled(path)?;
     run_compiled(&compiled, entry)
@@ -33,16 +32,18 @@ pub fn cmd_run(path: &Path, entry: &str) -> Result<()> {
 /// Load a compiled module from a path.
 ///
 /// Handles both packages (directories with `ambient.toml`) and
-/// pre-compiled `.ambient` files.
+/// pre-compiled `.ambient` artifact packs.
 fn load_compiled(path: &Path) -> Result<CompiledModule> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
     if ext == "ambient" {
-        // Load pre-compiled bytecode.
-        let contents = fs::read_to_string(path).context("failed to read file")?;
-        let serialized: crate::serialize::SerializedModule =
-            serde_json::from_str(&contents).context("failed to parse bytecode file")?;
-        deserialize_module(&serialized)
+        // Load a pre-compiled artifact pack. Function hashes are recomputed
+        // from the object bytes, so a tampered artifact fails to load.
+        let bytes = fs::read(path).context("failed to read file")?;
+        let pack = ambient_engine::store::Pack::decode(&bytes)
+            .map_err(|e| anyhow::anyhow!("invalid artifact {}: {e}", path.display()))?;
+        CompiledModule::from_pack(&pack)
+            .map_err(|e| anyhow::anyhow!("invalid artifact {}: {e}", path.display()))
     } else if path.is_dir() || path.join("ambient.toml").exists() {
         // Load package.
         compile_package(path)
@@ -106,6 +107,17 @@ fn compile_package(path: &Path) -> Result<CompiledModule> {
 
         // Merge into the final module.
         all_compiled.merge(&compiled);
+    }
+
+    // Persist the build to the package-local content-addressed store.
+    // Failure to persist is a warning, not a failed run.
+    match ambient_engine::disk_store::DiskStore::open(path.join(".ambient").join("store")) {
+        Ok(disk) => {
+            if let Err(e) = disk.put_module(&all_compiled) {
+                eprintln!("warning: failed to persist build to store: {e}");
+            }
+        }
+        Err(e) => eprintln!("warning: failed to open package store: {e}"),
     }
 
     Ok(all_compiled)

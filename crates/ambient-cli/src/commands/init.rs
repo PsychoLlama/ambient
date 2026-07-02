@@ -22,7 +22,7 @@ src = "src"
 
 /// Default content for src/main.ab.
 const MAIN_CONTENT: &str = r#"pub fn run(): () with Console {
-    Console.print!("Hello, world!");
+    runtime.Console.print!("Hello, world!");
 }
 "#;
 
@@ -79,6 +79,13 @@ pub fn cmd_init(path: &Path, name: Option<&str>) -> Result<()> {
     if !main_path.exists() {
         fs::write(&main_path, MAIN_CONTENT)
             .with_context(|| format!("failed to write {}", main_path.display()))?;
+    }
+
+    // Ignore the package-local store (derived, content-addressed).
+    let gitignore_path = path.join(".gitignore");
+    if !gitignore_path.exists() {
+        fs::write(&gitignore_path, ".ambient/\n")
+            .with_context(|| format!("failed to write {}", gitignore_path.display()))?;
     }
 
     // Print success message

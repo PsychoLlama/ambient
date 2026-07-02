@@ -5,3 +5,6 @@
 /result-*
 # Build artifacts (compiled bytecode, symbol database)
 build/
+# Package-local content-addressed stores and compiled artifacts
+.ambient/
+*.ambient

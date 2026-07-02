@@ -293,7 +293,9 @@ impl StoredObject {
                 if count == 0 {
                     return Err(ObjectError::EmptyGroup);
                 }
-                let mut members = Vec::with_capacity(count as usize);
+                // Cap pre-allocation by input size: each member costs at
+                // least one byte, so a lying count can't force a huge alloc.
+                let mut members = Vec::with_capacity((count as usize).min(r.remaining()));
                 for _ in 0..count {
                     let name = match r.u8()? {
                         0 => None,
@@ -578,6 +580,10 @@ struct Reader<'a> {
 }
 
 impl<'a> Reader<'a> {
+    fn remaining(&self) -> usize {
+        self.bytes.len().saturating_sub(self.pos)
+    }
+
     fn take(&mut self, n: usize) -> Result<&'a [u8], ObjectError> {
         let end = self.pos.checked_add(n).ok_or(ObjectError::Truncated)?;
         if end > self.bytes.len() {
@@ -610,13 +616,13 @@ fn decode_function(r: &mut Reader<'_>) -> Result<ObjectFunction, ObjectError> {
     let param_count = r.u8()?;
 
     let const_count = r.u32()?;
-    let mut constants = Vec::with_capacity(const_count as usize);
+    let mut constants = Vec::with_capacity((const_count as usize).min(r.remaining()));
     for _ in 0..const_count {
         constants.push(decode_constant(r)?);
     }
 
     let dep_count = r.u32()?;
-    let mut dependencies = Vec::with_capacity(dep_count as usize);
+    let mut dependencies = Vec::with_capacity((dep_count as usize).min(r.remaining()));
     for _ in 0..dep_count {
         dependencies.push(decode_ref(r)?);
     }
@@ -754,6 +760,18 @@ mod tests {
                 "prefix of length {len} should not decode"
             );
         }
+    }
+
+    #[test]
+    fn lying_length_prefix_fails_without_huge_allocation() {
+        // A corrupted count must produce a decode error, not an attempted
+        // multi-gigabyte allocation. The encoding ends with the dependency
+        // list: count u32 | (tag u8 | hash [32]). Corrupt the count's high
+        // byte.
+        let mut encoded = StoredObject::Plain(sample_function()).encode();
+        let count_high_byte = encoded.len() - 33 - 1;
+        encoded[count_high_byte] = 0xff;
+        assert!(StoredObject::decode(&encoded).is_err());
     }
 
     #[test]
