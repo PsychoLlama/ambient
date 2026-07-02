@@ -722,8 +722,18 @@ impl Parser<'_> {
         let start = self.current().span.start;
         self.expect(TokenKind::LParen)?;
 
-        // Empty parens = unit
+        // Empty parens: unit literal, or a zero-parameter lambda `() => body`.
         if self.check(TokenKind::RParen) {
+            let saved = self.pos;
+            self.advance();
+            self.skip_trivia();
+            if self.check(TokenKind::FatArrow) {
+                // Rewind to the `)` — parse_lambda parses (empty) params
+                // and expects to consume the closing paren itself.
+                self.pos = saved;
+                return self.parse_lambda(start);
+            }
+            self.pos = saved;
             self.advance();
             return Ok(CstExpr {
                 kind: CstExprKind::Unit,

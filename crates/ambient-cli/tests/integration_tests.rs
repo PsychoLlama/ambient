@@ -1261,3 +1261,25 @@ fn test_prelude_traits_no_import_needed() {
     )
     .expect_output("7");
 }
+
+#[test]
+fn test_zero_parameter_lambda() {
+    // `()` must parse as a unit literal except when followed by `=>`,
+    // where it begins a zero-parameter lambda.
+    CliTest::new(
+        r#"
+        fn call_thunk(f: () -> number): number {
+            f()
+        }
+
+        fn run(): number {
+            let t = () => 42;
+            let a = t();
+            let b = call_thunk(() => { let x = 7; x * 2 });
+            let unit_still_works = ();
+            a + b
+        }
+    "#,
+    )
+    .expect_output("56");
+}
