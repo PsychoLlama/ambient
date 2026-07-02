@@ -47,7 +47,7 @@ Core modules (`core.list`, `core.math`, `core.string`) are also always in
 scope fully qualified with no import: `core.list.map([1], f)`. They are
 ordinary Ambient modules — compiled, content-addressed, and stored exactly
 like user code (see `crates/ambient-engine/src/core_lib/`). Beneath them
-sits a fixed set of *intrinsics* (`core.math.sqrt`, `core.list.length`,
+sits a fixed set of _intrinsics_ (`core.math.sqrt`, `core.list.length`,
 `core.string.concat`, ...) that compile to dedicated opcodes; intrinsics
 take precedence over compiled functions at the same path. `core` is a
 keyword, so user modules can never collide with the standard library.
@@ -171,15 +171,15 @@ let c = a.add(b);           // Money { cents: 150 }
 
 Standard operators dispatch to trait methods for nominal types:
 
-| Operator | Trait | Method |
-|----------|-------|--------|
-| `+` | `Add` | `add(self, other: Self): Self` |
-| `-` | `Sub` | `sub(self, other: Self): Self` |
-| `*` | `Mul` | `mul(self, other: Self): Self` |
-| `/` | `Div` | `div(self, other: Self): Self` |
-| `%` | `Mod` | `rem(self, other: Self): Self` |
-| `==` | `Eq` | `eq(self, other: Self): bool` |
-| `!=` | `Eq` | `eq` (negated) |
+| Operator | Trait | Method                         |
+| -------- | ----- | ------------------------------ |
+| `+`      | `Add` | `add(self, other: Self): Self` |
+| `-`      | `Sub` | `sub(self, other: Self): Self` |
+| `*`      | `Mul` | `mul(self, other: Self): Self` |
+| `/`      | `Div` | `div(self, other: Self): Self` |
+| `%`      | `Mod` | `rem(self, other: Self): Self` |
+| `==`     | `Eq`  | `eq(self, other: Self): bool`  |
+| `!=`     | `Eq`  | `eq` (negated)                 |
 
 ```ambient
 let a = Money { cents: 100 };
@@ -419,7 +419,7 @@ Errors are abilities. `Exception.throw!` raises; the nearest enclosing
 `handle` block for Exception catches. A handler arm's value becomes the
 handle expression's value, and execution continues after the handle
 expression (catch-and-continue). The optional `else` clause transforms
-the body's value on *normal* completion only; arms bypass it.
+the body's value on _normal_ completion only; arms bypass it.
 
 ```ambient
 ability Exception {
@@ -449,7 +449,7 @@ carrying the actual thrown value.
 
 Fallible host operations (file not found, connection refused, ...) do not
 return `Result` values and do not kill the VM: the host handler raises
-`Exception.throw(message)` *at the perform site*. The calling program
+`Exception.throw(message)` _at the perform site_. The calling program
 catches it like any in-language throw. Because the Exception handler
 receives the continuation of the failed call, it can even `resume` with a
 substitute value, and the IO caller continues as if the operation had
@@ -474,11 +474,11 @@ statement position but not as the value of a typed expression.
 
 ### Option/Result vs exceptions
 
-`Option` and `Result` are ordinary data types for *domain modeling*: a
+`Option` and `Result` are ordinary data types for _domain modeling_: a
 lookup that may find nothing returns `Option`, a parser that produces a
 structured error returns `Result`. They are values you match on.
 
-*Operational failure* - the file was deleted, the peer hung up - is not
+_Operational failure_ - the file was deleted, the peer hung up - is not
 data the caller asked for; it is an interruption of an effect, and it
 travels through the effect system as an Exception. No builtin ability
 returns `Result` to signal failure. This keeps IO signatures honest
@@ -588,6 +588,7 @@ Source (.ab) → Parser (CST → AST) → Type Checker → Compiler → Bytecode
 ### Bytecode VM
 
 Stack-based VM with:
+
 - Value stack for operands
 - Call stack for function frames
 - Continuation stack for ability handlers
@@ -599,7 +600,7 @@ A function's hash is the blake3 of its **canonical object encoding**
 the constant pool (with call sites resolved to the final hashes of their
 callees, and abilities resolved to their interface hashes), arity/locals
 metadata, and the dependency list — so the hash pins the implementation,
-every transitive dependency, *and* the exact interface of every ability
+every transitive dependency, _and_ the exact interface of every ability
 the function performs. One encoding serves as
 the unit of hashing, storage, and network transfer, which makes every object
 self-verifying: re-hash the bytes and compare.
@@ -607,7 +608,7 @@ self-verifying: re-hash the bytes and compare.
 Two kinds of objects:
 
 - **Plain** — one non-recursive function. `hash = blake3(encoding)`.
-  Names are *not* part of the encoding: renaming never changes the hash.
+  Names are _not_ part of the encoding: renaming never changes the hash.
 - **Group** — one strongly connected component of mutually (or self-)
   recursive functions, stored as a single unit. References between members
   are encoded as member indices, which breaks the circularity that makes
@@ -618,6 +619,7 @@ Two kinds of objects:
   only way to distinguish members); lambdas order by first reference.
 
 Invariants (pinned by `crates/ambient-parser/tests/content_addressing.rs`):
+
 - Compiling the same source twice yields identical hashes.
 - Declaration order and unrelated declarations never affect a hash
   (including unrelated lambdas vs. recursive groups).
@@ -648,6 +650,7 @@ The store exists in three forms, all sharing the canonical object encoding:
    writes are atomic renames, so no locking is needed. `ambient run`
    persists every build. Inspect with `ambient store`
    (stats/ls/show/deps/verify/gc) — `show` includes a full disassembly.
+
 3. **Packs** (`"ABPK"`) — a batch of objects for transfer: the wire format
    of the Execute ability (remote code shipping) and the content of
    `.ambient` artifact files (which add name bindings and an entry point).
@@ -657,6 +660,7 @@ The store exists in three forms, all sharing the canonical object encoding:
 ### Delimited Continuations
 
 Abilities implemented using single-shot delimited continuations.
+
 - Continuation can be resumed at most once (runtime error on double resume)
 - Supports: exceptions, I/O, state
 - Does not support: backtracking, multi-shot operators
@@ -667,13 +671,14 @@ stack segment, and handler entries above that boundary into the
 continuation (all offsets relative, so resume rebases them anywhere),
 then runs the handler arm in place of the thunk call: a non-resuming arm
 returns straight to the handle expression's completion point. Handlers
-are *deep*: resuming re-installs the captured handlers, so a body that
+are _deep_: resuming re-installs the captured handlers, so a body that
 performs repeatedly fires the same arm each time. Handler arms are
 closures and may capture from the enclosing scope.
 
 ### Execution Model
 
 Single-threaded with blocking IO:
+
 1. User code runs on a single thread
 2. Ability handlers block until the host operation completes
 3. Concurrency is future work: an Erlang-style process model (see Concurrency)
@@ -825,11 +830,24 @@ Roughly in priority order:
   if needed; traits exist to support polymorphic operators
 - Incremental compilation backed by the persisted store
 - WASM target
-- Package manager (stores are rsync-friendly by construction)
+- Workspace mechanism (multi-package local development) — lands before the
+  package manager
+- Package manager with a shared cache (stores are rsync-friendly by
+  construction)
 - Match exhaustiveness checking (a failing final variant arm is a
   runtime error today)
 - Enum variants imported across modules (constructors are currently
   visible to the declaring module plus the prelude)
 - Type unions (`A | B`)
-- Multi-shot continuations
-- Mutable references (`Store<T>` or affine types)
+- Mutability — some form of first-class mutable state.
+
+## Non-Goals
+
+Deliberately out of scope — recorded here so they stop resurfacing as future
+work:
+
+- **Affine/linear types.** Too much type-system complexity for a scripting
+  language, and a poor fit for its ergonomics — including as a route to
+  mutability, which stays an open goal above via some other mechanism.
+- **Compiling Ambient programs to WASM.** The WASM target above compiles the
+  _interpreter_; user programs are never lowered to WASM.
