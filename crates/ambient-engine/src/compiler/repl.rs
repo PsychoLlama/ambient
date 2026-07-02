@@ -215,15 +215,20 @@ impl ReplContext {
             ),
         );
 
-        // Filesystem ability
+        // Fs ability
         self.register_module(
-            "Filesystem",
+            "Fs",
             ModuleValue::new(
-                "Filesystem",
+                "Fs",
                 vec![
                     ModuleExport::new("read!", ModuleExportKind::Function),
                     ModuleExport::new("write!", ModuleExportKind::Function),
+                    ModuleExport::new("read_bytes!", ModuleExportKind::Function),
+                    ModuleExport::new("write_bytes!", ModuleExportKind::Function),
                     ModuleExport::new("exists!", ModuleExportKind::Function),
+                    ModuleExport::new("list!", ModuleExportKind::Function),
+                    ModuleExport::new("remove!", ModuleExportKind::Function),
+                    ModuleExport::new("create_dir!", ModuleExportKind::Function),
                 ],
             ),
         );

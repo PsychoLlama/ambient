@@ -67,7 +67,7 @@ impl RuntimeConfig {
 
     /// Create the native runtime configuration with all standard abilities.
     ///
-    /// Includes: Console, Time, Random, Log, Network, Execute.
+    /// Includes: Console, Time, Random, Log, Fs, Network, Execute.
     ///
     /// Note: Network and Execute abilities require external dependencies
     /// (runtime handle, store). Use `register_network()` and `register_execute()`
@@ -75,8 +75,8 @@ impl RuntimeConfig {
     #[must_use]
     pub fn native() -> Self {
         use crate::abilities::{
-            ConsoleRuntimeAbility, ExecuteRuntimeAbility, LogRuntimeAbility, NetworkRuntimeAbility,
-            RandomRuntimeAbility, TimeRuntimeAbility,
+            ConsoleRuntimeAbility, ExecuteRuntimeAbility, FsRuntimeAbility, LogRuntimeAbility,
+            NetworkRuntimeAbility, RandomRuntimeAbility, TimeRuntimeAbility,
         };
 
         Self::new()
@@ -84,6 +84,7 @@ impl RuntimeConfig {
             .with_ability_factory("Time", TimeRuntimeAbility::new)
             .with_ability_factory("Random", RandomRuntimeAbility::new)
             .with_ability_factory("Log", LogRuntimeAbility::new)
+            .with_ability_factory("Fs", FsRuntimeAbility::new)
             .with_ability_factory("Network", NetworkRuntimeAbility::new)
             .with_ability_factory("Execute", ExecuteRuntimeAbility::new)
     }
@@ -150,8 +151,8 @@ impl RuntimeConfig {
         factory: &dyn TypeFactory<T>,
     ) -> Vec<AbilityDescriptor<T>> {
         use crate::abilities::{
-            ConsoleRuntimeAbility, ExecuteRuntimeAbility, LogRuntimeAbility, NetworkRuntimeAbility,
-            RandomRuntimeAbility, TimeRuntimeAbility,
+            ConsoleRuntimeAbility, ExecuteRuntimeAbility, FsRuntimeAbility, LogRuntimeAbility,
+            NetworkRuntimeAbility, RandomRuntimeAbility, TimeRuntimeAbility,
         };
 
         // We need to create descriptors for each ability type
@@ -165,6 +166,7 @@ impl RuntimeConfig {
                     "Time" => Some(TimeRuntimeAbility::new().descriptor(factory)),
                     "Random" => Some(RandomRuntimeAbility::new().descriptor(factory)),
                     "Log" => Some(LogRuntimeAbility::new().descriptor(factory)),
+                    "Fs" => Some(FsRuntimeAbility::new().descriptor(factory)),
                     "Network" => Some(NetworkRuntimeAbility::new().descriptor(factory)),
                     "Execute" => Some(ExecuteRuntimeAbility::new().descriptor(factory)),
                     // Unknown abilities can't provide descriptors
@@ -288,9 +290,10 @@ mod tests {
         assert!(names.contains(&"Time"));
         assert!(names.contains(&"Random"));
         assert!(names.contains(&"Log"));
+        assert!(names.contains(&"Fs"));
         assert!(names.contains(&"Network"));
         assert!(names.contains(&"Execute"));
-        assert_eq!(names.len(), 6);
+        assert_eq!(names.len(), 7);
     }
 
     #[test]
@@ -300,7 +303,7 @@ mod tests {
 
         assert!(!names.contains(&"Console"));
         assert!(names.contains(&"Time"));
-        assert_eq!(names.len(), 5);
+        assert_eq!(names.len(), 6);
     }
 
     #[test]
@@ -309,11 +312,15 @@ mod tests {
         let factory = TestTypeFactory::new();
         let descriptors = config.ability_descriptors(&factory);
 
-        assert_eq!(descriptors.len(), 6);
+        assert_eq!(descriptors.len(), 7);
 
         let console = descriptors.iter().find(|d| d.name == "Console");
         assert!(console.is_some());
         assert_eq!(console.map(|d| d.methods.len()), Some(3)); // print, println, eprint
+
+        let fs = descriptors.iter().find(|d| d.name == "Fs");
+        assert!(fs.is_some());
+        assert_eq!(fs.map(|d| d.methods.len()), Some(8)); // 8 filesystem methods
 
         let network = descriptors.iter().find(|d| d.name == "Network");
         assert!(network.is_some());
@@ -329,16 +336,16 @@ mod tests {
         let config = RuntimeConfig::native();
         let handlers = config.handlers();
 
-        // Console: 3, Time: 2, Random: 2, Log: 4
+        // Console: 3, Time: 2, Random: 2, Log: 4, Fs: 8
         // Network: 0 (registered separately), Execute: 0 (registered separately)
-        // Total: 11
-        assert_eq!(handlers.len(), 11);
+        // Total: 19
+        assert_eq!(handlers.len(), 19);
     }
 
     #[test]
     fn test_from_manifest() {
         let config = RuntimeConfig::from_manifest(&["ambient:native".to_string()]);
-        assert_eq!(config.ability_names().len(), 6);
+        assert_eq!(config.ability_names().len(), 7);
 
         let empty = RuntimeConfig::from_manifest(&[]);
         assert!(empty.ability_names().is_empty());

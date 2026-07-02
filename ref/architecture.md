@@ -253,7 +253,7 @@ exactly like a builtin from then on (effect rows, `handle`, handler
 values, generic methods):
 
 ```ambient
-ability Filesystem {
+ability Fs {
   fn read(path: string): string;
   fn write(path: string, content: string): ();
   fn exists(path: string): bool;
@@ -280,16 +280,16 @@ ability imports yet), and the REPL does not register them.
 
 ```ambient
 // Perform with !
-let content = Filesystem.read!("file.txt");
+let content = Fs.read!("file.txt");
 ```
 
 ### Ability Syntax in Type Signatures
 
 ```ambient
 fn read_config(path: Path): Config
-  with Filesystem
+  with Fs
 {
-  let content = Filesystem.read!(path);
+  let content = Fs.read!(path);
   parse_config(content)
 }
 
@@ -312,7 +312,7 @@ fn map<T, U, E!>(list: List<T>, f: (T) -> U with E): List<U>
 
 // Partial annotation with _
 pub fn transform(x: Input): Output
-  with Filesystem, _
+  with Fs, _
 { ... }
 ```
 
@@ -321,8 +321,8 @@ pub fn transform(x: Input): Output
 ```ambient
 fn run(): () {
   handle read_config("config.toml") {
-    Filesystem.read(path) => {
-      let content = host_read_file(path);
+    Fs.read(path) => {
+      let content = "contents from anywhere";
       resume(content)
     }
   }
@@ -332,7 +332,7 @@ fn run(): () {
 ### Handlers as Values
 
 ```ambient
-let mock_fs: Handler<Filesystem> = {
+let mock_fs: Handler<Fs> = {
   read(path) => resume("mock content"),
   write(path, content) => resume(()),
   exists(path) => resume(true),
@@ -343,7 +343,7 @@ handle unit_test() with mock_fs, mock_network {}
 
 // Override specific methods
 handle unit_test() with mock_fs {
-  Filesystem.read(path) => resume("intercepted")
+  Fs.read(path) => resume("intercepted")
 }
 ```
 
@@ -484,7 +484,23 @@ ability Log with Console {
   fn warn(message: string): ();
   fn error(message: string): ();
 }
+
+ability Fs {
+  fn read(path: string): string;              // UTF-8 text
+  fn write(path: string, content: string): ();  // create/truncate
+  fn read_bytes(path: string): Bytes;
+  fn write_bytes(path: string, data: Bytes): ();
+  fn exists(path: string): bool;              // infallible
+  fn list(path: string): List<string>;        // sorted entry names
+  fn remove(path: string): ();                // file or empty directory
+  fn create_dir(path: string): ();            // mkdir -p
+}
 ```
+
+Fs failures (missing files, permission errors, invalid UTF-8) raise
+catchable `Exception`s, recoverable with
+`handle ... { Exception.throw(msg) => ... }`. Only `exists` is
+infallible: it returns `false` when the path can't be inspected.
 
 ### Standard Functions
 
@@ -722,7 +738,7 @@ fn run(): bool {
 ### Testing with Mocks
 
 ```ambient
-let mock_fs: Handler<Filesystem> = {
+let mock_fs: Handler<Fs> = {
   read(path) => resume("mock content"),
   write(path, content) => resume(()),
   exists(path) => resume(true),

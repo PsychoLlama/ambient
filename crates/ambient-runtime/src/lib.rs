@@ -9,6 +9,7 @@
 
 pub mod console;
 pub mod execute;
+pub mod fs;
 pub mod log;
 pub mod network;
 pub mod random;
@@ -16,6 +17,7 @@ pub mod time;
 
 pub use console::{ConsoleAbility, ConsoleRuntimeAbility, CONSOLE};
 pub use execute::ExecuteRuntimeAbility;
+pub use fs::{FsAbility, FsRuntimeAbility, FS};
 pub use log::{LogAbility, LogRuntimeAbility, LOG};
 pub use network::{NetworkAbility, NetworkRuntimeAbility, NETWORK};
 pub use random::{RandomAbility, RandomRuntimeAbility, RANDOM};
@@ -26,7 +28,7 @@ pub use ambient_ability::RuntimeAbility;
 
 use ambient_core::{AbilityDescriptor, AbilityProvider, TypeFactory};
 
-/// Provider for runtime abilities (Console, Time, Random, Log, Network, Execute).
+/// Provider for runtime abilities (Console, Time, Random, Log, Fs, Network, Execute).
 ///
 /// This is parameterized by the type system's Type representation,
 /// allowing it to work with different type systems.
@@ -45,6 +47,7 @@ impl<T: Clone + 'static> RuntimeAbilities<T> {
                 TimeRuntimeAbility::new().descriptor(factory),
                 RandomRuntimeAbility::new().descriptor(factory),
                 LogRuntimeAbility::new().descriptor(factory),
+                FsRuntimeAbility::new().descriptor(factory),
                 NetworkRuntimeAbility::new().descriptor(factory),
                 ExecuteRuntimeAbility::new().descriptor(factory),
             ],
@@ -120,8 +123,8 @@ mod tests {
         let factory = TestTypeFactory::new();
         let runtime = RuntimeAbilities::new(&factory);
 
-        // 6 abilities: Console, Time, Random, Log, Network, Execute
-        assert_eq!(runtime.abilities().len(), 6);
+        // 7 abilities: Console, Time, Random, Log, Fs, Network, Execute
+        assert_eq!(runtime.abilities().len(), 7);
 
         // Check Console
         let console = runtime.get_ability("Console");
@@ -147,6 +150,12 @@ mod tests {
         let log = log.unwrap();
         assert_eq!(log.methods.len(), 4);
 
+        // Check Fs
+        let fs_ab = runtime.get_ability("Fs");
+        assert!(fs_ab.is_some());
+        let fs_ab = fs_ab.unwrap();
+        assert_eq!(fs_ab.methods.len(), 8);
+
         // Check Network
         let network_ab = runtime.get_ability("Network");
         assert!(network_ab.is_some());
@@ -169,6 +178,7 @@ mod tests {
             ("Time", time::ability_id()),
             ("Random", random::ability_id()),
             ("Log", log::ability_id()),
+            ("Fs", fs::ability_id()),
             ("Network", network::ability_id()),
             ("Execute", execute::ability_id()),
             ("Exception", ambient_core::exception::ability_id()),

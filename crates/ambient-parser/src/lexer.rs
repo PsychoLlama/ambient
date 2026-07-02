@@ -338,7 +338,7 @@ impl TokenKind {
             "Time",
             "Random",
             "Log",
-            "Filesystem",
+            "Fs",
             "Network",
         ]
     }

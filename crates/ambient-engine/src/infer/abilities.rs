@@ -13,7 +13,9 @@ use crate::ast::QualifiedName;
 use crate::types::{AbilityId, AbilitySet, Type};
 
 /// Abilities that live under the `runtime` namespace.
-const RUNTIME_ABILITIES: &[&str] = &["Console", "Time", "Random", "Log", "Network", "Execute"];
+const RUNTIME_ABILITIES: &[&str] = &[
+    "Console", "Time", "Random", "Log", "Fs", "Network", "Execute",
+];
 
 /// Check if an ability requires the `runtime.` namespace prefix.
 fn is_runtime_ability(name: &str) -> bool {

@@ -2152,3 +2152,115 @@ fn test_host_raised_exception_resume_substitute() {
     )
     .expect_output("999");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fs Ability Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_fs_write_read_roundtrip() {
+    let dir = TempDir::new().expect("failed to create temp dir");
+    let path = dir.path().join("note.txt");
+    CliTest::new(format!(
+        r#"
+        pub fn run(): string with Fs {{
+            runtime.Fs.write!("{path}", "hello from ambient");
+            runtime.Fs.read!("{path}")
+        }}
+        "#,
+        path = path.display()
+    ))
+    .expect_output("hello from ambient");
+}
+
+#[test]
+fn test_fs_read_missing_file_is_catchable_exception() {
+    // A failing filesystem operation raises a catchable exception instead
+    // of aborting the VM.
+    CliTest::new(
+        r#"
+        fn try_read(): string with Fs {
+            runtime.Fs.read!("/nonexistent/ambient_fs_test/missing.txt")
+        }
+
+        pub fn run(): string with Fs {
+            handle try_read() {
+                Exception.throw(msg) => "caught"
+            }
+        }
+        "#,
+    )
+    .expect_output("caught");
+}
+
+#[test]
+fn test_fs_exists_false_then_true() {
+    let dir = TempDir::new().expect("failed to create temp dir");
+    let path = dir.path().join("probe.txt");
+    CliTest::new(format!(
+        r#"
+        pub fn run(): () with Fs, Console {{
+            runtime.Console.println!(core.convert.to_string(runtime.Fs.exists!("{path}")));
+            runtime.Fs.write!("{path}", "x");
+            runtime.Console.println!(core.convert.to_string(runtime.Fs.exists!("{path}")));
+        }}
+        "#,
+        path = path.display()
+    ))
+    .expect_output("false\ntrue");
+}
+
+#[test]
+fn test_fs_list_returns_written_entries() {
+    let dir = TempDir::new().expect("failed to create temp dir");
+    let base = dir.path().display().to_string();
+    CliTest::new(format!(
+        r#"
+        pub fn run(): number with Fs {{
+            runtime.Fs.write!("{base}/a.txt", "1");
+            runtime.Fs.write!("{base}/b.txt", "2");
+            core.list.length(runtime.Fs.list!("{base}"))
+        }}
+        "#
+    ))
+    .expect_output("2");
+}
+
+#[test]
+fn test_fs_remove_then_exists_is_false() {
+    let dir = TempDir::new().expect("failed to create temp dir");
+    let path = dir.path().join("ephemeral.txt");
+    CliTest::new(format!(
+        r#"
+        pub fn run(): bool with Fs {{
+            runtime.Fs.write!("{path}", "gone soon");
+            runtime.Fs.remove!("{path}");
+            runtime.Fs.exists!("{path}")
+        }}
+        "#,
+        path = path.display()
+    ))
+    .expect_output("false");
+}
+
+#[test]
+fn test_execute_run_fs_is_not_granted() {
+    // Fs is NOT granted to executed code: only Console/Log are. A shipped
+    // function that touches the filesystem is an unhandled-ability error,
+    // not a silent escape.
+    CliTest::new(
+        r#"
+        fn sneaky(x: number): number with Fs {
+            let content = runtime.Fs.read!("/etc/hostname");
+            x
+        }
+
+        pub fn run(): number with Execute {
+            let thunk = (x) => sneaky(x);
+            let hash = core.protocol.closure_hash(thunk);
+            runtime.Execute.run!(hash, 1)
+        }
+        "#,
+    )
+    .expect_error("unhandled ability");
+}

@@ -2,7 +2,7 @@
 //!
 //! This module provides host handler implementations for abilities.
 //! Ability IDs and descriptors are defined in `ambient-core` (for Exception)
-//! and `ambient-runtime` (for Console, Time, Random, Log).
+//! and `ambient-runtime` (for Console, Time, Random, Log, Fs).
 //!
 //! This module re-exports the ability ID modules for backward compatibility.
 
@@ -55,10 +55,15 @@ pub mod log {
     pub use ambient_runtime::log::*;
 }
 
+/// Fs ability - for filesystem operations.
+pub mod fs {
+    pub use ambient_runtime::fs::*;
+}
+
 // Re-export RuntimeAbility implementations for convenience
 pub use ambient_runtime::{
-    ConsoleRuntimeAbility, ExecuteRuntimeAbility, LogRuntimeAbility, NetworkRuntimeAbility,
-    RandomRuntimeAbility, TimeRuntimeAbility,
+    ConsoleRuntimeAbility, ExecuteRuntimeAbility, FsRuntimeAbility, LogRuntimeAbility,
+    NetworkRuntimeAbility, RandomRuntimeAbility, TimeRuntimeAbility,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
