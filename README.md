@@ -23,7 +23,7 @@ pub fn run(): () with Console {
 
 // Private functions infer their abilities — no annotation needed.
 fn greet(name: string) {
-  platform.Console.print!("Hello, ${name}!");
+  platform::Console::print!("Hello, ${name}!");
 }
 ```
 
@@ -47,10 +47,10 @@ sandbox untrusted code, or intercept and transform operations:
 
 ```ambient
 handle {
-  platform.Console.print!("hello");
+  platform::Console::print!("hello");
 } {
-  platform.Console.print(msg) => {
-    platform.Console.print!(core.string.concat("[LOG] ", msg));
+  platform::Console::print(msg) => {
+    platform::Console::print!(core::string::concat("[LOG] ", msg));
     resume(())
   }
 }

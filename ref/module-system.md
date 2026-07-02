@@ -18,23 +18,23 @@ A module system for Ambient that enables code organization across files with exp
 
 ```ambient
 // Import a module (brings the module name into scope)
-use pkg.utils;                    // utils.helper()
+use pkg::utils;                    // utils::helper()
 
 // Import specific items
-use pkg.utils.helper;             // helper()
-use pkg.utils.{helper, format};   // helper(), format()
+use pkg::utils::helper;             // helper()
+use pkg::utils::{helper, format};   // helper(), format()
 
 // Relative imports (within the same package)
-use self.sibling;                 // Import from ./sibling.ab
-use super.parent;                 // Import from ../parent.ab
-use super.super.grandparent;      // Import from ../../grandparent.ab
+use self::sibling;                 // Import from ./sibling.ab
+use super::parent;                 // Import from ../parent.ab
+use super::super::grandparent;      // Import from ../../grandparent.ab
 
 // Standard library
-use core.list;                    // list.map(), list.filter()
+use core::list;                    // list::map(), list::filter()
 
 // Re-exports (make imported items part of this module's public API)
-pub use pkg.other.Thing;          // Re-export Thing
-pub use pkg.utils.{helper, format}; // Re-export specific items
+pub use pkg::other::Thing;          // Re-export Thing
+pub use pkg::utils::{helper, format}; // Re-export specific items
 ```
 
 ### Visibility
@@ -57,10 +57,10 @@ my_project/
   ambient.toml          # Package manifest
   src/
     main.ab             # Entry point (must exist, exports pub fn main)
-    utils.ab            # pkg.utils
+    utils.ab            # pkg::utils
     utils/
-      format.ab         # pkg.utils.format
-      parse.ab          # pkg.utils.parse
+      format.ab         # pkg::utils::format
+      parse.ab          # pkg::utils::parse
   build/                # Build cache (gitignored)
     cache/
       ...
@@ -104,7 +104,7 @@ This is not implemented in the initial version but the design does not preclude 
 | `pkg`  | Current package (relative to `build.src`) |
 | `core` | Standard library |
 | `self` | Current module's directory |
-| `super`| Parent directory (can chain: `super.super.x`) |
+| `super`| Parent directory (can chain: `super::super::x`) |
 
 These are **reserved keywords** and cannot be used as identifiers:
 - `pkg`, `core`, `self`, `super` - module path prefixes
@@ -114,9 +114,9 @@ This is a breaking change if existing code uses these as names.
 
 ## Resolution Rules
 
-1. **Qualified names** (`pkg.utils.helper`) are resolved from the package root
-2. **Relative imports** (`self.sibling`) are resolved from the current file's location
-3. **Chained super** (`super.super.x`) walks up multiple directory levels
+1. **Qualified names** (`pkg::utils::helper`) are resolved from the package root
+2. **Relative imports** (`self::sibling`) are resolved from the current file's location
+3. **Chained super** (`super::super::x`) walks up multiple directory levels
 4. **Imported names** shadow local definitions (with a warning)
 5. **Ambiguous imports** are an error (must qualify)
 6. **Boundary guard**: Imports cannot escape above `build.src` (e.g., `super` from `src/main.ab` is an error)
@@ -161,8 +161,8 @@ pub fn public_fn(): number {
 }
 
 // main.ab
-use pkg.utils;
-utils.helper()                     // ERROR: helper is private
+use pkg::utils;
+utils::helper()                     // ERROR: helper is private
 ```
 
 ## Cyclic Imports
@@ -171,12 +171,12 @@ Cyclic imports between modules are supported:
 
 ```ambient
 // a.ab
-use pkg.b.B_Type;
+use pkg::b::B_Type;
 pub type A_Type = { b: B_Type }
 pub fn make_a(b: B_Type): A_Type { { b: b } }
 
 // b.ab
-use pkg.a.A_Type;
+use pkg::a::A_Type;
 pub type B_Type = { value: number }
 pub fn use_a(a: A_Type): number { a.b.value }
 ```
@@ -208,11 +208,11 @@ For performance with large codebases, modules are loaded lazily based on what's 
 ```
 Entry: src/main.ab
          │
-         ├─ use pkg.utils.format     → Parse src/utils/format.ab
+         ├─ use pkg::utils::format     → Parse src/utils/format.ab
          │       │
-         │       └─ use pkg.common   → Parse src/common.ab
+         │       └─ use pkg::common   → Parse src/common.ab
          │
-         └─ use pkg.api              → Parse src/api.ab
+         └─ use pkg::api              → Parse src/api.ab
 
 Files NOT parsed: src/legacy.ab, src/unused/*.ab, etc.
 ```
@@ -227,7 +227,7 @@ This means a package with 10,000 files but an entry point that only uses 100 wil
 
 ### Module Discovery
 
-When resolving `use pkg.utils.format`:
+When resolving `use pkg::utils::format`:
 
 1. Check if `src/utils/format.ab` exists → parse it
 2. If not, check if `src/utils.ab` exists and exports `format` (re-export or inline module)
@@ -301,7 +301,7 @@ src = "src"
 
 $ cat my_project/src/main.ab
 pub fn run(): () with Console {
-    Console.print!("Hello, world!");
+    Console::print!("Hello, world!");
 }
 ```
 
@@ -376,14 +376,14 @@ Extend the parser to handle the full import syntax.
 
 **Syntax to support:**
 ```ambient
-use pkg.module;
-use pkg.module.item;
-use pkg.module.{item1, item2};
-use self.sibling;
-use super.parent;
-use super.super.grandparent;
-use core.list;
-pub use pkg.other.Thing;
+use pkg::module;
+use pkg::module::item;
+use pkg::module::{item1, item2};
+use self::sibling;
+use super::parent;
+use super::super::grandparent;
+use core::list;
+pub use pkg::other::Thing;
 ```
 
 **Deliverables:**
@@ -404,7 +404,7 @@ Resolve names across module boundaries with cycle support.
 **Deliverables:**
 - `SymbolTable` with all symbols across loaded modules (including private items for error messages)
 - `PackageResolver` with two-phase resolution (signatures then bodies)
-- Resolution of `pkg.module.item` to concrete definitions
+- Resolution of `pkg::module::item` to concrete definitions
 - `super` chain resolution with boundary guard
 - Re-export chain resolution with cycle detection
 - Visibility tracking (private items in table but not accessible)
@@ -470,9 +470,9 @@ Implement the `core` standard library.
 - Modify: `crates/ambient-engine/src/infer/mod.rs` - Preload core types
 
 **Deliverables:**
-- Core modules: `core.list`, `core.option`, `core.result`, `core.string`
+- Core modules: `core::list`, `core::option`, `core::result`, `core::string`
 - Implicit prelude (Option, Result always available)
-- Core abilities: `core.console`, `core.time`, `core.random`
+- Core abilities: `core::console`, `core::time`, `core::random`
 
 ### Phase 9: LSP Integration
 
@@ -493,7 +493,7 @@ The LSP maintains two levels of information:
 1. **Filesystem index**: All `.ab` files and their module paths (cheap, always up-to-date via file watcher)
 2. **Parsed modules**: Full AST/types for open files and their imports (parsed on demand)
 
-This allows "add import" completions to suggest `pkg.utils.format` even if nothing imports it yet.
+This allows "add import" completions to suggest `pkg::utils::format` even if nothing imports it yet.
 
 **Deliverables:**
 - Eager filesystem scanning of `src/` directory
@@ -689,14 +689,14 @@ impl Package {
 /// The prefix of an import path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportPrefix {
-    /// Local package: `pkg.module`
+    /// Local package: `pkg::module`
     Pkg,
-    /// Standard library: `core.module`
+    /// Standard library: `core::module`
     Core,
-    /// Same directory: `self.sibling`
+    /// Same directory: `self::sibling`
     Self_,
-    /// Parent directory: `super.parent`, `super.super.grandparent`
-    /// The usize is how many levels up (1 for `super`, 2 for `super.super`, etc.)
+    /// Parent directory: `super::parent`, `super::super::grandparent`
+    /// The usize is how many levels up (1 for `super`, 2 for `super::super`, etc.)
     Super(usize),
 }
 ```
@@ -830,7 +830,7 @@ members = [
 
 ### Design Considerations for Workspaces
 
-1. **Package resolution**: `use other_pkg.module` would resolve to sibling packages
+1. **Package resolution**: `use other_pkg::module` would resolve to sibling packages
 2. **Shared build directory**: `build/` at workspace root, per-package subdirectories
 3. **Parallel compilation**: Independent packages can compile in parallel
 4. **Cross-package dependencies**: Declared in package manifest

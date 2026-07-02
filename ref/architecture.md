@@ -37,18 +37,18 @@ root), `self` (same directory), `super` (parent), `core` (standard
 library).
 
 ```ambient
-use pkg.utils.{a, b};   // Item import: a and b as bare names
-use self.utils;         // Whole-module import: call utils.helper(...)
-use core.list;          // Core modules import the same way: list.map(...)
-use core.list.{map};    // ... or by item
+use pkg::utils::{a, b};   // Item import: a and b as bare names
+use self::utils;         // Whole-module import: call utils::helper(...)
+use core::list;          // Core modules import the same way: list::map(...)
+use core::list::{map};    // ... or by item
 ```
 
-Core modules (`core.list`, `core.math`, `core.string`) are also always in
-scope fully qualified with no import: `core.list.map([1], f)`. They are
+Core modules (`core::list`, `core::math`, `core::string`) are also always in
+scope fully qualified with no import: `core::list::map([1], f)`. They are
 ordinary Ambient modules — compiled, content-addressed, and stored exactly
 like user code (see `crates/ambient-engine/src/core_lib/`). Beneath them
-sits a fixed set of _intrinsics_ (`core.math.sqrt`, `core.list.length`,
-`core.string.concat`, ...) that compile to dedicated opcodes; intrinsics
+sits a fixed set of _intrinsics_ (`core::math::sqrt`, `core::list::length`,
+`core::string::concat`, ...) that compile to dedicated opcodes; intrinsics
 take precedence over compiled functions at the same path. `core` is a
 keyword, so user modules can never collide with the standard library.
 
@@ -194,7 +194,7 @@ For primitive types (`number`, `bool`, `string`), operators use built-in impleme
 
 The operator traits (`Add`, `Sub`, `Mul`, `Div`, `Mod`, `Eq`, `Ord`) are
 part of the prelude: they are always in scope, and implementing one enables
-the corresponding operator. `core.traits` mirrors their definitions for
+the corresponding operator. `core::traits` mirrors their definitions for
 documentation. A module that declares its own trait with the same name
 shadows the prelude entry.
 
@@ -282,7 +282,7 @@ them.
 
 ```ambient
 // Perform with !
-let content = FileSystem.read!("file.txt");
+let content = FileSystem::read!("file.txt");
 ```
 
 ### Ability Syntax in Type Signatures
@@ -291,7 +291,7 @@ let content = FileSystem.read!("file.txt");
 fn read_config(path: Path): Config
   with FileSystem
 {
-  let content = FileSystem.read!(path);
+  let content = FileSystem::read!(path);
   parse_config(content)
 }
 
@@ -323,7 +323,7 @@ pub fn transform(x: Input): Output
 ```ambient
 fn run(): () {
   handle read_config("config.toml") {
-    FileSystem.read(path) => {
+    FileSystem::read(path) => {
       let content = "contents from anywhere";
       resume(content)
     }
@@ -345,7 +345,7 @@ handle unit_test() with mock_fs, mock_network {}
 
 // Override specific methods
 handle unit_test() with mock_fs {
-  FileSystem.read(path) => resume("intercepted")
+  FileSystem::read(path) => resume("intercepted")
 }
 ```
 
@@ -368,7 +368,7 @@ native ability is `Exception` (part of the language). Everything else —
 Console, Time, Random, Log, FileSystem, Network, Execute — is declared once, in
 Ambient source, in the **platform bindings interface**
 (`crates/ambient-platform/src/platform.ab`), and performed under the
-`platform` namespace: `platform.FileSystem.read!(path)`.
+`platform` namespace: `platform::FileSystem::read!(path)`.
 
 An embedder wires the two halves together:
 
@@ -396,7 +396,7 @@ second copy of the interface to fall out of sync.
 ## Concurrency
 
 All IO is blocking. There is no `Async` ability and no async/await-style
-primitives — this is intentional. A perform like `platform.Network.receive!`
+primitives — this is intentional. A perform like `platform::Network::receive!`
 simply blocks the calling code until the host handler returns.
 
 The planned direction is an Erlang-inspired process model: lightweight
@@ -415,7 +415,7 @@ nothing in the current runtime implements it.
 
 ## Error Handling
 
-Errors are abilities. `Exception.throw!` raises; the nearest enclosing
+Errors are abilities. `Exception::throw!` raises; the nearest enclosing
 `handle` block for Exception catches. A handler arm's value becomes the
 handle expression's value, and execution continues after the handle
 expression (catch-and-continue). The optional `else` clause transforms
@@ -429,14 +429,14 @@ ability Exception {
 fn parse_int(s: string): number with Exception {
   match try_parse(s) {
     Some(n) => n,
-    None => Exception.throw!("not a number"),
+    None => Exception::throw!("not a number"),
   }
 }
 
 // Handling exceptions
 fn safe_parse(s: string): Option<number> {
   handle parse_int(s) {
-    Exception.throw(e) => None
+    Exception::throw(e) => None
     else { (result) => Some(result) }
   }
 }
@@ -457,8 +457,8 @@ succeeded:
 
 ```ambient
 fn fetch_or_default(): number with Network {
-  handle platform.Network.connect!("10.0.0.1:9") {
-    Exception.throw(msg) => resume(0 - 1)  // substitute connection id
+  handle platform::Network::connect!("10.0.0.1:9") {
+    Exception::throw(msg) => resume(0 - 1)  // substitute connection id
   }
 }
 ```
@@ -558,16 +558,16 @@ infallible: it returns `false` when the path can't be inspected.
 
 ```ambient
 // Collections
-List.map, List.filter, List.fold, List.concat, List.length, List.head, List.tail
+List::map, List::filter, List::fold, List::concat, List::length, List::head, List::tail
 
 // Options
-Option.map, Option.unwrap_or, Option.and_then
+Option::map, Option::unwrap_or, Option::and_then
 
 // Results
-Result.map, Result.map_err, Result.and_then
+Result::map, Result::map_err, Result::and_then
 
 // Strings
-String.split, String.join, String.trim, String.contains, String.length
+String::split, String::join, String::trim, String::contains, String::length
 
 // Conversion
 to_string, parse_number, parse_bool
@@ -716,10 +716,10 @@ two ways:
   content-addressed functions, shipped in packs like any code — and is
   installed at the base of the isolated VM. Ability hashes make this
   sound: handler and perform match only if both sides computed the same
-  interface hash. `core.protocol.handler_methods(h)` exposes a handler's
+  interface hash. `core::protocol::handler_methods(h)` exposes a handler's
   method hashes so clients can ship its code.
 
-Values cross via `core.protocol.serialize_value`/`deserialize_value`
+Values cross via `core::protocol::serialize_value`/`deserialize_value`
 (bincode of the wire-safe subset: primitives, tuples/lists/records,
 enums, function refs by hash, handler values by hash table). Closures,
 continuations, maps/sets, and modules do not cross; serializing one is a
@@ -754,7 +754,7 @@ dedicated `serve` command.
 
 ```ambient
 pub fn run(): () with Console {
-  platform.Console.print!("Hello, world!");
+  platform::Console::print!("Hello, world!");
 }
 ```
 
