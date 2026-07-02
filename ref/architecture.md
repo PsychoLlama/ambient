@@ -440,6 +440,21 @@ Current limits: `Exception` is not generic yet (`throw` takes a string;
 `!` (never) does not yet unify with other types, so `throw` works in
 statement position but not as the value of a typed expression.
 
+### Option/Result vs exceptions
+
+`Option` and `Result` are ordinary data types for *domain modeling*: a
+lookup that may find nothing returns `Option`, a parser that produces a
+structured error returns `Result`. They are values you match on.
+
+*Operational failure* - the file was deleted, the peer hung up - is not
+data the caller asked for; it is an interruption of an effect, and it
+travels through the effect system as an Exception. No builtin ability
+returns `Result` to signal failure. This keeps IO signatures honest
+(`Fs.read` returns `string`, not `Result<string, _>`) while `handle`
+gives callers strictly more power than matching: they can substitute a
+fallback for the failing call and continue, not just observe the error
+after the fact.
+
 ---
 
 ## Type Inference Rules
