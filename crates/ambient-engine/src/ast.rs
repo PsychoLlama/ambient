@@ -794,6 +794,10 @@ pub struct AbilityDef {
     pub dependencies: Vec<QualifiedName>,
     /// Methods defined by this ability.
     pub methods: Vec<AbilityMethod>,
+    /// Content-addressed identity, computed during type checking from the
+    /// resolved method signatures. `None` until the module is checked; the
+    /// compiler reads it rather than re-deriving the hash.
+    pub resolved_id: Option<crate::types::AbilityId>,
 }
 
 /// An ability method signature.

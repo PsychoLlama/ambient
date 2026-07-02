@@ -98,6 +98,16 @@ impl Infer {
             }
         }
 
+        // Module-declared abilities are used by bare name and take
+        // precedence over bare-name builtins (Exception), mirroring how
+        // local enums shadow the prelude. `runtime.`-namespaced abilities
+        // are unaffected: user declarations never register under a path.
+        if ability.path.is_empty() && !is_runtime_ability(ability_name) {
+            if let Some(dynamic) = self.ability_resolver.get_dynamic(ability_name).cloned() {
+                return self.lookup_dynamic_method(&dynamic, method_name, arg_tys, span);
+            }
+        }
+
         let ability_id = self.ability_name_to_id(ability_name).ok_or_else(|| {
             type_error(
                 TypeErrorKind::UnknownAbility {
@@ -147,6 +157,57 @@ impl Infer {
             })?;
 
         Ok((ability_id, result_ty, AbilitySet::Empty))
+    }
+
+    /// Type-check a call to a module-declared ability method.
+    ///
+    /// Unlike builtin descriptors (which only expose a return type),
+    /// dynamic abilities carry full declared signatures, so arguments are
+    /// unified against the declared parameter types. Quantified method
+    /// type parameters instantiate to fresh variables per call site. The
+    /// returned ability set carries the ability's declared dependencies so
+    /// performing it also requires them.
+    fn lookup_dynamic_method(
+        &mut self,
+        dynamic: &crate::ability_resolver::DynAbility,
+        method_name: &str,
+        arg_tys: &[Type],
+        span: (u32, u32),
+    ) -> InferResult<(AbilityId, Type, AbilitySet)> {
+        let Some(method) = dynamic.method(method_name).cloned() else {
+            return Err(type_error(
+                TypeErrorKind::UnknownAbilityMethod {
+                    ability: Arc::clone(&dynamic.name),
+                    method: method_name.into(),
+                },
+                span,
+            ));
+        };
+
+        if method.params.len() != arg_tys.len() {
+            return Err(type_error(
+                TypeErrorKind::ArityMismatch {
+                    expected: method.params.len(),
+                    actual: arg_tys.len(),
+                },
+                span,
+            ));
+        }
+
+        let mut subst = std::collections::HashMap::new();
+        for quantified in &method.quantified {
+            subst.insert(*quantified, self.fresh());
+        }
+
+        for (param, arg) in method.params.iter().zip(arg_tys) {
+            let param = param.substitute(&subst);
+            self.unify(&param, arg, span)?;
+        }
+
+        let ret = method.ret.substitute(&subst);
+        let ret = self.apply(&ret);
+        let additional = AbilitySet::from_abilities(dynamic.dependencies.iter().copied());
+        Ok((dynamic.id, ret, additional))
     }
 
     /// Infer the result type for `Async.all(ops)` where `ops: List<Ability<T, A!>>`.

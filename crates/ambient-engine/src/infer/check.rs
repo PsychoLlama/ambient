@@ -93,6 +93,7 @@ fn check_module_core(
     register_type_aliases(&mut infer, &module);
     register_traits(&mut infer, &module);
     register_enums(&mut infer, &module, &mut env);
+    register_abilities(&mut infer, &mut module, &mut errors);
     collect_function_signatures(&mut infer, &module, &mut env);
 
     // Phase 2: impl blocks.
@@ -660,6 +661,109 @@ fn build_function_scheme(
         Scheme::mono(fn_ty)
     } else {
         Scheme::poly(quantified_vars, fn_ty)
+    }
+}
+
+/// Register the module's `ability` declarations.
+///
+/// Each declaration's method signatures are resolved (type parameters
+/// become quantified type variables, aliases expand), rendered to
+/// canonical form, and hashed into the ability's content-addressed
+/// identity. The resulting [`DynAbility`] joins the resolver so
+/// perform/suspend/handle and `with` clauses see it exactly like a
+/// builtin; the computed identity is stored back into the AST for the
+/// compiler.
+///
+/// Declared dependencies (`ability Log with Console`) resolve against
+/// abilities already known to the resolver — builtins or dynamics
+/// registered earlier in the item list — and are recorded in the ability
+/// registry so requiring the ability transitively requires them.
+fn register_abilities(
+    infer: &mut Infer,
+    module: &mut crate::ast::Module,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    use crate::ability_resolver::{CanonicalTypeRenderer, DynAbility, DynMethod};
+
+    for item in &mut module.items {
+        let crate::ast::ItemKind::Ability(def) = &mut item.kind else {
+            continue;
+        };
+
+        // Resolve dependencies first: they must already be known.
+        let mut dependencies = Vec::new();
+        for dep in &def.dependencies {
+            match infer.ability_resolver.name_to_id(&dep.name) {
+                Some(id) => dependencies.push(id),
+                None => {
+                    errors.push(super::type_error(
+                        TypeErrorKind::UnknownAbility {
+                            name: Arc::clone(&dep.name),
+                        },
+                        (def.name_span.start, def.name_span.end),
+                    ));
+                }
+            }
+        }
+
+        let mut methods = Vec::new();
+        let mut canonical = Vec::new();
+        #[allow(clippy::cast_possible_truncation)]
+        for (idx, method) in def.methods.iter().enumerate() {
+            // Type parameters become quantified variables, substituted
+            // into the declared types.
+            let mut param_map = HashMap::new();
+            let mut quantified = Vec::new();
+            for tp in &method.type_params {
+                let var_id = infer.gen.fresh_id();
+                param_map.insert(Arc::clone(&tp.name), var_id);
+                quantified.push(var_id);
+            }
+
+            let params: Vec<Type> = method
+                .params
+                .iter()
+                .map(|(_, ty)| infer.resolve_holes(&substitute_type_params(ty, &param_map)))
+                .collect();
+            let ret = infer.resolve_holes(&substitute_type_params(&method.ret_ty, &param_map));
+
+            // One renderer per signature: variable numbering is
+            // signature-local, by first occurrence.
+            let mut renderer = CanonicalTypeRenderer::new();
+            let canon_params: Vec<String> = params.iter().map(|p| renderer.render(p)).collect();
+            let canon_ret = renderer.render(&ret);
+            canonical.push((Arc::clone(&method.name), canon_params, canon_ret));
+
+            methods.push(DynMethod {
+                id: idx as u16,
+                name: Arc::clone(&method.name),
+                params,
+                ret,
+                quantified,
+            });
+        }
+
+        let id = DynAbility::hash_from_canonical(&def.name, &canonical);
+        def.resolved_id = Some(id);
+
+        // Record dependencies so `require_ability` pulls them transitively.
+        if !dependencies.is_empty() {
+            let registry = infer
+                .ability_registry
+                .get_or_insert_with(crate::types::AbilityRegistry::new);
+            let mut info = crate::types::AbilityInfo::new(def.name.as_ref());
+            for dep in &dependencies {
+                info = info.with_dependency(*dep);
+            }
+            registry.register(id, info);
+        }
+
+        infer.ability_resolver.register_dynamic(DynAbility {
+            id,
+            name: Arc::clone(&def.name),
+            methods,
+            dependencies,
+        });
     }
 }
 

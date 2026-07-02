@@ -116,12 +116,23 @@ pub(super) fn compile_handle_expr(
     // Each handler value expression evaluates to a HandlerValue on the stack,
     // then HandleWithValue pops it and installs it as a handler.
     for handler_value in &handle_expr.handler_values {
-        // Verify this is a Handler type (type checking should have caught errors)
+        // The type checker guarantees this is a Handler type and records it
+        // on the expression. A missing/mismatched type here means inference
+        // results were lost — installing no handler would silently drop
+        // performs, so fail loudly instead.
         match &handler_value.ty {
             Some(crate::types::Type::Handler(_)) => {}
-            _ => {
-                // Skip if not a handler type - type checking should have caught this
-                continue;
+            other => {
+                return Err(CompileError::new(
+                    CompileErrorKind::Internal {
+                        message: if other.is_some() {
+                            "handle-with expression has a non-handler type"
+                        } else {
+                            "handler value expression missing its inferred type"
+                        },
+                    },
+                    (handler_value.span.start, handler_value.span.end),
+                ));
             }
         }
 
@@ -135,16 +146,22 @@ pub(super) fn compile_handle_expr(
 
     // First, compile each inline handler as a separate function.
     for handler in &handle_expr.handlers {
-        // Get ability ID for this handler.
+        // Get ability ID for this handler. Module-declared abilities take
+        // precedence over bare-name builtins, matching the type checker.
         let ability_name = &handler.ability.name;
-        let ability_id = get_ability_id(ability_name).ok_or_else(|| {
-            CompileError::new(
-                CompileErrorKind::Unsupported {
-                    feature: format!("unknown ability: {ability_name}"),
-                },
-                (handler.span.start, handler.span.end),
-            )
-        })?;
+        let ability_id = ctx
+            .abilities
+            .get(ability_name)
+            .map(|info| info.id)
+            .or_else(|| get_ability_id(ability_name))
+            .ok_or_else(|| {
+                CompileError::new(
+                    CompileErrorKind::Unsupported {
+                        feature: format!("unknown ability: {ability_name}"),
+                    },
+                    (handler.span.start, handler.span.end),
+                )
+            })?;
 
         // Create a new FunctionCompiler for the handler.
         // Handler functions have implicit parameters:
@@ -262,20 +279,32 @@ pub(super) fn compile_ability_call(
         compile_expr(fc, arg, ctx)?;
     }
 
-    // Get ability and method IDs.
-    // For now, use a simple mapping based on well-known abilities.
+    // Get ability and method IDs. Module-declared abilities (registered in
+    // the context from their type-checked identities) take precedence over
+    // bare-name builtins, matching the type checker.
     let ability_name = &ability_call.ability.name;
     let method_name = &ability_call.method;
+    let is_namespaced = !ability_call.ability.path.is_empty();
 
-    let (ability_id, method_id) = get_ability_ids(ability_name, method_name).ok_or_else(|| {
-        CompileError::new(
-            CompileErrorKind::UnknownAbilityMethod {
-                ability: Arc::clone(ability_name),
-                method: Arc::clone(method_name),
-            },
-            (ability_call.span.start, ability_call.span.end),
-        )
-    })?;
+    let dynamic = if is_namespaced {
+        None
+    } else {
+        ctx.abilities
+            .get(ability_name)
+            .and_then(|info| info.method_id(method_name).map(|m| (info.id, m)))
+    };
+
+    let (ability_id, method_id) = dynamic
+        .or_else(|| get_ability_ids(ability_name, method_name))
+        .ok_or_else(|| {
+            CompileError::new(
+                CompileErrorKind::UnknownAbilityMethod {
+                    ability: Arc::clone(ability_name),
+                    method: Arc::clone(method_name),
+                },
+                (ability_call.span.start, ability_call.span.end),
+            )
+        })?;
 
     // Emit suspend instruction.
     fc.builder
@@ -316,30 +345,41 @@ pub(super) fn compile_handler_literal(
         }
     };
 
-    let ability_name = get_ability_name(ability_id).ok_or_else(|| {
-        CompileError::new(
-            CompileErrorKind::Unsupported {
-                feature: format!("unknown ability ID: {ability_id}"),
-            },
-            (expr.span.start, expr.span.end),
-        )
-    })?;
+    let dynamic = ctx
+        .ability_by_id(ability_id)
+        .map(|(name, info)| (Arc::clone(name), info.clone()));
+    let ability_name = dynamic
+        .as_ref()
+        .map(|(name, _)| name.to_string())
+        .or_else(|| get_ability_name(ability_id))
+        .ok_or_else(|| {
+            CompileError::new(
+                CompileErrorKind::Unsupported {
+                    feature: format!("unknown ability ID: {ability_id}"),
+                },
+                (expr.span.start, expr.span.end),
+            )
+        })?;
 
     // Compile each handler method as a separate function.
     let mut method_hashes: Vec<(u16, blake3::Hash)> = Vec::new();
 
     for method in &handler_lit.methods {
-        let method_id = get_method_id_for_ability(ability_id, &method.method).ok_or_else(|| {
-            CompileError::new(
-                CompileErrorKind::Unsupported {
-                    feature: format!(
-                        "unknown method `{}` for ability `{}`",
-                        method.method, ability_name
-                    ),
-                },
-                (method.span.start, method.span.end),
-            )
-        })?;
+        let method_id = dynamic
+            .as_ref()
+            .and_then(|(_, info)| info.method_id(&method.method))
+            .or_else(|| get_method_id_for_ability(ability_id, &method.method))
+            .ok_or_else(|| {
+                CompileError::new(
+                    CompileErrorKind::Unsupported {
+                        feature: format!(
+                            "unknown method `{}` for ability `{}`",
+                            method.method, ability_name
+                        ),
+                    },
+                    (method.span.start, method.span.end),
+                )
+            })?;
 
         // Create a new FunctionCompiler for the handler method.
         let mut method_fc = FunctionCompiler::new_for_closure(

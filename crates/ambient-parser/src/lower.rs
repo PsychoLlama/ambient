@@ -266,6 +266,7 @@ fn lower_ability_def(a: &CstAbilityDef) -> Result<AbilityDef, ParseError> {
         name_span: a.name.span,
         dependencies,
         methods,
+        resolved_id: None,
     })
 }
 

@@ -481,6 +481,29 @@ struct ModuleContext {
     /// Seeded with the prelude (Option/Result); local enum declarations
     /// shadow prelude variants of the same name.
     enums: HashMap<Arc<str>, VariantInfo>,
+    /// Module-declared abilities in scope: ability name → compile info.
+    /// The identity comes from the type checker (`AbilityDef::resolved_id`);
+    /// the compiler never re-derives interface hashes.
+    abilities: HashMap<Arc<str>, CompiledAbilityInfo>,
+}
+
+/// Compile-time info for one module-declared ability.
+#[derive(Debug, Clone)]
+pub(crate) struct CompiledAbilityInfo {
+    pub id: crate::types::AbilityId,
+    /// Method names in declaration order; a method's ID is its index.
+    pub methods: Vec<Arc<str>>,
+}
+
+impl CompiledAbilityInfo {
+    /// Method ID (declaration index) for a method name.
+    pub(crate) fn method_id(&self, name: &str) -> Option<u16> {
+        #[allow(clippy::cast_possible_truncation)]
+        self.methods
+            .iter()
+            .position(|m| m.as_ref() == name)
+            .map(|idx| idx as u16)
+    }
 }
 
 /// Compile-time info for one enum variant constructor.
@@ -515,7 +538,42 @@ impl ModuleContext {
             lambda_counter: 0,
             current_function: None,
             enums,
+            abilities: HashMap::new(),
         }
+    }
+
+    /// Register a module's `ability` declarations from their type-checked
+    /// identities.
+    fn register_abilities(&mut self, module: &Module) -> Result<(), CompileError> {
+        for item in &module.items {
+            if let ItemKind::Ability(def) = &item.kind {
+                let Some(id) = def.resolved_id else {
+                    return Err(CompileError::new(
+                        CompileErrorKind::Internal {
+                            message: "ability declaration missing resolved identity",
+                        },
+                        (def.name_span.start, def.name_span.end),
+                    ));
+                };
+                self.abilities.insert(
+                    Arc::clone(&def.name),
+                    CompiledAbilityInfo {
+                        id,
+                        methods: def.methods.iter().map(|m| Arc::clone(&m.name)).collect(),
+                    },
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Look up a module-declared ability by identity (for handler literals,
+    /// where the type checker hands the compiler an `AbilityId`).
+    fn ability_by_id(
+        &self,
+        id: crate::types::AbilityId,
+    ) -> Option<(&Arc<str>, &CompiledAbilityInfo)> {
+        self.abilities.iter().find(|(_, info)| info.id == id)
     }
 
     /// Register a module's enum declarations, shadowing prelude variants.
@@ -714,6 +772,7 @@ fn compile_module_impl(
     // compilation, with the module's enum constructors registered.
     let mut ctx = ModuleContext::new();
     ctx.register_enums(module);
+    ctx.register_abilities(module)?;
 
     // Phase 2: Compile each function using temporary hashes.
     let mut compiled_functions: Vec<(Arc<str>, CompiledFunction, bool)> = Vec::new();

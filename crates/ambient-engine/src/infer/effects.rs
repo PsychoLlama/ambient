@@ -98,16 +98,20 @@ impl Infer {
         let saved_abilities = self.current_abilities.clone();
         self.reset_abilities();
 
-        // Infer the body expression
-        let body_ty = self.infer_expr(env, &mut handle_expr.body.clone())?;
+        // Infer the body expression. Mutations matter: inference records
+        // resolutions (trait methods, rewrites, types) that the compiler
+        // reads, so it must run on the real nodes, never clones.
+        let body_ty = self.infer_expr(env, &mut handle_expr.body)?;
 
         // Get the abilities required by the body
         let body_abilities = self.current_abilities.clone();
 
-        // Collect handled abilities from handler values (from `with` clause)
+        // Collect handled abilities from handler values (from `with` clause).
+        // The inferred `Handler<A>` type must land on the real expression:
+        // the compiler decides whether to emit HandleWithValue based on it.
         let mut handled_abilities = Vec::new();
-        for handler_value in &mut handle_expr.handler_values.clone() {
-            let handler_ty = self.infer_expr(env, &mut handler_value.clone())?;
+        for handler_value in &mut handle_expr.handler_values {
+            let handler_ty = self.infer_expr(env, handler_value)?;
 
             // Handler value should be Handler<A>
             if let Type::Handler(handler_type) = handler_ty {
@@ -124,7 +128,7 @@ impl Infer {
         }
 
         // Collect handled abilities from inline handlers
-        for handler in &handle_expr.handlers {
+        for handler in &mut handle_expr.handlers {
             if let Some(ability_id) = self.ability_name_to_id(&handler.ability.name) {
                 handled_abilities.push(ability_id);
             }
@@ -136,10 +140,10 @@ impl Infer {
                 handler_env.insert_mono(param.id, param.name.clone(), param_ty);
             }
 
-            // Handler body should produce the same type as the overall handle expression
-            // (when resume is called, it continues with the body's result type)
-            let mut handler_body = handler.body.clone();
-            let handler_ty = self.infer_expr(&handler_env, &mut handler_body)?;
+            // Handler body should produce the same type as the overall handle
+            // expression (when resume is called, it continues with the body's
+            // result type). Inferred on the real body so resolutions persist.
+            let handler_ty = self.infer_expr(&handler_env, &mut handler.body)?;
             self.unify(&body_ty, &handler_ty, span)?;
         }
 
@@ -165,7 +169,7 @@ impl Infer {
         self.current_abilities = saved_abilities.union(&remaining_abilities);
 
         // Handle else clause if present
-        if let Some(else_clause) = &mut handle_expr.else_clause.clone() {
+        if let Some(else_clause) = &mut handle_expr.else_clause {
             let else_ty = self.infer_expr(env, else_clause)?;
             self.unify(&body_ty, &else_ty, span)?;
         }

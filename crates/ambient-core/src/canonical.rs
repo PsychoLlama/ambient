@@ -89,19 +89,38 @@ fn write_str(hasher: &mut blake3::Hasher, s: &str) {
     hasher.update(s.as_bytes());
 }
 
-/// Compute the content-addressed identity of an ability interface.
+/// One method of an ability interface in already-canonicalized form.
+///
+/// This is the byte-level input to interface hashing: producers that
+/// don't go through [`MethodSignature`] factories (e.g. in-language
+/// `ability` declarations, whose types come from the type checker) render
+/// their signatures to canonical strings and hash through this.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawMethod {
+    /// Declaration index of the method within the ability.
+    pub id: u16,
+    /// Method name as written in source.
+    pub name: String,
+    /// Canonical renderings of the parameter types, in order.
+    pub params: Vec<String>,
+    /// Canonical rendering of the return type.
+    pub ret: String,
+}
+
+/// Compute the content-addressed identity of an ability interface from
+/// pre-rendered canonical signatures.
 ///
 /// Methods are hashed in method-ID order (the declaration index), so the
 /// hash commits to the `(MethodId, name, signature)` mapping regardless of
-/// the order methods appear in the descriptor array. Combined with the
-/// ability name, `(AbilityId, MethodId)` is globally unambiguous.
+/// the order methods appear in the input. Combined with the ability name,
+/// `(AbilityId, MethodId)` is globally unambiguous.
 #[must_use]
-pub fn hash_interface(name: &str, methods: &[MethodDescriptor<CanonicalType>]) -> AbilityId {
+pub fn hash_interface_raw(name: &str, methods: &[RawMethod]) -> AbilityId {
     let mut hasher = blake3::Hasher::new();
     hasher.update(DOMAIN);
     write_str(&mut hasher, name);
 
-    let mut methods: Vec<&MethodDescriptor<CanonicalType>> = methods.iter().collect();
+    let mut methods: Vec<&RawMethod> = methods.iter().collect();
     methods.sort_by_key(|m| m.id);
 
     #[allow(clippy::cast_possible_truncation)]
@@ -110,23 +129,42 @@ pub fn hash_interface(name: &str, methods: &[MethodDescriptor<CanonicalType>]) -
 
     for method in methods {
         hasher.update(&method.id.to_le_bytes());
-        write_str(&mut hasher, method.name);
-
-        // One factory per signature: variable numbering is signature-local.
-        let factory = CanonicalTypeFactory::new();
-        let params = (method.signature.param_types)(&factory);
-        let ret = (method.signature.return_type)(&factory);
+        write_str(&mut hasher, &method.name);
 
         #[allow(clippy::cast_possible_truncation)]
-        let param_count = params.len() as u32;
+        let param_count = method.params.len() as u32;
         hasher.update(&param_count.to_le_bytes());
-        for param in &params {
-            write_str(&mut hasher, &param.0);
+        for param in &method.params {
+            write_str(&mut hasher, param);
         }
-        write_str(&mut hasher, &ret.0);
+        write_str(&mut hasher, &method.ret);
     }
 
     AbilityId::from_bytes(*hasher.finalize().as_bytes())
+}
+
+/// Compute the content-addressed identity of an ability interface.
+///
+/// Renders each signature with a fresh [`CanonicalTypeFactory`]
+/// (variable numbering is signature-local) and hashes via
+/// [`hash_interface_raw`].
+#[must_use]
+pub fn hash_interface(name: &str, methods: &[MethodDescriptor<CanonicalType>]) -> AbilityId {
+    let raw: Vec<RawMethod> = methods
+        .iter()
+        .map(|method| {
+            let factory = CanonicalTypeFactory::new();
+            let params = (method.signature.param_types)(&factory);
+            let ret = (method.signature.return_type)(&factory);
+            RawMethod {
+                id: method.id,
+                name: method.name.to_string(),
+                params: params.into_iter().map(|p| p.0).collect(),
+                ret: ret.0,
+            }
+        })
+        .collect();
+    hash_interface_raw(name, &raw)
 }
 
 #[cfg(test)]

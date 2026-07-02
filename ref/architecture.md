@@ -228,26 +228,53 @@ in it (impl coherence is global per package).
 
 Abilities are the mechanism for controlled side effects.
 
+### Ability Identity
+
+An ability is identified by the **blake3 hash of its canonical
+interface**: its name plus the ordered list of method names and
+canonicalized signatures (type variables numbered by first occurrence,
+so `<T>(T) -> U` encodes identically everywhere). Builtin abilities and
+in-language declarations hash through the same scheme
+(`ambient-core/src/canonical.rs`).
+
+This is the same trick the language plays for functions, and it is what
+makes abilities portable: compiled bytecode references abilities by hash
+through the constant pool, so a function's content hash commits to the
+exact interface of every ability it performs, and two engines that
+compute the same ability hash agree on what performing it means. Change
+a method name, an argument type, or the ability's name and it is a
+different ability.
+
 ### Declaring Abilities
+
+Modules declare abilities with `ability`; the type checker resolves the
+signatures, computes the interface hash, and the declaration behaves
+exactly like a builtin from then on (effect rows, `handle`, handler
+values, generic methods):
 
 ```ambient
 ability Filesystem {
-  fn read(path: Path): string;
-  fn write(path: Path, content: string): ();
-  fn exists(path: Path): bool;
+  fn read(path: string): string;
+  fn write(path: string, content: string): ();
+  fn exists(path: string): bool;
 }
 
-ability Console {
-  fn print(message: string): ();
+ability Picker {
+  fn pick<T>(a: T, b: T): T;   // generic methods instantiate per call
 }
 
-// Abilities can depend on other abilities (encapsulated)
+// Abilities can depend on other abilities: performing Log also
+// requires Console in the effect row.
 ability Log with Console {
   fn info(message: string): ();
-  fn warn(message: string): ();
-  fn error(message: string): ();
 }
 ```
+
+User abilities are handled in-language (`handle` blocks or handler
+values); the host only provides handlers for builtins. A performed user
+ability with no handler in scope is a runtime error. Current limits:
+declarations are visible in the declaring module (no cross-module
+ability imports yet), and the REPL does not register them.
 
 ### Using Abilities
 
@@ -476,8 +503,10 @@ Stack-based VM with:
 A function's hash is the blake3 of its **canonical object encoding**
 (`crates/ambient-engine/src/object.rs`). The encoding covers the bytecode,
 the constant pool (with call sites resolved to the final hashes of their
-callees), arity/locals metadata, and the dependency list — so the hash pins
-the implementation *and* every transitive dependency. One encoding serves as
+callees, and abilities resolved to their interface hashes), arity/locals
+metadata, and the dependency list — so the hash pins the implementation,
+every transitive dependency, *and* the exact interface of every ability
+the function performs. One encoding serves as
 the unit of hashing, storage, and network transfer, which makes every object
 self-verifying: re-hash the bytes and compare.
 

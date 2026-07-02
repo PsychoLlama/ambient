@@ -1716,3 +1716,145 @@ fn test_lowercase_pattern_still_binds() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("42"));
     drop(dir);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User-Declared Abilities (content-addressed)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_user_ability_inline_handler() {
+    CliTest::new(
+        r#"
+        ability Greeter {
+            fn greet(name: string): string;
+        }
+
+        fn hello(): string with Greeter {
+            Greeter.greet!("world")
+        }
+
+        pub fn run(): string {
+            handle hello() {
+                Greeter.greet(name) => {
+                    resume(core.string.concat("hi ", name))
+                }
+            }
+        }
+        "#,
+    )
+    .expect_output("hi world");
+}
+
+#[test]
+fn test_user_ability_handler_value_and_generic_method() {
+    // A handler value (first-class) for a user ability with a generic
+    // method. Also a regression test: `handle ... with value {}` used to
+    // silently install no handler because inference typed handler values
+    // on cloned AST nodes.
+    CliTest::new(
+        r#"
+        ability Picker {
+            fn pick<T>(a: T, b: T): T;
+            fn label(): string;
+        }
+
+        fn choose(): number with Picker {
+            Picker.pick!(10, 32)
+        }
+
+        pub fn run(): number {
+            let first = {
+                pick(a, b) => resume(a),
+                label() => resume("first")
+            };
+
+            handle choose() with first {}
+        }
+        "#,
+    )
+    .expect_output("10");
+}
+
+#[test]
+fn test_user_ability_unhandled_is_runtime_error() {
+    CliTest::new(
+        r#"
+        ability Missing {
+            fn gone(): string;
+        }
+
+        pub fn run(): string with Missing {
+            Missing.gone!()
+        }
+        "#,
+    )
+    .expect_error("unhandled ability");
+}
+
+#[test]
+fn test_user_ability_unknown_method_is_type_error() {
+    CliTest::new(
+        r#"
+        ability Greeter {
+            fn greet(name: string): string;
+        }
+
+        pub fn run(): string with Greeter {
+            Greeter.shout!("hi")
+        }
+        "#,
+    )
+    .expect_failure();
+}
+
+#[test]
+fn test_user_ability_wrong_arg_type_is_type_error() {
+    CliTest::new(
+        r#"
+        ability Greeter {
+            fn greet(name: string): string;
+        }
+
+        pub fn run(): string with Greeter {
+            Greeter.greet!(42)
+        }
+        "#,
+    )
+    .expect_failure();
+}
+
+#[test]
+fn test_user_ability_unknown_dependency_is_error() {
+    CliTest::new(
+        r"
+        ability Loud with NoSuchAbility {
+            fn shout(msg: string): ();
+        }
+
+        pub fn run(): number {
+            7
+        }
+        ",
+    )
+    .expect_failure();
+}
+
+#[test]
+fn test_user_ability_suspend_form_compiles() {
+    // The `~` form suspends a user-ability call as a first-class value.
+    // (Standalone `op!` perform syntax is not implemented yet, so this
+    // only exercises suspension of a dynamic ability.)
+    CliTest::new(
+        r#"
+        ability Greeter {
+            fn greet(name: string): string;
+        }
+
+        pub fn run(): number {
+            let op = Greeter.greet~("later");
+            7
+        }
+        "#,
+    )
+    .expect_output("7");
+}
