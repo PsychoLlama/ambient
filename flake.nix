@@ -147,7 +147,6 @@
               pkgs.nodejs
               pkgs.stylua
               pkgs.tree-sitter
-              self.packages.${system}.ambient
             ];
 
             TREE_SITTER_AMBIENT = self.packages.${system}.tree-sitter-ambient;
