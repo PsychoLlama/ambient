@@ -38,3 +38,11 @@ pub trait Eq {
 pub trait Ord {
     fn cmp(self, other: Self): number;
 }
+
+/// Trait for a type's default value.
+///
+/// Unlike the operator traits, `default` takes no `self`: it is an
+/// associated function invoked as `Type::default()`.
+pub trait Default {
+    fn default(): Self;
+}

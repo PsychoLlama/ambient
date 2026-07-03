@@ -1,0 +1,4 @@
+Settings { volume: 50, muted: false, theme: dark }
+Settings { volume: 100, muted: false, theme: dark }
+origin = (0, 0)
+shifted = (3, 4)

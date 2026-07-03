@@ -936,7 +936,11 @@ pub struct ImplMethod {
     pub name_span: Span,
     /// Type parameters for the method.
     pub type_params: Vec<TypeParam>,
-    /// Binding ID for self parameter.
+    /// Whether this method takes `self` as its first parameter. Associated
+    /// methods (e.g. `Default::default`) take no `self` and are called as
+    /// `Type::method(...)` rather than through a receiver.
+    pub has_self: bool,
+    /// Binding ID for self parameter (unused when `has_self` is false).
     pub self_id: BindingId,
     /// Parameters (excluding self).
     pub params: Vec<Param>,

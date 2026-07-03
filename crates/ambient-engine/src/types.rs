@@ -628,6 +628,18 @@ impl TraitRegistry {
         binary(&mut registry, "Eq", "eq", Type::Bool);
         binary(&mut registry, "Ord", "cmp", Type::Number);
 
+        // `Default` is an associated (no-`self`) trait: `default(): Self`
+        // produces a canonical value for the type, called as `Type::default()`.
+        let default_id = registry.fresh_id();
+        registry.register_trait(
+            TraitDef::new(default_id, "Default").with_method(TraitMethodDef::new(
+                "default",
+                false,
+                vec![],
+                self_ty(),
+            )),
+        );
+
         registry
     }
 

@@ -1,0 +1,107 @@
+//! Default Trait Example
+//!
+//! Demonstrates the `Default` prelude trait: an associated (no-`self`)
+//! function `default(): Self` that yields a canonical value for a type.
+//!
+//! Unlike the operator traits (`Add`, `Eq`, ...), `default` takes no
+//! receiver, so it is invoked as `Type::default()` rather than through
+//! dot-notation on a value.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A settings record with sensible defaults
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Application settings. The unique UUID makes this a nominal type, so it
+/// can implement traits.
+unique(2bdd99c5-e152-4b60-bb32-336a24415381) type Settings {
+    volume: number,
+    muted: bool,
+    theme: string,
+}
+
+impl Default for Settings {
+    fn default(): Settings {
+        Settings { volume: 50, muted: false, theme: "dark" }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A 2D point that defaults to the origin
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A 2D point. Defaults to the origin, and supports `+` so that a default
+/// value composes with operators.
+unique(e28c3b09-a04f-4bfa-82c4-8f6972fb0480) type Point {
+    x: number,
+    y: number,
+}
+
+impl Default for Point {
+    fn default(): Point {
+        Point { x: 0, y: 0 }
+    }
+}
+
+impl Add for Point {
+    fn add(self, other: Point): Point {
+        Point { x: self.x + other.x, y: self.y + other.y }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn describe(s: Settings): string {
+    core::string::concat(
+        "Settings { volume: ",
+        core::string::concat(
+            core::convert::to_string(s.volume),
+            core::string::concat(
+                ", muted: ",
+                core::string::concat(
+                    core::convert::to_string(s.muted),
+                    core::string::concat(
+                        ", theme: ",
+                        core::string::concat(s.theme, " }"),
+                    ),
+                ),
+            ),
+        ),
+    )
+}
+
+fn point_str(p: Point): string {
+    core::string::concat(
+        "(",
+        core::string::concat(
+            core::convert::to_string(p.x),
+            core::string::concat(
+                ", ",
+                core::string::concat(core::convert::to_string(p.y), ")"),
+            ),
+        ),
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Entry point
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub fn run(): () with Console {
+    // Build a value straight from its default.
+    let settings = Settings::default();
+    platform::Console::println!(describe(settings));
+
+    // Override a field on top of the default (records are immutable, so this
+    // produces a fresh value).
+    let loud = Settings { volume: 100, muted: settings.muted, theme: settings.theme };
+    platform::Console::println!(describe(loud));
+
+    // Associated calls are ordinary expressions: they nest and compose.
+    let origin = Point::default();
+    platform::Console::println!(core::string::concat("origin = ", point_str(origin)));
+
+    let shifted = Point::default() + Point { x: 3, y: 4 };
+    platform::Console::println!(core::string::concat("shifted = ", point_str(shifted)));
+}

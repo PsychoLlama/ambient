@@ -1046,9 +1046,13 @@ fn compile_impl_method(
 ) -> Result<CompiledFunction, CompileError> {
     let mut fc = FunctionCompiler::new(function_hashes.clone());
 
-    // Allocate slot for self parameter
-    let self_name: Arc<str> = "self".into();
-    fc.alloc_local_with_name(method.self_id, &self_name)?;
+    // Allocate slot for the self parameter. Associated methods (e.g.
+    // `Default::default`) take no `self`, so the slot and its argument are
+    // omitted for them.
+    if method.has_self {
+        let self_name: Arc<str> = "self".into();
+        fc.alloc_local_with_name(method.self_id, &self_name)?;
+    }
 
     // Allocate slots for other parameters
     for param in &method.params {
@@ -1061,8 +1065,9 @@ fn compile_impl_method(
     // Emit return instruction
     fc.builder.emit(Opcode::Return);
 
-    // +1 for self parameter
-    let param_count = (method.params.len() + 1) as u8;
+    // +1 for the self parameter on instance methods; associated methods
+    // (no `self`) take only their declared parameters.
+    let param_count = (method.params.len() + usize::from(method.has_self)) as u8;
 
     let bytecode = fc.builder.bytecode().to_vec();
     let constants = fc.builder.constants().to_vec();

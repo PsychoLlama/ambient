@@ -384,6 +384,23 @@ impl Infer {
                     return Ok(ret_ty);
                 }
 
+                // Associated trait-function call: `Type::method(args)` where
+                // the method takes no `self` (e.g. `Config::default()`).
+                // Resolve it to the canonical impl-method symbol and rewrite
+                // the callee to reference that symbol directly, so the
+                // compiler emits an ordinary call with no receiver.
+                if let ExprKind::Name(name) = &callee.kind
+                    && name.path.len() == 1
+                    && let Some((symbol, ret_ty)) =
+                        self.try_infer_associated_call(env, &name.path[0], &name.name, args, span)?
+                {
+                    if let ExprKind::Name(name) = &mut callee.kind {
+                        name.path.clear();
+                        name.name = symbol;
+                    }
+                    return Ok(ret_ty);
+                }
+
                 let callee_ty = self.infer_expr(env, callee)?;
                 let mut arg_tys = Vec::with_capacity(args.len());
                 for arg in args {
@@ -707,6 +724,67 @@ impl Infer {
                 Ok(Type::Bool)
             }
         }
+    }
+
+    /// Try to resolve a `Type::method(args)` associated-function call.
+    ///
+    /// Returns `Some((symbol, return_type))` when `type_name` names a nominal
+    /// type that implements a trait whose `method` takes no `self` (an
+    /// associated method such as `Default::default`). Returns `None` when this
+    /// is not such a call — the caller then falls back to ordinary qualified
+    /// name resolution. Argument type errors surface as `Err`.
+    fn try_infer_associated_call(
+        &mut self,
+        env: &TypeEnv,
+        type_name: &str,
+        method_name: &str,
+        args: &mut [Expr],
+        span: (u32, u32),
+    ) -> InferResult<Option<(Arc<str>, Type)>> {
+        // The leading segment must name a nominal type.
+        let Some(Type::Nominal(nominal)) = self.get_type_alias(type_name).cloned() else {
+            return Ok(None);
+        };
+
+        // The method must exist and be associated (no `self`); an instance
+        // method reached this way is not a valid associated call.
+        let (params, ret, symbol) = match self.trait_registry.find_method(nominal.uuid, method_name)
+        {
+            crate::types::MethodLookup::Found { method, symbol, .. } if !method.has_self => {
+                (method.params.clone(), method.ret.clone(), symbol)
+            }
+            _ => return Ok(None),
+        };
+
+        let self_ty = Type::Nominal(nominal);
+
+        let mut arg_tys = Vec::with_capacity(args.len());
+        for arg in args.iter_mut() {
+            arg_tys.push(self.infer_expr(env, arg)?);
+        }
+
+        if arg_tys.len() != params.len() {
+            return Err(type_error(
+                TypeErrorKind::ArityMismatch {
+                    expected: params.len(),
+                    actual: arg_tys.len(),
+                },
+                span,
+            )
+            .with_context(format!("in associated call `{type_name}::{method_name}`")));
+        }
+
+        for (i, (arg_ty, param_ty)) in arg_tys.iter().zip(params.iter()).enumerate() {
+            let param_ty = substitute_self(param_ty, &self_ty);
+            if let Err(e) = self.unify(arg_ty, &param_ty, span) {
+                return Err(e.with_context(format!(
+                    "in argument {} of associated call `{type_name}::{method_name}`",
+                    i + 1
+                )));
+            }
+        }
+
+        Ok(Some((symbol, substitute_self(&ret, &self_ty))))
     }
 
     /// Infer the type of a method call expression.

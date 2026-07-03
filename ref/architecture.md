@@ -198,13 +198,47 @@ let equal = a == b;         // Calls a.eq(b)
 
 For primitive types (`number`, `bool`, `string`), operators use built-in implementations.
 
+### Associated Functions
+
+A trait method whose first parameter is not `self` is an _associated
+function_: it belongs to the type but takes no receiver. It is called with
+the `Type::method(...)` path form rather than dot notation, because there is
+no value to dispatch on — the leading path segment names the implementing
+type, which the checker resolves to the impl's method symbol:
+
+```ambient
+trait Default {
+  fn default(): Self;
+}
+
+impl Default for Money {
+  fn default(): Money { Money { cents: 0 } }
+}
+
+let m = Money::default();     // Money { cents: 0 }
+let c = Money::default() + Money { cents: 5 };  // associated calls are ordinary expressions
+```
+
+Dispatch is still static: `Money::default()` resolves to the same canonical
+`<type-uuid>::Default::default` symbol as any impl method, with no receiver
+pushed at the call site.
+
 ### Prelude Traits
 
-The operator traits (`Add`, `Sub`, `Mul`, `Div`, `Mod`, `Eq`, `Ord`) are
-part of the prelude: they are always in scope, and implementing one enables
-the corresponding operator. `core::traits` mirrors their definitions for
-documentation. A module that declares its own trait with the same name
-shadows the prelude entry.
+The operator traits (`Add`, `Sub`, `Mul`, `Div`, `Mod`, `Eq`, `Ord`) plus
+`Default` are part of the prelude: they are always in scope, and
+implementing an operator trait enables the corresponding operator.
+`core::traits` mirrors their definitions for documentation. A module that
+declares its own trait with the same name shadows the prelude entry.
+
+`Default` supplies a canonical value for a type via the associated function
+`default(): Self` (see [Associated Functions](#associated-functions)):
+
+```ambient
+trait Default {
+  fn default(): Self;
+}
+```
 
 The `Ord` trait is used for comparison operators:
 

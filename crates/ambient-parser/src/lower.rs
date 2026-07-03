@@ -1139,6 +1139,13 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
             // Allocate self binding ID
             let self_id = ctx.fresh_binding();
 
+            // A leading `self` parameter marks an instance method; its
+            // absence marks an associated method (e.g. `Default::default`).
+            let has_self = m
+                .params
+                .first()
+                .is_some_and(|p| matches!(p.kind, CstTraitParamKind::SelfParam));
+
             // Lower non-self parameters
             let params = m
                 .params
@@ -1164,6 +1171,7 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
                 name: m.name.name.clone(),
                 name_span: m.name.span,
                 type_params: method_type_params,
+                has_self,
                 self_id,
                 params,
                 ret_ty,

@@ -995,6 +995,86 @@ fn test_operator_overloading_eq() {
 }
 
 #[test]
+fn test_default_trait_associated_call() {
+    // The prelude `Default` trait provides an associated (no-`self`)
+    // `default(): Self`, invoked as `Type::default()`.
+    CliTest::new(
+        r#"
+        unique(a1b2c3d4-0000-0000-0000-000000000010) type Config { level: number }
+
+        impl Default for Config {
+            fn default(): Config {
+                Config { level: 7 }
+            }
+        }
+
+        fn run(): number {
+            let c = Config::default();
+            c.level
+        }
+    "#,
+    )
+    .expect_output("7");
+}
+
+#[test]
+fn test_default_trait_composes_with_operator() {
+    // An associated call is an ordinary expression: it nests and composes
+    // with operators like any other value.
+    CliTest::new(
+        r#"
+        unique(a1b2c3d4-0000-0000-0000-000000000011) type Vec2 { x: number, y: number }
+
+        impl Default for Vec2 {
+            fn default(): Vec2 {
+                Vec2 { x: 0, y: 0 }
+            }
+        }
+
+        impl Add for Vec2 {
+            fn add(self, other: Vec2): Vec2 {
+                Vec2 { x: self.x + other.x, y: self.y + other.y }
+            }
+        }
+
+        fn run(): number {
+            let v = Vec2::default() + Vec2 { x: 3, y: 4 };
+            v.x + v.y
+        }
+    "#,
+    )
+    .expect_output("7");
+}
+
+#[test]
+fn test_associated_trait_method_with_argument() {
+    // The associated-call mechanism is not special to `Default`: any
+    // user-declared trait method without `self` is callable as
+    // `Type::method(args)`.
+    CliTest::new(
+        r#"
+        trait FromNumber {
+            fn from_number(n: number): Self;
+        }
+
+        unique(a1b2c3d4-0000-0000-0000-000000000012) type Wrapped { value: number }
+
+        impl FromNumber for Wrapped {
+            fn from_number(n: number): Wrapped {
+                Wrapped { value: n * 2 }
+            }
+        }
+
+        fn run(): number {
+            let w = Wrapped::from_number(21);
+            w.value
+        }
+    "#,
+    )
+    .expect_output("42");
+}
+
+#[test]
 fn test_multiple_traits_same_type() {
     // Test implementing multiple traits for the same type
     CliTest::new(
