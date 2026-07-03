@@ -389,38 +389,31 @@ impl<'a> TokenCollector<'a> {
     fn visit_name_expr(&mut self, expr: &Expr, qname: &ambient_engine::ast::QualifiedName) {
         // Could be function, constant, enum, etc.
         // For now, treat as function. We'd need type info to distinguish.
-        if !qname.path.is_empty() {
-            // Has module path - highlight path as namespace
-            let path_len: usize = qname.path.iter().map(|s| s.len() + 1).sum::<usize>();
-            let path_len_u32 = u32::try_from(path_len).unwrap_or(0);
-            if path_len > 0 && expr.span.end > expr.span.start {
-                self.add_token(
-                    expr.span.start,
-                    expr.span.start + path_len_u32.saturating_sub(1),
-                    token_type::NAMESPACE,
-                    0,
-                );
-            }
+        //
+        // Positions come from the parser's recorded spans; the previous
+        // arithmetic summed segment lengths plus one separator byte, but
+        // the real separator is `::` (two bytes), so every qualified
+        // name's highlighting drifted one byte per segment.
+        for span in &qname.path_spans {
+            self.add_token(span.start, span.end, token_type::NAMESPACE, 0);
         }
-        // The name itself
-        let name_start = if qname.path.is_empty() {
-            expr.span.start
-        } else {
-            let path_len: usize = qname.path.iter().map(|s| s.len() + 1).sum::<usize>();
-            expr.span.start + u32::try_from(path_len).unwrap_or(0)
-        };
-        self.add_token(name_start, expr.span.end, token_type::FUNCTION, 0);
+        match qname.name_span {
+            Some(span) => self.add_token(span.start, span.end, token_type::FUNCTION, 0),
+            // Bare names cover the whole expression span.
+            None if qname.path.is_empty() => {
+                self.add_token(expr.span.start, expr.span.end, token_type::FUNCTION, 0);
+            }
+            // Qualified with no recorded span: skip rather than guess.
+            None => {}
+        }
     }
 
     fn visit_stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::Let(binding) => {
-                // Let binding name - approximate position after "let "
-                let name_start = stmt.span.start + 4;
-                let name_end = name_start + str_len_u32(&binding.name);
                 self.add_token(
-                    name_start,
-                    name_end,
+                    binding.name_span.start,
+                    binding.name_span.end,
                     token_type::VARIABLE,
                     token_modifier::DECLARATION,
                 );

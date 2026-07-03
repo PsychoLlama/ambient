@@ -1951,6 +1951,7 @@ mod tests {
                         StmtKind::Let(LetBinding {
                             id: 0,
                             name: Arc::from("x"),
+                            name_span: Span::default(),
                             ty: None,
                             init: Expr::number(1.0),
                         }),
@@ -1960,6 +1961,7 @@ mod tests {
                         StmtKind::Let(LetBinding {
                             id: 1,
                             name: Arc::from("y"),
+                            name_span: Span::default(),
                             ty: None,
                             init: Expr::number(2.0),
                         }),
@@ -2013,6 +2015,7 @@ mod tests {
                     StmtKind::Let(LetBinding {
                         id: 0,
                         name: Arc::from("y"),
+                        name_span: Span::default(),
                         ty: None,
                         init: Expr::number(10.0),
                     }),

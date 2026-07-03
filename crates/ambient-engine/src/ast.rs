@@ -616,6 +616,8 @@ pub struct LetBinding {
     pub id: BindingId,
     /// Variable name.
     pub name: Arc<str>,
+    /// Span of the variable name (for IDE features).
+    pub name_span: Span,
     /// Optional type annotation.
     pub ty: Option<Type>,
     /// The initializer expression.

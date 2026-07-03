@@ -702,6 +702,7 @@ fn lower_stmt(ctx: &mut LoweringContext, stmt: &CstStmt) -> Result<Stmt, ParseEr
             StmtKind::Let(LetBinding {
                 id,
                 name: binding.name.name.clone(),
+                name_span: binding.name.span,
                 ty,
                 init,
             })

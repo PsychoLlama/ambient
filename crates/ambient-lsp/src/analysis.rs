@@ -249,87 +249,15 @@ fn find_expr_in_tree(expr: &Expr, offset: u32) -> Option<&Expr> {
 }
 
 /// Format a type for display in hover information.
+///
+/// Delegates to the engine's canonical `Display` implementation so hover,
+/// completions, compiler errors, and the REPL all render types the same
+/// way. (Ability sets still display as content hashes; name-aware
+/// rendering needs a resolver at every render site and is future work for
+/// the engine, not something to fork here.)
 #[must_use]
 pub fn format_type(ty: &Type) -> String {
-    match ty {
-        Type::Unit => "()".to_string(),
-        Type::Bool => "bool".to_string(),
-        Type::Number => "number".to_string(),
-        Type::String => "string".to_string(),
-        Type::Bytes => "Bytes".to_string(),
-        Type::Var(id) => format!("?{id}"),
-        Type::Function(ft) => {
-            let params: Vec<_> = ft.params.iter().map(format_type).collect();
-            let ret = format_type(&ft.ret);
-            let abilities = if ft.abilities.is_empty() {
-                String::new()
-            } else {
-                format!(" with {}", format_ability_set(&ft.abilities))
-            };
-            format!("({}) -> {}{}", params.join(", "), ret, abilities)
-        }
-        Type::Tuple(elements) => {
-            let parts: Vec<_> = elements.iter().map(format_type).collect();
-            format!("({})", parts.join(", "))
-        }
-        Type::Record(rec) => {
-            let fields: Vec<_> = rec
-                .fields
-                .iter()
-                .map(|(name, ty)| format!("{}: {}", name, format_type(ty)))
-                .collect();
-            format!("{{ {} }}", fields.join(", "))
-        }
-        Type::Named(named) => {
-            if named.args.is_empty() {
-                named.name.to_string()
-            } else {
-                let args: Vec<_> = named.args.iter().map(format_type).collect();
-                format!("{}<{}>", named.name, args.join(", "))
-            }
-        }
-        Type::Nominal(nom) => nom
-            .name
-            .as_ref()
-            .map_or_else(|| "nominal".to_string(), ToString::to_string),
-        Type::Handler(handler) => format!("Handler<#{}>", handler.ability),
-        Type::Forall(forall) => {
-            let vars: Vec<_> = forall.vars.iter().map(|v| format!("'{v}")).collect();
-            format!("forall {}. {}", vars.join(" "), format_type(&forall.body))
-        }
-        Type::AbilityValue(av) => {
-            format!(
-                "Ability<{}, {}!>",
-                format_type(&av.result),
-                format_ability_set(&av.ability)
-            )
-        }
-        Type::Never => "!".to_string(),
-        Type::Error => "<error>".to_string(),
-        Type::Hole => "_".to_string(),
-    }
-}
-
-fn format_ability_set(abilities: &ambient_engine::types::AbilitySet) -> String {
-    use ambient_engine::types::AbilitySet;
-
-    match abilities {
-        AbilitySet::Empty => "pure".to_string(),
-        AbilitySet::Concrete(ids) => {
-            let parts: Vec<_> = ids.iter().map(|a| format!("#{a}")).collect();
-            parts.join(", ")
-        }
-        AbilitySet::Var(var_id) => format!("E{var_id}!"),
-        AbilitySet::Row { concrete, tail } => {
-            let mut parts: Vec<_> = concrete.iter().map(|a| format!("#{a}")).collect();
-            parts.push(format!("E{tail}!"));
-            parts.join(", ")
-        }
-        AbilitySet::Unresolved(names) => {
-            let parts: Vec<_> = names.iter().map(ToString::to_string).collect();
-            parts.join(", ")
-        }
-    }
+    ty.to_string()
 }
 
 /// Find definition location for a variable at the given offset.
@@ -783,17 +711,12 @@ mod tests {
     }
 
     #[test]
-    fn test_format_ability_set() {
-        assert_eq!(format_ability_set(&AbilitySet::Empty), "pure");
-
-        let concrete = AbilitySet::Concrete(vec![aid(1), aid(2)].into_iter().collect());
-        let formatted = format_ability_set(&concrete);
-        assert!(
-            formatted.contains(&format!("#{}", aid(1)))
-                && formatted.contains(&format!("#{}", aid(2)))
+    fn test_format_type_matches_engine_display() {
+        let fn_ty = Type::function_with_abilities(
+            vec![Type::Number],
+            Type::String,
+            AbilitySet::Concrete(vec![aid(1)]),
         );
-
-        let var = AbilitySet::Var(5);
-        assert_eq!(format_ability_set(&var), "E5!");
+        assert_eq!(format_type(&fn_ty), fn_ty.to_string());
     }
 }
