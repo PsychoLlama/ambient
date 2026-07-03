@@ -532,7 +532,19 @@ impl TraitImpl {
 /// (which use `.`), so these symbols never collide with user functions.
 #[must_use]
 pub fn impl_method_symbol(type_uuid: &Uuid, trait_name: &str, method_name: &str) -> Arc<str> {
-    format!("{type_uuid}::{trait_name}::{method_name}").into()
+    format!("{}::{trait_name}::{method_name}", uuid_to_source(type_uuid)).into()
+}
+
+/// Render a UUID in Ambient's canonical source form: uppercase, hyphenated.
+///
+/// UUID literals are written uppercase in source; the `uuid` crate otherwise
+/// renders them lowercase. Anywhere a UUID is shown to a user or embedded in a
+/// symbol name — `unique(...)` type display and the `<uuid>::method` /
+/// `<uuid>::<Trait>::<method>` symbols — goes through this so the rendered form
+/// matches the source syntax and round-trips.
+#[must_use]
+pub fn uuid_to_source(uuid: &Uuid) -> String {
+    uuid.hyphenated().to_string().to_uppercase()
 }
 
 /// Result of looking up a method by name on a nominal type.
@@ -1443,7 +1455,7 @@ impl fmt::Display for Type {
                 if let Some(name) = &nom.name {
                     write!(f, "{name}")
                 } else {
-                    write!(f, "unique({})", nom.uuid)
+                    write!(f, "unique({})", uuid_to_source(&nom.uuid))
                 }
             }
 

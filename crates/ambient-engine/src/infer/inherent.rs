@@ -60,7 +60,9 @@ pub struct InherentMethod {
 #[must_use]
 pub fn inherent_method_symbol(key: &ImplKey, method: &str) -> Arc<str> {
     match key {
-        ImplKey::Nominal(uuid) => format!("{uuid}::{method}").into(),
+        ImplKey::Nominal(uuid) => {
+            format!("{}::{method}", crate::types::uuid_to_source(uuid)).into()
+        }
         ImplKey::Named(name) => format!("{name}::{method}").into(),
     }
 }
