@@ -200,6 +200,13 @@ let equal = a == b;         // Calls a.eq(b)
 
 For primitive types (`number`, `bool`, `string`), operators use built-in implementations.
 
+Trait method signatures carry no `with` clause, so **trait impl method
+bodies must be pure** — the checker enforces it. An effectful method
+would otherwise launder abilities past callers invisibly: dot dispatch
+and operator overloading consult only the trait signature. (Effectful
+shared behavior belongs in ordinary functions, or awaits effect-carrying
+trait signatures as a language extension.)
+
 ### Associated Functions
 
 A trait method whose first parameter is not `self` is an _associated
@@ -489,6 +496,21 @@ fn run(): () {
 }
 ```
 
+Handler arms are fully typed against the ability's declared interface:
+
+- Arm parameters take the method's declared parameter types
+  (`FileSystem::read(path)` binds `path: string`).
+- `resume(v)` feeds the continuation, so `v` must have the method's
+  return type; the `resume(...)` expression itself has the handle
+  expression's result type.
+- An arm body's own effects (performs outside the handled body) count
+  against the enclosing function, like any other code.
+- Exception is special: `throw` returns `!`, and the host raises it at
+  arbitrary perform sites (see "Host failures are catchable exceptions"),
+  so the value passed to `resume` in an Exception arm is deliberately
+  unconstrained — it substitutes for the *failing call's* result, whose
+  type is unknowable at the arm.
+
 ### Handlers as Values
 
 ```ambient
@@ -518,6 +540,13 @@ sandbox {
   pure_untrusted_code()  // No abilities - pure computation only
 }
 ```
+
+The restriction is enforced statically: the body may only *use* the
+allowed abilities, checked at compile time (including through calls to
+functions defined elsewhere in the module). The sandbox installs no
+handlers — allowed abilities still execute against the enclosing
+context's handlers, so the body's effects count against the enclosing
+function like any other code.
 
 ### The platform module and host bindings
 
@@ -1026,6 +1055,14 @@ Roughly in priority order:
   construction)
 - Match exhaustiveness checking (a failing final variant arm is a
   runtime error today)
+- Honest partial operations: `List::head`/`get`/`first`/`last` and
+  `Map::get` are typed as returning the element while the runtime
+  substitutes `()` when it is missing. Decide between Option-returning
+  signatures and raising a catchable Exception, then fix the intrinsic
+  table (`compiler/intrinsics.rs` documents the offenders).
+- Name-aware type rendering: ability sets display as content hashes in
+  compiler errors and IDE hover; rendering needs a resolver at every
+  display site (one shared engine renderer, consumed by CLI and LSP)
 - Enum variants imported across modules (constructors are currently
   visible to the declaring module plus the prelude)
 - Type unions (`A | B`)
