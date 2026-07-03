@@ -21,6 +21,7 @@
 ; Literals
 (boolean) @boolean
 (number) @number
+(uuid) @constant
 (string) @string
 (string_content) @string
 (escape_sequence) @string.escape

@@ -152,7 +152,7 @@ use some_library::mod::{a, b};
 Type definition with unique
 ================================================================================
 
-unique(d098767b-4093-4d5c-ba37-ad92aa7b5d98) type UserId {
+unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) type UserId {
   value: string,
 }
 

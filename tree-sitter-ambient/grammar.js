@@ -98,8 +98,10 @@ module.exports = grammar({
 
     unique_modifier: ($) => seq("unique", "(", $.uuid, ")"),
 
+    // UUID literals are uppercase-only (canonical 8-4-4-4-12 hex). Lowercase
+    // hex is reserved for identifiers/numbers, matching the compiler's lexer.
     uuid: ($) =>
-      /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/,
+      /[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}/,
 
     enum_definition: ($) =>
       seq(
