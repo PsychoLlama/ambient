@@ -579,84 +579,98 @@ impl Infer {
     }
 
     /// Infer the type of a sandbox expression.
+    ///
+    /// A sandbox restricts the abilities the body may *use* to the allowed
+    /// list. It installs no handlers — the body executes against the
+    /// enclosing context's handlers (the compiler emits the body directly)
+    /// — so the body's effects still flow to the enclosing context. The
+    /// restriction check runs here when the body's effect set is already
+    /// concrete, and is deferred to the end of the module check otherwise
+    /// (calls to functions whose effects bind later).
     fn infer_sandbox(
         &mut self,
         env: &TypeEnv,
         sandbox_expr: &mut crate::ast::SandboxExpr,
         span: (u32, u32),
     ) -> InferResult<Type> {
-        // Sandbox type checking (Milestone 14)
-        //
-        // A sandbox restricts the abilities available within its body to only
-        // those explicitly allowed. This enables running untrusted code with
-        // limited capabilities.
-        //
-        // 1. Save the current ability context
-        // 2. Create a new ability context with only allowed abilities
-        // 3. Type-check the body in this restricted context
-        // 4. Verify the body only uses allowed abilities
-        // 5. Restore the original ability context
-
-        // Save current abilities
-        let saved_abilities = self.current_abilities.clone();
-
-        // Reset to empty abilities - only allowed abilities will be available
-        self.reset_abilities();
-
-        // Convert allowed ability names to IDs
-        let allowed_ability_ids: Vec<_> = sandbox_expr
-            .allowed_abilities
-            .iter()
-            .filter_map(|name| self.ability_name_to_id(&name.name))
-            .collect();
-
-        // Check for unknown abilities
+        // Resolve the allowed list; unknown names are errors.
+        let mut allowed_ability_ids = Vec::with_capacity(sandbox_expr.allowed_abilities.len());
         for ability_name in &sandbox_expr.allowed_abilities {
-            if self.ability_name_to_id(&ability_name.name).is_none() {
+            let Some(id) = self.ability_name_to_id(&ability_name.name) else {
                 return Err(type_error(
                     TypeErrorKind::UnknownAbility {
                         name: ability_name.name.clone(),
                     },
                     span,
                 ));
-            }
+            };
+            allowed_ability_ids.push(id);
         }
 
-        // Infer the body expression — on the real node, not a clone:
+        // Infer the body with a clean accumulator so its effect set can be
+        // inspected in isolation — on the real node, not a clone:
         // inference records resolutions (trait method symbols, module-call
         // rewrites, expression types) that the compiler depends on.
-        let body_ty = self.infer_expr(env, &mut sandbox_expr.body)?;
+        let saved_abilities = std::mem::take(&mut self.current_abilities);
+        let body_result = self.infer_expr(env, &mut sandbox_expr.body);
+        let body_abilities = std::mem::replace(&mut self.current_abilities, saved_abilities);
+        let body_ty = body_result?;
 
-        // Get the abilities required by the body
-        let body_abilities = self.current_abilities.clone();
-
-        // Verify that the body only uses allowed abilities
-        if let AbilitySet::Concrete(required_abilities) = &body_abilities {
-            // Check each required ability is in the allowed list
-            for ability_id in required_abilities {
-                if !allowed_ability_ids.contains(ability_id) {
-                    let ability_name = self.ability_id_to_name(*ability_id).unwrap_or("unknown");
-                    return Err(type_error(
-                        TypeErrorKind::SandboxAbilityViolation {
-                            ability: ability_name.into(),
-                            allowed: sandbox_expr
-                                .allowed_abilities
-                                .iter()
-                                .map(|n| n.name.clone())
-                                .collect(),
-                        },
-                        span,
-                    ));
+        // Enforce the restriction now if the body's effects are already
+        // concrete; otherwise defer until every body is checked.
+        let allowed_names: Vec<Arc<str>> = sandbox_expr
+            .allowed_abilities
+            .iter()
+            .map(|n| n.name.clone())
+            .collect();
+        let applied = self.apply_abilities(&body_abilities);
+        match &applied {
+            AbilitySet::Empty | AbilitySet::Concrete(_) => {
+                if let Some(err) = self.sandbox_violation(
+                    applied.concrete_abilities(),
+                    &allowed_ability_ids,
+                    &allowed_names,
+                    span,
+                ) {
+                    return Err(err);
                 }
             }
+            _ => self
+                .pending_sandbox_checks
+                .push(crate::infer::PendingSandboxCheck {
+                    body: applied.clone(),
+                    allowed: allowed_ability_ids,
+                    allowed_names,
+                    span,
+                }),
         }
-        // Note: AbilitySet::Empty (pure), Var, and Row are allowed
-        // Polymorphic abilities can't be statically checked
 
-        // Restore saved abilities (sandbox doesn't add any abilities to the outer context)
-        self.current_abilities = saved_abilities;
+        // The sandbox installs no handlers, so the body's effects are the
+        // enclosing context's problem exactly as if the sandbox weren't
+        // there.
+        self.require_abilities(&applied);
 
         Ok(body_ty)
+    }
+
+    /// The error for the first body ability outside the allowed list, if
+    /// any.
+    pub(crate) fn sandbox_violation(
+        &self,
+        used: &[crate::types::AbilityId],
+        allowed: &[crate::types::AbilityId],
+        allowed_names: &[Arc<str>],
+        span: (u32, u32),
+    ) -> Option<super::error::BoxedTypeError> {
+        let violation = used.iter().find(|a| !allowed.contains(a))?;
+        let ability_name = self.ability_id_to_name(*violation).unwrap_or("unknown");
+        Some(type_error(
+            TypeErrorKind::SandboxAbilityViolation {
+                ability: ability_name.into(),
+                allowed: allowed_names.to_vec(),
+            },
+            span,
+        ))
     }
 
     /// Infer the type of a binary operation.

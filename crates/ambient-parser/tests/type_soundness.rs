@@ -347,6 +347,85 @@ fn perform_arguments_are_checked() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Sandbox
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The sandbox installs no handlers — the body runs against the enclosing
+/// context's handlers — so its effects must count against the enclosing
+/// function. Previously they were dropped entirely, letting a pure-declared
+/// function smuggle effects through `sandbox with X { ... }`.
+#[test]
+fn sandbox_body_effects_flow_to_enclosing_function() {
+    assert_err_containing(
+        &r"
+        ability Printer {
+          fn print(msg: string): ();
+        }
+
+        pub fn run(): () {
+          sandbox with Printer {
+            Printer::print!('hi')
+          }
+        }
+        "
+        .replace('\'', "\""),
+        "Printer",
+    );
+}
+
+/// The restriction applies even when the body's effect set is polymorphic
+/// at the sandbox site (a call to a function declared later). Previously
+/// non-concrete sets bypassed the check entirely.
+#[test]
+fn sandbox_restriction_applies_to_functions_declared_later() {
+    assert_err_containing(
+        &r"
+        ability Reader {
+          fn read(): number;
+        }
+        ability Printer {
+          fn print(msg: string): ();
+        }
+
+        pub fn run(): number with Reader, Printer {
+          sandbox with Reader {
+            helper()
+          }
+        }
+
+        fn helper(): number with Reader, Printer {
+          Printer::print!('not allowed in sandbox');
+          Reader::read!()
+        }
+        "
+        .replace('\'', "\""),
+        "sandbox",
+    );
+}
+
+#[test]
+fn sandbox_with_allowed_abilities_is_accepted() {
+    assert_ok(
+        &r"
+        ability Reader {
+          fn read(): number;
+        }
+
+        pub fn run(): number with Reader {
+          sandbox with Reader {
+            helper()
+          }
+        }
+
+        fn helper(): number with Reader {
+          Reader::read!()
+        }
+        "
+        .replace('\'', "\""),
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // `with` clause resolution
 // ─────────────────────────────────────────────────────────────────────────────
 

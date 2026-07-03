@@ -175,8 +175,10 @@ fn check_module_core(
 
     // Phase 4: enforce declared abilities with final substitutions applied.
     // Handle expressions whose body effects were polymorphic at the handle
-    // site resolve first, so their remainders are concrete for enforcement.
+    // site resolve first, so their remainders are concrete for enforcement;
+    // deferred sandbox restrictions run on the resolved sets.
     infer.resolve_pending_discharges();
+    infer.resolve_pending_sandbox_checks();
     for (idx, inferred) in inferred_abilities {
         if let crate::ast::ItemKind::Function(func) = &module.items[idx].kind {
             enforce_declared_abilities(

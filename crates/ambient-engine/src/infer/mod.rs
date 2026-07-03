@@ -123,6 +123,23 @@ pub struct Infer {
     /// [`Infer::resolve_pending_discharges`] once every body in the module
     /// has been checked and ability variables are bound.
     pub(crate) pending_discharges: Vec<PendingDischarge>,
+    /// Sandbox expressions whose body effects were still polymorphic when
+    /// the sandbox was checked. Enforced by
+    /// [`Infer::resolve_pending_sandbox_checks`] after discharges resolve.
+    pub(crate) pending_sandbox_checks: Vec<PendingSandboxCheck>,
+}
+
+/// A deferred "the sandbox body may only use these abilities" check.
+#[derive(Debug)]
+pub(crate) struct PendingSandboxCheck {
+    /// The body's effect set, as of the sandbox site.
+    pub body: AbilitySet,
+    /// Resolved identities of the allowed abilities.
+    pub allowed: Vec<AbilityId>,
+    /// Allowed ability names as written, for the error message.
+    pub allowed_names: Vec<Arc<str>>,
+    /// The sandbox expression's span.
+    pub span: (u32, u32),
 }
 
 /// What `resume` means inside the handler arm currently being checked.
@@ -180,6 +197,7 @@ impl Infer {
             pending_errors: Vec::new(),
             resume_contexts: Vec::new(),
             pending_discharges: Vec::new(),
+            pending_sandbox_checks: Vec::new(),
         }
     }
 
@@ -232,6 +250,27 @@ impl Infer {
                 break;
             }
             pending = blocked;
+        }
+    }
+
+    /// Enforce every deferred sandbox restriction (see
+    /// [`PendingSandboxCheck`]). Runs after
+    /// [`Infer::resolve_pending_discharges`], so handle remainders inside
+    /// sandbox bodies are already resolved. Violations land in
+    /// `pending_errors`. A tail that is still free is genuinely
+    /// polymorphic; only the concrete part can be judged.
+    pub(crate) fn resolve_pending_sandbox_checks(&mut self) {
+        let pending = std::mem::take(&mut self.pending_sandbox_checks);
+        for check in pending {
+            let applied = self.apply_abilities(&check.body);
+            if let Some(err) = self.sandbox_violation(
+                applied.concrete_abilities(),
+                &check.allowed,
+                &check.allowed_names,
+                check.span,
+            ) {
+                self.pending_errors.push(err);
+            }
         }
     }
 
