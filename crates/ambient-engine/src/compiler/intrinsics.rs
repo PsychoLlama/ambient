@@ -1,13 +1,22 @@
-//! Intrinsic function compilation.
+//! The intrinsic function table: the single source of truth for every
+//! `core.*` builtin that compiles to dedicated bytecode.
 //!
-//! This module handles compilation of built-in intrinsic functions that
-//! are compiled directly to VM opcodes rather than function calls.
+//! Each entry declares the intrinsic's qualified path, its full type
+//! signature, and how to emit its bytecode. The type checker
+//! (`infer::intrinsics`) and the compiler both consult this table, so a
+//! builtin cannot type-check without compiling or vice versa — previously
+//! two hand-maintained lists drifted (e.g. `core::List::first` compiled
+//! but never type-checked).
 //!
-//! Intrinsics are defined declaratively in [`INTRINSICS`] and compiled
-//! via table lookup rather than explicit match arms.
+//! Intrinsics must be called with their full qualified path
+//! (`core.math.sqrt`, `core.List.head`, ...). Signatures may be generic:
+//! the signature builder receives a variable supply, and `vars.var(0)`
+//! names the same fresh inference variable at every use within one call
+//! site.
 
 use crate::ast::{Expr, QualifiedName};
 use crate::bytecode::Opcode;
+use crate::types::{Type, TypeVarGen};
 
 use super::error::CompileError;
 use super::{FunctionCompiler, ModuleContext, compile_expr};
@@ -53,591 +62,814 @@ enum Helper {
     EnumPayload,
 }
 
+/// A supply of fresh-but-shared inference variables for one signature
+/// instantiation: `var(0)` returns the same variable every time within one
+/// `SigVars`, and a different one per call site.
+pub struct SigVars<'a> {
+    r#gen: &'a mut TypeVarGen,
+    vars: Vec<Type>,
+}
+
+impl<'a> SigVars<'a> {
+    pub(crate) fn new(r#gen: &'a mut TypeVarGen) -> Self {
+        Self {
+            r#gen,
+            vars: Vec::new(),
+        }
+    }
+
+    /// The `idx`-th signature variable (allocated on first use).
+    pub fn var(&mut self, idx: usize) -> Type {
+        while self.vars.len() <= idx {
+            self.vars.push(self.r#gen.fresh());
+        }
+        self.vars[idx].clone()
+    }
+}
+
+/// An intrinsic's instantiated type signature.
+pub struct Signature {
+    pub params: Vec<Type>,
+    pub ret: Type,
+}
+
+/// Builds an intrinsic's signature against a fresh variable supply.
+type SigFn = fn(&mut SigVars) -> Signature;
+
 /// An intrinsic function descriptor.
-struct Intrinsic {
+pub(crate) struct Intrinsic {
     /// Module path segments (e.g., `["core", "math"]`).
     path: &'static [&'static str],
     /// Function name (e.g., `sqrt`).
     name: &'static str,
-    /// Number of arguments.
+    /// Number of arguments (must equal the signature's parameter count —
+    /// pinned by a test).
     arity: u8,
     /// How to emit bytecode.
     emit: EmitStrategy,
+    /// The declared type signature.
+    sig: SigFn,
+}
+
+impl Intrinsic {
+    /// Instantiate this intrinsic's signature with fresh variables.
+    pub(crate) fn signature(&self, r#gen: &mut TypeVarGen) -> Signature {
+        (self.sig)(&mut SigVars::new(r#gen))
+    }
+}
+
+/// Look up an intrinsic by qualified path and name, regardless of arity.
+pub(crate) fn find(path: &[&str], name: &str) -> Option<&'static Intrinsic> {
+    INTRINSICS.iter().find(|i| i.path == path && i.name == name)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Signature vocabulary
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn sig(params: Vec<Type>, ret: Type) -> Signature {
+    Signature { params, ret }
+}
+
+fn list(elem: Type) -> Type {
+    Type::named("List", vec![elem])
+}
+
+fn set(elem: Type) -> Type {
+    Type::named("Set", vec![elem])
+}
+
+fn map(key: Type, value: Type) -> Type {
+    Type::named("Map", vec![key, value])
+}
+
+const fn intrinsic(
+    path: &'static [&'static str],
+    name: &'static str,
+    arity: u8,
+    emit: EmitStrategy,
+    sig: SigFn,
+) -> Intrinsic {
+    Intrinsic {
+        path,
+        name,
+        arity,
+        emit,
+        sig,
+    }
+}
+
+// Shared signature shapes.
+fn num1(_: &mut SigVars) -> Signature {
+    sig(vec![Type::Number], Type::Number)
+}
+fn num2(_: &mut SigVars) -> Signature {
+    sig(vec![Type::Number, Type::Number], Type::Number)
+}
+fn str_to_str(_: &mut SigVars) -> Signature {
+    sig(vec![Type::String], Type::String)
+}
+fn str2_to_bool(_: &mut SigVars) -> Signature {
+    sig(vec![Type::String, Type::String], Type::Bool)
+}
+fn list_to_list(v: &mut SigVars) -> Signature {
+    sig(vec![list(v.var(0))], list(v.var(0)))
+}
+fn list_to_elem(v: &mut SigVars) -> Signature {
+    // NOTE: the runtime substitutes `()` for the missing element of an
+    // empty list / out-of-bounds index, which this signature does not
+    // admit. Making these partial operations honest (Option or a
+    // catchable throw) is an open language decision.
+    sig(vec![list(v.var(0))], v.var(0))
+}
+fn set2_to_set(v: &mut SigVars) -> Signature {
+    sig(vec![set(v.var(0)), set(v.var(0))], set(v.var(0)))
 }
 
 /// Table of all intrinsic functions.
-///
-/// Intrinsics must be called with their full qualified path:
-/// - `core.math.sqrt`, `core.math.abs`, etc.
-/// - `core.List.length`, `core.List.head`, etc.
-/// - `core.string.length`, `core.string.split`, etc.
-/// - `core.map.empty`, `core.map.get`, etc.
-/// - `core.set.empty`, `core.set.insert`, etc.
-/// - `core.Option.unwrap_or`, `core.Option.is_some`, etc.
-/// - `core.Result.is_ok`, `core.Result.is_err`, etc.
-/// - `core.convert.to_string`, `core.convert.parse_number`, etc.
 static INTRINSICS: &[Intrinsic] = &[
     // ─────────────────────────────────────────────────────────────────────
-    // core.math - Math intrinsics
+    // core.math
     // ─────────────────────────────────────────────────────────────────────
-    Intrinsic {
-        path: &["core", "math"],
-        name: "sqrt",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Sqrt),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "abs",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Abs),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "floor",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Floor),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "ceil",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Ceil),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "round",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Round),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "trunc",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Trunc),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "sin",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Sin),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "cos",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Cos),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "tan",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Tan),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "ln",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Ln),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "exp",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Exp),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "pow",
-        arity: 2,
-        emit: EmitStrategy::Opcode(Opcode::Pow),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "min",
-        arity: 2,
-        emit: EmitStrategy::Opcode(Opcode::Min),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "max",
-        arity: 2,
-        emit: EmitStrategy::Opcode(Opcode::Max),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "asin",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Asin),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "acos",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Acos),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "atan",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Atan),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "atan2",
-        arity: 2,
-        emit: EmitStrategy::Opcode(Opcode::Atan2),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "log10",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Log10),
-    },
-    Intrinsic {
-        path: &["core", "math"],
-        name: "log2",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::Log2),
-    },
+    intrinsic(
+        &["core", "math"],
+        "sqrt",
+        1,
+        EmitStrategy::Opcode(Opcode::Sqrt),
+        num1,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "abs",
+        1,
+        EmitStrategy::Opcode(Opcode::Abs),
+        num1,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "floor",
+        1,
+        EmitStrategy::Opcode(Opcode::Floor),
+        num1,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "ceil",
+        1,
+        EmitStrategy::Opcode(Opcode::Ceil),
+        num1,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "round",
+        1,
+        EmitStrategy::Opcode(Opcode::Round),
+        num1,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "trunc",
+        1,
+        EmitStrategy::Opcode(Opcode::Trunc),
+        num1,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "sin",
+        1,
+        EmitStrategy::Opcode(Opcode::Sin),
+        num1,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "cos",
+        1,
+        EmitStrategy::Opcode(Opcode::Cos),
+        num1,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "tan",
+        1,
+        EmitStrategy::Opcode(Opcode::Tan),
+        num1,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "ln",
+        1,
+        EmitStrategy::Opcode(Opcode::Ln),
+        num1,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "exp",
+        1,
+        EmitStrategy::Opcode(Opcode::Exp),
+        num1,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "pow",
+        2,
+        EmitStrategy::Opcode(Opcode::Pow),
+        num2,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "min",
+        2,
+        EmitStrategy::Opcode(Opcode::Min),
+        num2,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "max",
+        2,
+        EmitStrategy::Opcode(Opcode::Max),
+        num2,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "asin",
+        1,
+        EmitStrategy::Opcode(Opcode::Asin),
+        num1,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "acos",
+        1,
+        EmitStrategy::Opcode(Opcode::Acos),
+        num1,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "atan",
+        1,
+        EmitStrategy::Opcode(Opcode::Atan),
+        num1,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "atan2",
+        2,
+        EmitStrategy::Opcode(Opcode::Atan2),
+        num2,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "log10",
+        1,
+        EmitStrategy::Opcode(Opcode::Log10),
+        num1,
+    ),
+    intrinsic(
+        &["core", "math"],
+        "log2",
+        1,
+        EmitStrategy::Opcode(Opcode::Log2),
+        num1,
+    ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.List - List operations
+    // core.List
     // ─────────────────────────────────────────────────────────────────────
-    Intrinsic {
-        path: &["core", "List"],
-        name: "length",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::ListLength),
-    },
-    Intrinsic {
-        path: &["core", "List"],
-        name: "get",
-        arity: 2,
-        emit: EmitStrategy::Helper(Helper::ListGet),
-    },
-    Intrinsic {
-        path: &["core", "List"],
-        name: "head",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::ListHead),
-    },
-    Intrinsic {
-        path: &["core", "List"],
-        name: "tail",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::ListTail),
-    },
-    Intrinsic {
-        path: &["core", "List"],
-        name: "concat",
-        arity: 2,
-        emit: EmitStrategy::Helper(Helper::ListConcat),
-    },
-    Intrinsic {
-        path: &["core", "List"],
-        name: "append",
-        arity: 2,
-        emit: EmitStrategy::Helper(Helper::ListAppend),
-    },
-    Intrinsic {
-        path: &["core", "List"],
-        name: "is_empty",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::ListIsEmpty),
-    },
-    Intrinsic {
-        path: &["core", "List"],
-        name: "first",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::ListHead),
-    },
-    Intrinsic {
-        path: &["core", "List"],
-        name: "last",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::ListLast),
-    },
-    Intrinsic {
-        path: &["core", "List"],
-        name: "reverse",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::ListReverse),
-    },
-    Intrinsic {
-        path: &["core", "List"],
-        name: "sort",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::ListSort),
-    },
-    Intrinsic {
-        path: &["core", "List"],
-        name: "slice",
-        arity: 3,
-        emit: EmitStrategy::Opcode(Opcode::ListSlice),
-    },
+    intrinsic(
+        &["core", "List"],
+        "length",
+        1,
+        EmitStrategy::Opcode(Opcode::ListLength),
+        |v| sig(vec![list(v.var(0))], Type::Number),
+    ),
+    intrinsic(
+        &["core", "List"],
+        "get",
+        2,
+        EmitStrategy::Helper(Helper::ListGet),
+        |v| sig(vec![list(v.var(0)), Type::Number], v.var(0)),
+    ),
+    intrinsic(
+        &["core", "List"],
+        "head",
+        1,
+        EmitStrategy::Helper(Helper::ListHead),
+        list_to_elem,
+    ),
+    intrinsic(
+        &["core", "List"],
+        "tail",
+        1,
+        EmitStrategy::Helper(Helper::ListTail),
+        list_to_list,
+    ),
+    intrinsic(
+        &["core", "List"],
+        "concat",
+        2,
+        EmitStrategy::Helper(Helper::ListConcat),
+        |v| sig(vec![list(v.var(0)), list(v.var(0))], list(v.var(0))),
+    ),
+    intrinsic(
+        &["core", "List"],
+        "append",
+        2,
+        EmitStrategy::Helper(Helper::ListAppend),
+        |v| sig(vec![list(v.var(0)), v.var(0)], list(v.var(0))),
+    ),
+    intrinsic(
+        &["core", "List"],
+        "is_empty",
+        1,
+        EmitStrategy::Opcode(Opcode::ListIsEmpty),
+        |v| sig(vec![list(v.var(0))], Type::Bool),
+    ),
+    intrinsic(
+        &["core", "List"],
+        "first",
+        1,
+        EmitStrategy::Helper(Helper::ListHead),
+        list_to_elem,
+    ),
+    intrinsic(
+        &["core", "List"],
+        "last",
+        1,
+        EmitStrategy::Opcode(Opcode::ListLast),
+        list_to_elem,
+    ),
+    intrinsic(
+        &["core", "List"],
+        "reverse",
+        1,
+        EmitStrategy::Opcode(Opcode::ListReverse),
+        list_to_list,
+    ),
+    intrinsic(
+        &["core", "List"],
+        "sort",
+        1,
+        EmitStrategy::Opcode(Opcode::ListSort),
+        list_to_list,
+    ),
+    intrinsic(
+        &["core", "List"],
+        "slice",
+        3,
+        EmitStrategy::Opcode(Opcode::ListSlice),
+        |v| {
+            sig(
+                vec![list(v.var(0)), Type::Number, Type::Number],
+                list(v.var(0)),
+            )
+        },
+    ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.string - String operations
+    // core.string
     // ─────────────────────────────────────────────────────────────────────
-    Intrinsic {
-        path: &["core", "string"],
-        name: "length",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::StringLength),
-    },
-    Intrinsic {
-        path: &["core", "string"],
-        name: "concat",
-        arity: 2,
-        emit: EmitStrategy::Helper(Helper::StringConcat),
-    },
-    Intrinsic {
-        path: &["core", "string"],
-        name: "contains",
-        arity: 2,
-        emit: EmitStrategy::Helper(Helper::StringContains),
-    },
-    Intrinsic {
-        path: &["core", "string"],
-        name: "split",
-        arity: 2,
-        emit: EmitStrategy::Helper(Helper::StringSplit),
-    },
-    Intrinsic {
-        path: &["core", "string"],
-        name: "join",
-        arity: 2,
-        emit: EmitStrategy::Helper(Helper::StringJoin),
-    },
-    Intrinsic {
-        path: &["core", "string"],
-        name: "trim",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::StringTrim),
-    },
-    Intrinsic {
-        path: &["core", "string"],
-        name: "slice",
-        arity: 3,
-        emit: EmitStrategy::Opcode(Opcode::StringSlice),
-    },
-    Intrinsic {
-        path: &["core", "string"],
-        name: "chars",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::StringChars),
-    },
-    Intrinsic {
-        path: &["core", "string"],
-        name: "replace",
-        arity: 3,
-        emit: EmitStrategy::Opcode(Opcode::StringReplace),
-    },
-    Intrinsic {
-        path: &["core", "string"],
-        name: "starts_with",
-        arity: 2,
-        emit: EmitStrategy::Opcode(Opcode::StringStartsWith),
-    },
-    Intrinsic {
-        path: &["core", "string"],
-        name: "ends_with",
-        arity: 2,
-        emit: EmitStrategy::Opcode(Opcode::StringEndsWith),
-    },
-    Intrinsic {
-        path: &["core", "string"],
-        name: "to_upper",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::StringToUpper),
-    },
-    Intrinsic {
-        path: &["core", "string"],
-        name: "to_lower",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::StringToLower),
-    },
-    Intrinsic {
-        path: &["core", "string"],
-        name: "index_of",
-        arity: 2,
-        emit: EmitStrategy::Opcode(Opcode::StringIndexOf),
-    },
-    Intrinsic {
-        path: &["core", "string"],
-        name: "repeat",
-        arity: 2,
-        emit: EmitStrategy::Opcode(Opcode::StringRepeat),
-    },
-    Intrinsic {
-        path: &["core", "string"],
-        name: "reverse",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::StringReverse),
-    },
+    intrinsic(
+        &["core", "string"],
+        "length",
+        1,
+        EmitStrategy::Helper(Helper::StringLength),
+        |_| sig(vec![Type::String], Type::Number),
+    ),
+    intrinsic(
+        &["core", "string"],
+        "concat",
+        2,
+        EmitStrategy::Helper(Helper::StringConcat),
+        |_| sig(vec![Type::String, Type::String], Type::String),
+    ),
+    intrinsic(
+        &["core", "string"],
+        "contains",
+        2,
+        EmitStrategy::Helper(Helper::StringContains),
+        str2_to_bool,
+    ),
+    intrinsic(
+        &["core", "string"],
+        "split",
+        2,
+        EmitStrategy::Helper(Helper::StringSplit),
+        |_| sig(vec![Type::String, Type::String], list(Type::String)),
+    ),
+    intrinsic(
+        &["core", "string"],
+        "join",
+        2,
+        EmitStrategy::Helper(Helper::StringJoin),
+        |_| sig(vec![list(Type::String), Type::String], Type::String),
+    ),
+    intrinsic(
+        &["core", "string"],
+        "trim",
+        1,
+        EmitStrategy::Helper(Helper::StringTrim),
+        str_to_str,
+    ),
+    intrinsic(
+        &["core", "string"],
+        "slice",
+        3,
+        EmitStrategy::Opcode(Opcode::StringSlice),
+        |_| sig(vec![Type::String, Type::Number, Type::Number], Type::String),
+    ),
+    intrinsic(
+        &["core", "string"],
+        "chars",
+        1,
+        EmitStrategy::Opcode(Opcode::StringChars),
+        |_| sig(vec![Type::String], list(Type::String)),
+    ),
+    intrinsic(
+        &["core", "string"],
+        "replace",
+        3,
+        EmitStrategy::Opcode(Opcode::StringReplace),
+        |_| sig(vec![Type::String, Type::String, Type::String], Type::String),
+    ),
+    intrinsic(
+        &["core", "string"],
+        "starts_with",
+        2,
+        EmitStrategy::Opcode(Opcode::StringStartsWith),
+        str2_to_bool,
+    ),
+    intrinsic(
+        &["core", "string"],
+        "ends_with",
+        2,
+        EmitStrategy::Opcode(Opcode::StringEndsWith),
+        str2_to_bool,
+    ),
+    intrinsic(
+        &["core", "string"],
+        "to_upper",
+        1,
+        EmitStrategy::Opcode(Opcode::StringToUpper),
+        str_to_str,
+    ),
+    intrinsic(
+        &["core", "string"],
+        "to_lower",
+        1,
+        EmitStrategy::Opcode(Opcode::StringToLower),
+        str_to_str,
+    ),
+    intrinsic(
+        &["core", "string"],
+        "index_of",
+        2,
+        EmitStrategy::Opcode(Opcode::StringIndexOf),
+        |_| sig(vec![Type::String, Type::String], Type::Number),
+    ),
+    intrinsic(
+        &["core", "string"],
+        "repeat",
+        2,
+        EmitStrategy::Opcode(Opcode::StringRepeat),
+        |_| sig(vec![Type::String, Type::Number], Type::String),
+    ),
+    intrinsic(
+        &["core", "string"],
+        "reverse",
+        1,
+        EmitStrategy::Opcode(Opcode::StringReverse),
+        str_to_str,
+    ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.convert - Type conversion
+    // core.convert
     // ─────────────────────────────────────────────────────────────────────
-    Intrinsic {
-        path: &["core", "convert"],
-        name: "to_string",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::ToString),
-    },
-    Intrinsic {
-        path: &["core", "convert"],
-        name: "parse_number",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::ParseNumber),
-    },
-    Intrinsic {
-        path: &["core", "convert"],
-        name: "parse_bool",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::ParseBool),
-    },
+    intrinsic(
+        &["core", "convert"],
+        "to_string",
+        1,
+        EmitStrategy::Helper(Helper::ToString),
+        |v| sig(vec![v.var(0)], Type::String),
+    ),
+    intrinsic(
+        &["core", "convert"],
+        "parse_number",
+        1,
+        EmitStrategy::Helper(Helper::ParseNumber),
+        |_| {
+            sig(
+                vec![Type::String],
+                Type::tuple(vec![Type::Bool, Type::Number]),
+            )
+        },
+    ),
+    intrinsic(
+        &["core", "convert"],
+        "parse_bool",
+        1,
+        EmitStrategy::Helper(Helper::ParseBool),
+        |_| {
+            sig(
+                vec![Type::String],
+                Type::tuple(vec![Type::Bool, Type::Bool]),
+            )
+        },
+    ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.map - Map operations
+    // core.map
     // ─────────────────────────────────────────────────────────────────────
-    Intrinsic {
-        path: &["core", "map"],
-        name: "empty",
-        arity: 0,
-        emit: EmitStrategy::Opcode(Opcode::MakeEmptyMap),
-    },
-    Intrinsic {
-        path: &["core", "map"],
-        name: "get",
-        arity: 2,
-        emit: EmitStrategy::Opcode(Opcode::MapGet),
-    },
-    Intrinsic {
-        path: &["core", "map"],
-        name: "insert",
-        arity: 3,
-        emit: EmitStrategy::Opcode(Opcode::MapInsert),
-    },
-    Intrinsic {
-        path: &["core", "map"],
-        name: "remove",
-        arity: 2,
-        emit: EmitStrategy::Opcode(Opcode::MapRemove),
-    },
-    Intrinsic {
-        path: &["core", "map"],
-        name: "contains",
-        arity: 2,
-        emit: EmitStrategy::Opcode(Opcode::MapContains),
-    },
-    Intrinsic {
-        path: &["core", "map"],
-        name: "length",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::MapLength),
-    },
-    Intrinsic {
-        path: &["core", "map"],
-        name: "keys",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::MapKeys),
-    },
-    Intrinsic {
-        path: &["core", "map"],
-        name: "values",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::MapValues),
-    },
+    intrinsic(
+        &["core", "map"],
+        "empty",
+        0,
+        EmitStrategy::Opcode(Opcode::MakeEmptyMap),
+        |v| sig(vec![], map(v.var(0), v.var(1))),
+    ),
+    intrinsic(
+        &["core", "map"],
+        "get",
+        2,
+        EmitStrategy::Opcode(Opcode::MapGet),
+        |v| {
+            // NOTE: like List.get, the runtime substitutes `()` when the key
+            // is missing; the signature does not admit that.
+            sig(vec![map(v.var(0), v.var(1)), v.var(0)], v.var(1))
+        },
+    ),
+    intrinsic(
+        &["core", "map"],
+        "insert",
+        3,
+        EmitStrategy::Opcode(Opcode::MapInsert),
+        |v| {
+            sig(
+                vec![map(v.var(0), v.var(1)), v.var(0), v.var(1)],
+                map(v.var(0), v.var(1)),
+            )
+        },
+    ),
+    intrinsic(
+        &["core", "map"],
+        "remove",
+        2,
+        EmitStrategy::Opcode(Opcode::MapRemove),
+        |v| {
+            sig(
+                vec![map(v.var(0), v.var(1)), v.var(0)],
+                map(v.var(0), v.var(1)),
+            )
+        },
+    ),
+    intrinsic(
+        &["core", "map"],
+        "contains",
+        2,
+        EmitStrategy::Opcode(Opcode::MapContains),
+        |v| sig(vec![map(v.var(0), v.var(1)), v.var(0)], Type::Bool),
+    ),
+    intrinsic(
+        &["core", "map"],
+        "length",
+        1,
+        EmitStrategy::Opcode(Opcode::MapLength),
+        |v| sig(vec![map(v.var(0), v.var(1))], Type::Number),
+    ),
+    intrinsic(
+        &["core", "map"],
+        "keys",
+        1,
+        EmitStrategy::Opcode(Opcode::MapKeys),
+        |v| sig(vec![map(v.var(0), v.var(1))], list(v.var(0))),
+    ),
+    intrinsic(
+        &["core", "map"],
+        "values",
+        1,
+        EmitStrategy::Opcode(Opcode::MapValues),
+        |v| sig(vec![map(v.var(0), v.var(1))], list(v.var(1))),
+    ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.set - Set operations
+    // core.set
     // ─────────────────────────────────────────────────────────────────────
-    Intrinsic {
-        path: &["core", "set"],
-        name: "empty",
-        arity: 0,
-        emit: EmitStrategy::Helper(Helper::MakeEmptySet),
-    },
-    Intrinsic {
-        path: &["core", "set"],
-        name: "insert",
-        arity: 2,
-        emit: EmitStrategy::Helper(Helper::SetInsert),
-    },
-    Intrinsic {
-        path: &["core", "set"],
-        name: "remove",
-        arity: 2,
-        emit: EmitStrategy::Helper(Helper::SetRemove),
-    },
-    Intrinsic {
-        path: &["core", "set"],
-        name: "contains",
-        arity: 2,
-        emit: EmitStrategy::Helper(Helper::SetContains),
-    },
-    Intrinsic {
-        path: &["core", "set"],
-        name: "length",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::SetLength),
-    },
-    Intrinsic {
-        path: &["core", "set"],
-        name: "union",
-        arity: 2,
-        emit: EmitStrategy::Helper(Helper::SetUnion),
-    },
-    Intrinsic {
-        path: &["core", "set"],
-        name: "intersection",
-        arity: 2,
-        emit: EmitStrategy::Helper(Helper::SetIntersection),
-    },
-    Intrinsic {
-        path: &["core", "set"],
-        name: "difference",
-        arity: 2,
-        emit: EmitStrategy::Helper(Helper::SetDifference),
-    },
-    Intrinsic {
-        path: &["core", "set"],
-        name: "to_list",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::SetToList),
-    },
+    intrinsic(
+        &["core", "set"],
+        "empty",
+        0,
+        EmitStrategy::Helper(Helper::MakeEmptySet),
+        |v| sig(vec![], set(v.var(0))),
+    ),
+    intrinsic(
+        &["core", "set"],
+        "insert",
+        2,
+        EmitStrategy::Helper(Helper::SetInsert),
+        |v| sig(vec![set(v.var(0)), v.var(0)], set(v.var(0))),
+    ),
+    intrinsic(
+        &["core", "set"],
+        "remove",
+        2,
+        EmitStrategy::Helper(Helper::SetRemove),
+        |v| sig(vec![set(v.var(0)), v.var(0)], set(v.var(0))),
+    ),
+    intrinsic(
+        &["core", "set"],
+        "contains",
+        2,
+        EmitStrategy::Helper(Helper::SetContains),
+        |v| sig(vec![set(v.var(0)), v.var(0)], Type::Bool),
+    ),
+    intrinsic(
+        &["core", "set"],
+        "length",
+        1,
+        EmitStrategy::Helper(Helper::SetLength),
+        |v| sig(vec![set(v.var(0))], Type::Number),
+    ),
+    intrinsic(
+        &["core", "set"],
+        "union",
+        2,
+        EmitStrategy::Helper(Helper::SetUnion),
+        set2_to_set,
+    ),
+    intrinsic(
+        &["core", "set"],
+        "intersection",
+        2,
+        EmitStrategy::Helper(Helper::SetIntersection),
+        set2_to_set,
+    ),
+    intrinsic(
+        &["core", "set"],
+        "difference",
+        2,
+        EmitStrategy::Helper(Helper::SetDifference),
+        set2_to_set,
+    ),
+    intrinsic(
+        &["core", "set"],
+        "to_list",
+        1,
+        EmitStrategy::Helper(Helper::SetToList),
+        |v| sig(vec![set(v.var(0))], list(v.var(0))),
+    ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.Option - Option operations
+    // core.Option
     // ─────────────────────────────────────────────────────────────────────
-    Intrinsic {
-        path: &["core", "Option"],
-        name: "unwrap_or",
-        arity: 2,
-        emit: EmitStrategy::Helper(Helper::OptionUnwrapOr),
-    },
-    Intrinsic {
-        path: &["core", "Option"],
-        name: "is_some",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::EnumIs(1)),
-    }, // Some has tag 1
-    Intrinsic {
-        path: &["core", "Option"],
-        name: "is_none",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::EnumIs(0)),
-    }, // None has tag 0
+    intrinsic(
+        &["core", "Option"],
+        "unwrap_or",
+        2,
+        EmitStrategy::Helper(Helper::OptionUnwrapOr),
+        |v| sig(vec![Type::option(v.var(0)), v.var(0)], v.var(0)),
+    ),
+    // Some has tag 1, None has tag 0.
+    intrinsic(
+        &["core", "Option"],
+        "is_some",
+        1,
+        EmitStrategy::Helper(Helper::EnumIs(1)),
+        |v| sig(vec![Type::option(v.var(0))], Type::Bool),
+    ),
+    intrinsic(
+        &["core", "Option"],
+        "is_none",
+        1,
+        EmitStrategy::Helper(Helper::EnumIs(0)),
+        |v| sig(vec![Type::option(v.var(0))], Type::Bool),
+    ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.Result - Result operations
+    // core.Result
     // ─────────────────────────────────────────────────────────────────────
-    Intrinsic {
-        path: &["core", "Result"],
-        name: "is_ok",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::EnumIs(0)),
-    }, // Ok has tag 0
-    Intrinsic {
-        path: &["core", "Result"],
-        name: "is_err",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::EnumIs(1)),
-    }, // Err has tag 1
+    // Ok has tag 0, Err has tag 1.
+    intrinsic(
+        &["core", "Result"],
+        "is_ok",
+        1,
+        EmitStrategy::Helper(Helper::EnumIs(0)),
+        |v| sig(vec![Type::result(v.var(0), v.var(1))], Type::Bool),
+    ),
+    intrinsic(
+        &["core", "Result"],
+        "is_err",
+        1,
+        EmitStrategy::Helper(Helper::EnumIs(1)),
+        |v| sig(vec![Type::result(v.var(0), v.var(1))], Type::Bool),
+    ),
     // ─────────────────────────────────────────────────────────────────────
     // core.enum - Enum operations (general)
     // ─────────────────────────────────────────────────────────────────────
-    Intrinsic {
-        path: &["core", "enum"],
-        name: "tag",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::EnumTag),
-    },
-    Intrinsic {
-        path: &["core", "enum"],
-        name: "payload",
-        arity: 1,
-        emit: EmitStrategy::Helper(Helper::EnumPayload),
-    },
+    intrinsic(
+        &["core", "enum"],
+        "tag",
+        1,
+        EmitStrategy::Helper(Helper::EnumTag),
+        |v| sig(vec![v.var(0)], Type::Number),
+    ),
+    // NOTE: `payload` materializes an arbitrary type from an enum value —
+    // an unchecked escape hatch (the result unifies with anything).
+    intrinsic(
+        &["core", "enum"],
+        "payload",
+        1,
+        EmitStrategy::Helper(Helper::EnumPayload),
+        |v| sig(vec![v.var(0)], v.var(1)),
+    ),
     // ─────────────────────────────────────────────────────────────────────
     // core.protocol - Binary protocol operations
     // ─────────────────────────────────────────────────────────────────────
-    Intrinsic {
-        path: &["core", "protocol"],
-        name: "serialize_value",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::SerializeValue),
-    },
-    Intrinsic {
-        path: &["core", "protocol"],
-        name: "deserialize_value",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::DeserializeValue),
-    },
-    Intrinsic {
-        path: &["core", "protocol"],
-        name: "closure_hash",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::ClosureHash),
-    },
-    Intrinsic {
-        path: &["core", "protocol"],
-        name: "closure_captures",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::ClosureCaptures),
-    },
-    Intrinsic {
-        path: &["core", "protocol"],
-        name: "handler_methods",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::HandlerMethods),
-    },
-    Intrinsic {
-        path: &["core", "protocol"],
-        name: "hex_to_bytes",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::HexToBytes),
-    },
-    Intrinsic {
-        path: &["core", "protocol"],
-        name: "bytes_to_hex",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::BytesToHex),
-    },
+    intrinsic(
+        &["core", "protocol"],
+        "serialize_value",
+        1,
+        EmitStrategy::Opcode(Opcode::SerializeValue),
+        |v| sig(vec![v.var(0)], Type::Bytes),
+    ),
+    intrinsic(
+        &["core", "protocol"],
+        "deserialize_value",
+        1,
+        EmitStrategy::Opcode(Opcode::DeserializeValue),
+        |v| sig(vec![Type::Bytes], Type::option(v.var(0))),
+    ),
+    intrinsic(
+        &["core", "protocol"],
+        "closure_hash",
+        1,
+        EmitStrategy::Opcode(Opcode::ClosureHash),
+        |v| sig(vec![v.var(0)], Type::String),
+    ),
+    intrinsic(
+        &["core", "protocol"],
+        "closure_captures",
+        1,
+        EmitStrategy::Opcode(Opcode::ClosureCaptures),
+        |v| sig(vec![v.var(0)], Type::Bytes),
+    ),
+    intrinsic(
+        &["core", "protocol"],
+        "handler_methods",
+        1,
+        EmitStrategy::Opcode(Opcode::HandlerMethods),
+        |v| sig(vec![v.var(0)], list(Type::String)),
+    ),
+    intrinsic(
+        &["core", "protocol"],
+        "hex_to_bytes",
+        1,
+        EmitStrategy::Opcode(Opcode::HexToBytes),
+        |_| sig(vec![Type::String], Type::option(Type::Bytes)),
+    ),
+    intrinsic(
+        &["core", "protocol"],
+        "bytes_to_hex",
+        1,
+        EmitStrategy::Opcode(Opcode::BytesToHex),
+        |_| sig(vec![Type::Bytes], Type::String),
+    ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.bytes - Bytes operations
+    // core.bytes
     // ─────────────────────────────────────────────────────────────────────
-    Intrinsic {
-        path: &["core", "bytes"],
-        name: "from",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::BytesFrom),
-    },
-    Intrinsic {
-        path: &["core", "bytes"],
-        name: "to_list",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::BytesToList),
-    },
-    Intrinsic {
-        path: &["core", "bytes"],
-        name: "length",
-        arity: 1,
-        emit: EmitStrategy::Opcode(Opcode::BytesLength),
-    },
-    Intrinsic {
-        path: &["core", "bytes"],
-        name: "get",
-        arity: 2,
-        emit: EmitStrategy::Opcode(Opcode::BytesGet),
-    },
-    Intrinsic {
-        path: &["core", "bytes"],
-        name: "slice",
-        arity: 3,
-        emit: EmitStrategy::Opcode(Opcode::BytesSlice),
-    },
-    Intrinsic {
-        path: &["core", "bytes"],
-        name: "concat",
-        arity: 2,
-        emit: EmitStrategy::Opcode(Opcode::BytesConcat),
-    },
+    intrinsic(
+        &["core", "bytes"],
+        "from",
+        1,
+        EmitStrategy::Opcode(Opcode::BytesFrom),
+        |_| sig(vec![list(Type::Number)], Type::Bytes),
+    ),
+    intrinsic(
+        &["core", "bytes"],
+        "to_list",
+        1,
+        EmitStrategy::Opcode(Opcode::BytesToList),
+        |_| sig(vec![Type::Bytes], list(Type::Number)),
+    ),
+    intrinsic(
+        &["core", "bytes"],
+        "length",
+        1,
+        EmitStrategy::Opcode(Opcode::BytesLength),
+        |_| sig(vec![Type::Bytes], Type::Number),
+    ),
+    intrinsic(
+        &["core", "bytes"],
+        "get",
+        2,
+        EmitStrategy::Opcode(Opcode::BytesGet),
+        |_| sig(vec![Type::Bytes, Type::Number], Type::Number),
+    ),
+    intrinsic(
+        &["core", "bytes"],
+        "slice",
+        3,
+        EmitStrategy::Opcode(Opcode::BytesSlice),
+        |_| sig(vec![Type::Bytes, Type::Number, Type::Number], Type::Bytes),
+    ),
+    intrinsic(
+        &["core", "bytes"],
+        "concat",
+        2,
+        EmitStrategy::Opcode(Opcode::BytesConcat),
+        |_| sig(vec![Type::Bytes, Type::Bytes], Type::Bytes),
+    ),
 ];
 
 /// Check if a function name is an intrinsic and compile it if so.
@@ -654,11 +886,9 @@ pub(super) fn try_compile_intrinsic(
     let path: Vec<&str> = qualified_name.path.iter().map(AsRef::as_ref).collect();
     let name = qualified_name.name.as_ref();
 
-    // Look up intrinsic in the table
-    let Some(intrinsic) = INTRINSICS
-        .iter()
-        .find(|i| i.path == path.as_slice() && i.name == name && i.arity == args.len() as u8)
-    else {
+    // The type checker already verified arity against this same table, so
+    // a mismatch here means the expression bypassed checking.
+    let Some(intrinsic) = find(&path, name).filter(|i| i.arity as usize == args.len()) else {
         return Ok(None);
     };
 
@@ -720,5 +950,42 @@ fn emit_intrinsic(fc: &mut FunctionCompiler, strategy: EmitStrategy) {
             Helper::EnumTag => fc.builder.emit_enum_tag(),
             Helper::EnumPayload => fc.builder.emit_enum_payload(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every entry's declared arity must equal its signature's parameter
+    /// count — the checker trusts `arity` for error messages and the
+    /// compiler for lookup.
+    #[test]
+    fn arity_matches_signature() {
+        let mut r#gen = TypeVarGen::new();
+        for intrinsic in INTRINSICS {
+            let signature = intrinsic.signature(&mut r#gen);
+            assert_eq!(
+                intrinsic.arity as usize,
+                signature.params.len(),
+                "arity/signature mismatch for {}::{}",
+                intrinsic.path.join("."),
+                intrinsic.name,
+            );
+        }
+    }
+
+    /// No duplicate (path, name) entries — `find` returns the first match.
+    #[test]
+    fn no_duplicate_entries() {
+        let mut seen = std::collections::HashSet::new();
+        for intrinsic in INTRINSICS {
+            assert!(
+                seen.insert((intrinsic.path, intrinsic.name)),
+                "duplicate intrinsic {}::{}",
+                intrinsic.path.join("."),
+                intrinsic.name,
+            );
+        }
     }
 }

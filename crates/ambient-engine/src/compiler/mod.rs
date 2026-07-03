@@ -30,7 +30,7 @@
 mod error;
 mod expr;
 mod hash;
-mod intrinsics;
+pub(crate) mod intrinsics;
 mod lambdas;
 mod patterns;
 mod repl;
