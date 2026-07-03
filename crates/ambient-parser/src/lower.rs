@@ -1328,6 +1328,26 @@ mod tests {
     }
 
     #[test]
+    fn test_lower_nominal_type_uuid_with_exponent_like_group() {
+        // Regression: a valid UUID whose first hex group is `<digit>e<hex letter>`
+        // (here `2eb9553c`) used to crash the lexer, which mistook `2e...` for a
+        // malformed scientific-notation literal. It must lex, reassemble, and
+        // validate as a real UUID like any other.
+        let source = "unique(2eb9553c-1fdf-46fb-a8b1-f2c5a1cfca94) type Example { value: string }";
+        let module = parse(source).expect("parse error");
+        assert_eq!(module.items.len(), 1);
+        match &module.items[0].kind {
+            ItemKind::TypeAlias(t) => {
+                assert_eq!(&*t.name, "Example");
+                let uuid = t.unique_id.expect("expected nominal type");
+                assert_eq!(uuid.to_string(), "2eb9553c-1fdf-46fb-a8b1-f2c5a1cfca94");
+                assert!(matches!(t.ty, Type::Nominal(_)));
+            }
+            _ => panic!("Expected type alias"),
+        }
+    }
+
+    #[test]
     fn test_lower_regular_type_alias() {
         let source = "type Point { x: number, y: number }";
         let module = parse(source).expect("parse error");

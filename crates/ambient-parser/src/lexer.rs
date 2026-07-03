@@ -702,6 +702,22 @@ impl<'src> Lexer<'src> {
         Ok(self.make_token(kind, start))
     }
 
+    /// Look ahead from the current `e`/`E` to decide whether it introduces a
+    /// well-formed exponent (optional sign, then at least one digit) without
+    /// consuming anything.
+    fn has_exponent_digits(&self) -> bool {
+        let mut chars = self.chars.clone();
+        chars.next(); // skip the 'e'/'E'
+        if let Some((_, '+' | '-')) = chars.peek() {
+            chars.next();
+        }
+        matches!(chars.peek(), Some((_, '0'..='9')))
+    }
+
+    /// Lex a number literal. Returns Result for API consistency with other lex
+    /// methods, even though number lexing never fails: a bare `e`/`E` with no
+    /// following digit is simply not treated as an exponent.
+    #[allow(clippy::unnecessary_wraps)]
     fn lex_number(&mut self, start: usize) -> Result<Token, ParseError> {
         // Integer part
         while let Some('0'..='9') = self.peek() {
@@ -716,17 +732,16 @@ impl<'src> Lexer<'src> {
             }
         }
 
-        // Exponent part
-        if matches!(self.peek(), Some('e' | 'E')) {
-            self.advance();
+        // Exponent part. Only commit to it if it's a well-formed exponent —
+        // `e`/`E`, an optional sign, then at least one digit. If no digit
+        // follows, the `e` is not scientific notation: the number ends here and
+        // the `e...` starts an identifier. This matters for hex sequences like
+        // the UUID groups in `unique(2eb9553c-...)`, where treating `2e` as a
+        // malformed float literal would abort tokenization on a valid UUID.
+        if matches!(self.peek(), Some('e' | 'E')) && self.has_exponent_digits() {
+            self.advance(); // consume 'e'/'E'
             if matches!(self.peek(), Some('+' | '-')) {
                 self.advance();
-            }
-            if !matches!(self.peek(), Some('0'..='9')) {
-                return Err(ParseError::new(
-                    ParseErrorKind::InvalidNumber(self.text_from(start).to_string()),
-                    self.span_from(start),
-                ));
             }
             while let Some('0'..='9') = self.peek() {
                 self.advance();
@@ -911,6 +926,31 @@ mod tests {
         assert_eq!(lex("1e10"), vec![TokenKind::Number, TokenKind::Eof]);
         assert_eq!(lex("1.5e-3"), vec![TokenKind::Number, TokenKind::Eof]);
         assert_eq!(lex("2.5E+10"), vec![TokenKind::Number, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn test_number_followed_by_e_identifier() {
+        // A bare `e`/`E` with no following digit is not an exponent: the number
+        // ends and the `e...` begins an identifier. This is what keeps UUID hex
+        // groups like `2eb9553c` (from `unique(...)`) from being shredded into a
+        // failed scientific-notation literal.
+        assert_eq!(
+            lex("2eb9553c"),
+            vec![TokenKind::Number, TokenKind::Ident, TokenKind::Eof]
+        );
+        // `e` immediately before a non-digit sign context (e.g. a UUID group
+        // boundary `...e-...`) must not error either.
+        assert_eq!(
+            lex("2eb-1fdf"),
+            vec![
+                TokenKind::Number,
+                TokenKind::Ident,
+                TokenKind::Minus,
+                TokenKind::Number,
+                TokenKind::Ident,
+                TokenKind::Eof
+            ]
+        );
     }
 
     #[test]
