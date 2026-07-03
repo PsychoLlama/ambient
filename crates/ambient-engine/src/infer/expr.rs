@@ -428,15 +428,25 @@ impl Infer {
             ExprKind::Handle(handle_expr) => self.infer_handle(env, handle_expr, span)?,
 
             ExprKind::Resume(value) => {
-                // Resume transfers control to a continuation.
-                // The value type should match what the continuation expects.
-                // For now, just type-check the value and return a fresh type variable,
-                // since resume doesn't return normally.
-                let _value_ty = self.infer_expr(env, value)?;
-
-                // Resume doesn't return normally, so we use a fresh type variable.
-                // In a more complete implementation, this would be a never type (!).
-                self.fresh()
+                // Resume feeds a value to the captured continuation: the
+                // value must be what the perform site expects — the ability
+                // method's return type. The resume expression itself
+                // evaluates to the handled computation's final result (the
+                // handle expression's result type), which the enclosing
+                // handler-arm context supplies.
+                let value_ty = self.infer_expr(env, value)?;
+                let Some(ctx) = self.resume_contexts.last().cloned() else {
+                    return Err(type_error(TypeErrorKind::ResumeOutsideHandler, span));
+                };
+                if let Some(expected) = &ctx.value_ty {
+                    self.unify(expected, &value_ty, span).map_err(|e| {
+                        e.with_context("resume value must match the handled method's return type")
+                    })?;
+                }
+                match ctx.result_ty {
+                    Some(result) => result,
+                    None => self.fresh(),
+                }
             }
 
             ExprKind::HandlerLiteral(handler_lit) => {
@@ -501,61 +511,65 @@ impl Infer {
             .unwrap_or("unknown")
             .into();
 
-        // Get the ability's method signatures
-        let ability_signatures = self.get_ability_method_signatures(ability_id);
-
-        // Verify each method in the handler matches the ability
+        // Verify each method in the handler against the ability's declared
+        // signature: parameters take the declared types, and `resume` must
+        // be fed the method's return type (that is what the perform site
+        // receives). The arm body's own value is unconstrained here — it
+        // becomes the handle expression's result only at the handle site,
+        // which is unknown when a handler value is built.
         for method in &mut handler_lit.methods {
-            // Find the corresponding ability method signature
-            let sig = ability_signatures
-                .iter()
-                .find(|(name, _, _)| name == method.method.as_ref());
-
-            if let Some((_, expected_param_count, expected_return_ty)) = sig {
-                // Check arity (excluding implicit continuation parameter)
-                if method.params.len() != *expected_param_count {
-                    return Err(type_error(
-                        TypeErrorKind::HandlerMethodArityMismatch {
-                            ability: ability_name.clone(),
-                            method: method.method.clone(),
-                            expected: *expected_param_count,
-                            actual: method.params.len(),
-                        },
-                        (method.span.start, method.span.end),
-                    ));
-                }
-
-                // Type-check the handler body with method parameters in scope
-                let mut method_env = env.extend();
-                for param in &method.params {
-                    // Parameter types are inferred (fresh type variables)
-                    let param_ty = param.ty.clone().unwrap_or_else(|| self.fresh());
-                    method_env.insert_mono(param.id, param.name.clone(), param_ty);
-                }
-
-                // The handler body type should be compatible with resume behavior
-                // For most methods, the body should eventually call resume()
-                // The resume value type determines what's returned to the call site
-                let body_ty = self.infer_expr(&method_env, &mut method.body)?;
-
-                // If we have a concrete expected return type, try to unify
-                // (Hole means polymorphic - we don't constrain)
-                if *expected_return_ty != Type::Hole && *expected_return_ty != Type::Never {
-                    // Note: The body type isn't directly the return type -
-                    // the return type is what resume() is called with.
-                    // For now, we just type-check the body without strict constraints.
-                    let _ = body_ty; // Body is checked but not constrained
-                }
-            } else {
-                // Method not found in ability
+            let method_span = (method.span.start, method.span.end);
+            let Some((param_tys, ret_ty)) =
+                self.ability_method_signature(ability_id, &method.method)
+            else {
                 return Err(type_error(
                     TypeErrorKind::HandlerUnknownMethod {
                         ability: ability_name.clone(),
                         method: method.method.clone(),
                     },
-                    (method.span.start, method.span.end),
+                    method_span,
+                ));
+            };
+
+            if method.params.len() != param_tys.len() {
+                return Err(type_error(
+                    TypeErrorKind::HandlerMethodArityMismatch {
+                        ability: ability_name.clone(),
+                        method: method.method.clone(),
+                        expected: param_tys.len(),
+                        actual: method.params.len(),
+                    },
+                    method_span,
                 ));
             }
+
+            let mut method_env = env.extend();
+            for (param, declared_ty) in method.params.iter().zip(&param_tys) {
+                let param_ty = match &param.ty {
+                    Some(ty) => {
+                        let annotated = self.resolve_holes(ty);
+                        self.unify(declared_ty, &annotated, method_span)?;
+                        annotated
+                    }
+                    None => declared_ty.clone(),
+                };
+                method_env.insert_mono(param.id, param.name.clone(), param_ty);
+            }
+
+            // A `!`-returning method (Exception::throw) has no statically
+            // knowable resume type: the host can raise it at any perform
+            // site, and resuming substitutes a value for the failing call.
+            let value_ty = match self.apply(&ret_ty) {
+                Type::Never => None,
+                ret => Some(ret),
+            };
+            self.resume_contexts.push(crate::infer::ResumeContext {
+                value_ty,
+                result_ty: None,
+            });
+            let body_result = self.infer_expr(&method_env, &mut method.body);
+            self.resume_contexts.pop();
+            body_result?;
         }
 
         // Handlers don't need to provide all methods - partial handlers are allowed
@@ -608,8 +622,10 @@ impl Infer {
             }
         }
 
-        // Infer the body expression
-        let body_ty = self.infer_expr(env, &mut sandbox_expr.body.clone())?;
+        // Infer the body expression — on the real node, not a clone:
+        // inference records resolutions (trait method symbols, module-call
+        // rewrites, expression types) that the compiler depends on.
+        let body_ty = self.infer_expr(env, &mut sandbox_expr.body)?;
 
         // Get the abilities required by the body
         let body_abilities = self.current_abilities.clone();
@@ -1469,22 +1485,33 @@ mod tests {
     }
 
     #[test]
-    fn test_handler_literal_method_body_type_checked() {
+    fn test_handler_literal_params_take_declared_types() {
         let mut infer = infer_with_test_prelude();
         let env = TypeEnv::new();
 
-        // { go(msg) => msg + 1 } - body uses msg (should type-check)
+        // { go(msg) => msg + "!" } — Printer.go(message: string), so msg is
+        // a string and string concatenation type-checks.
+        let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
+            "go",
+            vec![Param::new(1, "msg")],
+            Expr::binary(BinaryOp::Add, Expr::local(1), Expr::string("!")),
+        )]);
+        let result = infer.infer_expr(&env, &mut expr);
+        assert!(
+            result.is_ok(),
+            "handler param should have its declared type in scope: {result:?}"
+        );
+
+        // { go(msg) => msg + 1 } — msg is a string, not a number: rejected.
         let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
             "go",
             vec![Param::new(1, "msg")],
             Expr::binary(BinaryOp::Add, Expr::local(1), Expr::number(1.0)),
         )]);
-
-        // This should succeed - the parameter 'msg' is in scope
         let result = infer.infer_expr(&env, &mut expr);
         assert!(
-            result.is_ok(),
-            "Handler method body should type-check with params in scope"
+            result.is_err(),
+            "handler param must be constrained to the declared param type"
         );
     }
 

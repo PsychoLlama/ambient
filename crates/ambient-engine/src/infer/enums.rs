@@ -145,15 +145,19 @@ impl EnumInfo {
     /// type parameters, `(payload) -> Enum<params>` for payload variants,
     /// `Enum<params>` for unit variants.
     #[must_use]
-    pub fn constructor_scheme(&self, variant_idx: usize) -> Scheme {
+    pub fn constructor_scheme(
+        &self,
+        r#gen: &mut crate::types::TypeVarGen,
+        variant_idx: usize,
+    ) -> Scheme {
         let mut type_var_map: HashMap<Arc<str>, TypeVarId> = HashMap::new();
         let mut quantified: Vec<TypeVarId> = Vec::new();
         let mut args: Vec<Type> = Vec::new();
-        for (idx, param) in self.type_params.iter().enumerate() {
-            // High range so quantified ids can never collide with runtime
-            // fresh variables bound in the global substitution.
-            #[allow(clippy::cast_possible_truncation)]
-            let var_id = 900_000_000 + idx as TypeVarId;
+        for param in &self.type_params {
+            // Quantified ids come from the shared generator so they can
+            // never collide with inference variables bound in the global
+            // substitution.
+            let var_id = r#gen.fresh_id();
             type_var_map.insert(Arc::clone(param), var_id);
             quantified.push(var_id);
             args.push(Type::Var(TypeVar::Unbound(var_id)));

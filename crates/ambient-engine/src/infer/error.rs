@@ -160,6 +160,9 @@ pub enum TypeErrorKind {
     /// Handler is missing a required ability method.
     HandlerMissingMethod { ability: Arc<str>, method: Arc<str> },
 
+    /// `resume` used outside a handler arm.
+    ResumeOutsideHandler,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Sandbox errors (Milestone 14)
     // ─────────────────────────────────────────────────────────────────────────
@@ -354,6 +357,13 @@ impl std::fmt::Display for TypeErrorKind {
                 write!(
                     f,
                     "handler for `{ability}` is missing required method `{method}`"
+                )
+            }
+            Self::ResumeOutsideHandler => {
+                write!(
+                    f,
+                    "`resume` is only meaningful inside a handler arm, where it \
+                     continues the suspended computation"
                 )
             }
             Self::SandboxAbilityViolation { ability, allowed } => {

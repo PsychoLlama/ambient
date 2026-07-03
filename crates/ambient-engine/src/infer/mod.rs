@@ -116,6 +116,46 @@ pub struct Infer {
     /// ability names found while resolving annotations). Drained by the
     /// module-level check functions.
     pub(crate) pending_errors: Vec<error::BoxedTypeError>,
+    /// Enclosing handler-arm contexts for typing `resume` (innermost last).
+    pub(crate) resume_contexts: Vec<ResumeContext>,
+    /// Handle expressions whose body effects were still polymorphic when
+    /// the handle was checked. Resolved (handled abilities subtracted) by
+    /// [`Infer::resolve_pending_discharges`] once every body in the module
+    /// has been checked and ability variables are bound.
+    pub(crate) pending_discharges: Vec<PendingDischarge>,
+}
+
+/// What `resume` means inside the handler arm currently being checked.
+#[derive(Debug, Clone)]
+pub(crate) struct ResumeContext {
+    /// Type of the value `resume` feeds to the continuation — the ability
+    /// method's return type. `None` when unconstrainable: a method
+    /// returning `!` (Exception's `throw`) can be raised by the host at
+    /// any perform site, so the continuation's expected value is
+    /// statically unknowable (resuming substitutes a value for the
+    /// *failing call*, not for `throw` itself).
+    pub value_ty: Option<Type>,
+    /// Type of the `resume(...)` expression itself: the handle
+    /// expression's result. `None` inside handler literals, where the
+    /// eventual handle site is unknown.
+    pub result_ty: Option<Type>,
+}
+
+/// A deferred "subtract handled abilities from this body's effects".
+///
+/// When a handle expression's body effects still contain unbound ability
+/// variables (calls to functions whose effects bind later in the check
+/// pass), the subtraction can't happen at the handle site. The handle
+/// instead contributes a fresh `remainder` variable to its enclosing
+/// context and records this, to be resolved once all bodies are checked.
+#[derive(Debug)]
+pub(crate) struct PendingDischarge {
+    /// The handled body's effect set, as of the handle site.
+    pub body: AbilitySet,
+    /// Abilities the handle's arms and handler values cover.
+    pub handled: Vec<AbilityId>,
+    /// The variable standing in for "body effects minus handled".
+    pub remainder: AbilityVarId,
 }
 
 impl Default for Infer {
@@ -125,58 +165,94 @@ impl Default for Infer {
 }
 
 impl Infer {
-    /// Create a new inference context with standard abilities.
-    #[must_use]
-    pub fn new() -> Self {
+    fn with_parts(registry: Option<AbilityRegistry>, resolver: AbilityResolver) -> Self {
         Self {
             r#gen: TypeVarGen::new(),
             subst: HashMap::new(),
             ability_subst: HashMap::new(),
             current_abilities: AbilitySet::Empty,
-            ability_registry: None,
-            ability_resolver: crate::ability_resolver::core_abilities(),
-            type_aliases: HashMap::new(),
-            trait_registry: TraitRegistry::with_prelude(),
-            inherent_registry: inherent::InherentRegistry::default(),
-            enum_registry: enums::EnumRegistry::with_prelude(),
-            pending_errors: Vec::new(),
-        }
-    }
-
-    /// Create a new inference context with an ability registry.
-    #[must_use]
-    pub fn with_registry(registry: AbilityRegistry) -> Self {
-        Self {
-            r#gen: TypeVarGen::new(),
-            subst: HashMap::new(),
-            ability_subst: HashMap::new(),
-            current_abilities: AbilitySet::Empty,
-            ability_registry: Some(registry),
-            ability_resolver: crate::ability_resolver::core_abilities(),
-            type_aliases: HashMap::new(),
-            trait_registry: TraitRegistry::with_prelude(),
-            inherent_registry: inherent::InherentRegistry::default(),
-            enum_registry: enums::EnumRegistry::with_prelude(),
-            pending_errors: Vec::new(),
-        }
-    }
-
-    /// Create a new inference context with a custom ability resolver.
-    #[must_use]
-    pub fn with_resolver(resolver: AbilityResolver) -> Self {
-        Self {
-            r#gen: TypeVarGen::new(),
-            subst: HashMap::new(),
-            ability_subst: HashMap::new(),
-            current_abilities: AbilitySet::Empty,
-            ability_registry: None,
+            ability_registry: registry,
             ability_resolver: resolver,
             type_aliases: HashMap::new(),
             trait_registry: TraitRegistry::with_prelude(),
             inherent_registry: inherent::InherentRegistry::default(),
             enum_registry: enums::EnumRegistry::with_prelude(),
             pending_errors: Vec::new(),
+            resume_contexts: Vec::new(),
+            pending_discharges: Vec::new(),
         }
+    }
+
+    /// Create a new inference context with standard abilities.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::with_parts(None, crate::ability_resolver::core_abilities())
+    }
+
+    /// Create a new inference context with an ability registry.
+    #[must_use]
+    pub fn with_registry(registry: AbilityRegistry) -> Self {
+        Self::with_parts(Some(registry), crate::ability_resolver::core_abilities())
+    }
+
+    /// Create a new inference context with a custom ability resolver.
+    #[must_use]
+    pub fn with_resolver(resolver: AbilityResolver) -> Self {
+        Self::with_parts(None, resolver)
+    }
+
+    /// Resolve every [`PendingDischarge`] recorded during body checking.
+    ///
+    /// Called after all bodies are checked (so ability variables that bind
+    /// late are bound). Inner handles record before outer ones, and a
+    /// callee's remainder may appear in any caller's body set, so this
+    /// iterates to a fixpoint: each round resolves the discharges whose
+    /// applied body no longer mentions another pending remainder. Anything
+    /// left after a round without progress (mutual dependence or a
+    /// genuinely polymorphic tail) resolves conservatively — handled
+    /// abilities are subtracted from the concrete part and the tail is
+    /// kept, i.e. an unknowable effect is assumed *unhandled*.
+    pub(crate) fn resolve_pending_discharges(&mut self) {
+        let mut pending = std::mem::take(&mut self.pending_discharges);
+        while !pending.is_empty() {
+            let unresolved: Vec<AbilityVarId> = pending.iter().map(|p| p.remainder).collect();
+            let (ready, blocked): (Vec<_>, Vec<_>) = pending.into_iter().partition(|p| {
+                self.apply_abilities(&p.body)
+                    .ability_var()
+                    .is_none_or(|v| !unresolved.contains(&v))
+            });
+            let stuck = ready.is_empty();
+            for p in &ready {
+                self.bind_discharge(p);
+            }
+            if stuck {
+                for p in &blocked {
+                    self.bind_discharge(p);
+                }
+                break;
+            }
+            pending = blocked;
+        }
+    }
+
+    /// Bind one discharge's remainder variable to "body minus handled".
+    fn bind_discharge(&mut self, discharge: &PendingDischarge) {
+        let applied = self.apply_abilities(&discharge.body);
+        let bound = match applied {
+            AbilitySet::Concrete(ids) => AbilitySet::from_abilities(
+                ids.into_iter().filter(|a| !discharge.handled.contains(a)),
+            ),
+            AbilitySet::Row { concrete, tail } => AbilitySet::row(
+                concrete
+                    .into_iter()
+                    .filter(|a| !discharge.handled.contains(a)),
+                tail,
+            ),
+            // Empty stays empty; a bare variable is unknowable — assume
+            // nothing was handled. Unresolved never survives checking.
+            other => other,
+        };
+        self.ability_subst.insert(discharge.remainder, bound);
     }
 
     /// Register a type alias for later lookup during typed record inference.
@@ -334,11 +410,36 @@ impl Infer {
 
     /// Generalize a type to a scheme by quantifying free variables
     /// not in the environment.
+    ///
+    /// The environment's free variables are computed *after applying the
+    /// current substitution*: a stored `'3` that unification later bound to
+    /// `('7) -> ()` pins `'7` in the environment even though the raw stored
+    /// type never mentions it. Skipping this application would wrongly
+    /// quantify `'7` here and let one binding's type vary per use site.
     #[must_use]
     pub fn generalize(&self, env: &TypeEnv, ty: &Type) -> Scheme {
         let ty = self.apply(ty);
         let ty_vars = ty.free_vars();
-        let env_vars = env.free_vars();
+
+        let mut env_vars = Vec::new();
+        let mut env_ability_vars = Vec::new();
+        for (_, scheme) in env.iter() {
+            // Quantified variables never enter the substitution, so applying
+            // it leaves them intact; they are excluded as bound below.
+            let applied = self.apply(&scheme.ty);
+            env_vars.extend(
+                applied
+                    .free_vars()
+                    .into_iter()
+                    .filter(|v| !scheme.vars.contains(v)),
+            );
+            env_ability_vars.extend(
+                applied
+                    .free_ability_vars()
+                    .into_iter()
+                    .filter(|v| !scheme.ability_vars.contains(v)),
+            );
+        }
 
         let free_type_vars: Vec<_> = ty_vars
             .into_iter()
@@ -346,7 +447,6 @@ impl Infer {
             .collect();
 
         let ty_ability_vars = ty.free_ability_vars();
-        let env_ability_vars = env.free_ability_vars();
 
         let free_ability_vars: Vec<_> = ty_ability_vars
             .into_iter()

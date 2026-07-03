@@ -174,6 +174,9 @@ fn check_module_core(
     }
 
     // Phase 4: enforce declared abilities with final substitutions applied.
+    // Handle expressions whose body effects were polymorphic at the handle
+    // site resolve first, so their remainders are concrete for enforcement.
+    infer.resolve_pending_discharges();
     for (idx, inferred) in inferred_abilities {
         if let crate::ast::ItemKind::Function(func) = &module.items[idx].kind {
             enforce_declared_abilities(
@@ -520,7 +523,15 @@ fn check_impls(
         if let crate::ast::ItemKind::Impl(impl_def) = &mut item.kind {
             match impl_def.trait_name.clone() {
                 Some(trait_name) => {
-                    check_single_impl(infer, impl_def, &trait_name, item.span, env, errors);
+                    check_single_impl(
+                        infer,
+                        impl_def,
+                        &trait_name,
+                        item.span,
+                        env,
+                        errors,
+                        deferred,
+                    );
                 }
                 None => check_inherent_impl_bodies(infer, impl_def, env, errors, deferred),
             }
@@ -536,6 +547,7 @@ fn check_single_impl(
     item_span: crate::ast::Span,
     env: &TypeEnv,
     errors: &mut Vec<BoxedTypeError>,
+    deferred: &mut Vec<DeferredAbilityCheck>,
 ) {
     let span = (item_span.start, item_span.end);
 
@@ -569,7 +581,9 @@ fn check_single_impl(
     };
 
     // Check each method in the impl
-    check_impl_methods(infer, impl_def, &trait_def, &for_type, env, errors);
+    check_impl_methods(
+        infer, impl_def, &trait_def, &for_type, env, errors, deferred,
+    );
 
     // Check that all required methods are implemented
     check_impl_completeness(impl_def, &trait_def, trait_name, span, errors);
@@ -710,17 +724,12 @@ fn build_inherent_method_scheme(
     for_type: &Type,
     errors: &mut Vec<BoxedTypeError>,
 ) -> Scheme {
-    // High ID range so quantified ids can never collide with runtime fresh
-    // variables (same trick as enum constructor schemes).
+    // Quantified ids come from the shared generator so they can never
+    // collide with inference variables allocated elsewhere.
     let mut type_var_map: HashMap<Arc<str>, TypeVarId> = HashMap::new();
     let mut quantified = Vec::new();
-    for (idx, tp) in impl_type_params
-        .iter()
-        .chain(method.type_params.iter())
-        .enumerate()
-    {
-        #[allow(clippy::cast_possible_truncation)]
-        let var_id = 910_000_000 + idx as TypeVarId;
+    for tp in impl_type_params.iter().chain(method.type_params.iter()) {
+        let var_id = infer.r#gen.fresh_id();
         type_var_map.insert(Arc::clone(&tp.name), var_id);
         quantified.push(var_id);
     }
@@ -871,6 +880,11 @@ fn check_inherent_impl_bodies(
 }
 
 /// Check all methods in an impl block.
+///
+/// Trait method signatures carry no `with` clause, so trait impl bodies
+/// must be pure — enforced like a public function's empty declaration,
+/// deferred until all bodies are checked. Without this, dot dispatch and
+/// operator overloading would launder arbitrary effects past callers.
 fn check_impl_methods(
     infer: &mut Infer,
     impl_def: &mut crate::ast::ImplDef,
@@ -878,6 +892,7 @@ fn check_impl_methods(
     for_type: &Type,
     env: &TypeEnv,
     errors: &mut Vec<BoxedTypeError>,
+    deferred: &mut Vec<DeferredAbilityCheck>,
 ) {
     for method in &mut impl_def.methods {
         // Trait method effects are fixed by the trait signature; a `with`
@@ -936,6 +951,12 @@ fn check_impl_methods(
                 if let Err(e) = infer.unify(&expected_ret, &body_ty, method_span) {
                     errors.push(e.with_context(format!("in impl method `{}`", method.name)));
                 }
+                deferred.push(DeferredAbilityCheck {
+                    context: format!("trait impl method `{}`", method.name),
+                    declared: Vec::new(),
+                    inferred: infer.current_abilities().clone(),
+                    span: method.span,
+                });
             }
             Err(e) => {
                 errors.push(e.with_context(format!("in impl method `{}`", method.name)));
@@ -997,9 +1018,11 @@ fn build_function_scheme(
     let mut type_var_map: HashMap<Arc<str>, TypeVarId> = HashMap::new();
     let mut quantified_vars = Vec::new();
 
-    for (idx, tp) in func.type_params.iter().enumerate() {
-        #[allow(clippy::cast_possible_truncation)]
-        let var_id = idx as TypeVarId;
+    for tp in &func.type_params {
+        // Quantified ids come from the shared generator so they can never
+        // collide with inference variables allocated elsewhere (a low fixed
+        // id like 0 would alias the first `fresh()` of the check pass).
+        let var_id = infer.r#gen.fresh_id();
         type_var_map.insert(Arc::clone(&tp.name), var_id);
         quantified_vars.push(var_id);
     }
@@ -1207,7 +1230,7 @@ fn register_enums(infer: &mut Infer, module: &crate::ast::Module, env: &mut Type
             if !owned {
                 continue;
             }
-            let scheme = info.constructor_scheme(idx);
+            let scheme = info.constructor_scheme(&mut infer.r#gen, idx);
             env.insert(next_binding_id, Arc::clone(&variant.name), scheme);
             next_binding_id += 1;
         }

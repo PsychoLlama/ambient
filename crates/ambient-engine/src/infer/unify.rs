@@ -395,110 +395,140 @@ impl Infer {
         abilities: &AbilitySet,
         visiting: &mut Vec<AbilityVarId>,
     ) -> AbilitySet {
-        match abilities {
-            AbilitySet::Empty | AbilitySet::Concrete(_) | AbilitySet::Unresolved(_) => {
-                abilities.clone()
-            }
-            AbilitySet::Var(id) => match self.ability_subst.get(id) {
-                Some(bound) if !visiting.contains(id) => {
-                    visiting.push(*id);
-                    let resolved = self.apply_abilities_impl(bound, visiting);
-                    visiting.pop();
-                    resolved
-                }
-                _ => abilities.clone(),
-            },
-            AbilitySet::Row { concrete, tail } => match self.ability_subst.get(tail) {
-                Some(tail_set) if !visiting.contains(tail) => {
-                    visiting.push(*tail);
-                    let resolved_tail = self.apply_abilities_impl(tail_set, visiting);
-                    visiting.pop();
-                    AbilitySet::from_abilities(concrete.iter().copied()).union(&resolved_tail)
-                }
-                _ => abilities.clone(),
-            },
-        }
+        self.subst_view().apply_abilities(abilities, visiting)
     }
 
     pub(crate) fn apply_impl(&self, ty: &Type, seen: &mut Vec<TypeVarId>) -> Type {
+        self.subst_view().apply(ty, seen)
+    }
+
+    /// The full substitution as a [`MaskedSubst`] with nothing masked.
+    fn subst_view(&self) -> MaskedSubst<'_> {
+        MaskedSubst {
+            types: &self.subst,
+            abilities: &self.ability_subst,
+            masked_types: &[],
+            masked_abilities: &[],
+        }
+    }
+}
+
+/// A view of the substitution with a binder's quantified variables masked
+/// out, for applying under `Forall` without cloning the inference state.
+struct MaskedSubst<'a> {
+    types: &'a std::collections::HashMap<TypeVarId, Type>,
+    abilities: &'a std::collections::HashMap<AbilityVarId, AbilitySet>,
+    masked_types: &'a [TypeVarId],
+    masked_abilities: &'a [AbilityVarId],
+}
+
+impl MaskedSubst<'_> {
+    fn lookup(&self, id: TypeVarId) -> Option<&Type> {
+        if self.masked_types.contains(&id) {
+            None
+        } else {
+            self.types.get(&id)
+        }
+    }
+
+    fn lookup_ability(&self, id: AbilityVarId) -> Option<&AbilitySet> {
+        if self.masked_abilities.contains(&id) {
+            None
+        } else {
+            self.abilities.get(&id)
+        }
+    }
+
+    fn apply(&self, ty: &Type, seen: &mut Vec<TypeVarId>) -> Type {
         match ty {
             Type::Var(TypeVar::Unbound(id)) => {
                 if seen.contains(id) {
                     return ty.clone(); // Cycle, stop
                 }
-                if let Some(bound) = self.subst.get(id) {
+                if let Some(bound) = self.lookup(*id) {
                     seen.push(*id);
-                    let result = self.apply_impl(bound, seen);
+                    let result = self.apply(bound, seen);
                     seen.pop();
                     result
                 } else {
                     ty.clone()
                 }
             }
-            Type::Var(TypeVar::Link(link)) => self.apply_impl(&link.borrow(), seen),
-            Type::Tuple(elems) => {
-                Type::Tuple(elems.iter().map(|e| self.apply_impl(e, seen)).collect())
-            }
+            Type::Var(TypeVar::Link(link)) => self.apply(&link.borrow(), seen),
+            Type::Tuple(elems) => Type::Tuple(elems.iter().map(|e| self.apply(e, seen)).collect()),
             Type::Record(r) => Type::Record(RecordType::new(
                 r.fields
                     .iter()
-                    .map(|(n, t)| (n.clone(), self.apply_impl(t, seen)))
+                    .map(|(n, t)| (n.clone(), self.apply(t, seen)))
                     .collect(),
             )),
-            Type::Function(f) => {
-                let applied_abilities = self.apply_abilities(&f.abilities);
-                Type::Function(FunctionType::with_abilities(
-                    f.params.iter().map(|p| self.apply_impl(p, seen)).collect(),
-                    self.apply_impl(&f.ret, seen),
-                    applied_abilities,
-                ))
-            }
+            Type::Function(f) => Type::Function(FunctionType::with_abilities(
+                f.params.iter().map(|p| self.apply(p, seen)).collect(),
+                self.apply(&f.ret, seen),
+                self.apply_abilities(&f.abilities, &mut Vec::new()),
+            )),
             Type::Named(n) => Type::Named(crate::types::NamedType::new(
                 n.name.clone(),
-                n.args.iter().map(|a| self.apply_impl(a, seen)).collect(),
+                n.args.iter().map(|a| self.apply(a, seen)).collect(),
             )),
             Type::Nominal(n) => Type::Nominal(crate::types::NominalType::new(
                 n.uuid,
-                self.apply_impl(&n.inner, seen),
+                self.apply(&n.inner, seen),
                 n.name.clone(),
             )),
-            Type::AbilityValue(av) => {
-                let applied_ability = self.apply_abilities(&av.ability);
-                Type::AbilityValue(crate::types::AbilityValueType::new(
-                    self.apply_impl(&av.result, seen),
-                    applied_ability,
-                ))
-            }
+            Type::AbilityValue(av) => Type::AbilityValue(crate::types::AbilityValueType::new(
+                self.apply(&av.result, seen),
+                self.apply_abilities(&av.ability, &mut Vec::new()),
+            )),
             Type::Forall(f) => {
-                // Don't apply subst to bound variables
-                let mut new_subst = self.subst.clone();
-                for var in &f.vars {
-                    new_subst.remove(var);
-                }
-                let mut new_ability_subst = self.ability_subst.clone();
-                for var in &f.ability_vars {
-                    new_ability_subst.remove(var);
-                }
-                let inner_infer = Infer {
-                    r#gen: crate::types::TypeVarGen::new(),
-                    subst: new_subst,
-                    ability_subst: new_ability_subst,
-                    current_abilities: AbilitySet::Empty,
-                    ability_registry: self.ability_registry.clone(),
-                    ability_resolver: crate::ability_resolver::core_abilities(),
-                    type_aliases: self.type_aliases.clone(),
-                    trait_registry: self.trait_registry.clone(),
-                    inherent_registry: self.inherent_registry.clone(),
-                    enum_registry: self.enum_registry.clone(),
-                    pending_errors: Vec::new(),
+                // A nested binder masks its own variables in addition.
+                let mut masked_types = self.masked_types.to_vec();
+                masked_types.extend_from_slice(&f.vars);
+                let mut masked_abilities = self.masked_abilities.to_vec();
+                masked_abilities.extend_from_slice(&f.ability_vars);
+                let inner = MaskedSubst {
+                    types: self.types,
+                    abilities: self.abilities,
+                    masked_types: &masked_types,
+                    masked_abilities: &masked_abilities,
                 };
                 Type::Forall(crate::types::ForallType::with_abilities(
                     f.vars.clone(),
                     f.ability_vars.clone(),
-                    inner_infer.apply(&f.body),
+                    inner.apply(&f.body, seen),
                 ))
             }
             _ => ty.clone(),
+        }
+    }
+
+    fn apply_abilities(
+        &self,
+        abilities: &AbilitySet,
+        visiting: &mut Vec<AbilityVarId>,
+    ) -> AbilitySet {
+        match abilities {
+            AbilitySet::Empty | AbilitySet::Concrete(_) | AbilitySet::Unresolved(_) => {
+                abilities.clone()
+            }
+            AbilitySet::Var(id) => match self.lookup_ability(*id) {
+                Some(bound) if !visiting.contains(id) => {
+                    visiting.push(*id);
+                    let resolved = self.apply_abilities(bound, visiting);
+                    visiting.pop();
+                    resolved
+                }
+                _ => abilities.clone(),
+            },
+            AbilitySet::Row { concrete, tail } => match self.lookup_ability(*tail) {
+                Some(tail_set) if !visiting.contains(tail) => {
+                    visiting.push(*tail);
+                    let resolved_tail = self.apply_abilities(tail_set, visiting);
+                    visiting.pop();
+                    AbilitySet::from_abilities(concrete.iter().copied()).union(&resolved_tail)
+                }
+                _ => abilities.clone(),
+            },
         }
     }
 }

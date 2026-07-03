@@ -27,18 +27,6 @@ impl Infer {
         self.ability_resolver.id_to_name(id)
     }
 
-    /// Get the method signatures for an ability using the resolver.
-    ///
-    /// Returns a list of (`method_name`, `param_count`, `return_type`) tuples.
-    pub(crate) fn get_ability_method_signatures(
-        &self,
-        ability_id: AbilityId,
-    ) -> Vec<(String, usize, Type)> {
-        let factory = EngineTypeFactory;
-        self.ability_resolver
-            .get_method_signatures(ability_id, &factory)
-    }
-
     /// Try to infer which ability a handler literal is for based on method names.
     ///
     /// Returns the ability ID if all methods belong to exactly one ability.
@@ -48,6 +36,45 @@ impl Infer {
     ) -> Option<AbilityId> {
         self.ability_resolver
             .infer_ability_from_methods(method_names)
+    }
+
+    /// The full declared signature of an ability method, instantiated for
+    /// one use site: quantified type parameters of dynamic methods become
+    /// fresh inference variables, and builtin-descriptor type variables
+    /// (which arrive as `Hole`) resolve to fresh variables too.
+    ///
+    /// This is the one lookup handler arms, handler literals, and perform
+    /// checking share, so all three enforce the same signature.
+    pub(crate) fn ability_method_signature(
+        &mut self,
+        ability_id: AbilityId,
+        method_name: &str,
+    ) -> Option<(Vec<Type>, Type)> {
+        // Module-declared (dynamic) abilities carry fully resolved types.
+        if let Some(dynamic) = self.ability_resolver.get_dynamic_by_id(ability_id).cloned() {
+            let method = dynamic.method(method_name)?;
+            let mut subst = std::collections::HashMap::new();
+            for quantified in &method.quantified {
+                subst.insert(*quantified, self.fresh());
+            }
+            let params = method.params.iter().map(|p| p.substitute(&subst)).collect();
+            let ret = method.ret.substitute(&subst);
+            return Some((params, ret));
+        }
+
+        // Builtin descriptors construct types through the factory.
+        let factory = EngineTypeFactory;
+        let (params, ret) = {
+            let ability = self.ability_resolver.get_by_id(ability_id)?;
+            let method = ability.get_method(method_name)?;
+            (
+                (method.signature.param_types)(&factory),
+                (method.signature.return_type)(&factory),
+            )
+        };
+        let params = params.iter().map(|p| self.resolve_holes(p)).collect();
+        let ret = self.resolve_holes(&ret);
+        Some((params, ret))
     }
 
     /// Look up an ability method and return its ID, result type, and additional abilities to require.

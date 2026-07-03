@@ -52,23 +52,32 @@ impl Infer {
     ///
     /// Handle installs ability handlers and evaluates the body.
     /// The result type is the type of the body expression.
+    ///
+    /// Effects split three ways:
+    /// - the body's effects, minus what the handlers cover, flow to the
+    ///   enclosing context (deferred when the body's set is still
+    ///   polymorphic — see [`crate::infer::PendingDischarge`]);
+    /// - the handler arms' and else clause's own effects always flow to
+    ///   the enclosing context (they run outside the delimited body);
+    /// - handler *values* contribute nothing here — their arms were
+    ///   checked where the literal was written.
     pub(super) fn infer_handle(
         &mut self,
         env: &TypeEnv,
         handle_expr: &mut HandleExpr,
         span: (u32, u32),
     ) -> InferResult<Type> {
-        // Save current abilities
-        let saved_abilities = self.current_abilities.clone();
-        self.reset_abilities();
-
-        // Infer the body expression. Mutations matter: inference records
-        // resolutions (trait methods, rewrites, types) that the compiler
-        // reads, so it must run on the real nodes, never clones.
+        // Infer the body with a clean effect accumulator. Mutations matter:
+        // inference records resolutions (trait methods, rewrites, types)
+        // that the compiler reads, so it must run on real nodes, never
+        // clones.
+        let saved_abilities = std::mem::take(&mut self.current_abilities);
         let body_ty = self.infer_expr(env, &mut handle_expr.body)?;
 
-        // Get the abilities required by the body
-        let body_abilities = self.current_abilities.clone();
+        // Everything below (handler values, else clause, arm bodies) runs
+        // outside the delimited body, so its effects accumulate for the
+        // enclosing context, on top of the saved set.
+        let body_abilities = std::mem::replace(&mut self.current_abilities, saved_abilities);
 
         // Collect handled abilities from handler values (from `with` clause).
         // The inferred `Handler<A>` type must land on the real expression:
@@ -106,28 +115,78 @@ impl Infer {
             body_ty.clone()
         };
 
-        // Collect handled abilities from inline handlers
+        // Check inline handler arms against the ability's declared method
+        // signature: parameters take the declared types, `resume` feeds the
+        // method's return type, and the arm's value becomes the handle
+        // expression's result (arms bypass the else transform).
         for handler in &mut handle_expr.handlers {
-            if let Some(ability_id) = self.ability_name_to_id(&handler.ability.name) {
-                handled_abilities.push(ability_id);
+            let handler_span = (handler.span.start, handler.span.end);
+            let Some(ability_id) = self.ability_name_to_id(&handler.ability.name) else {
+                return Err(type_error(
+                    TypeErrorKind::UnknownAbility {
+                        name: handler.ability.name.clone(),
+                    },
+                    handler_span,
+                ));
+            };
+            handled_abilities.push(ability_id);
+
+            let Some((param_tys, ret_ty)) =
+                self.ability_method_signature(ability_id, &handler.method)
+            else {
+                return Err(type_error(
+                    TypeErrorKind::UnknownAbilityMethod {
+                        ability: handler.ability.name.clone(),
+                        method: handler.method.clone(),
+                    },
+                    handler_span,
+                ));
+            };
+            if handler.params.len() != param_tys.len() {
+                return Err(type_error(
+                    TypeErrorKind::HandlerMethodArityMismatch {
+                        ability: handler.ability.name.clone(),
+                        method: handler.method.clone(),
+                        expected: param_tys.len(),
+                        actual: handler.params.len(),
+                    },
+                    handler_span,
+                ));
             }
 
-            // Infer handler body (with continuation parameter)
             let mut handler_env = env.extend();
-            for param in &handler.params {
-                let param_ty = param.ty.clone().unwrap_or_else(|| self.fresh());
+            for (param, declared_ty) in handler.params.iter().zip(&param_tys) {
+                let param_ty = match &param.ty {
+                    Some(ty) => {
+                        let annotated = self.resolve_holes(ty);
+                        self.unify(declared_ty, &annotated, handler_span)?;
+                        annotated
+                    }
+                    None => declared_ty.clone(),
+                };
                 handler_env.insert_mono(param.id, param.name.clone(), param_ty);
             }
 
-            // A handler arm's value becomes the handle expression's result
-            // (arms bypass the else transform). Inferred on the real body so
-            // resolutions persist.
-            let handler_ty = self.infer_expr(&handler_env, &mut handler.body)?;
+            // A `!`-returning method (Exception::throw) has no statically
+            // knowable resume type: the host can raise it at any perform
+            // site, and resuming substitutes a value for the failing call.
+            let value_ty = match self.apply(&ret_ty) {
+                Type::Never => None,
+                ret => Some(ret),
+            };
+            self.resume_contexts.push(crate::infer::ResumeContext {
+                value_ty,
+                result_ty: Some(result_ty.clone()),
+            });
+            let handler_result = self.infer_expr(&handler_env, &mut handler.body);
+            self.resume_contexts.pop();
+            let handler_ty = handler_result?;
             self.unify(&result_ty, &handler_ty, span)?;
         }
 
-        // Compute remaining unhandled abilities
-        let remaining_abilities = match &body_abilities {
+        // Compute the body's remaining (unhandled) abilities and require
+        // them from the enclosing context.
+        let remaining_abilities = match self.apply_abilities(&body_abilities) {
             AbilitySet::Empty => AbilitySet::Empty,
             AbilitySet::Concrete(abilities) => {
                 let remaining: Vec<_> = abilities
@@ -137,15 +196,22 @@ impl Infer {
                     .collect();
                 AbilitySet::from_abilities(remaining)
             }
-            AbilitySet::Var(_) | AbilitySet::Row { .. } | AbilitySet::Unresolved(_) => {
-                // Can't statically determine which abilities are handled
-                // For now, assume all handlers match
-                body_abilities.clone()
+            body @ (AbilitySet::Var(_) | AbilitySet::Row { .. } | AbilitySet::Unresolved(_)) => {
+                // The body's effects are still polymorphic — typically
+                // calls to functions whose inferred effects bind later in
+                // the check pass. Contribute a remainder variable now and
+                // defer the subtraction until all bodies are checked.
+                let remainder = self.r#gen.fresh_ability_id();
+                self.pending_discharges
+                    .push(crate::infer::PendingDischarge {
+                        body,
+                        handled: handled_abilities,
+                        remainder,
+                    });
+                AbilitySet::Var(remainder)
             }
         };
-
-        // Restore saved abilities and add remaining
-        self.current_abilities = saved_abilities.union(&remaining_abilities);
+        self.require_abilities(&remaining_abilities);
 
         Ok(result_ty)
     }
