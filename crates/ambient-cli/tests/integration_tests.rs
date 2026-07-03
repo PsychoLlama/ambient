@@ -1419,7 +1419,7 @@ fn test_core_functions_fully_qualified() {
     let (dir, pkg) = temp_package(
         r"
         pub fn run(): number {
-            core::list::sum(core::list::map([1, 2, 3], (x: number) => x * 2))
+            core::List::sum(core::List::map([1, 2, 3], (x: number) => x * 2))
         }
         ",
     );
@@ -1431,13 +1431,13 @@ fn test_core_functions_fully_qualified() {
 
 #[test]
 fn test_core_whole_module_import_alias() {
-    // `use core::list;` binds the alias `list` for qualified calls.
+    // `use core::List;` binds the alias `List` for qualified calls.
     let (dir, pkg) = temp_package(
         r"
-        use core::list;
+        use core::List;
 
         pub fn run(): number {
-            list::fold(list::range(1, 5), 0, (acc: number, x: number) => acc + x)
+            List::fold(List::range(1, 5), 0, (acc: number, x: number) => acc + x)
         }
         ",
     );
@@ -1449,10 +1449,10 @@ fn test_core_whole_module_import_alias() {
 
 #[test]
 fn test_core_item_import() {
-    // `use core::list::{map, sum};` binds plain names.
+    // `use core::List::{map, sum};` binds plain names.
     let (dir, pkg) = temp_package(
         r"
-        use core::list::{map, sum};
+        use core::List::{map, sum};
 
         pub fn run(): number {
             sum(map([1, 2, 3], (x: number) => x + 10))
@@ -1588,9 +1588,9 @@ fn test_option_constructors_and_core_helpers() {
     let (dir, pkg) = temp_package(
         r"
         pub fn run(): number {
-            let doubled = core::option::map(Some(20), (x: number) => x * 2);
-            core::option::unwrap_or(doubled, 0)
-                + core::option::unwrap_or(core::option::map(nothing(), (x: number) => x), 2)
+            let doubled = core::Option::map(Some(20), (x: number) => x * 2);
+            core::Option::unwrap_or(doubled, 0)
+                + core::Option::unwrap_or(core::Option::map(nothing(), (x: number) => x), 2)
         }
 
         fn nothing(): Option<number> {
@@ -1609,9 +1609,9 @@ fn test_result_constructors_and_chaining() {
     let (dir, pkg) = temp_package(
         r#"
         pub fn run(): string {
-            let ok = core::result::map(parse(5), (x: number) => x * 10);
+            let ok = core::Result::map(parse(5), (x: number) => x * 10);
             let err = parse(0 - 3);
-            match core::result::and_then(ok, (x: number) => parse(x)) {
+            match core::Result::and_then(ok, (x: number) => parse(x)) {
                 Ok(v) => core::string::from_number(v),
                 Err(e) => e,
             }
@@ -1945,7 +1945,7 @@ fn test_handler_methods_intrinsic() {
 
         pub fn run(): number {
             let oracle = { answer() => resume(42) };
-            core::list::length(core::protocol::handler_methods(oracle))
+            core::List::length(core::protocol::handler_methods(oracle))
         }
         ",
     )
@@ -2219,7 +2219,7 @@ fn test_fs_list_returns_written_entries() {
         pub fn run(): number with FileSystem {{
             platform::FileSystem::write!("{base}/a.txt", "1");
             platform::FileSystem::write!("{base}/b.txt", "2");
-            core::list::length(platform::FileSystem::list!("{base}"))
+            core::List::length(platform::FileSystem::list!("{base}"))
         }}
         "#
     ))

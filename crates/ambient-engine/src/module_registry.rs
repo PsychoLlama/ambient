@@ -569,12 +569,12 @@ mod tests {
     fn test_resolve_use_path_core() {
         let registry = ModuleRegistry::new();
         let from = ModulePath::from_str_segments(&["main"]).unwrap();
-        let path = vec![Arc::from("list")];
+        let path = vec![Arc::from("List")];
 
         let resolved = registry
             .resolve_use_path(&from, &UsePrefix::Core, &path)
             .expect("core resolves under the reserved root");
-        assert_eq!(resolved.to_string(), "core.list");
+        assert_eq!(resolved.to_string(), "core.List");
     }
 
     #[test]

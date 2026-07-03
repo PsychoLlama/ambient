@@ -305,11 +305,11 @@ mod tests {
         let history = rustyline::history::DefaultHistory::new();
         let ctx = rustyline::Context::new(&history);
 
-        let result = completer.complete("core::list::", 12, &ctx);
+        let result = completer.complete("core::List::", 12, &ctx);
         assert!(result.is_ok());
         let (_, pairs) = result.unwrap();
 
-        // Should show core::list functions like first, last, map, etc.
+        // Should show core::List functions like first, last, map, etc.
         let replacements: Vec<_> = pairs.iter().map(|p| p.replacement.as_str()).collect();
         assert!(
             replacements

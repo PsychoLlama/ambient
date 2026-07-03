@@ -63,7 +63,7 @@ fn handle_execute(conn: number, payload: Bytes): () with Console, Network, Execu
 
     // Deserialize hash string
     let hash_opt = core::protocol::deserialize_value(hash_bytes);
-    let hash = core::option::unwrap_or(hash_opt, "");
+    let hash = core::Option::unwrap_or(hash_opt, "");
 
     platform::Console::print!(core::string::concat("Server: received Execute for hash ", hash));
 
@@ -103,7 +103,7 @@ fn request_function(conn: number, hash: string): () with Console, Network, Execu
 fn execute_function(conn: number, hash: string, captures: Bytes): () with Console, Network, Execute {
     // Deserialize captures
     let arg_opt = core::protocol::deserialize_value(captures);
-    let arg: number = core::option::unwrap_or(arg_opt, 0);
+    let arg: number = core::Option::unwrap_or(arg_opt, 0);
 
     platform::Console::print!(core::string::concat("Server: executing with arg = ", core::convert::to_string(arg)));
 

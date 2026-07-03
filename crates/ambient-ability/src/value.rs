@@ -99,7 +99,7 @@ pub enum Value {
 /// Reference to a module member for introspection.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModuleMemberRef {
-    /// Full path to the member (e.g., "core.list.first").
+    /// Full path to the member (e.g., "core.List.first").
     pub path: Arc<str>,
     /// The kind of member.
     pub kind: ModuleExportKind,

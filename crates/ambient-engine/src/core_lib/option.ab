@@ -1,7 +1,7 @@
 // Core library: Option utilities.
 //
 // `Some`/`None` constructors and the Option type are built in;
-// `core::option::is_some`, `is_none`, and `unwrap_or` are intrinsics.
+// `core::Option::is_some`, `is_none`, and `unwrap_or` are intrinsics.
 // These helpers cover the higher-order operations.
 
 // Transform the contained value.

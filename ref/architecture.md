@@ -39,18 +39,26 @@ library).
 ```ambient
 use pkg::utils::{a, b};   // Item import: a and b as bare names
 use self::utils;         // Whole-module import: call utils::helper(...)
-use core::list;          // Core modules import the same way: list::map(...)
-use core::list::{map};    // ... or by item
+use core::List;          // Core modules import the same way: List::map(...)
+use core::List::{map};    // ... or by item
 ```
 
-Core modules (`core::list`, `core::math`, `core::string`) are also always in
-scope fully qualified with no import: `core::list::map([1], f)`. They are
+Core modules (`core::List`, `core::math`, `core::string`) are also always in
+scope fully qualified with no import: `core::List::map([1], f)`. They are
 ordinary Ambient modules — compiled, content-addressed, and stored exactly
 like user code (see `crates/ambient-engine/src/core_lib/`). Beneath them
-sits a fixed set of _intrinsics_ (`core::math::sqrt`, `core::list::length`,
+sits a fixed set of _intrinsics_ (`core::math::sqrt`, `core::List::length`,
 `core::string::concat`, ...) that compile to dedicated opcodes; intrinsics
 take precedence over compiled functions at the same path. `core` is a
 keyword, so user modules can never collide with the standard library.
+
+A core module that backs a type takes that type's PascalCase name: `List`,
+`Option`, and `Result` are the companion modules of the `List<T>`, `Option<T>`,
+and `Result<T, E>` types, so `List::map` reads as an associated function of
+`List`. Plain namespaces stay lowercase (`math` backs no type; `string` is a
+primitive whose `string`→`String` alignment is future work). Types, values, and
+modules occupy separate namespaces resolved by syntactic position, so the type
+`List` and the module `core::List` coexist without ambiguity.
 
 A local binding shadows a module alias: after `let utils = ...;`,
 `utils.method()` is a trait-method call on the value.

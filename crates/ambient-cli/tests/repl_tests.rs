@@ -317,12 +317,12 @@ fn test_core_list_dot_shows_function_completions() {
 
 #[test]
 fn test_core_list_first_inspects_as_function() {
-    // Bug: Submitting `core::list::first` should inspect it as a function,
+    // Bug: Submitting `core::List::first` should inspect it as a function,
     // the same as if I printed the value of `fn example() {}<cr>example<cr>`.
     // Currently it might error or return something unexpected.
     ReplTest::new()
         .wait_ready()
-        .type_line("core::list::first")
+        .type_line("core::List::first")
         // Should display as a function (like "fn first<T>(list: List<T>): Option<T>")
         // or at least not error
         .expect_output("fn") // Functions should display with "fn" prefix

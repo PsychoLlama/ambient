@@ -344,7 +344,7 @@ pub(super) fn compile_expr(
                     let hash = fc.function_hashes[&name.name];
                     fc.builder.emit_call(hash, args.len() as u8);
                 } else if !name.path.is_empty() {
-                    // Qualified name like core.list.last - construct full path and look up
+                    // Qualified name like core.List.last - construct full path and look up
                     let qualified: Arc<str> =
                         format!("{}.{}", name.path.join("."), name.name).into();
                     if let Some(&hash) = fc.function_hashes.get(&qualified) {

@@ -2,12 +2,12 @@
 //!
 //! This module handles type inference for intrinsic functions like:
 //! - `core.math.*` - Mathematical operations
-//! - `core.list.*` - List operations
+//! - `core.List.*` - List operations
 //! - `core.string.*` - String operations
 //! - `core.map.*` - Map operations
 //! - `core.set.*` - Set operations
-//! - `core.option.*` - Option operations
-//! - `core.result.*` - Result operations
+//! - `core.Option.*` - Option operations
+//! - `core.Result.*` - Result operations
 //! - `core.convert.*` - Type conversions
 //! - `core.enum.*` - Enum operations
 
@@ -23,12 +23,12 @@ impl Infer {
     ///
     /// Intrinsics must be called with their full qualified path:
     /// - `core.math.sqrt`, `core.math.abs`, etc.
-    /// - `core.list.length`, `core.list.head`, etc.
+    /// - `core.List.length`, `core.List.head`, etc.
     /// - `core.string.length`, `core.string.split`, etc.
     /// - `core.map.empty`, `core.map.get`, etc.
     /// - `core.set.empty`, `core.set.insert`, etc.
-    /// - `core.option.unwrap_or`, `core.option.is_some`, etc.
-    /// - `core.result.is_ok`, `core.result.is_err`, etc.
+    /// - `core.Option.unwrap_or`, `core.Option.is_some`, etc.
+    /// - `core.Result.is_ok`, `core.Result.is_err`, etc.
     /// - `core.convert.to_string`, `core.convert.parse_number`, etc.
     ///
     /// # Errors
@@ -71,15 +71,15 @@ impl Infer {
             }
 
             // ─────────────────────────────────────────────────────────────────
-            // core.list - List operations
+            // core.List - List operations
             // ─────────────────────────────────────────────────────────────────
-            (["core", "list"], "length") if args.len() == 1 => {
+            (["core", "List"], "length") if args.len() == 1 => {
                 let list_ty = self.infer_expr(env, &mut args[0])?;
                 let elem_ty = self.fresh();
                 self.unify(&list_ty, &list_of(elem_ty), span)?;
                 Ok(Some(Type::Number))
             }
-            (["core", "list"], "get") if args.len() == 2 => {
+            (["core", "List"], "get") if args.len() == 2 => {
                 let list_ty = self.infer_expr(env, &mut args[0])?;
                 let index_ty = self.infer_expr(env, &mut args[1])?;
                 let elem_ty = self.fresh();
@@ -89,20 +89,20 @@ impl Infer {
                 // For now, return the element type (assuming in bounds)
                 Ok(Some(elem_ty))
             }
-            (["core", "list"], "head") if args.len() == 1 => {
+            (["core", "List"], "head") if args.len() == 1 => {
                 let list_ty = self.infer_expr(env, &mut args[0])?;
                 let elem_ty = self.fresh();
                 self.unify(&list_ty, &list_of(elem_ty.clone()), span)?;
                 // Returns the element or Unit for empty list
                 Ok(Some(elem_ty))
             }
-            (["core", "list"], "tail" | "reverse" | "sort") if args.len() == 1 => {
+            (["core", "List"], "tail" | "reverse" | "sort") if args.len() == 1 => {
                 let list_ty = self.infer_expr(env, &mut args[0])?;
                 let elem_ty = self.fresh();
                 self.unify(&list_ty, &list_of(elem_ty.clone()), span)?;
                 Ok(Some(list_of(elem_ty)))
             }
-            (["core", "list"], "concat") if args.len() == 2 => {
+            (["core", "List"], "concat") if args.len() == 2 => {
                 let list1_ty = self.infer_expr(env, &mut args[0])?;
                 let list2_ty = self.infer_expr(env, &mut args[1])?;
                 let elem_ty = self.fresh();
@@ -110,7 +110,7 @@ impl Infer {
                 self.unify(&list2_ty, &list_of(elem_ty.clone()), span)?;
                 Ok(Some(list_of(elem_ty)))
             }
-            (["core", "list"], "append") if args.len() == 2 => {
+            (["core", "List"], "append") if args.len() == 2 => {
                 let list_ty = self.infer_expr(env, &mut args[0])?;
                 let elem_arg_ty = self.infer_expr(env, &mut args[1])?;
                 let elem_ty = self.fresh();
@@ -118,13 +118,13 @@ impl Infer {
                 self.unify(&elem_arg_ty, &elem_ty, span)?;
                 Ok(Some(list_of(elem_ty)))
             }
-            (["core", "list"], "is_empty") if args.len() == 1 => {
+            (["core", "List"], "is_empty") if args.len() == 1 => {
                 let list_ty = self.infer_expr(env, &mut args[0])?;
                 let elem_ty = self.fresh();
                 self.unify(&list_ty, &list_of(elem_ty), span)?;
                 Ok(Some(Type::Bool))
             }
-            (["core", "list"], "slice") if args.len() == 3 => {
+            (["core", "List"], "slice") if args.len() == 3 => {
                 let list_ty = self.infer_expr(env, &mut args[0])?;
                 let start_ty = self.infer_expr(env, &mut args[1])?;
                 let end_ty = self.infer_expr(env, &mut args[2])?;
@@ -375,9 +375,9 @@ impl Infer {
             }
 
             // ─────────────────────────────────────────────────────────────────
-            // core.option - Option operations
+            // core.Option - Option operations
             // ─────────────────────────────────────────────────────────────────
-            (["core", "option"], "unwrap_or") if args.len() == 2 => {
+            (["core", "Option"], "unwrap_or") if args.len() == 2 => {
                 let opt_ty = self.infer_expr(env, &mut args[0])?;
                 let default_ty = self.infer_expr(env, &mut args[1])?;
                 let inner_ty = self.fresh();
@@ -385,7 +385,7 @@ impl Infer {
                 self.unify(&default_ty, &inner_ty.clone(), span)?;
                 Ok(Some(inner_ty))
             }
-            (["core", "option"], "is_some" | "is_none") if args.len() == 1 => {
+            (["core", "Option"], "is_some" | "is_none") if args.len() == 1 => {
                 let opt_ty = self.infer_expr(env, &mut args[0])?;
                 let inner_ty = self.fresh();
                 self.unify(&opt_ty, &Type::option(inner_ty), span)?;
@@ -393,9 +393,9 @@ impl Infer {
             }
 
             // ─────────────────────────────────────────────────────────────────
-            // core.result - Result operations
+            // core.Result - Result operations
             // ─────────────────────────────────────────────────────────────────
-            (["core", "result"], "is_ok" | "is_err") if args.len() == 1 => {
+            (["core", "Result"], "is_ok" | "is_err") if args.len() == 1 => {
                 let res_ty = self.infer_expr(env, &mut args[0])?;
                 let ok_ty = self.fresh();
                 let err_ty = self.fresh();

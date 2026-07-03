@@ -58,7 +58,7 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
         ctx.register_ability_modules();
 
         // Compile and load core library functions into the VM.
-        // This allows calling functions like core.list.last() from the REPL.
+        // This allows calling functions like core.List.last() from the REPL.
         compile_and_load_core_library(&mut ctx, &mut vm);
     }
 
@@ -231,7 +231,7 @@ fn eval_repl_input(
             )));
         }
 
-        // Check if the input is a module member path (e.g., "core::list::first").
+        // Check if the input is a module member path (e.g., "core::List::first").
         // This allows users to inspect functions and constants from modules.
         if let Some(kind) = ctx.get_module_member(&lookup) {
             use ambient_engine::value::ModuleMemberRef;
@@ -440,7 +440,7 @@ fn path_to_module_name(path: &Path, src_root: &Path) -> Option<String> {
 
 /// Compile core library modules and load them into the VM.
 ///
-/// This allows calling functions like `core.list.last([1, 2])` from the REPL.
+/// This allows calling functions like `core.List.last([1, 2])` from the REPL.
 fn compile_and_load_core_library(ctx: &mut ReplContext, vm: &mut Vm) {
     use ambient_engine::compiler::compile_module;
     use ambient_engine::core_library::CoreLibrary;

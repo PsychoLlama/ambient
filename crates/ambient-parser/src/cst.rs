@@ -381,7 +381,7 @@ pub struct CstAbilityMethod {
 /// - `use pkg.utils.{helper, format};`
 /// - `use self.sibling;`
 /// - `use super.parent;`
-/// - `use core.list;`
+/// - `use core.List;`
 /// - `pub use pkg.other.Thing;`
 #[derive(Debug, Clone)]
 pub struct CstUseDef {

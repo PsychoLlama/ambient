@@ -38,8 +38,8 @@ impl ReplLspBridge {
                 ReplItemKind::Constant => ExternalSymbolKind::Constant,
             };
             // Names are keyed internally by their dotted path (e.g.
-            // `core.list.any`), but namespaces are surfaced to the user with
-            // `::`. Translate so completions read `core::list::any`. The eval
+            // `core.List.any`), but namespaces are surfaced to the user with
+            // `::`. Translate so completions read `core::List::any`. The eval
             // path translates the accepted `::` back to `.` for lookup.
             symbols.push(ExternalSymbol::new(name.replace('.', "::"), kind));
         }
@@ -92,7 +92,7 @@ impl ReplLspBridge {
         }
 
         // Find the full prefix (including `::` for qualified names like
-        // "core::list").
+        // "core::List").
         let word_start = line
             .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != ':')
             .map_or(0, |i| i + 1);
@@ -107,8 +107,8 @@ impl ReplLspBridge {
         // Show the best match as ghost text
         completions.first().map(|c| {
             // Completions after a `::` scope only replace the trailing segment.
-            // For example, typing "core::list" gets completions like "list" (not
-            // "core::list"), so match against the part after the last `::`.
+            // For example, typing "core::List" gets completions like "List" (not
+            // "core::List"), so match against the part after the last `::`.
             let match_prefix = if let Some(sep) = full_prefix.rfind("::") {
                 &full_prefix[sep + 2..]
             } else {

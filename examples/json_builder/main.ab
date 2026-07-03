@@ -37,14 +37,14 @@ fn json_object(pairs: List<(string, string)>): string {
 }
 
 fn format_pairs(pairs: List<(string, string)>, acc: List<string>): List<string> {
-    if core::list::is_empty(pairs) {
+    if core::List::is_empty(pairs) {
         acc
     } else {
-        let pair = core::list::head(pairs);
+        let pair = core::List::head(pairs);
         let key = json_string(pair.0);
         let value = pair.1;
         let formatted = core::string::concat(key, core::string::concat(": ", value));
-        format_pairs(core::list::tail(pairs), core::list::append(acc, formatted))
+        format_pairs(core::List::tail(pairs), core::List::append(acc, formatted))
     }
 }
 

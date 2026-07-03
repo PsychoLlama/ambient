@@ -32,7 +32,7 @@ pub struct CompletionContext<'a> {
     /// Whether we're after `core.` (for core library module completion).
     pub after_core_dot: bool,
     /// Whether we're after `core.<submodule>.` (for core submodule member completion).
-    /// Contains the submodule name (e.g., "list" for "core.list.").
+    /// Contains the submodule name (e.g., "List" for "core.List.").
     pub after_core_submodule_dot: Option<&'a str>,
     /// Whether we're after a pkg module path (for pkg module member completion).
     /// Contains the module path (e.g., "utils" for "utils." or "utils.format" for "utils.format.").
@@ -70,7 +70,7 @@ impl<'a> CompletionContext<'a> {
         let after_scope = trimmed_before.ends_with("::");
 
         // The qualified path immediately before a trailing `::`
-        // (e.g. `core`, `core::list`, `platform::Console`).
+        // (e.g. `core`, `core::List`, `platform::Console`).
         let scope_path = if after_scope {
             let without_sep = trimmed_before.strip_suffix("::").unwrap_or(trimmed_before);
             let start = without_sep
@@ -81,7 +81,7 @@ impl<'a> CompletionContext<'a> {
             None
         };
 
-        // Core library completions: `core::` offers submodules; `core::list::`
+        // Core library completions: `core::` offers submodules; `core::List::`
         // offers that submodule's members.
         let (after_core_dot, after_core_submodule_dot) = match scope_path {
             Some("core") => (true, None),
@@ -103,8 +103,14 @@ impl<'a> CompletionContext<'a> {
                 let last = path.rsplit("::").next().unwrap_or(path);
                 if TokenKind::builtin_abilities().contains(&last) {
                     (Some(last), None)
-                } else if path.chars().next().is_some_and(char::is_lowercase) {
-                    // Looks like a module path (starts lowercase, not an ability).
+                } else if path.chars().next().is_some_and(char::is_lowercase)
+                    || CoreLibrary::available_modules().contains(&last)
+                {
+                    // A module path: either a conventional lowercase namespace,
+                    // or an alias of a known core module. The latter matters for
+                    // the PascalCase type-companion modules (`List`, `Option`,
+                    // `Result`): after `use core::List;`, a bare `List::` would
+                    // otherwise be misread as an ability and lose completions.
                     (None, Some(path))
                 } else {
                     (None, None)
@@ -287,13 +293,13 @@ fn get_core_module_completions(prefix: &str) -> Vec<CompletionItem> {
 /// Get documentation for a core library module.
 fn get_core_module_doc(module: &str) -> String {
     match module {
-        "option" => {
+        "Option" => {
             "Option handling utilities (is_some, is_none, unwrap_or, map, flatten)".to_string()
         }
-        "result" => {
+        "Result" => {
             "Result handling utilities (is_ok, is_err, unwrap_or, map, map_err)".to_string()
         }
-        "list" => "List operations (len, map, filter, fold)".to_string(),
+        "List" => "List operations (len, map, filter, fold)".to_string(),
         "string" => "String utilities (len, concat, from_number)".to_string(),
         "math" => "Mathematical functions (abs, min, max, clamp, PI, E, TAU)".to_string(),
         _ => format!("Core library module: {module}"),
@@ -1087,8 +1093,8 @@ mod tests {
     #[test]
     fn test_core_module_completions_all() {
         let items = get_core_module_completions("");
-        assert!(items.len() >= 3); // list, string, math (+ traits)
-        assert!(items.iter().any(|i| i.label == "list"));
+        assert!(items.len() >= 3); // List, string, math (+ traits)
+        assert!(items.iter().any(|i| i.label == "List"));
         assert!(items.iter().any(|i| i.label == "string"));
         assert!(items.iter().any(|i| i.label == "math"));
     }

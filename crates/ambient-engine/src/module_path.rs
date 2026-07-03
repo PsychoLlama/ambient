@@ -340,12 +340,12 @@ mod tests {
     #[test]
     fn test_resolve_core() {
         let current = ModulePath::root();
-        let path = vec![Arc::from("list")];
+        let path = vec![Arc::from("List")];
 
         let resolved = current
             .resolve_relative(&ImportPrefix::Core, &path)
             .expect("core paths resolve under the reserved `core` root");
-        assert_eq!(resolved.to_string(), "core.list");
+        assert_eq!(resolved.to_string(), "core.List");
     }
 
     #[test]

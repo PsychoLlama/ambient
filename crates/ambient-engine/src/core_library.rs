@@ -87,7 +87,7 @@ impl CoreLibrary {
 /// order. Excludes `traits`: the operator traits (Add, Eq, Ord, ...) are
 /// the hardcoded prelude in `TraitRegistry::with_prelude`, and registering
 /// a second copy would collide with it.
-pub const REGISTERED_CORE_MODULES: &[&str] = &["math", "string", "list", "option", "result"];
+pub const REGISTERED_CORE_MODULES: &[&str] = &["math", "string", "List", "Option", "Result"];
 
 /// Parse every registered core module and register it in a module
 /// registry under its reserved `core.*` path.
@@ -131,9 +131,9 @@ fn path_to_name(path: &[Arc<str>]) -> String {
 /// Get the map of core modules and their source code.
 fn get_core_modules() -> HashMap<&'static str, &'static str> {
     let mut modules = HashMap::new();
-    modules.insert("list", include_str!("core_lib/list.ab"));
-    modules.insert("option", include_str!("core_lib/option.ab"));
-    modules.insert("result", include_str!("core_lib/result.ab"));
+    modules.insert("List", include_str!("core_lib/list.ab"));
+    modules.insert("Option", include_str!("core_lib/option.ab"));
+    modules.insert("Result", include_str!("core_lib/result.ab"));
     modules.insert("string", include_str!("core_lib/string.ab"));
     modules.insert("math", include_str!("core_lib/math.ab"));
     modules.insert("traits", include_str!("core_lib/traits.ab"));
@@ -146,14 +146,14 @@ mod tests {
 
     #[test]
     fn test_has_module() {
-        assert!(CoreLibrary::has_module(&[Arc::from("list")]));
+        assert!(CoreLibrary::has_module(&[Arc::from("List")]));
         assert!(CoreLibrary::has_module(&[Arc::from("math")]));
         assert!(!CoreLibrary::has_module(&[Arc::from("nonexistent")]));
     }
 
     #[test]
     fn test_get_source() {
-        let source = CoreLibrary::get_source(&[Arc::from("list")]);
+        let source = CoreLibrary::get_source(&[Arc::from("List")]);
         assert!(source.is_ok());
         assert!(source.unwrap().contains("fold"));
     }
@@ -161,15 +161,15 @@ mod tests {
     #[test]
     fn test_available_modules() {
         let modules = CoreLibrary::available_modules();
-        assert!(modules.contains(&"list"));
+        assert!(modules.contains(&"List"));
         assert!(modules.contains(&"math"));
         assert!(modules.contains(&"string"));
     }
 
     #[test]
     fn test_to_module_path() {
-        let path = CoreLibrary::to_module_path(&[Arc::from("list")]);
-        assert_eq!(path.to_string(), "core.list");
+        let path = CoreLibrary::to_module_path(&[Arc::from("List")]);
+        assert_eq!(path.to_string(), "core.List");
     }
 
     #[test]

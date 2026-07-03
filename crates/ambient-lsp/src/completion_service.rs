@@ -144,7 +144,7 @@ impl CompletionService {
         let mut items = get_completions(&ctx, module, None);
 
         // Add external symbols, but only when not in a specific module context.
-        // Skip when completing core.list.*, core.*, Console.*, etc. since those
+        // Skip when completing core.List.*, core.*, Console.*, etc. since those
         // have their own specific completions.
         let in_specific_context = ctx.after_core_submodule_dot.is_some()
             || ctx.after_core_dot
@@ -439,9 +439,9 @@ mod tests {
     #[test]
     fn test_completion_service_after_core_submodule_scope() {
         let service = CompletionService::new();
-        let completions = service.get_completions("core::list::", 12);
+        let completions = service.get_completions("core::List::", 12);
 
-        // Should show core::list functions like map, filter, fold
+        // Should show core::List functions like map, filter, fold
         assert!(
             completions.iter().any(|c| c.label == "map"),
             "Should show map function, got: {:?}",

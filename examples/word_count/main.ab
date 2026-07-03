@@ -14,7 +14,7 @@ fn count_lines(text: string): number {
         0
     } else {
         let parts = core::string::split(text, "\n");
-        core::list::length(parts)
+        core::List::length(parts)
     }
 }
 

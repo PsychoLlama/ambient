@@ -84,14 +84,14 @@ fn handle_response<A>(conn: number, thunk: (A) -> number with Log): number with 
             // Result message
             let payload = core::bytes::slice(response, 1, core::bytes::length(response));
             let result_opt = core::protocol::deserialize_value(payload);
-            core::option::unwrap_or(result_opt, 0)
+            core::Option::unwrap_or(result_opt, 0)
         } else {
             if msg_type == 2 {
                 // NeedDeps message
                 platform::Console::print!("Client: server needs function bytecode");
                 let payload = core::bytes::slice(response, 1, core::bytes::length(response));
                 let hashes_opt = core::protocol::deserialize_value(payload);
-                let hashes: List<string> = core::option::unwrap_or(hashes_opt, []);
+                let hashes: List<string> = core::Option::unwrap_or(hashes_opt, []);
 
                 // Send Provide message with function bytecode
                 let data = platform::Execute::get_functions!(hashes);

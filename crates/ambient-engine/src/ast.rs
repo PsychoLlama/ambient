@@ -93,7 +93,7 @@ impl PartialEq for QualifiedName {
 impl Eq for QualifiedName {}
 
 impl QualifiedName {
-    /// The full dotted form of this name (`core.list.map`), or just the
+    /// The full dotted form of this name (`core.List.map`), or just the
     /// name when the path is empty.
     #[must_use]
     pub fn joined(&self) -> Arc<str> {
@@ -821,7 +821,7 @@ pub struct AbilityMethod {
 /// - `use pkg.utils.*;` - Import all public items
 /// - `use self.sibling;` - Relative import (same directory)
 /// - `use super.parent;` - Parent directory import
-/// - `use core.list;` - Standard library import
+/// - `use core.List;` - Standard library import
 /// - `pub use pkg.other.Thing;` - Re-export
 #[derive(Debug, Clone)]
 pub struct UseDef {

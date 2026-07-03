@@ -957,7 +957,7 @@ fn build_import_env(
     for (name, resolved_import) in imports {
         match resolved_import {
             ResolvedImport::Module(target_path) => {
-                // Whole-module import (`use pkg.utils;` / `use core.list;`):
+                // Whole-module import (`use pkg.utils;` / `use core.List;`):
                 // bind every public export under the qualified name
                 // `<alias>.<export>`, which is how qualified expressions
                 // look it up (see `ExprKind::Name` inference).
@@ -993,7 +993,7 @@ fn build_import_env(
     }
 
     // Core modules are always in scope under their fully qualified names
-    // (`core.list.map`), no import required.
+    // (`core.List.map`), no import required.
     for module_info in registry.all_modules() {
         let path = module_info.path.clone();
         if !path.to_string().starts_with("core.") {

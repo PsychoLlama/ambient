@@ -69,12 +69,12 @@ struct Intrinsic {
 ///
 /// Intrinsics must be called with their full qualified path:
 /// - `core.math.sqrt`, `core.math.abs`, etc.
-/// - `core.list.length`, `core.list.head`, etc.
+/// - `core.List.length`, `core.List.head`, etc.
 /// - `core.string.length`, `core.string.split`, etc.
 /// - `core.map.empty`, `core.map.get`, etc.
 /// - `core.set.empty`, `core.set.insert`, etc.
-/// - `core.option.unwrap_or`, `core.option.is_some`, etc.
-/// - `core.result.is_ok`, `core.result.is_err`, etc.
+/// - `core.Option.unwrap_or`, `core.Option.is_some`, etc.
+/// - `core.Result.is_ok`, `core.Result.is_err`, etc.
 /// - `core.convert.to_string`, `core.convert.parse_number`, etc.
 static INTRINSICS: &[Intrinsic] = &[
     // ─────────────────────────────────────────────────────────────────────
@@ -201,76 +201,76 @@ static INTRINSICS: &[Intrinsic] = &[
         emit: EmitStrategy::Opcode(Opcode::Log2),
     },
     // ─────────────────────────────────────────────────────────────────────
-    // core.list - List operations
+    // core.List - List operations
     // ─────────────────────────────────────────────────────────────────────
     Intrinsic {
-        path: &["core", "list"],
+        path: &["core", "List"],
         name: "length",
         arity: 1,
         emit: EmitStrategy::Opcode(Opcode::ListLength),
     },
     Intrinsic {
-        path: &["core", "list"],
+        path: &["core", "List"],
         name: "get",
         arity: 2,
         emit: EmitStrategy::Helper(Helper::ListGet),
     },
     Intrinsic {
-        path: &["core", "list"],
+        path: &["core", "List"],
         name: "head",
         arity: 1,
         emit: EmitStrategy::Helper(Helper::ListHead),
     },
     Intrinsic {
-        path: &["core", "list"],
+        path: &["core", "List"],
         name: "tail",
         arity: 1,
         emit: EmitStrategy::Helper(Helper::ListTail),
     },
     Intrinsic {
-        path: &["core", "list"],
+        path: &["core", "List"],
         name: "concat",
         arity: 2,
         emit: EmitStrategy::Helper(Helper::ListConcat),
     },
     Intrinsic {
-        path: &["core", "list"],
+        path: &["core", "List"],
         name: "append",
         arity: 2,
         emit: EmitStrategy::Helper(Helper::ListAppend),
     },
     Intrinsic {
-        path: &["core", "list"],
+        path: &["core", "List"],
         name: "is_empty",
         arity: 1,
         emit: EmitStrategy::Opcode(Opcode::ListIsEmpty),
     },
     Intrinsic {
-        path: &["core", "list"],
+        path: &["core", "List"],
         name: "first",
         arity: 1,
         emit: EmitStrategy::Helper(Helper::ListHead),
     },
     Intrinsic {
-        path: &["core", "list"],
+        path: &["core", "List"],
         name: "last",
         arity: 1,
         emit: EmitStrategy::Opcode(Opcode::ListLast),
     },
     Intrinsic {
-        path: &["core", "list"],
+        path: &["core", "List"],
         name: "reverse",
         arity: 1,
         emit: EmitStrategy::Opcode(Opcode::ListReverse),
     },
     Intrinsic {
-        path: &["core", "list"],
+        path: &["core", "List"],
         name: "sort",
         arity: 1,
         emit: EmitStrategy::Opcode(Opcode::ListSort),
     },
     Intrinsic {
-        path: &["core", "list"],
+        path: &["core", "List"],
         name: "slice",
         arity: 3,
         emit: EmitStrategy::Opcode(Opcode::ListSlice),
@@ -504,37 +504,37 @@ static INTRINSICS: &[Intrinsic] = &[
         emit: EmitStrategy::Helper(Helper::SetToList),
     },
     // ─────────────────────────────────────────────────────────────────────
-    // core.option - Option operations
+    // core.Option - Option operations
     // ─────────────────────────────────────────────────────────────────────
     Intrinsic {
-        path: &["core", "option"],
+        path: &["core", "Option"],
         name: "unwrap_or",
         arity: 2,
         emit: EmitStrategy::Helper(Helper::OptionUnwrapOr),
     },
     Intrinsic {
-        path: &["core", "option"],
+        path: &["core", "Option"],
         name: "is_some",
         arity: 1,
         emit: EmitStrategy::Helper(Helper::EnumIs(1)),
     }, // Some has tag 1
     Intrinsic {
-        path: &["core", "option"],
+        path: &["core", "Option"],
         name: "is_none",
         arity: 1,
         emit: EmitStrategy::Helper(Helper::EnumIs(0)),
     }, // None has tag 0
     // ─────────────────────────────────────────────────────────────────────
-    // core.result - Result operations
+    // core.Result - Result operations
     // ─────────────────────────────────────────────────────────────────────
     Intrinsic {
-        path: &["core", "result"],
+        path: &["core", "Result"],
         name: "is_ok",
         arity: 1,
         emit: EmitStrategy::Helper(Helper::EnumIs(0)),
     }, // Ok has tag 0
     Intrinsic {
-        path: &["core", "result"],
+        path: &["core", "Result"],
         name: "is_err",
         arity: 1,
         emit: EmitStrategy::Helper(Helper::EnumIs(1)),

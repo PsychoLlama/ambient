@@ -259,7 +259,7 @@ pub fn build_imported_hashes_from_compiled(
     }
 
     // Core modules are always in scope under their fully qualified names
-    // (`core.list.map`), no import required.
+    // (`core.List.map`), no import required.
     for (path, module_hashes) in compiled_hashes {
         if !path.to_string().starts_with("core.") {
             continue;

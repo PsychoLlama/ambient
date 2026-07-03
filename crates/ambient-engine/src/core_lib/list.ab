@@ -1,7 +1,7 @@
 // Core library: list utilities.
 //
-// Higher-order operations built on the list intrinsics (core::list::length,
-// core::list::get, core::list::append). Compiled as ordinary Ambient modules
+// Higher-order operations built on the list intrinsics (core::List::length,
+// core::List::get, core::List::append). Compiled as ordinary Ambient modules
 // and content-addressed like user code.
 
 // Transform every element.
@@ -10,10 +10,10 @@ pub fn map<T, U>(list: List<T>, f: (T) -> U): List<U> {
 }
 
 fn map_from<T, U>(list: List<T>, f: (T) -> U, i: number, acc: List<U>): List<U> {
-    if i >= core::list::length(list) {
+    if i >= core::List::length(list) {
         acc
     } else {
-        map_from(list, f, i + 1, core::list::append(acc, f(core::list::get(list, i))))
+        map_from(list, f, i + 1, core::List::append(acc, f(core::List::get(list, i))))
     }
 }
 
@@ -23,11 +23,11 @@ pub fn filter<T>(list: List<T>, pred: (T) -> bool): List<T> {
 }
 
 fn filter_from<T>(list: List<T>, pred: (T) -> bool, i: number, acc: List<T>): List<T> {
-    if i >= core::list::length(list) {
+    if i >= core::List::length(list) {
         acc
     } else {
-        let item = core::list::get(list, i);
-        let next = if pred(item) { core::list::append(acc, item) } else { acc };
+        let item = core::List::get(list, i);
+        let next = if pred(item) { core::List::append(acc, item) } else { acc };
         filter_from(list, pred, i + 1, next)
     }
 }
@@ -38,10 +38,10 @@ pub fn fold<T, A>(list: List<T>, init: A, f: (A, T) -> A): A {
 }
 
 fn fold_from<T, A>(list: List<T>, acc: A, f: (A, T) -> A, i: number): A {
-    if i >= core::list::length(list) {
+    if i >= core::List::length(list) {
         acc
     } else {
-        fold_from(list, f(acc, core::list::get(list, i)), f, i + 1)
+        fold_from(list, f(acc, core::List::get(list, i)), f, i + 1)
     }
 }
 
@@ -51,9 +51,9 @@ pub fn any<T>(list: List<T>, pred: (T) -> bool): bool {
 }
 
 fn any_from<T>(list: List<T>, pred: (T) -> bool, i: number): bool {
-    if i >= core::list::length(list) {
+    if i >= core::List::length(list) {
         false
-    } else if pred(core::list::get(list, i)) {
+    } else if pred(core::List::get(list, i)) {
         true
     } else {
         any_from(list, pred, i + 1)
@@ -66,9 +66,9 @@ pub fn all<T>(list: List<T>, pred: (T) -> bool): bool {
 }
 
 fn all_from<T>(list: List<T>, pred: (T) -> bool, i: number): bool {
-    if i >= core::list::length(list) {
+    if i >= core::List::length(list) {
         true
-    } else if pred(core::list::get(list, i)) {
+    } else if pred(core::List::get(list, i)) {
         all_from(list, pred, i + 1)
     } else {
         false
@@ -80,7 +80,7 @@ pub fn range(start: number, end: number): List<number> {
     if start >= end {
         []
     } else {
-        core::list::concat([start], range(start + 1, end))
+        core::List::concat([start], range(start + 1, end))
     }
 }
 

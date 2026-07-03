@@ -84,7 +84,7 @@ impl Infer {
             }
 
             ExprKind::Name(name) => {
-                // Qualified names (`core.list.map`, `utils.helper` after a
+                // Qualified names (`core.List.map`, `utils.helper` after a
                 // whole-module import) are bound in the env under their
                 // joined dotted form by import resolution; plain names look
                 // up directly.
