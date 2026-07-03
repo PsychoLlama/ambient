@@ -664,19 +664,29 @@ fn lower_interpolated_string(
     Ok(result.kind)
 }
 
-/// Create a `to_string(expr)` call expression.
+/// Create a `core::convert::to_string(expr)` call expression.
+///
+/// The canonical intrinsic path resolves in both the checker's and the
+/// compiler's intrinsic tables; a bare `to_string` name would resolve in
+/// neither.
 fn make_to_string_call(expr: Expr, span: Span) -> Expr {
     let callee = Expr::new(
-        ExprKind::Name(QualifiedName::simple(Arc::from("to_string"))),
+        ExprKind::Name(QualifiedName::qualified(
+            vec![Arc::from("core"), Arc::from("convert")],
+            Arc::from("to_string"),
+        )),
         span,
     );
     Expr::new(ExprKind::Call(Box::new(callee), vec![expr]), span)
 }
 
-/// Create a `string_concat(left, right)` call expression.
+/// Create a `core::string::concat(left, right)` call expression.
 fn make_string_concat_call(left: Expr, right: Expr, span: Span) -> Expr {
     let callee = Expr::new(
-        ExprKind::Name(QualifiedName::simple(Arc::from("string_concat"))),
+        ExprKind::Name(QualifiedName::qualified(
+            vec![Arc::from("core"), Arc::from("string")],
+            Arc::from("concat"),
+        )),
         span,
     );
     Expr::new(ExprKind::Call(Box::new(callee), vec![left, right]), span)

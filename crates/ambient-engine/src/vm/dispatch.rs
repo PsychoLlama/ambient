@@ -43,7 +43,30 @@ impl Vm {
                     self.stack.push(value);
                 }
 
-                Opcode::Add => self.binary_number_op(|a, b| a + b, "add")?,
+                // The type checker admits `+` on two numbers or two strings
+                // (concatenation); types are erased, so dispatch on the
+                // runtime values.
+                Opcode::Add => {
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match (a, b) {
+                        (Value::Number(a), Value::Number(b)) => {
+                            self.stack.push(Value::Number(a + b));
+                        }
+                        (Value::String(a), Value::String(b)) => {
+                            let mut result = (*a).clone();
+                            result.push_str(&b);
+                            self.stack.push(Value::string(result));
+                        }
+                        (a, _) => {
+                            return Err(VmError::TypeError {
+                                expected: "two numbers or two strings",
+                                got: a.type_name(),
+                                operation: "add",
+                            });
+                        }
+                    }
+                }
                 Opcode::Sub => self.binary_number_op(|a, b| a - b, "sub")?,
                 Opcode::Mul => self.binary_number_op(|a, b| a * b, "mul")?,
                 Opcode::Div => {

@@ -164,8 +164,8 @@ fn test_type_error_add() {
         .push_bool(true)
         .add()
         .expect_error(VmError::TypeError {
-            expected: "number",
-            got: "bool",
+            expected: "two numbers or two strings",
+            got: "number",
             operation: "add",
         });
 }
