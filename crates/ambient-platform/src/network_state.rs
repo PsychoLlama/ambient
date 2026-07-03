@@ -400,8 +400,10 @@ mod tests {
             NetworkError::ConnectionClosed.to_string(),
             "connection closed"
         );
-        assert!(NetworkError::MessageTooLarge(1000)
-            .to_string()
-            .contains("1000"));
+        assert!(
+            NetworkError::MessageTooLarge(1000)
+                .to_string()
+                .contains("1000")
+        );
     }
 }

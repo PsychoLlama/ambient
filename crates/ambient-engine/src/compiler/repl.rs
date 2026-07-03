@@ -11,7 +11,7 @@ use crate::bytecode::{CompiledFunction, Opcode};
 use crate::value::{ModuleExport, ModuleExportKind, ModuleValue};
 
 use super::error::{CompileError, CompileErrorKind};
-use super::{compile_expr, compute_temporary_hash, FunctionCompiler, ModuleContext};
+use super::{FunctionCompiler, ModuleContext, compile_expr, compute_temporary_hash};
 
 /// Whether a name refers to a function or a constant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -343,10 +343,9 @@ pub fn parse_module_exports(source: &str) -> Vec<ModuleExport> {
         else if let Some(rest) = line
             .strip_prefix("pub ability ")
             .or_else(|| line.strip_prefix("ability "))
+            && let Some(name) = extract_identifier(rest)
         {
-            if let Some(name) = extract_identifier(rest) {
-                exports.push(ModuleExport::new(name, ModuleExportKind::Ability));
-            }
+            exports.push(ModuleExport::new(name, ModuleExportKind::Ability));
         }
     }
 
@@ -585,8 +584,7 @@ pub fn compile_repl_item(
             hashes.insert(Arc::clone(&func.name), temp_hash);
 
             let mut module_ctx = context.module_context();
-            let compiled =
-                compile_function_for_repl(func, &hashes, &mut module_ctx, context)?;
+            let compiled = compile_function_for_repl(func, &hashes, &mut module_ctx, context)?;
 
             Ok(CompiledReplItem {
                 name: Arc::clone(&func.name),

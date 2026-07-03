@@ -600,10 +600,10 @@ fn lower_interpolated_string(
     }
 
     // Handle single literal case - no concatenation needed
-    if parts.len() == 1 {
-        if let StringPart::Literal(s, _) = &parts[0] {
-            return Ok(ExprKind::String(s.clone()));
-        }
+    if parts.len() == 1
+        && let StringPart::Literal(s, _) = &parts[0]
+    {
+        return Ok(ExprKind::String(s.clone()));
     }
 
     // Convert each part to an expression

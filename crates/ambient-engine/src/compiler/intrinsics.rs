@@ -10,7 +10,7 @@ use crate::ast::{Expr, QualifiedName};
 use crate::bytecode::Opcode;
 
 use super::error::CompileError;
-use super::{compile_expr, FunctionCompiler, ModuleContext};
+use super::{FunctionCompiler, ModuleContext, compile_expr};
 
 /// How to emit bytecode for an intrinsic.
 #[derive(Debug, Clone, Copy)]

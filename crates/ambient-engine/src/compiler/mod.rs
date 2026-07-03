@@ -37,8 +37,8 @@ mod repl;
 
 pub use error::{CompileError, CompileErrorKind};
 pub use repl::{
-    compile_expression, compile_expression_with_context, compile_repl_item, parse_module_exports,
-    CompiledReplItem, ReplContext, ReplItemKind,
+    CompiledReplItem, ReplContext, ReplItemKind, compile_expression,
+    compile_expression_with_context, compile_repl_item, parse_module_exports,
 };
 
 // Re-export for use by submodules
@@ -1175,10 +1175,12 @@ mod tests {
         let compiled = compile_test_function(&func).expect("compilation failed");
 
         // Should have the number constant in the pool.
-        assert!(compiled
-            .constants
-            .iter()
-            .any(|v| matches!(v, Value::Number(n) if (n - 42.0).abs() < f64::EPSILON)));
+        assert!(
+            compiled
+                .constants
+                .iter()
+                .any(|v| matches!(v, Value::Number(n) if (n - 42.0).abs() < f64::EPSILON))
+        );
     }
 
     #[test]
@@ -1670,10 +1672,12 @@ mod tests {
             body: Expr::bool(true),
         };
         let compiled = compile_test_function(&func).expect("compilation failed");
-        assert!(compiled
-            .constants
-            .iter()
-            .any(|v| matches!(v, Value::Bool(true))));
+        assert!(
+            compiled
+                .constants
+                .iter()
+                .any(|v| matches!(v, Value::Bool(true)))
+        );
 
         // Test false
         let func = FunctionDef {
@@ -1687,10 +1691,12 @@ mod tests {
             body: Expr::bool(false),
         };
         let compiled = compile_test_function(&func).expect("compilation failed");
-        assert!(compiled
-            .constants
-            .iter()
-            .any(|v| matches!(v, Value::Bool(false))));
+        assert!(
+            compiled
+                .constants
+                .iter()
+                .any(|v| matches!(v, Value::Bool(false)))
+        );
     }
 
     #[test]
@@ -1707,10 +1713,12 @@ mod tests {
         };
 
         let compiled = compile_test_function(&func).expect("compilation failed");
-        assert!(compiled
-            .constants
-            .iter()
-            .any(|v| matches!(v, Value::String(s) if s.as_ref() == "hello world")));
+        assert!(
+            compiled
+                .constants
+                .iter()
+                .any(|v| matches!(v, Value::String(s) if s.as_ref() == "hello world"))
+        );
     }
 
     #[test]
@@ -1733,18 +1741,24 @@ mod tests {
 
         let compiled = compile_test_function(&func).expect("compilation failed");
         // Should have all three constants
-        assert!(compiled
-            .constants
-            .iter()
-            .any(|v| matches!(v, Value::Number(n) if (n - 1.0).abs() < f64::EPSILON)));
-        assert!(compiled
-            .constants
-            .iter()
-            .any(|v| matches!(v, Value::String(s) if s.as_ref() == "hello")));
-        assert!(compiled
-            .constants
-            .iter()
-            .any(|v| matches!(v, Value::Bool(true))));
+        assert!(
+            compiled
+                .constants
+                .iter()
+                .any(|v| matches!(v, Value::Number(n) if (n - 1.0).abs() < f64::EPSILON))
+        );
+        assert!(
+            compiled
+                .constants
+                .iter()
+                .any(|v| matches!(v, Value::String(s) if s.as_ref() == "hello"))
+        );
+        assert!(
+            compiled
+                .constants
+                .iter()
+                .any(|v| matches!(v, Value::Bool(true)))
+        );
     }
 
     #[test]

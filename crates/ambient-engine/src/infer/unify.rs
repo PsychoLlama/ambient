@@ -9,7 +9,7 @@
 //!    infinite types).
 //! 3. Checking that primitive types match exactly.
 
-use super::{type_error, Infer, InferResult, TypeErrorKind};
+use super::{Infer, InferResult, TypeErrorKind, type_error};
 use crate::types::{AbilitySet, AbilityVarId, FunctionType, RecordType, Type, TypeVar, TypeVarId};
 
 impl Infer {
@@ -288,7 +288,7 @@ impl Infer {
                 } else {
                     // Different tails - need to create a fresh tail for the common part
                     // For now, we handle the simple case where one contains the other
-                    let fresh_tail = self.gen.fresh_ability_id();
+                    let fresh_tail = self.r#gen.fresh_ability_id();
 
                     // The common abilities plus the fresh tail
                     let mut all_abilities: Vec<_> = c1.iter().chain(c2.iter()).copied().collect();
@@ -480,7 +480,7 @@ impl Infer {
                     new_ability_subst.remove(var);
                 }
                 let inner_infer = Infer {
-                    gen: crate::types::TypeVarGen::new(),
+                    r#gen: crate::types::TypeVarGen::new(),
                     subst: new_subst,
                     ability_subst: new_ability_subst,
                     current_abilities: AbilitySet::Empty,
@@ -505,8 +505,8 @@ impl Infer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::infer::env::TypeEnv;
     use crate::infer::Scheme;
+    use crate::infer::env::TypeEnv;
     use crate::types::{AbilityId, AbilitySet};
 
     /// A distinct, recognizable AbilityId for tests.

@@ -6,9 +6,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use super::CompiledFunction;
 use super::debug::DebugInfo;
 use super::opcode::Opcode;
-use super::CompiledFunction;
 use crate::value::Value;
 use ambient_core::AbilityId;
 

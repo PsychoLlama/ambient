@@ -449,19 +449,19 @@ impl<'src> Lexer<'src> {
     #[allow(clippy::too_many_lines)]
     pub fn next_token(&mut self) -> Result<Token, ParseError> {
         // Handle string interpolation continuation
-        if !self.interpolation_depth.is_empty() {
-            if let Some('}') = self.peek() {
-                // Check if this closes an interpolation
-                if let Some(depth) = self.interpolation_depth.last_mut() {
-                    if *depth == 0 {
-                        // This closes the interpolation, continue string
-                        self.advance(); // consume '}'
-                        return self.lex_string_continuation();
-                    }
-                    *depth -= 1;
-                    let start = self.pos - 1;
-                    return Ok(self.make_token(TokenKind::RBrace, start));
+        if !self.interpolation_depth.is_empty()
+            && let Some('}') = self.peek()
+        {
+            // Check if this closes an interpolation
+            if let Some(depth) = self.interpolation_depth.last_mut() {
+                if *depth == 0 {
+                    // This closes the interpolation, continue string
+                    self.advance(); // consume '}'
+                    return self.lex_string_continuation();
                 }
+                *depth -= 1;
+                let start = self.pos - 1;
+                return Ok(self.make_token(TokenKind::RBrace, start));
             }
         }
 

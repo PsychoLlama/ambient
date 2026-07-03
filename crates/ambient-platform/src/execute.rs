@@ -106,7 +106,7 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                     return Err(VmError::TypeErrorOwned {
                         expected: "bytes".to_string(),
                         got: "no argument".to_string(),
-                    })
+                    });
                 }
             };
 
@@ -143,7 +143,7 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                     return Err(VmError::TypeErrorOwned {
                         expected: "string".to_string(),
                         got: other.type_name().to_string(),
-                    })
+                    });
                 }
             };
 
@@ -203,7 +203,7 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                     return Err(VmError::TypeErrorOwned {
                         expected: "string".to_string(),
                         got: other.type_name().to_string(),
-                    })
+                    });
                 }
             };
             let arg = ability.args[1].clone();
@@ -213,7 +213,7 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                     return Err(VmError::TypeErrorOwned {
                         expected: "handler".to_string(),
                         got: other.type_name().to_string(),
-                    })
+                    });
                 }
             };
 
@@ -254,13 +254,13 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                     return Err(VmError::TypeErrorOwned {
                         expected: "list".to_string(),
                         got: other.type_name().to_string(),
-                    })
+                    });
                 }
                 None => {
                     return Err(VmError::TypeErrorOwned {
                         expected: "list".to_string(),
                         got: "no argument".to_string(),
-                    })
+                    });
                 }
             };
 
@@ -277,7 +277,7 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                         return Err(VmError::TypeErrorOwned {
                             expected: "string".to_string(),
                             got: other.type_name().to_string(),
-                        })
+                        });
                     }
                 };
 

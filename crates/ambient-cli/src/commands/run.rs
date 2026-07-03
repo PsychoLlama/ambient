@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use ambient_engine::ability_resolver::{AbilityInterface, DynAbility};
 use ambient_engine::ast::{ItemKind, UsePrefix};
@@ -18,8 +18,8 @@ use ambient_engine::package::{LoadedModule, Package};
 use ambient_engine::store::Store;
 use ambient_engine::vm::Vm;
 use ambient_platform::{
-    register_console, register_execute, register_log, register_network, ConsoleConfig,
-    ExecuteConfig, LogConfig, NetworkConfig,
+    ConsoleConfig, ExecuteConfig, LogConfig, NetworkConfig, register_console, register_execute,
+    register_log, register_network,
 };
 
 use crate::diagnostic::print_diagnostic;

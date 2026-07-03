@@ -5,7 +5,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use ambient_engine::build::{build_package, BuildError};
+use ambient_engine::build::{BuildError, build_package};
 
 use super::{compile_source, read_source};
 

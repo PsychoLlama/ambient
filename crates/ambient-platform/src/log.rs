@@ -2,7 +2,7 @@
 
 #![allow(clippy::type_complexity)] // Handler types are inherently complex
 
-use ambient_ability::{format_value, SuspendedAbility, Value};
+use ambient_ability::{SuspendedAbility, Value, format_value};
 use ambient_engine::ability_resolver::AbilityInterface;
 use ambient_engine::vm::Vm;
 
@@ -31,7 +31,7 @@ pub fn register_log(vm: &mut Vm, ability: &AbilityInterface, config: LogConfig) 
 
     // Helper to create log handlers
     macro_rules! log_handler {
-        ($level:expr, $prefix:expr) => {{
+        ($level:expr_2021, $prefix:expr_2021) => {{
             let handler = handler.clone();
             Box::new(move |ability: &SuspendedAbility| {
                 if $level >= min_level {

@@ -28,12 +28,12 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::bytecode::CompiledFunction;
-use crate::object::{function_from_compiled, member_hash, GroupMember, ObjectRef, StoredObject};
+use crate::object::{GroupMember, ObjectRef, StoredObject, function_from_compiled, member_hash};
 use crate::store::compute_sccs_with_cmp;
 use crate::value::Value;
 
-use super::error::{CompileError, CompileErrorKind};
 use super::CompiledModule;
+use super::error::{CompileError, CompileErrorKind};
 
 /// A function awaiting finalization.
 struct Node {
@@ -92,10 +92,10 @@ pub(super) fn finalize_module_hashes(
     for (i, node) in nodes.iter().enumerate() {
         let mut edges = Vec::new();
         for constant in &node.func.constants {
-            if let Value::FunctionRef(h) = constant {
-                if let Some(&j) = local.get(h) {
-                    edges.push(j);
-                }
+            if let Value::FunctionRef(h) = constant
+                && let Some(&j) = local.get(h)
+            {
+                edges.push(j);
             }
         }
         graph.insert(i, edges);
@@ -152,10 +152,10 @@ pub(super) fn finalize_module_hashes(
 
         let mut func = node.func.clone();
         for constant in &mut func.constants {
-            if let Value::FunctionRef(h) = constant {
-                if let Some(j) = local.get(h) {
-                    *h = final_hashes[j];
-                }
+            if let Value::FunctionRef(h) = constant
+                && let Some(j) = local.get(h)
+            {
+                *h = final_hashes[j];
             }
         }
         func.dependencies = func
@@ -266,12 +266,12 @@ fn canonical_member_order(
         let i = order[cursor];
         cursor += 1;
         for constant in &nodes[i].func.constants {
-            if let Value::FunctionRef(h) = constant {
-                if let Some(&j) = local.get(h) {
-                    if member_set.contains(&j) && placed.insert(j) {
-                        order.push(j);
-                    }
-                }
+            if let Value::FunctionRef(h) = constant
+                && let Some(&j) = local.get(h)
+                && member_set.contains(&j)
+                && placed.insert(j)
+            {
+                order.push(j);
             }
         }
     }

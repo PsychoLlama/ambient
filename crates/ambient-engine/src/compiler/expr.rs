@@ -31,7 +31,7 @@ use super::lambdas::{
     compile_ability_call, compile_handle_expr, compile_handler_literal, compile_lambda,
 };
 use super::patterns::compile_match;
-use super::{str_to_value, FunctionCompiler, ModuleContext};
+use super::{FunctionCompiler, ModuleContext, str_to_value};
 
 /// Compile an expression, pushing its value onto the stack.
 #[allow(clippy::too_many_lines)]
@@ -79,7 +79,7 @@ pub(super) fn compile_expr(
                     .and_then(|_| {
                         // Look up name from parent_local_names by finding which name maps to the same slot
                         fc.parent_local_names.as_ref().and_then(|names| {
-                            names.iter().find(|(_, &slot)| {
+                            names.iter().find(|&(_, &slot)| {
                                 fc.parent_locals
                                     .as_ref()
                                     .is_some_and(|pl| pl.get(id).copied() == Some(slot))

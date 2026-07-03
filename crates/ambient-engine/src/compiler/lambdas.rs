@@ -10,7 +10,7 @@ use crate::bytecode::{CompiledFunction, Opcode};
 use crate::types::AbilityId;
 
 use super::error::{CompileError, CompileErrorKind};
-use super::{compile_expr, FunctionCompiler, ModuleContext};
+use super::{FunctionCompiler, ModuleContext, compile_expr};
 
 /// Compile a lambda expression.
 ///

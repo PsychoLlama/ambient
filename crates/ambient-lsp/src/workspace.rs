@@ -341,10 +341,10 @@ impl WorkspaceIndex {
                 }
                 UseKindInfo::Items(items) => {
                     // Check if this specific name is imported
-                    if items.iter().any(|i| i.as_ref() == name) {
-                        if let Some(result) = self.find_symbol(&resolved_path, name) {
-                            return Some(result);
-                        }
+                    if items.iter().any(|i| i.as_ref() == name)
+                        && let Some(result) = self.find_symbol(&resolved_path, name)
+                    {
+                        return Some(result);
                     }
                 }
             }
@@ -434,17 +434,17 @@ impl WorkspaceIndex {
         };
 
         // If we have a workspace root, compute relative path
-        if let Some(root) = &self.workspace_root {
-            if let Ok(relative) = file_path.strip_prefix(root) {
-                return path_to_module_segments(relative);
-            }
+        if let Some(root) = &self.workspace_root
+            && let Ok(relative) = file_path.strip_prefix(root)
+        {
+            return path_to_module_segments(relative);
         }
 
         // Fall back to just the file stem
-        if let Some(stem) = file_path.file_stem() {
-            if let Some(name) = stem.to_str() {
-                return vec![Arc::from(name)];
-            }
+        if let Some(stem) = file_path.file_stem()
+            && let Some(name) = stem.to_str()
+        {
+            return vec![Arc::from(name)];
         }
 
         Vec::new()
@@ -481,12 +481,12 @@ fn path_to_module_segments(path: &Path) -> Vec<Arc<str>> {
     let mut segments = Vec::new();
 
     for component in path.components() {
-        if let std::path::Component::Normal(s) = component {
-            if let Some(name) = s.to_str() {
-                // Remove .ab extension from last component
-                let name = name.strip_suffix(".ab").unwrap_or(name);
-                segments.push(Arc::from(name));
-            }
+        if let std::path::Component::Normal(s) = component
+            && let Some(name) = s.to_str()
+        {
+            // Remove .ab extension from last component
+            let name = name.strip_suffix(".ab").unwrap_or(name);
+            segments.push(Arc::from(name));
         }
     }
 

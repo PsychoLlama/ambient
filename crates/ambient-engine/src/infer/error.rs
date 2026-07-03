@@ -370,7 +370,10 @@ impl std::fmt::Display for TypeErrorKind {
                 write!(f, "undefined type: `{name}`")
             }
             Self::NotARecordType { ty } => {
-                write!(f, "type `{ty}` is not a record type and cannot be constructed with {{ field: value }} syntax")
+                write!(
+                    f,
+                    "type `{ty}` is not a record type and cannot be constructed with {{ field: value }} syntax"
+                )
             }
             Self::UnknownTrait { name } => {
                 write!(f, "unknown trait: `{name}`")

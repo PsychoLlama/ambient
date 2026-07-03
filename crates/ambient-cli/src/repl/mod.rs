@@ -12,7 +12,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
 use rustyline::{Config as RustylineConfig, Editor, EventHandler, KeyEvent};
@@ -20,8 +20,8 @@ use rustyline::{Config as RustylineConfig, Editor, EventHandler, KeyEvent};
 use editor::ExternalEditorHandler;
 
 use ambient_engine::compiler::{
-    compile_expression_with_context, compile_repl_item, parse_module_exports, ReplContext,
-    ReplItemKind,
+    ReplContext, ReplItemKind, compile_expression_with_context, compile_repl_item,
+    parse_module_exports,
 };
 use ambient_engine::format::format_value_colored;
 use ambient_engine::manifest::Manifest;
@@ -407,14 +407,14 @@ fn discover_project_modules(dir: &Path, src_root: &Path) -> Vec<(String, String)
 
         if path.is_dir() {
             modules.extend(discover_project_modules(&path, src_root));
-        } else if path.extension().is_some_and(|ext| ext == "ab") {
-            if let Some(module_path) = path_to_module_name(&path, src_root) {
-                // Skip "main" as it's the entry point, not a reusable module
-                if module_path != "main" {
-                    if let Ok(source) = fs::read_to_string(&path) {
-                        modules.push((module_path, source));
-                    }
-                }
+        } else if path.extension().is_some_and(|ext| ext == "ab")
+            && let Some(module_path) = path_to_module_name(&path, src_root)
+        {
+            // Skip "main" as it's the entry point, not a reusable module
+            if module_path != "main"
+                && let Ok(source) = fs::read_to_string(&path)
+            {
+                modules.push((module_path, source));
             }
         }
     }

@@ -47,11 +47,11 @@ use ambient_engine::vm::Vm;
 /// sibling modules).
 pub const ABILITY_DECLARATIONS: &str = include_str!("platform.ab");
 
-pub use console::{register_console, register_console_with_collector, ConsoleConfig};
-pub use execute::{register_execute, ExecuteConfig, ExecuteGrants};
+pub use console::{ConsoleConfig, register_console, register_console_with_collector};
+pub use execute::{ExecuteConfig, ExecuteGrants, register_execute};
 pub use fs::register_fs;
-pub use log::{register_log, LogConfig};
-pub use network::{register_network, NetworkConfig};
+pub use log::{LogConfig, register_log};
+pub use network::{NetworkConfig, register_network};
 pub use random::register_random;
 pub use time::register_time;
 

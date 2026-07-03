@@ -3,8 +3,8 @@
 //! This module provides a high-level interface for code completion that can be
 //! used outside of the LSP server context, such as in the REPL.
 
-use crate::analysis::{analyze, format_type, AnalysisResult};
-use crate::completions::{get_completions, CompletionContext};
+use crate::analysis::{AnalysisResult, analyze, format_type};
+use crate::completions::{CompletionContext, get_completions};
 use lsp_types::{CompletionItem, CompletionItemKind, CompletionItemLabelDetails};
 
 /// A symbol provided by an external source (e.g., REPL-defined functions).
@@ -256,7 +256,7 @@ fn strip_snippet_syntax(text: &str) -> String {
             match chars.peek() {
                 Some(&':') => {
                     chars.next(); // consume ':'
-                                  // Copy the placeholder content until '}'
+                    // Copy the placeholder content until '}'
                     for c in chars.by_ref() {
                         if c == '}' {
                             break;

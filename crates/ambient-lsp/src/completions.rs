@@ -413,10 +413,10 @@ fn parse_core_module_exports(source: &str) -> Vec<(String, CoreExportKind)> {
             }
         }
         // Match pub const declarations
-        else if let Some(rest) = line.strip_prefix("pub const ") {
-            if let Some(name) = extract_core_identifier(rest) {
-                exports.push((name, CoreExportKind::Const));
-            }
+        else if let Some(rest) = line.strip_prefix("pub const ")
+            && let Some(name) = extract_core_identifier(rest)
+        {
+            exports.push((name, CoreExportKind::Const));
         }
     }
 

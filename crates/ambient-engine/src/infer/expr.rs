@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use super::error::BoxedTypeErrorExt;
-use super::{type_error, Infer, InferResult, TypeEnv, TypeError, TypeErrorKind};
+use super::{Infer, InferResult, TypeEnv, TypeError, TypeErrorKind, type_error};
 use crate::ast::{BinaryOp, Expr, ExprKind, StmtKind, UnaryOp};
 use crate::types::{AbilitySet, Type};
 
@@ -179,7 +179,7 @@ impl Infer {
                             return Err(type_error(
                                 TypeErrorKind::NotARecordType { ty: other.clone() },
                                 span,
-                            ))
+                            ));
                         }
                     },
                     Type::Record(r) => r.clone(),
@@ -187,7 +187,7 @@ impl Infer {
                         return Err(type_error(
                             TypeErrorKind::NotARecordType { ty: other.clone() },
                             span,
-                        ))
+                        ));
                     }
                 };
 
@@ -378,10 +378,10 @@ impl Infer {
 
             ExprKind::Call(callee, args) => {
                 // Check for intrinsic functions first
-                if let ExprKind::Name(name) = &callee.kind {
-                    if let Some(ret_ty) = self.try_infer_intrinsic(env, name, args, span)? {
-                        return Ok(ret_ty);
-                    }
+                if let ExprKind::Name(name) = &callee.kind
+                    && let Some(ret_ty) = self.try_infer_intrinsic(env, name, args, span)?
+                {
+                    return Ok(ret_ty);
                 }
 
                 let callee_ty = self.infer_expr(env, callee)?;

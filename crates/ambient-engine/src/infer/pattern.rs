@@ -10,7 +10,7 @@
 //! - Variant patterns (enum destructuring)
 
 use super::error::TypeErrorKind;
-use super::{type_error, Infer, InferResult, TypeEnv};
+use super::{Infer, InferResult, TypeEnv, type_error};
 use crate::ast::{Pattern, PatternKind};
 use crate::types::Type;
 use std::sync::Arc;

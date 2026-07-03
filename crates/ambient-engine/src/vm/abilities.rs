@@ -72,7 +72,7 @@ impl Vm {
             other => {
                 return Err(VmError::ExpectedSuspendedAbility {
                     got: other.type_name(),
-                })
+                });
             }
         };
 
@@ -229,7 +229,7 @@ impl Vm {
                     expected: "closure",
                     got: other.type_name(),
                     operation: "handle",
-                })
+                });
             }
         };
 
@@ -256,7 +256,7 @@ impl Vm {
                     expected: "handler",
                     got: other.type_name(),
                     operation: "handle_with_value",
-                })
+                });
             }
         };
 
@@ -283,7 +283,7 @@ impl Vm {
             other => {
                 return Err(VmError::ExpectedContinuation {
                     got: other.type_name(),
-                })
+                });
             }
         };
 
@@ -339,7 +339,7 @@ impl Vm {
             other => {
                 return Err(VmError::ExpectedSuspendedAbility {
                     got: other.type_name(),
-                })
+                });
             }
         };
 

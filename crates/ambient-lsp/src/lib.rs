@@ -80,10 +80,10 @@ pub mod test_harness;
 pub use server::{run_server, run_server_with_connection};
 
 // Re-export key types for library use (REPL, testing)
-pub use analysis::{analyze, analyze_with_registry, format_type, AnalysisResult};
+pub use analysis::{AnalysisResult, analyze, analyze_with_registry, format_type};
 pub use completion_service::{
     CompletionService, ExternalSymbol, ExternalSymbolKind, ReplCompletion,
 };
-pub use completions::{get_completions, CompletionContext};
+pub use completions::{CompletionContext, get_completions};
 pub use documents::Document;
 pub use workspace::WorkspaceIndex;

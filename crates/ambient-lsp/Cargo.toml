@@ -1,7 +1,7 @@
 [package]
 name = "ambient-lsp"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "Language Server Protocol implementation for the Ambient programming language"
 
 [dependencies]

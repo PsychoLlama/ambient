@@ -6,9 +6,9 @@
 
 use std::sync::OnceLock;
 
+use crate::AbilityId;
 use crate::canonical::hash_interface;
 use crate::descriptor::{AbilityDescriptor, AbilityProvider, MethodDescriptor, TypeFactory};
-use crate::AbilityId;
 
 /// Method ID for `throw`.
 pub const METHOD_THROW: u16 = 0x0000;

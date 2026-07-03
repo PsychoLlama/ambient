@@ -238,10 +238,10 @@ pub fn build_imported_hashes_from_compiled(
                     from_module,
                     export_kind: _,
                 } => {
-                    if let Some(module_hashes) = compiled_hashes.get(&from_module) {
-                        if let Some(hash) = module_hashes.get(&local_name) {
-                            hashes.insert(local_name, *hash);
-                        }
+                    if let Some(module_hashes) = compiled_hashes.get(&from_module)
+                        && let Some(hash) = module_hashes.get(&local_name)
+                    {
+                        hashes.insert(local_name, *hash);
                     }
                 }
                 ResolvedImport::Module(target_path) => {

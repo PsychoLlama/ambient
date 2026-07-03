@@ -65,8 +65,8 @@ mod pattern;
 mod unify;
 
 pub use check::{
-    check_module, check_module_with_registry, check_module_with_registry_and_resolver,
-    check_module_with_resolver, resolve_ability_declarations, CheckResult,
+    CheckResult, check_module, check_module_with_registry, check_module_with_registry_and_resolver,
+    check_module_with_resolver, resolve_ability_declarations,
 };
 pub use env::{Scheme, TypeEnv};
 pub use error::{BoxedTypeError, BoxedTypeErrorExt, InferResult, TypeError, TypeErrorKind};
@@ -89,7 +89,7 @@ use crate::types::{
 /// Type inference context.
 pub struct Infer {
     /// Type variable generator.
-    gen: TypeVarGen,
+    r#gen: TypeVarGen,
     /// Substitution mapping type variables to their bindings.
     pub(crate) subst: HashMap<TypeVarId, Type>,
     /// Substitution mapping ability variables to their bindings (Milestone 8).
@@ -126,7 +126,7 @@ impl Infer {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            gen: TypeVarGen::new(),
+            r#gen: TypeVarGen::new(),
             subst: HashMap::new(),
             ability_subst: HashMap::new(),
             current_abilities: AbilitySet::Empty,
@@ -143,7 +143,7 @@ impl Infer {
     #[must_use]
     pub fn with_registry(registry: AbilityRegistry) -> Self {
         Self {
-            gen: TypeVarGen::new(),
+            r#gen: TypeVarGen::new(),
             subst: HashMap::new(),
             ability_subst: HashMap::new(),
             current_abilities: AbilitySet::Empty,
@@ -160,7 +160,7 @@ impl Infer {
     #[must_use]
     pub fn with_resolver(resolver: AbilityResolver) -> Self {
         Self {
-            gen: TypeVarGen::new(),
+            r#gen: TypeVarGen::new(),
             subst: HashMap::new(),
             ability_subst: HashMap::new(),
             current_abilities: AbilitySet::Empty,
@@ -186,12 +186,12 @@ impl Infer {
 
     /// Generate a fresh type variable.
     pub fn fresh(&mut self) -> Type {
-        self.gen.fresh()
+        self.r#gen.fresh()
     }
 
     /// Generate a fresh ability variable.
     pub fn fresh_ability_var(&mut self) -> AbilitySet {
-        self.gen.fresh_ability_var()
+        self.r#gen.fresh_ability_var()
     }
 
     /// Add an ability to the current requirements, including its dependencies.
@@ -244,11 +244,11 @@ impl Infer {
             }
             Type::Named(n) => {
                 // Check if this named type corresponds to a registered type alias
-                if n.args.is_empty() {
-                    if let Some(aliased_type) = self.type_aliases.get(&n.name).cloned() {
-                        // Resolve to the aliased type
-                        return self.resolve_holes(&aliased_type);
-                    }
+                if n.args.is_empty()
+                    && let Some(aliased_type) = self.type_aliases.get(&n.name).cloned()
+                {
+                    // Resolve to the aliased type
+                    return self.resolve_holes(&aliased_type);
                 }
                 // Otherwise keep as named type with resolved args
                 Type::Named(NamedType::new(

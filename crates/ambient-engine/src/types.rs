@@ -693,16 +693,14 @@ impl TraitRegistry {
     pub fn find_method(&self, type_uuid: Uuid, method_name: &str) -> MethodLookup<'_> {
         let mut matches: Vec<(TraitId, &TraitMethodDef, Arc<str>)> = Vec::new();
         for impl_ in self.impls_for_type(type_uuid) {
-            if let Some(symbol) = impl_.methods.get(method_name) {
-                if let Some(trait_def) = self.get_trait(impl_.trait_id) {
-                    if let Some(method) = trait_def
-                        .methods
-                        .iter()
-                        .find(|m| m.name.as_ref() == method_name)
-                    {
-                        matches.push((impl_.trait_id, method, Arc::clone(symbol)));
-                    }
-                }
+            if let Some(symbol) = impl_.methods.get(method_name)
+                && let Some(trait_def) = self.get_trait(impl_.trait_id)
+                && let Some(method) = trait_def
+                    .methods
+                    .iter()
+                    .find(|m| m.name.as_ref() == method_name)
+            {
+                matches.push((impl_.trait_id, method, Arc::clone(symbol)));
             }
         }
 
@@ -1545,10 +1543,10 @@ mod tests {
 
     #[test]
     fn test_type_var_generator() {
-        let mut gen = TypeVarGen::new();
-        let v1 = gen.fresh();
-        let v2 = gen.fresh();
-        let v3 = gen.fresh();
+        let mut r#gen = TypeVarGen::new();
+        let v1 = r#gen.fresh();
+        let v2 = r#gen.fresh();
+        let v3 = r#gen.fresh();
 
         assert_eq!(v1, Type::var(0));
         assert_eq!(v2, Type::var(1));
@@ -1773,9 +1771,9 @@ mod tests {
 
     #[test]
     fn test_ability_var_generator() {
-        let mut gen = TypeVarGen::new();
-        let v1 = gen.fresh_ability_var();
-        let v2 = gen.fresh_ability_var();
+        let mut r#gen = TypeVarGen::new();
+        let v1 = r#gen.fresh_ability_var();
+        let v2 = r#gen.fresh_ability_var();
 
         assert_eq!(v1, AbilitySet::Var(0));
         assert_eq!(v2, AbilitySet::Var(1));

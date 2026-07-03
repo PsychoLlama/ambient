@@ -18,4 +18,4 @@ mod snapshot;
 pub use assertions::{CompletionResult, DefinitionResult, HoverResult};
 pub use builder::LspTest;
 pub use client::TestClient;
-pub use fixtures::{parse_markers, Cursor};
+pub use fixtures::{Cursor, parse_markers};

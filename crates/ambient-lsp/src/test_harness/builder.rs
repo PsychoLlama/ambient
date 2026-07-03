@@ -9,7 +9,7 @@ use tempfile::TempDir;
 
 use super::assertions::{CompletionResult, DefinitionResult, HoverResult};
 use super::client::TestClient;
-use super::fixtures::{get_cursor_by_name, parse_markers, Cursor};
+use super::fixtures::{Cursor, get_cursor_by_name, parse_markers};
 
 /// Fluent builder for LSP tests.
 ///

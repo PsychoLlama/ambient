@@ -21,9 +21,9 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
-use ambient_engine::ability_resolver::{core_abilities, AbilityResolver, DynAbility};
+use ambient_engine::ability_resolver::{AbilityResolver, DynAbility, core_abilities};
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;

@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 
 use ambient_engine::format::format_value;

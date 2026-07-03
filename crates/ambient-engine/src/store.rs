@@ -400,7 +400,7 @@ impl Pack {
             t => {
                 return Err(StoreError::Deserialization(format!(
                     "bad entry-point tag {t}"
-                )))
+                )));
             }
         };
 
@@ -938,7 +938,7 @@ mod tests {
 
     #[test]
     fn test_recursive_group_survives_roundtrip() {
-        use crate::object::{member_hash, GroupMember, ObjectConstant, ObjectFunction, ObjectRef};
+        use crate::object::{GroupMember, ObjectConstant, ObjectFunction, ObjectRef, member_hash};
 
         // Mutually recursive pair, stored as one group object.
         let make_member = |name: &str, other: u32| GroupMember {
@@ -1145,15 +1145,21 @@ mod tests {
         assert!(bc_scc.members.contains(&hash_c));
 
         // A, D, E should each be singletons
-        assert!(analysis
-            .scc_for(&hash_a)
-            .is_some_and(|scc| scc.is_singleton()));
-        assert!(analysis
-            .scc_for(&hash_d)
-            .is_some_and(|scc| scc.is_singleton()));
-        assert!(analysis
-            .scc_for(&hash_e)
-            .is_some_and(|scc| scc.is_singleton()));
+        assert!(
+            analysis
+                .scc_for(&hash_a)
+                .is_some_and(|scc| scc.is_singleton())
+        );
+        assert!(
+            analysis
+                .scc_for(&hash_d)
+                .is_some_and(|scc| scc.is_singleton())
+        );
+        assert!(
+            analysis
+                .scc_for(&hash_e)
+                .is_some_and(|scc| scc.is_singleton())
+        );
     }
 
     #[test]

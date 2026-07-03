@@ -2,7 +2,7 @@
 //!
 //! These tests use proptest to generate random inputs and verify invariants.
 
-use ambient_parser::{parse, parse_expr, parse_to_cst, Lexer, TokenKind};
+use ambient_parser::{Lexer, TokenKind, parse, parse_expr, parse_to_cst};
 use proptest::prelude::*;
 
 // ─────────────────────────────────────────────────────────────────────────────

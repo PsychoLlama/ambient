@@ -219,12 +219,12 @@ fn discover_ab_files(dir: &Path, src_root: &Path) -> Vec<String> {
 
         if path.is_dir() {
             modules.extend(discover_ab_files(&path, src_root));
-        } else if path.extension().is_some_and(|ext| ext == "ab") {
-            if let Some(module_path) = path_to_module(&path, src_root) {
-                // Skip "main" as it's the entry point
-                if module_path != "main" {
-                    modules.push(module_path);
-                }
+        } else if path.extension().is_some_and(|ext| ext == "ab")
+            && let Some(module_path) = path_to_module(&path, src_root)
+        {
+            // Skip "main" as it's the entry point
+            if module_path != "main" {
+                modules.push(module_path);
             }
         }
     }
@@ -272,9 +272,11 @@ mod tests {
         assert!(completions.iter().any(|c| c.label == "math"));
         // Replacements are relative to `pkg::` (never dotted, never re-prefixed).
         assert!(completions.iter().all(|c| !c.replacement.contains('.')));
-        assert!(completions
-            .iter()
-            .all(|c| !c.replacement.starts_with("pkg::")));
+        assert!(
+            completions
+                .iter()
+                .all(|c| !c.replacement.starts_with("pkg::"))
+        );
     }
 
     #[test]

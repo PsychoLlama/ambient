@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use ambient_engine::module_path::ModulePath;
 

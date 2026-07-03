@@ -418,7 +418,7 @@ pub fn constant_from_value(
         Value::Handler(_) => return Err(ObjectError::UnsupportedConstant("handler")),
         Value::Continuation(_) => return Err(ObjectError::UnsupportedConstant("continuation")),
         Value::SuspendedAbility(_) => {
-            return Err(ObjectError::UnsupportedConstant("suspended ability"))
+            return Err(ObjectError::UnsupportedConstant("suspended ability"));
         }
         Value::Module(_) => return Err(ObjectError::UnsupportedConstant("module")),
         Value::ModuleMember(_) => return Err(ObjectError::UnsupportedConstant("module member")),

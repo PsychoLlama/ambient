@@ -180,7 +180,7 @@ pub fn register_network(vm: &mut Vm, ability: &AbilityInterface, config: Network
                     return Err(VmError::TypeErrorOwned {
                         expected: "number".to_string(),
                         got: other.type_name().to_string(),
-                    })
+                    });
                 }
             };
 

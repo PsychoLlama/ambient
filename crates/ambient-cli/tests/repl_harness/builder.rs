@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use super::assertions::{LineResult, OutputResult};
 use super::driver::PtyDriver;
-use super::input::{ctrl, Arrow, BACKSPACE, ENTER, TAB};
+use super::input::{Arrow, BACKSPACE, ENTER, TAB, ctrl};
 
 /// Default timeout for waiting operations.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);

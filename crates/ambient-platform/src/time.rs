@@ -16,8 +16,7 @@ fn now(_ability: &SuspendedAbility) -> Result<Value, VmError> {
     #[allow(clippy::cast_precision_loss)]
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as f64)
-        .unwrap_or(0.0);
+        .map_or(0.0, |d| d.as_millis() as f64);
     Ok(Value::Number(now))
 }
 

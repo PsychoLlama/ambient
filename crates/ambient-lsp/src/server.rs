@@ -36,7 +36,7 @@ use crate::analysis::{
     analyze_with_registry, find_definition_cross_file, find_expr_at_offset, find_item_at_offset,
     format_type,
 };
-use crate::completions::{get_completions, CompletionContext};
+use crate::completions::{CompletionContext, get_completions};
 use crate::convert::{
     offset_range_to_lsp_range, parse_error_to_diagnostic, type_error_to_diagnostic,
 };
@@ -322,19 +322,18 @@ fn handle_hover(
     };
 
     // Check if hovering over a path segment in a qualified name expression.
-    if let ambient_engine::ast::ExprKind::Name(qname) = &expr.kind {
-        if let Some(module_info) = find_qname_module_at_offset(qname, offset, uri, workspace_index)
-        {
-            let content = format_module_hover(module_info);
-            let hover = Hover {
-                contents: HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: content,
-                }),
-                range: None,
-            };
-            return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
-        }
+    if let ambient_engine::ast::ExprKind::Name(qname) = &expr.kind
+        && let Some(module_info) = find_qname_module_at_offset(qname, offset, uri, workspace_index)
+    {
+        let content = format_module_hover(module_info);
+        let hover = Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: content,
+            }),
+            range: None,
+        };
+        return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
     }
 
     // Build hover content based on expression kind.
@@ -724,12 +723,11 @@ fn handle_references(
     let mut locations = Vec::new();
 
     // Optionally include the definition itself
-    if params.context.include_declaration {
-        if let Some(loc) =
+    if params.context.include_declaration
+        && let Some(loc) =
             resolve_symbol_to_location(&target_entry.path, workspace_index, documents)
-        {
-            locations.push(loc);
-        }
+    {
+        locations.push(loc);
     }
 
     // Add all reference locations
@@ -960,11 +958,7 @@ fn populate_symbol_db_from_package(db: &mut SymbolDb, pkg: &PackageInfo, connect
     // Build the package with progress callback
     #[allow(clippy::cast_possible_truncation)]
     let progress_cb = |module: &str, current: usize, total: usize| {
-        let percentage = if total > 0 {
-            Some(((current * 100) / total) as u32)
-        } else {
-            None
-        };
+        let percentage = (current * 100).checked_div(total).map(|p| p as u32);
 
         let report = ProgressParams {
             token: token.clone(),
@@ -1335,26 +1329,26 @@ fn handle_notification(
             documents.open(uri.clone(), version, text.clone());
 
             // Discover package if not already discovered
-            if package_info.is_none() {
-                if let Some(mut pkg) = PackageInfo::discover(&uri) {
-                    pkg.discover_modules();
-                    // Populate workspace index with all discovered modules
-                    // This enables go-to-definition for imports
-                    pkg.populate_workspace_index(workspace_index);
+            if package_info.is_none()
+                && let Some(mut pkg) = PackageInfo::discover(&uri)
+            {
+                pkg.discover_modules();
+                // Populate workspace index with all discovered modules
+                // This enables go-to-definition for imports
+                pkg.populate_workspace_index(workspace_index);
 
-                    // Initialize the symbol database
-                    let db_path = pkg.root.join("build").join("symbols.db");
-                    if let Some(parent) = db_path.parent() {
-                        let _ = std::fs::create_dir_all(parent);
-                    }
-                    if let Ok(mut db) = SymbolDb::open(&db_path) {
-                        // Compile package and populate database
-                        populate_symbol_db_from_package(&mut db, &pkg, connection);
-                        *symbol_db = Some(db);
-                    }
-
-                    *package_info = Some(pkg);
+                // Initialize the symbol database
+                let db_path = pkg.root.join("build").join("symbols.db");
+                if let Some(parent) = db_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
                 }
+                if let Ok(mut db) = SymbolDb::open(&db_path) {
+                    // Compile package and populate database
+                    populate_symbol_db_from_package(&mut db, &pkg, connection);
+                    *symbol_db = Some(db);
+                }
+
+                *package_info = Some(pkg);
             }
 
             // Analyze with cross-module support if we have a package
@@ -1379,10 +1373,10 @@ fn handle_notification(
                 }
 
                 // Update symbol database and cascade to dependents
-                if let (Some(db), Some(pkg)) = (symbol_db.as_mut(), package_info.as_ref()) {
-                    if let Some(module_path) = pkg.uri_to_module_path(&uri) {
-                        update_symbol_db(db, &module_path.to_string(), &uri, &text, module, pkg);
-                    }
+                if let (Some(db), Some(pkg)) = (symbol_db.as_mut(), package_info.as_ref())
+                    && let Some(module_path) = pkg.uri_to_module_path(&uri)
+                {
+                    update_symbol_db(db, &module_path.to_string(), &uri, &text, module, pkg);
                 }
             }
 
@@ -1420,17 +1414,17 @@ fn handle_notification(
                         }
 
                         // Update symbol database
-                        if let (Some(db), Some(pkg)) = (symbol_db.as_mut(), package_info.as_ref()) {
-                            if let Some(module_path) = pkg.uri_to_module_path(&uri) {
-                                update_symbol_db(
-                                    db,
-                                    &module_path.to_string(),
-                                    &uri,
-                                    &doc.text,
-                                    module,
-                                    pkg,
-                                );
-                            }
+                        if let (Some(db), Some(pkg)) = (symbol_db.as_mut(), package_info.as_ref())
+                            && let Some(module_path) = pkg.uri_to_module_path(&uri)
+                        {
+                            update_symbol_db(
+                                db,
+                                &module_path.to_string(),
+                                &uri,
+                                &doc.text,
+                                module,
+                                pkg,
+                            );
                         }
                     }
 

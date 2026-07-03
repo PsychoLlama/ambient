@@ -7,7 +7,7 @@
 //! These are extracted from the main `infer_expr` function to improve
 //! code organization.
 
-use super::{type_error, Infer, InferResult, TypeEnv, TypeErrorKind};
+use super::{Infer, InferResult, TypeEnv, TypeErrorKind, type_error};
 use crate::ast::{AbilityCall, HandleExpr};
 use crate::types::{AbilityId, AbilitySet, Type};
 

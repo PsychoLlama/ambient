@@ -148,7 +148,7 @@ impl Vm {
                                 expected: "function",
                                 got: other.type_name(),
                                 operation: "call",
-                            })
+                            });
                         }
                     };
                     self.push_frame(&hash, arg_count)?;
@@ -208,7 +208,7 @@ impl Vm {
                                 expected: "tuple",
                                 got: other.type_name(),
                                 operation: "tuple_get",
-                            })
+                            });
                         }
                     }
                 }
@@ -228,7 +228,7 @@ impl Vm {
                                     expected: "string",
                                     got: other.type_name(),
                                     operation: "make_record",
-                                })
+                                });
                             }
                         };
                         fields.push((field_name, value));
@@ -246,7 +246,7 @@ impl Vm {
                                 expected: "string",
                                 got: other.type_name(),
                                 operation: "record_get",
-                            })
+                            });
                         }
                     };
 
@@ -264,7 +264,7 @@ impl Vm {
                                 expected: "record",
                                 got: other.type_name(),
                                 operation: "record_get",
-                            })
+                            });
                         }
                     }
                 }
@@ -284,7 +284,7 @@ impl Vm {
                                 expected: "ability",
                                 got: other.type_name(),
                                 operation: "suspend",
-                            })
+                            });
                         }
                     };
                     self.op_suspend(ability_id, method_id, arg_count)?;
@@ -303,7 +303,7 @@ impl Vm {
                                 expected: "ability",
                                 got: other.type_name(),
                                 operation: "handle",
-                            })
+                            });
                         }
                     };
                     self.op_handle(ability_id)?;
@@ -341,7 +341,7 @@ impl Vm {
                                 expected: "function",
                                 got: other.type_name(),
                                 operation: "make_closure",
-                            })
+                            });
                         }
                     };
 
@@ -375,7 +375,7 @@ impl Vm {
                                 expected: "closure",
                                 got: other.type_name(),
                                 operation: "call_closure",
-                            })
+                            });
                         }
                     };
 
@@ -417,7 +417,7 @@ impl Vm {
                                 expected: "ability",
                                 got: other.type_name(),
                                 operation: "make_handler",
-                            })
+                            });
                         }
                     };
                     let capture_count = self.read_u8()?;
@@ -437,7 +437,7 @@ impl Vm {
                                     expected: "function",
                                     got: other.type_name(),
                                     operation: "make_handler",
-                                })
+                                });
                             }
                         };
 
@@ -483,7 +483,7 @@ impl Vm {
                                 expected: "list",
                                 got: other.type_name(),
                                 operation: "list_get",
-                            })
+                            });
                         }
                     };
                     let result = list.get(index).cloned().unwrap_or(Value::Unit);
@@ -498,7 +498,7 @@ impl Vm {
                                 expected: "list",
                                 got: other.type_name(),
                                 operation: "list_length",
-                            })
+                            });
                         }
                     };
                     #[allow(clippy::cast_precision_loss)]
@@ -513,7 +513,7 @@ impl Vm {
                                 expected: "list",
                                 got: other.type_name(),
                                 operation: "list_concat",
-                            })
+                            });
                         }
                     };
                     let list1 = match self.pop()? {
@@ -523,7 +523,7 @@ impl Vm {
                                 expected: "list",
                                 got: other.type_name(),
                                 operation: "list_concat",
-                            })
+                            });
                         }
                     };
                     let mut result = (*list1).clone();
@@ -540,7 +540,7 @@ impl Vm {
                                 expected: "list",
                                 got: other.type_name(),
                                 operation: "list_append",
-                            })
+                            });
                         }
                     };
                     let mut result = (*list).clone();
@@ -556,7 +556,7 @@ impl Vm {
                                 expected: "list",
                                 got: other.type_name(),
                                 operation: "list_head",
-                            })
+                            });
                         }
                     };
                     let result = list.first().cloned().unwrap_or(Value::Unit);
@@ -571,7 +571,7 @@ impl Vm {
                                 expected: "list",
                                 got: other.type_name(),
                                 operation: "list_tail",
-                            })
+                            });
                         }
                     };
                     let result = if list.len() <= 1 {
@@ -590,7 +590,7 @@ impl Vm {
                                 expected: "list",
                                 got: other.type_name(),
                                 operation: "list_last",
-                            })
+                            });
                         }
                     };
                     let result = list.last().cloned().unwrap_or(Value::Unit);
@@ -605,7 +605,7 @@ impl Vm {
                                 expected: "list",
                                 got: other.type_name(),
                                 operation: "list_reverse",
-                            })
+                            });
                         }
                     };
                     let mut result: Vec<Value> = (*list).clone();
@@ -621,7 +621,7 @@ impl Vm {
                                 expected: "list",
                                 got: other.type_name(),
                                 operation: "list_sort",
-                            })
+                            });
                         }
                     };
                     let mut result: Vec<Value> = (*list).clone();
@@ -645,7 +645,7 @@ impl Vm {
                                 expected: "list",
                                 got: other.type_name(),
                                 operation: "list_slice",
-                            })
+                            });
                         }
                     };
                     let len = list.len();
@@ -667,7 +667,7 @@ impl Vm {
                                 expected: "list",
                                 got: other.type_name(),
                                 operation: "list_is_empty",
-                            })
+                            });
                         }
                     };
                     self.stack.push(Value::Bool(list.is_empty()));
@@ -701,7 +701,7 @@ impl Vm {
                                 expected: "list",
                                 got: other.type_name(),
                                 operation: "string_join",
-                            })
+                            });
                         }
                     };
                     let parts: Vec<String> = list
@@ -873,7 +873,7 @@ impl Vm {
                                 expected: "map",
                                 got: other.type_name(),
                                 operation: "map_get",
-                            })
+                            });
                         }
                     };
                     let result = map.get(&key).cloned().unwrap_or(Value::Unit);
@@ -890,7 +890,7 @@ impl Vm {
                                 expected: "map",
                                 got: other.type_name(),
                                 operation: "map_insert",
-                            })
+                            });
                         }
                     };
                     let new_map = map.insert(&**key, value);
@@ -906,7 +906,7 @@ impl Vm {
                                 expected: "map",
                                 got: other.type_name(),
                                 operation: "map_remove",
-                            })
+                            });
                         }
                     };
                     let new_map = map.remove(&key);
@@ -922,7 +922,7 @@ impl Vm {
                                 expected: "map",
                                 got: other.type_name(),
                                 operation: "map_contains",
-                            })
+                            });
                         }
                     };
                     self.stack.push(Value::Bool(map.contains_key(&key)));
@@ -936,7 +936,7 @@ impl Vm {
                                 expected: "map",
                                 got: other.type_name(),
                                 operation: "map_length",
-                            })
+                            });
                         }
                     };
                     #[allow(clippy::cast_precision_loss)]
@@ -951,7 +951,7 @@ impl Vm {
                                 expected: "map",
                                 got: other.type_name(),
                                 operation: "map_keys",
-                            })
+                            });
                         }
                     };
                     let keys: Vec<Value> = map
@@ -970,7 +970,7 @@ impl Vm {
                                 expected: "map",
                                 got: other.type_name(),
                                 operation: "map_values",
-                            })
+                            });
                         }
                     };
                     let values = map.values();
@@ -1003,7 +1003,7 @@ impl Vm {
                                 expected: "set",
                                 got: other.type_name(),
                                 operation: "set_insert",
-                            })
+                            });
                         }
                     };
                     let new_set = set.insert(value);
@@ -1019,7 +1019,7 @@ impl Vm {
                                 expected: "set",
                                 got: other.type_name(),
                                 operation: "set_remove",
-                            })
+                            });
                         }
                     };
                     let new_set = set.remove(&value);
@@ -1035,7 +1035,7 @@ impl Vm {
                                 expected: "set",
                                 got: other.type_name(),
                                 operation: "set_contains",
-                            })
+                            });
                         }
                     };
                     self.stack.push(Value::Bool(set.contains(&value)));
@@ -1049,7 +1049,7 @@ impl Vm {
                                 expected: "set",
                                 got: other.type_name(),
                                 operation: "set_length",
-                            })
+                            });
                         }
                     };
                     #[allow(clippy::cast_precision_loss)]
@@ -1064,7 +1064,7 @@ impl Vm {
                                 expected: "set",
                                 got: other.type_name(),
                                 operation: "set_union",
-                            })
+                            });
                         }
                     };
                     let set1 = match self.pop()? {
@@ -1074,7 +1074,7 @@ impl Vm {
                                 expected: "set",
                                 got: other.type_name(),
                                 operation: "set_union",
-                            })
+                            });
                         }
                     };
                     let result = set1.union(&set2);
@@ -1089,7 +1089,7 @@ impl Vm {
                                 expected: "set",
                                 got: other.type_name(),
                                 operation: "set_intersection",
-                            })
+                            });
                         }
                     };
                     let set1 = match self.pop()? {
@@ -1099,7 +1099,7 @@ impl Vm {
                                 expected: "set",
                                 got: other.type_name(),
                                 operation: "set_intersection",
-                            })
+                            });
                         }
                     };
                     let result = set1.intersection(&set2);
@@ -1114,7 +1114,7 @@ impl Vm {
                                 expected: "set",
                                 got: other.type_name(),
                                 operation: "set_difference",
-                            })
+                            });
                         }
                     };
                     let set1 = match self.pop()? {
@@ -1124,7 +1124,7 @@ impl Vm {
                                 expected: "set",
                                 got: other.type_name(),
                                 operation: "set_difference",
-                            })
+                            });
                         }
                     };
                     let result = set1.difference(&set2);
@@ -1139,7 +1139,7 @@ impl Vm {
                                 expected: "set",
                                 got: other.type_name(),
                                 operation: "set_to_list",
-                            })
+                            });
                         }
                     };
                     self.stack.push(Value::list(set.to_list()));
@@ -1162,7 +1162,7 @@ impl Vm {
                                 expected: "string",
                                 got: other.type_name(),
                                 operation: "make_enum type_name",
-                            })
+                            });
                         }
                     };
 
@@ -1174,7 +1174,7 @@ impl Vm {
                                 expected: "string",
                                 got: other.type_name(),
                                 operation: "make_enum variant_name",
-                            })
+                            });
                         }
                     };
 
@@ -1195,7 +1195,7 @@ impl Vm {
                                 expected: "enum",
                                 got: other.type_name(),
                                 operation: "enum_is",
-                            })
+                            });
                         }
                     };
 
@@ -1221,7 +1221,7 @@ impl Vm {
                                 expected: "enum",
                                 got: other.type_name(),
                                 operation: "enum_payload",
-                            })
+                            });
                         }
                     }
                 }
@@ -1238,7 +1238,7 @@ impl Vm {
                                 expected: "enum",
                                 got: other.type_name(),
                                 operation: "enum_tag",
-                            })
+                            });
                         }
                     }
                 }
@@ -1273,7 +1273,7 @@ impl Vm {
                                 expected: "Option",
                                 got: other.type_name(),
                                 operation: "option_unwrap_or",
-                            })
+                            });
                         }
                     }
                 }
@@ -1380,7 +1380,7 @@ impl Vm {
                                 expected: "bytes",
                                 got: other.type_name(),
                                 operation: "deserialize_value",
-                            })
+                            });
                         }
                     };
                     match crate::protocol::deserialize_value(&bytes) {
@@ -1397,7 +1397,7 @@ impl Vm {
                                 expected: "closure",
                                 got: other.type_name(),
                                 operation: "closure_hash",
-                            })
+                            });
                         }
                     };
                     self.stack
@@ -1412,7 +1412,7 @@ impl Vm {
                                 expected: "handler",
                                 got: other.type_name(),
                                 operation: "handler_methods",
-                            })
+                            });
                         }
                     };
                     let mut methods: Vec<_> = handler.methods.iter().collect();
@@ -1432,7 +1432,7 @@ impl Vm {
                                 expected: "closure",
                                 got: other.type_name(),
                                 operation: "closure_captures",
-                            })
+                            });
                         }
                     };
                     // Serialize captures as bytes
@@ -1467,7 +1467,7 @@ impl Vm {
                                 expected: "bytes",
                                 got: other.type_name(),
                                 operation: "bytes_to_hex",
-                            })
+                            });
                         }
                     };
                     self.stack.push(Value::string(hex::encode(bytes.as_ref())));
@@ -1484,7 +1484,7 @@ impl Vm {
                                 expected: "list",
                                 got: other.type_name(),
                                 operation: "bytes_from",
-                            })
+                            });
                         }
                     };
                     let bytes: Vec<u8> = list
@@ -1509,7 +1509,7 @@ impl Vm {
                                 expected: "bytes",
                                 got: other.type_name(),
                                 operation: "bytes_to_list",
-                            })
+                            });
                         }
                     };
                     let list: Vec<Value> =
@@ -1525,7 +1525,7 @@ impl Vm {
                                 expected: "bytes",
                                 got: other.type_name(),
                                 operation: "bytes_length",
-                            })
+                            });
                         }
                     };
                     #[allow(clippy::cast_precision_loss)]
@@ -1541,7 +1541,7 @@ impl Vm {
                                 expected: "bytes",
                                 got: other.type_name(),
                                 operation: "bytes_get",
-                            })
+                            });
                         }
                     };
                     // Return 0 for out of bounds
@@ -1559,7 +1559,7 @@ impl Vm {
                                 expected: "bytes",
                                 got: other.type_name(),
                                 operation: "bytes_slice",
-                            })
+                            });
                         }
                     };
                     let len = bytes.len();
@@ -1581,7 +1581,7 @@ impl Vm {
                                 expected: "bytes",
                                 got: other.type_name(),
                                 operation: "bytes_concat",
-                            })
+                            });
                         }
                     };
                     let a = match self.pop()? {
@@ -1591,7 +1591,7 @@ impl Vm {
                                 expected: "bytes",
                                 got: other.type_name(),
                                 operation: "bytes_concat",
-                            })
+                            });
                         }
                     };
                     let mut result = Vec::with_capacity(a.len() + b.len());

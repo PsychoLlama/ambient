@@ -14,7 +14,7 @@ pub mod exception;
 use std::fmt;
 
 pub use canonical::{
-    hash_interface, hash_interface_raw, CanonicalType, CanonicalTypeFactory, RawMethod,
+    CanonicalType, CanonicalTypeFactory, RawMethod, hash_interface, hash_interface_raw,
 };
 pub use descriptor::{
     AbilityDescriptor, AbilityProvider, MethodDescriptor, MethodSignature, TypeFactory,

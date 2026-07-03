@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use super::{type_error, Infer, InferResult, TypeErrorKind};
+use super::{Infer, InferResult, TypeErrorKind, type_error};
 use crate::ability_resolver::EngineTypeFactory;
 use crate::ast::QualifiedName;
 use crate::types::{AbilityId, AbilitySet, Type};
@@ -72,24 +72,23 @@ impl Infer {
         // signatures. They take precedence over the builtin-descriptor
         // path below so a prelude declaration supersedes any descriptor
         // registered under the same name.
-        if ability.path.len() == 1 {
-            if let Some(dynamic) = self
+        if ability.path.len() == 1
+            && let Some(dynamic) = self
                 .ability_resolver
                 .get_namespaced(&ability.path[0], ability_name)
                 .cloned()
-            {
-                return self.lookup_dynamic_method(&dynamic, method_name, arg_tys, span);
-            }
+        {
+            return self.lookup_dynamic_method(&dynamic, method_name, arg_tys, span);
         }
 
         // Module-declared abilities are used by bare name and take
         // precedence over bare-name builtins (Exception), mirroring how
         // local enums shadow the prelude. Namespaced prelude abilities
         // are unaffected: user declarations never register under a path.
-        if ability.path.is_empty() {
-            if let Some(dynamic) = self.ability_resolver.get_dynamic(ability_name).cloned() {
-                return self.lookup_dynamic_method(&dynamic, method_name, arg_tys, span);
-            }
+        if ability.path.is_empty()
+            && let Some(dynamic) = self.ability_resolver.get_dynamic(ability_name).cloned()
+        {
+            return self.lookup_dynamic_method(&dynamic, method_name, arg_tys, span);
         }
 
         // A namespaced dynamic that wasn't matched above was named bare or
@@ -246,9 +245,11 @@ mod tests {
 
         // The wrong namespace does not resolve.
         let wrong = QualifiedName::qualified(vec!["other"], "Printer");
-        assert!(infer
-            .lookup_ability_method(&wrong, "go", &[Type::String], span())
-            .is_err());
+        assert!(
+            infer
+                .lookup_ability_method(&wrong, "go", &[Type::String], span())
+                .is_err()
+        );
     }
 
     #[test]

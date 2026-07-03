@@ -17,8 +17,8 @@
 
 use std::cell::Cell;
 
-use crate::descriptor::{MethodDescriptor, TypeFactory};
 use crate::AbilityId;
+use crate::descriptor::{MethodDescriptor, TypeFactory};
 
 /// Domain separator for ability interface hashes.
 const DOMAIN: &[u8] = b"ambient/ability/v1";

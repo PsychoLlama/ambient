@@ -1,7 +1,7 @@
 //! Random ability - for random number generation.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use ambient_ability::{SuspendedAbility, Value, VmError};
 use ambient_engine::ability_resolver::AbilityInterface;
@@ -22,8 +22,7 @@ fn next_random() -> f64 {
         #[allow(clippy::cast_possible_truncation)]
         let time_seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0x853c_49e6_748f_ea9b);
+            .map_or(0x853c_49e6_748f_ea9b, |d| d.as_nanos() as u64);
         state = time_seed;
         if state == 0 {
             state = 0x853c_49e6_748f_ea9b; // fallback seed

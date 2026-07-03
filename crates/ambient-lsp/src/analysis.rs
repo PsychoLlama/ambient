@@ -6,13 +6,13 @@
 use ambient_engine::ability_resolver::AbilityResolver;
 use ambient_engine::ast::{Expr, ExprKind, Item, ItemKind, Module, QualifiedName, Span, StmtKind};
 use ambient_engine::infer::{
-    check_module_with_registry_and_resolver, check_module_with_resolver, BoxedTypeError,
+    BoxedTypeError, check_module_with_registry_and_resolver, check_module_with_resolver,
 };
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::symbol_db::SymbolDb;
 use ambient_engine::types::Type;
-use ambient_parser::{parse, ParseError};
+use ambient_parser::{ParseError, parse};
 
 /// The result of analyzing a document.
 #[derive(Debug)]
@@ -134,10 +134,11 @@ pub fn find_item_at_offset(module: &Module, offset: u32) -> Option<&Item> {
             ItemKind::Use(_) | ItemKind::Impl(_) => None,
         };
 
-        if let Some(span) = name_span {
-            if offset >= span.start && offset <= span.end {
-                return Some(item);
-            }
+        if let Some(span) = name_span
+            && offset >= span.start
+            && offset <= span.end
+        {
+            return Some(item);
         }
     }
     None
@@ -346,10 +347,10 @@ pub fn find_definition(module: &Module, offset: u32) -> Option<DefinitionResult>
         ExprKind::Local(binding_id) => {
             // Find the binding in the module.
             for item in &module.items {
-                if let ItemKind::Function(func) = &item.kind {
-                    if let Some(def_span) = find_binding_definition(func, *binding_id) {
-                        return Some(DefinitionResult::local(def_span));
-                    }
+                if let ItemKind::Function(func) = &item.kind
+                    && let Some(def_span) = find_binding_definition(func, *binding_id)
+                {
+                    return Some(DefinitionResult::local(def_span));
                 }
             }
             None
@@ -730,8 +731,8 @@ mod tests {
         // The call to 'foo' is somewhere in the second function
         // We need to find an offset where 'foo' is referenced
         let def = find_definition(module, 27); // approximate position of foo() call
-                                               // This might or might not find the definition depending on exact offsets
-                                               // Just verify no panic occurs
+        // This might or might not find the definition depending on exact offsets
+        // Just verify no panic occurs
         let _ = def;
     }
 
@@ -744,7 +745,7 @@ mod tests {
         let module = result.module.as_ref().unwrap();
         // The 'x' reference in the body should find the parameter definition
         let def = find_definition(module, 20); // approximate position of x reference
-                                               // Just verify no panic
+        // Just verify no panic
         let _ = def;
     }
 

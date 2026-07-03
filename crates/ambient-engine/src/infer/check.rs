@@ -9,10 +9,10 @@ use crate::module_path::ModulePath;
 use crate::module_registry::{ExportKind, ModuleRegistry, ResolvedImport};
 use crate::types::{AbilityId, AbilitySet, TraitDef, TraitMethodDef, Type, TypeVarId};
 
+use super::Infer;
 use super::env::{Scheme, TypeEnv};
 use super::error::{BoxedTypeError, BoxedTypeErrorExt, TypeError, TypeErrorKind};
 use super::expr::substitute_self;
-use super::Infer;
 
 /// Result of type checking a module.
 #[derive(Debug)]
@@ -716,7 +716,7 @@ fn register_abilities(
             let mut param_map = HashMap::new();
             let mut quantified = Vec::new();
             for tp in &method.type_params {
-                let var_id = infer.gen.fresh_id();
+                let var_id = infer.r#gen.fresh_id();
                 param_map.insert(Arc::clone(&tp.name), var_id);
                 quantified.push(var_id);
             }
@@ -835,10 +835,10 @@ pub(super) fn substitute_type_params(
     match ty {
         Type::Named(named) => {
             // Check if this is a type parameter reference
-            if named.args.is_empty() {
-                if let Some(&var_id) = type_var_map.get(&named.name) {
-                    return Type::var(var_id);
-                }
+            if named.args.is_empty()
+                && let Some(&var_id) = type_var_map.get(&named.name)
+            {
+                return Type::var(var_id);
             }
             // Otherwise, recursively substitute in type arguments
             Type::Named(crate::types::NamedType::new(
@@ -979,14 +979,13 @@ fn build_import_env(
                 export_kind,
             } => {
                 // Look up the symbol's type from the source module
-                if let Some(module_info) = registry.get(&from_module) {
-                    if let Some(scheme) =
+                if let Some(module_info) = registry.get(&from_module)
+                    && let Some(scheme) =
                         get_symbol_scheme(infer, &module_info.module, &name, export_kind)
-                    {
-                        let binding_id = next_binding_id;
-                        next_binding_id += 1;
-                        env.insert(binding_id, name, scheme);
-                    }
+                {
+                    let binding_id = next_binding_id;
+                    next_binding_id += 1;
+                    env.insert(binding_id, name, scheme);
                 }
             }
         }
@@ -1137,7 +1136,7 @@ mod tests {
     /// resolved declarations serve performs compiled from them.
     #[test]
     fn declaration_hashing_matches_descriptor_hashing() {
-        use ambient_core::{hash_interface, MethodDescriptor};
+        use ambient_core::{MethodDescriptor, hash_interface};
 
         let mut module = ability_module(
             "Console",
@@ -1180,7 +1179,7 @@ mod tests {
     /// (`run<T, R>` — never one parameter in two positions).
     #[test]
     fn generic_declaration_hashing_matches_descriptor_hashing() {
-        use ambient_core::{hash_interface, MethodDescriptor};
+        use ambient_core::{MethodDescriptor, hash_interface};
 
         let list_of_string = Type::named("List", vec![Type::String]);
         let mut module = ability_module(

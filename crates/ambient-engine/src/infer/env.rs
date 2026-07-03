@@ -150,7 +150,7 @@ impl TypeEnv {
         self.bindings.iter().filter_map(move |(&id, scheme)| {
             self.names
                 .iter()
-                .find(|(_, &bid)| bid == id)
+                .find(|&(_, &bid)| bid == id)
                 .map(|(name, _)| (id, name, scheme))
         })
     }

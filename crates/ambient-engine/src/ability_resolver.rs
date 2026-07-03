@@ -6,8 +6,8 @@
 
 use crate::types::Type;
 use ambient_core::{
-    hash_interface_raw, AbilityDescriptor, AbilityId, AbilityProvider, MethodId, RawMethod,
-    TypeFactory,
+    AbilityDescriptor, AbilityId, AbilityProvider, MethodId, RawMethod, TypeFactory,
+    hash_interface_raw,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -705,9 +705,11 @@ mod tests {
             resolver.id_to_name(AbilityId::from_bytes([7; 32])),
             Some("Printer")
         );
-        assert!(resolver
-            .get_dynamic_by_id(AbilityId::from_bytes([7; 32]))
-            .is_some());
+        assert!(
+            resolver
+                .get_dynamic_by_id(AbilityId::from_bytes([7; 32]))
+                .is_some()
+        );
 
         // But it is not a local dynamic.
         assert!(resolver.get_dynamic("Printer").is_none());

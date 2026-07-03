@@ -2,7 +2,7 @@
 
 #![allow(clippy::type_complexity)] // Handler types are inherently complex
 
-use ambient_ability::{format_value, SuspendedAbility, Value, VmError};
+use ambient_ability::{SuspendedAbility, Value, VmError, format_value};
 use ambient_engine::ability_resolver::AbilityInterface;
 use ambient_engine::vm::Vm;
 

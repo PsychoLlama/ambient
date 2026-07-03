@@ -178,13 +178,11 @@ impl ModuleRegistry {
                 }
                 UseKind::Items(items) => {
                     // `pub use pkg.other.{a, b};` - re-exports specific symbols
-                    if items.iter().any(|item| item.as_ref() == symbol_name) {
-                        if let Some(target_path) = Self::resolve_import_path(module_path, re_export)
-                        {
-                            if let Ok(export) = self.lookup_symbol(&target_path, symbol_name) {
-                                return Ok(export);
-                            }
-                        }
+                    if items.iter().any(|item| item.as_ref() == symbol_name)
+                        && let Some(target_path) = Self::resolve_import_path(module_path, re_export)
+                        && let Ok(export) = self.lookup_symbol(&target_path, symbol_name)
+                    {
+                        return Ok(export);
                     }
                 }
             }
@@ -393,14 +391,14 @@ fn extract_re_exports(module: &Module) -> Vec<ReExport> {
     let mut re_exports = Vec::new();
 
     for item in &module.items {
-        if let ItemKind::Use(use_def) = &item.kind {
-            if use_def.is_public {
-                re_exports.push(ReExport {
-                    prefix: use_def.prefix,
-                    path: use_def.path.iter().map(|(name, _)| name.clone()).collect(),
-                    kind: use_def.kind.clone(),
-                });
-            }
+        if let ItemKind::Use(use_def) = &item.kind
+            && use_def.is_public
+        {
+            re_exports.push(ReExport {
+                prefix: use_def.prefix,
+                path: use_def.path.iter().map(|(name, _)| name.clone()).collect(),
+                kind: use_def.kind.clone(),
+            });
         }
     }
 

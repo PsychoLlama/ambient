@@ -3,22 +3,26 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    rust-overlay.url = "github:oxalica/rust-overlay";
     systems.url = "github:nix-systems/default";
+
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
     {
       self,
       nixpkgs,
-      rust-overlay,
+      fenix,
       systems,
     }:
 
     let
       inherit (nixpkgs) lib;
 
-      overlays = [ (import rust-overlay) ];
+      overlays = [ fenix.overlays.default ];
 
       eachSystem = lib.flip lib.mapAttrs (
         lib.genAttrs (import systems) (
@@ -34,7 +38,7 @@
       packages = eachSystem (
         system: pkgs:
         let
-          rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+          rustToolchain = pkgs.fenix.stable.defaultToolchain;
           rustPlatform = pkgs.makeRustPlatform {
             cargo = rustToolchain;
             rustc = rustToolchain;
@@ -142,7 +146,8 @@
         system: pkgs: {
           default = pkgs.mkShell {
             packages = [
-              (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
+              pkgs.fenix.stable.defaultToolchain
+              pkgs.fenix.stable.rust-analyzer
               pkgs.just
               pkgs.nixfmt-rfc-style
               pkgs.nodejs

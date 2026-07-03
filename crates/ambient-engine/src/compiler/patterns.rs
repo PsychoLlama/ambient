@@ -7,7 +7,7 @@ use crate::bytecode::Opcode;
 use crate::value::Value;
 
 use super::error::{CompileError, CompileErrorKind};
-use super::{compile_expr, str_to_value, FunctionCompiler, ModuleContext};
+use super::{FunctionCompiler, ModuleContext, compile_expr, str_to_value};
 
 /// Compile a match expression.
 pub(super) fn compile_match(
