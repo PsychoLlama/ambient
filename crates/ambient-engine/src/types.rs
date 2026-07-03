@@ -630,6 +630,19 @@ impl TraitRegistry {
 
         // `Default` is an associated (no-`self`) trait: `default(): Self`
         // produces a canonical value for the type, called as `Type::default()`.
+        //
+        // TODO: `Default` sits in the prelude only for expedience, not because
+        // it belongs there. The operator traits above are prelude-resident for
+        // a load-bearing reason — `+`, `==`, `<` desugar to them, so the
+        // checker must always have them in scope. `Default` has no such
+        // syntactic hook; it is standard-library convenience. It lives here
+        // only because trait resolution is currently bare-name and
+        // global-per-package with no `use`-based import scoping (see the
+        // "grow the standard library as ordinary modules" future work), so a
+        // `core::Default` module would be indistinguishable from a prelude
+        // entry today anyway. Once trait imports land, move `Default` out of
+        // the prelude into an ordinary `core` module and keep the prelude to
+        // just the operator traits.
         let default_id = registry.fresh_id();
         registry.register_trait(
             TraitDef::new(default_id, "Default").with_method(TraitMethodDef::new(
