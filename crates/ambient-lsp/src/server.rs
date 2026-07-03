@@ -400,8 +400,10 @@ fn format_item_signature(kind: &ItemKind, content: &mut String) {
         }
         ItemKind::Impl(i) => {
             content.push_str("impl ");
-            content.push_str(&i.trait_name.name);
-            content.push_str(" for ");
+            if let Some(trait_name) = &i.trait_name {
+                content.push_str(&trait_name.name);
+                content.push_str(" for ");
+            }
             content.push_str(&format_type(&i.for_type));
         }
     }
@@ -1151,7 +1153,10 @@ fn item_to_document_symbol(
             ))
         }
         ItemKind::Impl(i) => Some(make_symbol(
-            format!("impl {} for ...", i.trait_name.name),
+            match &i.trait_name {
+                Some(trait_name) => format!("impl {} for ...", trait_name.name),
+                None => "impl ...".to_string(),
+            },
             None,
             LspSymbolKind::CLASS,
             range,

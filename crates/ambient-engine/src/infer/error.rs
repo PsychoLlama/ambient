@@ -231,6 +231,23 @@ pub enum TypeErrorKind {
         trait_name: Arc<str>,
         method: Arc<str>,
     },
+
+    /// An inherent impl targets a type that cannot carry methods (a
+    /// structural type, a bare type parameter, or an unknown name).
+    InherentImplInvalidTarget { ty: Type },
+
+    /// Two inherent definitions of the same method for the same type.
+    /// The definitions would compete for one dispatch symbol.
+    DuplicateInherentMethod { method: Arc<str>, ty: Type },
+
+    /// An inherent method without a declared return type. Inherent method
+    /// signatures are the dispatch contract (like `pub fn` signatures), so
+    /// the return type must be written out.
+    InherentMethodMissingReturnType { method: Arc<str> },
+
+    /// A trait impl method declared a `with` clause; trait method effects
+    /// are not part of trait signatures yet.
+    AbilityClauseOnTraitImpl { method: Arc<str> },
 }
 
 impl std::fmt::Display for TypeErrorKind {
@@ -443,6 +460,27 @@ impl std::fmt::Display for TypeErrorKind {
                 write!(
                     f,
                     "impl for `{trait_name}` is missing required method `{method}`"
+                )
+            }
+            Self::InherentImplInvalidTarget { ty } => {
+                write!(
+                    f,
+                    "inherent `impl` target must be a nominal type, an enum, or a built-in type; `{ty}` is none of these"
+                )
+            }
+            Self::DuplicateInherentMethod { method, ty } => {
+                write!(
+                    f,
+                    "duplicate inherent method `{method}` for `{ty}`: only one definition per type and method name is allowed"
+                )
+            }
+            Self::InherentMethodMissingReturnType { method } => {
+                write!(f, "inherent method `{method}` must declare a return type")
+            }
+            Self::AbilityClauseOnTraitImpl { method } => {
+                write!(
+                    f,
+                    "trait impl method `{method}` cannot declare a `with` clause: trait method effects are fixed by the trait signature"
                 )
             }
         }

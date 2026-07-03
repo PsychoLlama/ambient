@@ -118,7 +118,9 @@ let sum = "Sum: ${to_string(a + b)}";
 
 ## Traits
 
-Traits define shared behavior for types. Only nominal types can implement traits.
+Traits define shared behavior for types. Only nominal types can implement
+traits. (Types also take methods directly, without a trait — see
+[Inherent Impls](#inherent-impls).)
 
 ### Defining Traits
 
@@ -223,6 +225,75 @@ Dispatch is still static: `Money::default()` resolves to the same canonical
 `<type-uuid>::Default::default` symbol as any impl method, with no receiver
 pushed at the call site.
 
+### Inherent Impls
+
+An `impl` block without a trait attaches methods directly to a type. This
+is how a type grows an API that isn't shared behavior — no trait ceremony
+required:
+
+```ambient
+unique(d098767b-4093-4d5c-ba37-ad92aa7b5d98) type Money { cents: number }
+
+impl Money {
+  fn double(self): Money {
+    Money { cents: self.cents * 2 }
+  }
+  fn from_dollars(d: number): Money {   // no self: associated function,
+    Money { cents: d * 100 }            // called as Money::from_dollars(3)
+  }
+}
+```
+
+Inherent impls are not limited to nominal types. Enums, the built-in
+constructors (`Option`, `Result`, `List`, `Map`, `Set`), and the primitives
+can all carry methods, and impls may be generic over the target's type
+parameters:
+
+```ambient
+impl<T> Option<T> {
+  fn get_or(self, fallback: T): T {
+    match self { Some(v) => v, None => fallback }
+  }
+}
+
+let x = Some(41).get_or(0);   // receiver's type arguments instantiate T
+```
+
+Rules:
+
+- **Signatures are contracts.** Parameter and return types are declared in
+  full (the return type is mandatory); `Self` refers to the target type.
+- **Effects are declared.** An inherent method takes a `with` clause like a
+  function; no clause means pure, enforced on the body and required at
+  call sites. (Trait impl methods don't take `with` clauses — their
+  signatures come from the trait.)
+- **One definition per method per type.** Several impl blocks for one type
+  merge, but a second definition of the same method name for the same type
+  — anywhere in the build — is a coherence error. Core already claims
+  `Option::map`, so a program cannot redefine it; new method names on core
+  types are fine.
+- **Inherent wins.** If a type has both an inherent method and a trait
+  method of the same name, dot dispatch resolves the inherent one (as in
+  Rust). Adding an inherent method is a deliberate local override, never
+  silent ambiguity; trait dispatch ambiguity between two *traits* is still
+  an error at the call site.
+- **No blanket impls.** The target must be a concrete type identity —
+  `impl<T> T` is rejected, as are structural targets (records, tuples,
+  functions), which have no identity to attach methods to.
+
+The core library uses inherent impls to expose its Option/Result/List
+helpers as methods (see `crates/ambient-engine/src/core_lib/*.ab`), so
+combinator chains read left to right:
+
+```ambient
+[1, 2, 3].map((x) => x * 10).fold(0, (acc, x) => acc + x)   // 60
+Some(20).map((v) => v * 2).unwrap_or(0)                     // 40
+```
+
+The module companion functions (`Option::map(opt, f)`, `core::List::map`)
+remain — a method call is just the receiver-first spelling of the same
+content-addressed function.
+
 ### Prelude Traits
 
 The operator traits (`Add`, `Sub`, `Mul`, `Div`, `Mod`, `Eq`, `Ord`) plus
@@ -251,18 +322,63 @@ trait Ord {
 Comparison operators adapt the trait method's result: `!=` negates
 `Eq.eq`, and `<`, `<=`, `>`, `>=` compare `Ord.cmp`'s result against 0.
 
-### Trait Dispatch and Content-Addressing
+### Dispatch, Coherence, and Content-Addressing
 
-Method calls dispatch statically: the receiver's concrete nominal type is
-known during type checking, which resolves the call to a canonical method
-symbol `<type-uuid>::<Trait>::<method>`. Impl methods compile as ordinary
-named functions under that symbol, so they are content-addressed exactly
-like any other function (hash = bytecode + constants + dependency hashes),
-and call sites link against the content hash. There is no runtime trait
-registry and no dynamic dispatch.
+Method calls dispatch statically: the receiver's concrete type is known
+during type checking, which resolves the call to a canonical method symbol
+— `<type-uuid>::<Trait>::<method>` for trait methods, or the two-segment
+`<type-identity>::<method>` for inherent methods, where the identity is
+the nominal UUID or the built-in/enum head name (`Option::map`). The
+segment counts differ, so the two families can never collide. Impl methods
+compile as ordinary named functions under their symbol, so they are
+content-addressed exactly like any other function (hash = bytecode +
+constants + dependency hashes), and call sites link against the content
+hash. There is no runtime trait registry and no dynamic dispatch.
 
-Traits and impls declared anywhere in a package are visible to every module
-in it (impl coherence is global per package).
+Traits and impls declared anywhere in the build are visible to every
+module in it. Coherence is enforced at exactly the granularity of the
+dispatch symbol: one impl per `(trait, type)`, one inherent definition per
+`(type, method name)`, across the build closure — the modules reachable
+from the entry point. A local check ("this registration found no
+duplicate") is sufficient to guarantee the global invariant ("every call
+site resolves this symbol to one implementation"), because the symbol
+embeds the type's identity and resolution consults nothing outside the
+build.
+
+#### Why this survives live upgrade
+
+In Rust, coherence must be global forever because dispatch is resolved
+through type-indexed tables that all code shares — two crates disagreeing
+about `impl Hash for K` would silently corrupt any `HashMap<K, _>` they
+exchange. Ambient's constraint set is different: a live upgrade can
+replace `impl Money` in a running system without touching `Money`, so
+"one impl per type, ever" is not even expressible. It is also not needed:
+
+- **A call site is pinned to an implementation by hash, not by name.**
+  Type checking resolves the symbol, compilation freezes the callee's
+  content hash into the caller (the caller's own hash covers it). There is
+  no later lookup that could see a different impl.
+- **Upgrades replace call sites, not tables.** Shipping a new
+  `impl Money` produces new method hashes and re-links the callers that
+  should use them — themselves new hashes. Old code keeps calling the old
+  methods; both versions can coexist in one store, one VM, one wire
+  transfer. This is exactly how plain functions already behave under
+  content addressing; impls add nothing new to break.
+- **Values don't carry their impls.** Nominal types are erased at runtime
+  (a `Money` is just its record), so data constructed by old code is
+  fully usable by new methods and vice versa, as long as the type's shape
+  agrees — which is the type's identity question (its UUID), not the
+  impl's.
+
+The residual hazard is semantic, not mechanical: a data structure whose
+*invariant* depends on impl behavior (say, a set ordered by `Ord::cmp`)
+can be built by one version and queried by another that compares
+differently. That hazard predates inherent impls — any trait impl edit
+plus surviving state can trigger it — and it is a state-handoff problem,
+owned by the planned process model (state is re-established through a
+well-defined boundary on upgrade), not by the impl system. Coherence
+within one build plus hash-pinned dispatch across builds is the whole
+mechanical story.
 
 ---
 
@@ -615,6 +731,15 @@ String::split, String::join, String::trim, String::contains, String::length
 to_string, parse_number, parse_bool
 ```
 
+Option, Result, and List expose their combinators as methods too (inherent
+impls in the core modules), so pipelines read receiver-first:
+
+```ambient
+[1, 2, 3].filter((x) => x % 2 == 1).map((x) => x * 10).fold(0, (a, x) => a + x)
+Some(20).map((v) => v * 2).unwrap_or(0)
+Ok(5).map((v) => v + 1).ok().is_some()
+```
+
 ---
 
 ## Architecture
@@ -668,8 +793,9 @@ Invariants (pinned by `crates/ambient-parser/tests/content_addressing.rs`):
 - Changing a function's body, or any transitive dependency, changes its hash.
 - Renaming a non-recursive function never changes its hash.
 - Every compiled function is reproducible byte-for-byte from its object.
-- Trait impl methods are ordinary functions named
-  `<type-uuid>::<Trait>::<method>` and obey all of the above.
+- Impl methods are ordinary functions — trait methods named
+  `<type-uuid>::<Trait>::<method>`, inherent methods
+  `<type-identity>::<method>` — and obey all of the above.
 
 ### The Store
 

@@ -771,6 +771,7 @@ impl<'src> Parser<'src> {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Parse an impl block: `impl<T> Trait for Type where T: Bound { methods }`
+    /// or an inherent impl: `impl<T> Type { methods }`.
     fn parse_impl_def(&mut self) -> Result<CstImplDef, ParseError> {
         let start = self.current().span.start;
         self.expect(TokenKind::Impl)?;
@@ -782,11 +783,21 @@ impl<'src> Parser<'src> {
             Vec::new()
         };
 
-        // Trait name
-        let trait_name = self.parse_qualified_name()?;
-
-        // `for` keyword
-        self.expect(TokenKind::For)?;
+        // Disambiguate `impl Trait for Type` from inherent `impl Type`:
+        // provisionally parse a qualified name; only if `for` follows was it
+        // the trait name. Otherwise rewind and parse the target type (which
+        // may be generic, e.g. `Option<T>` — not a qualified name).
+        let snapshot = self.pos;
+        let trait_name = match self.parse_qualified_name() {
+            Ok(name) if self.check(TokenKind::For) => {
+                self.advance();
+                Some(name)
+            }
+            _ => {
+                self.pos = snapshot;
+                None
+            }
+        };
 
         // Type being implemented
         let for_type = self.parse_type()?;
@@ -881,6 +892,14 @@ impl<'src> Parser<'src> {
             None
         };
 
+        // Optional ability clause
+        let abilities = if self.check(TokenKind::With) {
+            self.advance();
+            self.parse_ability_list()?
+        } else {
+            Vec::new()
+        };
+
         // Method body
         let body = self.parse_block_expr()?;
         let end = body.span.end;
@@ -890,6 +909,7 @@ impl<'src> Parser<'src> {
             type_params,
             params,
             ret_ty,
+            abilities,
             body,
             span: Span::new(start, end),
         })

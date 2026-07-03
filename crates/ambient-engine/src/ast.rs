@@ -899,15 +899,16 @@ pub struct TraitMethod {
     pub span: Span,
 }
 
-/// A trait implementation.
+/// A trait implementation or an inherent impl block.
 ///
 /// Syntax: `impl<T> Trait for Type where T: Bound { fn method(self, ...) { body } }`
+/// or, for inherent impls: `impl<T> Type { fn method(self, ...) { body } }`
 #[derive(Debug, Clone)]
 pub struct ImplDef {
     /// Type parameters for generic impls.
     pub type_params: Vec<TypeParam>,
-    /// The trait being implemented.
-    pub trait_name: QualifiedName,
+    /// The trait being implemented; `None` for an inherent impl.
+    pub trait_name: Option<QualifiedName>,
     /// The type implementing the trait.
     pub for_type: Type,
     /// Where clauses (type, trait bounds).
@@ -946,6 +947,9 @@ pub struct ImplMethod {
     pub params: Vec<Param>,
     /// Return type.
     pub ret_ty: Option<Type>,
+    /// Declared abilities (`with Console, Log`). Enforced for inherent
+    /// methods, which behave like public functions: no clause means pure.
+    pub abilities: Vec<QualifiedName>,
     /// Method body.
     pub body: Expr,
     /// Source span.

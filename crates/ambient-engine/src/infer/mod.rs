@@ -60,6 +60,7 @@ pub mod enums;
 mod env;
 mod error;
 mod expr;
+pub mod inherent;
 mod intrinsics;
 mod pattern;
 mod unify;
@@ -106,6 +107,8 @@ pub struct Infer {
     pub(crate) type_aliases: HashMap<Arc<str>, Type>,
     /// Trait registry for trait and impl lookup.
     pub(crate) trait_registry: TraitRegistry,
+    /// Inherent (trait-less) impl methods, keyed by target type identity.
+    pub(crate) inherent_registry: inherent::InherentRegistry,
 
     /// Enums visible to the module being checked (prelude + locals).
     pub(crate) enum_registry: enums::EnumRegistry,
@@ -134,6 +137,7 @@ impl Infer {
             ability_resolver: crate::ability_resolver::core_abilities(),
             type_aliases: HashMap::new(),
             trait_registry: TraitRegistry::with_prelude(),
+            inherent_registry: inherent::InherentRegistry::default(),
             enum_registry: enums::EnumRegistry::with_prelude(),
             pending_errors: Vec::new(),
         }
@@ -151,6 +155,7 @@ impl Infer {
             ability_resolver: crate::ability_resolver::core_abilities(),
             type_aliases: HashMap::new(),
             trait_registry: TraitRegistry::with_prelude(),
+            inherent_registry: inherent::InherentRegistry::default(),
             enum_registry: enums::EnumRegistry::with_prelude(),
             pending_errors: Vec::new(),
         }
@@ -168,6 +173,7 @@ impl Infer {
             ability_resolver: resolver,
             type_aliases: HashMap::new(),
             trait_registry: TraitRegistry::with_prelude(),
+            inherent_registry: inherent::InherentRegistry::default(),
             enum_registry: enums::EnumRegistry::with_prelude(),
             pending_errors: Vec::new(),
         }

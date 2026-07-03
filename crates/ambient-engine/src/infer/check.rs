@@ -13,6 +13,7 @@ use super::Infer;
 use super::env::{Scheme, TypeEnv};
 use super::error::{BoxedTypeError, BoxedTypeErrorExt, TypeError, TypeErrorKind};
 use super::expr::substitute_self;
+use super::inherent;
 
 /// Result of type checking a module.
 #[derive(Debug)]
@@ -95,9 +96,21 @@ fn check_module_core(
     register_enums(&mut infer, &module, &mut env);
     register_abilities(&mut infer, &mut module, &mut errors);
     collect_function_signatures(&mut infer, &module, &mut env);
+    // Inherent method signatures register before any body is checked, so
+    // methods are callable from every function and impl body regardless of
+    // declaration order.
+    register_inherent_impls(&mut infer, &mut module, &mut errors);
 
-    // Phase 2: impl blocks.
-    check_impls(&mut infer, &mut module, &env, &mut errors);
+    // Phase 2: impl blocks. Inherent method bodies record their inferred
+    // abilities for deferred enforcement (like functions, phase 4).
+    let mut deferred_method_abilities: Vec<DeferredAbilityCheck> = Vec::new();
+    check_impls(
+        &mut infer,
+        &mut module,
+        &env,
+        &mut errors,
+        &mut deferred_method_abilities,
+    );
 
     // Phase 3: function and const bodies.
     // Records (item index, raw inferred abilities) for deferred enforcement.
@@ -172,6 +185,16 @@ fn check_module_core(
             );
         }
     }
+    for check in &deferred_method_abilities {
+        enforce_ability_subset(
+            &infer,
+            &check.context,
+            &check.declared,
+            &check.inferred,
+            (check.span.start, check.span.end),
+            &mut errors,
+        );
+    }
 
     errors.extend(infer.take_pending_errors());
     CheckResult { errors, module }
@@ -245,10 +268,41 @@ fn enforce_declared_abilities(
         return;
     }
 
+    enforce_ability_subset(
+        infer,
+        &format!("function `{}`", func.name),
+        &func.abilities,
+        inferred,
+        (item_span.start, item_span.end),
+        errors,
+    );
+}
+
+/// A recorded "body inferred these abilities against this declaration"
+/// check, deferred until all bodies are checked (phase 4) so ability
+/// variables bound late still resolve.
+struct DeferredAbilityCheck {
+    /// Human-readable owner for error context, e.g. "inherent method `map`".
+    context: String,
+    declared: Vec<crate::ast::QualifiedName>,
+    inferred: AbilitySet,
+    span: crate::ast::Span,
+}
+
+/// Verify that inferred abilities are a subset of the declared clause
+/// (no clause means pure). Shared by function and inherent-method
+/// enforcement.
+fn enforce_ability_subset(
+    infer: &Infer,
+    context: &str,
+    declared: &[crate::ast::QualifiedName],
+    inferred: &AbilitySet,
+    span: (u32, u32),
+    errors: &mut Vec<BoxedTypeError>,
+) {
     let inferred = infer.apply_abilities(inferred);
 
-    let declared: Vec<AbilityId> = func
-        .abilities
+    let declared: Vec<AbilityId> = declared
         .iter()
         .filter_map(|qn| infer.ability_name_to_id(&qn.name))
         .collect();
@@ -262,7 +316,6 @@ fn enforce_declared_abilities(
 
     for ability_id in inferred_ids {
         if !declared_set.contains(*ability_id) {
-            let span = (item_span.start, item_span.end);
             let name = infer
                 .ability_id_to_name(*ability_id)
                 .unwrap_or("<unknown>")
@@ -276,8 +329,7 @@ fn enforce_declared_abilities(
                     span,
                 )
                 .with_context(format!(
-                    "function `{}` uses ability `{name}` but doesn't declare it",
-                    func.name
+                    "{context} uses ability `{name}` but doesn't declare it"
                 )),
             ));
         }
@@ -362,22 +414,28 @@ fn register_package_items(
     for info in &foreign_modules {
         for item in &info.module.items {
             if let crate::ast::ItemKind::Impl(impl_def) = &item.kind {
-                register_foreign_impl(infer, impl_def, errors);
+                match &impl_def.trait_name {
+                    Some(trait_name) => {
+                        register_foreign_impl(infer, impl_def, trait_name, errors);
+                    }
+                    None => register_foreign_inherent_impl(infer, impl_def, errors),
+                }
             }
         }
     }
 }
 
-/// Register the dispatch mapping for an impl defined in another module.
+/// Register the dispatch mapping for a trait impl defined in another module.
 ///
 /// Skips silently on unresolvable traits or non-nominal types: the impl's
 /// own module reports those errors during its check pass.
 fn register_foreign_impl(
     infer: &mut Infer,
     impl_def: &crate::ast::ImplDef,
+    trait_name: &crate::ast::QualifiedName,
     errors: &mut Vec<BoxedTypeError>,
 ) {
-    let Some(trait_id) = infer.trait_registry.lookup_trait(&impl_def.trait_name.name) else {
+    let Some(trait_id) = infer.trait_registry.lookup_trait(&trait_name.name) else {
         return;
     };
     let for_type = infer.resolve_holes(&impl_def.for_type);
@@ -387,11 +445,8 @@ fn register_foreign_impl(
 
     let mut impl_record = crate::types::TraitImpl::new(trait_id, nominal_type.clone());
     for method in &impl_def.methods {
-        let symbol = crate::types::impl_method_symbol(
-            &nominal_type.uuid,
-            &impl_def.trait_name.name,
-            &method.name,
-        );
+        let symbol =
+            crate::types::impl_method_symbol(&nominal_type.uuid, &trait_name.name, &method.name);
         impl_record.methods.insert(Arc::clone(&method.name), symbol);
     }
     if infer.trait_registry.register_impl(impl_record).is_some() {
@@ -399,11 +454,57 @@ fn register_foreign_impl(
         // Their dispatch symbols collide, so this is unresolvable ambiguity.
         errors.push(Box::new(TypeError::new(
             TypeErrorKind::DuplicateImpl {
-                trait_name: Arc::clone(&impl_def.trait_name.name),
+                trait_name: Arc::clone(&trait_name.name),
                 ty: for_type.clone(),
             },
             (impl_def.span.start, impl_def.span.end),
         )));
+    }
+}
+
+/// Register the dispatch mapping for an inherent impl defined in another
+/// module.
+///
+/// Skips silently on invalid targets (the impl's own module reports those),
+/// and performs no enum-name validation — foreign enums aren't registered
+/// while checking this module. Duplicate method registrations are reported:
+/// two modules defining the same method for the same type is unresolvable
+/// ambiguity, exactly like a duplicate trait impl.
+fn register_foreign_inherent_impl(
+    infer: &mut Infer,
+    impl_def: &crate::ast::ImplDef,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    let Some((key, for_type)) = inherent_impl_target(infer, impl_def) else {
+        return;
+    };
+    let impl_type_params = impl_def.type_params.clone();
+    for method in &impl_def.methods {
+        // Signature problems (e.g. a missing return type) are the defining
+        // module's errors; swallow them here.
+        let mut scratch = Vec::new();
+        let scheme =
+            build_inherent_method_scheme(infer, &impl_type_params, method, &for_type, &mut scratch);
+        let symbol = inherent::inherent_method_symbol(&key, &method.name);
+        let record = inherent::InherentMethod {
+            name: Arc::clone(&method.name),
+            has_self: method.has_self,
+            scheme,
+            symbol,
+        };
+        if infer
+            .inherent_registry
+            .register(key.clone(), record)
+            .is_some()
+        {
+            errors.push(Box::new(TypeError::new(
+                TypeErrorKind::DuplicateInherentMethod {
+                    method: Arc::clone(&method.name),
+                    ty: for_type.clone(),
+                },
+                (impl_def.span.start, impl_def.span.end),
+            )));
+        }
     }
 }
 
@@ -413,18 +514,25 @@ fn check_impls(
     module: &mut crate::ast::Module,
     env: &TypeEnv,
     errors: &mut Vec<BoxedTypeError>,
+    deferred: &mut Vec<DeferredAbilityCheck>,
 ) {
     for item in &mut module.items {
         if let crate::ast::ItemKind::Impl(impl_def) = &mut item.kind {
-            check_single_impl(infer, impl_def, item.span, env, errors);
+            match impl_def.trait_name.clone() {
+                Some(trait_name) => {
+                    check_single_impl(infer, impl_def, &trait_name, item.span, env, errors);
+                }
+                None => check_inherent_impl_bodies(infer, impl_def, env, errors, deferred),
+            }
         }
     }
 }
 
-/// Check a single impl block.
+/// Check a single trait impl block.
 fn check_single_impl(
     infer: &mut Infer,
     impl_def: &mut crate::ast::ImplDef,
+    trait_name: &crate::ast::QualifiedName,
     item_span: crate::ast::Span,
     env: &TypeEnv,
     errors: &mut Vec<BoxedTypeError>,
@@ -432,10 +540,10 @@ fn check_single_impl(
     let span = (item_span.start, item_span.end);
 
     // Look up the trait
-    let Some(trait_id) = infer.trait_registry.lookup_trait(&impl_def.trait_name.name) else {
+    let Some(trait_id) = infer.trait_registry.lookup_trait(&trait_name.name) else {
         errors.push(Box::new(TypeError::new(
             TypeErrorKind::UnknownTrait {
-                name: Arc::clone(&impl_def.trait_name.name),
+                name: Arc::clone(&trait_name.name),
             },
             span,
         )));
@@ -447,7 +555,7 @@ fn check_single_impl(
     let Type::Nominal(nominal_type) = &for_type else {
         errors.push(Box::new(TypeError::new(
             TypeErrorKind::TraitOnStructuralType {
-                trait_name: Arc::clone(&impl_def.trait_name.name),
+                trait_name: Arc::clone(&trait_name.name),
                 ty: for_type.clone(),
             },
             span,
@@ -464,7 +572,7 @@ fn check_single_impl(
     check_impl_methods(infer, impl_def, &trait_def, &for_type, env, errors);
 
     // Check that all required methods are implemented
-    check_impl_completeness(impl_def, &trait_def, span, errors);
+    check_impl_completeness(impl_def, &trait_def, trait_name, span, errors);
 
     // Register the impl, assigning each method its canonical function symbol.
     // The compiler registers method bodies under these symbols so they are
@@ -472,11 +580,8 @@ fn check_single_impl(
     // symbol through the same name→hash table as regular calls.
     let mut impl_record = crate::types::TraitImpl::new(trait_id, nominal_type.clone());
     for method in &mut impl_def.methods {
-        let symbol = crate::types::impl_method_symbol(
-            &nominal_type.uuid,
-            &impl_def.trait_name.name,
-            &method.name,
-        );
+        let symbol =
+            crate::types::impl_method_symbol(&nominal_type.uuid, &trait_name.name, &method.name);
         impl_record
             .methods
             .insert(Arc::clone(&method.name), Arc::clone(&symbol));
@@ -485,11 +590,283 @@ fn check_single_impl(
     if infer.trait_registry.register_impl(impl_record).is_some() {
         errors.push(Box::new(TypeError::new(
             TypeErrorKind::DuplicateImpl {
-                trait_name: Arc::clone(&impl_def.trait_name.name),
+                trait_name: Arc::clone(&trait_name.name),
                 ty: for_type.clone(),
             },
             span,
         )));
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inherent impls
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Resolve an inherent impl's target type to its coherence key.
+///
+/// Returns `None` when the target cannot carry inherent methods: a
+/// structural type (record, tuple, function) or a bare impl type parameter
+/// (which would be a blanket impl).
+fn inherent_impl_target(
+    infer: &mut Infer,
+    impl_def: &crate::ast::ImplDef,
+) -> Option<(inherent::ImplKey, Type)> {
+    let for_type = infer.resolve_holes(&impl_def.for_type);
+
+    // `impl<T> T` — a blanket impl over every type — is not a thing.
+    if let Type::Named(n) = &for_type
+        && n.args.is_empty()
+        && impl_def
+            .type_params
+            .iter()
+            .any(|tp| tp.name.as_ref() == n.name.as_ref())
+    {
+        return None;
+    }
+
+    let key = inherent::impl_key_for(&for_type)?;
+    Some((key, for_type))
+}
+
+/// Register inherent impl signatures and assign dispatch symbols.
+///
+/// Runs before any body checking so inherent methods resolve from every
+/// function and impl body regardless of declaration order. Coherence is
+/// enforced here: a second definition of the same method name for the same
+/// target type is an error, because both would claim one dispatch symbol.
+fn register_inherent_impls(
+    infer: &mut Infer,
+    module: &mut crate::ast::Module,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    for item in &mut module.items {
+        let crate::ast::ItemKind::Impl(impl_def) = &mut item.kind else {
+            continue;
+        };
+        if impl_def.trait_name.is_some() {
+            continue;
+        }
+        let span = (item.span.start, item.span.end);
+
+        let target = inherent_impl_target(infer, impl_def);
+        // Beyond being keyable, a named target must actually exist: a
+        // declared enum or one of the built-in containers. (Nominal types
+        // were already resolved through their alias; primitives map to
+        // reserved lowercase heads no user type can claim.)
+        let target = target.filter(|(_, for_type)| match for_type {
+            Type::Named(n) => {
+                infer.enum_registry.get(&n.name).is_some()
+                    || matches!(n.name.as_ref(), "List" | "Map" | "Set")
+            }
+            _ => true,
+        });
+        let Some((key, for_type)) = target else {
+            errors.push(Box::new(TypeError::new(
+                TypeErrorKind::InherentImplInvalidTarget {
+                    ty: infer.resolve_holes(&impl_def.for_type),
+                },
+                span,
+            )));
+            continue;
+        };
+
+        let impl_type_params = impl_def.type_params.clone();
+        for method in &mut impl_def.methods {
+            let scheme =
+                build_inherent_method_scheme(infer, &impl_type_params, method, &for_type, errors);
+            let symbol = inherent::inherent_method_symbol(&key, &method.name);
+            let record = inherent::InherentMethod {
+                name: Arc::clone(&method.name),
+                has_self: method.has_self,
+                scheme,
+                symbol: Arc::clone(&symbol),
+            };
+            if infer
+                .inherent_registry
+                .register(key.clone(), record)
+                .is_some()
+            {
+                errors.push(Box::new(TypeError::new(
+                    TypeErrorKind::DuplicateInherentMethod {
+                        method: Arc::clone(&method.name),
+                        ty: for_type.clone(),
+                    },
+                    (method.span.start, method.span.end),
+                )));
+            }
+            method.resolved_symbol = Some(symbol);
+        }
+    }
+}
+
+/// Build the callable scheme for an inherent method: the full function type
+/// `(self, params...) -> ret with abilities`, quantified over the impl's
+/// and the method's type parameters. Call sites instantiate it exactly like
+/// a generic function's scheme.
+fn build_inherent_method_scheme(
+    infer: &mut Infer,
+    impl_type_params: &[crate::ast::TypeParam],
+    method: &crate::ast::ImplMethod,
+    for_type: &Type,
+    errors: &mut Vec<BoxedTypeError>,
+) -> Scheme {
+    // High ID range so quantified ids can never collide with runtime fresh
+    // variables (same trick as enum constructor schemes).
+    let mut type_var_map: HashMap<Arc<str>, TypeVarId> = HashMap::new();
+    let mut quantified = Vec::new();
+    for (idx, tp) in impl_type_params
+        .iter()
+        .chain(method.type_params.iter())
+        .enumerate()
+    {
+        #[allow(clippy::cast_possible_truncation)]
+        let var_id = 910_000_000 + idx as TypeVarId;
+        type_var_map.insert(Arc::clone(&tp.name), var_id);
+        quantified.push(var_id);
+    }
+
+    let self_ty = substitute_type_params(for_type, &type_var_map);
+
+    let mut params = Vec::new();
+    if method.has_self {
+        params.push(self_ty.clone());
+    }
+    for p in &method.params {
+        let ty = match &p.ty {
+            Some(ty) => resolve_signature_type(infer, ty, for_type, &type_var_map),
+            None => infer.fresh(),
+        };
+        params.push(ty);
+    }
+
+    let ret = if let Some(ty) = &method.ret_ty {
+        resolve_signature_type(infer, ty, for_type, &type_var_map)
+    } else {
+        // The signature is the dispatch contract; without a declared
+        // return type foreign callers would see a dangling variable.
+        errors.push(Box::new(TypeError::new(
+            TypeErrorKind::InherentMethodMissingReturnType {
+                method: Arc::clone(&method.name),
+            },
+            (method.span.start, method.span.end),
+        )));
+        infer.fresh()
+    };
+
+    let abilities = resolve_declared_abilities(infer, &method.abilities, method.span, errors);
+    let fn_ty = Type::function_with_abilities(params, ret, abilities);
+    if quantified.is_empty() {
+        Scheme::mono(fn_ty)
+    } else {
+        Scheme::poly(quantified, fn_ty)
+    }
+}
+
+/// Resolve a declared type from an inherent method signature: substitute
+/// `Self`, then the quantified type parameters, then expand aliases/holes.
+fn resolve_signature_type(
+    infer: &mut Infer,
+    ty: &Type,
+    for_type: &Type,
+    type_var_map: &HashMap<Arc<str>, TypeVarId>,
+) -> Type {
+    let ty = substitute_self(ty, for_type);
+    let ty = substitute_type_params(&ty, type_var_map);
+    infer.resolve_holes(&ty)
+}
+
+/// Resolve a `with` clause to a concrete ability set.
+///
+/// Unknown names go into the caller's error sink, not the shared pending
+/// list: foreign signature registration passes a scratch vec so a foreign
+/// module's mistakes (or abilities that only resolve in its own context)
+/// don't surface as errors of the module currently being checked.
+fn resolve_declared_abilities(
+    infer: &mut Infer,
+    declared: &[crate::ast::QualifiedName],
+    span: crate::ast::Span,
+    errors: &mut Vec<BoxedTypeError>,
+) -> AbilitySet {
+    let mut ids = Vec::new();
+    for qn in declared {
+        match infer.ability_name_to_id(&qn.name) {
+            Some(id) => ids.push(id),
+            None => {
+                errors.push(Box::new(TypeError::new(
+                    TypeErrorKind::UnknownAbility {
+                        name: Arc::clone(&qn.name),
+                    },
+                    (span.start, span.end),
+                )));
+            }
+        }
+    }
+    AbilitySet::from_abilities(ids)
+}
+
+/// Type-check the bodies of an inherent impl block.
+///
+/// Type parameters stay opaque (`Named("T")`) inside bodies — rigid, like
+/// generic function bodies. Each body's inferred abilities are recorded for
+/// deferred enforcement against the method's `with` clause (no clause means
+/// pure, like a public function).
+fn check_inherent_impl_bodies(
+    infer: &mut Infer,
+    impl_def: &mut crate::ast::ImplDef,
+    env: &TypeEnv,
+    errors: &mut Vec<BoxedTypeError>,
+    deferred: &mut Vec<DeferredAbilityCheck>,
+) {
+    let for_type = infer.resolve_holes(&impl_def.for_type);
+    for method in &mut impl_def.methods {
+        if method.resolved_symbol.is_none() {
+            // Registration rejected the whole impl (invalid target); the
+            // error is already reported.
+            continue;
+        }
+
+        infer.reset_abilities();
+        let mut func_env = env.extend();
+
+        if method.has_self {
+            func_env.insert_mono(method.self_id, Arc::from("self"), for_type.clone());
+        }
+        for param in &method.params {
+            let param_ty = match &param.ty {
+                Some(ty) => {
+                    let ty = substitute_self(ty, &for_type);
+                    infer.resolve_holes(&ty)
+                }
+                None => infer.fresh(),
+            };
+            func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
+        }
+
+        let expected_ret = method.ret_ty.as_ref().map(|ty| {
+            let ty = substitute_self(ty, &for_type);
+            infer.resolve_holes(&ty)
+        });
+
+        match infer.infer_expr(&func_env, &mut method.body) {
+            Ok(body_ty) => {
+                if let Some(expected) = &expected_ret {
+                    let method_span = (method.span.start, method.span.end);
+                    if let Err(e) = infer.unify(expected, &body_ty, method_span) {
+                        errors
+                            .push(e.with_context(format!("in inherent method `{}`", method.name)));
+                    }
+                }
+                deferred.push(DeferredAbilityCheck {
+                    context: format!("inherent method `{}`", method.name),
+                    declared: method.abilities.clone(),
+                    inferred: infer.current_abilities().clone(),
+                    span: method.span,
+                });
+            }
+            Err(e) => {
+                errors.push(e.with_context(format!("in inherent method `{}`", method.name)));
+            }
+        }
     }
 }
 
@@ -503,6 +880,17 @@ fn check_impl_methods(
     errors: &mut Vec<BoxedTypeError>,
 ) {
     for method in &mut impl_def.methods {
+        // Trait method effects are fixed by the trait signature; a `with`
+        // clause on the impl method has nothing to attach to.
+        if !method.abilities.is_empty() {
+            errors.push(Box::new(TypeError::new(
+                TypeErrorKind::AbilityClauseOnTraitImpl {
+                    method: Arc::clone(&method.name),
+                },
+                (method.span.start, method.span.end),
+            )));
+        }
+
         let trait_method = trait_def
             .methods
             .iter()
@@ -512,9 +900,7 @@ fn check_impl_methods(
             errors.push(Box::new(TypeError::new(
                 TypeErrorKind::MethodNotFound {
                     method: Arc::clone(&method.name),
-                    ty: Type::Named(crate::types::NamedType::simple(Arc::clone(
-                        &impl_def.trait_name.name,
-                    ))),
+                    ty: Type::Named(crate::types::NamedType::simple(Arc::clone(&trait_def.name))),
                 },
                 (method.span.start, method.span.end),
             )));
@@ -562,6 +948,7 @@ fn check_impl_methods(
 fn check_impl_completeness(
     impl_def: &crate::ast::ImplDef,
     trait_def: &TraitDef,
+    trait_name: &crate::ast::QualifiedName,
     span: (u32, u32),
     errors: &mut Vec<BoxedTypeError>,
 ) {
@@ -573,7 +960,7 @@ fn check_impl_completeness(
         if !implemented {
             errors.push(Box::new(TypeError::new(
                 TypeErrorKind::ImplMissingMethod {
-                    trait_name: Arc::clone(&impl_def.trait_name.name),
+                    trait_name: Arc::clone(&trait_name.name),
                     method: Arc::clone(&trait_method.name),
                 },
                 span,

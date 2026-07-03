@@ -1120,7 +1120,7 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
         })
         .collect();
 
-    let trait_name = lower_qualified_name(&i.trait_name);
+    let trait_name = i.trait_name.as_ref().map(lower_qualified_name);
     let for_type = lower_type(&i.for_type)?;
 
     let where_clauses = i
@@ -1175,6 +1175,7 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
                 .collect::<Result<Vec<_>, ParseError>>()?;
 
             let ret_ty = m.ret_ty.as_ref().map(lower_type).transpose()?;
+            let abilities = m.abilities.iter().map(lower_qualified_name).collect();
             let body = lower_expression(ctx, &m.body)?;
 
             Ok(ImplMethod {
@@ -1185,6 +1186,7 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
                 self_id,
                 params,
                 ret_ty,
+                abilities,
                 body,
                 span: m.span,
                 resolved_symbol: None,

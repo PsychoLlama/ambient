@@ -462,3 +462,166 @@ fn disassembler_decodes_all_compiled_instructions() {
         );
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inherent impls
+//
+// Inherent methods are ordinary functions under `<type-identity>::<method>`
+// symbols (two segments — trait methods use three) and must uphold every
+// content-addressing invariant trait methods do.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const WALLET_MODULE: &str = r#"
+    unique(33333333-3333-3333-3333-333333333333) type Wallet { cents: number }
+
+    fn fee(): number { 3 }
+
+    impl Wallet {
+        fn charge(self): Wallet {
+            Wallet { cents: self.cents - fee() }
+        }
+        fn empty(): Wallet {
+            Wallet { cents: 0 }
+        }
+    }
+
+    impl<T> Option<T> {
+        fn or_default(self, fallback: T): T {
+            match self {
+                Some(v) => v,
+                None => fallback,
+            }
+        }
+    }
+
+    fn run(): number {
+        let w = Wallet { cents: 100 };
+        let charged = w.charge();
+        Some(charged.cents).or_default(Wallet::empty().cents)
+    }
+"#;
+
+#[test]
+fn inherent_same_source_compiles_to_same_hashes() {
+    let a = compile(WALLET_MODULE);
+    let b = compile(WALLET_MODULE);
+    assert_eq!(named_hashes(&a), named_hashes(&b));
+}
+
+#[test]
+fn inherent_method_symbols_use_type_identity() {
+    // Nominal targets key their symbols by UUID; built-in constructors by
+    // head name. Both are two-segment symbols, so they can never collide
+    // with three-segment trait method symbols.
+    let module = compile(WALLET_MODULE);
+    let names: Vec<&str> = module
+        .function_names
+        .keys()
+        .map(AsRef::as_ref)
+        .filter(|n| n.contains("::"))
+        .collect();
+
+    assert!(
+        names.contains(&"33333333-3333-3333-3333-333333333333::charge"),
+        "expected uuid-keyed symbol, got {names:?}"
+    );
+    assert!(
+        names.contains(&"33333333-3333-3333-3333-333333333333::empty"),
+        "expected uuid-keyed symbol, got {names:?}"
+    );
+    assert!(
+        names.contains(&"Option::or_default"),
+        "expected head-name-keyed symbol, got {names:?}"
+    );
+}
+
+#[test]
+fn inherent_impl_block_order_does_not_affect_hashes() {
+    // Splitting methods across impl blocks and reordering them (and the
+    // impl blocks themselves) must not change any hash.
+    let reordered = r#"
+        unique(33333333-3333-3333-3333-333333333333) type Wallet { cents: number }
+
+        impl<T> Option<T> {
+            fn or_default(self, fallback: T): T {
+                match self {
+                    Some(v) => v,
+                    None => fallback,
+                }
+            }
+        }
+
+        impl Wallet {
+            fn empty(): Wallet {
+                Wallet { cents: 0 }
+            }
+        }
+
+        impl Wallet {
+            fn charge(self): Wallet {
+                Wallet { cents: self.cents - fee() }
+            }
+        }
+
+        fn fee(): number { 3 }
+
+        fn run(): number {
+            let w = Wallet { cents: 100 };
+            let charged = w.charge();
+            Some(charged.cents).or_default(Wallet::empty().cents)
+        }
+    "#;
+
+    let original = compile(WALLET_MODULE);
+    let swapped = compile(reordered);
+    assert_eq!(named_hashes(&original), named_hashes(&swapped));
+}
+
+#[test]
+fn inherent_dependency_change_propagates_to_method_hash() {
+    // `charge` calls `fee`; changing `fee` must ripple into `charge`'s
+    // hash but leave `empty` and `or_default` untouched.
+    let modified = WALLET_MODULE.replace("fn fee(): number { 3 }", "fn fee(): number { 5 }");
+    assert_ne!(modified, WALLET_MODULE, "replacement must apply");
+
+    let original = compile(WALLET_MODULE);
+    let changed = compile(&modified);
+
+    assert_ne!(
+        method_hash(&original, "charge"),
+        method_hash(&changed, "charge"),
+        "changing a dependency must change the dependent method's hash"
+    );
+    assert_eq!(
+        method_hash(&original, "empty"),
+        method_hash(&changed, "empty"),
+    );
+    assert_eq!(
+        method_hash(&original, "or_default"),
+        method_hash(&changed, "or_default"),
+    );
+}
+
+#[test]
+fn inherent_call_sites_reference_final_method_hashes() {
+    // `run` dispatches to all three methods; its dependencies must be
+    // their final content hashes.
+    let module = compile(WALLET_MODULE);
+    let run_hash = module
+        .function_names
+        .get("run")
+        .expect("run function exists");
+    let run_fn = module.functions.get(run_hash).expect("run is stored");
+
+    for fragment in ["charge", "empty", "or_default"] {
+        let hash = method_hash(&module, fragment);
+        assert!(
+            run_fn.dependencies.contains(&hash),
+            "run must depend on {fragment}'s content hash"
+        );
+        assert!(
+            module.functions.contains_key(&hash),
+            "{fragment} must be stored under its final hash"
+        );
+    }
+}

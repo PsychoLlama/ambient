@@ -477,15 +477,16 @@ pub enum CstTraitParamKind {
 // Impl Definition
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A trait implementation.
+/// A trait implementation or an inherent impl block.
 ///
 /// Syntax: `impl<T> Trait for Type where T: Bound { fn method(self, ...) { body } }`
+/// or, for inherent impls: `impl<T> Type { fn method(self, ...) { body } }`
 #[derive(Debug, Clone)]
 pub struct CstImplDef {
     /// Type parameters for generic impls.
     pub type_params: Vec<CstTypeParam>,
-    /// The trait being implemented.
-    pub trait_name: CstQualifiedName,
+    /// The trait being implemented; `None` for an inherent impl.
+    pub trait_name: Option<CstQualifiedName>,
     /// The type implementing the trait.
     pub for_type: CstTypeExpr,
     /// Where clauses.
@@ -507,6 +508,8 @@ pub struct CstImplMethod {
     pub params: Vec<CstTraitParam>,
     /// Return type.
     pub ret_ty: Option<CstTypeExpr>,
+    /// Declared abilities (`with Console, Log`).
+    pub abilities: Vec<CstQualifiedName>,
     /// Method body.
     pub body: CstExpr,
     /// Source span.

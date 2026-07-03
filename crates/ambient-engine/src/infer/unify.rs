@@ -488,6 +488,7 @@ impl Infer {
                     ability_resolver: crate::ability_resolver::core_abilities(),
                     type_aliases: self.type_aliases.clone(),
                     trait_registry: self.trait_registry.clone(),
+                    inherent_registry: self.inherent_registry.clone(),
                     enum_registry: self.enum_registry.clone(),
                     pending_errors: Vec::new(),
                 };
