@@ -108,6 +108,7 @@ dependencies = [
  "ambient-ability",
  "ambient-core",
  "ambient-engine",
+ "ambient-parser",
  "blake3",
  "hex",
  "tokio",

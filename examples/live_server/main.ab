@@ -1,0 +1,79 @@
+//! A live-upgradable TCP echo service built on the process model.
+//!
+//! Run under the dev loop:
+//!
+//!     ambient dev examples/live_server
+//!
+//! Then send length-prefixed messages to 127.0.0.1:7777 (each framed as
+//! a 4-byte big-endian length plus payload). Every message is echoed
+//! back, and the `stats` process keeps a running total.
+//!
+//! While it runs, edit `on_hit` below (say, change the printed label)
+//! and save: the dev loop deploys the change onto the running tree.
+//! `stats` swaps its reducer *keeping its count*; open connections keep
+//! their processes; the acceptor picks up new code on the next
+//! connection. That is the whole live-upgrade story — the entry `run`
+//! is a declaration of the process tree, re-reconciled on each deploy.
+
+/// Declare the process tree. Deploy passes re-run this against the
+/// live registry, so keep it declarative: spawn processes here, acquire
+/// resources (sockets, files) in their inits.
+pub fn run(): () with Process {
+  platform::Process::spawn!("stats", stats_init, on_hit);
+  platform::Process::spawn!("acceptor", acceptor_init, acceptor);
+}
+
+// ─── stats: a counter that survives upgrades ────────────────────────────
+
+fn stats_init(): number { 0 }
+
+fn on_hit(total: number, n: number): number with Console {
+  let next = total + n;
+  platform::Console::print!("served ${core::convert::to_string(next)} messages");
+  next
+}
+
+// ─── acceptor: one reduction per accepted connection ────────────────────
+
+fn acceptor_init(): number with Network, Console, Process {
+  let listener = platform::Network::listen!("127.0.0.1:7777");
+  platform::Console::print!("live_server listening on 127.0.0.1:7777");
+  platform::Process::send!(platform::Process::self_pid!(), "accept");
+  listener
+}
+
+fn acceptor(listener: number, msg: string): number with Network, Process {
+  let conn = platform::Network::accept!(listener);
+  let name = "conn-" + core::convert::to_string(conn);
+  platform::Process::spawn!(name, () => {
+    platform::Process::send!(platform::Process::self_pid!(), "next");
+    { conn: conn, hits: 0 }
+  }, serve_conn);
+  platform::Process::send!(platform::Process::self_pid!(), "accept");
+  listener
+}
+
+// ─── per-connection worker (dynamic: pinned to spawn-time code) ─────────
+
+fn serve_conn(
+  state: { conn: number, hits: number },
+  msg: string
+): { conn: number, hits: number }
+  with Network, Process
+{
+  let data = handle platform::Network::receive!(state.conn) {
+    Exception::throw(e) => core::bytes::from([])
+  };
+  if core::bytes::length(data) == 0 {
+    handle platform::Network::close!(state.conn) {
+      Exception::throw(e) => ()
+    };
+    platform::Process::exit!();
+    state
+  } else {
+    platform::Network::send!(state.conn, data);
+    platform::Process::send_named!("stats", 1);
+    platform::Process::send!(platform::Process::self_pid!(), "next");
+    { conn: state.conn, hits: state.hits + 1 }
+  }
+}

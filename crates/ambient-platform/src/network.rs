@@ -42,7 +42,7 @@
 //! Network.close!(conn);
 //! ```
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use ambient_ability::{SuspendedAbility, Value, VmError};
 use ambient_engine::ability_resolver::AbilityInterface;
@@ -58,7 +58,7 @@ pub struct NetworkConfig {
     pub runtime: RuntimeHandle,
 }
 
-/// Register the Network ability handlers on a VM.
+/// Register the Network ability handlers on a VM with private state.
 ///
 /// Provides low-level TCP networking operations:
 /// - `listen(address)` - Bind TCP listener
@@ -75,10 +75,24 @@ pub struct NetworkConfig {
 ///
 /// Panics if the resolved interface is missing an expected method — the
 /// bindings interface and this handler set have drifted.
-#[allow(clippy::too_many_lines)]
 pub fn register_network(vm: &mut Vm, ability: &AbilityInterface, config: NetworkConfig) {
-    let state = Arc::new(Mutex::new(NetworkState::new(config.runtime)));
+    let state = Arc::new(NetworkState::new(config.runtime));
+    register_network_shared(vm, ability, state);
+}
 
+/// Register the Network ability handlers against shared state.
+///
+/// The process runtime registers every process VM against one
+/// [`NetworkState`], so listener/connection handles are plain numbers
+/// valid in any process — an acceptor can hand a connection to a
+/// spawned worker by sending its handle in a message.
+///
+/// # Panics
+///
+/// Panics if the resolved interface is missing an expected method — the
+/// bindings interface and this handler set have drifted.
+#[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
+pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: Arc<NetworkState>) {
     // Network.listen(address: string) -> ListenerId (number handle)
     let state_clone = Arc::clone(&state);
     vm.register_host_handler(
@@ -86,8 +100,7 @@ pub fn register_network(vm: &mut Vm, ability: &AbilityInterface, config: Network
         require(ability, "listen"),
         Box::new(move |ability: &SuspendedAbility| {
             let addr = extract_string(&ability.args)?;
-            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            let id = state
+            let id = state_clone
                 .listen(&addr)
                 .map_err(|e| VmError::exception(format!("Network.listen: {e}")))?;
             #[allow(clippy::cast_precision_loss)]
@@ -103,8 +116,7 @@ pub fn register_network(vm: &mut Vm, ability: &AbilityInterface, config: Network
         Box::new(move |ability: &SuspendedAbility| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let listener_id = extract_number(&ability.args)? as u64;
-            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            let id = state
+            let id = state_clone
                 .accept(listener_id)
                 .map_err(|e| VmError::exception(format!("Network.accept: {e}")))?;
             #[allow(clippy::cast_precision_loss)]
@@ -120,8 +132,7 @@ pub fn register_network(vm: &mut Vm, ability: &AbilityInterface, config: Network
         Box::new(move |ability: &SuspendedAbility| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let listener_id = extract_number(&ability.args)? as u64;
-            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            state
+            state_clone
                 .close_listener(listener_id)
                 .map_err(|e| VmError::exception(format!("Network.close_listener: {e}")))?;
             Ok(Value::Unit)
@@ -135,8 +146,7 @@ pub fn register_network(vm: &mut Vm, ability: &AbilityInterface, config: Network
         require(ability, "connect"),
         Box::new(move |ability: &SuspendedAbility| {
             let addr = extract_string(&ability.args)?;
-            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            let id = state
+            let id = state_clone
                 .connect(&addr)
                 .map_err(|e| VmError::exception(format!("Network.connect: {e}")))?;
             #[allow(clippy::cast_precision_loss)]
@@ -152,8 +162,7 @@ pub fn register_network(vm: &mut Vm, ability: &AbilityInterface, config: Network
         Box::new(move |ability: &SuspendedAbility| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let conn_id = extract_number(&ability.args)? as u64;
-            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            state
+            state_clone
                 .close(conn_id)
                 .map_err(|e| VmError::exception(format!("Network.close: {e}")))?;
             Ok(Value::Unit)
@@ -186,8 +195,7 @@ pub fn register_network(vm: &mut Vm, ability: &AbilityInterface, config: Network
 
             let data = extract_bytes(&ability.args[1])?;
 
-            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            state
+            state_clone
                 .send(conn_id, &data)
                 .map_err(|e| VmError::exception(format!("Network.send: {e}")))?;
             Ok(Value::Unit)
@@ -203,8 +211,7 @@ pub fn register_network(vm: &mut Vm, ability: &AbilityInterface, config: Network
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let conn_id = extract_number(&ability.args)? as u64;
 
-            let mut state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            let data = state
+            let data = state_clone
                 .receive(conn_id)
                 .map_err(|e| VmError::exception(format!("Network.receive: {e}")))?;
 
@@ -221,8 +228,7 @@ pub fn register_network(vm: &mut Vm, ability: &AbilityInterface, config: Network
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let conn_id = extract_number(&ability.args)? as u64;
 
-            let state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            let addr = state
+            let addr = state_clone
                 .local_addr(conn_id)
                 .map_err(|e| VmError::exception(format!("Network.local_addr: {e}")))?;
             Ok(Value::string(addr))
@@ -238,8 +244,7 @@ pub fn register_network(vm: &mut Vm, ability: &AbilityInterface, config: Network
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let conn_id = extract_number(&ability.args)? as u64;
 
-            let state = state_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            let addr = state
+            let addr = state_clone
                 .peer_addr(conn_id)
                 .map_err(|e| VmError::exception(format!("Network.peer_addr: {e}")))?;
             Ok(Value::string(addr))

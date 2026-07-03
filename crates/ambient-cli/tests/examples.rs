@@ -19,12 +19,15 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// Examples that require a live peer and are tested as pairs instead.
+/// Examples that require a live peer and are tested as pairs instead,
+/// plus long-lived services with their own dedicated tests
+/// (`live_server` is exercised by the `dev_live_upgrade` test).
 const PAIRED_EXAMPLES: &[&str] = &[
     "network_client",
     "network_server",
     "remote_client",
     "remote_server",
+    "live_server",
 ];
 
 fn examples_dir() -> PathBuf {

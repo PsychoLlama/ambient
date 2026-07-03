@@ -65,7 +65,8 @@ ambient init my_project          # scaffold a package
 ambient run my_project           # compile + run (persists to .ambient/store)
 ambient store show run           # inspect any function: deps + disassembly
 ambient repl                     # interactive REPL
-ambient dev my_project/src/main.ab   # hot-reload loop
+ambient dev my_project           # live-upgrade loop (hot-swaps processes,
+                                 #   keeping their state; see ref/processes.md)
 ambient lsp                      # language server (see ambient.nvim/)
 ```
 
@@ -78,7 +79,8 @@ artifact — the same object format plus name bindings and an entry point —
 that `ambient run` executes after recomputing every hash from content.
 
 The `examples/` directory has ~25 runnable programs, from `hello` to a
-TCP echo server and a remote-execution client/server pair — all exercised
+TCP echo server, a remote-execution client/server pair, and a
+live-upgradable process-based service (`live_server`) — all exercised
 by the test suite (`cargo test -p ambient-cli --test examples`).
 
 ## Repository layout

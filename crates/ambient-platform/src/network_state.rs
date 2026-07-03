@@ -7,10 +7,19 @@
 //! - TCP listener lifecycle
 //! - TCP connection lifecycle
 //! - Length-prefixed message I/O
+//!
+//! One `NetworkState` is shared by every VM in a process runtime, so a
+//! listener bound in one process can be accepted in another and a
+//! connection handle can be handed between processes as a plain number.
+//! The handle table lock is held only for lookups; blocking IO happens
+//! under per-listener/per-connection-half locks, so a process blocked in
+//! `accept` or `receive` never stalls network operations elsewhere.
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Handle as RuntimeHandle;
 
@@ -24,28 +33,43 @@ pub type ConnectionId = u64;
 pub const MAX_MESSAGE_SIZE: u32 = 16 * 1024 * 1024;
 
 /// A TCP connection managed by the Network ability.
-pub struct NetworkConnection {
-    /// The underlying TCP stream.
-    pub stream: TcpStream,
+///
+/// The stream is split so that a receiver blocked waiting for bytes does
+/// not lock out a sender on the same connection (full-duplex use from
+/// two processes).
+struct NetworkConnection {
+    /// Read half, locked by the (single) blocked receiver.
+    read: Mutex<OwnedReadHalf>,
+    /// Write half, locked per send.
+    write: Mutex<OwnedWriteHalf>,
     /// Cached local address.
-    pub local_addr: String,
+    local_addr: String,
     /// Cached peer address.
-    pub peer_addr: String,
+    peer_addr: String,
+}
+
+/// The handle tables. Locked only for lookup/insert/remove — never while
+/// blocking on IO.
+#[derive(Default)]
+struct Tables {
+    /// Active listeners by ID.
+    listeners: HashMap<ListenerId, Arc<TcpListener>>,
+    /// Active connections by ID.
+    connections: HashMap<ConnectionId, Arc<NetworkConnection>>,
+    /// Next handle ID to allocate.
+    next_id: u64,
 }
 
 /// Thread-safe state for Network ability handlers.
 ///
-/// This state is shared across all Network ability method handlers and tracks:
+/// This state is shared across all Network ability method handlers (and,
+/// under the process runtime, across all process VMs) and tracks:
 /// - Active TCP listeners
 /// - Active connections
 /// - Handle ID generation
 pub struct NetworkState {
-    /// Active listeners by ID.
-    listeners: HashMap<ListenerId, TcpListener>,
-    /// Active connections by ID.
-    connections: HashMap<ConnectionId, NetworkConnection>,
-    /// Next handle ID to allocate.
-    next_id: u64,
+    /// Handle tables behind a short-lived lock.
+    tables: Mutex<Tables>,
     /// Tokio runtime handle for async operations.
     runtime: RuntimeHandle,
 }
@@ -55,24 +79,66 @@ impl NetworkState {
     #[must_use]
     pub fn new(runtime: RuntimeHandle) -> Self {
         Self {
-            listeners: HashMap::new(),
-            connections: HashMap::new(),
-            next_id: 1, // Start at 1 so 0 can be used as "invalid"
+            tables: Mutex::new(Tables {
+                listeners: HashMap::new(),
+                connections: HashMap::new(),
+                next_id: 1, // Start at 1 so 0 can be used as "invalid"
+            }),
             runtime,
         }
-    }
-
-    /// Allocate and return the next handle ID.
-    fn next_id(&mut self) -> u64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        id
     }
 
     /// Get the runtime handle.
     #[must_use]
     pub fn runtime(&self) -> &RuntimeHandle {
         &self.runtime
+    }
+
+    fn lock_tables(&self) -> Result<std::sync::MutexGuard<'_, Tables>, NetworkError> {
+        self.tables.lock().map_err(|_| NetworkError::Poisoned)
+    }
+
+    fn listener(&self, id: ListenerId) -> Result<Arc<TcpListener>, NetworkError> {
+        self.lock_tables()?
+            .listeners
+            .get(&id)
+            .cloned()
+            .ok_or(NetworkError::InvalidListener(id))
+    }
+
+    fn connection(&self, id: ConnectionId) -> Result<Arc<NetworkConnection>, NetworkError> {
+        self.lock_tables()?
+            .connections
+            .get(&id)
+            .cloned()
+            .ok_or(NetworkError::InvalidConnection(id))
+    }
+
+    /// Register a connected stream and return its handle.
+    fn insert_stream(&self, stream: TcpStream) -> Result<ConnectionId, NetworkError> {
+        let local_addr = stream
+            .local_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_default();
+        let peer_addr = stream
+            .peer_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_default();
+        let (read, write) = stream.into_split();
+
+        let mut tables = self.lock_tables()?;
+        let id = tables.next_id;
+        tables.next_id += 1;
+        tables.connections.insert(
+            id,
+            Arc::new(NetworkConnection {
+                read: Mutex::new(read),
+                write: Mutex::new(write),
+                local_addr,
+                peer_addr,
+            }),
+        );
+        Ok(id)
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -86,49 +152,33 @@ impl NetworkState {
     /// # Errors
     ///
     /// Returns an error if the address cannot be bound.
-    pub fn listen(&mut self, addr: &str) -> Result<ListenerId, NetworkError> {
+    pub fn listen(&self, addr: &str) -> Result<ListenerId, NetworkError> {
         let listener = self
             .runtime
             .block_on(TcpListener::bind(addr))
             .map_err(NetworkError::Io)?;
-        let id = self.next_id();
-        self.listeners.insert(id, listener);
+        let mut tables = self.lock_tables()?;
+        let id = tables.next_id;
+        tables.next_id += 1;
+        tables.listeners.insert(id, Arc::new(listener));
         Ok(id)
     }
 
-    /// Accept a connection on the given listener.
+    /// Accept a connection on the given listener, blocking until a client
+    /// connects.
     ///
     /// Returns the connection ID on success.
     ///
     /// # Errors
     ///
     /// Returns an error if the listener ID is invalid or accepting fails.
-    pub fn accept(&mut self, listener_id: ListenerId) -> Result<ConnectionId, NetworkError> {
-        let listener = self
-            .listeners
-            .get(&listener_id)
-            .ok_or(NetworkError::InvalidListener(listener_id))?;
-
-        let (stream, peer_addr) = self
+    pub fn accept(&self, listener_id: ListenerId) -> Result<ConnectionId, NetworkError> {
+        let listener = self.listener(listener_id)?;
+        let (stream, _peer) = self
             .runtime
             .block_on(listener.accept())
             .map_err(NetworkError::Io)?;
-
-        let local_addr = stream
-            .local_addr()
-            .map(|a| a.to_string())
-            .unwrap_or_default();
-
-        let id = self.next_id();
-        self.connections.insert(
-            id,
-            NetworkConnection {
-                stream,
-                local_addr,
-                peer_addr: peer_addr.to_string(),
-            },
-        );
-        Ok(id)
+        self.insert_stream(stream)
     }
 
     /// Close and remove a listener.
@@ -136,8 +186,9 @@ impl NetworkState {
     /// # Errors
     ///
     /// Returns an error if the listener ID is invalid.
-    pub fn close_listener(&mut self, id: ListenerId) -> Result<(), NetworkError> {
-        self.listeners
+    pub fn close_listener(&self, id: ListenerId) -> Result<(), NetworkError> {
+        self.lock_tables()?
+            .listeners
             .remove(&id)
             .map(|_| ())
             .ok_or(NetworkError::InvalidListener(id))
@@ -154,40 +205,26 @@ impl NetworkState {
     /// # Errors
     ///
     /// Returns an error if the connection cannot be established.
-    pub fn connect(&mut self, addr: &str) -> Result<ConnectionId, NetworkError> {
+    pub fn connect(&self, addr: &str) -> Result<ConnectionId, NetworkError> {
         let stream = self
             .runtime
             .block_on(TcpStream::connect(addr))
             .map_err(NetworkError::Io)?;
-
-        let local_addr = stream
-            .local_addr()
-            .map(|a| a.to_string())
-            .unwrap_or_default();
-        let peer_addr = stream
-            .peer_addr()
-            .map(|a| a.to_string())
-            .unwrap_or_default();
-
-        let id = self.next_id();
-        self.connections.insert(
-            id,
-            NetworkConnection {
-                stream,
-                local_addr,
-                peer_addr,
-            },
-        );
-        Ok(id)
+        self.insert_stream(stream)
     }
 
     /// Close and remove a connection.
     ///
+    /// The socket closes when the last in-flight operation on it
+    /// finishes (a receiver blocked on the connection keeps it alive
+    /// until its read returns).
+    ///
     /// # Errors
     ///
     /// Returns an error if the connection ID is invalid.
-    pub fn close(&mut self, id: ConnectionId) -> Result<(), NetworkError> {
-        self.connections
+    pub fn close(&self, id: ConnectionId) -> Result<(), NetworkError> {
+        self.lock_tables()?
+            .connections
             .remove(&id)
             .map(|_| ())
             .ok_or(NetworkError::InvalidConnection(id))
@@ -205,32 +242,29 @@ impl NetworkState {
     ///
     /// Returns an error if the connection is invalid, the message is too large,
     /// or writing fails.
-    pub fn send(&mut self, conn_id: ConnectionId, data: &[u8]) -> Result<(), NetworkError> {
-        let conn = self
-            .connections
-            .get_mut(&conn_id)
-            .ok_or(NetworkError::InvalidConnection(conn_id))?;
-
+    pub fn send(&self, conn_id: ConnectionId, data: &[u8]) -> Result<(), NetworkError> {
         if data.len() > MAX_MESSAGE_SIZE as usize {
             return Err(NetworkError::MessageTooLarge(data.len()));
         }
 
+        let conn = self.connection(conn_id)?;
+        let mut write = conn.write.lock().map_err(|_| NetworkError::Poisoned)?;
+
         // Safe: we've verified data.len() <= MAX_MESSAGE_SIZE (u32::MAX >> 8)
         #[allow(clippy::cast_possible_truncation)]
         let len = data.len() as u32;
-        let stream = &mut conn.stream;
 
         self.runtime.block_on(async {
-            stream.write_all(&len.to_be_bytes()).await?;
-            stream.write_all(data).await?;
-            stream.flush().await?;
+            write.write_all(&len.to_be_bytes()).await?;
+            write.write_all(data).await?;
+            write.flush().await?;
             Ok::<_, std::io::Error>(())
         })?;
 
         Ok(())
     }
 
-    /// Receive a length-prefixed message.
+    /// Receive a length-prefixed message, blocking until one arrives.
     ///
     /// Wire format: [4 bytes: length (big-endian u32)] [length bytes: payload]
     ///
@@ -238,18 +272,14 @@ impl NetworkState {
     ///
     /// Returns an error if the connection is invalid, the message is too large,
     /// or reading fails.
-    pub fn receive(&mut self, conn_id: ConnectionId) -> Result<Vec<u8>, NetworkError> {
-        let conn = self
-            .connections
-            .get_mut(&conn_id)
-            .ok_or(NetworkError::InvalidConnection(conn_id))?;
-
-        let stream = &mut conn.stream;
+    pub fn receive(&self, conn_id: ConnectionId) -> Result<Vec<u8>, NetworkError> {
+        let conn = self.connection(conn_id)?;
+        let mut read = conn.read.lock().map_err(|_| NetworkError::Poisoned)?;
 
         self.runtime.block_on(async {
             // Read length prefix
             let mut len_buf = [0u8; 4];
-            match stream.read_exact(&mut len_buf).await {
+            match read.read_exact(&mut len_buf).await {
                 Ok(_) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                     return Err(NetworkError::ConnectionClosed);
@@ -264,7 +294,7 @@ impl NetworkState {
 
             // Read payload
             let mut buf = vec![0u8; len as usize];
-            stream.read_exact(&mut buf).await?;
+            read.read_exact(&mut buf).await?;
             Ok(buf)
         })
     }
@@ -278,11 +308,8 @@ impl NetworkState {
     /// # Errors
     ///
     /// Returns an error if the connection ID is invalid.
-    pub fn local_addr(&self, conn_id: ConnectionId) -> Result<&str, NetworkError> {
-        self.connections
-            .get(&conn_id)
-            .map(|c| c.local_addr.as_str())
-            .ok_or(NetworkError::InvalidConnection(conn_id))
+    pub fn local_addr(&self, conn_id: ConnectionId) -> Result<String, NetworkError> {
+        Ok(self.connection(conn_id)?.local_addr.clone())
     }
 
     /// Get the peer address of a connection.
@@ -290,11 +317,8 @@ impl NetworkState {
     /// # Errors
     ///
     /// Returns an error if the connection ID is invalid.
-    pub fn peer_addr(&self, conn_id: ConnectionId) -> Result<&str, NetworkError> {
-        self.connections
-            .get(&conn_id)
-            .map(|c| c.peer_addr.as_str())
-            .ok_or(NetworkError::InvalidConnection(conn_id))
+    pub fn peer_addr(&self, conn_id: ConnectionId) -> Result<String, NetworkError> {
+        Ok(self.connection(conn_id)?.peer_addr.clone())
     }
 }
 
@@ -311,6 +335,8 @@ pub enum NetworkError {
     ConnectionClosed,
     /// Message exceeds maximum size.
     MessageTooLarge(usize),
+    /// A lock was poisoned by a panicking thread.
+    Poisoned,
 }
 
 impl std::fmt::Display for NetworkError {
@@ -326,6 +352,7 @@ impl std::fmt::Display for NetworkError {
                     "message too large: {size} bytes (max {MAX_MESSAGE_SIZE})"
                 )
             }
+            Self::Poisoned => write!(f, "network state lock poisoned"),
         }
     }
 }
@@ -350,19 +377,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_next_id_increments() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let mut state = NetworkState::new(runtime.handle().clone());
-
-        assert_eq!(state.next_id(), 1);
-        assert_eq!(state.next_id(), 2);
-        assert_eq!(state.next_id(), 3);
-    }
-
-    #[test]
     fn test_invalid_listener_error() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        let mut state = NetworkState::new(runtime.handle().clone());
+        let state = NetworkState::new(runtime.handle().clone());
 
         let result = state.accept(999);
         assert!(matches!(result, Err(NetworkError::InvalidListener(999))));
@@ -374,7 +391,7 @@ mod tests {
     #[test]
     fn test_invalid_connection_error() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        let mut state = NetworkState::new(runtime.handle().clone());
+        let state = NetworkState::new(runtime.handle().clone());
 
         let result = state.close(999);
         assert!(matches!(result, Err(NetworkError::InvalidConnection(999))));
@@ -384,6 +401,44 @@ mod tests {
 
         let result = state.receive(999);
         assert!(matches!(result, Err(NetworkError::InvalidConnection(999))));
+    }
+
+    #[test]
+    fn test_handles_shared_across_threads() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let state = Arc::new(NetworkState::new(runtime.handle().clone()));
+
+        let listener = state.listen("127.0.0.1:0").unwrap();
+
+        // Accept on one thread while connecting from another: the
+        // table lock must not serialize blocking operations.
+        let addr = {
+            let tables = state.lock_tables().unwrap();
+            tables.listeners[&listener]
+                .local_addr()
+                .unwrap()
+                .to_string()
+        };
+
+        let accept_state = Arc::clone(&state);
+        let acceptor = std::thread::spawn(move || accept_state.accept(listener).unwrap());
+
+        let client = state.connect(&addr).unwrap();
+        let server = acceptor.join().unwrap();
+
+        state.send(client, b"ping").unwrap();
+        let got = state.receive(server).unwrap();
+        assert_eq!(got, b"ping");
+
+        // Full duplex: reply while another thread blocks reading.
+        let reply_state = Arc::clone(&state);
+        let reader = std::thread::spawn(move || reply_state.receive(client).unwrap());
+        state.send(server, b"pong").unwrap();
+        assert_eq!(reader.join().unwrap(), b"pong");
+
+        state.close(client).unwrap();
+        state.close(server).unwrap();
+        state.close_listener(listener).unwrap();
     }
 
     #[test]

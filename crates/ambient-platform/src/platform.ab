@@ -86,6 +86,32 @@ ability Network {
   fn peer_addr(connection: number): string;
 }
 
+/// Erlang-inspired processes: named reducers with isolated state,
+/// driven by mailboxes, upgraded live by deploy passes (see
+/// ref/processes.md). `init` and `handler` are generic rather than
+/// function-typed because ability signatures cannot yet express
+/// effect-polymorphic function parameters; the runtime checks their
+/// arity at spawn time (init takes no parameters, handler takes
+/// state and message).
+ability Process {
+  /// Spawn a named process; returns its pid. During a deploy pass this
+  /// is a declaration: an existing live name is rebound (state kept)
+  /// instead of respawned. Outside a deploy pass, spawning a live name
+  /// raises an Exception.
+  fn spawn<I, H>(name: string, init: I, handler: H): number;
+  /// Deliver a message to a pid. Never fails; sends to dead processes
+  /// are dropped.
+  fn send<M>(pid: number, msg: M): ();
+  /// Deliver a message to a named process (dropped if no such name).
+  fn send_named<M>(name: string, msg: M): ();
+  /// The calling process's pid (0 outside any process).
+  fn self_pid(): number;
+  /// The pid registered under a name, or 0 if none.
+  fn whereis(name: string): number;
+  /// Stop the calling process after the current reduction.
+  fn exit(): ();
+}
+
 /// Content-addressed remote execution: run functions by hash in an
 /// isolated VM whose capabilities the host decides.
 ability Execute {

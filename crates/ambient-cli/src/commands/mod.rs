@@ -5,6 +5,7 @@
 mod check;
 mod compile;
 mod dev;
+mod host;
 mod init;
 mod run;
 mod store;
@@ -23,7 +24,9 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 
-use ambient_engine::ability_resolver::{AbilityResolver, DynAbility, core_abilities};
+use ambient_engine::ability_resolver::{
+    AbilityInterface, AbilityResolver, DynAbility, core_abilities,
+};
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
@@ -44,6 +47,15 @@ pub fn platform_prelude() -> Result<Vec<Arc<DynAbility>>> {
         bail!("platform bindings interface failed to resolve: {error}");
     }
     Ok(abilities)
+}
+
+/// The named ability's interface from the resolved platform prelude.
+pub fn prelude_interface(prelude: &[Arc<DynAbility>], name: &str) -> Result<AbilityInterface> {
+    prelude
+        .iter()
+        .find(|ability| ability.name.as_ref() == name)
+        .map(|ability| AbilityInterface::from(&**ability))
+        .ok_or_else(|| anyhow::anyhow!("platform prelude is missing the `{name}` ability"))
 }
 
 /// An ability resolver with the platform prelude registered under the

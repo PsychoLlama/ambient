@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 
-use ambient_engine::ability_resolver::{AbilityInterface, DynAbility};
 use ambient_engine::ast::{ItemKind, UsePrefix};
 use ambient_engine::build::{build_imported_hashes_from_compiled, compile_core_modules};
 use ambient_engine::compiler::CompiledModule;
@@ -15,13 +14,9 @@ use ambient_engine::format::format_value_colored;
 use ambient_engine::module_path::{ImportPrefix, ModulePath};
 use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::package::{LoadedModule, Package};
-use ambient_engine::store::Store;
-use ambient_engine::vm::Vm;
-use ambient_platform::{
-    ConsoleConfig, ExecuteConfig, LogConfig, NetworkConfig, register_console, register_execute,
-    register_log, register_network,
-};
+use ambient_platform::process::ProcessEvent;
 
+use super::host::RuntimeHost;
 use crate::diagnostic::print_diagnostic;
 
 /// Run an Ambient package or pre-compiled artifact.
@@ -35,10 +30,16 @@ pub fn cmd_run(path: &Path, entry: &str) -> Result<()> {
 
 /// Load a compiled module from a path.
 ///
-/// Handles both packages (directories with `ambient.toml`) and
-/// pre-compiled `.ambient` artifact packs.
-fn load_compiled(path: &Path) -> Result<CompiledModule> {
+/// Handles packages (directories with `ambient.toml`), pre-compiled
+/// `.ambient` artifact packs, and bare `.ab` source files.
+pub(super) fn load_compiled(path: &Path) -> Result<CompiledModule> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+    if ext == "ab" && path.is_file() {
+        // Compile a bare source file against the core library.
+        let source = super::read_source(path)?;
+        return super::compile_source(&source, path);
+    }
 
     if ext == "ambient" {
         // Load a pre-compiled artifact pack. Function hashes are recomputed
@@ -61,7 +62,7 @@ fn load_compiled(path: &Path) -> Result<CompiledModule> {
 
 /// Compile a package from its root directory.
 #[allow(clippy::arc_with_non_send_sync)]
-fn compile_package(path: &Path) -> Result<CompiledModule> {
+pub(super) fn compile_package(path: &Path) -> Result<CompiledModule> {
     // Open package (validates manifest and entry point).
     let mut pkg = Package::open(path)
         .with_context(|| format!("failed to open package at {}", path.display()))?;
@@ -294,84 +295,41 @@ fn compile_loaded_module_with_registry(
     Ok(compiled)
 }
 
-/// The named ability's interface from the resolved platform prelude.
-fn prelude_interface(prelude: &[Arc<DynAbility>], name: &str) -> Result<AbilityInterface> {
-    prelude
-        .iter()
-        .find(|ability| ability.name.as_ref() == name)
-        .map(|ability| AbilityInterface::from(&**ability))
-        .ok_or_else(|| anyhow::anyhow!("platform prelude is missing the `{name}` ability"))
-}
-
 /// Run a compiled module.
+///
+/// The entry runs as the initial deploy pass of a process runtime. A
+/// program that spawns no processes behaves exactly as before: the
+/// entry runs to completion and the command exits. A program that
+/// spawns processes keeps running until every process has exited.
 fn run_compiled(compiled: &CompiledModule, entry: &str) -> Result<()> {
-    // Create tokio runtime for async operations (Remote ability).
-    let runtime = tokio::runtime::Runtime::new().context("failed to create async runtime")?;
-
-    // Bind host handlers against the resolved platform prelude: handlers
-    // are keyed by method name against the declaration identities the
-    // program was compiled with.
-    let prelude = super::platform_prelude()?;
-    let mut vm = Vm::new();
-    ambient_platform::register_defaults(&mut vm, &prelude);
-
-    let network_interface = prelude_interface(&prelude, "Network")?;
-    let execute_interface = prelude_interface(&prelude, "Execute")?;
-    let console_interface = prelude_interface(&prelude, "Console")?;
-    let log_interface = prelude_interface(&prelude, "Log")?;
-
-    // Create store for function dependencies (used by the Execute ability).
-    // add_module registers canonical objects so functions can be shipped.
-    let mut store = Store::new();
-    store.add_module(compiled);
-    let store = Arc::new(std::sync::Mutex::new(store));
-
-    // Register Network ability for TCP operations.
-    register_network(
-        &mut vm,
-        &network_interface,
-        NetworkConfig {
-            runtime: runtime.handle().clone(),
-        },
-    );
-
-    // Register Execute ability for server-side function execution.
-    // Grant output abilities (Console, Log) to executed code: remotely
-    // received functions may print/log on this host, but get no Network,
-    // Time, Random, or (recursive) Execute access.
-    register_execute(
-        &mut vm,
-        &execute_interface,
-        ExecuteConfig {
-            store: Arc::clone(&store),
-            grants: Some(Arc::new(move |exec_vm: &mut Vm| {
-                register_console(exec_vm, &console_interface, ConsoleConfig::default());
-                register_log(exec_vm, &log_interface, LogConfig::default());
-            })),
-        },
-    );
-
-    // Load all functions into the VM.
-    for func in compiled.functions.values() {
-        vm.load_function(func.clone());
-    }
-
-    // Find entry point.
-    let entry_hash = compiled
-        .function_names
-        .get(entry)
-        .ok_or_else(|| anyhow::anyhow!("entry function `{entry}` not found"))?;
-
-    // Execute with stack trace support.
-    let result = vm.call_with_trace(entry_hash, Vec::new());
-
-    match result {
-        Ok(value) => {
-            // Print result if not unit.
-            if !matches!(value, ambient_engine::value::Value::Unit) {
-                println!("{}", format_value_colored(&value));
+    // `run` is quiet about routine lifecycle; only failures print.
+    let events = Arc::new(|event: &ProcessEvent| match event {
+        ProcessEvent::Crashed {
+            name,
+            error,
+            restarting,
+        } => {
+            eprintln!("process `{name}` crashed: {error}");
+            if *restarting {
+                eprintln!("process `{name}` restarting with fresh state");
+            } else {
+                eprintln!("process `{name}` exceeded its fault budget; giving up");
             }
-            Ok(())
+        }
+        ProcessEvent::InitFailed { name, error } => {
+            eprintln!("process `{name}` failed to initialize: {error}");
+        }
+        _ => {}
+    });
+
+    let host = RuntimeHost::new(events)?;
+
+    match host.deploy(compiled, entry) {
+        Ok(outcome) => {
+            // Print result if not unit.
+            if !matches!(outcome.value, ambient_engine::value::Value::Unit) {
+                println!("{}", format_value_colored(&outcome.value));
+            }
         }
         Err(runtime_error) => {
             // Print rich error with stack trace.
@@ -379,4 +337,8 @@ fn run_compiled(compiled: &CompiledModule, entry: &str) -> Result<()> {
             bail!("runtime error");
         }
     }
+
+    // Block until the process tree (if any) winds down.
+    host.runtime().wait_all();
+    Ok(())
 }

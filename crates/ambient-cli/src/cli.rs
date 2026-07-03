@@ -88,19 +88,22 @@ pub enum Command {
         command: StoreCommand,
     },
 
-    /// Run an Ambient program with hot reload.
+    /// Run an Ambient program with live upgrade.
     ///
-    /// Watches for file changes and automatically recompiles and restarts.
+    /// Watches for source changes; each change compiles and deploys onto
+    /// the running process tree — changed processes hot-swap their code
+    /// keeping their state, and programs without processes simply rerun.
     Dev {
-        /// The source file to run (.ab).
-        #[arg(value_name = "FILE")]
+        /// Path to a package directory or bare source file (.ab).
+        #[arg(value_name = "PATH", default_value = ".")]
         file: PathBuf,
 
         /// Function to execute (defaults to "run").
         #[arg(long, default_value = "run")]
         entry: String,
 
-        /// Directories to watch for changes (defaults to file's directory).
+        /// Directories to watch for changes (defaults to the package
+        /// directory or the file's directory).
         #[arg(long, value_name = "DIR")]
         watch: Option<Vec<PathBuf>>,
     },

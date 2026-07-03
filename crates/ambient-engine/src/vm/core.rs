@@ -104,6 +104,15 @@ impl Vm {
         self.functions.insert(hash, Arc::new(func));
     }
 
+    /// Load an already-shared compiled function into the VM.
+    ///
+    /// Loading is additive and content-addressed: re-loading a hash the
+    /// VM already knows is a no-op, so code generations can be layered
+    /// onto a live VM (the process runtime does this on every deploy).
+    pub fn load_function_shared(&mut self, func: Arc<CompiledFunction>) {
+        self.functions.insert(func.hash, func);
+    }
+
     /// Register a host-provided ability handler.
     ///
     /// Host handlers are called synchronously when an ability is performed

@@ -28,6 +28,7 @@ pub mod fs;
 pub mod log;
 pub mod network;
 pub mod network_state;
+pub mod process;
 pub mod random;
 pub mod time;
 
@@ -51,7 +52,12 @@ pub use console::{ConsoleConfig, register_console, register_console_with_collect
 pub use execute::{ExecuteConfig, ExecuteGrants, register_execute};
 pub use fs::register_fs;
 pub use log::{LogConfig, register_log};
-pub use network::{NetworkConfig, register_network};
+pub use network::{NetworkConfig, register_network, register_network_shared};
+pub use network_state::NetworkState;
+pub use process::{
+    DeployOutcome, EventSink, Functions, ProcessEvent, ProcessRuntime, ProcessRuntimeConfig,
+    VmFactory, functions_from_module,
+};
 pub use random::register_random;
 pub use time::register_time;
 

@@ -523,7 +523,7 @@ sandbox {
 
 Builtin abilities are not defined in engine code. The engine's only
 native ability is `Exception` (part of the language). Everything else —
-Console, Time, Random, Log, FileSystem, Network, Execute — is declared once, in
+Console, Time, Random, Log, FileSystem, Network, Process, Execute — is declared once, in
 Ambient source, in the **platform bindings interface**
 (`crates/ambient-platform/src/platform.ab`), and performed under the
 `platform` namespace: `platform::FileSystem::read!(path)`.
@@ -557,17 +557,17 @@ All IO is blocking. There is no `Async` ability and no async/await-style
 primitives — this is intentional. A perform like `platform::Network::receive!`
 simply blocks the calling code until the host handler returns.
 
-The planned direction is an Erlang-inspired process model: lightweight
-green processes with isolated state, communicating by message passing,
-organized under supervisors. This design is chosen for live-upgrade
-correctness — hot code replacement needs a well-defined unit of state to
-hand off, and a process mailbox/state boundary provides exactly that.
-Blocking IO composes naturally with that model (a blocked process yields
-its scheduler thread), whereas async/await would thread a second
-concurrency model through the language.
-
-This process model is future work: it is not yet designed in detail and
-nothing in the current runtime implements it.
+Concurrency comes from the Erlang-inspired **process model** (see
+`ref/processes.md`): named reducer processes with isolated state,
+communicating by message passing through the `platform::Process`
+ability. Each process runs on its own thread with its own VM, so a
+blocked process blocks only itself. This design is chosen for
+live-upgrade correctness — hot code replacement needs a well-defined
+unit of state to hand off, and a process mailbox/reducer boundary
+provides exactly that. `ambient dev` upgrades a running process tree by
+re-running the entry function as a reconciliation pass: content hashes
+decide which processes' code changed; changed reducers are swapped at
+their next message boundary, keeping their state.
 
 ---
 
@@ -705,7 +705,20 @@ ability FileSystem {
   fn remove(path: string): ();                // file or empty directory
   fn create_dir(path: string): ();            // mkdir -p
 }
+
+ability Process {
+  fn spawn<I, H>(name: string, init: I, handler: H): number;
+  fn send<M>(pid: number, msg: M): ();
+  fn send_named<M>(name: string, msg: M): ();
+  fn self_pid(): number;              // 0 outside any process
+  fn whereis(name: string): number;   // 0 if no such name
+  fn exit(): ();                      // stop after the current reduction
+}
 ```
+
+`Process` is the surface of the process model (`ref/processes.md`):
+named reducer processes with isolated state, message passing, flat
+supervision, and reconciliation-based live upgrade under `ambient dev`.
 
 FileSystem failures (missing files, permission errors, invalid UTF-8) raise
 catchable `Exception`s, recoverable with
@@ -845,11 +858,13 @@ closures and may capture from the enclosing scope.
 
 ### Execution Model
 
-Single-threaded with blocking IO:
+Blocking IO on plain threads:
 
-1. User code runs on a single thread
-2. Ability handlers block until the host operation completes
-3. Concurrency is future work: an Erlang-style process model (see Concurrency)
+1. A VM is single-threaded; ability handlers block until the host
+   operation completes
+2. Concurrency is processes: each process owns a thread and a VM, and
+   the process runtime routes messages between them (see Concurrency
+   and `ref/processes.md`)
 
 ---
 
@@ -906,7 +921,10 @@ ambient ast foo.ab         # Dump the parsed AST
 ambient store stats        # Inspect the package store (also: ls, show,
                            #   deps, verify, gc; show disassembles)
 ambient repl               # Interactive REPL
-ambient dev foo.ab         # Hot reload development
+ambient dev <pkg>          # Live-upgrade development: watches sources and
+                           #   hot-swaps changed processes, keeping state
+                           #   (falls back to rerun-on-change for programs
+                           #   that spawn no processes)
 ambient lsp                # Start the language server
 ```
 
@@ -994,6 +1012,10 @@ Roughly in priority order:
   `ability` from one user module and importing it in another (exports
   carry the kind but consumers don't hydrate them yet), plus REPL
   registration of user-declared abilities.
+- **Process model growth** (see `ref/processes.md` for what exists):
+  typed `spawn` via effect-polymorphic ability signatures, process
+  linking/monitors, supervision trees, receive timeouts, and
+  `Execute`-driven remote deploy passes (live upgrade over the network).
 - Generic traits, supertraits, trait bounds (`fn foo<T: Eq>(x: T)`) — only
   if needed; traits exist to support polymorphic operators
 - Incremental compilation backed by the persisted store

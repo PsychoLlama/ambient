@@ -1,0 +1,133 @@
+//! The CLI's runtime host: platform wiring shared by `run` and `dev`.
+//!
+//! A [`RuntimeHost`] owns everything that outlives a single VM — the
+//! tokio runtime, the shared network handle table, the function store
+//! (Execute), and the process runtime — and knows how to build a fully
+//! wired VM for any process. Both `ambient run` and `ambient dev` are
+//! thin drivers over [`RuntimeHost::deploy`]: `run` deploys once and
+//! waits for the process tree to finish; `dev` deploys again on every
+//! code change.
+
+use std::sync::Arc;
+
+use anyhow::{Context, Result, bail};
+
+use ambient_engine::compiler::CompiledModule;
+use ambient_engine::store::Store;
+use ambient_engine::vm::Vm;
+use ambient_platform::process::{
+    DeployOutcome, EventSink, ProcessRuntime, ProcessRuntimeConfig, functions_from_module,
+};
+use ambient_platform::{
+    ConsoleConfig, ExecuteConfig, LogConfig, NetworkState, register_console, register_execute,
+    register_fs, register_log, register_network_shared, register_random, register_time,
+};
+
+use super::{platform_prelude, prelude_interface};
+
+/// Long-lived platform state plus the process runtime.
+pub struct RuntimeHost {
+    /// Owns the reactor threads driving all network IO. Kept alive for
+    /// the host's lifetime; unused otherwise.
+    _tokio: tokio::runtime::Runtime,
+    store: Arc<std::sync::Mutex<Store>>,
+    runtime: Arc<ProcessRuntime>,
+}
+
+impl RuntimeHost {
+    /// Build the host: resolve the platform prelude, share one network
+    /// table and one store across every future VM, and start an (empty)
+    /// process runtime.
+    pub fn new(events: EventSink) -> Result<Self> {
+        let tokio = tokio::runtime::Runtime::new().context("failed to create async runtime")?;
+        let prelude = platform_prelude()?;
+
+        let console = prelude_interface(&prelude, "Console")?;
+        let time = prelude_interface(&prelude, "Time")?;
+        let random = prelude_interface(&prelude, "Random")?;
+        let log = prelude_interface(&prelude, "Log")?;
+        let fs = prelude_interface(&prelude, "FileSystem")?;
+        let network = prelude_interface(&prelude, "Network")?;
+        let execute = prelude_interface(&prelude, "Execute")?;
+        let process = prelude_interface(&prelude, "Process")?;
+
+        let network_state = Arc::new(NetworkState::new(tokio.handle().clone()));
+        let store = Arc::new(std::sync::Mutex::new(Store::new()));
+
+        // Every process VM gets the full platform set. Executed-by-hash
+        // code (Execute ability) stays restricted to Console + Log, as
+        // before.
+        let exec_grants = {
+            let console = console.clone();
+            let log = log.clone();
+            Arc::new(move |exec_vm: &mut Vm| {
+                register_console(exec_vm, &console, ConsoleConfig::default());
+                register_log(exec_vm, &log, LogConfig::default());
+            })
+        };
+
+        let factory_store = Arc::clone(&store);
+        let factory = {
+            let network_state = Arc::clone(&network_state);
+            Arc::new(move || {
+                let mut vm = Vm::new();
+                register_console(&mut vm, &console, ConsoleConfig::default());
+                register_time(&mut vm, &time);
+                register_random(&mut vm, &random);
+                register_log(&mut vm, &log, LogConfig::default());
+                register_fs(&mut vm, &fs);
+                register_network_shared(&mut vm, &network, Arc::clone(&network_state));
+                register_execute(
+                    &mut vm,
+                    &execute,
+                    ExecuteConfig {
+                        store: Arc::clone(&factory_store),
+                        grants: Some(Arc::clone(&exec_grants) as _),
+                    },
+                );
+                vm
+            })
+        };
+
+        let runtime = ProcessRuntime::new(
+            ProcessRuntimeConfig {
+                vm_factory: factory,
+                interface: process,
+                events,
+            },
+            Arc::new(std::collections::HashMap::new()),
+        );
+
+        Ok(Self {
+            _tokio: tokio,
+            store,
+            runtime,
+        })
+    }
+
+    /// Deploy a build: install it as the current code generation and run
+    /// `entry` as a reconciliation pass over the live process tree.
+    pub fn deploy(&self, compiled: &CompiledModule, entry: &str) -> Result<DeployOutcome> {
+        let entry_hash = compiled
+            .function_names
+            .get(entry)
+            .ok_or_else(|| anyhow::anyhow!("entry function `{entry}` not found"))?;
+
+        // Execute serves functions from the store; register every
+        // generation so shipped code keeps resolving.
+        match self.store.lock() {
+            Ok(mut store) => store.add_module(compiled),
+            Err(_) => bail!("function store lock poisoned"),
+        }
+
+        let functions = functions_from_module(compiled);
+        self.runtime
+            .deploy(&functions, entry_hash)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    /// The process runtime (for waiting / inspection).
+    pub fn runtime(&self) -> &Arc<ProcessRuntime> {
+        &self.runtime
+    }
+}
