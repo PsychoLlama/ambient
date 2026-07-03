@@ -81,27 +81,7 @@ impl PackageInfo {
     pub fn uri_to_module_path(&self, uri: &Uri) -> Option<ModulePath> {
         let file_path = uri_to_path(uri)?;
         let relative = file_path.strip_prefix(&self.src_dir).ok()?;
-
-        // Convert path to module segments
-        let mut segments = Vec::new();
-        for component in relative.components() {
-            if let std::path::Component::Normal(s) = component {
-                let name = s.to_str()?;
-                // Remove .ab extension from the last component
-                let name = name.strip_suffix(".ab").unwrap_or(name);
-                // Skip "main" as it's the root module
-                if name != "main" || !segments.is_empty() {
-                    segments.push(Arc::from(name));
-                }
-            }
-        }
-
-        // If the only segment was "main", it's the root module
-        if segments.is_empty() {
-            Some(ModulePath::root())
-        } else {
-            ModulePath::from_segments(segments)
-        }
+        ModulePath::from_relative_file_path(relative)
     }
 
     /// Discover and parse all .ab files in the source directory.
@@ -119,24 +99,7 @@ impl PackageInfo {
     /// Load and parse a single module file.
     fn load_module_file(&self, file_path: &Path) -> Option<(ModulePath, String, Module)> {
         let relative = file_path.strip_prefix(&self.src_dir).ok()?;
-
-        // Convert path to module segments
-        let mut segments = Vec::new();
-        for component in relative.components() {
-            if let std::path::Component::Normal(s) = component {
-                let name = s.to_str()?;
-                let name = name.strip_suffix(".ab").unwrap_or(name);
-                if name != "main" || !segments.is_empty() {
-                    segments.push(Arc::from(name));
-                }
-            }
-        }
-
-        let module_path = if segments.is_empty() {
-            ModulePath::root()
-        } else {
-            ModulePath::from_segments(segments)?
-        };
+        let module_path = ModulePath::from_relative_file_path(relative)?;
 
         let source = std::fs::read_to_string(file_path).ok()?;
         let ast = ambient_parser::parse(&source).ok()?;

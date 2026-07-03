@@ -477,6 +477,12 @@ impl WorkspaceIndex {
 /// Convert a file path to module segments.
 ///
 /// E.g., `src/utils/math.ab` -> `["src", "utils", "math"]`
+///
+/// NOTE: this mapping deliberately differs from the canonical
+/// `ModulePath::from_relative_file_path` (it keeps the `src` segment and
+/// `main`, because the index's use-path resolution climbs directories).
+/// The whole `WorkspaceIndex` should eventually be retired in favor of a
+/// span-carrying symbol database; do not grow new callers of this.
 fn path_to_module_segments(path: &Path) -> Vec<Arc<str>> {
     let mut segments = Vec::new();
 

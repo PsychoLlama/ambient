@@ -222,8 +222,9 @@ fn discover_ab_files(dir: &Path, src_root: &Path) -> Vec<String> {
         } else if path.extension().is_some_and(|ext| ext == "ab")
             && let Some(module_path) = path_to_module(&path, src_root)
         {
-            // Skip "main" as it's the entry point
-            if module_path != "main" {
+            // The root module (main.ab) maps to the empty path; it is
+            // the entry point, not an importable module.
+            if !module_path.is_empty() {
                 modules.push(module_path);
             }
         }
@@ -235,18 +236,9 @@ fn discover_ab_files(dir: &Path, src_root: &Path) -> Vec<String> {
 /// Convert a file path to a module path string.
 fn path_to_module(path: &Path, src_root: &Path) -> Option<String> {
     let relative = path.strip_prefix(src_root).ok()?;
-    let mut segments = Vec::new();
-
-    for component in relative.components() {
-        if let std::path::Component::Normal(s) = component {
-            let name = s.to_str()?;
-            let name = name.strip_suffix(".ab").unwrap_or(name);
-            segments.push(name);
-        }
-    }
-
+    let module_path = ambient_engine::module_path::ModulePath::from_relative_file_path(relative)?;
     // Qualified module paths are addressed with `::` (e.g. `pkg::foo::bar`).
-    Some(segments.join("::"))
+    Some(module_path.to_string().replace('.', "::"))
 }
 
 #[cfg(test)]

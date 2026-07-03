@@ -209,6 +209,36 @@ impl ModulePath {
         path.set_extension("ab");
         path
     }
+
+    /// The inverse of [`ModulePath::to_file_path`]: a module path from a
+    /// filesystem path relative to the src directory.
+    ///
+    /// `utils/format.ab` → `["utils", "format"]`; `main.ab` (or a bare
+    /// `main` segment at the top level) → the root module. This is the
+    /// single definition of the file↔module mapping — every tool that
+    /// walks source trees must resolve paths through it, so the mapping
+    /// can never fork.
+    #[must_use]
+    pub fn from_relative_file_path(relative: &std::path::Path) -> Option<Self> {
+        let mut segments: Vec<Arc<str>> = Vec::new();
+        for component in relative.components() {
+            let std::path::Component::Normal(s) = component else {
+                return None;
+            };
+            let name = s.to_str()?;
+            let name = name.strip_suffix(".ab").unwrap_or(name);
+            // `main.ab` at the package root is the root module.
+            if name == "main" && segments.is_empty() {
+                continue;
+            }
+            segments.push(Arc::from(name));
+        }
+        if segments.is_empty() {
+            Some(Self::root())
+        } else {
+            Self::from_segments(segments)
+        }
+    }
 }
 
 impl std::fmt::Display for ModulePath {
