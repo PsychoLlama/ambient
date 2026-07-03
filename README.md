@@ -1,29 +1,69 @@
 # Ambient
 
-A content-addressed programming language with algebraic effects, inspired by
-Unison, Rust, TypeScript, and Nushell.
+A content-addressed programming language with algebraic effects, heavily inspired by [Unison](https://www.unison-lang.org/) and [Rust](https://rust-lang.org/).
 
-Every function is identified by the hash of its implementation and its
-dependencies. That buys perfect incremental compilation, deduplication, and —
-the long-term goal — live program upgrades and remote execution by shipping
-hashes instead of source: a client and server that share a content-addressed
-store can exchange functions as data, request missing dependencies by hash,
-and hot-swap behavior by pointing at a new root.
+## Disclaimer
 
-Unlike Unison, the filesystem stays the source of truth: programs are plain
-`.ab` text files, and language semantics map 1:1 to what's on disk.
+This is almost entirely vibe coded. Don't trust it with anything you love.
+
+I love [PLT](https://en.wikipedia.org/wiki/Programming_language_theory). The [lambda cube](https://en.wikipedia.org/wiki/Lambda_cube) is framed on my nightstand. I've written several toy languages by hand, but a language of this ambition isn't built over a weekend.
+
+Vibing the implementation explores the design and _feel_ of it before committing to ~~months~~ [a lifetime](https://www.youtube.com/watch?v=XZ3w_jec1v8) of work.
+
+I built this to explore the idea, not to use it in production.
+
+## Features
+
+Two key ideas:
+
+- **Hashing:** Every function is identified by the hash of its implementation and its dependencies. Change the implementation, get a new hash.
+- **Effects:** Functions are pure. Effects are provided by the host environment as algebraic effects ("abilities").
+
+Together, these properties unlock a unique set of features.
+
+### Perfect Caching
+
+The build cache is an append-only and self-verifying object store akin to git.
+
+- Fast, incremental compilation.
+- Cache computations that didn't change between runs. For example, unit tests.
+- Share the cache with CI or host it for local builds.
+
+### Live Upgrades
+
+Load new symbols into a program while it's running and incrementally cut over to the new version. Old code and new code can safely coexist during the upgrade.
+
+If you've used HMR in web development or interactive repls in Lisp, it's the same idea, but without stale references or environment pollution.
+
+### Remote Functions
+
+Send and receive closures between running programs. Build remote repls, GraphQL-style servers, or transfer work across a cluster.
+
+> [!NOTE]
+> This is opt-in, controlled by your program via the `Execution` API.
+
+### Programmable Effects
+
+Effects are part of the type system. They can be captured, replaced, mocked, or blocked entirely. Programs can define custom effects (abilities) composing other effects.
+
+Examples:
+
+- **Sandboxing:** Limit what APIs are callable from libraries or remote functions.
+- **Mocking:** Replace effects in tests without rewriting the code.
+- **Record & Replay:** Store effects and their outputs. Save it, play it back later.
+- **Overrides:** Rewrite effects before they're performed.
 
 ## Taste of the language
 
 ```ambient
 // Effects are explicit capabilities ("abilities"), tracked in types.
-pub fn run(): () with Console {
+pub fn run(): () with Log {
   greet("world");
 }
 
-// Private functions infer their abilities — no annotation needed.
+// Private functions infer their abilities. No annotation needed.
 fn greet(name: string) {
-  platform::Console::print!("Hello, ${name}!");
+  Log::info!("Hello, ${name}!");
 }
 ```
 
@@ -42,85 +82,52 @@ fn example(): bool {
 }
 ```
 
-Effect handlers are delimited continuations — mock any capability in tests,
-sandbox untrusted code, or intercept and transform operations:
+Effect handlers are delimited continuations. Mock any capability in tests, sandbox untrusted code, or intercept and transform operations:
 
 ```ambient
-handle {
-  platform::Console::print!("hello");
-} {
-  platform::Console::print(msg) => {
-    platform::Console::print!(core::string::concat("[LOG] ", msg));
-    resume(())
-  }
+fn roll_dice(): number {
+  math::abs(Random::in_range!(6))
+}
+
+fn run(): () with Random, Log {
+  let roll = handle roll_dice() {
+    Random::in_range(max) => {
+      resume(4) // Chosen by fair dice roll. Guaranteed to be random.
+    }
+  };
+
+  Log::info!("Rolled ${roll}");
 }
 ```
 
-## Getting started
+## Usage
+
+There are no binaries published yet. It must be compiled from source:
 
 ```bash
-cargo build --workspace          # or: nix develop
+cargo build --workspace
+```
 
+```bash
 ambient init my_project          # scaffold a package
 ambient run my_project           # compile + run (persists to .ambient/store)
 ambient store show run           # inspect any function: deps + disassembly
 ambient repl                     # interactive REPL
-ambient dev my_project           # live-upgrade loop (hot-swaps processes,
-                                 #   keeping their state; see ref/processes.md)
+ambient dev my_project           # live-upgrade loop (hot-swaps processes, keeping their state)
 ambient lsp                      # language server (see ambient.nvim/)
 ```
 
-Every build lands in a per-package content-addressed store
-(`.ambient/store/`) laid out git-style: one file per canonical object,
-named by the blake3 of its bytes, so everything on disk is self-verifying.
-`ambient store` gives you `stats`, `ls`, `show` (with disassembly), `deps`,
-`verify`, and `gc`. `ambient compile` emits a single-file `.ambient`
-artifact — the same object format plus name bindings and an entry point —
-that `ambient run` executes after recomputing every hash from content.
+Every build lands in a per-package content-addressed store (`.ambient/store/`) laid out git-style. `ambient store` gives you `stats`, `ls`, `show` (with disassembly), `deps`, `verify`, and `gc`. `ambient compile` emits a single-file `.ambient` artifact (the same object format plus name bindings and an entry point) that `ambient run` executes after recomputing every hash from content.
 
-The `examples/` directory has ~25 runnable programs, from `hello` to a
-TCP echo server, a remote-execution client/server pair, and a
-live-upgradable process-based service (`live_server`) — all exercised
-by the test suite (`cargo test -p ambient-cli --test examples`).
+See the `examples/` directory for runnable programs.
 
-## Repository layout
+## Why Not [Unison](https://www.unison-lang.org/)?
 
-| Path | What it is |
-|------|------------|
-| `crates/ambient-engine` | Type inference, compiler, bytecode VM, content-addressed store |
-| `crates/ambient-parser` | Hand-written lexer + parser (CST → AST) |
-| `crates/ambient-cli` | The `ambient` binary |
-| `crates/ambient-lsp` | Language server |
-| `crates/ambient-core` / `-ability` / `-platform` | Ability descriptors, runtime values, host abilities |
-| `ref/` | Language design docs (`architecture.md` is the source of truth) |
-| `examples/` | Runnable example packages with golden-tested output |
-| `tree-sitter-ambient/`, `ambient.nvim/` | Editor tooling |
+Unison blew my mind in 2019. I love it and advertise it to anyone who'll listen. It's a great language and infinitely better than what I can build.
 
-## Development
+So why create a new language?
 
-```bash
-just check    # format check + clippy + build + all tests; must pass before commit
-```
+- **Target Environment:** I desperately wanted to try their ideas in web apps and embedded in web servers through FFI. Unison doesn't support it.
+- **Scratch Files:** Unison takes a radical stance by doing away with the file system. You edit the codebase by loading and unloading code from a scratch file. It's an expensive gamble. I wanted to prove it was possible to keep the features _and_ the file system.
 
-Language regressions are caught at three levels: unit tests in the engine,
-golden tests over every example program, and content-addressing invariant
-tests (`crates/ambient-parser/tests/content_addressing.rs`) that pin the
-hash semantics: same source → same hash, declaration order never matters,
-body or dependency changes always ripple.
-
-## Status
-
-Experimental but coherent: packages, modules and imports (item,
-whole-module, and a standard library compiled as ordinary Ambient
-modules), traits with static content-addressed dispatch, enums with
-constructors and typed patterns, ability inference and enforcement,
-delimited-continuation handlers, and a persisted self-verifying store
-with introspection tooling all work today — plus a REPL and an LSP.
-
-Abilities are content-addressed like functions: identity is the blake3
-hash of the canonical interface, `ability` declarations work in-language,
-and remote execution over TCP ships *effectful* functions — the executing
-host grants capabilities (wasm-style), and handlers themselves travel by
-hash (`Execute.run_with`). See `ref/architecture.md` § Future Work for
-what's next (finishing the platform-binding split, cross-module ability
-imports, WASM target).
+This is why `unique(...) type` requires a literal UUID. Unison can create nominal types under the hood, but ambient files have to be self contained. It needs a way to uniquely identify the type across moves and remote functions.
