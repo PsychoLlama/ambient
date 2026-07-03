@@ -66,14 +66,14 @@ ability FileSystem {
 
 /// TCP networking. Listeners and connections are numeric handles.
 ability Network {
-  /// Bind a listener on an address like `"127.0.0.1:8080"`.
-  fn listen(address: string): number;
+  /// Bind a listener on a `(host, port)` endpoint like `("127.0.0.1", 8080)`.
+  fn listen(endpoint: (string, number)): number;
   /// Block until a client connects; returns a connection handle.
   fn accept(listener: number): number;
   /// Close a listener.
   fn close_listener(listener: number): ();
-  /// Connect to a remote address; returns a connection handle.
-  fn connect(address: string): number;
+  /// Connect to a remote `(host, port)` endpoint; returns a connection handle.
+  fn connect(endpoint: (string, number)): number;
   /// Close a connection.
   fn close(connection: number): ();
   /// Send bytes over a connection.

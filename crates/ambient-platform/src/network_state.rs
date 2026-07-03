@@ -145,17 +145,17 @@ impl NetworkState {
     // Listener operations
     // ═══════════════════════════════════════════════════════════════════════════
 
-    /// Bind a TCP listener to the given address.
+    /// Bind a TCP listener to the given `(host, port)` endpoint.
     ///
     /// Returns the listener ID on success.
     ///
     /// # Errors
     ///
-    /// Returns an error if the address cannot be bound.
-    pub fn listen(&self, addr: &str) -> Result<ListenerId, NetworkError> {
+    /// Returns an error if the endpoint cannot be bound.
+    pub fn listen(&self, host: &str, port: u16) -> Result<ListenerId, NetworkError> {
         let listener = self
             .runtime
-            .block_on(TcpListener::bind(addr))
+            .block_on(TcpListener::bind((host, port)))
             .map_err(NetworkError::Io)?;
         let mut tables = self.lock_tables()?;
         let id = tables.next_id;
@@ -198,17 +198,17 @@ impl NetworkState {
     // Connection operations
     // ═══════════════════════════════════════════════════════════════════════════
 
-    /// Connect to a remote server.
+    /// Connect to a remote server at the given `(host, port)` endpoint.
     ///
     /// Returns the connection ID on success.
     ///
     /// # Errors
     ///
     /// Returns an error if the connection cannot be established.
-    pub fn connect(&self, addr: &str) -> Result<ConnectionId, NetworkError> {
+    pub fn connect(&self, host: &str, port: u16) -> Result<ConnectionId, NetworkError> {
         let stream = self
             .runtime
-            .block_on(TcpStream::connect(addr))
+            .block_on(TcpStream::connect((host, port)))
             .map_err(NetworkError::Io)?;
         self.insert_stream(stream)
     }
@@ -408,22 +408,19 @@ mod tests {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let state = Arc::new(NetworkState::new(runtime.handle().clone()));
 
-        let listener = state.listen("127.0.0.1:0").unwrap();
+        let listener = state.listen("127.0.0.1", 0).unwrap();
 
         // Accept on one thread while connecting from another: the
         // table lock must not serialize blocking operations.
-        let addr = {
+        let port = {
             let tables = state.lock_tables().unwrap();
-            tables.listeners[&listener]
-                .local_addr()
-                .unwrap()
-                .to_string()
+            tables.listeners[&listener].local_addr().unwrap().port()
         };
 
         let accept_state = Arc::clone(&state);
         let acceptor = std::thread::spawn(move || accept_state.accept(listener).unwrap());
 
-        let client = state.connect(&addr).unwrap();
+        let client = state.connect("127.0.0.1", port).unwrap();
         let server = acceptor.join().unwrap();
 
         state.send(client, b"ping").unwrap();

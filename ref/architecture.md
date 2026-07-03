@@ -644,7 +644,7 @@ succeeded:
 
 ```ambient
 fn fetch_or_default(): number with Network {
-  handle platform::Network::connect!("10.0.0.1:9") {
+  handle platform::Network::connect!(("10.0.0.1", 9)) {
     Exception::throw(msg) => resume(0 - 1)  // substitute connection id
   }
 }

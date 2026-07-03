@@ -2532,7 +2532,7 @@ fn test_execute_run_ungranted_ability_is_unhandled() {
     CliTest::new(
         r#"
         fn phone_home(x: number): number with Network {
-            let conn = platform::Network::connect!("127.0.0.1:1");
+            let conn = platform::Network::connect!(("127.0.0.1", 1));
             x
         }
 
@@ -2758,7 +2758,7 @@ fn test_host_raised_exception_is_catchable() {
     CliTest::new(
         r#"
         fn try_connect(): string with Network {
-            let conn = platform::Network::connect!("127.0.0.1:9");
+            let conn = platform::Network::connect!(("127.0.0.1", 9));
             "connected"
         }
 
@@ -2780,7 +2780,7 @@ fn test_host_raised_exception_resume_substitute() {
     CliTest::new(
         r#"
         fn try_connect(): number with Network {
-            let conn = platform::Network::connect!("127.0.0.1:9");
+            let conn = platform::Network::connect!(("127.0.0.1", 9));
             conn + 1000
         }
 

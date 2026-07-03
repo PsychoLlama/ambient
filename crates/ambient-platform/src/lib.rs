@@ -129,6 +129,63 @@ pub(crate) fn extract_number(args: &[Value]) -> Result<f64, VmError> {
     }
 }
 
+/// Extract a `(host, port)` endpoint from the first argument.
+///
+/// The port is a language `number`. A value outside the `u16` range TCP
+/// ports occupy — or a non-integer — is caller error, so it is raised as a
+/// catchable exception rather than silently saturated by an `as` cast.
+pub(crate) fn extract_host_port(args: &[Value]) -> Result<(String, u16), VmError> {
+    let endpoint = match args.first() {
+        Some(Value::Tuple(elements)) if elements.len() == 2 => elements,
+        Some(other) => {
+            return Err(VmError::TypeErrorOwned {
+                expected: "(string, number) endpoint".to_string(),
+                got: other.type_name().to_string(),
+            });
+        }
+        None => {
+            return Err(VmError::TypeErrorOwned {
+                expected: "(string, number) endpoint".to_string(),
+                got: "no argument".to_string(),
+            });
+        }
+    };
+
+    let host = match &endpoint[0] {
+        Value::String(s) => s.to_string(),
+        other => {
+            return Err(VmError::TypeErrorOwned {
+                expected: "string host".to_string(),
+                got: other.type_name().to_string(),
+            });
+        }
+    };
+
+    let port = match &endpoint[1] {
+        Value::Number(n) => *n,
+        other => {
+            return Err(VmError::TypeErrorOwned {
+                expected: "number port".to_string(),
+                got: other.type_name().to_string(),
+            });
+        }
+    };
+
+    // A wrong *type* is an engine fault (the checker should have caught it),
+    // but a number outside 0..=65535 (or non-integer) is a caller mistake —
+    // raise it on the catchable exception channel instead of saturating.
+    if port.fract() != 0.0 || !(0.0..=f64::from(u16::MAX)).contains(&port) {
+        return Err(VmError::exception(format!(
+            "invalid port {port}: expected an integer in 0..=65535"
+        )));
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let port = port as u16;
+
+    Ok((host, port))
+}
+
 /// Extract bytes from a Bytes value.
 pub(crate) fn extract_bytes(value: &Value) -> Result<Vec<u8>, VmError> {
     match value {
@@ -226,5 +283,51 @@ mod tests {
             matches!(result, Ok(Value::Number(n)) if n > 0.0),
             "Time.now must dispatch to the bound handler: {result:?}"
         );
+    }
+
+    fn endpoint(host: &str, port: f64) -> Vec<Value> {
+        vec![Value::tuple(vec![Value::string(host), Value::Number(port)])]
+    }
+
+    #[test]
+    fn extract_host_port_accepts_valid_endpoint() {
+        let got = extract_host_port(&endpoint("127.0.0.1", 8080.0)).unwrap();
+        assert_eq!(got, ("127.0.0.1".to_string(), 8080));
+    }
+
+    #[test]
+    fn extract_host_port_raises_exception_for_out_of_range_port() {
+        // Out of the u16 range: a caller mistake, not an engine fault, so it
+        // must be catchable rather than a hard VM error or a saturated cast.
+        for bad in [-1.0, 65536.0, 99999.0] {
+            let err = extract_host_port(&endpoint("127.0.0.1", bad)).unwrap_err();
+            assert!(
+                matches!(err, VmError::Exception(_)),
+                "port {bad} should raise a catchable exception, got {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn extract_host_port_raises_exception_for_non_integer_port() {
+        let err = extract_host_port(&endpoint("127.0.0.1", 80.5)).unwrap_err();
+        assert!(matches!(err, VmError::Exception(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn extract_host_port_rejects_wrong_shape() {
+        // Wrong argument types are engine faults (the checker should catch
+        // them first), reported as type errors rather than exceptions.
+        let not_a_tuple = vec![Value::string("127.0.0.1:8080")];
+        assert!(matches!(
+            extract_host_port(&not_a_tuple),
+            Err(VmError::TypeErrorOwned { .. })
+        ));
+
+        let wrong_host = vec![Value::tuple(vec![Value::Number(1.0), Value::Number(80.0)])];
+        assert!(matches!(
+            extract_host_port(&wrong_host),
+            Err(VmError::TypeErrorOwned { .. })
+        ));
     }
 }

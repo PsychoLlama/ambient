@@ -8,7 +8,7 @@
 /// Entry point that starts a TCP server and echoes messages.
 pub fn run(): () with Console, Network {
     platform::Console::print!("Server: binding to 127.0.0.1:9000...");
-    let listener = platform::Network::listen!("127.0.0.1:9000");
+    let listener = platform::Network::listen!(("127.0.0.1", 9000));
 
     platform::Console::print!("Server: waiting for connection...");
     let conn = platform::Network::accept!(listener);

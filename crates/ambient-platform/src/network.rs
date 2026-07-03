@@ -7,12 +7,12 @@
 //! # API
 //!
 //! ## Server Operations
-//! - `listen(address: string) -> ListenerId` - Bind TCP listener
+//! - `listen(endpoint: (string, number)) -> ListenerId` - Bind TCP listener
 //! - `accept(listener: ListenerId) -> ConnectionId` - Accept incoming connection
 //! - `close_listener(listener: ListenerId) -> ()` - Stop accepting connections
 //!
 //! ## Client Operations
-//! - `connect(address: string) -> ConnectionId` - Connect to remote server
+//! - `connect(endpoint: (string, number)) -> ConnectionId` - Connect to remote server
 //! - `close(conn: ConnectionId) -> ()` - Close connection
 //!
 //! ## Message I/O (length-prefixed)
@@ -27,7 +27,7 @@
 //!
 //! Server:
 //! ```ambient
-//! let listener = Network.listen!("127.0.0.1:8080");
+//! let listener = Network.listen!(("127.0.0.1", 8080));
 //! let conn = Network.accept!(listener);
 //! let msg = Network.receive!(conn);
 //! Network.send!(conn, process(msg));
@@ -36,7 +36,7 @@
 //!
 //! Client:
 //! ```ambient
-//! let conn = Network.connect!("127.0.0.1:8080");
+//! let conn = Network.connect!(("127.0.0.1", 8080));
 //! Network.send!(conn, my_request);
 //! let response = Network.receive!(conn);
 //! Network.close!(conn);
@@ -50,7 +50,7 @@ use ambient_engine::vm::Vm;
 use tokio::runtime::Handle as RuntimeHandle;
 
 use crate::network_state::NetworkState;
-use crate::{extract_bytes, extract_number, extract_string, require};
+use crate::{extract_bytes, extract_host_port, extract_number, require};
 
 /// Configuration for the Network ability.
 pub struct NetworkConfig {
@@ -61,10 +61,10 @@ pub struct NetworkConfig {
 /// Register the Network ability handlers on a VM with private state.
 ///
 /// Provides low-level TCP networking operations:
-/// - `listen(address)` - Bind TCP listener
+/// - `listen((host, port))` - Bind TCP listener
 /// - `accept(listener)` - Accept connection
 /// - `close_listener(listener)` - Close listener
-/// - `connect(address)` - Connect to server
+/// - `connect((host, port))` - Connect to server
 /// - `close(conn)` - Close connection
 /// - `send(conn, data)` - Send length-prefixed message
 /// - `receive(conn)` - Receive length-prefixed message
@@ -93,15 +93,15 @@ pub fn register_network(vm: &mut Vm, ability: &AbilityInterface, config: Network
 /// bindings interface and this handler set have drifted.
 #[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
 pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: Arc<NetworkState>) {
-    // Network.listen(address: string) -> ListenerId (number handle)
+    // Network.listen(endpoint: (string, number)) -> ListenerId (number handle)
     let state_clone = Arc::clone(&state);
     vm.register_host_handler(
         ability.id,
         require(ability, "listen"),
         Box::new(move |ability: &SuspendedAbility| {
-            let addr = extract_string(&ability.args)?;
+            let (host, port) = extract_host_port(&ability.args)?;
             let id = state_clone
-                .listen(&addr)
+                .listen(&host, port)
                 .map_err(|e| VmError::exception(format!("Network.listen: {e}")))?;
             #[allow(clippy::cast_precision_loss)]
             Ok(Value::Number(id as f64))
@@ -139,15 +139,15 @@ pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: A
         }),
     );
 
-    // Network.connect(address: string) -> ConnectionId (number handle)
+    // Network.connect(endpoint: (string, number)) -> ConnectionId (number handle)
     let state_clone = Arc::clone(&state);
     vm.register_host_handler(
         ability.id,
         require(ability, "connect"),
         Box::new(move |ability: &SuspendedAbility| {
-            let addr = extract_string(&ability.args)?;
+            let (host, port) = extract_host_port(&ability.args)?;
             let id = state_clone
-                .connect(&addr)
+                .connect(&host, port)
                 .map_err(|e| VmError::exception(format!("Network.connect: {e}")))?;
             #[allow(clippy::cast_precision_loss)]
             Ok(Value::Number(id as f64))

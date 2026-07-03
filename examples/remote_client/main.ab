@@ -24,7 +24,7 @@ fn double(x: number): number with Log {
 /// Entry point that connects to server and executes a function remotely.
 pub fn run(): () with Console, Network, Execute {
     platform::Console::print!("Client: connecting to 127.0.0.1:8080...");
-    let conn = platform::Network::connect!("127.0.0.1:8080");
+    let conn = platform::Network::connect!(("127.0.0.1", 8080));
 
     let local = platform::Network::local_addr!(conn);
     platform::Console::print!(core::string::concat("Client: connected from ", local));

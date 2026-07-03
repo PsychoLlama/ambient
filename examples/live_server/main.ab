@@ -36,7 +36,7 @@ fn on_hit(total: number, n: number): number with Console {
 // ─── acceptor: one reduction per accepted connection ────────────────────
 
 fn acceptor_init(): number with Network, Console, Process {
-  let listener = platform::Network::listen!("127.0.0.1:7777");
+  let listener = platform::Network::listen!(("127.0.0.1", 7777));
   platform::Console::print!("live_server listening on 127.0.0.1:7777");
   platform::Process::send!(platform::Process::self_pid!(), "accept");
   listener

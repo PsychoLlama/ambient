@@ -88,7 +88,7 @@ fn dev_loop_hot_swaps_processes_keeping_state() {
     let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/live_server");
     let dir = tempfile::tempdir().expect("temp dir");
     let source = std::fs::read_to_string(example.join("main.ab")).expect("read example");
-    let source = source.replace("127.0.0.1:7777", &format!("127.0.0.1:{PORT}"));
+    let source = source.replace("(\"127.0.0.1\", 7777)", &format!("(\"127.0.0.1\", {PORT})"));
     std::fs::write(dir.path().join("main.ab"), &source).expect("stage main.ab");
     std::fs::copy(
         example.join("ambient.toml"),

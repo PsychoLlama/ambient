@@ -14,7 +14,7 @@
 /// Entry point that starts the server.
 pub fn run(): () with Console, Network, Execute {
     platform::Console::print!("Server: listening on 127.0.0.1:8080...");
-    let listener = platform::Network::listen!("127.0.0.1:8080");
+    let listener = platform::Network::listen!(("127.0.0.1", 8080));
 
     platform::Console::print!("Server: waiting for connection...");
     let conn = platform::Network::accept!(listener);

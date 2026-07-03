@@ -9,7 +9,7 @@
 /// Entry point that connects to a server and sends messages.
 pub fn run(): () with Console, Network {
     platform::Console::print!("Client: connecting to 127.0.0.1:9000...");
-    let conn = platform::Network::connect!("127.0.0.1:9000");
+    let conn = platform::Network::connect!(("127.0.0.1", 9000));
 
     let local = platform::Network::local_addr!(conn);
     platform::Console::print!(core::string::concat("Client: connected from ", local));
