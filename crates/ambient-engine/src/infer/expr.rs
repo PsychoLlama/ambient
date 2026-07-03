@@ -1088,7 +1088,6 @@ mod tests {
     use super::*;
     use crate::ast::{BinaryOp, HandlerLiteralMethod, MatchArm, Param, Pattern};
     use crate::infer::Scheme;
-    use crate::types::TypeVar;
 
     #[test]
     fn test_infer_literal() {
@@ -1246,8 +1245,8 @@ mod tests {
 
         // Should get a fresh type variable, not '0
         if let Type::Function(f) = ty {
-            assert!(matches!(f.params[0], Type::Var(TypeVar::Unbound(_))));
-            assert!(matches!(*f.ret, Type::Var(TypeVar::Unbound(_))));
+            assert!(matches!(f.params[0], Type::Var(_)));
+            assert!(matches!(*f.ret, Type::Var(_)));
         } else {
             panic!("Expected function type");
         }
@@ -1259,7 +1258,7 @@ mod tests {
 
         // Hole becomes a fresh type variable
         let resolved = infer.resolve_holes(&Type::Hole);
-        assert!(matches!(resolved, Type::Var(TypeVar::Unbound(_))));
+        assert!(matches!(resolved, Type::Var(_)));
     }
 
     #[test]
@@ -1271,8 +1270,8 @@ mod tests {
         let resolved = infer.resolve_holes(&func);
 
         if let Type::Function(f) = resolved {
-            assert!(matches!(f.params[0], Type::Var(TypeVar::Unbound(_))));
-            assert!(matches!(*f.ret, Type::Var(TypeVar::Unbound(_))));
+            assert!(matches!(f.params[0], Type::Var(_)));
+            assert!(matches!(*f.ret, Type::Var(_)));
         } else {
             panic!("Expected function type");
         }
@@ -1288,7 +1287,7 @@ mod tests {
 
         if let Type::Tuple(elems) = resolved {
             assert_eq!(elems[0], Type::Number);
-            assert!(matches!(elems[1], Type::Var(TypeVar::Unbound(_))));
+            assert!(matches!(elems[1], Type::Var(_)));
             assert_eq!(elems[2], Type::String);
         } else {
             panic!("Expected tuple type");

@@ -10,10 +10,8 @@
 //! The type system uses structural equivalence by default, with nominal
 //! types providing opt-in name-based distinction.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use uuid::Uuid;
@@ -52,7 +50,7 @@ impl TypeVarGen {
     pub fn fresh(&mut self) -> Type {
         let id = self.next_id;
         self.next_id += 1;
-        Type::Var(TypeVar::Unbound(id))
+        Type::Var(id)
     }
 
     /// Generate a fresh type variable ID.
@@ -75,20 +73,6 @@ impl TypeVarGen {
         self.next_ability_id += 1;
         id
     }
-}
-
-/// A type variable that may be unbound or linked to another type.
-///
-/// Type variables are used during inference to represent unknown types.
-/// During unification, they get linked to concrete types or other variables.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TypeVar {
-    /// An unbound type variable with a unique ID.
-    Unbound(TypeVarId),
-
-    /// A type variable that has been linked to another type.
-    /// Uses interior mutability for efficient union-find during unification.
-    Link(Rc<RefCell<Type>>),
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -796,7 +780,7 @@ pub enum Type {
     // Polymorphism
     // ─────────────────────────────────────────────────────────────────────────
     /// A type variable used during inference.
-    Var(TypeVar),
+    Var(TypeVarId),
 
     /// A quantified (forall) type scheme.
     /// `forall a b. (a -> b) -> List<a> -> List<b>`
@@ -1141,7 +1125,7 @@ impl Type {
     /// Create an unbound type variable.
     #[must_use]
     pub fn var(id: TypeVarId) -> Self {
-        Self::Var(TypeVar::Unbound(id))
+        Self::Var(id)
     }
 
     /// Create a nominal type.
@@ -1181,16 +1165,6 @@ impl Type {
         }
     }
 
-    /// Resolve type variable links to get the actual type.
-    /// This follows chains of linked type variables.
-    #[must_use]
-    pub fn resolve(&self) -> Type {
-        match self {
-            Self::Var(TypeVar::Link(link)) => link.borrow().resolve(),
-            other => other.clone(),
-        }
-    }
-
     /// Collect all free type variables in this type.
     #[must_use]
     pub fn free_vars(&self) -> Vec<TypeVarId> {
@@ -1203,8 +1177,7 @@ impl Type {
 
     fn collect_free_vars(&self, vars: &mut Vec<TypeVarId>) {
         match self {
-            Self::Var(TypeVar::Unbound(id)) => vars.push(*id),
-            Self::Var(TypeVar::Link(link)) => link.borrow().collect_free_vars(vars),
+            Self::Var(id) => vars.push(*id),
             Self::Tuple(elems) => {
                 for elem in elems {
                     elem.collect_free_vars(vars);
@@ -1290,7 +1263,6 @@ impl Type {
                     }
                 }
             }
-            Self::Var(TypeVar::Link(link)) => link.borrow().collect_free_ability_vars(vars),
             _ => {}
         }
     }
@@ -1309,12 +1281,7 @@ impl Type {
         ability_subst: &HashMap<AbilityVarId, AbilitySet>,
     ) -> Type {
         match self {
-            Self::Var(TypeVar::Unbound(id)) => {
-                type_subst.get(id).cloned().unwrap_or_else(|| self.clone())
-            }
-            Self::Var(TypeVar::Link(link)) => {
-                link.borrow().substitute_all(type_subst, ability_subst)
-            }
+            Self::Var(id) => type_subst.get(id).cloned().unwrap_or_else(|| self.clone()),
             Self::Tuple(elems) => Self::Tuple(
                 elems
                     .iter()
@@ -1418,8 +1385,7 @@ impl fmt::Display for Type {
             Self::Error => write!(f, "<error>"),
             Self::Hole => write!(f, "_"),
 
-            Self::Var(TypeVar::Unbound(id)) => write!(f, "'{id}"),
-            Self::Var(TypeVar::Link(link)) => write!(f, "{}", link.borrow()),
+            Self::Var(id) => write!(f, "'{id}"),
 
             Self::Tuple(elems) => {
                 write!(f, "(")?;

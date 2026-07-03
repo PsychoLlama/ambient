@@ -170,9 +170,6 @@ impl AbilityResolver {
     }
 
     /// Register a module-declared ability.
-    // `Type` uses `Rc` internally (never crosses threads during checking),
-    // but `Arc` matches the rest of the engine's shared-ownership idiom.
-    #[allow(clippy::arc_with_non_send_sync)]
     pub fn register_dynamic(&mut self, ability: DynAbility) {
         let ability = Arc::new(ability);
         self.dynamic_by_name
@@ -185,7 +182,6 @@ impl AbilityResolver {
     /// Namespaced abilities are performed with their namespace prefix
     /// (`<namespace>.<Ability>.<method>!`); they do not shadow bare-name
     /// lookups of local declarations.
-    #[allow(clippy::arc_with_non_send_sync)]
     pub fn register_dynamic_in_namespace(&mut self, namespace: &str, ability: DynAbility) {
         let ability = Arc::new(ability);
         self.namespaced_by_name.insert(
@@ -466,7 +462,6 @@ impl CanonicalTypeRenderer {
 
     /// Render a type into its canonical string form.
     pub fn render(&mut self, ty: &Type) -> String {
-        use crate::types::TypeVar;
         match ty {
             Type::Unit => "unit".to_string(),
             Type::Bool => "bool".to_string(),
@@ -477,7 +472,7 @@ impl CanonicalTypeRenderer {
             // Each hole is an independent unknown, matching the factory's
             // per-call freshness.
             Type::Hole | Type::Error => self.fresh(),
-            Type::Var(TypeVar::Unbound(id)) => {
+            Type::Var(id) => {
                 if let Some(&n) = self.vars.get(id) {
                     format!("var{n}")
                 } else {
@@ -486,10 +481,6 @@ impl CanonicalTypeRenderer {
                     self.vars.insert(*id, n);
                     format!("var{n}")
                 }
-            }
-            Type::Var(TypeVar::Link(target)) => {
-                let target = target.borrow().clone();
-                self.render(&target)
             }
             Type::Named(named) if named.name.as_ref() == "List" && named.args.len() == 1 => {
                 format!("list<{}>", self.render(&named.args[0]))

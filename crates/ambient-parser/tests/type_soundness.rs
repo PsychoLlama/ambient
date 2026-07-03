@@ -1,0 +1,393 @@
+//! Regression tests for type-checker soundness holes.
+//!
+//! Each test pins a bug where the checker previously accepted an unsound
+//! program (or produced code the compiler could not handle). These check
+//! whole programs through `parse` + `check_module`, the same path `ambient
+//! check` takes; user-declared abilities stand in for platform ones so no
+//! embedder wiring is needed.
+
+use ambient_engine::infer::check_module;
+
+fn check(source: &str) -> Vec<String> {
+    let module = ambient_parser::parse(source).expect("test source must parse");
+    let result = check_module(module);
+    result
+        .errors
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect()
+}
+
+fn assert_ok(source: &str) {
+    let errors = check(source);
+    assert!(errors.is_empty(), "expected no errors, got: {errors:#?}");
+}
+
+fn assert_err_containing(source: &str, needle: &str) {
+    let errors = check(source);
+    assert!(
+        errors.iter().any(|e| e.contains(needle)),
+        "expected an error containing {needle:?}, got: {errors:#?}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trait impl purity
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Trait method signatures carry no `with` clause, so impl bodies must be
+/// pure. Previously their inferred effects were silently discarded and a
+/// pure-declared public function could print through a trait method.
+#[test]
+fn trait_impl_method_performing_ability_is_rejected() {
+    assert_err_containing(
+        &r"
+        ability Printer {
+          fn print(msg: string): ();
+        }
+
+        trait Show {
+          fn show(self): string;
+        }
+
+        unique(11111111-1111-1111-1111-111111111111) type Money { cents: number }
+
+        impl Show for Money {
+          fn show(self): string {
+            Printer::print!('effect');
+            'money'
+          }
+        }
+
+        pub fn run(): () {
+          let m = Money { cents: 100 };
+          let s = m.show();
+          ()
+        }
+        "
+        .replace('\'', "\""),
+        "ability",
+    );
+}
+
+#[test]
+fn pure_trait_impl_method_is_accepted() {
+    assert_ok(
+        &r"
+        trait Show {
+          fn show(self): string;
+        }
+
+        unique(11111111-1111-1111-1111-111111111111) type Money { cents: number }
+
+        impl Show for Money {
+          fn show(self): string { 'money' }
+        }
+
+        pub fn run(): string {
+          Money { cents: 100 }.show()
+        }
+        "
+        .replace('\'', "\""),
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Handler arm parameter types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Handler arm parameters take the ability method's declared types.
+/// Previously they were fresh unconstrained variables, so treating a
+/// thrown string as a number type-checked.
+#[test]
+fn handler_arm_param_takes_declared_type() {
+    assert_err_containing(
+        &r"
+        fn boom(): number with Exception {
+          Exception::throw!('boom');
+          1
+        }
+
+        pub fn run(): number {
+          handle boom() {
+            Exception::throw(e) => e * 2
+          }
+        }
+        "
+        .replace('\'', "\""),
+        "type mismatch",
+    );
+}
+
+#[test]
+fn handler_arm_param_usable_at_declared_type() {
+    assert_ok(
+        &r"
+        fn boom(): string with Exception {
+          Exception::throw!('boom');
+          'unreachable'
+        }
+
+        pub fn run(): string {
+          handle boom() {
+            Exception::throw(e) => e + '!'
+          }
+        }
+        "
+        .replace('\'', "\""),
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Resume typing
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `resume` feeds the ability method's return type to the continuation.
+/// Previously the value was type-checked but never constrained.
+#[test]
+fn resume_value_must_match_method_return_type() {
+    assert_err_containing(
+        &r"
+        ability Reader {
+          fn read(): number;
+        }
+
+        fn get(): number with Reader {
+          Reader::read!()
+        }
+
+        pub fn run(): number {
+          handle get() {
+            Reader::read() => resume('not a number')
+          }
+        }
+        "
+        .replace('\'', "\""),
+        "type mismatch",
+    );
+}
+
+#[test]
+fn resume_with_correct_type_is_accepted() {
+    assert_ok(
+        &r"
+        ability Reader {
+          fn read(): number;
+        }
+
+        fn get(): number with Reader {
+          Reader::read!()
+        }
+
+        pub fn run(): number {
+          handle get() {
+            Reader::read() => resume(42)
+          }
+        }
+        "
+        .replace('\'', "\""),
+    );
+}
+
+/// The resume expression itself has the handle expression's result type,
+/// so an arm can return `resume(...)` even when the handle result is not
+/// unit.
+#[test]
+fn resume_expression_takes_handle_result_type() {
+    assert_ok(
+        &r"
+        ability Reader {
+          fn read(): number;
+        }
+
+        fn get(): number with Reader {
+          Reader::read!() + 1
+        }
+
+        pub fn run(): number {
+          handle get() {
+            Reader::read() => resume(41)
+          }
+        }
+        "
+        .replace('\'', "\""),
+    );
+}
+
+#[test]
+fn resume_outside_handler_is_rejected() {
+    assert_err_containing(
+        &r"
+        pub fn run(): number {
+          resume(1);
+          2
+        }
+        "
+        .replace('\'', "\""),
+        "resume",
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Handler arm effects propagate
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Effects performed by a handler arm run outside the delimited body and
+/// must count against the enclosing function. Previously they were
+/// silently dropped when the saved accumulator was restored.
+#[test]
+fn handler_arm_effects_flow_to_enclosing_function() {
+    assert_err_containing(
+        &r"
+        ability Reader {
+          fn read(): number;
+        }
+        ability Printer {
+          fn print(msg: string): ();
+        }
+
+        fn get(): number with Reader {
+          Reader::read!()
+        }
+
+        pub fn run(): number {
+          handle get() {
+            Reader::read() => {
+              Printer::print!('arm effect');
+              resume(1)
+            }
+          }
+        }
+        "
+        .replace('\'', "\""),
+        "Printer",
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Handle discharges polymorphic body effects
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A handle whose body calls a private function declared *later* sees only
+/// an unbound effect variable at the handle site. The discharge must still
+/// happen once that variable binds — previously the handled ability leaked
+/// upward and pure callers got spurious missing-ability errors.
+#[test]
+fn handle_discharges_effects_of_functions_declared_later() {
+    assert_ok(
+        &r"
+        ability Reader {
+          fn read(): number;
+        }
+
+        pub fn run(): number {
+          handle helper() {
+            Reader::read() => resume(7)
+          }
+        }
+
+        fn helper(): number with Reader {
+          Reader::read!() + 1
+        }
+        "
+        .replace('\'', "\""),
+    );
+}
+
+/// The discharge must not over-subtract: an unhandled ability still
+/// escapes the handle and is reported.
+#[test]
+fn handle_does_not_discharge_unhandled_abilities() {
+    assert_err_containing(
+        &r"
+        ability Reader {
+          fn read(): number;
+        }
+        ability Printer {
+          fn print(msg: string): ();
+        }
+
+        pub fn run(): number {
+          handle helper() {
+            Reader::read() => resume(7)
+          }
+        }
+
+        fn helper(): number with Reader, Printer {
+          Printer::print!('leak');
+          Reader::read!()
+        }
+        "
+        .replace('\'', "\""),
+        "Printer",
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Perform argument checking
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Arguments to a perform are unified against the declared parameter
+/// types of the ability method.
+#[test]
+fn perform_arguments_are_checked() {
+    assert_err_containing(
+        &r"
+        ability Printer {
+          fn print(msg: string): ();
+        }
+
+        pub fn run(): () with Printer {
+          Printer::print!(42)
+        }
+        "
+        .replace('\'', "\""),
+        "type mismatch",
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `with` clause resolution
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A typo'd ability name in a `with` clause is an error. Previously it
+/// was silently dropped, declaring the function pure.
+#[test]
+fn unknown_ability_in_with_clause_is_reported() {
+    assert_err_containing(
+        &r"
+        pub fn run(): () with Consoel {
+          ()
+        }
+        "
+        .replace('\'', "\""),
+        "unknown ability",
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Generalization
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The classic HM bug: generalizing a let must not quantify variables that
+/// are only reachable from the environment through the substitution.
+/// `f` is bound to the lambda's parameter type via unification; the inner
+/// `let g = ...` must not generalize over it and allow using `x` at two
+/// different types.
+#[test]
+fn generalization_respects_substituted_env_vars() {
+    assert_err_containing(
+        &r"
+        fn apply_twice(): number {
+          let f = (x) => {
+            let g = x;
+            g + 1;
+            if g { 2 } else { 3 }
+          };
+          f(1)
+        }
+        "
+        .replace('\'', "\""),
+        "type mismatch",
+    );
+}

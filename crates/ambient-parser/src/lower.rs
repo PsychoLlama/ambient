@@ -963,7 +963,7 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
         CstTypeExprKind::Infer => {
             // Inferred type - the type checker will fill this in
             // For now, return a type variable placeholder
-            Ok(Type::Var(ambient_engine::types::TypeVar::Unbound(0)))
+            Ok(Type::Var(0))
         }
 
         CstTypeExprKind::Error => Err(ParseError::new(

@@ -10,7 +10,7 @@
 //! 3. Checking that primitive types match exactly.
 
 use super::{Infer, InferResult, TypeErrorKind, type_error};
-use crate::types::{AbilitySet, AbilityVarId, FunctionType, RecordType, Type, TypeVar, TypeVarId};
+use crate::types::{AbilitySet, AbilityVarId, FunctionType, RecordType, Type, TypeVarId};
 
 impl Infer {
     /// Unify two types and update the substitution.
@@ -36,10 +36,8 @@ impl Infer {
             | (_, Type::Error) => Ok(()),
 
             // Type variables
-            (Type::Var(TypeVar::Unbound(id1)), Type::Var(TypeVar::Unbound(id2))) if id1 == id2 => {
-                Ok(())
-            }
-            (Type::Var(TypeVar::Unbound(id)), ty) | (ty, Type::Var(TypeVar::Unbound(id))) => {
+            (Type::Var(id1), Type::Var(id2)) if id1 == id2 => Ok(()),
+            (Type::Var(id), ty) | (ty, Type::Var(id)) => {
                 // Occurs check
                 if self.occurs(*id, ty) {
                     return Err(type_error(
@@ -168,7 +166,7 @@ impl Infer {
     pub(crate) fn occurs(&self, var: TypeVarId, ty: &Type) -> bool {
         let ty = self.apply(ty);
         match ty {
-            Type::Var(TypeVar::Unbound(id)) => id == var,
+            Type::Var(id) => id == var,
             Type::Tuple(elems) => elems.iter().any(|e| self.occurs(var, e)),
             Type::Record(r) => r.fields.iter().any(|(_, t)| self.occurs(var, t)),
             Type::Function(f) => {
@@ -286,22 +284,25 @@ impl Infer {
                         ))
                     }
                 } else {
-                    // Different tails - need to create a fresh tail for the common part
-                    // For now, we handle the simple case where one contains the other
+                    // Different tails: standard row unification under set
+                    // semantics. Each tail absorbs the abilities the other
+                    // side has and it lacks, and both share a fresh tail:
+                    //   {c1 | t1} ~ {c2 | t2}
+                    //   t1 := {c2 \ c1 | t3},  t2 := {c1 \ c2 | t3}
+                    // Both sides then resolve to {c1 ∪ c2 | t3} — the most
+                    // general unifier (rows are idempotent sets, so the
+                    // previous "bind both tails to the full union" also
+                    // forced each tail to contain its own side's concrete
+                    // abilities, over-widening every later use of the tail).
                     let fresh_tail = self.r#gen.fresh_ability_id();
-
-                    // The common abilities plus the fresh tail
-                    let mut all_abilities: Vec<_> = c1.iter().chain(c2.iter()).copied().collect();
-                    all_abilities.sort_unstable();
-                    all_abilities.dedup();
-
-                    let new_row = AbilitySet::Row {
-                        concrete: all_abilities,
-                        tail: fresh_tail,
-                    };
-
-                    self.ability_subst.insert(*t1, new_row.clone());
-                    self.ability_subst.insert(*t2, new_row);
+                    let only_in_c2: Vec<_> =
+                        c2.iter().filter(|a| !c1.contains(a)).copied().collect();
+                    let only_in_c1: Vec<_> =
+                        c1.iter().filter(|a| !c2.contains(a)).copied().collect();
+                    self.ability_subst
+                        .insert(*t1, AbilitySet::row(only_in_c2, fresh_tail));
+                    self.ability_subst
+                        .insert(*t2, AbilitySet::row(only_in_c1, fresh_tail));
                     Ok(())
                 }
             }
@@ -441,7 +442,7 @@ impl MaskedSubst<'_> {
 
     fn apply(&self, ty: &Type, seen: &mut Vec<TypeVarId>) -> Type {
         match ty {
-            Type::Var(TypeVar::Unbound(id)) => {
+            Type::Var(id) => {
                 if seen.contains(id) {
                     return ty.clone(); // Cycle, stop
                 }
@@ -454,7 +455,6 @@ impl MaskedSubst<'_> {
                     ty.clone()
                 }
             }
-            Type::Var(TypeVar::Link(link)) => self.apply(&link.borrow(), seen),
             Type::Tuple(elems) => Type::Tuple(elems.iter().map(|e| self.apply(e, seen)).collect()),
             Type::Record(r) => Type::Record(RecordType::new(
                 r.fields
@@ -676,6 +676,30 @@ mod tests {
     }
 
     #[test]
+    fn test_unify_rows_with_different_tails_is_most_general() {
+        let mut infer = Infer::new();
+        // {1 | t1} ~ {2 | t2}: both sides must resolve to {1, 2 | t3}, and
+        // crucially t1 must absorb only {2 | t3} (not its own side's
+        // abilities — the old unifier bound both tails to the full union,
+        // over-widening every later use of the tails).
+        let r1 = AbilitySet::row([aid(1)], 0);
+        let r2 = AbilitySet::row([aid(2)], 1);
+        infer.unify_abilities(&r1, &r2, span()).unwrap();
+
+        let a1 = infer.apply_abilities(&r1);
+        let a2 = infer.apply_abilities(&r2);
+        assert_eq!(a1, a2, "unified rows must agree");
+        assert_eq!(a1.concrete_abilities(), &[aid(1), aid(2)]);
+
+        let t1 = infer.apply_abilities(&AbilitySet::var(0));
+        assert!(
+            !t1.contains(aid(1)),
+            "t1 must not absorb its own side's abilities, got {t1}"
+        );
+        assert!(t1.contains(aid(2)));
+    }
+
+    #[test]
     fn test_apply_abilities() {
         let mut infer = Infer::new();
         let var = AbilitySet::var(0);
@@ -791,7 +815,7 @@ mod tests {
 
         // Should get fresh type and ability variables (different from the scheme's 100s)
         if let Type::Function(f) = ty {
-            assert!(matches!(f.params[0], Type::Var(TypeVar::Unbound(id)) if id != 100));
+            assert!(matches!(f.params[0], Type::Var(id) if id != 100));
             assert!(matches!(f.abilities, AbilitySet::Var(id) if id != 100));
         } else {
             panic!("Expected function type");

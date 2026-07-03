@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use crate::types::{
     AbilityId, AbilitySet, AbilityValueType, AbilityVarId, ForallType, FunctionType, HandlerType,
-    NamedType, NominalType, RecordType, Type, TypeVar, TypeVarId,
+    NamedType, NominalType, RecordType, Type, TypeVarId,
 };
 
 /// Serialize a type to JSON string.
@@ -40,8 +40,7 @@ pub fn serialize_type_value(ty: &Type) -> Value {
         Type::Hole => json!({"t": "hole"}),
 
         // Type variable
-        Type::Var(TypeVar::Unbound(id)) => json!({"t": "var", "id": id}),
-        Type::Var(TypeVar::Link(link)) => serialize_type_value(&link.borrow()),
+        Type::Var(id) => json!({"t": "var", "id": id}),
 
         // Tuple
         Type::Tuple(elems) => json!({

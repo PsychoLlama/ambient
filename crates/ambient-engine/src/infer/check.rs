@@ -1049,7 +1049,12 @@ fn build_function_scheme(
         None => infer.fresh(),
     };
 
-    // Build ability set from declared abilities
+    // Build ability set from declared abilities. Unknown names are
+    // reported (via pending errors) rather than silently dropped — a typo
+    // in a `with` clause must not quietly declare the function pure.
+    // Foreign signatures (`infer_abilities` false via `get_symbol_scheme`)
+    // report too: the name resolves against this module's resolver, and a
+    // missing ability is equally an error at the import site.
     let abilities = if func.abilities.is_empty() {
         if infer_abilities && !func.is_public {
             infer.fresh_ability_var()
@@ -1057,11 +1062,23 @@ fn build_function_scheme(
             AbilitySet::Empty
         }
     } else {
-        let ability_ids: Vec<AbilityId> = func
-            .abilities
-            .iter()
-            .filter_map(|qn| infer.ability_name_to_id(&qn.name))
-            .collect();
+        let mut ability_ids: Vec<AbilityId> = Vec::with_capacity(func.abilities.len());
+        for qn in &func.abilities {
+            if let Some(id) = infer.ability_name_to_id(&qn.name) {
+                ability_ids.push(id);
+            } else {
+                let span = qn.name_span.map_or((0, 0), |s| (s.start, s.end));
+                infer.pending_errors.push(Box::new(
+                    TypeError::new(
+                        TypeErrorKind::UnknownAbility {
+                            name: Arc::clone(&qn.name),
+                        },
+                        span,
+                    )
+                    .with_context(format!("in `with` clause of function `{}`", func.name)),
+                ));
+            }
+        }
         AbilitySet::from_abilities(ability_ids)
     };
 
@@ -1456,26 +1473,12 @@ fn get_symbol_scheme(
                 }
             }
             (crate::ast::ItemKind::Enum(enum_def), ExportKind::EnumVariant) => {
-                // Look for the variant in the enum
-                for variant in &enum_def.variants {
-                    if variant.name.as_ref() == name {
-                        // Return the variant constructor type
-                        // For Some(T) -> (T) -> Option<T>
-                        // For None -> Option<T>
-                        let enum_ty = Type::Named(crate::types::NamedType::new(
-                            Arc::clone(&enum_def.name),
-                            vec![], // TODO: handle generic enum parameters
-                        ));
-
-                        let scheme = if let Some(ref payload) = variant.payload {
-                            // Constructor function: (payload) -> Enum
-                            Scheme::mono(Type::function(vec![payload.clone()], enum_ty))
-                        } else {
-                            // Constant: Enum
-                            Scheme::mono(enum_ty)
-                        };
-                        return Some(scheme);
-                    }
+                // An imported variant gets the same generic constructor
+                // scheme a local declaration would (`Some` is
+                // `∀T. (T) -> Option<T>`), built by the one shared builder.
+                let info = super::enums::EnumInfo::from_def(enum_def);
+                if let Some(idx) = info.variants.iter().position(|v| v.name.as_ref() == name) {
+                    return Some(info.constructor_scheme(&mut infer.r#gen, idx));
                 }
             }
             _ => {}

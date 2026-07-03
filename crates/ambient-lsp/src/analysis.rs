@@ -256,10 +256,7 @@ pub fn format_type(ty: &Type) -> String {
         Type::Number => "number".to_string(),
         Type::String => "string".to_string(),
         Type::Bytes => "Bytes".to_string(),
-        Type::Var(var) => match var {
-            ambient_engine::types::TypeVar::Unbound(id) => format!("?{id}"),
-            ambient_engine::types::TypeVar::Link(linked) => format_type(&linked.borrow()),
-        },
+        Type::Var(id) => format!("?{id}"),
         Type::Function(ft) => {
             let params: Vec<_> = ft.params.iter().map(format_type).collect();
             let ret = format_type(&ft.ret);

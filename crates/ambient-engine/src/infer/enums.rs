@@ -13,14 +13,10 @@
 //! Variant tags are declaration indices, which is what the compiler and VM
 //! use (`Option`: None = 0, Some = 1; `Result`: Ok = 0, Err = 1).
 
-// EnumInfo contains Type (not Send/Sync); Arc is used for cheap sharing
-// within the single-threaded checker, same as the rest of the engine.
-#![allow(clippy::arc_with_non_send_sync)]
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::types::{NamedType, Type, TypeVar, TypeVarId};
+use crate::types::{NamedType, Type, TypeVarId};
 
 use super::env::Scheme;
 
@@ -98,22 +94,7 @@ impl EnumRegistry {
 
     /// Register an enum from its AST definition.
     pub fn register_def(&mut self, def: &crate::ast::EnumDef) {
-        self.register(Arc::new(EnumInfo {
-            name: Arc::clone(&def.name),
-            type_params: def
-                .type_params
-                .iter()
-                .map(|tp| Arc::clone(&tp.name))
-                .collect(),
-            variants: def
-                .variants
-                .iter()
-                .map(|v| EnumVariantInfo {
-                    name: Arc::clone(&v.name),
-                    payload: v.payload.clone(),
-                })
-                .collect(),
-        }));
+        self.register(Arc::new(EnumInfo::from_def(def)));
     }
 
     /// Look up an enum by name.
@@ -141,6 +122,27 @@ impl EnumRegistry {
 }
 
 impl EnumInfo {
+    /// Build registry info from an AST enum definition.
+    #[must_use]
+    pub fn from_def(def: &crate::ast::EnumDef) -> Self {
+        Self {
+            name: Arc::clone(&def.name),
+            type_params: def
+                .type_params
+                .iter()
+                .map(|tp| Arc::clone(&tp.name))
+                .collect(),
+            variants: def
+                .variants
+                .iter()
+                .map(|v| EnumVariantInfo {
+                    name: Arc::clone(&v.name),
+                    payload: v.payload.clone(),
+                })
+                .collect(),
+        }
+    }
+
     /// The constructor scheme for a variant: quantified over the enum's
     /// type parameters, `(payload) -> Enum<params>` for payload variants,
     /// `Enum<params>` for unit variants.
@@ -160,7 +162,7 @@ impl EnumInfo {
             let var_id = r#gen.fresh_id();
             type_var_map.insert(Arc::clone(param), var_id);
             quantified.push(var_id);
-            args.push(Type::Var(TypeVar::Unbound(var_id)));
+            args.push(Type::Var(var_id));
         }
 
         let enum_ty = Type::Named(NamedType::new(Arc::clone(&self.name), args));
@@ -190,7 +192,7 @@ impl EnumInfo {
         let mut args: Vec<Type> = Vec::new();
         for param in &self.type_params {
             let fresh = infer.fresh();
-            if let Type::Var(TypeVar::Unbound(id)) = &fresh {
+            if let Type::Var(id) = &fresh {
                 type_var_map.insert(Arc::clone(param), *id);
             }
             args.push(fresh);

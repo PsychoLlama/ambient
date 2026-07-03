@@ -120,68 +120,8 @@ impl Infer {
         // method's return type, and the arm's value becomes the handle
         // expression's result (arms bypass the else transform).
         for handler in &mut handle_expr.handlers {
-            let handler_span = (handler.span.start, handler.span.end);
-            let Some(ability_id) = self.ability_name_to_id(&handler.ability.name) else {
-                return Err(type_error(
-                    TypeErrorKind::UnknownAbility {
-                        name: handler.ability.name.clone(),
-                    },
-                    handler_span,
-                ));
-            };
+            let ability_id = self.check_handler_arm(env, handler, &result_ty, span)?;
             handled_abilities.push(ability_id);
-
-            let Some((param_tys, ret_ty)) =
-                self.ability_method_signature(ability_id, &handler.method)
-            else {
-                return Err(type_error(
-                    TypeErrorKind::UnknownAbilityMethod {
-                        ability: handler.ability.name.clone(),
-                        method: handler.method.clone(),
-                    },
-                    handler_span,
-                ));
-            };
-            if handler.params.len() != param_tys.len() {
-                return Err(type_error(
-                    TypeErrorKind::HandlerMethodArityMismatch {
-                        ability: handler.ability.name.clone(),
-                        method: handler.method.clone(),
-                        expected: param_tys.len(),
-                        actual: handler.params.len(),
-                    },
-                    handler_span,
-                ));
-            }
-
-            let mut handler_env = env.extend();
-            for (param, declared_ty) in handler.params.iter().zip(&param_tys) {
-                let param_ty = match &param.ty {
-                    Some(ty) => {
-                        let annotated = self.resolve_holes(ty);
-                        self.unify(declared_ty, &annotated, handler_span)?;
-                        annotated
-                    }
-                    None => declared_ty.clone(),
-                };
-                handler_env.insert_mono(param.id, param.name.clone(), param_ty);
-            }
-
-            // A `!`-returning method (Exception::throw) has no statically
-            // knowable resume type: the host can raise it at any perform
-            // site, and resuming substitutes a value for the failing call.
-            let value_ty = match self.apply(&ret_ty) {
-                Type::Never => None,
-                ret => Some(ret),
-            };
-            self.resume_contexts.push(crate::infer::ResumeContext {
-                value_ty,
-                result_ty: Some(result_ty.clone()),
-            });
-            let handler_result = self.infer_expr(&handler_env, &mut handler.body);
-            self.resume_contexts.pop();
-            let handler_ty = handler_result?;
-            self.unify(&result_ty, &handler_ty, span)?;
         }
 
         // Compute the body's remaining (unhandled) abilities and require
@@ -214,5 +154,79 @@ impl Infer {
         self.require_abilities(&remaining_abilities);
 
         Ok(result_ty)
+    }
+
+    /// Check one inline handler arm against the ability's declared method
+    /// signature: parameters take the declared types, `resume` feeds the
+    /// method's return type, and the arm's value unifies with the handle
+    /// expression's result. Returns the handled ability's identity.
+    fn check_handler_arm(
+        &mut self,
+        env: &TypeEnv,
+        handler: &mut crate::ast::Handler,
+        result_ty: &Type,
+        span: (u32, u32),
+    ) -> InferResult<AbilityId> {
+        let handler_span = (handler.span.start, handler.span.end);
+        let Some(ability_id) = self.ability_name_to_id(&handler.ability.name) else {
+            return Err(type_error(
+                TypeErrorKind::UnknownAbility {
+                    name: handler.ability.name.clone(),
+                },
+                handler_span,
+            ));
+        };
+
+        let Some((param_tys, ret_ty)) = self.ability_method_signature(ability_id, &handler.method)
+        else {
+            return Err(type_error(
+                TypeErrorKind::UnknownAbilityMethod {
+                    ability: handler.ability.name.clone(),
+                    method: handler.method.clone(),
+                },
+                handler_span,
+            ));
+        };
+        if handler.params.len() != param_tys.len() {
+            return Err(type_error(
+                TypeErrorKind::HandlerMethodArityMismatch {
+                    ability: handler.ability.name.clone(),
+                    method: handler.method.clone(),
+                    expected: param_tys.len(),
+                    actual: handler.params.len(),
+                },
+                handler_span,
+            ));
+        }
+
+        let mut handler_env = env.extend();
+        for (param, declared_ty) in handler.params.iter().zip(&param_tys) {
+            let param_ty = match &param.ty {
+                Some(ty) => {
+                    let annotated = self.resolve_holes(ty);
+                    self.unify(declared_ty, &annotated, handler_span)?;
+                    annotated
+                }
+                None => declared_ty.clone(),
+            };
+            handler_env.insert_mono(param.id, param.name.clone(), param_ty);
+        }
+
+        // A `!`-returning method (Exception::throw) has no statically
+        // knowable resume type: the host can raise it at any perform
+        // site, and resuming substitutes a value for the failing call.
+        let value_ty = match self.apply(&ret_ty) {
+            Type::Never => None,
+            ret => Some(ret),
+        };
+        self.resume_contexts.push(crate::infer::ResumeContext {
+            value_ty,
+            result_ty: Some(result_ty.clone()),
+        });
+        let handler_result = self.infer_expr(&handler_env, &mut handler.body);
+        self.resume_contexts.pop();
+        let handler_ty = handler_result?;
+        self.unify(result_ty, &handler_ty, span)?;
+        Ok(ability_id)
     }
 }
