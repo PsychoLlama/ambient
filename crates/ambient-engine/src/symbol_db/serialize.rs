@@ -64,11 +64,13 @@ pub fn serialize_type_value(ty: &Type) -> Value {
             "abilities": serialize_ability_set_value(&func.abilities)
         }),
 
-        // Named type (List<T>, Option<T>, etc.)
+        // Named type (List<T>, Option<T>, etc.). A declared enum carries a
+        // nominal `uuid`; structural constructors omit it.
         Type::Named(named) => json!({
             "t": "named",
             "name": named.name.as_ref(),
-            "args": named.args.iter().map(serialize_type_value).collect::<Vec<_>>()
+            "args": named.args.iter().map(serialize_type_value).collect::<Vec<_>>(),
+            "uuid": named.uuid.map(|u| u.to_string())
         }),
 
         // Nominal type
@@ -252,7 +254,14 @@ pub fn deserialize_type_value(value: &Value) -> Result<Type, DeserializeError> {
                 DeserializeError::InvalidFormat("missing 'args' for named type".to_string())
             })?;
             let args: Result<Vec<_>, _> = args.iter().map(deserialize_type_value).collect();
-            Ok(Type::Named(NamedType::new(name, args?)))
+            // A `uuid` (declared enum) is optional; older records and
+            // structural constructors omit it.
+            let uuid = value
+                .get("uuid")
+                .and_then(Value::as_str)
+                .map(uuid::Uuid::parse_str)
+                .transpose()?;
+            Ok(Type::Named(NamedType::with_identity(name, args?, uuid)))
         }
 
         // Nominal type
