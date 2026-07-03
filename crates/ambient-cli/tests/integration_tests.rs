@@ -2320,6 +2320,35 @@ fn test_generic_nominal_enum_roundtrips() {
 }
 
 #[test]
+fn test_enum_payload_is_another_nominal_enum() {
+    // A variant payload written as another declared enum resolves to that
+    // enum's nominal identity, so a method call on the extracted binding
+    // dispatches on the payload enum's uuid — not its head name.
+    let (dir, pkg) = temp_package(
+        r"
+        unique(D1B2C3D4-0000-0000-0000-000000000001) enum Inner { Val(number) }
+        unique(D1B2C3D4-0000-0000-0000-000000000002) enum Outer { Wrap(Inner) }
+
+        impl Inner {
+            fn doubled(self): number {
+                match self { Val(v) => v * 2 }
+            }
+        }
+
+        pub fn run(): number {
+            match Wrap(Val(21)) {
+                Wrap(inner) => inner.doubled(),
+            }
+        }
+        ",
+    );
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("42"));
+    drop(dir);
+}
+
+#[test]
 fn test_option_constructors_and_core_helpers() {
     let (dir, pkg) = temp_package(
         r"

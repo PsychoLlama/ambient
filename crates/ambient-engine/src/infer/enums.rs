@@ -218,10 +218,16 @@ impl EnumInfo {
             args,
             self.uuid,
         ));
+        // A payload written as another enum's name (e.g. `Wrap(Inner)`)
+        // arrives from lowering without that enum's uuid. Resolve it so the
+        // binding a pattern extracts carries the payload enum's identity —
+        // otherwise a method call on it would key on the head name and miss
+        // the uuid-registered impl. `resolve_holes` attaches enum uuids and
+        // leaves the already-substituted type variables untouched.
         let payload_ty = self.variants[variant_idx]
             .payload
             .as_ref()
-            .map(|p| super::check::substitute_type_params(p, &type_var_map));
+            .map(|p| infer.resolve_holes(&super::check::substitute_type_params(p, &type_var_map)));
         (enum_ty, payload_ty)
     }
 }
