@@ -139,24 +139,35 @@ impl Infer {
             )
         })?;
 
-        // Look up the return type from the resolver.
-        // Builtin descriptors produce `Hole` for their type variables
-        // (e.g. Execute.run's R); resolve to fresh inference variables so
-        // the result unifies with whatever the call site expects.
-        let factory = EngineTypeFactory;
-        let result_ty = self
-            .ability_resolver
-            .get_method_return_type(ability_name, method_name, &factory)
-            .ok_or_else(|| {
-                type_error(
-                    TypeErrorKind::UnknownAbilityMethod {
-                        ability: ability_name.clone(),
-                        method: method_name.into(),
-                    },
-                    span,
-                )
-            })?;
-        let result_ty = self.resolve_holes(&result_ty);
+        // Builtin descriptors declare full signatures too (their type
+        // variables arrive as `Hole` and resolve to fresh inference
+        // variables); arguments are unified against the declared parameter
+        // types exactly like dynamic abilities — a perform like
+        // `Exception::throw!(42)` must not type-check.
+        let Some((params, result_ty)) = self.ability_method_signature(ability_id, method_name)
+        else {
+            return Err(type_error(
+                TypeErrorKind::UnknownAbilityMethod {
+                    ability: ability_name.clone(),
+                    method: method_name.into(),
+                },
+                span,
+            ));
+        };
+
+        if params.len() != arg_tys.len() {
+            return Err(type_error(
+                TypeErrorKind::ArityMismatch {
+                    expected: params.len(),
+                    actual: arg_tys.len(),
+                },
+                span,
+            ));
+        }
+        for (param, arg) in params.iter().zip(arg_tys) {
+            self.unify(param, arg, span)?;
+        }
+        let result_ty = self.apply(&result_ty);
 
         Ok((ability_id, result_ty, AbilitySet::Empty))
     }
@@ -242,6 +253,7 @@ mod tests {
             methods: vec![crate::ability_resolver::DynMethod {
                 id: 0,
                 name: Arc::from("go"),
+                param_names: vec![],
                 params: vec![Type::String],
                 ret: Type::Unit,
                 quantified: vec![],

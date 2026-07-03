@@ -96,7 +96,8 @@ pub fn analyze_with_registry_and_resolver(
 
 /// An ability resolver with the platform bindings interface registered
 /// under the `platform` namespace, mirroring how the CLI checks code.
-fn platform_prelude_resolver() -> AbilityResolver {
+#[must_use]
+pub fn platform_prelude_resolver() -> AbilityResolver {
     let mut resolver = ambient_engine::ability_resolver::core_abilities();
     if let Ok(mut module) = parse(ambient_platform::ABILITY_DECLARATIONS) {
         let (abilities, _errors) = ambient_engine::infer::resolve_ability_declarations(&mut module);

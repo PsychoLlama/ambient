@@ -1167,6 +1167,7 @@ fn register_abilities(
             methods.push(DynMethod {
                 id: idx as u16,
                 name: Arc::clone(&method.name),
+                param_names: method.params.iter().map(|(n, _)| Arc::clone(n)).collect(),
                 params,
                 ret,
                 quantified,

@@ -3,8 +3,9 @@
 //! This module provides a high-level interface for code completion that can be
 //! used outside of the LSP server context, such as in the REPL.
 
-use crate::analysis::{AnalysisResult, analyze, format_type};
+use crate::analysis::{AnalysisResult, analyze, format_type, platform_prelude_resolver};
 use crate::completions::{CompletionContext, get_completions};
+use ambient_engine::ability_resolver::AbilityResolver;
 use lsp_types::{CompletionItem, CompletionItemKind, CompletionItemLabelDetails};
 
 /// A symbol provided by an external source (e.g., REPL-defined functions).
@@ -91,6 +92,9 @@ pub struct CompletionService {
     analysis: Option<AnalysisResult>,
     /// External symbols to include in completions.
     external_symbols: Vec<ExternalSymbol>,
+    /// Ability resolver driving ability/method completions (platform
+    /// prelude plus builtins — the same interfaces the checker uses).
+    resolver: AbilityResolver,
 }
 
 impl Default for CompletionService {
@@ -106,6 +110,7 @@ impl CompletionService {
         Self {
             analysis: None,
             external_symbols: Vec::new(),
+            resolver: platform_prelude_resolver(),
         }
     }
 
@@ -137,11 +142,11 @@ impl CompletionService {
     /// Returns LSP `CompletionItem`s for maximum flexibility.
     #[must_use]
     pub fn get_completions_lsp(&self, source: &str, offset: usize) -> Vec<CompletionItem> {
-        let ctx = CompletionContext::new(source, offset);
+        let ctx = CompletionContext::new(source, offset, &self.resolver);
         let module = self.analysis.as_ref().and_then(|a| a.module.as_ref());
 
         // SymbolDb not available in REPL context
-        let mut items = get_completions(&ctx, module, None);
+        let mut items = get_completions(&ctx, module, None, &self.resolver);
 
         // Add external symbols, but only when not in a specific module context.
         // Skip when completing core.List.*, core.*, Console.*, etc. since those

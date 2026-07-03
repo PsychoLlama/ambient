@@ -8,6 +8,7 @@
 //! - Ability names and methods
 //! - Core library modules and functions
 
+use ambient_engine::ability_resolver::{AbilityResolver, EngineTypeFactory, MethodSignatureInfo};
 use ambient_engine::ast::{Expr, ExprKind, FunctionDef, ItemKind, Module, Param, StmtKind};
 use ambient_engine::core_library::CoreLibrary;
 use ambient_engine::symbol_db::{SymbolDb, SymbolKind};
@@ -45,8 +46,12 @@ pub struct CompletionContext<'a> {
 
 impl<'a> CompletionContext<'a> {
     /// Create a completion context from source and offset.
+    ///
+    /// The resolver decides which leading path segments name abilities —
+    /// the same source of truth the type checker resolves performs
+    /// against, so completion context can never disagree with checking.
     #[must_use]
-    pub fn new(source: &'a str, offset: usize) -> Self {
+    pub fn new(source: &'a str, offset: usize, resolver: &AbilityResolver) -> Self {
         let offset = offset.min(source.len());
 
         // Find the start of the current line.
@@ -101,7 +106,7 @@ impl<'a> CompletionContext<'a> {
         let (after_ability_dot, after_pkg_module_dot) = match scope_path {
             Some(path) if !after_core_dot && after_core_submodule_dot.is_none() => {
                 let last = path.rsplit("::").next().unwrap_or(path);
-                if TokenKind::builtin_abilities().contains(&last) {
+                if resolver.name_to_id(last).is_some() {
                     (Some(last), None)
                 } else if path.chars().next().is_some_and(char::is_lowercase)
                     || CoreLibrary::available_modules().contains(&last)
@@ -149,6 +154,7 @@ pub fn get_completions(
     ctx: &CompletionContext<'_>,
     module: Option<&Module>,
     symbol_db: Option<&SymbolDb>,
+    resolver: &AbilityResolver,
 ) -> Vec<CompletionItem> {
     let mut items = Vec::new();
 
@@ -176,6 +182,7 @@ pub fn get_completions(
     // If we're completing an ability method, show ability methods.
     if let Some(ability_name) = ctx.after_ability_dot {
         items.extend(get_ability_method_completions(
+            resolver,
             ability_name,
             ctx.word_prefix,
         ));
@@ -208,7 +215,7 @@ pub fn get_completions(
     items.extend(get_type_completions(ctx.word_prefix));
 
     // Add ability completions.
-    items.extend(get_ability_completions(ctx.word_prefix));
+    items.extend(get_ability_completions(resolver, ctx.word_prefix));
 
     // Add function name completions from the module.
     if let Some(module) = module {
@@ -259,13 +266,15 @@ fn get_type_completions(prefix: &str) -> Vec<CompletionItem> {
         .collect()
 }
 
-/// Get ability completions.
-fn get_ability_completions(prefix: &str) -> Vec<CompletionItem> {
-    TokenKind::builtin_abilities()
-        .iter()
+/// Get ability completions from the resolver (builtins plus every
+/// registered platform/user declaration).
+fn get_ability_completions(resolver: &AbilityResolver, prefix: &str) -> Vec<CompletionItem> {
+    resolver
+        .ability_names()
+        .into_iter()
         .filter(|ab| ab.starts_with(prefix))
         .map(|ab| CompletionItem {
-            label: (*ab).to_string(),
+            label: ab.to_string(),
             kind: Some(CompletionItemKind::INTERFACE),
             detail: Some("ability".to_string()),
             ..Default::default()
@@ -290,51 +299,64 @@ fn get_core_module_completions(prefix: &str) -> Vec<CompletionItem> {
         .collect()
 }
 
-/// Get documentation for a core library module.
+/// Get documentation for a core library module: its own module doc
+/// comment, parsed from the shipped source.
 fn get_core_module_doc(module: &str) -> String {
-    match module {
-        "Option" => {
-            "Option handling utilities (is_some, is_none, unwrap_or, map, flatten)".to_string()
-        }
-        "Result" => {
-            "Result handling utilities (is_ok, is_err, unwrap_or, map, map_err)".to_string()
-        }
-        "List" => "List operations (len, map, filter, fold)".to_string(),
-        "string" => "String utilities (len, concat, from_number)".to_string(),
-        "math" => "Mathematical functions (abs, min, max, clamp, PI, E, TAU)".to_string(),
-        _ => format!("Core library module: {module}"),
-    }
+    use std::sync::Arc;
+    CoreLibrary::get_source(&[Arc::from(module)])
+        .ok()
+        .and_then(|source| ambient_parser::parse(source).ok())
+        .and_then(|parsed| parsed.doc.map(|d| d.to_string()))
+        .unwrap_or_else(|| format!("Core library module: {module}"))
 }
 
-/// Get core submodule member completions (functions and constants).
+/// Get core submodule member completions: the module's public functions
+/// and constants (from a real parse of the shipped source, not a line
+/// scanner) plus the intrinsics that live at the same path.
 fn get_core_submodule_member_completions(submodule: &str, prefix: &str) -> Vec<CompletionItem> {
     use std::sync::Arc;
 
-    // Get the source code for the submodule
-    let Ok(source) = CoreLibrary::get_source(&[Arc::from(submodule)]) else {
-        return Vec::new();
-    };
+    let mut items = Vec::new();
+    let mut seen = std::collections::HashSet::new();
 
-    // Parse the exports from the source
-    let exports = parse_core_module_exports(source);
-
-    // Filter and convert to completion items
-    exports
-        .into_iter()
-        .filter(|(name, _)| name.starts_with(prefix))
-        .map(|(name, kind)| {
-            let (item_kind, detail) = match kind {
-                CoreExportKind::Function => (CompletionItemKind::FUNCTION, "function"),
-                CoreExportKind::Const => (CompletionItemKind::CONSTANT, "constant"),
-            };
-            CompletionItem {
-                label: name.clone(),
-                kind: Some(item_kind),
-                detail: Some(format!("core::{submodule}::{name} ({detail})")),
+    // Intrinsics registered under this path (compiled to opcodes; they
+    // take precedence over same-named compiled functions).
+    for (name, _arity) in ambient_engine::core_library::intrinsics_for_module(&["core", submodule])
+    {
+        if name.starts_with(prefix) && seen.insert(name.to_string()) {
+            items.push(CompletionItem {
+                label: name.to_string(),
+                kind: Some(CompletionItemKind::FUNCTION),
+                detail: Some(format!("core::{submodule}::{name} (intrinsic)")),
                 ..Default::default()
+            });
+        }
+    }
+
+    // Public functions and constants from the compiled core module source.
+    if let Ok(source) = CoreLibrary::get_source(&[Arc::from(submodule)])
+        && let Ok(parsed) = ambient_parser::parse(source)
+    {
+        for item in &parsed.items {
+            let (name, item_kind, detail) = match &item.kind {
+                ItemKind::Function(f) if f.is_public => {
+                    (f.name.as_ref(), CompletionItemKind::FUNCTION, "function")
+                }
+                ItemKind::Const(c) => (c.name.as_ref(), CompletionItemKind::CONSTANT, "constant"),
+                _ => continue,
+            };
+            if name.starts_with(prefix) && seen.insert(name.to_string()) {
+                items.push(CompletionItem {
+                    label: name.to_string(),
+                    kind: Some(item_kind),
+                    detail: Some(format!("core::{submodule}::{name} ({detail})")),
+                    ..Default::default()
+                });
             }
-        })
-        .collect()
+        }
+    }
+
+    items
 }
 
 /// Get completions for pkg module members from `SymbolDb`.
@@ -380,63 +402,6 @@ fn get_pkg_module_completions(
         .collect()
 }
 
-/// Kind of export from a core module.
-#[derive(Debug, Clone, Copy)]
-enum CoreExportKind {
-    Function,
-    Const,
-}
-
-/// Parse exports from core module source code.
-/// This is a lightweight parser that extracts pub fn and const declarations.
-fn parse_core_module_exports(source: &str) -> Vec<(String, CoreExportKind)> {
-    let mut exports = Vec::new();
-
-    for line in source.lines() {
-        let line = line.trim();
-
-        // Skip comments and empty lines
-        if line.starts_with("//") || line.is_empty() {
-            continue;
-        }
-
-        // Match pub fn declarations
-        if let Some(rest) = line.strip_prefix("pub fn ") {
-            if let Some(name) = extract_core_identifier(rest) {
-                exports.push((name, CoreExportKind::Function));
-            }
-        }
-        // Match const declarations
-        else if let Some(rest) = line.strip_prefix("const ") {
-            if let Some(name) = extract_core_identifier(rest) {
-                exports.push((name, CoreExportKind::Const));
-            }
-        }
-        // Match pub const declarations
-        else if let Some(rest) = line.strip_prefix("pub const ")
-            && let Some(name) = extract_core_identifier(rest)
-        {
-            exports.push((name, CoreExportKind::Const));
-        }
-    }
-
-    exports
-}
-
-/// Extract an identifier from the start of a string.
-fn extract_core_identifier(s: &str) -> Option<String> {
-    let s = s.trim();
-    // Handle generic parameters: "len<T>(" -> "len"
-    let end = s
-        .find(|c: char| !c.is_alphanumeric() && c != '_')
-        .unwrap_or(s.len());
-    if end > 0 {
-        Some(s[..end].to_string())
-    } else {
-        None
-    }
-}
-
 /// Get use statement prefix completions (pkg, core, self, super).
 fn get_use_prefix_completions(prefix: &str) -> Vec<CompletionItem> {
     let prefixes = [
@@ -459,199 +424,70 @@ fn get_use_prefix_completions(prefix: &str) -> Vec<CompletionItem> {
         .collect()
 }
 
-/// Ability method descriptor for completions.
-struct AbilityMethod {
-    /// Method name.
-    name: &'static str,
-    /// Type signature (e.g., "(message: string): ()").
-    signature: &'static str,
-    /// Documentation string.
-    doc: &'static str,
-    /// Parameter names for snippet placeholders.
-    params: &'static [&'static str],
-}
-
-/// Get the methods for a given ability.
-#[allow(clippy::too_many_lines)]
-fn get_ability_methods(ability_name: &str) -> &'static [AbilityMethod] {
-    match ability_name {
-        "Console" => &[
-            AbilityMethod {
-                name: "print",
-                signature: "(message: string): ()",
-                doc: "Print a message to stdout",
-                params: &["message"],
-            },
-            AbilityMethod {
-                name: "eprint",
-                signature: "(message: string): ()",
-                doc: "Print a message to stderr",
-                params: &["message"],
-            },
-            AbilityMethod {
-                name: "println",
-                signature: "(message: string): ()",
-                doc: "Print a message with newline",
-                params: &["message"],
-            },
-        ],
-        "Exception" => &[AbilityMethod {
-            name: "throw",
-            signature: "(error: E): !",
-            doc: "Throw an exception",
-            params: &["error"],
-        }],
-        "Time" => &[
-            AbilityMethod {
-                name: "now",
-                signature: "(): Timestamp",
-                doc: "Get current timestamp",
-                params: &[],
-            },
-            AbilityMethod {
-                name: "wait",
-                signature: "(duration: Duration): ()",
-                doc: "Wait for a duration",
-                params: &["duration"],
-            },
-        ],
-        "Random" => &[
-            AbilityMethod {
-                name: "seed",
-                signature: "(): number",
-                doc: "Get a random number 0.0 to 1.0",
-                params: &[],
-            },
-            AbilityMethod {
-                name: "in_range",
-                signature: "(range: Range): number",
-                doc: "Get random number in range",
-                params: &["range"],
-            },
-        ],
-        "Log" => &[
-            AbilityMethod {
-                name: "debug",
-                signature: "(message: string): ()",
-                doc: "Log debug message",
-                params: &["message"],
-            },
-            AbilityMethod {
-                name: "info",
-                signature: "(message: string): ()",
-                doc: "Log info message",
-                params: &["message"],
-            },
-            AbilityMethod {
-                name: "warn",
-                signature: "(message: string): ()",
-                doc: "Log warning message",
-                params: &["message"],
-            },
-            AbilityMethod {
-                name: "error",
-                signature: "(message: string): ()",
-                doc: "Log error message",
-                params: &["message"],
-            },
-        ],
-        "FileSystem" => &[
-            AbilityMethod {
-                name: "read",
-                signature: "(path: string): string",
-                doc: "Read a file as UTF-8 text",
-                params: &["path"],
-            },
-            AbilityMethod {
-                name: "write",
-                signature: "(path: string, content: string): ()",
-                doc: "Write (create/truncate) a file with text",
-                params: &["path", "content"],
-            },
-            AbilityMethod {
-                name: "read_bytes",
-                signature: "(path: string): Bytes",
-                doc: "Read a file as raw bytes",
-                params: &["path"],
-            },
-            AbilityMethod {
-                name: "write_bytes",
-                signature: "(path: string, data: Bytes): ()",
-                doc: "Write (create/truncate) a file with bytes",
-                params: &["path", "data"],
-            },
-            AbilityMethod {
-                name: "exists",
-                signature: "(path: string): bool",
-                doc: "Check whether a path exists",
-                params: &["path"],
-            },
-            AbilityMethod {
-                name: "list",
-                signature: "(path: string): List<string>",
-                doc: "List directory entry names (sorted)",
-                params: &["path"],
-            },
-            AbilityMethod {
-                name: "remove",
-                signature: "(path: string): ()",
-                doc: "Remove a file or empty directory",
-                params: &["path"],
-            },
-            AbilityMethod {
-                name: "create_dir",
-                signature: "(path: string): ()",
-                doc: "Create a directory and any missing parents",
-                params: &["path"],
-            },
-        ],
-        "Network" => &[AbilityMethod {
-            name: "fetch",
-            signature: "(request: Request): Response",
-            doc: "Fetch a URL",
-            params: &["request"],
-        }],
-        _ => &[],
-    }
-}
-
 /// Build a snippet string for an ability method call.
 ///
-/// For methods with no parameters: `!()`
-/// For methods with parameters: `!(${1:param1}, ${2:param2})`
-fn build_method_snippet(method: &AbilityMethod) -> String {
-    if method.params.is_empty() {
-        format!("{}!()", method.name)
-    } else {
-        let placeholders: Vec<String> = method
-            .params
-            .iter()
-            .enumerate()
-            .map(|(i, p)| format!("${{{}:{}}}", i + 1, p))
-            .collect();
-        format!("{}!({})", method.name, placeholders.join(", "))
+/// For methods with no parameters: `name!()`
+/// For methods with parameters: `name!(${1:param1}, ${2:param2})`.
+/// Falls back to positional placeholders when parameter names are not
+/// declared (builtin descriptors).
+fn build_method_snippet(sig: &MethodSignatureInfo) -> String {
+    if sig.params.is_empty() {
+        return format!("{}!()", sig.name);
     }
+    let placeholders: Vec<String> = (0..sig.params.len())
+        .map(|i| {
+            let name = sig
+                .param_names
+                .get(i)
+                .map_or_else(|| format!("arg{}", i + 1), ToString::to_string);
+            format!("${{{}:{}}}", i + 1, name)
+        })
+        .collect();
+    format!("{}!({})", sig.name, placeholders.join(", "))
 }
 
-/// Get ability method completions.
-fn get_ability_method_completions(ability_name: &str, prefix: &str) -> Vec<CompletionItem> {
-    let methods = get_ability_methods(ability_name);
-
-    methods
+/// Render an ability method signature like `(path: string): ()`.
+fn render_method_signature(sig: &MethodSignatureInfo) -> String {
+    let params: Vec<String> = sig
+        .params
         .iter()
+        .enumerate()
+        .map(|(i, ty)| match sig.param_names.get(i) {
+            Some(name) => format!("{name}: {ty}"),
+            None => ty.to_string(),
+        })
+        .collect();
+    format!("({}): {}", params.join(", "), sig.ret)
+}
+
+/// Get ability method completions from the resolver's declared
+/// signatures — the same interfaces the type checker resolves performs
+/// against, so completions can never drift from the language.
+fn get_ability_method_completions(
+    resolver: &AbilityResolver,
+    ability_name: &str,
+    prefix: &str,
+) -> Vec<CompletionItem> {
+    let Some(ability_id) = resolver.name_to_id(ability_name) else {
+        return Vec::new();
+    };
+
+    resolver
+        .method_signatures(ability_id, &EngineTypeFactory)
+        .into_iter()
         .filter(|m| m.name.starts_with(prefix))
         .map(|m| {
-            let snippet = build_method_snippet(m);
+            let snippet = build_method_snippet(&m);
+            let signature = render_method_signature(&m);
             CompletionItem {
                 // Show the method name with ! in the completion list
                 label: format!("{}!", m.name),
                 kind: Some(CompletionItemKind::METHOD),
-                detail: Some(format!("{}!{}", m.name, m.signature)),
+                detail: Some(format!("{}!{}", m.name, signature)),
                 label_details: Some(CompletionItemLabelDetails {
-                    detail: Some(m.signature.to_string()),
+                    detail: Some(signature),
                     description: None,
                 }),
-                documentation: Some(lsp_types::Documentation::String(m.doc.to_string())),
                 // Use snippet format for parameter placeholders
                 insert_text: Some(snippet),
                 insert_text_format: Some(InsertTextFormat::SNIPPET),
@@ -990,11 +826,12 @@ fn collect_pattern_bindings(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::analysis::platform_prelude_resolver;
 
     #[test]
     fn test_completion_context_simple() {
         let source = "fn foo() { let x = 1; x }";
-        let ctx = CompletionContext::new(source, 23); // cursor at 'x' near end
+        let ctx = CompletionContext::new(source, 23, &platform_prelude_resolver()); // cursor at 'x' near end
 
         assert_eq!(ctx.word_prefix, "x");
         assert!(!ctx.after_dot);
@@ -1006,7 +843,7 @@ mod tests {
     #[test]
     fn test_completion_context_after_scope() {
         let source = "Console::pr";
-        let ctx = CompletionContext::new(source, 11);
+        let ctx = CompletionContext::new(source, 11, &platform_prelude_resolver());
 
         assert_eq!(ctx.word_prefix, "pr");
         assert!(!ctx.after_dot);
@@ -1017,7 +854,7 @@ mod tests {
     #[test]
     fn test_completion_context_after_core_scope() {
         let source = "use core::ma";
-        let ctx = CompletionContext::new(source, 12);
+        let ctx = CompletionContext::new(source, 12, &platform_prelude_resolver());
 
         assert_eq!(ctx.word_prefix, "ma");
         assert!(!ctx.after_dot);
@@ -1029,7 +866,7 @@ mod tests {
     #[test]
     fn test_completion_context_in_use_statement() {
         let source = "use pk";
-        let ctx = CompletionContext::new(source, 6);
+        let ctx = CompletionContext::new(source, 6, &platform_prelude_resolver());
 
         assert_eq!(ctx.word_prefix, "pk");
         assert!(!ctx.after_dot);
@@ -1052,7 +889,7 @@ mod tests {
 
     #[test]
     fn test_ability_method_completions() {
-        let items = get_ability_method_completions("Console", "pr");
+        let items = get_ability_method_completions(&platform_prelude_resolver(), "Console", "pr");
         assert_eq!(items.len(), 2); // print and println
         assert!(items.iter().any(|i| i.label == "print!"));
         assert!(items.iter().any(|i| i.label == "println!"));
@@ -1069,7 +906,8 @@ mod tests {
         );
 
         // Check zero-param methods
-        let random_items = get_ability_method_completions("Random", "se");
+        let random_items =
+            get_ability_method_completions(&platform_prelude_resolver(), "Random", "se");
         assert_eq!(random_items.len(), 1);
         let seed_item = &random_items[0];
         assert_eq!(seed_item.label, "seed!");

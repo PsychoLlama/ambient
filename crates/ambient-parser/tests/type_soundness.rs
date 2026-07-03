@@ -327,6 +327,23 @@ fn handle_does_not_discharge_unhandled_abilities() {
 // Perform argument checking
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Builtin descriptor abilities check arguments too: Exception::throw
+/// takes a string. Previously the builtin path resolved only the return
+/// type and ignored arguments entirely.
+#[test]
+fn builtin_perform_arguments_are_checked() {
+    assert_err_containing(
+        &r"
+        pub fn run(): number with Exception {
+          Exception::throw!(42);
+          1
+        }
+        "
+        .replace('\'', "\""),
+        "type mismatch",
+    );
+}
+
 /// Arguments to a perform are unified against the declared parameter
 /// types of the ability method.
 #[test]

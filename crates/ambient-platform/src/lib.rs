@@ -157,6 +157,7 @@ pub(crate) mod test_support {
             .map(|(idx, method)| DynMethod {
                 id: idx as u16,
                 name: Arc::from(*method),
+                param_names: vec![],
                 params: vec![],
                 ret: Type::Unit,
                 quantified: vec![],
@@ -191,6 +192,7 @@ mod tests {
                 DynMethod {
                     id: 0,
                     name: Arc::from("now"),
+                    param_names: vec![],
                     params: vec![],
                     ret: Type::Number,
                     quantified: vec![],
@@ -198,6 +200,7 @@ mod tests {
                 DynMethod {
                     id: 1,
                     name: Arc::from("wait"),
+                    param_names: vec![Arc::from("duration")],
                     params: vec![Type::Number],
                     ret: Type::Unit,
                     quantified: vec![],

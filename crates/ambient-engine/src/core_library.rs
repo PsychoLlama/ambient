@@ -12,6 +12,12 @@ use std::sync::Arc;
 
 use crate::module_path::ModulePath;
 
+/// The intrinsics registered under a core module path, as (name, arity)
+/// pairs. Re-exported here so tooling can enumerate a core module's full
+/// surface (intrinsics take precedence over compiled functions at the
+/// same path).
+pub use crate::compiler::intrinsics::get_intrinsics_for_module as intrinsics_for_module;
+
 /// Error that can occur when loading core library modules.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CoreLibraryError {

@@ -24,12 +24,30 @@ pub struct DynMethod {
     pub id: MethodId,
     /// Method name as written in source.
     pub name: Arc<str>,
+    /// Declared parameter names, parallel to `params` (for tooling:
+    /// completion snippets, signature help).
+    pub param_names: Vec<Arc<str>>,
     /// Declared parameter types.
     pub params: Vec<Type>,
     /// Declared return type.
     pub ret: Type,
     /// Type variable IDs standing in for the method's type parameters.
     pub quantified: Vec<crate::types::TypeVarId>,
+}
+
+/// One ability method's full signature, uniform across dynamic abilities
+/// and builtin descriptors. For tooling: completions, hover, signature
+/// help.
+#[derive(Debug, Clone)]
+pub struct MethodSignatureInfo {
+    /// Method name.
+    pub name: Arc<str>,
+    /// Declared parameter names (empty for builtin descriptors).
+    pub param_names: Vec<Arc<str>>,
+    /// Parameter types.
+    pub params: Vec<Type>,
+    /// Return type.
+    pub ret: Type,
 }
 
 /// A module-declared ability: interface data resolved from source.
@@ -300,21 +318,25 @@ impl AbilityResolver {
         Some(method.id)
     }
 
-    /// Get all method signatures for an ability.
-    ///
-    /// Returns a list of tuples containing method name, parameter count, and return type.
-    /// Method names are cloned to avoid lifetime issues.
+    /// Get all method signatures for an ability, uniformly across dynamic
+    /// abilities and builtin descriptors. Parameter names are empty for
+    /// descriptors (they don't declare them).
     #[must_use]
-    pub fn get_method_signatures(
+    pub fn method_signatures(
         &self,
         ability_id: AbilityId,
         type_factory: &dyn TypeFactory<Type>,
-    ) -> Vec<(String, usize, Type)> {
+    ) -> Vec<MethodSignatureInfo> {
         if let Some(dynamic) = self.dynamic_by_id.get(&ability_id) {
             return dynamic
                 .methods
                 .iter()
-                .map(|m| (m.name.to_string(), m.params.len(), m.ret.clone()))
+                .map(|m| MethodSignatureInfo {
+                    name: Arc::clone(&m.name),
+                    param_names: m.param_names.clone(),
+                    params: m.params.clone(),
+                    ret: m.ret.clone(),
+                })
                 .collect();
         }
 
@@ -325,11 +347,30 @@ impl AbilityResolver {
         ability
             .methods
             .iter()
-            .map(|m| {
-                let return_type = (m.signature.return_type)(type_factory);
-                (m.name.to_string(), m.signature.param_count, return_type)
+            .map(|m| MethodSignatureInfo {
+                name: Arc::from(m.name),
+                param_names: Vec::new(),
+                params: (m.signature.param_types)(type_factory),
+                ret: (m.signature.return_type)(type_factory),
             })
             .collect()
+    }
+
+    /// Every ability name visible to bare-name resolution (effect rows,
+    /// handler arms): local dynamics, namespaced dynamics, and builtin
+    /// descriptors. Sorted and deduplicated.
+    #[must_use]
+    pub fn ability_names(&self) -> Vec<Arc<str>> {
+        let mut names: Vec<Arc<str>> = self
+            .dynamic_by_name
+            .keys()
+            .cloned()
+            .chain(self.namespaced_by_name.keys().cloned())
+            .chain(self.by_name.keys().cloned())
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        names
     }
 
     /// Try to infer which ability a handler literal is for based on method names.
@@ -659,6 +700,7 @@ mod tests {
             methods: vec![DynMethod {
                 id: 0,
                 name: Arc::from("go"),
+                param_names: vec![],
                 params: vec![Type::String],
                 ret: Type::Unit,
                 quantified: vec![],

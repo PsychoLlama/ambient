@@ -1325,6 +1325,7 @@ mod tests {
                 methods: vec![DynMethod {
                     id: 0,
                     name: "go".into(),
+                    param_names: vec![],
                     params: vec![Type::String],
                     ret: Type::Unit,
                     quantified: vec![],
@@ -1341,6 +1342,7 @@ mod tests {
                     DynMethod {
                         id: 0,
                         name: "now".into(),
+                        param_names: vec![],
                         params: vec![],
                         ret: Type::Number,
                         quantified: vec![],
@@ -1348,6 +1350,7 @@ mod tests {
                     DynMethod {
                         id: 1,
                         name: "wait".into(),
+                        param_names: vec![],
                         params: vec![Type::Number],
                         ret: Type::Unit,
                         quantified: vec![],

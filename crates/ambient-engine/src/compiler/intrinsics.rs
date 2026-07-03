@@ -907,6 +907,7 @@ pub(super) fn try_compile_intrinsic(
 ///
 /// Returns a list of (name, arity) pairs for all intrinsics in the module.
 /// Used for REPL module introspection.
+#[must_use]
 pub fn get_intrinsics_for_module(module_path: &[&str]) -> Vec<(&'static str, u8)> {
     INTRINSICS
         .iter()

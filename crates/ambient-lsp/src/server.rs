@@ -125,6 +125,9 @@ fn main_loop(connection: &Connection) -> anyhow::Result<()> {
     let mut package_info: Option<PackageInfo> = None;
     // Symbol database for fast lookups (initialized when package is discovered)
     let mut symbol_db: Option<SymbolDb> = None;
+    // Ability resolver for completions/hover: the platform prelude plus
+    // builtins, the same interfaces analysis checks against.
+    let ability_resolver = crate::analysis::platform_prelude_resolver();
 
     for msg in &connection.receiver {
         match msg {
@@ -139,6 +142,7 @@ fn main_loop(connection: &Connection) -> anyhow::Result<()> {
                     &analysis_cache,
                     &workspace_index,
                     symbol_db.as_ref(),
+                    &ability_resolver,
                 );
                 connection.sender.send(Message::Response(response))?;
             }
@@ -178,6 +182,7 @@ fn handle_request(
     analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
     workspace_index: &WorkspaceIndex,
     symbol_db: Option<&SymbolDb>,
+    ability_resolver: &ambient_engine::ability_resolver::AbilityResolver,
 ) -> Response {
     let id = req.id.clone();
 
@@ -215,7 +220,14 @@ fn handle_request(
                 Ok(p) => p,
                 Err(e) => return e,
             };
-            handle_completion(id, &params, documents, analysis_cache, symbol_db)
+            handle_completion(
+                id,
+                &params,
+                documents,
+                analysis_cache,
+                symbol_db,
+                ability_resolver,
+            )
         }
         DocumentSymbolRequest::METHOD => {
             let params = match parse_params(&req.params, &id) {
@@ -816,6 +828,7 @@ fn handle_completion(
     documents: &DocumentStore,
     analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
     symbol_db: Option<&SymbolDb>,
+    resolver: &ambient_engine::ability_resolver::AbilityResolver,
 ) -> Response {
     let uri = &params.text_document_position.text_document.uri;
     let position = params.text_document_position.position;
@@ -833,8 +846,8 @@ fn handle_completion(
         .and_then(|analysis| analysis.module.as_ref());
 
     // Create completion context and get completions.
-    let ctx = CompletionContext::new(&doc.text, offset);
-    let items = get_completions(&ctx, module, symbol_db);
+    let ctx = CompletionContext::new(&doc.text, offset, resolver);
+    let items = get_completions(&ctx, module, symbol_db, resolver);
 
     let response = CompletionResponse::Array(items);
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
