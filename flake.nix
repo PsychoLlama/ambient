@@ -149,7 +149,7 @@
               pkgs.fenix.stable.defaultToolchain
               pkgs.fenix.stable.rust-analyzer
               pkgs.just
-              pkgs.nixfmt-rfc-style
+              pkgs.nixfmt
               pkgs.nodejs
               pkgs.stylua
               pkgs.tree-sitter
