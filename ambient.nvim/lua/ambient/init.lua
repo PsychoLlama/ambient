@@ -4,7 +4,8 @@ function M.setup(opts)
   opts = opts or {}
 
   -- Find the parser .so file
-  local plugin_dir = vim.fn.fnamemodify(debug.getinfo(1, 'S').source:sub(2), ':h:h:h')
+  local plugin_dir =
+    vim.fn.fnamemodify(debug.getinfo(1, 'S').source:sub(2), ':h:h:h')
   local parser_path = opts.parser_path
     or (opts.grammar_path and opts.grammar_path .. '/parser/ambient.so')
     or (plugin_dir .. '/parser/ambient.so')

@@ -144,9 +144,11 @@
             packages = [
               (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
               pkgs.just
+              pkgs.nixfmt-rfc-style
               pkgs.nodejs
               pkgs.stylua
               pkgs.tree-sitter
+              pkgs.treefmt
             ];
 
             TREE_SITTER_AMBIENT = self.packages.${system}.tree-sitter-ambient;

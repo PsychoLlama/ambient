@@ -1,0 +1,14 @@
+[global]
+excludes = ["target/**", "*.lock"]
+
+[formatter.rustfmt]
+command = "rustfmt"
+includes = ["*.rs"]
+
+[formatter.stylua]
+command = "stylua"
+includes = ["*.lua"]
+
+[formatter.nixfmt]
+command = "nixfmt"
+includes = ["*.nix"]

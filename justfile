@@ -4,11 +4,11 @@ _:
 
 # Check code formatting
 format-check:
-  cargo fmt --all -- --check
+  treefmt --ci
 
 # Apply code formatting
 format:
-  cargo fmt --all
+  treefmt
 
 # Run clippy lints
 lint:
