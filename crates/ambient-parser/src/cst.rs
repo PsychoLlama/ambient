@@ -334,6 +334,10 @@ pub struct CstEnumDef {
     pub type_params: Vec<CstTypeParam>,
     /// Variants.
     pub variants: Vec<CstEnumVariant>,
+    /// The `unique(<uuid>)` prefix's UUID text. Mandatory in a valid program
+    /// — lowering rejects `None` — but kept optional in the CST so a bare
+    /// `enum` still parses for error recovery and editor tooling.
+    pub unique_id: Option<Arc<str>>,
 }
 
 /// An enum variant.

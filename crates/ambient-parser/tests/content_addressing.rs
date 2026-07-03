@@ -536,6 +536,43 @@ fn inherent_method_symbols_use_type_identity() {
 }
 
 #[test]
+fn inherent_enum_method_keys_on_uuid() {
+    // A declared enum is nominal: its inherent methods key on the enum's
+    // uuid, exactly like a nominal `type`'s — never on its head name. This
+    // is what makes an enum's methods robust against a same-named enum
+    // elsewhere in a future multi-package world.
+    let module = compile(
+        r#"
+        unique(44444444-4444-4444-4444-444444444444) enum Toggle { On, Off }
+
+        impl Toggle {
+            fn flipped(self): Toggle {
+                match self {
+                    On => Off,
+                    Off => On,
+                }
+            }
+        }
+
+        fn run(): Toggle {
+            On.flipped()
+        }
+    "#,
+    );
+    let names: Vec<&str> = module
+        .function_names
+        .keys()
+        .map(AsRef::as_ref)
+        .filter(|n: &&str| n.contains("::"))
+        .collect();
+
+    assert!(
+        names.contains(&"44444444-4444-4444-4444-444444444444::flipped"),
+        "expected uuid-keyed enum method symbol, got {names:?}"
+    );
+}
+
+#[test]
 fn inherent_impl_block_order_does_not_affect_hashes() {
     // Splitting methods across impl blocks and reordering them (and the
     // impl blocks themselves) must not change any hash.

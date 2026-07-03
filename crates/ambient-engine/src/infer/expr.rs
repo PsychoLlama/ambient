@@ -836,14 +836,19 @@ impl Infer {
 
         // Resolve the leading segment to an impl-target key: a nominal type
         // alias, or an enum / built-in container head.
-        let key = match self.get_type_alias(type_name) {
-            Some(Type::Nominal(n)) => Some(ImplKey::Nominal(n.uuid)),
-            _ if self.enum_registry.get(type_name).is_some()
-                || matches!(type_name, "List" | "Map" | "Set") =>
-            {
-                Some(ImplKey::Named(type_name.into()))
-            }
-            _ => None,
+        let key = if let Some(Type::Nominal(n)) = self.get_type_alias(type_name) {
+            Some(ImplKey::Nominal(n.uuid))
+        } else if let Some(info) = self.enum_registry.get(type_name) {
+            // A declared enum keys on its uuid (matching its receiver-form
+            // dispatch); prelude enums key on their reserved head name.
+            Some(match info.uuid {
+                Some(uuid) => ImplKey::Nominal(uuid),
+                None => ImplKey::Named(type_name.into()),
+            })
+        } else if matches!(type_name, "List" | "Map" | "Set") {
+            Some(ImplKey::Named(type_name.into()))
+        } else {
+            None
         };
 
         // Inherent associated method?
@@ -1054,10 +1059,9 @@ pub(super) fn substitute_self(ty: &Type, self_ty: &Type) -> Type {
             substitute_self(&f.ret, self_ty),
             f.abilities.clone(),
         ),
-        Type::Named(n) => Type::Named(crate::types::NamedType::new(
-            Arc::clone(&n.name),
-            n.args.iter().map(|t| substitute_self(t, self_ty)).collect(),
-        )),
+        Type::Named(n) => {
+            Type::Named(n.map_args(n.args.iter().map(|t| substitute_self(t, self_ty)).collect()))
+        }
         // Other types pass through unchanged
         _ => ty.clone(),
     }

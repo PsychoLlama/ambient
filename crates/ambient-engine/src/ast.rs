@@ -759,6 +759,10 @@ pub struct TypeAliasDef {
 }
 
 /// An enum definition.
+///
+/// Every enum is nominal: its `unique(<uuid>)` prefix is mandatory, so two
+/// structurally identical enums are distinct types and an enum's methods get
+/// uuid-based dispatch symbols. Lowering rejects a bare `enum` with no prefix.
 #[derive(Debug, Clone)]
 pub struct EnumDef {
     /// Enum name.
@@ -769,6 +773,8 @@ pub struct EnumDef {
     pub type_params: Vec<TypeParam>,
     /// Enum variants.
     pub variants: Vec<EnumVariant>,
+    /// Nominal identity from the mandatory `unique(<uuid>)` prefix.
+    pub uuid: Uuid,
 }
 
 /// An enum variant.

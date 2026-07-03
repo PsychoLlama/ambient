@@ -386,11 +386,17 @@ impl Infer {
                     // Resolve to the aliased type
                     return self.resolve_holes(&aliased_type);
                 }
-                // Otherwise keep as named type with resolved args
-                Type::Named(NamedType::new(
-                    n.name.clone(),
-                    n.args.iter().map(|a| self.resolve_holes(a)).collect(),
-                ))
+                let args = n.args.iter().map(|a| self.resolve_holes(a)).collect();
+                // Attach a declared enum's nominal identity so an annotation
+                // like `: Tree<number>` carries the same uuid the enum's
+                // constructors and patterns produce. Prelude enums
+                // (Option/Result) carry `None`, so this is a no-op for them.
+                if let Some(info) = self.enum_registry.get(&n.name) {
+                    let uuid = info.uuid;
+                    return Type::Named(NamedType::with_identity(Arc::clone(&n.name), args, uuid));
+                }
+                // Otherwise keep as named type, preserving any existing identity.
+                Type::Named(n.map_args(args))
             }
             Type::Nominal(n) => Type::Nominal(NominalType::new(
                 n.uuid,

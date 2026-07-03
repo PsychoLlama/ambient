@@ -1183,7 +1183,7 @@ fn test_inherent_impl_generic_method_on_user_enum() {
     // user-declared enum.
     CliTest::new(
         r#"
-        enum Box2 { Full(number), Empty }
+        unique(C1B2C3D4-0000-0000-0000-000000000010) enum Box2 { Full(number), Empty }
 
         impl Box2 {
             fn map_or<U>(self, fallback: U, f: (number) -> U): U {
@@ -2203,7 +2203,7 @@ fn test_method_call_resolves_inside_perform_arguments() {
 fn test_user_enum_construct_and_match() {
     let (dir, pkg) = temp_package(
         r"
-        enum Shape { Circle(number), Square(number), Dot }
+        unique(C1B2C3D4-0000-0000-0000-000000000011) enum Shape { Circle(number), Square(number), Dot }
 
         pub fn run(): number {
             area(Circle(2)) + area(Square(3)) + area(Dot)
@@ -2221,6 +2221,101 @@ fn test_user_enum_construct_and_match() {
     let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
     assert!(output.status.success(), "run failed: {output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).contains("21"));
+    drop(dir);
+}
+
+#[test]
+fn test_bare_enum_requires_unique() {
+    // Every enum must carry a `unique(<uuid>)` prefix; a bare `enum` is
+    // rejected so structurally identical enums can never be conflated.
+    CliTest::new(
+        r"
+        enum Color { Red, Green, Blue }
+
+        pub fn run(): number { 0 }
+        ",
+    )
+    .check()
+    .expect_error("unique");
+}
+
+#[test]
+fn test_distinct_enums_are_not_interchangeable() {
+    // Two enums with identical shape are distinct nominal types: a value of
+    // one cannot stand in for the other. This is the whole point of enum
+    // nominal identity — shape no longer implies interchangeability.
+    CliTest::new(
+        r"
+        unique(C1B2C3D4-0000-0000-0000-000000000020) enum Meters { M(number) }
+        unique(C1B2C3D4-0000-0000-0000-000000000021) enum Feet { F(number) }
+
+        fn meters_value(x: Meters): number {
+            match x { M(v) => v }
+        }
+
+        pub fn run(): number {
+            meters_value(F(3))
+        }
+        ",
+    )
+    .check()
+    .expect_error("type mismatch");
+}
+
+#[test]
+fn test_duplicate_inherent_method_on_enum_error() {
+    // Coherence holds for enums exactly as for nominal types: a second
+    // definition of a method name for the same enum is rejected because both
+    // would claim the one `<uuid>::method` dispatch symbol.
+    CliTest::new(
+        r#"
+        unique(C1B2C3D4-0000-0000-0000-000000000022) enum Toggle { On, Off }
+
+        impl Toggle {
+            fn flipped(self): Toggle {
+                match self { On => Off, Off => On }
+            }
+        }
+
+        impl Toggle {
+            fn flipped(self): Toggle {
+                self
+            }
+        }
+
+        pub fn run(): number { 0 }
+    "#,
+    )
+    .check()
+    .expect_error("duplicate inherent method");
+}
+
+#[test]
+fn test_generic_nominal_enum_roundtrips() {
+    // A generic `unique(...) enum` carries its type argument through
+    // construction, matching, and an inherent method that returns the
+    // payload — proving the nominal identity survives substitution.
+    let (dir, pkg) = temp_package(
+        r"
+        unique(C1B2C3D4-0000-0000-0000-000000000023) enum Box<T> { Full(T), Empty }
+
+        impl<T> Box<T> {
+            fn get_or(self, fallback: T): T {
+                match self {
+                    Full(v) => v,
+                    Empty => fallback,
+                }
+            }
+        }
+
+        pub fn run(): number {
+            Full(40).get_or(0) + Empty.get_or(2)
+        }
+        ",
+    );
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("42"));
     drop(dir);
 }
 

@@ -263,10 +263,9 @@ impl<'src> Parser<'src> {
                     // currently always exported; `pub` on them is accepted
                     // as documentation of that fact.
                     TokenKind::Const => CstItemKind::Const(self.parse_const()?),
-                    TokenKind::Type | TokenKind::Unique => {
-                        CstItemKind::TypeAlias(self.parse_type_alias()?)
-                    }
-                    TokenKind::Enum => CstItemKind::Enum(self.parse_enum()?),
+                    TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(None)?),
+                    TokenKind::Enum => CstItemKind::Enum(self.parse_enum(None)?),
+                    TokenKind::Unique => self.parse_unique_item()?,
                     TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def()?),
                     TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def()?),
                     _ => {
@@ -282,8 +281,9 @@ impl<'src> Parser<'src> {
             }
             TokenKind::Fn => CstItemKind::Function(self.parse_function(false)?),
             TokenKind::Const => CstItemKind::Const(self.parse_const()?),
-            TokenKind::Type | TokenKind::Unique => CstItemKind::TypeAlias(self.parse_type_alias()?),
-            TokenKind::Enum => CstItemKind::Enum(self.parse_enum()?),
+            TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(None)?),
+            TokenKind::Enum => CstItemKind::Enum(self.parse_enum(None)?),
+            TokenKind::Unique => self.parse_unique_item()?,
             TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def()?),
             TokenKind::Use => CstItemKind::Use(self.parse_use(false)?),
             TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def()?),
@@ -479,31 +479,55 @@ impl<'src> Parser<'src> {
         Ok(CstConstDef { name, ty, value })
     }
 
-    fn parse_type_alias(&mut self) -> Result<CstTypeAliasDef, ParseError> {
-        // Check for unique
-        let unique_id = if self.consume(TokenKind::Unique).is_some() {
-            self.expect(TokenKind::LParen)?;
-            // A canonical uppercase UUID lexes as a single `Uuid` token. If the
-            // parentheses hold anything else (lowercase, partial, or garbage),
-            // report a precise error but recover by skipping to the closing
-            // paren so the rest of the type alias — and editor completion while
-            // the UUID is still being typed — keeps working.
-            let id = if let Some(token) = self.consume(TokenKind::Uuid) {
-                Some(Arc::from(token.text.as_str()))
-            } else {
-                let span = self.current().span;
-                self.error(ParseError::new(ParseErrorKind::ExpectedUuid, span));
-                while !self.check(TokenKind::RParen) && !self.at_end() {
-                    self.advance();
-                }
-                None
-            };
-            self.expect(TokenKind::RParen)?;
-            id
+    /// Parse a `unique(<uuid>)` prefix, returning the UUID text.
+    ///
+    /// A canonical uppercase UUID lexes as a single `Uuid` token. If the
+    /// parentheses hold anything else (lowercase, partial, or garbage), report
+    /// a precise error but recover by skipping to the closing paren so the rest
+    /// of the declaration — and editor completion while the UUID is still being
+    /// typed — keeps working.
+    fn parse_unique_prefix(&mut self) -> Result<Option<Arc<str>>, ParseError> {
+        if self.consume(TokenKind::Unique).is_none() {
+            return Ok(None);
+        }
+        self.expect(TokenKind::LParen)?;
+        let id = if let Some(token) = self.consume(TokenKind::Uuid) {
+            Some(Arc::from(token.text.as_str()))
         } else {
+            let span = self.current().span;
+            self.error(ParseError::new(ParseErrorKind::ExpectedUuid, span));
+            while !self.check(TokenKind::RParen) && !self.at_end() {
+                self.advance();
+            }
             None
         };
+        self.expect(TokenKind::RParen)?;
+        Ok(id)
+    }
 
+    /// Parse a `unique(<uuid>)`-prefixed item: a nominal `type` alias or a
+    /// nominal `enum`. The `unique(...)` syntax is shared, so the prefix is
+    /// parsed once here and the following keyword decides the item.
+    fn parse_unique_item(&mut self) -> Result<CstItemKind, ParseError> {
+        let unique_id = self.parse_unique_prefix()?;
+        self.skip_trivia();
+        match self.current_kind() {
+            TokenKind::Type => Ok(CstItemKind::TypeAlias(self.parse_type_alias(unique_id)?)),
+            TokenKind::Enum => Ok(CstItemKind::Enum(self.parse_enum(unique_id)?)),
+            other => Err(ParseError::new(
+                ParseErrorKind::Expected {
+                    expected: "`type` or `enum` after `unique(...)`".into(),
+                    found: format!("{other:?}"),
+                },
+                self.current().span,
+            )),
+        }
+    }
+
+    fn parse_type_alias(
+        &mut self,
+        unique_id: Option<Arc<str>>,
+    ) -> Result<CstTypeAliasDef, ParseError> {
         self.expect(TokenKind::Type)?;
         let name = self.parse_ident()?;
 
@@ -531,7 +555,7 @@ impl<'src> Parser<'src> {
         })
     }
 
-    fn parse_enum(&mut self) -> Result<CstEnumDef, ParseError> {
+    fn parse_enum(&mut self, unique_id: Option<Arc<str>>) -> Result<CstEnumDef, ParseError> {
         self.expect(TokenKind::Enum)?;
         let name = self.parse_ident()?;
 
@@ -581,6 +605,7 @@ impl<'src> Parser<'src> {
             name,
             type_params,
             variants,
+            unique_id,
         })
     }
 

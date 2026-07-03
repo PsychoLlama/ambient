@@ -194,6 +194,22 @@ fn lower_type_alias(t: &CstTypeAliasDef) -> Result<TypeAliasDef, ParseError> {
 }
 
 fn lower_enum(e: &CstEnumDef) -> Result<EnumDef, ParseError> {
+    // Every enum is nominal: the `unique(<uuid>)` prefix is mandatory. A bare
+    // `enum` has no identity, which would make structurally identical enums
+    // interchangeable — the exact confusion nominal identity exists to
+    // prevent — so reject it here.
+    let uuid = match &e.unique_id {
+        Some(s) => Uuid::parse_str(s).map_err(|err| {
+            ParseError::new(ParseErrorKind::InvalidUuid(err.to_string()), e.name.span)
+        })?,
+        None => {
+            return Err(ParseError::new(
+                ParseErrorKind::EnumRequiresUnique,
+                e.name.span,
+            ));
+        }
+    };
+
     let type_params = e
         .type_params
         .iter()
@@ -221,6 +237,7 @@ fn lower_enum(e: &CstEnumDef) -> Result<EnumDef, ParseError> {
         name_span: e.name.span,
         type_params,
         variants,
+        uuid,
     })
 }
 
@@ -853,6 +870,7 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
                     Ok(Type::Named(ambient_engine::types::NamedType {
                         name: name.clone(),
                         args: Vec::new(),
+                        uuid: None,
                     }))
                 }
             }
@@ -877,6 +895,7 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
             Ok(Type::Named(ambient_engine::types::NamedType {
                 name: base_name,
                 args: lowered_args,
+                uuid: None,
             }))
         }
 
@@ -958,6 +977,7 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
             Ok(Type::Named(ambient_engine::types::NamedType {
                 name: "!".into(),
                 args: Vec::new(),
+                uuid: None,
             }))
         }
 
@@ -1280,16 +1300,26 @@ mod tests {
 
     #[test]
     fn test_lower_enum() {
-        let source = "enum Option<T> { Some(T), None }";
+        let source = "unique(A1B2C3D4-0000-0000-0000-000000000001) enum Maybe<T> { Some(T), None }";
         let module = parse(source).expect("parse error");
         match &module.items[0].kind {
             ItemKind::Enum(e) => {
-                assert_eq!(&*e.name, "Option");
+                assert_eq!(&*e.name, "Maybe");
                 assert_eq!(e.type_params.len(), 1);
                 assert_eq!(e.variants.len(), 2);
+                assert_eq!(e.uuid.to_string(), "a1b2c3d4-0000-0000-0000-000000000001");
             }
             _ => panic!("Expected enum"),
         }
+    }
+
+    #[test]
+    fn test_lower_bare_enum_rejected() {
+        // Every enum must carry a `unique(<uuid>)` prefix; a bare `enum` has
+        // no nominal identity and is rejected at lowering.
+        let source = "enum Color { Red, Green, Blue }";
+        let err = parse(source).expect_err("bare enum should be rejected");
+        assert!(matches!(err.kind, ParseErrorKind::EnumRequiresUnique));
     }
 
     #[test]

@@ -117,6 +117,10 @@ pub enum ParseErrorKind {
     /// UUID literal.
     ExpectedUuid,
 
+    /// An `enum` was declared without the mandatory `unique(<uuid>)` prefix.
+    /// Every enum is nominal, so it must carry an identity.
+    EnumRequiresUnique,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Name resolution errors
     // ─────────────────────────────────────────────────────────────────────────
@@ -157,6 +161,11 @@ impl fmt::Display for ParseErrorKind {
             Self::ExpectedUuid => write!(
                 f,
                 "expected an uppercase UUID literal (e.g. A1B2C3D4-0000-0000-0000-000000000001)"
+            ),
+            Self::EnumRequiresUnique => write!(
+                f,
+                "enum declarations require a `unique(<uuid>)` prefix \
+                 (e.g. `unique(A1B2C3D4-0000-0000-0000-000000000001) enum Color {{ ... }}`)"
             ),
 
             Self::UndefinedName(name) => write!(f, "undefined name '{name}'"),

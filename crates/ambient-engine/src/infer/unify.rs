@@ -120,9 +120,19 @@ impl Infer {
                 self.unify_abilities(&av1.ability, &av2.ability, span)
             }
 
-            // Named types
+            // Named types. The head name and arity must match. Nominal
+            // identities (declared enums) must also agree, but a `None`
+            // identity is a wildcard: it lets a payload self-reference or an
+            // as-yet-unresolved annotation (both carry `None`) unify with the
+            // resolved, uuid-carrying form. Two *distinct* enums never unify —
+            // either their names differ, or both carry `Some` uuids that
+            // differ.
             (Type::Named(n1), Type::Named(n2)) => {
-                if n1.name != n2.name || n1.args.len() != n2.args.len() {
+                let identity_conflict = matches!(
+                    (n1.uuid, n2.uuid),
+                    (Some(u1), Some(u2)) if u1 != u2
+                );
+                if n1.name != n2.name || n1.args.len() != n2.args.len() || identity_conflict {
                     return Err(type_error(
                         TypeErrorKind::TypeMismatch {
                             expected: t1.clone(),
@@ -467,10 +477,9 @@ impl MaskedSubst<'_> {
                 self.apply(&f.ret, seen),
                 self.apply_abilities(&f.abilities, &mut Vec::new()),
             )),
-            Type::Named(n) => Type::Named(crate::types::NamedType::new(
-                n.name.clone(),
-                n.args.iter().map(|a| self.apply(a, seen)).collect(),
-            )),
+            Type::Named(n) => {
+                Type::Named(n.map_args(n.args.iter().map(|a| self.apply(a, seen)).collect()))
+            }
             Type::Nominal(n) => Type::Nominal(crate::types::NominalType::new(
                 n.uuid,
                 self.apply(&n.inner, seen),

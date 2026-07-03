@@ -1270,15 +1270,17 @@ pub(super) fn substitute_type_params(
             {
                 return Type::var(var_id);
             }
-            // Otherwise, recursively substitute in type arguments
-            Type::Named(crate::types::NamedType::new(
-                Arc::clone(&named.name),
-                named
-                    .args
-                    .iter()
-                    .map(|arg| substitute_type_params(arg, type_var_map))
-                    .collect(),
-            ))
+            // Otherwise, recursively substitute in type arguments, preserving
+            // any nominal identity (a declared enum's uuid).
+            Type::Named(
+                named.map_args(
+                    named
+                        .args
+                        .iter()
+                        .map(|arg| substitute_type_params(arg, type_var_map))
+                        .collect(),
+                ),
+            )
         }
         Type::Function(f) => Type::function_with_abilities(
             f.params
@@ -1466,11 +1468,13 @@ fn get_symbol_scheme(
             }
             (crate::ast::ItemKind::Enum(enum_def), ExportKind::Enum) => {
                 if enum_def.name.as_ref() == name {
-                    // For enum types, we return the type itself
-                    // This is simplified - a full implementation would handle generic enums
-                    let ty = Type::Named(crate::types::NamedType::new(
+                    // For enum types, we return the type itself, carrying its
+                    // nominal identity. This is simplified — a full
+                    // implementation would handle generic enums.
+                    let ty = Type::Named(crate::types::NamedType::with_identity(
                         Arc::clone(&enum_def.name),
                         vec![],
+                        Some(enum_def.uuid),
                     ));
                     return Some(Scheme::mono(ty));
                 }

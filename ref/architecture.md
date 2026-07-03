@@ -76,9 +76,12 @@ bool      // true, false
 (number, string, bool)             // Tuples
 List<T>, Set<T>, Map<K, V>         // Collections
 
-// Enums (tagged unions). Option and Result are built in; their
-// constructors (Some, None, Ok, Err) are always in scope.
-enum Shape { Circle(number), Square(number), Dot }
+// Enums (tagged unions) are nominal: every declaration carries a
+// mandatory `unique(<uuid>)` prefix, so two structurally identical enums
+// are distinct types (see Nominal Enums below). Option and Result are the
+// built-in exceptions — reserved-name prelude enums whose constructors
+// (Some, None, Ok, Err) are always in scope.
+unique(E1B2C3D4-0000-0000-0000-000000000001) enum Shape { Circle(number), Square(number), Dot }
 
 // Construct with the variant name; destructure with match. In pattern
 // position, bare uppercase-initial identifiers are variant patterns
@@ -132,6 +135,41 @@ keeps it unambiguous against identifiers, numbers, and future lowercase `0x`
 hex literals. A lowercase or malformed UUID is a syntax error. The stored
 value is canonicalized to lowercase for content addressing and display; only
 the *source syntax* is uppercase.
+
+## Nominal Enums
+
+Enums are nominal too, and their `unique(<uuid>)` prefix is **mandatory** —
+a bare `enum` is a compile error. This is deliberate: an enum's identity is
+its UUID, not its shape or its name, so two structurally identical enums (or
+two enums with the same name in different packages) are distinct,
+non-interchangeable types.
+
+```ambient
+unique(E1B2C3D4-0000-0000-0000-000000000001) enum Shape {
+  Circle(number), Square(number), Dot
+}
+
+unique(E1B2C3D4-0000-0000-0000-000000000002) enum Tree<T> {
+  Leaf, Node(T)
+}
+```
+
+An enum is otherwise an ordinary named type constructor: it can be generic,
+its variant constructors and patterns are in scope in the declaring module,
+and it carries inherent methods (`impl Shape { ... }`,
+`impl<T> Tree<T> { ... }`). Because the identity is the UUID, an enum's
+inherent methods get uuid-based dispatch symbols (`<uuid>::method`) exactly
+like a nominal `type`'s — see [Dispatch, Coherence, and
+Content-Addressing](#dispatch-coherence-and-content-addressing) — so a
+same-named enum elsewhere can never claim them.
+
+`Option<T>` and `Result<T, E>` are the two exceptions: they are reserved-name
+prelude enums, structurally identified by their heads (`Option`, `Result`) —
+names no user type can claim — rather than by a UUID. Their constructors
+(`Some`, `None`, `Ok`, `Err`) and companion modules (`core::Option`,
+`core::Result`) are always in scope. Migrating them to full UUID identity is
+future work; nothing else needs it, because every *declared* enum is already
+nominal.
 
 ## Traits
 
@@ -268,10 +306,11 @@ impl Money {
 }
 ```
 
-Inherent impls are not limited to nominal types. Enums, the built-in
-constructors (`Option`, `Result`, `List`, `Map`, `Set`), and the primitives
-can all carry methods, and impls may be generic over the target's type
-parameters:
+Inherent impls are not limited to `unique type` declarations. Declared
+enums (nominal, keyed by UUID), the reserved-name prelude enums (`Option`,
+`Result`), the built-in containers (`List`, `Map`, `Set`), and the
+primitives can all carry methods, and impls may be generic over the
+target's type parameters:
 
 ```ambient
 impl<T> Option<T> {
@@ -351,9 +390,11 @@ Comparison operators adapt the trait method's result: `!=` negates
 Method calls dispatch statically: the receiver's concrete type is known
 during type checking, which resolves the call to a canonical method symbol
 — `<type-uuid>::<Trait>::<method>` for trait methods, or the two-segment
-`<type-identity>::<method>` for inherent methods, where the identity is
-the nominal UUID or the built-in/enum head name (`Option::map`). The
-segment counts differ, so the two families can never collide. Impl methods
+`<type-identity>::<method>` for inherent methods, where the identity is the
+UUID for any nominal type — a `unique type` or a declared enum — and the
+head name for the reserved-name prelude enums and built-in containers
+(`Option::map`, `List::fold`). The segment counts differ, so the two
+families can never collide. Impl methods
 compile as ordinary named functions under their symbol, so they are
 content-addressed exactly like any other function (hash = bytecode +
 constants + dependency hashes), and call sites link against the content

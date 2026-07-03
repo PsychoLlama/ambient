@@ -713,7 +713,7 @@ mod tests {
 
     #[test]
     fn test_match_pattern_bindings() {
-        let source = "enum Option { Some(number), None } fn unwrap(opt: Option): number { match opt { Some(x) => x, None => 0 } }";
+        let source = "unique(A1B2C3D4-0000-0000-0000-000000000003) enum Maybe { Some(number), None } fn unwrap(opt: Maybe): number { match opt { Some(x) => x, None => 0 } }";
         let module = parse(source).expect("parse error");
 
         let mut resolver = Resolver::new();
@@ -723,7 +723,7 @@ mod tests {
 
     #[test]
     fn test_enum_variant_resolution() {
-        let source = "enum Option { Some(number), None } fn make_some(): Option { Some(42) }";
+        let source = "unique(A1B2C3D4-0000-0000-0000-000000000002) enum Maybe { Some(number), None } fn make_some(): Maybe { Some(42) }";
         let module = parse(source).expect("parse error");
 
         let mut resolver = Resolver::new();

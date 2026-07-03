@@ -280,6 +280,11 @@ pub fn parse_module_exports(source: &str) -> Vec<ModuleExport> {
             continue;
         }
 
+        // A nominal `type`/`enum` carries a `unique(<uuid>)` prefix (after an
+        // optional `pub`). Normalize it away so the keyword match below sees a
+        // bare `type ...` / `enum ...`, the same as a non-nominal declaration.
+        let decl = strip_unique_prefix(line.strip_prefix("pub ").unwrap_or(line));
+
         // Match pub fn declarations (public functions)
         if let Some(rest) = line.strip_prefix("pub fn ") {
             if let Some((name, signature)) = extract_function_signature(rest) {
@@ -321,20 +326,14 @@ pub fn parse_module_exports(source: &str) -> Vec<ModuleExport> {
                 }
             }
         }
-        // Match type declarations
-        else if let Some(rest) = line
-            .strip_prefix("pub type ")
-            .or_else(|| line.strip_prefix("type "))
-        {
+        // Match type declarations (bare or `unique(...) type`)
+        else if let Some(rest) = decl.strip_prefix("type ") {
             if let Some(name) = extract_identifier(rest) {
                 exports.push(ModuleExport::new(name, ModuleExportKind::Type));
             }
         }
-        // Match enum declarations
-        else if let Some(rest) = line
-            .strip_prefix("pub enum ")
-            .or_else(|| line.strip_prefix("enum "))
-        {
+        // Match enum declarations (always `unique(...) enum`)
+        else if let Some(rest) = decl.strip_prefix("enum ") {
             if let Some(name) = extract_identifier(rest) {
                 exports.push(ModuleExport::new(name, ModuleExportKind::Enum));
             }
@@ -350,6 +349,20 @@ pub fn parse_module_exports(source: &str) -> Vec<ModuleExport> {
     }
 
     exports
+}
+
+/// Strip a leading `unique(<uuid>)` prefix (plus trailing whitespace) from a
+/// declaration line. Returns the line unchanged when there is no such prefix.
+/// This lets the REPL's line scanner treat nominal `type`/`enum` declarations
+/// the same as bare ones.
+fn strip_unique_prefix(line: &str) -> &str {
+    let Some(after) = line.strip_prefix("unique(") else {
+        return line;
+    };
+    match after.find(')') {
+        Some(idx) => after[idx + 1..].trim_start(),
+        None => line,
+    }
 }
 
 /// Extract an identifier from the start of a string.

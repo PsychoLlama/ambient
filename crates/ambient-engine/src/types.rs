@@ -994,22 +994,59 @@ pub struct NamedType {
 
     /// Type arguments (empty for non-generic types).
     pub args: Vec<Type>,
+
+    /// Nominal identity of a declared `unique(<uuid>) enum`.
+    ///
+    /// Structural constructors — the built-in containers (`List`, `Map`,
+    /// `Set`) and the reserved-name prelude enums (`Option`, `Result`) — plus
+    /// type-parameter references carry `None`: their identity *is* the head
+    /// name. A declared enum carries `Some(uuid)`, so it is distinct from any
+    /// structurally identical enum, even one with the same name in another
+    /// package. Two named types unify only if their identities agree, with
+    /// `None` acting as a wildcard (see `Unifier::unify`) so payload
+    /// self-references and unresolved annotations still unify with the
+    /// resolved, uuid-carrying form.
+    pub uuid: Option<Uuid>,
 }
 
 impl NamedType {
-    /// Create a new named type.
+    /// Create a new structural named type (no nominal identity).
     #[must_use]
     pub fn new(name: impl Into<Arc<str>>, args: Vec<Type>) -> Self {
         Self {
             name: name.into(),
             args,
+            uuid: None,
         }
     }
 
-    /// Create a non-generic named type.
+    /// Create a non-generic structural named type.
     #[must_use]
     pub fn simple(name: impl Into<Arc<str>>) -> Self {
         Self::new(name, Vec::new())
+    }
+
+    /// Create a named type carrying a nominal identity (a declared enum).
+    #[must_use]
+    pub fn with_identity(name: impl Into<Arc<str>>, args: Vec<Type>, uuid: Option<Uuid>) -> Self {
+        Self {
+            name: name.into(),
+            args,
+            uuid,
+        }
+    }
+
+    /// Rebuild this named type with new arguments, preserving its head name
+    /// and nominal identity. Used at every site that maps a transformation
+    /// over the arguments (substitution, hole resolution) so an enum's
+    /// identity survives.
+    #[must_use]
+    pub fn map_args(&self, args: Vec<Type>) -> Self {
+        Self {
+            name: Arc::clone(&self.name),
+            args,
+            uuid: self.uuid,
+        }
     }
 }
 
@@ -1317,13 +1354,14 @@ impl Type {
                     new_abilities,
                 ))
             }
-            Self::Named(n) => Self::Named(NamedType::new(
-                n.name.clone(),
-                n.args
-                    .iter()
-                    .map(|a| a.substitute_all(type_subst, ability_subst))
-                    .collect(),
-            )),
+            Self::Named(n) => Self::Named(
+                n.map_args(
+                    n.args
+                        .iter()
+                        .map(|a| a.substitute_all(type_subst, ability_subst))
+                        .collect(),
+                ),
+            ),
             Self::Nominal(n) => Self::Nominal(NominalType::new(
                 n.uuid,
                 n.inner.substitute_all(type_subst, ability_subst),

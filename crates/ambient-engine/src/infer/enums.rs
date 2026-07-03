@@ -16,6 +16,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use uuid::Uuid;
+
 use crate::types::{NamedType, Type, TypeVarId};
 
 use super::env::Scheme;
@@ -36,6 +38,12 @@ pub struct EnumInfo {
     pub type_params: Vec<Arc<str>>,
     /// Variants in declaration order; the index is the runtime tag.
     pub variants: Vec<EnumVariantInfo>,
+    /// Nominal identity. Declared enums carry `Some(uuid)` from their
+    /// mandatory `unique(<uuid>)` prefix, so two structurally identical enums
+    /// are distinct types. The reserved-name prelude enums (`Option`,
+    /// `Result`) carry `None`: their identity is their reserved head name,
+    /// which no user type can claim.
+    pub uuid: Option<Uuid>,
 }
 
 /// Registry of enums visible to the module being checked.
@@ -54,6 +62,7 @@ impl EnumRegistry {
         registry.register(Arc::new(EnumInfo {
             name: Arc::from("Option"),
             type_params: vec![Arc::from("T")],
+            uuid: None,
             variants: vec![
                 EnumVariantInfo {
                     name: Arc::from("None"),
@@ -68,6 +77,7 @@ impl EnumRegistry {
         registry.register(Arc::new(EnumInfo {
             name: Arc::from("Result"),
             type_params: vec![Arc::from("T"), Arc::from("E")],
+            uuid: None,
             variants: vec![
                 EnumVariantInfo {
                     name: Arc::from("Ok"),
@@ -140,6 +150,7 @@ impl EnumInfo {
                     payload: v.payload.clone(),
                 })
                 .collect(),
+            uuid: Some(def.uuid),
         }
     }
 
@@ -165,7 +176,11 @@ impl EnumInfo {
             args.push(Type::Var(var_id));
         }
 
-        let enum_ty = Type::Named(NamedType::new(Arc::clone(&self.name), args));
+        let enum_ty = Type::Named(NamedType::with_identity(
+            Arc::clone(&self.name),
+            args,
+            self.uuid,
+        ));
         let ty = match &self.variants[variant_idx].payload {
             Some(payload) => {
                 let payload_ty = super::check::substitute_type_params(payload, &type_var_map);
@@ -198,7 +213,11 @@ impl EnumInfo {
             args.push(fresh);
         }
 
-        let enum_ty = Type::Named(NamedType::new(Arc::clone(&self.name), args));
+        let enum_ty = Type::Named(NamedType::with_identity(
+            Arc::clone(&self.name),
+            args,
+            self.uuid,
+        ));
         let payload_ty = self.variants[variant_idx]
             .payload
             .as_ref()

@@ -271,7 +271,12 @@ fn enum_def_strategy() -> impl Strategy<Value = String> {
     )
         .prop_map(|(name, variants)| {
             let variant_list = variants.join(",\n    ");
-            format!("enum {} {{\n    {}\n}}", name, variant_list)
+            // Every enum requires a `unique(<uuid>)` prefix; a fixed UUID is
+            // fine here since these fixtures only exercise parsing.
+            format!(
+                "unique(A1B2C3D4-0000-0000-0000-000000000001) enum {} {{\n    {}\n}}",
+                name, variant_list
+            )
         })
 }
 
