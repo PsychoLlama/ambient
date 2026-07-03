@@ -13,7 +13,7 @@
 
 /// Application settings. The unique UUID makes this a nominal type, so it
 /// can implement traits.
-unique(2bdd99c5-e152-4b60-bb32-336a24415381) type Settings {
+unique(2BDD99C5-E152-4B60-BB32-336A24415381) type Settings {
     volume: number,
     muted: bool,
     theme: string,
@@ -31,7 +31,7 @@ impl Default for Settings {
 
 /// A 2D point. Defaults to the origin, and supports `+` so that a default
 /// value composes with operators.
-unique(e28c3b09-a04f-4bfa-82c4-8f6972fb0480) type Point {
+unique(E28C3B09-A04F-4BFA-82C4-8F6972FB0480) type Point {
     x: number,
     y: number,
 }

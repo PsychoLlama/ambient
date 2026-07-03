@@ -17,19 +17,19 @@
 
 /// A unique user identifier.
 /// The UUID makes this type distinct from any other type with the same structure.
-unique(a1b2c3d4-e5f6-7890-abcd-ef1234567890) type UserId { value: string }
+unique(A1B2C3D4-E5F6-7890-ABCD-EF1234567890) type UserId { value: string }
 
 /// A unique order identifier.
 /// Structurally identical to UserId (both wrap a string),
 /// but completely incompatible at the type level.
-unique(b2c3d4e5-f6a7-8901-bcde-f12345678901) type OrderId { value: string }
+unique(B2C3D4E5-F6A7-8901-BCDE-F12345678901) type OrderId { value: string }
 
 /// US Dollars stored as cents.
-unique(d4e5f6a7-b8c9-0123-defa-234567890123) type USD { cents: number }
+unique(D4E5F6A7-B8C9-0123-DEFA-234567890123) type USD { cents: number }
 
 /// Euros stored as cents.
 /// Same structure as USD, but cannot be mixed.
-unique(e5f6a7b8-c9d0-1234-efab-345678901234) type EUR { cents: number }
+unique(E5F6A7B8-C9D0-1234-EFAB-345678901234) type EUR { cents: number }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Why Nominal Types Matter

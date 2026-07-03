@@ -3,6 +3,7 @@
 //! The lexer converts source text into a stream of tokens, handling:
 //! - Keywords and identifiers
 //! - Number literals (f64)
+//! - UUID literals (canonical uppercase `8-4-4-4-12` hex, for `unique(...)`)
 //! - String literals with interpolation (`${expr}`)
 //! - Comments (line comments `//`)
 //! - Operators and punctuation
@@ -105,6 +106,9 @@ pub enum TokenKind {
     Ident,
     /// Number literal
     Number,
+    /// Canonical uppercase UUID literal (`8-4-4-4-12` hex), used in
+    /// `unique(...)` nominal type declarations.
+    Uuid,
     /// String literal (complete, no interpolation)
     String,
     /// String start (before first interpolation)
@@ -485,6 +489,12 @@ impl<'src> Lexer<'src> {
                 }
             }
 
+            // UUID literals. Checked before identifiers and numbers because a
+            // canonical UUID can begin with either a hex letter (`A`-`F`) or a
+            // digit, and the whole `8-4-4-4-12` shape must be consumed as one
+            // token rather than split into idents, numbers, and minuses.
+            _ if self.at_uuid() => self.lex_uuid(start),
+
             // Identifiers and keywords
             'a'..='z' | 'A'..='Z' | '_' => self.lex_identifier(start),
 
@@ -700,6 +710,52 @@ impl<'src> Lexer<'src> {
         // Check for keywords
         let kind = TokenKind::keyword_from_str(text).unwrap_or(TokenKind::Ident);
         Ok(self.make_token(kind, start))
+    }
+
+    /// Look ahead from the current position to decide whether the upcoming
+    /// characters form a canonical uppercase UUID literal without consuming
+    /// anything.
+    ///
+    /// A UUID is `HEX{8}-HEX{4}-HEX{4}-HEX{4}-HEX{12}` where `HEX` is a digit
+    /// or an *uppercase* `A`-`F`. Lowercase hex is deliberately excluded so
+    /// that ordinary identifiers and numbers (and any future lowercase `0x`
+    /// hex literals) remain unambiguous — only fully-uppercase UUIDs are lexed
+    /// as a single token. The match must not be immediately followed by an
+    /// identifier/hex continuation character, otherwise it is part of a longer
+    /// token and not a UUID.
+    fn at_uuid(&self) -> bool {
+        const GROUPS: [usize; 5] = [8, 4, 4, 4, 12];
+        let mut chars = self.chars.clone();
+        for (group, &len) in GROUPS.iter().enumerate() {
+            if group > 0 && !matches!(chars.next(), Some((_, '-'))) {
+                return false;
+            }
+            for _ in 0..len {
+                if !matches!(chars.next(), Some((_, '0'..='9' | 'A'..='F'))) {
+                    return false;
+                }
+            }
+        }
+        // Reject if a further identifier/hex/UUID character follows, e.g. a
+        // sixth group or a trailing letter — that is a longer, malformed token.
+        !matches!(
+            chars.peek(),
+            Some((_, c)) if c.is_ascii_alphanumeric() || *c == '_' || *c == '-'
+        )
+    }
+
+    /// Consume a canonical uppercase UUID literal. Only called once `at_uuid`
+    /// has confirmed the full `8-4-4-4-12` shape, so the 32 hex digits and 4
+    /// dashes (36 characters) are guaranteed present.
+    ///
+    /// Returns `Result` for API consistency with the other lex methods, even
+    /// though UUID lexing never fails once `at_uuid` has matched.
+    #[allow(clippy::unnecessary_wraps)]
+    fn lex_uuid(&mut self, start: usize) -> Result<Token, ParseError> {
+        for _ in 0..36 {
+            self.advance();
+        }
+        Ok(self.make_token(TokenKind::Uuid, start))
     }
 
     /// Look ahead from the current `e`/`E` to decide whether it introduces a
@@ -950,6 +1006,72 @@ mod tests {
                 TokenKind::Ident,
                 TokenKind::Eof
             ]
+        );
+    }
+
+    #[test]
+    fn test_uuid_literal() {
+        // A canonical uppercase UUID is a single token, even though its groups
+        // begin with digits and letters that would otherwise start numbers and
+        // identifiers.
+        assert_eq!(
+            lex("A1B2C3D4-0000-0000-0000-000000000001"),
+            vec![TokenKind::Uuid, TokenKind::Eof]
+        );
+        // A leading-digit group whose letters look like an exponent (`2E...`)
+        // is still one UUID token, not a shredded number.
+        assert_eq!(
+            lex("2EB9553C-1FDF-46FB-A8B1-F2C5A1CFCA94"),
+            vec![TokenKind::Uuid, TokenKind::Eof]
+        );
+        // In context: `unique(<uuid>)`.
+        assert_eq!(
+            lex("unique(A1B2C3D4-0000-0000-0000-000000000001)"),
+            vec![
+                TokenKind::Unique,
+                TokenKind::LParen,
+                TokenKind::Uuid,
+                TokenKind::RParen,
+                TokenKind::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lowercase_uuid_is_not_a_uuid_token() {
+        // Lowercase hex is not a UUID literal: it falls back to the ordinary
+        // number/identifier/minus tokenization, which the parser rejects as a
+        // missing UUID rather than silently accepting.
+        assert_eq!(
+            lex("2eb9553c-1fdf-46fb-a8b1-f2c5a1cfca94"),
+            vec![
+                TokenKind::Number,
+                TokenKind::Ident,
+                TokenKind::Minus,
+                TokenKind::Number,
+                TokenKind::Ident,
+                TokenKind::Minus,
+                TokenKind::Number,
+                TokenKind::Ident,
+                TokenKind::Minus,
+                TokenKind::Ident,
+                TokenKind::Minus,
+                TokenKind::Ident,
+                TokenKind::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn test_uuid_shape_boundaries() {
+        // Eight uppercase hex digits with no following dash-group is just an
+        // identifier, not a UUID.
+        assert_eq!(lex("ABCDEF12"), vec![TokenKind::Ident, TokenKind::Eof]);
+        // A trailing hex character past the 12-digit final group means it is a
+        // longer (malformed) token, not a UUID; it must not munch as one.
+        assert_ne!(
+            lex("A1B2C3D4-0000-0000-0000-000000000001A"),
+            vec![TokenKind::Uuid, TokenKind::Eof]
         );
     }
 

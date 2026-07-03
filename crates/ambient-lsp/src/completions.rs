@@ -228,7 +228,9 @@ pub fn get_completions(
 
 /// Generate a completion item with a fresh UUID for nominal type definitions.
 fn get_uuid_completion() -> CompletionItem {
-    let uuid = Uuid::new_v4().to_string();
+    // Ambient requires UUID literals to be uppercase; `Uuid`'s Display is
+    // lowercase, so uppercase the generated value before inserting it.
+    let uuid = Uuid::new_v4().to_string().to_uppercase();
     CompletionItem {
         label: uuid.clone(),
         kind: Some(CompletionItemKind::VALUE),

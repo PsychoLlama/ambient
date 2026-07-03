@@ -1311,7 +1311,7 @@ mod tests {
 
     #[test]
     fn test_lower_nominal_type() {
-        let source = "unique(d098767b-4093-4d5c-ba37-ad92aa7b5d98) type UserId { value: string }";
+        let source = "unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) type UserId { value: string }";
         let module = parse(source).expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
@@ -1319,6 +1319,7 @@ mod tests {
                 assert_eq!(&*t.name, "UserId");
                 assert!(t.unique_id.is_some());
                 let uuid = t.unique_id.unwrap();
+                // Source syntax is uppercase; the canonical value is lowercase.
                 assert_eq!(uuid.to_string(), "d098767b-4093-4d5c-ba37-ad92aa7b5d98");
                 // The type should be wrapped in Nominal
                 assert!(matches!(t.ty, Type::Nominal(_)));
@@ -1329,11 +1330,11 @@ mod tests {
 
     #[test]
     fn test_lower_nominal_type_uuid_with_exponent_like_group() {
-        // Regression: a valid UUID whose first hex group is `<digit>e<hex letter>`
-        // (here `2eb9553c`) used to crash the lexer, which mistook `2e...` for a
-        // malformed scientific-notation literal. It must lex, reassemble, and
-        // validate as a real UUID like any other.
-        let source = "unique(2eb9553c-1fdf-46fb-a8b1-f2c5a1cfca94) type Example { value: string }";
+        // Regression: a UUID whose first hex group is `<digit>E<hex letter>`
+        // (here `2EB9553C`) once crashed the lexer, which mistook `2E...` for a
+        // malformed scientific-notation literal. It is now lexed as a single
+        // `Uuid` token and must validate as a real UUID like any other.
+        let source = "unique(2EB9553C-1FDF-46FB-A8B1-F2C5A1CFCA94) type Example { value: string }";
         let module = parse(source).expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
@@ -1365,10 +1366,26 @@ mod tests {
 
     #[test]
     fn test_lower_invalid_uuid() {
+        // Non-UUID content in `unique(...)` is now rejected at parse time (the
+        // lexer only produces a `Uuid` token for canonical uppercase UUIDs),
+        // so the error is `ExpectedUuid` rather than a lowering `InvalidUuid`.
         let source = "unique(not-a-valid-uuid) type BadId { value: string }";
         let result = parse(source);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(err.kind, ParseErrorKind::InvalidUuid(_)));
+        assert!(matches!(err.kind, ParseErrorKind::ExpectedUuid));
+    }
+
+    #[test]
+    fn test_lower_lowercase_uuid_rejected() {
+        // A lowercase UUID is not a UUID literal in Ambient; it must be
+        // rejected rather than silently accepted as a non-nominal type.
+        let source = "unique(2eb9553c-1fdf-46fb-a8b1-f2c5a1cfca94) type BadId { value: string }";
+        let result = parse(source);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err().kind,
+            ParseErrorKind::ExpectedUuid
+        ));
     }
 }

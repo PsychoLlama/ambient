@@ -92,7 +92,7 @@ fn area(s: Shape): number {
 }
 
 // Nominal types (structurally identical but incompatible)
-unique(d098767b-4093-4d5c-ba37-ad92aa7b5d98) type UserId { value: string }
+unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) type UserId { value: string }
 
 // Generics
 fn identity<T>(x: T): T { x }
@@ -115,6 +115,23 @@ let sum = "Sum: ${to_string(a + b)}";
 ```
 
 ---
+
+## Nominal Types
+
+A `unique(<uuid>) type` declaration gives a type its own identity, distinct
+from any structurally identical type. That identity *is* the UUID:
+
+```ambient
+unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) type UserId { value: string }
+```
+
+UUID literals are written in canonical `8-4-4-4-12` form and **must be
+uppercase** (`0-9`, `A-F`). Uppercase is a lexical requirement, not a
+convention: the lexer recognizes an uppercase UUID as a single token, which
+keeps it unambiguous against identifiers, numbers, and future lowercase `0x`
+hex literals. A lowercase or malformed UUID is a syntax error. The stored
+value is canonicalized to lowercase for content addressing and display; only
+the *source syntax* is uppercase.
 
 ## Traits
 
@@ -143,7 +160,7 @@ The `Self` type refers to the implementing type.
 ### Implementing Traits
 
 ```ambient
-unique(d098767b-4093-4d5c-ba37-ad92aa7b5d98) type Money { cents: number }
+unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) type Money { cents: number }
 
 impl Show for Money {
   fn show(self): string {
@@ -239,7 +256,7 @@ is how a type grows an API that isn't shared behavior — no trait ceremony
 required:
 
 ```ambient
-unique(d098767b-4093-4d5c-ba37-ad92aa7b5d98) type Money { cents: number }
+unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) type Money { cents: number }
 
 impl Money {
   fn double(self): Money {
@@ -985,7 +1002,7 @@ fn factorial(n: number): number {
 
 ```ambient
 // Add and Eq come from the prelude; implementing them enables + and ==.
-unique(a1b2c3d4-0000-0000-0000-000000000001) type Vec2 { x: number, y: number }
+unique(A1B2C3D4-0000-0000-0000-000000000001) type Vec2 { x: number, y: number }
 
 impl Add for Vec2 {
   fn add(self, other: Vec2): Vec2 {

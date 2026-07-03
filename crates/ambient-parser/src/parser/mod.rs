@@ -483,15 +483,23 @@ impl<'src> Parser<'src> {
         // Check for unique
         let unique_id = if self.consume(TokenKind::Unique).is_some() {
             self.expect(TokenKind::LParen)?;
-            // UUIDs contain dashes which tokenize as minus, so we need to
-            // consume all tokens until the closing paren and concatenate them.
-            let mut uuid_parts = String::new();
-            while !self.check(TokenKind::RParen) && !self.at_end() {
-                let token = self.advance();
-                uuid_parts.push_str(&token.text);
-            }
+            // A canonical uppercase UUID lexes as a single `Uuid` token. If the
+            // parentheses hold anything else (lowercase, partial, or garbage),
+            // report a precise error but recover by skipping to the closing
+            // paren so the rest of the type alias — and editor completion while
+            // the UUID is still being typed — keeps working.
+            let id = if let Some(token) = self.consume(TokenKind::Uuid) {
+                Some(Arc::from(token.text.as_str()))
+            } else {
+                let span = self.current().span;
+                self.error(ParseError::new(ParseErrorKind::ExpectedUuid, span));
+                while !self.check(TokenKind::RParen) && !self.at_end() {
+                    self.advance();
+                }
+                None
+            };
             self.expect(TokenKind::RParen)?;
-            Some(Arc::from(uuid_parts.as_str()))
+            id
         } else {
             None
         };

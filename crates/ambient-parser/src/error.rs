@@ -113,6 +113,10 @@ pub enum ParseErrorKind {
     /// Invalid UUID in unique type declaration.
     InvalidUuid(String),
 
+    /// The `unique(...)` parentheses did not contain a canonical uppercase
+    /// UUID literal.
+    ExpectedUuid,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Name resolution errors
     // ─────────────────────────────────────────────────────────────────────────
@@ -150,6 +154,10 @@ impl fmt::Display for ParseErrorKind {
 
             Self::LoweringError(msg) => write!(f, "lowering error: {msg}"),
             Self::InvalidUuid(msg) => write!(f, "invalid UUID: {msg}"),
+            Self::ExpectedUuid => write!(
+                f,
+                "expected an uppercase UUID literal (e.g. A1B2C3D4-0000-0000-0000-000000000001)"
+            ),
 
             Self::UndefinedName(name) => write!(f, "undefined name '{name}'"),
             Self::DuplicateDefinition(name) => write!(f, "duplicate definition '{name}'"),

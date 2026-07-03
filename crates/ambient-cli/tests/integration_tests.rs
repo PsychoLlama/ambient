@@ -896,7 +896,7 @@ fn test_trait_definition_and_impl() {
             fn show(self): number;
         }
 
-        unique(a1b2c3d4-0000-0000-0000-000000000001) type Counter { value: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000001) type Counter { value: number }
 
         impl Show for Counter {
             fn show(self): number {
@@ -922,7 +922,7 @@ fn test_trait_method_with_args() {
             fn scale(self, factor: number): number;
         }
 
-        unique(a1b2c3d4-0000-0000-0000-000000000002) type Size { width: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000002) type Size { width: number }
 
         impl Scalable for Size {
             fn scale(self, factor: number): number {
@@ -948,7 +948,7 @@ fn test_operator_overloading_add() {
             fn add(self, other: Self): Self;
         }
 
-        unique(a1b2c3d4-0000-0000-0000-000000000003) type Money { cents: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000003) type Money { cents: number }
 
         impl Add for Money {
             fn add(self, other: Money): Money {
@@ -976,7 +976,7 @@ fn test_operator_overloading_eq() {
             fn eq(self, other: Self): bool;
         }
 
-        unique(a1b2c3d4-0000-0000-0000-000000000004) type Id { value: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000004) type Id { value: number }
 
         impl Eq for Id {
             fn eq(self, other: Id): bool {
@@ -1000,7 +1000,7 @@ fn test_default_trait_associated_call() {
     // `default(): Self`, invoked as `Type::default()`.
     CliTest::new(
         r#"
-        unique(a1b2c3d4-0000-0000-0000-000000000010) type Config { level: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000010) type Config { level: number }
 
         impl Default for Config {
             fn default(): Config {
@@ -1023,7 +1023,7 @@ fn test_default_trait_composes_with_operator() {
     // with operators like any other value.
     CliTest::new(
         r#"
-        unique(a1b2c3d4-0000-0000-0000-000000000011) type Vec2 { x: number, y: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000011) type Vec2 { x: number, y: number }
 
         impl Default for Vec2 {
             fn default(): Vec2 {
@@ -1057,7 +1057,7 @@ fn test_associated_trait_method_with_argument() {
             fn from_number(n: number): Self;
         }
 
-        unique(a1b2c3d4-0000-0000-0000-000000000012) type Wrapped { value: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000012) type Wrapped { value: number }
 
         impl FromNumber for Wrapped {
             fn from_number(n: number): Wrapped {
@@ -1084,7 +1084,7 @@ fn test_inherent_impl_method_call() {
     // dot dispatch resolves them without any trait.
     CliTest::new(
         r#"
-        unique(b1b2c3d4-0000-0000-0000-000000000001) type Money { cents: number }
+        unique(B1B2C3D4-0000-0000-0000-000000000001) type Money { cents: number }
 
         impl Money {
             fn double(self): Money {
@@ -1107,7 +1107,7 @@ fn test_inherent_impl_associated_call() {
     // `Type::method(args)` — no trait declaration needed.
     CliTest::new(
         r#"
-        unique(b1b2c3d4-0000-0000-0000-000000000002) type Money { cents: number }
+        unique(B1B2C3D4-0000-0000-0000-000000000002) type Money { cents: number }
 
         impl Money {
             fn from_dollars(d: number): Money {
@@ -1132,7 +1132,7 @@ fn test_inherent_impl_methods_call_each_other() {
     // methods can call each other regardless of declaration order.
     CliTest::new(
         r#"
-        unique(b1b2c3d4-0000-0000-0000-000000000003) type Counter { n: number }
+        unique(B1B2C3D4-0000-0000-0000-000000000003) type Counter { n: number }
 
         impl Counter {
             fn bump_twice(self): Counter {
@@ -1210,7 +1210,7 @@ fn test_inherent_method_with_ability() {
     // sites.
     CliTest::new(
         r#"
-        unique(b1b2c3d4-0000-0000-0000-000000000004) type Greeter { name: string }
+        unique(B1B2C3D4-0000-0000-0000-000000000004) type Greeter { name: string }
 
         impl Greeter {
             fn greet(self): () with Console {
@@ -1233,7 +1233,7 @@ fn test_inherent_method_undeclared_ability_error() {
     // rejected, exactly like a public function.
     CliTest::new(
         r#"
-        unique(b1b2c3d4-0000-0000-0000-000000000005) type Greeter { name: string }
+        unique(B1B2C3D4-0000-0000-0000-000000000005) type Greeter { name: string }
 
         impl Greeter {
             fn greet(self): () {
@@ -1256,7 +1256,7 @@ fn test_inherent_method_ability_required_at_call_site() {
     // function cannot call an effectful method.
     CliTest::new(
         r#"
-        unique(b1b2c3d4-0000-0000-0000-000000000006) type Greeter { name: string }
+        unique(B1B2C3D4-0000-0000-0000-000000000006) type Greeter { name: string }
 
         impl Greeter {
             fn greet(self): () with Console {
@@ -1279,7 +1279,7 @@ fn test_duplicate_inherent_method_error() {
     // for one dispatch symbol; coherence rejects the second.
     CliTest::new(
         r#"
-        unique(b1b2c3d4-0000-0000-0000-000000000007) type Money { cents: number }
+        unique(B1B2C3D4-0000-0000-0000-000000000007) type Money { cents: number }
 
         impl Money {
             fn double(self): Money {
@@ -1312,7 +1312,7 @@ fn test_inherent_method_shadows_trait_method() {
             fn double(self): Self;
         }
 
-        unique(b1b2c3d4-0000-0000-0000-000000000008) type Num { val: number }
+        unique(B1B2C3D4-0000-0000-0000-000000000008) type Num { val: number }
 
         impl Doubler for Num {
             fn double(self): Num {
@@ -1341,7 +1341,7 @@ fn test_inherent_impl_multiple_blocks_merge() {
     // names collide.
     CliTest::new(
         r#"
-        unique(b1b2c3d4-0000-0000-0000-000000000009) type Point { x: number, y: number }
+        unique(B1B2C3D4-0000-0000-0000-000000000009) type Point { x: number, y: number }
 
         impl Point {
             fn sum(self): number {
@@ -1387,7 +1387,7 @@ fn test_inherent_impl_missing_return_type_error() {
     // type must be declared.
     CliTest::new(
         r#"
-        unique(b1b2c3d4-0000-0000-0000-00000000000a) type Money { cents: number }
+        unique(B1B2C3D4-0000-0000-0000-00000000000A) type Money { cents: number }
 
         impl Money {
             fn double(self) {
@@ -1414,7 +1414,7 @@ fn test_multiple_traits_same_type() {
             fn triple(self): Self;
         }
 
-        unique(a1b2c3d4-0000-0000-0000-000000000005) type Num { val: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000005) type Num { val: number }
 
         impl Doubler for Num {
             fn double(self): Num {
@@ -1451,7 +1451,7 @@ fn test_impl_method_calls_top_level_function() {
             fn show(self): number;
         }
 
-        unique(a1b2c3d4-0000-0000-0000-000000000006) type Wrapper { value: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000006) type Wrapper { value: number }
 
         fn double(n: number): number { n * 2 }
 
@@ -1481,7 +1481,7 @@ fn test_impl_method_with_lambda() {
             fn apply(self): number;
         }
 
-        unique(a1b2c3d4-0000-0000-0000-000000000007) type Box { value: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000007) type Box { value: number }
 
         impl Transform for Box {
             fn apply(self): number {
@@ -1508,7 +1508,7 @@ fn test_operator_overloading_ne() {
             fn eq(self, other: Self): bool;
         }
 
-        unique(a1b2c3d4-0000-0000-0000-000000000008) type Id { value: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000008) type Id { value: number }
 
         impl Eq for Id {
             fn eq(self, other: Id): bool {
@@ -1536,7 +1536,7 @@ fn test_operator_overloading_ordering() {
             fn cmp(self, other: Self): number;
         }
 
-        unique(a1b2c3d4-0000-0000-0000-000000000009) type Money { cents: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000009) type Money { cents: number }
 
         impl Ord for Money {
             fn cmp(self, other: Money): number {
@@ -1605,7 +1605,7 @@ fn test_cross_module_trait_dispatch() {
             r#"
             use core::traits::Add;
 
-            pub unique(aaaabbbb-cccc-dddd-eeee-ffff00001111) type Money { cents: number }
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00001111) type Money { cents: number }
 
             impl Add for Money {
                 fn add(self, other: Money): Money {
@@ -1667,7 +1667,7 @@ fn test_cross_module_inherent_dispatch() {
         (
             "money.ab",
             r#"
-            pub unique(aaaabbbb-cccc-dddd-eeee-ffff00003333) type Money { cents: number }
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00003333) type Money { cents: number }
 
             impl Money {
                 fn doubled(self): number {
@@ -1723,7 +1723,7 @@ fn test_cross_module_duplicate_inherent_method_error() {
         (
             "a.ab",
             r#"
-            pub unique(aaaabbbb-cccc-dddd-eeee-ffff00004444) type Money { cents: number }
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00004444) type Money { cents: number }
 
             impl Money {
                 fn doubled(self): number { self.cents * 2 }
@@ -1898,7 +1898,7 @@ fn test_prelude_traits_no_import_needed() {
     // any use statement or local trait declaration.
     CliTest::new(
         r#"
-        unique(aaaabbbb-cccc-dddd-eeee-ffff00002222) type Meters { value: number }
+        unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00002222) type Meters { value: number }
 
         impl Add for Meters {
             fn add(self, other: Meters): Meters {
@@ -1998,7 +1998,7 @@ fn test_duplicate_impl_is_error() {
             fn show(self): number;
         }
 
-        unique(aaaabbbb-cccc-dddd-eeee-ffff00003333) type Id { value: number }
+        unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00003333) type Id { value: number }
 
         impl Show for Id {
             fn show(self): number { self.value }
@@ -2031,7 +2031,7 @@ fn test_ambiguous_method_is_error() {
             fn render(self): number;
         }
 
-        unique(aaaabbbb-cccc-dddd-eeee-ffff00004444) type Page { id: number }
+        unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00004444) type Page { id: number }
 
         impl Html for Page {
             fn render(self): number { self.id }
@@ -2173,7 +2173,7 @@ fn test_method_call_resolves_inside_perform_arguments() {
     // discarded and compilation failed.
     let (dir, pkg) = temp_package(
         r#"
-        unique(aaaabbbb-cccc-dddd-eeee-ffff00001111) type Point { x: number }
+        unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00001111) type Point { x: number }
 
         trait Doubled {
             fn doubled(self): number;
