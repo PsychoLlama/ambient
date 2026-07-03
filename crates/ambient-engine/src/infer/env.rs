@@ -144,14 +144,4 @@ impl TypeEnv {
     pub fn names(&self) -> &HashMap<Arc<str>, BindingId> {
         &self.names
     }
-
-    /// Iterate over all bindings with their names.
-    pub fn iter_named(&self) -> impl Iterator<Item = (BindingId, &Arc<str>, &Scheme)> + '_ {
-        self.bindings.iter().filter_map(move |(&id, scheme)| {
-            self.names
-                .iter()
-                .find(|&(_, &bid)| bid == id)
-                .map(|(name, _)| (id, name, scheme))
-        })
-    }
 }

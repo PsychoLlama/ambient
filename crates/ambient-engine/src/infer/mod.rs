@@ -331,6 +331,21 @@ impl Infer {
         self.current_abilities = self.current_abilities.union(abilities);
     }
 
+    /// Run `f` with a clean effect accumulator and return its result along
+    /// with the effects it accumulated. The previous accumulator is
+    /// restored either way; the caller decides where the inner effects
+    /// flow (a lambda carries them on its type, a handle discharges some,
+    /// a sandbox re-requires them after checking the restriction).
+    pub(crate) fn with_isolated_effects<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> (T, AbilitySet) {
+        let saved = std::mem::take(&mut self.current_abilities);
+        let result = f(self);
+        let inner = std::mem::replace(&mut self.current_abilities, saved);
+        (result, inner)
+    }
+
     /// Get the current ability requirements.
     #[must_use]
     pub fn current_abilities(&self) -> &AbilitySet {

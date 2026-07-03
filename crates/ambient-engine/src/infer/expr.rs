@@ -364,9 +364,8 @@ impl Infer {
                 // The abilities performed by the lambda's body belong to the
                 // lambda's own function type — the enclosing function only
                 // requires them if it actually calls the lambda.
-                let saved = std::mem::replace(&mut self.current_abilities, AbilitySet::Empty);
-                let body_result = self.infer_expr(&lambda_env, &mut lambda.body);
-                let lambda_abilities = std::mem::replace(&mut self.current_abilities, saved);
+                let (body_result, lambda_abilities) = self
+                    .with_isolated_effects(|infer| infer.infer_expr(&lambda_env, &mut lambda.body));
                 let ret_ty = body_result?;
 
                 Type::function_with_abilities(
@@ -611,9 +610,8 @@ impl Infer {
         // inspected in isolation — on the real node, not a clone:
         // inference records resolutions (trait method symbols, module-call
         // rewrites, expression types) that the compiler depends on.
-        let saved_abilities = std::mem::take(&mut self.current_abilities);
-        let body_result = self.infer_expr(env, &mut sandbox_expr.body);
-        let body_abilities = std::mem::replace(&mut self.current_abilities, saved_abilities);
+        let (body_result, body_abilities) =
+            self.with_isolated_effects(|infer| infer.infer_expr(env, &mut sandbox_expr.body));
         let body_ty = body_result?;
 
         // Enforce the restriction now if the body's effects are already

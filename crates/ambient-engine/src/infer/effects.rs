@@ -71,13 +71,12 @@ impl Infer {
         // inference records resolutions (trait methods, rewrites, types)
         // that the compiler reads, so it must run on real nodes, never
         // clones.
-        let saved_abilities = std::mem::take(&mut self.current_abilities);
-        let body_ty = self.infer_expr(env, &mut handle_expr.body)?;
-
+        let (body_result, body_abilities) =
+            self.with_isolated_effects(|infer| infer.infer_expr(env, &mut handle_expr.body));
         // Everything below (handler values, else clause, arm bodies) runs
         // outside the delimited body, so its effects accumulate for the
-        // enclosing context, on top of the saved set.
-        let body_abilities = std::mem::replace(&mut self.current_abilities, saved_abilities);
+        // enclosing context, on top of the restored set.
+        let body_ty = body_result?;
 
         // Collect handled abilities from handler values (from `with` clause).
         // The inferred `Handler<A>` type must land on the real expression:

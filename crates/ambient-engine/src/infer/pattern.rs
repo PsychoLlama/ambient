@@ -16,7 +16,8 @@ use crate::types::Type;
 use std::sync::Arc;
 
 impl Infer {
-    /// Infer types for a pattern and return extended environment.
+    /// Infer types for a pattern and return the environment extended with
+    /// its bindings.
     ///
     /// # Errors
     ///
@@ -27,8 +28,21 @@ impl Infer {
         pattern: &Pattern,
         expected: &Type,
     ) -> InferResult<TypeEnv> {
-        let span = (pattern.span.start, pattern.span.end);
         let mut new_env = env.extend();
+        self.bind_pattern(&mut new_env, pattern, expected)?;
+        Ok(new_env)
+    }
+
+    /// Check a pattern against the expected type, inserting its bindings
+    /// into `env` directly (nested patterns share the one environment
+    /// rather than merging copies).
+    fn bind_pattern(
+        &mut self,
+        env: &mut TypeEnv,
+        pattern: &Pattern,
+        expected: &Type,
+    ) -> InferResult<()> {
+        let span = (pattern.span.start, pattern.span.end);
 
         match &pattern.kind {
             PatternKind::Wildcard => {
@@ -51,10 +65,7 @@ impl Infer {
 
                 match (payload_ty, inner) {
                     (Some(payload), Some(inner_pat)) => {
-                        let pat_env = self.infer_pattern(&new_env, inner_pat, &payload)?;
-                        for (id, name, scheme) in pat_env.iter_named() {
-                            new_env.insert(id, name.clone(), scheme.clone());
-                        }
+                        self.bind_pattern(env, inner_pat, &payload)?;
                     }
                     (None, None) => {}
                     (expects_payload, _) => {
@@ -70,7 +81,7 @@ impl Infer {
             }
 
             PatternKind::Binding(id, name) => {
-                new_env.insert_mono(*id, name.clone(), expected.clone());
+                env.insert_mono(*id, name.clone(), expected.clone());
             }
 
             PatternKind::Literal(lit) => {
@@ -89,11 +100,7 @@ impl Infer {
                 self.unify(expected, &tuple_ty, span)?;
 
                 for (pat, ty) in patterns.iter().zip(elem_tys.iter()) {
-                    let pat_env = self.infer_pattern(&new_env, pat, ty)?;
-                    // Merge bindings
-                    for (id, name, scheme) in pat_env.iter_named() {
-                        new_env.insert(id, name.clone(), scheme.clone());
-                    }
+                    self.bind_pattern(env, pat, ty)?;
                 }
             }
 
@@ -106,14 +113,11 @@ impl Infer {
                 self.unify(expected, &record_ty, span)?;
 
                 for ((_, pat), (_, ty)) in field_patterns.iter().zip(field_tys.iter()) {
-                    let pat_env = self.infer_pattern(&new_env, pat, ty)?;
-                    for (id, name, scheme) in pat_env.iter_named() {
-                        new_env.insert(id, name.clone(), scheme.clone());
-                    }
+                    self.bind_pattern(env, pat, ty)?;
                 }
             }
         }
 
-        Ok(new_env)
+        Ok(())
     }
 }
