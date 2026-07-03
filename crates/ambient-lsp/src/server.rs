@@ -1369,36 +1369,14 @@ fn handle_notification(
                 *package_info = Some(pkg);
             }
 
-            // Analyze with cross-module support if we have a package
-            let result = if let Some(pkg) = package_info.as_ref() {
-                let module_path = pkg.uri_to_module_path(&uri);
-                let registry = pkg.build_registry();
-                analyze_with_registry(&text, module_path.as_ref(), Some(&registry))
-            } else {
-                analyze_with_registry(&text, None, None)
-            };
-
-            let diagnostics = collect_diagnostics(documents.get(&uri), &result);
-            publish_diagnostics(connection, uri.clone(), diagnostics, version)?;
-
-            // Update workspace index if we have a valid module
-            if let Some(ref module) = result.module {
-                workspace_index.update(uri.clone(), module);
-
-                // Update package info with the newly parsed module
-                if let Some(pkg) = package_info.as_mut() {
-                    pkg.update_module(&uri, &text, module.clone());
-                }
-
-                // Update symbol database and cascade to dependents
-                if let (Some(db), Some(pkg)) = (symbol_db.as_mut(), package_info.as_ref())
-                    && let Some(module_path) = pkg.uri_to_module_path(&uri)
-                {
-                    update_symbol_db(db, &module_path.to_string(), &uri, &text, module, pkg);
-                }
-            }
-
-            analysis_cache.insert(uri.as_str().to_string(), result);
+            reanalyze_document(
+                &uri,
+                documents,
+                analysis_cache,
+                workspace_index,
+                package_info,
+                connection,
+            )?;
         }
         DidChangeTextDocument::METHOD => {
             let params: DidChangeTextDocumentParams = serde_json::from_value(notif.params.clone())?;
@@ -1409,44 +1387,30 @@ fn handle_notification(
             if let Some(change) = params.content_changes.into_iter().next() {
                 documents.update(&uri, version, change.text.clone());
 
-                // Re-analyze with cross-module support
-                if let Some(doc) = documents.get(&uri) {
-                    let result = if let Some(pkg) = package_info.as_ref() {
-                        let module_path = pkg.uri_to_module_path(&uri);
-                        let registry = pkg.build_registry();
-                        analyze_with_registry(&doc.text, module_path.as_ref(), Some(&registry))
-                    } else {
-                        analyze_with_registry(&doc.text, None, None)
-                    };
-
-                    let diagnostics = collect_diagnostics(Some(doc), &result);
-                    publish_diagnostics(connection, uri.clone(), diagnostics, version)?;
-
-                    // Update workspace index if we have a valid module
-                    if let Some(ref module) = result.module {
-                        workspace_index.update(uri.clone(), module);
-
-                        // Update package info with the newly parsed module
-                        if let Some(pkg) = package_info.as_mut() {
-                            pkg.update_module(&uri, &doc.text, module.clone());
-                        }
-
-                        // Update symbol database
-                        if let (Some(db), Some(pkg)) = (symbol_db.as_mut(), package_info.as_ref())
-                            && let Some(module_path) = pkg.uri_to_module_path(&uri)
-                        {
-                            update_symbol_db(
-                                db,
-                                &module_path.to_string(),
-                                &uri,
-                                &doc.text,
-                                module,
-                                pkg,
-                            );
-                        }
-                    }
-
-                    analysis_cache.insert(uri.as_str().to_string(), result);
+                // Re-analyze the changed file first so the module registry
+                // sees its new AST, then every other open document: a
+                // signature change here must surface (or clear) type
+                // errors in files that import it, which previously stayed
+                // stale until they were edited themselves.
+                reanalyze_document(
+                    &uri,
+                    documents,
+                    analysis_cache,
+                    workspace_index,
+                    package_info,
+                    connection,
+                )?;
+                let dependents: Vec<Uri> =
+                    documents.uris().filter(|u| **u != uri).cloned().collect();
+                for dependent in dependents {
+                    reanalyze_document(
+                        &dependent,
+                        documents,
+                        analysis_cache,
+                        workspace_index,
+                        package_info,
+                        connection,
+                    )?;
                 }
             }
         }
@@ -1515,17 +1479,44 @@ fn publish_diagnostics(
     Ok(())
 }
 
-/// Update the symbol database with a typed module and cascade to dependents.
+/// Re-analyze one open document: publish fresh diagnostics and refresh
+/// the caches that hang off its AST (analysis cache, workspace index,
+/// package module registry).
 ///
-/// Currently a no-op - symbol database updates will be integrated with compilation.
-fn update_symbol_db(
-    _db: &mut SymbolDb,
-    _module_path: &str,
-    _uri: &Uri,
-    _source: &str,
-    _module: &Module,
-    _pkg: &PackageInfo,
-) {
-    // TODO: Symbol database updates will be integrated with compilation.
-    // For now, the LSP uses WorkspaceIndex for cross-file features.
+/// Note the symbol database is *not* refreshed here — it is populated
+/// once from a full package compile at first open. Cross-file features
+/// backed by it (find-references, pkg completions) go stale after edits;
+/// making it incrementally updatable is an engine-level gap.
+fn reanalyze_document(
+    uri: &Uri,
+    documents: &DocumentStore,
+    analysis_cache: &mut HashMap<String, crate::analysis::AnalysisResult>,
+    workspace_index: &mut WorkspaceIndex,
+    package_info: &mut Option<PackageInfo>,
+    connection: &Connection,
+) -> anyhow::Result<()> {
+    let Some(doc) = documents.get(uri) else {
+        return Ok(());
+    };
+
+    let result = if let Some(pkg) = package_info.as_ref() {
+        let module_path = pkg.uri_to_module_path(uri);
+        let registry = pkg.build_registry();
+        analyze_with_registry(&doc.text, module_path.as_ref(), Some(&registry))
+    } else {
+        analyze_with_registry(&doc.text, None, None)
+    };
+
+    let diagnostics = collect_diagnostics(Some(doc), &result);
+    publish_diagnostics(connection, uri.clone(), diagnostics, doc.version)?;
+
+    if let Some(ref module) = result.module {
+        workspace_index.update(uri.clone(), module);
+        if let Some(pkg) = package_info.as_mut() {
+            pkg.update_module(uri, &doc.text, module.clone());
+        }
+    }
+
+    analysis_cache.insert(uri.as_str().to_string(), result);
+    Ok(())
 }

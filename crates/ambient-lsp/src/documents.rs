@@ -164,6 +164,11 @@ impl DocumentStore {
     pub fn get(&self, uri: &Uri) -> Option<&Document> {
         self.documents.get(uri)
     }
+
+    /// Iterate over all open document URIs.
+    pub fn uris(&self) -> impl Iterator<Item = &Uri> {
+        self.documents.keys()
+    }
 }
 
 #[cfg(test)]
