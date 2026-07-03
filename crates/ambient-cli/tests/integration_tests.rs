@@ -1074,6 +1074,333 @@ fn test_associated_trait_method_with_argument() {
     .expect_output("42");
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Inherent Impl Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_inherent_impl_method_call() {
+    // `impl Type { ... }` attaches methods directly to a nominal type;
+    // dot dispatch resolves them without any trait.
+    CliTest::new(
+        r#"
+        unique(b1b2c3d4-0000-0000-0000-000000000001) type Money { cents: number }
+
+        impl Money {
+            fn double(self): Money {
+                Money { cents: self.cents * 2 }
+            }
+        }
+
+        fn run(): number {
+            let m = Money { cents: 21 };
+            m.double().cents
+        }
+    "#,
+    )
+    .expect_output("42");
+}
+
+#[test]
+fn test_inherent_impl_associated_call() {
+    // A no-`self` inherent method is an associated function, called as
+    // `Type::method(args)` — no trait declaration needed.
+    CliTest::new(
+        r#"
+        unique(b1b2c3d4-0000-0000-0000-000000000002) type Money { cents: number }
+
+        impl Money {
+            fn from_dollars(d: number): Money {
+                Money { cents: d * 100 }
+            }
+            fn cents(self): number {
+                self.cents
+            }
+        }
+
+        fn run(): number {
+            Money::from_dollars(3).cents()
+        }
+    "#,
+    )
+    .expect_output("300");
+}
+
+#[test]
+fn test_inherent_impl_methods_call_each_other() {
+    // Inherent method signatures register before bodies are checked, so
+    // methods can call each other regardless of declaration order.
+    CliTest::new(
+        r#"
+        unique(b1b2c3d4-0000-0000-0000-000000000003) type Counter { n: number }
+
+        impl Counter {
+            fn bump_twice(self): Counter {
+                self.bump().bump()
+            }
+            fn bump(self): Counter {
+                Counter { n: self.n + 1 }
+            }
+        }
+
+        fn run(): number {
+            let c = Counter { n: 0 };
+            c.bump_twice().n
+        }
+    "#,
+    )
+    .expect_output("2");
+}
+
+#[test]
+fn test_inherent_impl_generic_option() {
+    // Generic inherent impls attach methods to built-in type constructors.
+    // The receiver's type arguments instantiate the impl's parameters.
+    CliTest::new(
+        r#"
+        impl<T> Option<T> {
+            fn get_or(self, fallback: T): T {
+                match self {
+                    Some(v) => v,
+                    None => fallback,
+                }
+            }
+        }
+
+        fn run(): number {
+            let a: Option<number> = Some(40);
+            let b: Option<number> = None;
+            a.get_or(0) + b.get_or(2)
+        }
+    "#,
+    )
+    .expect_output("42");
+}
+
+#[test]
+fn test_inherent_impl_generic_method_on_user_enum() {
+    // A generic method (its own type parameter, beyond the impl's) on a
+    // user-declared enum.
+    CliTest::new(
+        r#"
+        enum Box2 { Full(number), Empty }
+
+        impl Box2 {
+            fn map_or<U>(self, fallback: U, f: (number) -> U): U {
+                match self {
+                    Full(v) => f(v),
+                    Empty => fallback,
+                }
+            }
+        }
+
+        fn run(): number {
+            let b = Full(20);
+            b.map_or(0, (v) => v * 2) + Empty.map_or(2, (v) => v)
+        }
+    "#,
+    )
+    .expect_output("42");
+}
+
+#[test]
+fn test_inherent_method_with_ability() {
+    // Inherent methods declare effects like public functions: a `with`
+    // clause on the method, enforced on the body and required at call
+    // sites.
+    CliTest::new(
+        r#"
+        unique(b1b2c3d4-0000-0000-0000-000000000004) type Greeter { name: string }
+
+        impl Greeter {
+            fn greet(self): () with Console {
+                platform::Console::print!("hello ${self.name}");
+            }
+        }
+
+        pub fn run(): () with Console {
+            let g = Greeter { name: "world" };
+            g.greet();
+        }
+    "#,
+    )
+    .expect_output("hello world");
+}
+
+#[test]
+fn test_inherent_method_undeclared_ability_error() {
+    // A pure-signature inherent method whose body performs an ability is
+    // rejected, exactly like a public function.
+    CliTest::new(
+        r#"
+        unique(b1b2c3d4-0000-0000-0000-000000000005) type Greeter { name: string }
+
+        impl Greeter {
+            fn greet(self): () {
+                platform::Console::print!("hello");
+            }
+        }
+
+        fn run(): () {
+            let g = Greeter { name: "x" };
+            g.greet();
+        }
+    "#,
+    )
+    .expect_error("uses ability");
+}
+
+#[test]
+fn test_inherent_method_ability_required_at_call_site() {
+    // The method's declared abilities propagate to callers: a pure public
+    // function cannot call an effectful method.
+    CliTest::new(
+        r#"
+        unique(b1b2c3d4-0000-0000-0000-000000000006) type Greeter { name: string }
+
+        impl Greeter {
+            fn greet(self): () with Console {
+                platform::Console::print!("hello");
+            }
+        }
+
+        pub fn run(): () {
+            let g = Greeter { name: "x" };
+            g.greet();
+        }
+    "#,
+    )
+    .expect_error("uses ability");
+}
+
+#[test]
+fn test_duplicate_inherent_method_error() {
+    // Two definitions of the same method for the same type would compete
+    // for one dispatch symbol; coherence rejects the second.
+    CliTest::new(
+        r#"
+        unique(b1b2c3d4-0000-0000-0000-000000000007) type Money { cents: number }
+
+        impl Money {
+            fn double(self): Money {
+                Money { cents: self.cents * 2 }
+            }
+        }
+
+        impl Money {
+            fn double(self): Money {
+                Money { cents: self.cents * 4 }
+            }
+        }
+
+        fn run(): number {
+            Money { cents: 1 }.double().cents
+        }
+    "#,
+    )
+    .expect_error("duplicate inherent method");
+}
+
+#[test]
+fn test_inherent_method_shadows_trait_method() {
+    // Dispatch precedence: inherent methods win over same-named trait
+    // methods (like Rust), so adding an inherent method is a deliberate
+    // local override rather than an ambiguity error.
+    CliTest::new(
+        r#"
+        trait Doubler {
+            fn double(self): Self;
+        }
+
+        unique(b1b2c3d4-0000-0000-0000-000000000008) type Num { val: number }
+
+        impl Doubler for Num {
+            fn double(self): Num {
+                Num { val: self.val * 2 }
+            }
+        }
+
+        impl Num {
+            fn double(self): Num {
+                Num { val: self.val * 10 }
+            }
+        }
+
+        fn run(): number {
+            let n = Num { val: 4 };
+            n.double().val
+        }
+    "#,
+    )
+    .expect_output("40");
+}
+
+#[test]
+fn test_inherent_impl_multiple_blocks_merge() {
+    // Several impl blocks for one type merge; only duplicate method
+    // names collide.
+    CliTest::new(
+        r#"
+        unique(b1b2c3d4-0000-0000-0000-000000000009) type Point { x: number, y: number }
+
+        impl Point {
+            fn sum(self): number {
+                self.x + self.y
+            }
+        }
+
+        impl Point {
+            fn swap(self): Point {
+                Point { x: self.y, y: self.x }
+            }
+        }
+
+        fn run(): number {
+            let p = Point { x: 1, y: 41 };
+            p.swap().sum()
+        }
+    "#,
+    )
+    .expect_output("42");
+}
+
+#[test]
+fn test_inherent_impl_on_structural_type_error() {
+    // Structural types have no identity to attach methods to.
+    CliTest::new(
+        r#"
+        impl { x: number } {
+            fn get_x(self): number {
+                self.x
+            }
+        }
+
+        fn run(): number { 0 }
+    "#,
+    )
+    .expect_failure();
+}
+
+#[test]
+fn test_inherent_impl_missing_return_type_error() {
+    // Inherent method signatures are the dispatch contract; the return
+    // type must be declared.
+    CliTest::new(
+        r#"
+        unique(b1b2c3d4-0000-0000-0000-00000000000a) type Money { cents: number }
+
+        impl Money {
+            fn double(self) {
+                Money { cents: self.cents * 2 }
+            }
+        }
+
+        fn run(): number { 0 }
+    "#,
+    )
+    .expect_error("must declare a return type");
+}
+
 #[test]
 fn test_multiple_traits_same_type() {
     // Test implementing multiple traits for the same type
@@ -1329,6 +1656,240 @@ fn test_cross_module_trait_dispatch() {
         stdout.contains("450"),
         "expected 450 in output, got: {stdout}"
     );
+}
+
+#[test]
+fn test_cross_module_inherent_dispatch() {
+    // Inherent methods link across module boundaries exactly like trait
+    // methods: the dispatch symbol resolves by type identity, no import
+    // of the impl needed.
+    let (_dir, pkg) = temp_multi_package(&[
+        (
+            "money.ab",
+            r#"
+            pub unique(aaaabbbb-cccc-dddd-eeee-ffff00003333) type Money { cents: number }
+
+            impl Money {
+                fn doubled(self): number {
+                    self.cents * 2
+                }
+                fn zero(): Money {
+                    Money { cents: 0 }
+                }
+            }
+
+            pub fn make(cents: number): Money {
+                Money { cents: cents }
+            }
+            "#,
+        ),
+        (
+            "main.ab",
+            r#"
+            use pkg::money::{Money, make};
+
+            pub fn run(): number {
+                let m = make(100);
+                m.doubled() + Money::zero().cents
+            }
+            "#,
+        ),
+    ]);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&pkg)
+        .output()
+        .expect("failed to run ambient");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("200"),
+        "expected 200 in output, got: {stdout}"
+    );
+}
+
+#[test]
+fn test_cross_module_duplicate_inherent_method_error() {
+    // Two modules in the build closure defining the same inherent method
+    // for the same type is unresolvable ambiguity: both definitions claim
+    // one dispatch symbol. (Coherence is scoped to the build closure —
+    // modules never loaded into a program can't collide with it.)
+    let (_dir, pkg) = temp_multi_package(&[
+        (
+            "a.ab",
+            r#"
+            pub unique(aaaabbbb-cccc-dddd-eeee-ffff00004444) type Money { cents: number }
+
+            impl Money {
+                fn doubled(self): number { self.cents * 2 }
+            }
+
+            pub fn make(cents: number): Money {
+                Money { cents: cents }
+            }
+            "#,
+        ),
+        (
+            "b.ab",
+            r#"
+            use pkg::a::{Money};
+
+            impl Money {
+                fn doubled(self): number { self.cents * 4 }
+            }
+
+            pub fn touch(): number { 1 }
+            "#,
+        ),
+        (
+            "main.ab",
+            r#"
+            use pkg::a::{make};
+            use pkg::b::{touch};
+
+            pub fn run(): number {
+                make(touch()).doubled()
+            }
+            "#,
+        ),
+    ]);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&pkg)
+        .output()
+        .expect("failed to run ambient");
+    assert!(
+        !output.status.success(),
+        "duplicate cross-module inherent methods must be rejected"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("duplicate inherent method"),
+        "expected duplicate inherent method error, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_core_option_and_list_methods() {
+    // The core library's Option/Result/List helpers are exposed as real
+    // methods via inherent impls written in Ambient (core_lib/*.ab).
+    CliTest::new(
+        r#"
+        pub fn run(): number {
+            let doubled = Some(20).map((v) => v * 2).unwrap_or(0);
+            let empty = None.unwrap_or(2);
+            let list_sum = [1, 2, 3].map((x) => x * 10).fold(0, (acc, x) => acc + x);
+            let evens = [1, 2, 3, 4].filter((x) => x % 2 == 0).length();
+            let chained = Ok(5).map((v) => v + 1).ok().unwrap_or(0);
+            doubled + empty + list_sum + evens + chained
+        }
+    "#,
+    )
+    .expect_output("110");
+}
+
+#[test]
+fn test_core_method_and_module_call_coexist() {
+    // `Option::map(opt, f)` (module companion function) and `opt.map(f)`
+    // (inherent method) both resolve and agree.
+    CliTest::new(
+        r#"
+        pub fn run(): bool {
+            let via_module = core::Option::map(Some(5), (v) => v * 2);
+            let via_method = Some(5).map((v) => v * 2);
+            via_module.unwrap_or(0) == via_method.unwrap_or(1)
+        }
+    "#,
+    )
+    .expect_output("true");
+}
+
+#[test]
+fn test_user_cannot_redefine_core_method() {
+    // Core already defines `map` for Option; a user redefinition would
+    // compete for the same dispatch symbol and is rejected.
+    CliTest::new(
+        r#"
+        impl<T> Option<T> {
+            fn map<U>(self, f: (T) -> U): Option<U> {
+                None
+            }
+        }
+
+        fn run(): number { 0 }
+    "#,
+    )
+    .expect_error("duplicate inherent method");
+}
+
+#[test]
+fn test_inherent_impl_on_primitives() {
+    // Primitives carry inherent methods too — their type identity is the
+    // reserved lowercase head no user type can claim.
+    CliTest::new(
+        r#"
+        impl string {
+            fn shout(self): string {
+                core::string::to_upper(self)
+            }
+        }
+
+        impl number {
+            fn clamped(self, lo: number, hi: number): number {
+                core::math::min(core::math::max(self, lo), hi)
+            }
+        }
+
+        pub fn run(): string {
+            "hi ${(99).clamped(0, 42)} " + "there".shout()
+        }
+    "#,
+    )
+    .expect_output("hi 42 THERE");
+}
+
+#[test]
+fn test_string_concat_operator_at_runtime() {
+    // `+` on two strings concatenates (the checker has always admitted
+    // this; the VM used to reject it at runtime).
+    CliTest::new(
+        r#"
+        pub fn run(): string {
+            let name = "world";
+            "hello " + name + "!"
+        }
+    "#,
+    )
+    .expect_output("hello world!");
+}
+
+#[test]
+fn test_user_can_extend_core_type_with_new_method() {
+    // New method names on core types are fair game — extension without
+    // collision.
+    CliTest::new(
+        r#"
+        impl<T> Option<T> {
+            fn to_list(self): List<T> {
+                match self {
+                    Some(v) => [v],
+                    None => [],
+                }
+            }
+        }
+
+        pub fn run(): number {
+            Some(7).to_list().length() + None.to_list().length()
+        }
+    "#,
+    )
+    .expect_output("1");
 }
 
 #[test]

@@ -56,3 +56,30 @@ pub fn ok<T, E>(res: Result<T, E>): Option<T> {
         Err(_) => None,
     }
 }
+
+// Method forms: `res.map(f)`, `res.unwrap_or(x)`, ... The inherent impl
+// attaches these to the type itself; the module functions above remain
+// for the qualified-call style (`Result::map(res, f)`).
+impl<T, E> Result<T, E> {
+    fn is_ok(self): bool {
+        is_ok(self)
+    }
+    fn is_err(self): bool {
+        is_err(self)
+    }
+    fn unwrap_or(self, default: T): T {
+        unwrap_or(self, default)
+    }
+    fn map<U>(self, f: (T) -> U): Result<U, E> {
+        map(self, f)
+    }
+    fn map_err<F>(self, f: (E) -> F): Result<T, F> {
+        map_err(self, f)
+    }
+    fn and_then<U>(self, f: (T) -> Result<U, E>): Result<U, E> {
+        and_then(self, f)
+    }
+    fn ok(self): Option<T> {
+        ok(self)
+    }
+}

@@ -88,3 +88,39 @@ pub fn range(start: number, end: number): List<number> {
 pub fn sum(list: List<number>): number {
     fold(list, 0, (acc: number, x: number) => acc + x)
 }
+
+// Method forms: `list.map(f)`, `list.length()`, ... The inherent impl
+// attaches these to the type itself; the module functions above and the
+// intrinsics remain for the qualified-call style (`List::map(list, f)`).
+impl<T> List<T> {
+    fn map<U>(self, f: (T) -> U): List<U> {
+        map(self, f)
+    }
+    fn filter(self, pred: (T) -> bool): List<T> {
+        filter(self, pred)
+    }
+    fn fold<A>(self, init: A, f: (A, T) -> A): A {
+        fold(self, init, f)
+    }
+    fn any(self, pred: (T) -> bool): bool {
+        any(self, pred)
+    }
+    fn all(self, pred: (T) -> bool): bool {
+        all(self, pred)
+    }
+    fn length(self): number {
+        core::List::length(self)
+    }
+    fn is_empty(self): bool {
+        core::List::is_empty(self)
+    }
+    fn reverse(self): List<T> {
+        core::List::reverse(self)
+    }
+    fn append(self, item: T): List<T> {
+        core::List::append(self, item)
+    }
+    fn concat(self, other: List<T>): List<T> {
+        core::List::concat(self, other)
+    }
+}

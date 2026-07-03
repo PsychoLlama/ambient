@@ -35,3 +35,27 @@ pub fn or_else<T>(opt: Option<T>, fallback: () -> Option<T>): Option<T> {
         None => fallback(),
     }
 }
+
+// Method forms: `opt.map(f)`, `opt.unwrap_or(x)`, ... The inherent impl
+// attaches these to the type itself; the module functions above remain
+// for the qualified-call style (`Option::map(opt, f)`).
+impl<T> Option<T> {
+    fn map<U>(self, f: (T) -> U): Option<U> {
+        map(self, f)
+    }
+    fn and_then<U>(self, f: (T) -> Option<U>): Option<U> {
+        and_then(self, f)
+    }
+    fn or_else(self, fallback: () -> Option<T>): Option<T> {
+        or_else(self, fallback)
+    }
+    fn is_some(self): bool {
+        core::Option::is_some(self)
+    }
+    fn is_none(self): bool {
+        core::Option::is_none(self)
+    }
+    fn unwrap_or(self, fallback: T): T {
+        core::Option::unwrap_or(self, fallback)
+    }
+}

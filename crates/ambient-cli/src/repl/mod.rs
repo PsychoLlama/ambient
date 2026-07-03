@@ -455,14 +455,25 @@ fn compile_and_load_core_library(ctx: &mut ReplContext, vm: &mut Vm) {
             continue;
         };
 
+        // Type-check to resolve impl-method dispatch symbols — the compiler
+        // requires them for the core modules' inherent impl blocks. Check
+        // errors are ignored (compilation below fails on anything fatal).
+        let checked = ambient_engine::infer::check_module(module);
+
         // Compile the module
-        let Ok(compiled) = compile_module(&module) else {
+        let Ok(compiled) = compile_module(&checked.module) else {
             continue;
         };
 
         // Register each function with its qualified name and load into VM
         for (name, hash) in &compiled.function_names {
-            let qualified_name: std::sync::Arc<str> = format!("core.{module_name}.{name}").into();
+            // Impl-method symbols (`Option::map`) are already canonical
+            // dispatch names; module functions get their qualified path.
+            let qualified_name: std::sync::Arc<str> = if name.contains("::") {
+                std::sync::Arc::clone(name)
+            } else {
+                format!("core.{module_name}.{name}").into()
+            };
 
             // Register the hash so the expression compiler can find it
             ctx.register_core_function(qualified_name, *hash);
