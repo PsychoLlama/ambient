@@ -3,22 +3,17 @@
 // Higher-order operations built on the list intrinsics (core::List::length,
 // core::List::get, core::List::append). Compiled as ordinary Ambient modules
 // and content-addressed like user code.
-
-// Transform every element.
-pub fn map<T, U>(list: List<T>, f: (T) -> U): List<U> {
-    map_from(list, f, 0, [])
-}
+//
+// The combinators are exposed as inherent methods (`list.map(f)`), the
+// canonical core API. The sole free function is `range`: it has no receiver
+// (it constructs a list from two numbers), so it stays a qualified module
+// function (`core::List::range(start, end)`).
 
 fn map_from<T, U>(list: List<T>, f: (T) -> U, i: number, acc: List<U>): List<U> {
     match core::List::get(list, i) {
         Some(item) => map_from(list, f, i + 1, core::List::append(acc, f(item))),
         None => acc,
     }
-}
-
-// Keep only elements matching the predicate.
-pub fn filter<T>(list: List<T>, pred: (T) -> bool): List<T> {
-    filter_from(list, pred, 0, [])
 }
 
 fn filter_from<T>(list: List<T>, pred: (T) -> bool, i: number, acc: List<T>): List<T> {
@@ -31,21 +26,11 @@ fn filter_from<T>(list: List<T>, pred: (T) -> bool, i: number, acc: List<T>): Li
     }
 }
 
-// Fold from the left: fold([1, 2, 3], 0, (acc, x) => acc + x) == 6.
-pub fn fold<T, A>(list: List<T>, init: A, f: (A, T) -> A): A {
-    fold_from(list, init, f, 0)
-}
-
 fn fold_from<T, A>(list: List<T>, acc: A, f: (A, T) -> A, i: number): A {
     match core::List::get(list, i) {
         Some(item) => fold_from(list, f(acc, item), f, i + 1),
         None => acc,
     }
-}
-
-// True if any element matches the predicate.
-pub fn any<T>(list: List<T>, pred: (T) -> bool): bool {
-    any_from(list, pred, 0)
 }
 
 fn any_from<T>(list: List<T>, pred: (T) -> bool, i: number): bool {
@@ -55,11 +40,6 @@ fn any_from<T>(list: List<T>, pred: (T) -> bool, i: number): bool {
     }
 }
 
-// True if every element matches the predicate.
-pub fn all<T>(list: List<T>, pred: (T) -> bool): bool {
-    all_from(list, pred, 0)
-}
-
 fn all_from<T>(list: List<T>, pred: (T) -> bool, i: number): bool {
     match core::List::get(list, i) {
         Some(item) => pred(item) && all_from(list, pred, i + 1),
@@ -67,7 +47,8 @@ fn all_from<T>(list: List<T>, pred: (T) -> bool, i: number): bool {
     }
 }
 
-// The numbers start..end (end exclusive): range(1, 4) == [1, 2, 3].
+// The numbers start..end (end exclusive): range(1, 4) == [1, 2, 3]. Kept as a
+// free function because it takes no receiver, so it has no method form.
 pub fn range(start: number, end: number): List<number> {
     if start >= end {
         []
@@ -76,35 +57,41 @@ pub fn range(start: number, end: number): List<number> {
     }
 }
 
-// Sum of a list of numbers.
-pub fn sum(list: List<number>): number {
-    fold(list, 0, (acc: number, x: number) => acc + x)
-}
-
 // Method forms: `list.map(f)`, `list.length()`, ... The inherent impl
-// attaches these to the type itself; the module functions above and the
-// intrinsics remain for the qualified-call style (`List::map(list, f)`).
+// attaches these to the type itself; these methods (over the private
+// helpers above and the list intrinsics) are the canonical core API.
 impl<T> List<T> {
+    // Transform every element.
     fn map<U>(self, f: (T) -> U): List<U> {
-        map(self, f)
+        map_from(self, f, 0, [])
     }
+    // Keep only elements matching the predicate.
     fn filter(self, pred: (T) -> bool): List<T> {
-        filter(self, pred)
+        filter_from(self, pred, 0, [])
     }
+    // Fold from the left: [1, 2, 3].fold(0, (acc, x) => acc + x) == 6.
     fn fold<A>(self, init: A, f: (A, T) -> A): A {
-        fold(self, init, f)
+        fold_from(self, init, f, 0)
     }
+    // True if any element matches the predicate.
     fn any(self, pred: (T) -> bool): bool {
-        any(self, pred)
+        any_from(self, pred, 0)
     }
+    // True if every element matches the predicate.
     fn all(self, pred: (T) -> bool): bool {
-        all(self, pred)
+        all_from(self, pred, 0)
     }
     fn get(self, i: number): Option<T> {
         core::List::get(self, i)
     }
     fn head(self): Option<T> {
         core::List::head(self)
+    }
+    fn tail(self): List<T> {
+        core::List::tail(self)
+    }
+    fn first(self): Option<T> {
+        core::List::first(self)
     }
     fn last(self): Option<T> {
         core::List::last(self)
@@ -118,10 +105,25 @@ impl<T> List<T> {
     fn reverse(self): List<T> {
         core::List::reverse(self)
     }
+    fn sort(self): List<T> {
+        core::List::sort(self)
+    }
+    fn slice(self, start: number, end: number): List<T> {
+        core::List::slice(self, start, end)
+    }
     fn append(self, item: T): List<T> {
         core::List::append(self, item)
     }
     fn concat(self, other: List<T>): List<T> {
         core::List::concat(self, other)
+    }
+}
+
+// Sum of a list of numbers. A concrete-instantiation inherent impl: it
+// attaches `sum` only to `List<number>`, and coexists with the generic
+// `impl<T> List<T>` above.
+impl List<number> {
+    fn sum(self): number {
+        self.fold(0, (acc: number, x: number) => acc + x)
     }
 }

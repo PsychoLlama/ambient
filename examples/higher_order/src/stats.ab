@@ -1,5 +1,5 @@
 // A user module, imported whole with `use self::stats;`.
 
 pub fn mean(values: List<number>): number {
-    core::List::sum(values) / values.length()
+    values.sum() / values.length()
 }

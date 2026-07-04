@@ -1,19 +1,20 @@
 // Higher-order functions from the core library.
 //
 // core::List's map/filter/fold are ordinary Ambient functions — compiled,
-// content-addressed, and stored exactly like user code. They can be called
-// fully qualified (core::List::map), through a whole-module import
-// (use core::List; List::map), or as bare names (use core::List::{map}).
+// content-addressed, and stored exactly like user code. They are exposed as
+// inherent methods (the canonical core API), so combinator chains read left
+// to right. A core function with no receiver — like core::List::range — has
+// no method form and is still called qualified; user modules (self::stats)
+// are called the same qualified way.
 
-use core::List::{map, filter, fold};
 use self::stats;
 
 pub fn run(): () with platform::Console {
     let numbers = core::List::range(1, 11);
 
-    let squares = map(numbers, (x: number) => x * x);
-    let evens = filter(squares, (x: number) => is_even(x));
-    let total = fold(evens, 0, (acc: number, x: number) => acc + x);
+    let squares = numbers.map((x: number) => x * x);
+    let evens = squares.filter((x: number) => is_even(x));
+    let total = evens.fold(0, (acc: number, x: number) => acc + x);
 
     platform::Console::print!(core::string::from_number(total));
     platform::Console::print!(core::string::from_number(stats::mean(squares)));

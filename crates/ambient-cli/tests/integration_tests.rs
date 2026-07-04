@@ -2594,16 +2594,18 @@ fn test_string_index_of_returns_option() {
 #[test]
 fn test_core_functions_fully_qualified() {
     // Compiled core functions (not intrinsics) callable with no import.
+    // `range` is the surviving compiled core free function — combinators are
+    // now methods, so the chain uses `.sum()`.
     let (dir, pkg) = temp_package(
         r"
         pub fn run(): number {
-            core::List::sum(core::List::map([1, 2, 3], (x: number) => x * 2))
+            core::List::range(1, 5).sum()
         }
         ",
     );
     let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
     assert!(output.status.success(), "run failed: {output:?}");
-    assert!(String::from_utf8_lossy(&output.stdout).contains("12"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("10"));
     drop(dir);
 }
 
@@ -2615,7 +2617,7 @@ fn test_core_whole_module_import_alias() {
         use core::List;
 
         pub fn run(): number {
-            List::fold(List::range(1, 5), 0, (acc: number, x: number) => acc + x)
+            List::range(1, 5).fold(0, (acc: number, x: number) => acc + x)
         }
         ",
     );
@@ -2627,19 +2629,21 @@ fn test_core_whole_module_import_alias() {
 
 #[test]
 fn test_core_item_import() {
-    // `use core::List::{map, sum};` binds plain names.
+    // `use core::List::{range};` binds a plain name. (Combinators are now
+    // methods, so `range` — a receiverless core free function — is the
+    // importable plain name; the chain finishes with the `.sum()` method.)
     let (dir, pkg) = temp_package(
         r"
-        use core::List::{map, sum};
+        use core::List::{range};
 
         pub fn run(): number {
-            sum(map([1, 2, 3], (x: number) => x + 10))
+            range(1, 5).sum()
         }
         ",
     );
     let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
     assert!(output.status.success(), "run failed: {output:?}");
-    assert!(String::from_utf8_lossy(&output.stdout).contains("36"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("10"));
     drop(dir);
 }
 
@@ -2673,21 +2677,20 @@ fn test_non_brace_item_import() {
 
 #[test]
 fn test_non_brace_core_item_import() {
-    // The unification reaches core too: `use core::List::map;` binds the
-    // bare name `map` without braces.
+    // The unification reaches core too: `use core::List::range;` binds the
+    // bare name `range` without braces.
     let (dir, pkg) = temp_package(
         r"
-        use core::List::map;
-        use core::List::sum;
+        use core::List::range;
 
         pub fn run(): number {
-            sum(map([1, 2, 3], (x: number) => x + 10))
+            range(1, 4).sum()
         }
         ",
     );
     let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
     assert!(output.status.success(), "run failed: {output:?}");
-    assert!(String::from_utf8_lossy(&output.stdout).contains("36"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("6"));
     drop(dir);
 }
 

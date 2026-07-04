@@ -454,15 +454,17 @@ mod tests {
         let service = CompletionService::new();
         let completions = service.get_completions("core::List::", 12);
 
-        // Should show core::List functions like map, filter, fold
+        // core::List's module members are the intrinsics and the receiverless
+        // `range` free function — the combinators (`map`, `filter`, ...) are
+        // inherent methods now, so they surface on a receiver, not here.
         assert!(
-            completions.iter().any(|c| c.label == "map"),
-            "Should show map function, got: {:?}",
+            completions.iter().any(|c| c.label == "range"),
+            "Should show range function, got: {:?}",
             completions.iter().map(|c| &c.label).collect::<Vec<_>>()
         );
         assert!(
-            completions.iter().any(|c| c.label == "map"),
-            "Should show map function, got: {:?}",
+            completions.iter().any(|c| c.label == "head"),
+            "Should show head intrinsic, got: {:?}",
             completions.iter().map(|c| &c.label).collect::<Vec<_>>()
         );
     }
