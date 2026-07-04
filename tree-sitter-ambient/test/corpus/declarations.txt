@@ -309,3 +309,132 @@ pub ability Telemetry {
           name: (identifier)
           type: (identifier)))
       return_type: (unit_type))))
+
+================================================================================
+Trait definition
+================================================================================
+
+trait Show {
+  fn show(self): string;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (trait_definition
+    name: (identifier)
+    (trait_method
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)))
+      return_type: (identifier))))
+
+================================================================================
+Public trait with associated function
+================================================================================
+
+pub trait Default {
+  fn default(): Self;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (trait_definition
+    (visibility)
+    name: (identifier)
+    (trait_method
+      name: (identifier)
+      (parameter_list)
+      return_type: (identifier))))
+
+================================================================================
+Trait impl
+================================================================================
+
+impl Show for Money {
+  fn show(self): string {
+    to_string(self.cents)
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (impl_definition
+    trait: (identifier)
+    type: (identifier)
+    (function_definition
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)))
+      return_type: (identifier)
+      body: (block
+        (call_expression
+          (identifier)
+          (argument_list
+            (member_expression
+              (identifier)
+              (identifier))))))))
+
+================================================================================
+Inherent impl
+================================================================================
+
+impl Money {
+  fn double(self): number {
+    self.cents * 2
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (impl_definition
+    type: (identifier)
+    (function_definition
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)))
+      return_type: (identifier)
+      body: (block
+        (binary_expression
+          (member_expression
+            (identifier)
+            (identifier))
+          (number))))))
+
+================================================================================
+Generic inherent impl
+================================================================================
+
+impl<T> Option<T> {
+  fn get_or(self, fallback: T): T {
+    fallback
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (impl_definition
+    (type_parameters
+      (type_parameter
+        (identifier)))
+    type: (generic_type
+      (identifier)
+      (identifier))
+    (function_definition
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier))
+        (parameter
+          name: (identifier)
+          type: (identifier)))
+      return_type: (identifier)
+      body: (block
+        (identifier)))))

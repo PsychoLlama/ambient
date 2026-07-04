@@ -9,6 +9,9 @@
   "enum"
   "type"
   "ability"
+  "trait"
+  "impl"
+  "for"
   "use"
   "with"
   "handle"
@@ -42,6 +45,9 @@
 (ability_method
   name: (identifier) @function.method)
 
+(trait_method
+  name: (identifier) @function.method)
+
 (call_expression
   (identifier) @function.call)
 
@@ -68,6 +74,16 @@
 (handler_arm
   ability: (identifier) @type
   method: (identifier) @function.method)
+
+; Traits and impls
+(trait_definition
+  name: (identifier) @type)
+
+(impl_definition
+  trait: (identifier) @type)
+
+(impl_definition
+  type: (identifier) @type)
 
 ; Enums
 (enum_definition

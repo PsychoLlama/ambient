@@ -17,6 +17,12 @@
 ; Ability definitions
 (ability_definition) @indent.begin
 
+; Trait definitions
+(trait_definition) @indent.begin
+
+; Impl blocks
+(impl_definition) @indent.begin
+
 ; Type definitions with record body
 (type_definition
   (record_type_body) @indent.begin)

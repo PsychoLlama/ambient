@@ -12,6 +12,9 @@
 ; Ability methods (function signatures in ability definitions)
 (ability_method) @function.outer
 
+; Trait methods (function signatures in trait definitions)
+(trait_method) @function.outer
+
 ; Lambdas
 (lambda
   (_) @function.inner) @function.outer
@@ -31,6 +34,14 @@
 ; Ability definitions
 (ability_definition
   (ability_method)* @class.inner) @class.outer
+
+; Trait definitions
+(trait_definition
+  (trait_method)* @class.inner) @class.outer
+
+; Impl blocks
+(impl_definition
+  (function_definition)* @class.inner) @class.outer
 
 ; Type definitions with record body
 (type_definition

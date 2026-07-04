@@ -15,6 +15,12 @@
 ; Ability definitions
 (ability_definition) @fold
 
+; Trait definitions
+(trait_definition) @fold
+
+; Impl blocks
+(impl_definition) @fold
+
 ; Blocks
 (block) @fold
 

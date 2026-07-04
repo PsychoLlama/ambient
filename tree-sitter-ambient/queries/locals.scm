@@ -11,6 +11,9 @@
 ; Function bodies introduce scope
 (function_definition) @local.scope
 
+; Impl blocks introduce scope (type parameters span the methods)
+(impl_definition) @local.scope
+
 ; Blocks introduce scope
 (block) @local.scope
 
@@ -52,6 +55,10 @@
 
 ; Ability definitions
 (ability_definition
+  name: (identifier) @local.definition.type)
+
+; Trait definitions
+(trait_definition
   name: (identifier) @local.definition.type)
 
 ; Function parameters

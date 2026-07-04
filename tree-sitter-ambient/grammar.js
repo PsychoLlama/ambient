@@ -55,6 +55,8 @@ module.exports = grammar({
         $.type_definition,
         $.enum_definition,
         $.ability_definition,
+        $.trait_definition,
+        $.impl_definition,
         $.use_declaration
       ),
 
@@ -149,6 +151,45 @@ module.exports = grammar({
         ":",
         field("return_type", $._type),
         ";"
+      ),
+
+    // Traits declare shared behavior as a set of method signatures. Method
+    // bodies live in `impl` blocks, so a trait method looks like an ability
+    // method: `fn name(self, other: Self): Ret;`.
+    trait_definition: ($) =>
+      seq(
+        optional($.visibility),
+        "trait",
+        field("name", $.identifier),
+        optional($.type_parameters),
+        "{",
+        repeat($.trait_method),
+        "}"
+      ),
+
+    trait_method: ($) =>
+      seq(
+        "fn",
+        field("name", $.identifier),
+        optional($.type_parameters),
+        $.parameter_list,
+        ":",
+        field("return_type", $._type),
+        ";"
+      ),
+
+    // `impl Trait for Type { ... }` provides a trait's methods; `impl Type
+    // { ... }` (no `for`) attaches inherent methods directly. Both may be
+    // generic over the target's type parameters (`impl<T> Option<T> { ... }`).
+    impl_definition: ($) =>
+      seq(
+        "impl",
+        optional($.type_parameters),
+        optional(seq(field("trait", $._type), "for")),
+        field("type", $._type),
+        "{",
+        repeat($.function_definition),
+        "}"
       ),
 
     use_declaration: ($) => seq(optional($.visibility), "use", $.use_path, ";"),
