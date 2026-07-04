@@ -236,10 +236,7 @@ pub fn build_imported_hashes_from_compiled(
         // checking; only the resolved bindings matter for linking.
         for (local_name, resolved) in resolved_imports.imports {
             match resolved {
-                ResolvedImport::Symbol {
-                    from_module,
-                    export_kind: _,
-                } => {
+                ResolvedImport::Symbol { from_module, .. } => {
                     if let Some(module_hashes) = compiled_hashes.get(&from_module)
                         && let Some(hash) = module_hashes.get(&local_name)
                     {
@@ -284,6 +281,42 @@ pub fn build_imported_hashes_from_compiled(
     }
 
     hashes
+}
+
+/// Collect the enum definitions a module imports (`use pkg::m::{SomeEnum}`).
+///
+/// Enum constructors compile inline by tag rather than linking by hash,
+/// so cross-module enum use hands the compiler the imported definitions
+/// themselves — a separate channel from `imported_hashes`.
+#[must_use]
+pub fn build_imported_enums(
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> Vec<crate::ast::EnumDef> {
+    let mut enums = Vec::new();
+    let Ok(resolved) = registry.resolve_imports(module_path) else {
+        return enums;
+    };
+    for (name, import) in resolved.imports {
+        let ResolvedImport::Symbol {
+            from_module,
+            export_kind: crate::module_registry::ExportKind::Enum,
+            ..
+        } = import
+        else {
+            continue;
+        };
+        if let Some(info) = registry.get(&from_module) {
+            for item in &info.module.items {
+                if let ItemKind::Enum(def) = &item.kind
+                    && def.name == name
+                {
+                    enums.push(def.clone());
+                }
+            }
+        }
+    }
+    enums
 }
 
 /// Register and compile the embedded core library modules.
@@ -468,11 +501,16 @@ fn compile_loaded_module_with_registry(
         });
     }
 
-    let compiled = crate::compiler::compile_module_with_imports_and_source(
+    let source_file = file_path.display().to_string();
+    let compiled = crate::compiler::compile_module_with_options(
         &check_result.module,
-        &loaded.source,
-        &file_path.display().to_string(),
-        imported_hashes,
+        crate::compiler::CompileOptions {
+            source: Some(&loaded.source),
+            source_file: Some(&source_file),
+            imported_hashes: Some(imported_hashes),
+            imported_enums: build_imported_enums(module_path, registry),
+            prelude_abilities: &[],
+        },
     )
     .map_err(|e| BuildError::Compile {
         module: module_path.to_string(),

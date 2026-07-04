@@ -63,6 +63,7 @@ fn compile(src: &str) -> CompiledModule {
             source: Some(src),
             source_file: None,
             imported_hashes: None,
+            imported_enums: Vec::new(),
             prelude_abilities: &prelude,
         },
     )

@@ -82,6 +82,10 @@ fn check_module_core(
 
     // Phase 1: registration.
     let mut env = if let Some((module_path, registry)) = cross_module {
+        // Imported enums register first: foreign impl registration (next)
+        // must resolve an imported enum target to its uuid, or the impl's
+        // dispatch key won't match the call sites'.
+        register_imported_enums(&mut infer, module_path, registry);
         // Make the rest of the package's types, traits, and impls visible
         // (signatures only). Runs before local registration and import
         // resolution so imported signatures resolve foreign nominal types.
@@ -399,6 +403,40 @@ fn register_trait_def(infer: &mut Infer, trait_def: &crate::ast::TraitDef) {
 ///
 /// This runs before the current module's own registrations, so local
 /// declarations shadow foreign ones on name collisions.
+/// Register the enums a module imports (`use pkg::m::{SomeEnum}`) into the
+/// enum registry, as if they were declared locally: the type name resolves,
+/// and `register_enums` later binds their variant constructors and patterns
+/// alongside the local ones. Local declarations register afterwards, so
+/// they shadow imported variants — the same precedence the compiler applies.
+fn register_imported_enums(
+    infer: &mut Infer,
+    current_module: &ModulePath,
+    registry: &ModuleRegistry,
+) {
+    let Ok(resolved) = registry.resolve_imports(current_module) else {
+        return;
+    };
+    for (name, import) in resolved.imports {
+        let ResolvedImport::Symbol {
+            from_module,
+            export_kind: ExportKind::Enum,
+            ..
+        } = import
+        else {
+            continue;
+        };
+        if let Some(module_info) = registry.get(&from_module) {
+            for item in &module_info.module.items {
+                if let crate::ast::ItemKind::Enum(def) = &item.kind
+                    && def.name == name
+                {
+                    infer.enum_registry.register_def(def);
+                }
+            }
+        }
+    }
+}
+
 fn register_package_items(
     infer: &mut Infer,
     current_module: &ModulePath,
@@ -1419,8 +1457,31 @@ fn build_import_env(
                 }
             }
             ResolvedImport::Symbol {
+                export_kind: ExportKind::Enum,
+                ..
+            } => {
+                // Already registered by `register_imported_enums`, which
+                // runs before foreign impl registration; `register_enums`
+                // binds the constructors along with local ones.
+            }
+            ResolvedImport::Symbol {
+                export_kind: ExportKind::EnumVariant,
+                span,
+                ..
+            } => {
+                // Variants don't import piecemeal: pattern matching and
+                // constructor tags need the whole declaration.
+                errors.push(Box::new(TypeError::new(
+                    TypeErrorKind::ImportFailed {
+                        message: format!("`{name}` is an enum variant; import its enum instead"),
+                    },
+                    (span.start, span.end),
+                )));
+            }
+            ResolvedImport::Symbol {
                 from_module,
                 export_kind,
+                ..
             } => {
                 // Look up the symbol's type from the source module
                 if let Some(module_info) = registry.get(&from_module)
@@ -1458,6 +1519,13 @@ fn build_import_env(
 }
 
 /// Get the type scheme for a symbol from a module's AST.
+///
+/// Only functions and consts hydrate as value schemes. Enums don't: item
+/// imports register the whole definition into the enum registry (see
+/// `register_imported_enums`), and whole-module imports skip them — a
+/// qualified `alias::Variant` would type-check here but has no
+/// compile-time constructor entry, so binding it would trade a type error
+/// for a link failure.
 fn get_symbol_scheme(
     infer: &mut Infer,
     module: &crate::ast::Module,
@@ -1466,39 +1534,17 @@ fn get_symbol_scheme(
 ) -> Option<Scheme> {
     for item in &module.items {
         match (&item.kind, kind) {
-            (crate::ast::ItemKind::Function(func), ExportKind::Function) => {
-                if func.name.as_ref() == name {
-                    // Foreign function: no ability inference — an absent
-                    // `with` clause on an export means pure.
-                    return Some(build_function_scheme(infer, func, false));
-                }
+            (crate::ast::ItemKind::Function(func), ExportKind::Function)
+                if func.name.as_ref() == name =>
+            {
+                // Foreign function: no ability inference — an absent
+                // `with` clause on an export means pure.
+                return Some(build_function_scheme(infer, func, false));
             }
-            (crate::ast::ItemKind::Const(const_def), ExportKind::Const) => {
-                if const_def.name.as_ref() == name {
-                    return Some(Scheme::mono(const_def.ty.clone()));
-                }
-            }
-            (crate::ast::ItemKind::Enum(enum_def), ExportKind::Enum) => {
-                if enum_def.name.as_ref() == name {
-                    // For enum types, we return the type itself, carrying its
-                    // nominal identity. This is simplified — a full
-                    // implementation would handle generic enums.
-                    let ty = Type::Named(crate::types::NamedType::with_identity(
-                        Arc::clone(&enum_def.name),
-                        vec![],
-                        Some(enum_def.uuid),
-                    ));
-                    return Some(Scheme::mono(ty));
-                }
-            }
-            (crate::ast::ItemKind::Enum(enum_def), ExportKind::EnumVariant) => {
-                // An imported variant gets the same generic constructor
-                // scheme a local declaration would (`Some` is
-                // `∀T. (T) -> Option<T>`), built by the one shared builder.
-                let info = super::enums::EnumInfo::from_def(enum_def);
-                if let Some(idx) = info.variants.iter().position(|v| v.name.as_ref() == name) {
-                    return Some(info.constructor_scheme(&mut infer.r#gen, idx));
-                }
+            (crate::ast::ItemKind::Const(const_def), ExportKind::Const)
+                if const_def.name.as_ref() == name =>
+            {
+                return Some(Scheme::mono(const_def.ty.clone()));
             }
             _ => {}
         }

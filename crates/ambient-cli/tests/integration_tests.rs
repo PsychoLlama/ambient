@@ -1712,6 +1712,146 @@ fn test_cross_module_inherent_dispatch() {
 }
 
 #[test]
+fn test_cross_module_enum_import() {
+    // Importing an enum brings its type, variant constructors, and
+    // patterns into scope, exactly as if it were declared locally.
+    // Inherent methods dispatch by uuid, so they need no import at all.
+    let (_dir, pkg) = temp_multi_package(&[
+        (
+            "shapes.ab",
+            r#"
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00002222) enum Shape {
+                Circle(number),
+                Square(number),
+                Dot,
+            }
+
+            impl Shape {
+                fn area(self): number {
+                    match self {
+                        Circle(r) => 3 * r * r,
+                        Square(side) => side * side,
+                        Dot => 0,
+                    }
+                }
+            }
+            "#,
+        ),
+        (
+            "main.ab",
+            r#"
+            use pkg::shapes::{Shape};
+
+            fn describe(s: Shape): number {
+                match s {
+                    Circle(r) => r,
+                    Square(side) => side * 2,
+                    Dot => 100,
+                }
+            }
+
+            pub fn run(): number {
+                describe(Circle(10)) + describe(Dot) + Circle(2).area() + Square(3).area()
+            }
+            "#,
+        ),
+    ]);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&pkg)
+        .output()
+        .expect("failed to run ambient");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // 10 + 100 + 12 + 9
+    assert!(
+        stdout.contains("131"),
+        "expected 131 in output, got: {stdout}"
+    );
+}
+
+#[test]
+fn test_enum_variant_import_is_rejected() {
+    // Variants don't import piecemeal — patterns and constructor tags
+    // need the whole declaration in scope.
+    let (_dir, pkg) = temp_multi_package(&[
+        (
+            "shapes.ab",
+            r#"
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00005555) enum Shape {
+                Circle(number),
+                Dot,
+            }
+            "#,
+        ),
+        (
+            "main.ab",
+            r#"
+            use pkg::shapes::{Circle};
+
+            pub fn run(): number {
+                0
+            }
+            "#,
+        ),
+    ]);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&pkg)
+        .output()
+        .expect("failed to run ambient");
+    assert!(!output.status.success(), "expected variant import to fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("import its enum"),
+        "expected variant-import hint, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_private_enum_is_not_importable() {
+    // A bare `enum` (no `pub`) stays module-local.
+    let (_dir, pkg) = temp_multi_package(&[
+        (
+            "shapes.ab",
+            r#"
+            unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00006666) enum Secret {
+                Hidden,
+            }
+            "#,
+        ),
+        (
+            "main.ab",
+            r#"
+            use pkg::shapes::{Secret};
+
+            pub fn run(): number {
+                0
+            }
+            "#,
+        ),
+    ]);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&pkg)
+        .output()
+        .expect("failed to run ambient");
+    assert!(!output.status.success(), "expected private import to fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("not public"),
+        "expected visibility error, got: {stderr}"
+    );
+}
+
+#[test]
 fn test_cross_module_duplicate_inherent_method_error() {
     // Two modules in the build closure defining the same inherent method
     // for the same type is unresolvable ambiguity: both definitions claim

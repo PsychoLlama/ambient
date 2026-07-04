@@ -287,6 +287,7 @@ fn compile_loaded_module_with_registry(
             source: Some(&loaded.source),
             source_file: Some(&source_file),
             imported_hashes: Some(imported_hashes),
+            imported_enums: ambient_engine::build::build_imported_enums(module_path, registry),
             prelude_abilities: &prelude,
         },
     )

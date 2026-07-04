@@ -42,6 +42,8 @@ pub enum ResolvedImport {
         from_module: ModulePath,
         /// The kind of symbol.
         export_kind: ExportKind,
+        /// The span of the `use` item that created this import.
+        span: crate::ast::Span,
     },
 }
 
@@ -348,6 +350,7 @@ impl ModuleRegistry {
                                     ResolvedImport::Symbol {
                                         from_module: origin,
                                         export_kind: export.kind,
+                                        span: item.span,
                                     },
                                 );
                             }
@@ -788,6 +791,7 @@ mod tests {
             ResolvedImport::Symbol {
                 from_module,
                 export_kind,
+                ..
             } => {
                 assert_eq!(from_module.to_string(), "utils");
                 assert_eq!(*export_kind, ExportKind::Function);

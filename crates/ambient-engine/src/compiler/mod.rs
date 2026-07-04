@@ -629,21 +629,36 @@ impl ModuleContext {
             })
     }
 
+    /// Register one enum definition's variant constructors.
+    fn register_enum_def(&mut self, enum_def: &crate::ast::EnumDef) {
+        for (idx, variant) in enum_def.variants.iter().enumerate() {
+            self.enums.insert(
+                Arc::clone(&variant.name),
+                VariantInfo {
+                    enum_name: Arc::clone(&enum_def.name),
+                    #[allow(clippy::cast_possible_truncation)]
+                    tag: idx as u16,
+                    has_payload: variant.payload.is_some(),
+                },
+            );
+        }
+    }
+
+    /// Register imported enum definitions (from `use pkg::m::{SomeEnum}`).
+    /// Runs before [`Self::register_enums`], so local declarations shadow
+    /// imported variants, which shadow the prelude — the same precedence
+    /// the type checker applies.
+    fn register_imported_enums(&mut self, imported: &[crate::ast::EnumDef]) {
+        for enum_def in imported {
+            self.register_enum_def(enum_def);
+        }
+    }
+
     /// Register a module's enum declarations, shadowing prelude variants.
     fn register_enums(&mut self, module: &Module) {
         for item in &module.items {
             if let ItemKind::Enum(enum_def) = &item.kind {
-                for (idx, variant) in enum_def.variants.iter().enumerate() {
-                    self.enums.insert(
-                        Arc::clone(&variant.name),
-                        VariantInfo {
-                            enum_name: Arc::clone(&enum_def.name),
-                            #[allow(clippy::cast_possible_truncation)]
-                            tag: idx as u16,
-                            has_payload: variant.payload.is_some(),
-                        },
-                    );
-                }
+                self.register_enum_def(enum_def);
             }
         }
     }
@@ -691,6 +706,10 @@ pub struct CompileOptions<'a> {
     pub source_file: Option<&'a str>,
     /// Imported function names mapped to their content-addressed hashes.
     pub imported_hashes: Option<HashMap<Arc<str>, blake3::Hash>>,
+    /// Imported enum definitions (`use pkg::m::{SomeEnum}`). Constructors
+    /// inline by tag rather than linking by hash, so the compiler needs
+    /// the definitions themselves, not name→hash entries.
+    pub imported_enums: Vec<crate::ast::EnumDef>,
     /// Prelude abilities (embedder-resolved declaration modules, e.g. the
     /// platform bindings interface). Local declarations shadow them.
     pub prelude_abilities: &'a [std::sync::Arc<crate::ability_resolver::DynAbility>],
@@ -814,6 +833,7 @@ fn compile_module_impl(
         source,
         source_file,
         imported_hashes,
+        imported_enums,
         prelude_abilities,
     } = options;
     // Collect function definitions.
@@ -873,6 +893,7 @@ fn compile_module_impl(
     // Create module context for tracking lambdas discovered during
     // compilation, with the module's enum constructors registered.
     let mut ctx = ModuleContext::new();
+    ctx.register_imported_enums(&imported_enums);
     ctx.register_enums(module);
     ctx.register_prelude_abilities(prelude_abilities);
     ctx.register_abilities(module)?;
