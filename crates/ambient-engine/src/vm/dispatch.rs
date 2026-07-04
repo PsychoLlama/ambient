@@ -490,7 +490,7 @@ impl Vm {
                 }
 
                 Opcode::ListGet => {
-                    let index = self.pop_number("list_get")? as usize;
+                    let index = self.pop_number("list_get")?;
                     let list = match self.pop()? {
                         Value::List(elements) => elements,
                         other => {
@@ -501,9 +501,10 @@ impl Vm {
                             });
                         }
                     };
-                    let result = list
-                        .get(index)
-                        .cloned()
+                    // A negative or fractional index has no element. Casting
+                    // `f64 as usize` saturates negatives to 0, so guard first.
+                    let result = usize_index(index)
+                        .and_then(|index| list.get(index).cloned())
                         .map_or_else(Value::none, Value::some);
                     self.stack.push(result);
                 }
@@ -1492,5 +1493,22 @@ impl Vm {
                 }
             }
         }
+    }
+}
+
+/// Convert a numeric index into a `usize` suitable for slice access.
+///
+/// Returns `None` for values that cannot address an element: negatives,
+/// fractional numbers, and NaN/infinity. This guards against `f64 as usize`
+/// saturating negatives to `0`, which would otherwise make a negative index
+/// alias element `0`. Very large positive indices saturate to a huge `usize`,
+/// which is simply out of bounds for any real list, so no upper bound is
+/// needed here.
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+fn usize_index(index: f64) -> Option<usize> {
+    if index.is_finite() && index >= 0.0 && index.fract() == 0.0 {
+        Some(index as usize)
+    } else {
+        None
     }
 }

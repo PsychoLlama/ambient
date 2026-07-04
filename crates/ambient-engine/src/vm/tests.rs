@@ -1067,6 +1067,28 @@ fn test_list_get_out_of_bounds_is_none() {
 }
 
 #[test]
+fn test_list_get_negative_index_is_none() {
+    // A negative index must not alias element 0. `f64 as usize` saturates
+    // negatives to 0, so the VM has to guard against it explicitly.
+    let mut builder = BytecodeBuilder::new();
+    builder.emit_const(Value::Number(10.0));
+    builder.emit_const(Value::Number(20.0));
+    builder.emit_make_list(2);
+    builder.emit_const(Value::Number(-1.0)); // index
+    builder.emit_list_get();
+    builder.emit(Opcode::Return);
+
+    let func = builder.build(0, 0);
+    let hash = func.hash;
+
+    let mut vm = Vm::new();
+    vm.load_function(func);
+
+    let result = vm.call(&hash, vec![]);
+    assert_eq!(result, Ok(Value::none()));
+}
+
+#[test]
 fn test_list_length() {
     let mut builder = BytecodeBuilder::new();
     builder.emit_const(Value::Number(1.0));
