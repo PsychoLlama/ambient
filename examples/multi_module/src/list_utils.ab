@@ -8,10 +8,9 @@ pub fn sum(xs: List<number>): number {
 }
 
 fn sum_helper(xs: List<number>, acc: number): number {
-    if core::List::length(xs) == 0 {
-        acc
-    } else {
-        sum_helper(core::List::tail(xs), acc + core::List::head(xs))
+    match core::List::head(xs) {
+        Some(h) => sum_helper(core::List::tail(xs), acc + h),
+        None => acc,
     }
 }
 
@@ -21,48 +20,45 @@ pub fn product(xs: List<number>): number {
 }
 
 fn product_helper(xs: List<number>, acc: number): number {
-    if core::List::length(xs) == 0 {
-        acc
-    } else {
-        product_helper(core::List::tail(xs), acc * core::List::head(xs))
+    match core::List::head(xs) {
+        Some(h) => product_helper(core::List::tail(xs), acc * h),
+        None => acc,
     }
 }
 
-/// Finds the maximum value in a list.
+/// Finds the maximum value in a list (0 for an empty list).
 pub fn maximum(xs: List<number>): number {
-    if core::List::length(xs) == 0 {
-        0
-    } else {
-        max_helper(core::List::tail(xs), core::List::head(xs))
+    match core::List::head(xs) {
+        Some(h) => max_helper(core::List::tail(xs), h),
+        None => 0,
     }
 }
 
 fn max_helper(xs: List<number>, current: number): number {
-    if core::List::length(xs) == 0 {
-        current
-    } else {
-        let h = core::List::head(xs);
-        let new_max = if h > current { h } else { current };
-        max_helper(core::List::tail(xs), new_max)
+    match core::List::head(xs) {
+        Some(h) => {
+            let new_max = if h > current { h } else { current };
+            max_helper(core::List::tail(xs), new_max)
+        }
+        None => current,
     }
 }
 
-/// Finds the minimum value in a list.
+/// Finds the minimum value in a list (0 for an empty list).
 pub fn minimum(xs: List<number>): number {
-    if core::List::length(xs) == 0 {
-        0
-    } else {
-        min_helper(core::List::tail(xs), core::List::head(xs))
+    match core::List::head(xs) {
+        Some(h) => min_helper(core::List::tail(xs), h),
+        None => 0,
     }
 }
 
 fn min_helper(xs: List<number>, current: number): number {
-    if core::List::length(xs) == 0 {
-        current
-    } else {
-        let h = core::List::head(xs);
-        let new_min = if h < current { h } else { current };
-        min_helper(core::List::tail(xs), new_min)
+    match core::List::head(xs) {
+        Some(h) => {
+            let new_min = if h < current { h } else { current };
+            min_helper(core::List::tail(xs), new_min)
+        }
+        None => current,
     }
 }
 

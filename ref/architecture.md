@@ -850,7 +850,7 @@ infallible: it returns `false` when the path can't be inspected.
 ### Standard Functions
 
 ```ambient
-// Collections
+// Collections (head/get/first/last return Option — no sentinel values)
 List::map, List::filter, List::fold, List::concat, List::length, List::head, List::tail
 
 // Options
@@ -862,7 +862,7 @@ Result::map, Result::map_err, Result::and_then
 // Strings
 String::split, String::join, String::trim, String::contains, String::length
 
-// Conversion
+// Conversion (parsers return Option)
 to_string, parse_number, parse_bool
 ```
 
@@ -1148,11 +1148,6 @@ Roughly in priority order:
   construction)
 - Match exhaustiveness checking (a failing final variant arm is a
   runtime error today)
-- Honest partial operations: `List::head`/`get`/`first`/`last` and
-  `Map::get` are typed as returning the element while the runtime
-  substitutes `()` when it is missing. Decide between Option-returning
-  signatures and raising a catchable Exception, then fix the intrinsic
-  table (`compiler/intrinsics.rs` documents the offenders).
 - Name-aware type rendering: ability sets display as content hashes in
   compiler errors and IDE hover; rendering needs a resolver at every
   display site (one shared engine renderer, consumed by CLI and LSP)

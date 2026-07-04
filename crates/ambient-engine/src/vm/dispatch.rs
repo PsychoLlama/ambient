@@ -501,7 +501,10 @@ impl Vm {
                             });
                         }
                     };
-                    let result = list.get(index).cloned().unwrap_or(Value::Unit);
+                    let result = list
+                        .get(index)
+                        .cloned()
+                        .map_or_else(Value::none, Value::some);
                     self.stack.push(result);
                 }
 
@@ -574,7 +577,7 @@ impl Vm {
                             });
                         }
                     };
-                    let result = list.first().cloned().unwrap_or(Value::Unit);
+                    let result = list.first().cloned().map_or_else(Value::none, Value::some);
                     self.stack.push(result);
                 }
 
@@ -608,7 +611,7 @@ impl Vm {
                             });
                         }
                     };
-                    let result = list.last().cloned().unwrap_or(Value::Unit);
+                    let result = list.last().cloned().map_or_else(Value::none, Value::some);
                     self.stack.push(result);
                 }
 
@@ -809,11 +812,11 @@ impl Vm {
                             // Convert byte index to character index
                             #[allow(clippy::cast_precision_loss)]
                             let char_idx = s[..idx].chars().count() as f64;
-                            char_idx
+                            Value::some(Value::Number(char_idx))
                         }
-                        None => -1.0,
+                        None => Value::none(),
                     };
-                    self.stack.push(Value::Number(result));
+                    self.stack.push(result);
                 }
 
                 Opcode::StringRepeat => {
@@ -841,14 +844,8 @@ impl Vm {
                     let s = self.pop_string("parse_number")?;
                     let result = s.trim().parse::<f64>();
                     match result {
-                        Ok(n) => {
-                            self.stack
-                                .push(Value::tuple(vec![Value::Bool(true), Value::Number(n)]));
-                        }
-                        Err(_) => {
-                            self.stack
-                                .push(Value::tuple(vec![Value::Bool(false), Value::Number(0.0)]));
-                        }
+                        Ok(n) => self.stack.push(Value::some(Value::Number(n))),
+                        Err(_) => self.stack.push(Value::none()),
                     }
                 }
 
@@ -861,14 +858,8 @@ impl Vm {
                         _ => None,
                     };
                     match result {
-                        Some(b) => {
-                            self.stack
-                                .push(Value::tuple(vec![Value::Bool(true), Value::Bool(b)]));
-                        }
-                        None => {
-                            self.stack
-                                .push(Value::tuple(vec![Value::Bool(false), Value::Bool(false)]));
-                        }
+                        Some(b) => self.stack.push(Value::some(Value::Bool(b))),
+                        None => self.stack.push(Value::none()),
                     }
                 }
 
@@ -891,7 +882,7 @@ impl Vm {
                             });
                         }
                     };
-                    let result = map.get(&key).cloned().unwrap_or(Value::Unit);
+                    let result = map.get(&key).cloned().map_or_else(Value::none, Value::some);
                     self.stack.push(result);
                 }
 

@@ -17,14 +17,19 @@ fn parse_line(line: string): List<(string, string)> {
     } else {
         // Find the = separator
         let parts = core::string::split(trimmed, "=");
-        if core::List::length(parts) >= 2 {
-            let key = core::string::trim(core::List::get(parts, 0));
-            // Join remaining parts in case value contains =
-            let value_parts = core::List::tail(parts);
-            let value = core::string::trim(core::string::join(value_parts, "="));
-            [(key, value)]
-        } else {
-            []
+        match core::List::head(parts) {
+            Some(raw_key) => {
+                if core::List::length(parts) >= 2 {
+                    let key = core::string::trim(raw_key);
+                    // Join remaining parts in case value contains =
+                    let value_parts = core::List::tail(parts);
+                    let value = core::string::trim(core::string::join(value_parts, "="));
+                    [(key, value)]
+                } else {
+                    []
+                }
+            }
+            None => [],
         }
     }
 }
@@ -36,32 +41,31 @@ fn parse_config(text: string): List<(string, string)> {
 }
 
 fn parse_lines(lines: List<string>, acc: List<(string, string)>): List<(string, string)> {
-    if core::List::is_empty(lines) {
-        acc
-    } else {
-        let line = core::List::head(lines);
-        let rest = core::List::tail(lines);
-        let parsed = parse_line(line);
-        if core::List::is_empty(parsed) {
-            parse_lines(rest, acc)
-        } else {
-            parse_lines(rest, core::List::concat(acc, parsed))
+    match core::List::head(lines) {
+        Some(line) => {
+            let rest = core::List::tail(lines);
+            let parsed = parse_line(line);
+            if core::List::is_empty(parsed) {
+                parse_lines(rest, acc)
+            } else {
+                parse_lines(rest, core::List::concat(acc, parsed))
+            }
         }
+        None => acc,
     }
 }
 
 /// Looks up a value by key, returns default if not found.
 fn get_config(config: List<(string, string)>, key: string, default: string): string {
-    if core::List::is_empty(config) {
-        default
-    } else {
-        let entry = core::List::head(config);
-        let entry_key = entry.0;
-        if entry_key == key {
-            entry.1
-        } else {
-            get_config(core::List::tail(config), key, default)
+    match core::List::head(config) {
+        Some(entry) => {
+            if entry.0 == key {
+                entry.1
+            } else {
+                get_config(core::List::tail(config), key, default)
+            }
         }
+        None => default,
     }
 }
 

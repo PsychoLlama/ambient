@@ -173,12 +173,8 @@ fn str2_to_bool(_: &mut SigVars) -> Signature {
 fn list_to_list(v: &mut SigVars) -> Signature {
     sig(vec![list(v.var(0))], list(v.var(0)))
 }
-fn list_to_elem(v: &mut SigVars) -> Signature {
-    // NOTE: the runtime substitutes `()` for the missing element of an
-    // empty list / out-of-bounds index, which this signature does not
-    // admit. Making these partial operations honest (Option or a
-    // catchable throw) is an open language decision.
-    sig(vec![list(v.var(0))], v.var(0))
+fn list_to_opt_elem(v: &mut SigVars) -> Signature {
+    sig(vec![list(v.var(0))], Type::option(v.var(0)))
 }
 fn set2_to_set(v: &mut SigVars) -> Signature {
     sig(vec![set(v.var(0)), set(v.var(0))], set(v.var(0)))
@@ -344,14 +340,14 @@ static INTRINSICS: &[Intrinsic] = &[
         "get",
         2,
         EmitStrategy::Helper(Helper::ListGet),
-        |v| sig(vec![list(v.var(0)), Type::Number], v.var(0)),
+        |v| sig(vec![list(v.var(0)), Type::Number], Type::option(v.var(0))),
     ),
     intrinsic(
         &["core", "List"],
         "head",
         1,
         EmitStrategy::Helper(Helper::ListHead),
-        list_to_elem,
+        list_to_opt_elem,
     ),
     intrinsic(
         &["core", "List"],
@@ -386,14 +382,14 @@ static INTRINSICS: &[Intrinsic] = &[
         "first",
         1,
         EmitStrategy::Helper(Helper::ListHead),
-        list_to_elem,
+        list_to_opt_elem,
     ),
     intrinsic(
         &["core", "List"],
         "last",
         1,
         EmitStrategy::Opcode(Opcode::ListLast),
-        list_to_elem,
+        list_to_opt_elem,
     ),
     intrinsic(
         &["core", "List"],
@@ -520,7 +516,7 @@ static INTRINSICS: &[Intrinsic] = &[
         "index_of",
         2,
         EmitStrategy::Opcode(Opcode::StringIndexOf),
-        |_| sig(vec![Type::String, Type::String], Type::Number),
+        |_| sig(vec![Type::String, Type::String], Type::option(Type::Number)),
     ),
     intrinsic(
         &["core", "string"],
@@ -551,24 +547,14 @@ static INTRINSICS: &[Intrinsic] = &[
         "parse_number",
         1,
         EmitStrategy::Helper(Helper::ParseNumber),
-        |_| {
-            sig(
-                vec![Type::String],
-                Type::tuple(vec![Type::Bool, Type::Number]),
-            )
-        },
+        |_| sig(vec![Type::String], Type::option(Type::Number)),
     ),
     intrinsic(
         &["core", "convert"],
         "parse_bool",
         1,
         EmitStrategy::Helper(Helper::ParseBool),
-        |_| {
-            sig(
-                vec![Type::String],
-                Type::tuple(vec![Type::Bool, Type::Bool]),
-            )
-        },
+        |_| sig(vec![Type::String], Type::option(Type::Bool)),
     ),
     // ─────────────────────────────────────────────────────────────────────
     // core.map
@@ -586,9 +572,10 @@ static INTRINSICS: &[Intrinsic] = &[
         2,
         EmitStrategy::Opcode(Opcode::MapGet),
         |v| {
-            // NOTE: like List.get, the runtime substitutes `()` when the key
-            // is missing; the signature does not admit that.
-            sig(vec![map(v.var(0), v.var(1)), v.var(0)], v.var(1))
+            sig(
+                vec![map(v.var(0), v.var(1)), v.var(0)],
+                Type::option(v.var(1)),
+            )
         },
     ),
     intrinsic(

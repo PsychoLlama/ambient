@@ -17,11 +17,12 @@ pub fn variance(xs: List<number>): number {
 }
 
 fn sum_squared_diff(xs: List<number>, mean: number, acc: number): number {
-    if core::List::length(xs) == 0 {
-        acc
-    } else {
-        let diff = core::List::head(xs) - mean;
-        sum_squared_diff(core::List::tail(xs), mean, acc + diff * diff)
+    match core::List::head(xs) {
+        Some(h) => {
+            let diff = h - mean;
+            sum_squared_diff(core::List::tail(xs), mean, acc + diff * diff)
+        }
+        None => acc,
     }
 }
 

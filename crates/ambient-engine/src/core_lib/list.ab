@@ -10,10 +10,9 @@ pub fn map<T, U>(list: List<T>, f: (T) -> U): List<U> {
 }
 
 fn map_from<T, U>(list: List<T>, f: (T) -> U, i: number, acc: List<U>): List<U> {
-    if i >= core::List::length(list) {
-        acc
-    } else {
-        map_from(list, f, i + 1, core::List::append(acc, f(core::List::get(list, i))))
+    match core::List::get(list, i) {
+        Some(item) => map_from(list, f, i + 1, core::List::append(acc, f(item))),
+        None => acc,
     }
 }
 
@@ -23,12 +22,12 @@ pub fn filter<T>(list: List<T>, pred: (T) -> bool): List<T> {
 }
 
 fn filter_from<T>(list: List<T>, pred: (T) -> bool, i: number, acc: List<T>): List<T> {
-    if i >= core::List::length(list) {
-        acc
-    } else {
-        let item = core::List::get(list, i);
-        let next = if pred(item) { core::List::append(acc, item) } else { acc };
-        filter_from(list, pred, i + 1, next)
+    match core::List::get(list, i) {
+        Some(item) => {
+            let next = if pred(item) { core::List::append(acc, item) } else { acc };
+            filter_from(list, pred, i + 1, next)
+        }
+        None => acc,
     }
 }
 
@@ -38,10 +37,9 @@ pub fn fold<T, A>(list: List<T>, init: A, f: (A, T) -> A): A {
 }
 
 fn fold_from<T, A>(list: List<T>, acc: A, f: (A, T) -> A, i: number): A {
-    if i >= core::List::length(list) {
-        acc
-    } else {
-        fold_from(list, f(acc, core::List::get(list, i)), f, i + 1)
+    match core::List::get(list, i) {
+        Some(item) => fold_from(list, f(acc, item), f, i + 1),
+        None => acc,
     }
 }
 
@@ -51,12 +49,9 @@ pub fn any<T>(list: List<T>, pred: (T) -> bool): bool {
 }
 
 fn any_from<T>(list: List<T>, pred: (T) -> bool, i: number): bool {
-    if i >= core::List::length(list) {
-        false
-    } else if pred(core::List::get(list, i)) {
-        true
-    } else {
-        any_from(list, pred, i + 1)
+    match core::List::get(list, i) {
+        Some(item) => pred(item) || any_from(list, pred, i + 1),
+        None => false,
     }
 }
 
@@ -66,12 +61,9 @@ pub fn all<T>(list: List<T>, pred: (T) -> bool): bool {
 }
 
 fn all_from<T>(list: List<T>, pred: (T) -> bool, i: number): bool {
-    if i >= core::List::length(list) {
-        true
-    } else if pred(core::List::get(list, i)) {
-        all_from(list, pred, i + 1)
-    } else {
-        false
+    match core::List::get(list, i) {
+        Some(item) => pred(item) && all_from(list, pred, i + 1),
+        None => true,
     }
 }
 
@@ -107,6 +99,15 @@ impl<T> List<T> {
     }
     fn all(self, pred: (T) -> bool): bool {
         all(self, pred)
+    }
+    fn get(self, i: number): Option<T> {
+        core::List::get(self, i)
+    }
+    fn head(self): Option<T> {
+        core::List::head(self)
+    }
+    fn last(self): Option<T> {
+        core::List::last(self)
     }
     fn length(self): number {
         core::List::length(self)

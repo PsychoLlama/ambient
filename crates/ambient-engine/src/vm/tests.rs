@@ -1044,7 +1044,26 @@ fn test_list_get() {
     vm.load_function(func);
 
     let result = vm.call(&hash, vec![]);
-    assert_eq!(result, Ok(Value::Number(20.0)));
+    assert_eq!(result, Ok(Value::some(Value::Number(20.0))));
+}
+
+#[test]
+fn test_list_get_out_of_bounds_is_none() {
+    let mut builder = BytecodeBuilder::new();
+    builder.emit_const(Value::Number(10.0));
+    builder.emit_make_list(1);
+    builder.emit_const(Value::Number(5.0)); // index
+    builder.emit_list_get();
+    builder.emit(Opcode::Return);
+
+    let func = builder.build(0, 0);
+    let hash = func.hash;
+
+    let mut vm = Vm::new();
+    vm.load_function(func);
+
+    let result = vm.call(&hash, vec![]);
+    assert_eq!(result, Ok(Value::none()));
 }
 
 #[test]
@@ -1145,7 +1164,24 @@ fn test_list_head() {
     vm.load_function(func);
 
     let result = vm.call(&hash, vec![]);
-    assert_eq!(result, Ok(Value::Number(1.0)));
+    assert_eq!(result, Ok(Value::some(Value::Number(1.0))));
+}
+
+#[test]
+fn test_list_head_empty_is_none() {
+    let mut builder = BytecodeBuilder::new();
+    builder.emit_make_list(0);
+    builder.emit_list_head();
+    builder.emit(Opcode::Return);
+
+    let func = builder.build(0, 0);
+    let hash = func.hash;
+
+    let mut vm = Vm::new();
+    vm.load_function(func);
+
+    let result = vm.call(&hash, vec![]);
+    assert_eq!(result, Ok(Value::none()));
 }
 
 #[test]
@@ -1385,13 +1421,7 @@ fn test_parse_number_success() {
     vm.load_function(func);
 
     let result = vm.call(&hash, vec![]);
-    assert!(result.is_ok());
-    if let Ok(Value::Tuple(elements)) = result {
-        assert_eq!(elements[0], Value::Bool(true));
-        assert_eq!(elements[1], Value::Number(42.5));
-    } else {
-        panic!("Expected Tuple, got {:?}", result);
-    }
+    assert_eq!(result, Ok(Value::some(Value::Number(42.5))));
 }
 
 #[test]
@@ -1408,12 +1438,7 @@ fn test_parse_number_failure() {
     vm.load_function(func);
 
     let result = vm.call(&hash, vec![]);
-    assert!(result.is_ok());
-    if let Ok(Value::Tuple(elements)) = result {
-        assert_eq!(elements[0], Value::Bool(false));
-    } else {
-        panic!("Expected Tuple, got {:?}", result);
-    }
+    assert_eq!(result, Ok(Value::none()));
 }
 
 #[test]
@@ -1430,13 +1455,7 @@ fn test_parse_bool_success() {
     vm.load_function(func);
 
     let result = vm.call(&hash, vec![]);
-    assert!(result.is_ok());
-    if let Ok(Value::Tuple(elements)) = result {
-        assert_eq!(elements[0], Value::Bool(true));
-        assert_eq!(elements[1], Value::Bool(true));
-    } else {
-        panic!("Expected Tuple, got {:?}", result);
-    }
+    assert_eq!(result, Ok(Value::some(Value::Bool(true))));
 }
 
 #[test]
@@ -1453,12 +1472,7 @@ fn test_parse_bool_failure() {
     vm.load_function(func);
 
     let result = vm.call(&hash, vec![]);
-    assert!(result.is_ok());
-    if let Ok(Value::Tuple(elements)) = result {
-        assert_eq!(elements[0], Value::Bool(false));
-    } else {
-        panic!("Expected Tuple, got {:?}", result);
-    }
+    assert_eq!(result, Ok(Value::none()));
 }
 
 // =========================================================================

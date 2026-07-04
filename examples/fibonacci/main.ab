@@ -40,7 +40,7 @@ fn fib_list_helper(remaining: number, acc: List<number>): List<number> {
         acc
     } else {
         let len = core::List::length(acc);
-        let next = core::List::get(acc, len - 1) + core::List::get(acc, len - 2);
+        let next = acc.get(len - 1).unwrap_or(0) + acc.get(len - 2).unwrap_or(0);
         fib_list_helper(remaining - 1, core::List::append(acc, next))
     }
 }

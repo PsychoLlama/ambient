@@ -1,6 +1,8 @@
 //! List operations example.
 //!
 //! Demonstrates functional list manipulation using stdlib intrinsics.
+//! Partial operations (`head`, `get`) return `Option`, so recursion
+//! naturally terminates when `head` returns `None`.
 
 /// Sums all numbers in a list.
 fn sum(xs: List<number>): number {
@@ -8,10 +10,9 @@ fn sum(xs: List<number>): number {
 }
 
 fn sum_helper(xs: List<number>, acc: number): number {
-    if core::List::length(xs) == 0 {
-        acc
-    } else {
-        sum_helper(core::List::tail(xs), acc + core::List::head(xs))
+    match core::List::head(xs) {
+        Some(h) => sum_helper(core::List::tail(xs), acc + h),
+        None => acc,
     }
 }
 
@@ -21,10 +22,9 @@ fn product(xs: List<number>): number {
 }
 
 fn product_helper(xs: List<number>, acc: number): number {
-    if core::List::length(xs) == 0 {
-        acc
-    } else {
-        product_helper(core::List::tail(xs), acc * core::List::head(xs))
+    match core::List::head(xs) {
+        Some(h) => product_helper(core::List::tail(xs), acc * h),
+        None => acc,
     }
 }
 
@@ -34,44 +34,42 @@ fn double_all(xs: List<number>): List<number> {
 }
 
 fn map_double(xs: List<number>): List<number> {
-    if core::List::length(xs) == 0 {
-        []
-    } else {
-        core::List::concat([core::List::head(xs) * 2], map_double(core::List::tail(xs)))
+    match core::List::head(xs) {
+        Some(h) => core::List::concat([h * 2], map_double(core::List::tail(xs))),
+        None => [],
     }
 }
 
 /// Filters to keep only positive numbers.
 fn filter_positive(xs: List<number>): List<number> {
-    if core::List::length(xs) == 0 {
-        []
-    } else {
-        let h = core::List::head(xs);
-        let rest = filter_positive(core::List::tail(xs));
-        if h > 0 {
-            core::List::concat([h], rest)
-        } else {
-            rest
+    match core::List::head(xs) {
+        Some(h) => {
+            let rest = filter_positive(core::List::tail(xs));
+            if h > 0 {
+                core::List::concat([h], rest)
+            } else {
+                rest
+            }
         }
+        None => [],
     }
 }
 
-/// Finds the maximum element in a list.
+/// Finds the maximum element in a list (0 for an empty list).
 fn maximum(xs: List<number>): number {
-    if core::List::length(xs) == 0 {
-        0  // Default for empty list
-    } else {
-        max_helper(core::List::tail(xs), core::List::head(xs))
+    match core::List::head(xs) {
+        Some(h) => max_helper(core::List::tail(xs), h),
+        None => 0,
     }
 }
 
 fn max_helper(xs: List<number>, current_max: number): number {
-    if core::List::length(xs) == 0 {
-        current_max
-    } else {
-        let h = core::List::head(xs);
-        let new_max = if h > current_max { h } else { current_max };
-        max_helper(core::List::tail(xs), new_max)
+    match core::List::head(xs) {
+        Some(h) => {
+            let new_max = if h > current_max { h } else { current_max };
+            max_helper(core::List::tail(xs), new_max)
+        }
+        None => current_max,
     }
 }
 
@@ -81,12 +79,12 @@ fn count_even(xs: List<number>): number {
 }
 
 fn count_even_helper(xs: List<number>, acc: number): number {
-    if core::List::length(xs) == 0 {
-        acc
-    } else {
-        let h = core::List::head(xs);
-        let increment = if h % 2 == 0 { 1 } else { 0 };
-        count_even_helper(core::List::tail(xs), acc + increment)
+    match core::List::head(xs) {
+        Some(h) => {
+            let increment = if h % 2 == 0 { 1 } else { 0 };
+            count_even_helper(core::List::tail(xs), acc + increment)
+        }
+        None => acc,
     }
 }
 
@@ -102,13 +100,14 @@ fn drop_n(xs: List<number>, n: number): List<number> {
 
 /// Zips two lists into pairs (truncates to shorter length).
 fn zip_lists(xs: List<number>, ys: List<number>): List<(number, number)> {
-    if core::List::length(xs) == 0 {
-        []
-    } else if core::List::length(ys) == 0 {
-        []
-    } else {
-        let pair = (core::List::head(xs), core::List::head(ys));
-        core::List::concat([pair], zip_lists(core::List::tail(xs), core::List::tail(ys)))
+    match core::List::head(xs) {
+        Some(x) => match core::List::head(ys) {
+            Some(y) => {
+                core::List::concat([(x, y)], zip_lists(core::List::tail(xs), core::List::tail(ys)))
+            }
+            None => [],
+        },
+        None => [],
     }
 }
 
@@ -140,14 +139,15 @@ pub fn run(): number {
     let take_len = core::List::length(first_three);  // 3
     let drop_len = core::List::length(rest);  // 7
 
-    // Test reverse and sort (native intrinsics)
+    // Test reverse and sort (native intrinsics); the Option-returning
+    // accessors chain through `unwrap_or`.
     let reversed = core::List::reverse(numbers);
-    let first_reversed = core::List::head(reversed);  // 10
+    let first_reversed = reversed.head().unwrap_or(0);  // 10
 
     let unsorted = [5, 2, 8, 1, 9, 3];
     let sorted = core::List::sort(unsorted);
-    let first_sorted = core::List::head(sorted);  // 1
-    let last_sorted = core::List::get(sorted, 5);  // 9
+    let first_sorted = sorted.head().unwrap_or(0);  // 1
+    let last_sorted = sorted.get(5).unwrap_or(0);  // 9
 
     // Combine results for verification
     // 55 + 12 + 3 + 10 + 5 + 3 + 7 + 10 + 1 + 9 = 115
