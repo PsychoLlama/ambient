@@ -1,4 +1,4 @@
-// A user module, imported whole with `use self.stats;`.
+// A user module, imported whole with `use self::stats;`.
 
 pub fn mean(values: List<number>): number {
     core::List::sum(values) / core::List::length(values)

@@ -985,7 +985,7 @@ impl<'src> Parser<'src> {
         let mut path = Vec::new();
 
         loop {
-            // Check for grouped imports: `use pkg.module.{a, b};`
+            // Check for grouped imports: `use pkg::module::{a, b};`
             if self.check(TokenKind::LBrace) {
                 self.advance();
                 let mut items = Vec::new();
@@ -1071,7 +1071,7 @@ impl<'src> Parser<'src> {
                 Ok(CstUsePrefix::Self_(ident))
             }
             TokenKind::Super => {
-                // Parse chain of super.super.super...
+                // Parse chain of super::super::super...
                 let mut supers = Vec::new();
                 while self.check(TokenKind::Super) {
                     let token = self.current().clone();

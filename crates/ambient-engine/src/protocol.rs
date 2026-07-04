@@ -1,6 +1,6 @@
 //! Value serialization for code and data exchange between engines.
 //!
-//! This is the codec behind `core.protocol.serialize_value` /
+//! This is the codec behind `core::protocol::serialize_value` /
 //! `deserialize_value`: a bincode encoding of the wire-safe subset of
 //! runtime values. Remote-execution *protocols* are written in Ambient
 //! itself on top of the `Network` and `Execute` abilities (see
@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::value::Value;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Binary value serialization (for core.protocol intrinsics)
+// Binary value serialization (for core::protocol intrinsics)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Serializable representation of a Value for binary encoding.

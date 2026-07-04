@@ -441,7 +441,7 @@ impl Parser<'_> {
             return self.parse_sandbox_expr();
         }
 
-        // Identifier or qualified name (including pkg.module.function, core.module.function)
+        // Identifier or qualified name (including pkg::module::function, core::module::function)
         // Note: Self_ is NOT included here because in expressions `self` is an identifier
         // (the instance in a method), not a module prefix. Module prefix `self` is only
         // valid in import statements, which are parsed separately.

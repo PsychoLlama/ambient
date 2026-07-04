@@ -1,5 +1,5 @@
 //! The intrinsic function table: the single source of truth for every
-//! `core.*` builtin that compiles to dedicated bytecode.
+//! `core::*` builtin that compiles to dedicated bytecode.
 //!
 //! Each entry declares the intrinsic's qualified path, its full type
 //! signature, and how to emit its bytecode. The type checker
@@ -9,7 +9,7 @@
 //! but never type-checked).
 //!
 //! Intrinsics must be called with their full qualified path
-//! (`core.math.sqrt`, `core.List.head`, ...). Signatures may be generic:
+//! (`core::math::sqrt`, `core::List::head`, ...). Signatures may be generic:
 //! the signature builder receives a variable supply, and `vars.var(0)`
 //! names the same fresh inference variable at every use within one call
 //! site.
@@ -183,7 +183,7 @@ fn set2_to_set(v: &mut SigVars) -> Signature {
 /// Table of all intrinsic functions.
 static INTRINSICS: &[Intrinsic] = &[
     // ─────────────────────────────────────────────────────────────────────
-    // core.math
+    // core::math
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
         &["core", "math"],
@@ -326,7 +326,7 @@ static INTRINSICS: &[Intrinsic] = &[
         num1,
     ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.List
+    // core::List
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
         &["core", "List"],
@@ -418,7 +418,7 @@ static INTRINSICS: &[Intrinsic] = &[
         },
     ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.string
+    // core::string
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
         &["core", "string"],
@@ -533,7 +533,7 @@ static INTRINSICS: &[Intrinsic] = &[
         str_to_str,
     ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.convert
+    // core::convert
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
         &["core", "convert"],
@@ -557,7 +557,7 @@ static INTRINSICS: &[Intrinsic] = &[
         |_| sig(vec![Type::String], Type::option(Type::Bool)),
     ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.map
+    // core::map
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
         &["core", "map"],
@@ -631,7 +631,7 @@ static INTRINSICS: &[Intrinsic] = &[
         |v| sig(vec![map(v.var(0), v.var(1))], list(v.var(1))),
     ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.set
+    // core::set
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
         &["core", "set"],
@@ -697,7 +697,7 @@ static INTRINSICS: &[Intrinsic] = &[
         |v| sig(vec![set(v.var(0))], list(v.var(0))),
     ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.enum - Enum operations (general)
+    // core::enum - Enum operations (general)
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
         &["core", "enum"],
@@ -716,7 +716,7 @@ static INTRINSICS: &[Intrinsic] = &[
         |v| sig(vec![v.var(0)], v.var(1)),
     ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.protocol - Binary protocol operations
+    // core::protocol - Binary protocol operations
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
         &["core", "protocol"],
@@ -768,7 +768,7 @@ static INTRINSICS: &[Intrinsic] = &[
         |_| sig(vec![Type::Bytes], Type::String),
     ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.bytes
+    // core::bytes
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
         &["core", "bytes"],

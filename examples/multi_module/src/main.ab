@@ -2,7 +2,7 @@
 //!
 //! Demonstrates the module system with imports:
 //! - `use pkg::module;` for package-relative imports
-//! - `use self.sibling;` for same-directory imports
+//! - `use self::sibling;` for same-directory imports
 //! - `use pkg::module::{item1, item2};` for specific items
 
 // Import specific functions from math_utils

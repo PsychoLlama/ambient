@@ -443,6 +443,6 @@ mod tests {
         // The same perform with the namespace succeeds.
         let qualified = platform_ability("Printer");
         let result = infer.lookup_ability_method(&qualified, "go", &[Type::String], span());
-        assert!(result.is_ok(), "platform.Printer.go should succeed");
+        assert!(result.is_ok(), "platform::Printer::go should succeed");
     }
 }

@@ -831,14 +831,14 @@ pub struct AbilityMethod {
 /// A use/import statement.
 ///
 /// Examples:
-/// - `use pkg.utils;` - Import module
-/// - `use pkg.utils.helper;` - Import specific item
-/// - `use pkg.utils.{helper, format};` - Import multiple items
-/// - `use pkg.utils.*;` - Import all public items
-/// - `use self.sibling;` - Relative import (same directory)
-/// - `use super.parent;` - Parent directory import
-/// - `use core.List;` - Standard library import
-/// - `pub use pkg.other.Thing;` - Re-export
+/// - `use pkg::utils;` - Import module
+/// - `use pkg::utils::helper;` - Import specific item
+/// - `use pkg::utils::{helper, format};` - Import multiple items
+/// - `use pkg::utils::*;` - Import all public items
+/// - `use self::sibling;` - Relative import (same directory)
+/// - `use super::parent;` - Parent directory import
+/// - `use core::List;` - Standard library import
+/// - `pub use pkg::other::Thing;` - Re-export
 #[derive(Debug, Clone)]
 pub struct UseDef {
     /// Whether this is a public re-export.
@@ -854,24 +854,24 @@ pub struct UseDef {
 /// The prefix of a use path, determining the root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UsePrefix {
-    /// `pkg.module` - Local package
+    /// `pkg::module` - Local package
     Pkg,
-    /// `core.module` - Standard library
+    /// `core::module` - Standard library
     Core,
-    /// `self.sibling` - Same directory as current module
+    /// `self::sibling` - Same directory as current module
     Self_,
-    /// `super.module` - Parent directory (can be chained: super.super)
-    /// The number indicates how many levels up (1 for super, 2 for super.super)
+    /// `super::module` - Parent directory (can be chained: `super::super`)
+    /// The number indicates how many levels up (1 for super, 2 for `super::super`)
     Super(usize),
 }
 
 /// What to import from a use path.
 #[derive(Debug, Clone)]
 pub enum UseKind {
-    /// Import the module itself: `use pkg.utils;`
+    /// Import the module itself: `use pkg::utils;`
     /// Brings the module name into scope.
     Module,
-    /// Import specific items: `use pkg.utils.{helper, format};`
+    /// Import specific items: `use pkg::utils::{helper, format};`
     Items(Vec<Arc<str>>),
 }
 

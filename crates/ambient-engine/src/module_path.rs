@@ -42,14 +42,14 @@ pub enum ResolutionError {
 /// The prefix of an import path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportPrefix {
-    /// Local package: `pkg.module`
+    /// Local package: `pkg::module`
     Pkg,
-    /// Standard library: `core.module`
+    /// Standard library: `core::module`
     Core,
-    /// Same directory: `self.sibling`
+    /// Same directory: `self::sibling`
     Self_,
-    /// Parent directory: `super.parent`, `super.super.grandparent`
-    /// The usize is how many levels up (1 for `super`, 2 for `super.super`, etc.)
+    /// Parent directory: `super::parent`, `super::super::grandparent`
+    /// The usize is how many levels up (1 for `super`, 2 for `super::super`, etc.)
     Super(usize),
 }
 

@@ -388,13 +388,13 @@ pub struct CstAbilityMethod {
 /// A use/import definition.
 ///
 /// Examples:
-/// - `use pkg.utils;`
-/// - `use pkg.utils.helper;`
-/// - `use pkg.utils.{helper, format};`
-/// - `use self.sibling;`
-/// - `use super.parent;`
-/// - `use core.List;`
-/// - `pub use pkg.other.Thing;`
+/// - `use pkg::utils;`
+/// - `use pkg::utils::helper;`
+/// - `use pkg::utils::{helper, format};`
+/// - `use self::sibling;`
+/// - `use super::parent;`
+/// - `use core::List;`
+/// - `pub use pkg::other::Thing;`
 #[derive(Debug, Clone)]
 pub struct CstUseDef {
     /// Whether this is a public re-export (`pub use`).
@@ -412,22 +412,22 @@ pub struct CstUseDef {
 /// The prefix of a use path.
 #[derive(Debug, Clone)]
 pub enum CstUsePrefix {
-    /// `pkg.module` - Local package
+    /// `pkg::module` - Local package
     Pkg(CstIdent),
-    /// `core.module` - Standard library
+    /// `core::module` - Standard library
     Core(CstIdent),
-    /// `self.module` - Same directory
+    /// `self::module` - Same directory
     Self_(CstIdent),
-    /// `super.module` - Parent directory (stores the chain of super keywords)
+    /// `super::module` - Parent directory (stores the chain of super keywords)
     Super(Vec<CstIdent>),
 }
 
 /// What to import from a use path.
 #[derive(Debug, Clone)]
 pub enum CstUseKind {
-    /// Import the module itself: `use pkg.utils;`
+    /// Import the module itself: `use pkg::utils;`
     Module,
-    /// Import specific items: `use pkg.utils.{a, b}`.
+    /// Import specific items: `use pkg::utils::{a, b}`.
     Items(Vec<CstIdent>),
 }
 

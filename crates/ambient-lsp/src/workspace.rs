@@ -83,13 +83,13 @@ pub struct PathSegment {
 /// The prefix of a use path for the LSP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UsePrefixInfo {
-    /// `pkg.module` - Local package
+    /// `pkg::module` - Local package
     Pkg,
-    /// `core.module` - Core library
+    /// `core::module` - Core library
     Core,
-    /// `self.sibling` - Same directory
+    /// `self::sibling` - Same directory
     Self_,
-    /// `super.module` - Parent directory with level count
+    /// `super::module` - Parent directory with level count
     Super(usize),
 }
 
@@ -107,9 +107,9 @@ impl From<&UsePrefix> for UsePrefixInfo {
 /// What is imported from a use path.
 #[derive(Debug, Clone)]
 pub enum UseKindInfo {
-    /// Import the module itself: `use pkg.module;`.
+    /// Import the module itself: `use pkg::module;`.
     Module,
-    /// Import specific items: `use pkg.module.{a, b}`.
+    /// Import specific items: `use pkg::module::{a, b}`.
     Items(Vec<Arc<str>>),
 }
 

@@ -30,10 +30,10 @@ pub struct CompletionContext<'a> {
     pub after_dot: bool,
     /// Whether we're after an ability name (for method completion).
     pub after_ability_dot: Option<&'a str>,
-    /// Whether we're after `core.` (for core library module completion).
+    /// Whether we're after `core::` (for core library module completion).
     pub after_core_dot: bool,
-    /// Whether we're after `core.<submodule>.` (for core submodule member completion).
-    /// Contains the submodule name (e.g., "List" for "core.List.").
+    /// Whether we're after `core::<submodule>::` (for core submodule member completion).
+    /// Contains the submodule name (e.g., "List" for `core::List::`).
     pub after_core_submodule_dot: Option<&'a str>,
     /// Whether we're after a pkg module path (for pkg module member completion).
     /// Contains the module path (e.g., "utils" for "utils." or "utils.format" for "utils.format.").

@@ -32,7 +32,7 @@ pub enum RegistryError {
 /// A resolved import - what a name refers to after processing `use` statements.
 #[derive(Debug, Clone)]
 pub enum ResolvedImport {
-    /// The import refers to a module itself (e.g., `use pkg.utils;`)
+    /// The import refers to a module itself (e.g., `use pkg::utils;`)
     Module(ModulePath),
     /// The import refers to a specific symbol from a module.
     Symbol {

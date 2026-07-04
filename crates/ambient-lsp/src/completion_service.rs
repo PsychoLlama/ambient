@@ -149,7 +149,7 @@ impl CompletionService {
         let mut items = get_completions(&ctx, module, None, &self.resolver);
 
         // Add external symbols, but only when not in a specific module context.
-        // Skip when completing core.List.*, core.*, Console.*, etc. since those
+        // Skip when completing core::List::*, core::*, Console::*, etc. since those
         // have their own specific completions.
         let in_specific_context = ctx.after_core_submodule_dot.is_some()
             || ctx.after_core_dot

@@ -1519,7 +1519,7 @@ fn build_import_env(
         for resolved_import in bindings {
             match resolved_import {
                 ResolvedImport::Module(target_path) => {
-                    // Whole-module import (`use pkg.utils;` / `use core.List;`):
+                    // Whole-module import (`use pkg::utils;` / `use core::List;`):
                     // bind every public export under the qualified name
                     // `<alias>.<export>`, which is how qualified expressions
                     // look it up (see `ExprKind::Name` inference).
