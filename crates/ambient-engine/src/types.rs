@@ -986,6 +986,17 @@ impl ForallType {
     }
 }
 
+/// Canonical nominal identity of the built-in `Option` enum.
+///
+/// `Option`/`Result` are reserved-name prelude enums that predate the
+/// `unique(<uuid>)` syntax, so they cannot spell their identity in source.
+/// They take these fixed, reserved uuids instead. The all-`f` prefix marks
+/// them as built-ins and keeps them clear of any real (v4) enum uuid.
+pub const OPTION_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ff01);
+
+/// Canonical nominal identity of the built-in `Result` enum. See [`OPTION_UUID`].
+pub const RESULT_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ff02);
+
 /// A named type constructor (like `List<T>` or `Option<T>`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedType {
@@ -995,17 +1006,22 @@ pub struct NamedType {
     /// Type arguments (empty for non-generic types).
     pub args: Vec<Type>,
 
-    /// Nominal identity of a declared `unique(<uuid>) enum`.
+    /// Nominal identity of an enum.
     ///
-    /// Structural constructors — the built-in containers (`List`, `Map`,
-    /// `Set`) and the reserved-name prelude enums (`Option`, `Result`) — plus
-    /// type-parameter references carry `None`: their identity *is* the head
-    /// name. A declared enum carries `Some(uuid)`, so it is distinct from any
-    /// structurally identical enum, even one with the same name in another
-    /// package. Two named types unify only if their identities agree, with
-    /// `None` acting as a wildcard (see `Unifier::unify`) so payload
-    /// self-references and unresolved annotations still unify with the
-    /// resolved, uuid-carrying form.
+    /// Every enum carries a `Some(uuid)`: a declared enum takes it from its
+    /// mandatory `unique(<uuid>)` prefix, and the reserved-name prelude enums
+    /// `Option`/`Result` take the fixed [`OPTION_UUID`]/[`RESULT_UUID`]. So two
+    /// structurally identical enums are distinct types, even same-named enums
+    /// in different packages. Structural constructors — the built-in containers
+    /// (`List`, `Map`, `Set`) — and type-parameter references carry `None`:
+    /// their identity *is* the head name.
+    ///
+    /// A `None` here is still a wildcard in unification (see `Infer::unify`),
+    /// but only meaningfully for those structural/parameter names: any `None`
+    /// on a *registered* enum name is resolved to that enum's canonical uuid
+    /// before comparison, so an unresolved annotation or self-referential
+    /// payload unifies strictly with the resolved, uuid-carrying form while two
+    /// genuinely distinct enums never unify.
     pub uuid: Option<Uuid>,
 }
 
@@ -1130,16 +1146,24 @@ impl Type {
         Self::Named(NamedType::simple(name))
     }
 
-    /// Create an `Option<T>` type.
+    /// Create an `Option<T>` type carrying its canonical nominal identity.
     #[must_use]
     pub fn option(inner: Type) -> Self {
-        Self::named("Option", vec![inner])
+        Self::Named(NamedType::with_identity(
+            "Option",
+            vec![inner],
+            Some(OPTION_UUID),
+        ))
     }
 
-    /// Create a `Result<T, E>` type.
+    /// Create a `Result<T, E>` type carrying its canonical nominal identity.
     #[must_use]
     pub fn result(ok: Type, err: Type) -> Self {
-        Self::named("Result", vec![ok, err])
+        Self::Named(NamedType::with_identity(
+            "Result",
+            vec![ok, err],
+            Some(RESULT_UUID),
+        ))
     }
 
     /// Check if this type is `Option<T>` and return the inner type.

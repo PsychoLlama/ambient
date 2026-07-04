@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-use crate::types::{NamedType, Type, TypeVarId};
+use crate::types::{NamedType, OPTION_UUID, RESULT_UUID, Type, TypeVarId};
 
 use super::env::Scheme;
 
@@ -38,11 +38,12 @@ pub struct EnumInfo {
     pub type_params: Vec<Arc<str>>,
     /// Variants in declaration order; the index is the runtime tag.
     pub variants: Vec<EnumVariantInfo>,
-    /// Nominal identity. Declared enums carry `Some(uuid)` from their
-    /// mandatory `unique(<uuid>)` prefix, so two structurally identical enums
-    /// are distinct types. The reserved-name prelude enums (`Option`,
-    /// `Result`) carry `None`: their identity is their reserved head name,
-    /// which no user type can claim.
+    /// Nominal identity. Every enum carries `Some(uuid)`: declared enums take
+    /// it from their mandatory `unique(<uuid>)` prefix, and the reserved-name
+    /// prelude enums (`Option`, `Result`) take the fixed
+    /// [`OPTION_UUID`]/[`RESULT_UUID`]. So two structurally identical enums are
+    /// always distinct types. `None` only appears transiently, before an
+    /// annotation or payload is resolved against the registry.
     pub uuid: Option<Uuid>,
 }
 
@@ -62,7 +63,7 @@ impl EnumRegistry {
         registry.register(Arc::new(EnumInfo {
             name: Arc::from("Option"),
             type_params: vec![Arc::from("T")],
-            uuid: None,
+            uuid: Some(OPTION_UUID),
             variants: vec![
                 EnumVariantInfo {
                     name: Arc::from("None"),
@@ -77,7 +78,7 @@ impl EnumRegistry {
         registry.register(Arc::new(EnumInfo {
             name: Arc::from("Result"),
             type_params: vec![Arc::from("T"), Arc::from("E")],
-            uuid: None,
+            uuid: Some(RESULT_UUID),
             variants: vec![
                 EnumVariantInfo {
                     name: Arc::from("Ok"),

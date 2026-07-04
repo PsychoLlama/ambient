@@ -10,7 +10,11 @@
 //! 3. Checking that primitive types match exactly.
 
 use super::{Infer, InferResult, TypeErrorKind, type_error};
-use crate::types::{AbilitySet, AbilityVarId, FunctionType, RecordType, Type, TypeVarId};
+use crate::types::{
+    AbilitySet, AbilityVarId, FunctionType, NamedType, RecordType, Type, TypeVarId,
+};
+
+use uuid::Uuid;
 
 impl Infer {
     /// Unify two types and update the substitution.
@@ -120,16 +124,21 @@ impl Infer {
                 self.unify_abilities(&av1.ability, &av2.ability, span)
             }
 
-            // Named types. The head name and arity must match. Nominal
-            // identities (declared enums) must also agree, but a `None`
-            // identity is a wildcard: it lets a payload self-reference or an
-            // as-yet-unresolved annotation (both carry `None`) unify with the
-            // resolved, uuid-carrying form. Two *distinct* enums never unify —
-            // either their names differ, or both carry `Some` uuids that
-            // differ.
+            // Named types. The head name and arity must match, and nominal
+            // identities (every enum's uuid) must agree. A `None` uuid on a
+            // *registered* enum name is resolved to that enum's canonical uuid
+            // first, so an as-yet-unresolved annotation or a self-referential
+            // payload (which arrive carrying `None`) unify strictly with the
+            // resolved, uuid-carrying form — while two genuinely distinct
+            // enums, even same-named ones from different packages, never unify.
+            // A `None` that is *not* a registered enum (a type parameter, or a
+            // structural container like `List`) stays `None` and compares by
+            // name only.
             (Type::Named(n1), Type::Named(n2)) => {
+                let id1 = self.resolve_named_identity(n1);
+                let id2 = self.resolve_named_identity(n2);
                 let identity_conflict = matches!(
-                    (n1.uuid, n2.uuid),
+                    (id1, id2),
                     (Some(u1), Some(u2)) if u1 != u2
                 );
                 if n1.name != n2.name || n1.args.len() != n2.args.len() || identity_conflict {
@@ -170,6 +179,19 @@ impl Infer {
                 span,
             )),
         }
+    }
+
+    /// Resolve a named type's nominal identity for unification.
+    ///
+    /// If the type already carries a uuid, use it. Otherwise, if its head name
+    /// is a registered enum (including the reserved-name prelude enums
+    /// `Option`/`Result`), fall back to that enum's canonical uuid — so an
+    /// unresolved reference compares strictly against the resolved form. A name
+    /// that is not a registered enum (a type parameter, or a structural
+    /// container like `List`) has no identity and stays `None`.
+    fn resolve_named_identity(&self, n: &NamedType) -> Option<Uuid> {
+        n.uuid
+            .or_else(|| self.enum_registry.get(&n.name).and_then(|info| info.uuid))
     }
 
     /// Check if a type variable occurs in a type (after applying substitution).

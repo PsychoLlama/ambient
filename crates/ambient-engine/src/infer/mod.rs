@@ -387,10 +387,11 @@ impl Infer {
                     return self.resolve_holes(&aliased_type);
                 }
                 let args = n.args.iter().map(|a| self.resolve_holes(a)).collect();
-                // Attach a declared enum's nominal identity so an annotation
-                // like `: Tree<number>` carries the same uuid the enum's
-                // constructors and patterns produce. Prelude enums
-                // (Option/Result) carry `None`, so this is a no-op for them.
+                // Attach an enum's nominal identity so an annotation like
+                // `: Tree<number>` carries the same uuid the enum's
+                // constructors and patterns produce. This covers declared
+                // enums and the reserved-name prelude enums (`Option`/`Result`)
+                // alike, since both are registered with a canonical uuid.
                 if let Some(info) = self.enum_registry.get(&n.name) {
                     let uuid = info.uuid;
                     return Type::Named(NamedType::with_identity(Arc::clone(&n.name), args, uuid));
