@@ -148,6 +148,7 @@
             packages = [
               pkgs.fenix.stable.defaultToolchain
               pkgs.fenix.stable.rust-analyzer
+              pkgs.cargo-nextest
               pkgs.just
               pkgs.nixfmt
               pkgs.nodejs

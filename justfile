@@ -12,11 +12,11 @@ format:
 
 # Run clippy lints
 lint:
-  cargo clippy --workspace
+  cargo clippy --workspace --quiet
 
 # Build all crates (debug)
 build:
-  cargo build --workspace
+  cargo build --workspace --quiet
 
 # Build all crates (release)
 build-release:
@@ -24,7 +24,8 @@ build-release:
 
 # Run unit tests
 unit-test:
-  cargo test --workspace
+  cargo nextest run --workspace --show-progress=none --status-level=fail --cargo-quiet
+  cargo test --workspace --doc --quiet
 
 # Run all checks (format, lint, build, test) - continues on failure, exits non-zero if any failed
 check:
