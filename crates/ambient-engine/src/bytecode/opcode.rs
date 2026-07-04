@@ -632,54 +632,6 @@ pub enum Opcode {
     EnumTag = 0xFD,
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Option/Result utilities
-    // ─────────────────────────────────────────────────────────────────────────
-    /// `Option.map`: Apply a function to the inner value if Some.
-    ///
-    /// Stack: `[option, closure] -> [option]`
-    /// - If `Some(x)`: calls closure with x, returns `Some(result)`
-    /// - If None: returns None
-    ///
-    /// Not yet implemented (requires continuation frames).
-    OptionMap = 0xE4,
-
-    /// `Option.and_then`: Chain Option-returning functions.
-    ///
-    /// Stack: `[option, closure] -> [option]`
-    /// - If `Some(x)`: calls closure with x (closure returns Option), returns that
-    /// - If None: returns None
-    ///
-    /// Not yet implemented (requires continuation frames).
-    OptionAndThen = 0xE5,
-
-    /// `Result.map`: Apply a function to the Ok value.
-    ///
-    /// Stack: `[result, closure] -> [result]`
-    /// - If `Ok(x)`: calls closure with x, returns `Ok(result)`
-    /// - If `Err(e)`: returns `Err(e)`
-    ///
-    /// Not yet implemented (requires continuation frames).
-    ResultMap = 0xE6,
-
-    /// `Result.map_err`: Apply a function to the Err value.
-    ///
-    /// Stack: `[result, closure] -> [result]`
-    /// - If `Ok(x)`: returns `Ok(x)`
-    /// - If `Err(e)`: calls closure with e, returns `Err(result)`
-    ///
-    /// Not yet implemented (requires continuation frames).
-    ResultMapErr = 0xE7,
-
-    /// `Result.and_then`: Chain Result-returning functions.
-    ///
-    /// Stack: `[result, closure] -> [result]`
-    /// - If `Ok(x)`: calls closure with x (closure returns Result), returns that
-    /// - If `Err(e)`: returns `Err(e)`
-    ///
-    /// Not yet implemented (requires continuation frames).
-    ResultAndThen = 0x5A,
-
-    // ─────────────────────────────────────────────────────────────────────────
     // Serialization (for remote execution protocol)
     // ─────────────────────────────────────────────────────────────────────────
     /// Serialize a value to binary format (bincode).
@@ -897,12 +849,6 @@ impl Opcode {
             0xFB => Some(Self::EnumIs),
             0xFC => Some(Self::EnumPayload),
             0xFD => Some(Self::EnumTag),
-            // Option/Result utilities
-            0xE4 => Some(Self::OptionMap),
-            0xE5 => Some(Self::OptionAndThen),
-            0xE6 => Some(Self::ResultMap),
-            0xE7 => Some(Self::ResultMapErr),
-            0x5A => Some(Self::ResultAndThen),
             // Serialization
             0x5B => Some(Self::SerializeValue),
             0x5C => Some(Self::DeserializeValue),

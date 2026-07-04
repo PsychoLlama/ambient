@@ -202,7 +202,6 @@ impl Vm {
                 ip: f.ip,
                 bp: f.bp - base_stack,
                 captures: f.captures,
-                return_action: f.return_action,
             })
             .collect();
 
@@ -311,7 +310,6 @@ impl Vm {
                 ip: captured.ip,
                 bp: captured.bp + base_stack,
                 captures: captured.captures.clone(),
-                return_action: captured.return_action.clone(),
             });
         }
 

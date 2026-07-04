@@ -503,48 +503,6 @@ impl BytecodeBuilder {
         self.emit_make_enum("Result", 1, "Err", true);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Option/Result utility operations
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // The following emit methods are defined but the VM operations are not yet
-    // fully implemented (they require continuation frames for closure calls).
-
-    /// Emit `OptionMap` instruction.
-    /// Stack: `[option, closure] -> [option]`
-    /// NOTE: Not yet implemented in VM.
-    pub fn emit_option_map(&mut self) {
-        self.code.push(Opcode::OptionMap as u8);
-    }
-
-    /// Emit `OptionAndThen` instruction.
-    /// Stack: `[option, closure] -> [option]`
-    /// NOTE: Not yet implemented in VM.
-    pub fn emit_option_and_then(&mut self) {
-        self.code.push(Opcode::OptionAndThen as u8);
-    }
-
-    /// Emit `ResultMap` instruction.
-    /// Stack: `[result, closure] -> [result]`
-    /// NOTE: Not yet implemented in VM.
-    pub fn emit_result_map(&mut self) {
-        self.code.push(Opcode::ResultMap as u8);
-    }
-
-    /// Emit `ResultMapErr` instruction.
-    /// Stack: `[result, closure] -> [result]`
-    /// NOTE: Not yet implemented in VM.
-    pub fn emit_result_map_err(&mut self) {
-        self.code.push(Opcode::ResultMapErr as u8);
-    }
-
-    /// Emit `ResultAndThen` instruction.
-    /// Stack: `[result, closure] -> [result]`
-    /// NOTE: Not yet implemented in VM.
-    pub fn emit_result_and_then(&mut self) {
-        self.code.push(Opcode::ResultAndThen as u8);
-    }
-
     /// Build the final compiled function.
     ///
     /// Dependencies are automatically collected from `emit_call` invocations.

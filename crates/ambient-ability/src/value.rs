@@ -659,30 +659,6 @@ pub struct Continuation {
     resumed: AtomicBool,
 }
 
-/// Action to perform when a call frame returns.
-///
-/// This enables "continuation frames" for operations like `Option.map`
-/// that call a closure and then wrap the result in an enum.
-#[derive(Debug, Clone, Default)]
-pub enum ReturnAction {
-    /// Normal return - just push the result onto the caller's stack.
-    #[default]
-    None,
-
-    /// Wrap the result in `Some(result)` for `Option.map`.
-    WrapSome,
-
-    /// For `Option.and_then` - the closure returns `Option<U>`, pass through as-is.
-    /// This is essentially the same as `None` but documents intent.
-    PassThrough,
-
-    /// Wrap the result in `Ok(result)` for `Result.map`.
-    WrapOk,
-
-    /// Wrap the result in `Err(result)` for `Result.map_err`.
-    WrapErr,
-}
-
 /// A captured call frame for continuations.
 #[derive(Debug, Clone)]
 pub struct CapturedFrame {
@@ -697,10 +673,6 @@ pub struct CapturedFrame {
 
     /// Captured closure environment of the frame (empty for plain calls).
     pub captures: Vec<Value>,
-
-    /// The frame's pending return action (e.g. enum wrapping for
-    /// intrinsic closure calls), preserved across suspension.
-    pub return_action: ReturnAction,
 }
 
 /// The implementation behind an installed ability handler.

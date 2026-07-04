@@ -8,8 +8,6 @@ use ambient_core::AbilityId;
 
 use crate::bytecode::{CompiledFunction, Opcode};
 
-pub(super) use ambient_ability::ReturnAction;
-
 /// A single stack frame representing an active function call.
 #[derive(Debug, Clone)]
 pub(super) struct CallFrame {
@@ -25,10 +23,6 @@ pub(super) struct CallFrame {
     /// Captured environment for closures.
     /// Empty for regular function calls, contains captured values for closure calls.
     pub captures: Vec<Value>,
-
-    /// Action to perform when this frame returns.
-    /// Used by operations like `Option.map` that call a closure and wrap the result.
-    pub return_action: ReturnAction,
 }
 
 /// An installed ability handler that can intercept ability operations.
@@ -260,55 +254,6 @@ impl Vm {
             ip: 0,
             bp,
             captures,
-            return_action: ReturnAction::None,
-        });
-
-        Ok(())
-    }
-
-    /// Push a new call frame for a closure call with a return action.
-    ///
-    /// The return action specifies what to do with the closure's return value,
-    /// e.g., wrap it in `Some` for `Option.map`.
-    pub(super) fn push_frame_with_return_action(
-        &mut self,
-        hash: &blake3::Hash,
-        arg_count: u8,
-        captures: Vec<Value>,
-        return_action: ReturnAction,
-    ) -> Result<(), VmError> {
-        if self.frames.len() >= self.max_call_depth {
-            return Err(VmError::StackOverflow);
-        }
-
-        let function = self
-            .functions
-            .get(hash)
-            .ok_or(VmError::UnknownFunction(*hash))?
-            .clone();
-
-        if arg_count != function.param_count {
-            return Err(VmError::ArityMismatch {
-                expected: function.param_count,
-                got: arg_count,
-            });
-        }
-
-        // Base pointer is where arguments start on the stack
-        let bp = self.stack.len() - arg_count as usize;
-
-        // Reserve space for locals (args are already there, just need remaining slots)
-        let extra_locals = function.local_count as usize - arg_count as usize;
-        for _ in 0..extra_locals {
-            self.stack.push(Value::Unit);
-        }
-
-        self.frames.push(CallFrame {
-            function,
-            ip: 0,
-            bp,
-            captures,
-            return_action,
         });
 
         Ok(())
@@ -531,82 +476,5 @@ impl Vm {
     /// Create a `RuntimeError` with the current stack trace.
     pub fn runtime_error(&self, error: VmError) -> RuntimeError {
         RuntimeError::with_stack_trace(error, self.capture_stack_trace())
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Option/Result closure helpers
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// Pop a closure from the stack, returning a type error if not a closure.
-    pub(super) fn pop_closure(
-        &mut self,
-        operation: &'static str,
-    ) -> Result<Arc<crate::value::Closure>, VmError> {
-        match self.pop()? {
-            Value::Closure(c) => Ok(c),
-            other => Err(VmError::TypeError {
-                expected: "closure",
-                got: other.type_name(),
-                operation,
-            }),
-        }
-    }
-
-    /// Pop an enum value from the stack and check it matches the expected type.
-    pub(super) fn pop_enum(
-        &mut self,
-        expected_type: &'static str,
-        operation: &'static str,
-    ) -> Result<Arc<crate::value::EnumValue>, VmError> {
-        match self.pop()? {
-            Value::Enum(e) if &*e.type_name == expected_type => Ok(e),
-            other => Err(VmError::TypeError {
-                expected: expected_type,
-                got: other.type_name(),
-                operation,
-            }),
-        }
-    }
-
-    /// Apply a closure to an enum variant's payload and set up the return action.
-    ///
-    /// This is used by `Option.map`, `Option.and_then`, `Result.map`, etc.
-    /// - If the enum has the matching tag, calls the closure with the payload
-    /// - Otherwise, pushes the fallback value to the stack
-    ///
-    /// Returns `true` if a call frame was pushed (closure is being called),
-    /// `false` if the fallback value was pushed instead.
-    pub(super) fn apply_closure_to_enum(
-        &mut self,
-        closure: &crate::value::Closure,
-        enum_val: Arc<crate::value::EnumValue>,
-        active_tag: u16,
-        return_action: ReturnAction,
-        type_name: &str,
-        variant_name: &str,
-    ) -> Result<bool, VmError> {
-        if enum_val.tag == active_tag {
-            // Active variant - extract payload and call closure
-            let payload =
-                enum_val
-                    .payload
-                    .as_deref()
-                    .ok_or_else(|| VmError::EnumPayloadMissing {
-                        type_name: type_name.to_string(),
-                        variant_name: variant_name.to_string(),
-                    })?;
-            self.stack.push(payload.clone());
-            self.push_frame_with_return_action(
-                &closure.function_hash,
-                1,
-                closure.environment.clone(),
-                return_action,
-            )?;
-            Ok(true)
-        } else {
-            // Inactive variant - return unchanged
-            self.stack.push(Value::Enum(enum_val));
-            Ok(false)
-        }
     }
 }

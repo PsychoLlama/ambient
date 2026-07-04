@@ -40,7 +40,7 @@ pub use format::{format_value, format_value_colored, format_value_display};
 pub use handler::HostHandler;
 pub use value::{
     CapturedFrame, CapturedHandler, Closure, Continuation, EnumValue, HandlerImpl, HandlerValue,
-    MapValue, ModuleExport, ModuleExportKind, ModuleMemberRef, ModuleValue, ReturnAction, SetValue,
+    MapValue, ModuleExport, ModuleExportKind, ModuleMemberRef, ModuleValue, SetValue,
     SuspendedAbility, Value,
 };
 
