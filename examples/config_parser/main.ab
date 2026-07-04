@@ -17,9 +17,9 @@ fn parse_line(line: string): List<(string, string)> {
     } else {
         // Find the = separator
         let parts = core::string::split(trimmed, "=");
-        match core::List::head(parts) {
+        match parts.head() {
             Some(raw_key) => {
-                if core::List::length(parts) >= 2 {
+                if parts.length() >= 2 {
                     let key = core::string::trim(raw_key);
                     // Join remaining parts in case value contains =
                     let value_parts = core::List::tail(parts);
@@ -41,14 +41,14 @@ fn parse_config(text: string): List<(string, string)> {
 }
 
 fn parse_lines(lines: List<string>, acc: List<(string, string)>): List<(string, string)> {
-    match core::List::head(lines) {
+    match lines.head() {
         Some(line) => {
             let rest = core::List::tail(lines);
             let parsed = parse_line(line);
-            if core::List::is_empty(parsed) {
+            if parsed.is_empty() {
                 parse_lines(rest, acc)
             } else {
-                parse_lines(rest, core::List::concat(acc, parsed))
+                parse_lines(rest, acc.concat(parsed))
             }
         }
         None => acc,
@@ -57,7 +57,7 @@ fn parse_lines(lines: List<string>, acc: List<(string, string)>): List<(string, 
 
 /// Looks up a value by key, returns default if not found.
 fn get_config(config: List<(string, string)>, key: string, default: string): string {
-    match core::List::head(config) {
+    match config.head() {
         Some(entry) => {
             if entry.0 == key {
                 entry.1

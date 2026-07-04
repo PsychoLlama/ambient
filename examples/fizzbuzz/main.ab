@@ -25,7 +25,7 @@ fn fizzbuzz_range(start: number, end: number, acc: List<string>): List<string> {
     if start > end {
         acc
     } else {
-        fizzbuzz_range(start + 1, end, core::List::append(acc, fizzbuzz(start)))
+        fizzbuzz_range(start + 1, end, acc.append(fizzbuzz(start)))
     }
 }
 

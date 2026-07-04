@@ -15,7 +15,7 @@ fn count_char(s: string, ch: string): number {
 }
 
 fn count_char_helper(chars: List<string>, target: string, acc: number): number {
-    match core::List::head(chars) {
+    match chars.head() {
         Some(c) => {
             let increment = if c == target { 1 } else { 0 };
             count_char_helper(core::List::tail(chars), target, acc + increment)
@@ -66,7 +66,7 @@ fn word_count(s: string): number {
         0
     } else {
         let words = core::string::split(trimmed, " ");
-        core::List::length(words)
+        words.length()
     }
 }
 
@@ -78,10 +78,10 @@ fn title_case(s: string): string {
 }
 
 fn title_case_words(words: List<string>): List<string> {
-    match core::List::head(words) {
+    match words.head() {
         Some(word) => {
             let cap_word = capitalize_word(word);
-            core::List::concat([cap_word], title_case_words(core::List::tail(words)))
+            [cap_word].concat(title_case_words(core::List::tail(words)))
         }
         None => [],
     }
@@ -104,7 +104,7 @@ fn initials(name: string): string {
 }
 
 fn initials_helper(words: List<string>, acc: string): string {
-    match core::List::head(words) {
+    match words.head() {
         Some(word) => {
             let initial = if core::string::length(word) > 0 {
                 core::string::to_upper(core::string::slice(word, 0, 1))

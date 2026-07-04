@@ -10,7 +10,7 @@ fn sum(xs: List<number>): number {
 }
 
 fn sum_helper(xs: List<number>, acc: number): number {
-    match core::List::head(xs) {
+    match xs.head() {
         Some(h) => sum_helper(core::List::tail(xs), acc + h),
         None => acc,
     }
@@ -22,7 +22,7 @@ fn product(xs: List<number>): number {
 }
 
 fn product_helper(xs: List<number>, acc: number): number {
-    match core::List::head(xs) {
+    match xs.head() {
         Some(h) => product_helper(core::List::tail(xs), acc * h),
         None => acc,
     }
@@ -34,19 +34,19 @@ fn double_all(xs: List<number>): List<number> {
 }
 
 fn map_double(xs: List<number>): List<number> {
-    match core::List::head(xs) {
-        Some(h) => core::List::concat([h * 2], map_double(core::List::tail(xs))),
+    match xs.head() {
+        Some(h) => [h * 2].concat(map_double(core::List::tail(xs))),
         None => [],
     }
 }
 
 /// Filters to keep only positive numbers.
 fn filter_positive(xs: List<number>): List<number> {
-    match core::List::head(xs) {
+    match xs.head() {
         Some(h) => {
             let rest = filter_positive(core::List::tail(xs));
             if h > 0 {
-                core::List::concat([h], rest)
+                [h].concat(rest)
             } else {
                 rest
             }
@@ -57,14 +57,14 @@ fn filter_positive(xs: List<number>): List<number> {
 
 /// Finds the maximum element in a list (0 for an empty list).
 fn maximum(xs: List<number>): number {
-    match core::List::head(xs) {
+    match xs.head() {
         Some(h) => max_helper(core::List::tail(xs), h),
         None => 0,
     }
 }
 
 fn max_helper(xs: List<number>, current_max: number): number {
-    match core::List::head(xs) {
+    match xs.head() {
         Some(h) => {
             let new_max = if h > current_max { h } else { current_max };
             max_helper(core::List::tail(xs), new_max)
@@ -79,7 +79,7 @@ fn count_even(xs: List<number>): number {
 }
 
 fn count_even_helper(xs: List<number>, acc: number): number {
-    match core::List::head(xs) {
+    match xs.head() {
         Some(h) => {
             let increment = if h % 2 == 0 { 1 } else { 0 };
             count_even_helper(core::List::tail(xs), acc + increment)
@@ -95,15 +95,15 @@ fn take_n(xs: List<number>, n: number): List<number> {
 
 /// Drops the first n elements from a list.
 fn drop_n(xs: List<number>, n: number): List<number> {
-    core::List::slice(xs, n, core::List::length(xs))
+    core::List::slice(xs, n, xs.length())
 }
 
 /// Zips two lists into pairs (truncates to shorter length).
 fn zip_lists(xs: List<number>, ys: List<number>): List<(number, number)> {
-    match core::List::head(xs) {
-        Some(x) => match core::List::head(ys) {
+    match xs.head() {
+        Some(x) => match ys.head() {
             Some(y) => {
-                core::List::concat([(x, y)], zip_lists(core::List::tail(xs), core::List::tail(ys)))
+                [(x, y)].concat(zip_lists(core::List::tail(xs), core::List::tail(ys)))
             }
             None => [],
         },
@@ -125,7 +125,7 @@ pub fn run(): number {
 
     // Test filter
     let positives = filter_positive(mixed);
-    let pos_count = core::List::length(positives);  // 3 (2, 5, 8)
+    let pos_count = positives.length();  // 3 (2, 5, 8)
 
     // Test maximum
     let max_val = maximum(numbers);  // 10
@@ -136,12 +136,12 @@ pub fn run(): number {
     // Test take/drop
     let first_three = take_n(numbers, 3);
     let rest = drop_n(numbers, 3);
-    let take_len = core::List::length(first_three);  // 3
-    let drop_len = core::List::length(rest);  // 7
+    let take_len = first_three.length();  // 3
+    let drop_len = rest.length();  // 7
 
     // Test reverse and sort (native intrinsics); the Option-returning
     // accessors chain through `unwrap_or`.
-    let reversed = core::List::reverse(numbers);
+    let reversed = numbers.reverse();
     let first_reversed = reversed.head().unwrap_or(0);  // 10
 
     let unsorted = [5, 2, 8, 1, 9, 3];
