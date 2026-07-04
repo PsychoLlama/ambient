@@ -1089,6 +1089,53 @@ fn test_list_get_negative_index_is_none() {
 }
 
 #[test]
+fn test_bytes_get_negative_index_is_none() {
+    // Same saturation hazard as list_get: `-1.0 as usize` becomes 0, which
+    // would wrongly return the first byte instead of None.
+    let mut builder = BytecodeBuilder::new();
+    builder.emit_const(Value::bytes(vec![10, 20]));
+    builder.emit_const(Value::Number(-1.0)); // index
+    builder.emit(Opcode::BytesGet);
+    builder.emit(Opcode::Return);
+
+    let func = builder.build(0, 0);
+    let hash = func.hash;
+
+    let mut vm = Vm::new();
+    vm.load_function(func);
+
+    let result = vm.call(&hash, vec![]);
+    assert_eq!(result, Ok(Value::none()));
+}
+
+#[test]
+fn test_list_slice_negative_start_clamps_to_zero() {
+    // Slicing is lenient: a negative start clamps to 0 rather than
+    // saturating unpredictably. slice(-2, 2) over [10, 20, 30] -> [10, 20].
+    let mut builder = BytecodeBuilder::new();
+    builder.emit_const(Value::Number(10.0));
+    builder.emit_const(Value::Number(20.0));
+    builder.emit_const(Value::Number(30.0));
+    builder.emit_make_list(3);
+    builder.emit_const(Value::Number(-2.0)); // start
+    builder.emit_const(Value::Number(2.0)); // end
+    builder.emit(Opcode::ListSlice);
+    builder.emit(Opcode::Return);
+
+    let func = builder.build(0, 0);
+    let hash = func.hash;
+
+    let mut vm = Vm::new();
+    vm.load_function(func);
+
+    let result = vm.call(&hash, vec![]);
+    assert_eq!(
+        result,
+        Ok(Value::list(vec![Value::Number(10.0), Value::Number(20.0)]))
+    );
+}
+
+#[test]
 fn test_list_length() {
     let mut builder = BytecodeBuilder::new();
     builder.emit_const(Value::Number(1.0));

@@ -655,8 +655,8 @@ impl Vm {
                 }
 
                 Opcode::ListSlice => {
-                    let end = self.pop_number("list_slice")? as usize;
-                    let start = self.pop_number("list_slice")? as usize;
+                    let end = self.pop_number("list_slice")?;
+                    let start = self.pop_number("list_slice")?;
                     let list = match self.pop()? {
                         Value::List(elements) => elements,
                         other => {
@@ -668,8 +668,8 @@ impl Vm {
                         }
                     };
                     let len = list.len();
-                    let start = start.min(len);
-                    let end = end.min(len);
+                    let start = slice_bound(start, len);
+                    let end = slice_bound(end, len);
                     let result = if start >= end {
                         Vec::new()
                     } else {
@@ -753,13 +753,13 @@ impl Vm {
                 }
 
                 Opcode::StringSlice => {
-                    let end = self.pop_number("string_slice")? as usize;
-                    let start = self.pop_number("string_slice")? as usize;
+                    let end = self.pop_number("string_slice")?;
+                    let start = self.pop_number("string_slice")?;
                     let s = self.pop_string("string_slice")?;
                     let chars: Vec<char> = s.chars().collect();
                     let len = chars.len();
-                    let start = start.min(len);
-                    let end = end.min(len);
+                    let start = slice_bound(start, len);
+                    let end = slice_bound(end, len);
                     let result: String = if start >= end {
                         String::new()
                     } else {
@@ -1425,7 +1425,7 @@ impl Vm {
                 }
 
                 Opcode::BytesGet => {
-                    let index = self.pop_number("bytes_get")? as usize;
+                    let index = self.pop_number("bytes_get")?;
                     let bytes = match self.pop()? {
                         Value::Bytes(b) => b,
                         other => {
@@ -1436,16 +1436,17 @@ impl Vm {
                             });
                         }
                     };
-                    let value = bytes
-                        .get(index)
-                        .copied()
+                    // A negative or fractional index has no element. Casting
+                    // `f64 as usize` saturates negatives to 0, so guard first.
+                    let value = usize_index(index)
+                        .and_then(|index| bytes.get(index).copied())
                         .map_or_else(Value::none, |b| Value::some(Value::Number(f64::from(b))));
                     self.stack.push(value);
                 }
 
                 Opcode::BytesSlice => {
-                    let end = self.pop_number("bytes_slice")? as usize;
-                    let start = self.pop_number("bytes_slice")? as usize;
+                    let end = self.pop_number("bytes_slice")?;
+                    let start = self.pop_number("bytes_slice")?;
                     let bytes = match self.pop()? {
                         Value::Bytes(b) => b,
                         other => {
@@ -1457,8 +1458,8 @@ impl Vm {
                         }
                     };
                     let len = bytes.len();
-                    let start = start.min(len);
-                    let end = end.min(len);
+                    let start = slice_bound(start, len);
+                    let end = slice_bound(end, len);
                     let slice = if start < end {
                         bytes[start..end].to_vec()
                     } else {
@@ -1498,7 +1499,7 @@ impl Vm {
     }
 }
 
-/// Convert a numeric index into a `usize` suitable for slice access.
+/// Convert a numeric index into a `usize` for element access (`get`).
 ///
 /// Returns `None` for values that cannot address an element: negatives,
 /// fractional numbers, and NaN/infinity. This guards against `f64 as usize`
@@ -1512,5 +1513,28 @@ fn usize_index(index: f64) -> Option<usize> {
         Some(index as usize)
     } else {
         None
+    }
+}
+
+/// Clamp a numeric slice bound to a valid `[0, len]` offset.
+///
+/// Unlike element access, slicing is lenient: out-of-range bounds clamp
+/// rather than fail. Negative and NaN bounds clamp to `0`; bounds at or
+/// beyond `len` (including infinity) clamp to `len`; fractional bounds
+/// truncate toward zero. Computing this explicitly avoids relying on
+/// `f64 as usize` saturation, whose handling of negatives and NaN is
+/// incidental rather than intentional.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation
+)]
+fn slice_bound(index: f64, len: usize) -> usize {
+    if index.is_nan() || index <= 0.0 {
+        0
+    } else if index >= len as f64 {
+        len
+    } else {
+        index as usize
     }
 }
