@@ -73,7 +73,6 @@ pub fn check_module(module: crate::ast::Module) -> CheckResult {
 /// 4. Ability enforcement — deferred until all bodies are checked so calls
 ///    to functions defined later (whose ability variables bind in phase 3)
 ///    resolve before their callers are judged.
-#[allow(clippy::too_many_lines)]
 fn check_module_core(
     mut infer: Infer,
     mut module: crate::ast::Module,
@@ -82,35 +81,11 @@ fn check_module_core(
     let mut errors = Vec::new();
 
     // Phase 1: registration.
-    let mut env = if let Some((module_path, registry)) = cross_module {
-        // Platform abilities are always in scope fully-qualified. Seed them
-        // as namespaced dynamics from the `platform.*` declaration module
-        // before imports and local abilities resolve, so `platform::Console`
-        // references (inline uses and cross-module ability deps) and the
-        // `use platform::Network;` bridge all find their target — on every
-        // path that has a registry, including the package build.
-        seed_namespaced_platform_dynamics(&mut infer, registry, &mut errors);
-        // Imported enums register first: foreign impl registration (next)
-        // must resolve an imported enum target to its uuid, or the impl's
-        // dispatch key won't match the call sites'.
-        register_imported_enums(&mut infer, module_path, registry);
-        // Make the rest of the package's types, traits, and impls visible
-        // (signatures only). Runs before local registration and import
-        // resolution so imported signatures resolve foreign nominal types.
-        register_package_items(&mut infer, module_path, registry, &mut errors);
-        let env = build_import_env(&mut infer, module_path, registry, &mut errors);
-        // `register_package_items` registered *every* foreign module's type
-        // aliases so foreign impl targets and imported signatures could
-        // resolve to the right nominal identity. Those schemes are now
-        // hydrated into `env`, so retract the foreign aliases this module
-        // didn't explicitly `use` — otherwise their bare names would resolve
-        // in this module's own bodies regardless of `pub` or `use`. Traits
-        // and impls stay build-global for coherence; nominal *types* follow
-        // the same visibility rules as values.
-        retain_imported_type_aliases(&mut infer, module_path, registry);
-        env
-    } else {
-        TypeEnv::new()
+    let mut env = match cross_module {
+        Some((module_path, registry)) => {
+            register_cross_module(&mut infer, module_path, registry, &mut errors)
+        }
+        None => TypeEnv::new(),
     };
 
     register_type_aliases(&mut infer, &module);
@@ -229,6 +204,45 @@ fn check_module_core(
 
     errors.extend(infer.take_pending_errors());
     CheckResult { errors, module }
+}
+
+/// Register the cross-module context for a package build: platform dynamics,
+/// foreign package items, and imports, returning the resulting import env.
+///
+/// Runs as the first half of Phase 1 when checking a module inside a
+/// registry (as opposed to a standalone single-file check).
+fn register_cross_module(
+    infer: &mut Infer,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+    errors: &mut Vec<BoxedTypeError>,
+) -> TypeEnv {
+    // Platform abilities are always in scope fully-qualified. Seed them
+    // as namespaced dynamics from the `platform.*` declaration module
+    // before imports and local abilities resolve, so `platform::Console`
+    // references (inline uses and cross-module ability deps) and the
+    // `use platform::Network;` bridge all find their target — on every
+    // path that has a registry, including the package build.
+    seed_namespaced_platform_dynamics(infer, registry, errors);
+    // Imported enums register first: foreign impl registration (next)
+    // must resolve an imported enum target to its uuid, or the impl's
+    // dispatch key won't match the call sites'.
+    register_imported_enums(infer, module_path, registry);
+    // Make the rest of the package's types, traits, and impls visible
+    // (signatures only). Runs before local registration and import
+    // resolution so imported signatures resolve foreign nominal types.
+    register_package_items(infer, module_path, registry, errors);
+    let env = build_import_env(infer, module_path, registry, errors);
+    // `register_package_items` registered *every* foreign module's type
+    // aliases so foreign impl targets and imported signatures could
+    // resolve to the right nominal identity. Those schemes are now
+    // hydrated into `env`, so retract the foreign aliases this module
+    // didn't explicitly `use` — otherwise their bare names would resolve
+    // in this module's own bodies regardless of `pub` or `use`. Traits
+    // and impls stay build-global for coherence; nominal *types* follow
+    // the same visibility rules as values.
+    retain_imported_type_aliases(infer, module_path, registry);
+    env
 }
 
 /// Bind an unannotated private function's ability variable to its body's
@@ -1577,7 +1591,6 @@ pub fn check_module_with_registry_and_resolver(
 ///
 /// This processes the imports in the module and adds type schemes for
 /// each imported symbol to the environment.
-#[allow(clippy::too_many_lines)]
 fn build_import_env(
     infer: &mut Infer,
     module_path: &ModulePath,
@@ -1690,11 +1703,24 @@ fn build_import_env(
         }
     }
 
-    // Core and platform modules are always in scope under their fully
-    // qualified names (`core.List.map`, `platform.Network`), no import
-    // required. (Platform exports are all abilities, which don't hydrate as
-    // value schemes, so this is a no-op for `platform` today — but it keeps
-    // the reserved roots symmetric and future-proofs non-ability exports.)
+    bind_reserved_root_exports(infer, registry, &mut env, &mut next_binding_id);
+
+    env
+}
+
+/// Bind the reserved-root (`core` and `platform`) exports into `env`.
+///
+/// Core and platform modules are always in scope under their fully
+/// qualified names (`core.List.map`, `platform.Network`), no import
+/// required. (Platform exports are all abilities, which don't hydrate as
+/// value schemes, so this is a no-op for `platform` today — but it keeps
+/// the reserved roots symmetric and future-proofs non-ability exports.)
+fn bind_reserved_root_exports(
+    infer: &mut Infer,
+    registry: &ModuleRegistry,
+    env: &mut TypeEnv,
+    next_binding_id: &mut BindingId,
+) {
     for module_info in registry.all_modules() {
         let path = module_info.path.clone();
         let root = path.segments().first().map(AsRef::as_ref);
@@ -1706,14 +1732,12 @@ fn build_import_env(
                 get_symbol_scheme(infer, &module_info.module, &export.name, export.kind)
             {
                 let qualified: Arc<str> = format!("{path}.{}", export.name).into();
-                let binding_id = next_binding_id;
-                next_binding_id += 1;
+                let binding_id = *next_binding_id;
+                *next_binding_id += 1;
                 env.insert(binding_id, qualified, scheme);
             }
         }
     }
-
-    env
 }
 
 /// Get the type scheme for a symbol from a module's AST.

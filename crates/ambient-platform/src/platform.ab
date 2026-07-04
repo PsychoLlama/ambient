@@ -13,6 +13,14 @@
 //! return `Result`: handlers raise catchable `Exception`s through the
 //! effect system. Engine faults remain fatal.
 
+// Abilities are `pub` because `platform` is an ordinary importable module:
+// the registry only lets you `use` a public export (`lookup_symbol` rejects
+// a non-`pub` symbol), so `use platform::Network;` needs `pub ability
+// Network` — exactly as the core library marks its surface with `pub fn` /
+// `pub enum`. `pub` affects *only* the import path; fully-qualified use
+// (`platform::Console::print!`, `with platform::Console`, handler arms,
+// effect rows) is seeded as namespaced dynamics regardless of visibility.
+
 /// Terminal output.
 pub ability Console {
   /// Write a line to stdout.

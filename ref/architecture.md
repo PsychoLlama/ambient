@@ -676,6 +676,11 @@ imported `FileSystem` and a qualified `platform::FileSystem` share one
 `AbilityId`, so handlers, effect rows, and linking unify with no special
 casing.
 
+The declarations in `platform.ab` are `pub` for the same reason core
+exports are: the registry only imports public symbols, so `use
+platform::FileSystem;` requires `pub ability FileSystem`. Visibility gates
+*only* the bare-import path — fully-qualified use is seeded independently.
+
 The engine seeds the namespaced `platform::` abilities from the registered
 `platform` module during type checking (`seed_namespaced_platform_dynamics`),
 and the general cross-module bridge (`build_import_env`) registers an
