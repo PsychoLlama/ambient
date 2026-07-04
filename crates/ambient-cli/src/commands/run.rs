@@ -94,6 +94,16 @@ pub(super) fn compile_package(path: &Path) -> Result<CompiledModule> {
     .map_err(|e| anyhow::anyhow!("core library failed to build: {e}"))?;
     all_compiled.merge(&core_compiled);
 
+    // Register the `platform` declaration module so `platform::Network`
+    // resolves fully-qualified and `use platform::Network;` imports it.
+    ambient_engine::core_library::register_declaration_module(
+        &mut registry,
+        &["platform"],
+        ambient_platform::ABILITY_DECLARATIONS,
+        |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
+    )
+    .map_err(|(module, e)| anyhow::anyhow!("platform module `{module}` failed to build: {e}"))?;
+
     for module_path in module_order {
         let module = pkg
             .get_module(&module_path)
@@ -223,13 +233,15 @@ fn compile_loaded_module_with_registry(
     registry: &ModuleRegistry,
     imported_hashes: HashMap<Arc<str>, blake3::Hash>,
 ) -> Result<CompiledModule> {
-    // Type check with cross-module support and the platform prelude.
+    // Type check with cross-module support. The `platform` module lives in
+    // the registry (see `compile_package`), so its namespaced abilities
+    // resolve through registry seeding. The prelude is still needed below
+    // for the *compiler* (host binding), a separate concern.
     let prelude = super::platform_prelude()?;
-    let check_result = ambient_engine::infer::check_module_with_registry_and_resolver(
+    let check_result = ambient_engine::infer::check_module_with_registry(
         loaded.ast.clone(),
         module_path,
         registry,
-        super::prelude_resolver(&prelude),
     );
 
     if !check_result.is_ok() {

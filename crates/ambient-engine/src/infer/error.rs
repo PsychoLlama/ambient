@@ -403,7 +403,9 @@ impl std::fmt::Display for TypeErrorKind {
             } => {
                 write!(
                     f,
-                    "ability `{ability}` requires the `{expected_namespace}::` prefix: write `{expected_namespace}::{ability}`"
+                    "ability `{ability}` is not in scope bare: qualify it as \
+                     `{expected_namespace}::{ability}`, or import it with \
+                     `use {expected_namespace}::{ability};`"
                 )
             }
             Self::UndefinedTypeName { name } => {

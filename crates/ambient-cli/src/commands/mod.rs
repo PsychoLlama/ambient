@@ -24,9 +24,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 
-use ambient_engine::ability_resolver::{
-    AbilityInterface, AbilityResolver, DynAbility, core_abilities,
-};
+use ambient_engine::ability_resolver::{AbilityInterface, DynAbility};
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
@@ -58,16 +56,6 @@ pub fn prelude_interface(prelude: &[Arc<DynAbility>], name: &str) -> Result<Abil
         .ok_or_else(|| anyhow::anyhow!("platform prelude is missing the `{name}` ability"))
 }
 
-/// An ability resolver with the platform prelude registered under the
-/// `platform` namespace, on top of the core abilities (Exception).
-pub fn prelude_resolver(prelude: &[Arc<DynAbility>]) -> AbilityResolver {
-    let mut resolver = core_abilities();
-    for ability in prelude {
-        resolver.register_dynamic_in_namespace("platform", (**ability).clone());
-    }
-    resolver
-}
-
 /// Core library context for single-file compilation: a registry with the
 /// core modules registered, their compiled functions, and the
 /// fully-qualified name→hash table user code links against.
@@ -88,6 +76,16 @@ pub fn core_context() -> Result<CoreContext> {
         |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
     )
     .map_err(|e| anyhow::anyhow!("core library failed to build: {e}"))?;
+
+    // Register the `platform` declaration module so `platform::Network`
+    // resolves fully-qualified and `use platform::Network;` imports it.
+    ambient_engine::core_library::register_declaration_module(
+        &mut registry,
+        &["platform"],
+        ambient_platform::ABILITY_DECLARATIONS,
+        |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
+    )
+    .map_err(|(module, e)| anyhow::anyhow!("platform module `{module}` failed to build: {e}"))?;
 
     let mut hashes = HashMap::new();
     for (path, module_hashes) in &module_function_hashes {
@@ -131,14 +129,13 @@ pub fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
     let main_path = ModulePath::root();
     core.registry.register(&main_path, Arc::new(module.clone()));
 
-    // Type check with the core modules and platform prelude visible.
+    // Type check with the core and platform modules visible. `core_context`
+    // registered `platform`, so its namespaced abilities resolve through
+    // registry seeding. The prelude is still needed below for the *compiler*
+    // (host binding), a separate concern from type checking.
     let prelude = platform_prelude()?;
-    let check_result = ambient_engine::infer::check_module_with_registry_and_resolver(
-        module,
-        &main_path,
-        &core.registry,
-        prelude_resolver(&prelude),
-    );
+    let check_result =
+        ambient_engine::infer::check_module_with_registry(module, &main_path, &core.registry);
     if !check_result.is_ok() {
         // Print type errors
         for error in &check_result.errors {

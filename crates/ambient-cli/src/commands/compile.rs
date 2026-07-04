@@ -55,7 +55,13 @@ fn compile_package_cmd(path: &Path) -> Result<()> {
         eprintln!("[{}/{}] Compiling {}", current, total, module);
     };
 
-    let result = build_package(path, parse_source, Some(&progress_cb)).map_err(|e| match e {
+    let result = build_package(
+        path,
+        parse_source,
+        ambient_platform::ABILITY_DECLARATIONS,
+        Some(&progress_cb),
+    )
+    .map_err(|e| match e {
         BuildError::PackageOpen(msg) => anyhow::anyhow!("failed to open package: {msg}"),
         BuildError::Parse { module, error } => anyhow::anyhow!("parse error in {module}: {error}"),
         BuildError::TypeCheck { module, errors } => {

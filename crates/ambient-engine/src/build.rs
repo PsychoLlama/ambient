@@ -83,6 +83,7 @@ impl std::error::Error for BuildError {}
 pub fn build_package(
     path: &Path,
     parse: ParseFn,
+    platform_source: &str,
     progress: Option<ProgressCallback<'_>>,
 ) -> Result<BuildResult, BuildError> {
     // Open package (validates manifest and entry point).
@@ -119,6 +120,18 @@ pub fn build_package(
     // every user module may reference them.
     let core_compiled = compile_core_modules(&mut registry, &mut module_function_hashes, parse)?;
     all_compiled.merge(&core_compiled);
+
+    // Register the embedder-supplied `platform` declaration module so its
+    // abilities are in scope fully-qualified (`platform::Network`) and
+    // importable (`use platform::Network;`). Declaration-only: never
+    // compiled, and skipped by dependency extraction.
+    crate::core_library::register_declaration_module(
+        &mut registry,
+        &["platform"],
+        platform_source,
+        parse,
+    )
+    .map_err(|(module, error)| BuildError::Parse { module, error })?;
 
     for (idx, module_path) in module_order.iter().enumerate() {
         let module = pkg
@@ -262,10 +275,14 @@ pub fn build_imported_hashes_from_compiled(
         }
     }
 
-    // Core modules are always in scope under their fully qualified names
-    // (`core.List.map`), no import required.
+    // Core and platform modules are always in scope under their fully
+    // qualified names (`core.List.map`, `platform.Network`), no import
+    // required. (Platform is a declaration-only module with no compiled
+    // functions, so it never appears in `compiled_hashes` today — but the
+    // check keeps the reserved roots symmetric with the type checker's.)
     for (path, module_hashes) in compiled_hashes {
-        if !path.to_string().starts_with("core.") {
+        let root = path.segments().first().map(AsRef::as_ref);
+        if root != Some("core") && root != Some("platform") {
             continue;
         }
         for (fn_name, hash) in module_hashes {
@@ -453,8 +470,9 @@ pub fn extract_dependencies(
         };
 
         let import_prefix = match use_def.prefix {
-            // Core modules are embedded, not loaded from the package tree.
-            UsePrefix::Core => continue,
+            // Core and platform modules are embedded, not loaded from the
+            // package tree.
+            UsePrefix::Core | UsePrefix::Platform => continue,
             UsePrefix::Pkg => ImportPrefix::Pkg,
             UsePrefix::Self_ => ImportPrefix::Self_,
             UsePrefix::Super(n) => ImportPrefix::Super(n),

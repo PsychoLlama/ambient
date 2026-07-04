@@ -6,7 +6,8 @@
 use ambient_engine::ability_resolver::AbilityResolver;
 use ambient_engine::ast::{Expr, ExprKind, Item, ItemKind, Module, QualifiedName, Span, StmtKind};
 use ambient_engine::infer::{
-    BoxedTypeError, check_module_with_registry_and_resolver, check_module_with_resolver,
+    BoxedTypeError, check_module_with_registry, check_module_with_registry_and_resolver,
+    check_module_with_resolver,
 };
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
@@ -77,14 +78,19 @@ pub fn analyze_with_registry_and_resolver(
         }
     };
 
-    // Type check the module - use the registry if available. Without an
-    // explicit resolver, abilities resolve against the platform prelude.
-    let resolver = resolver.unwrap_or_else(platform_prelude_resolver);
-    let check_result = match (module_path, registry) {
-        (Some(path), Some(reg)) => {
-            check_module_with_registry_and_resolver(module, path, reg, resolver)
+    // Type check the module. When a registry is present it carries the
+    // `platform` declaration module, so `platform::…` abilities resolve
+    // through engine registry seeding — no embedder resolver needed. Only
+    // the registry-less single-file path still leans on the platform
+    // prelude resolver to see platform abilities.
+    let check_result = match (module_path, registry, resolver) {
+        (Some(path), Some(reg), Some(res)) => {
+            check_module_with_registry_and_resolver(module, path, reg, res)
         }
-        _ => check_module_with_resolver(module, resolver),
+        (Some(path), Some(reg), None) => check_module_with_registry(module, path, reg),
+        (_, _, res) => {
+            check_module_with_resolver(module, res.unwrap_or_else(platform_prelude_resolver))
+        }
     };
 
     AnalysisResult {

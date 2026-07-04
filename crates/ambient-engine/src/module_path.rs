@@ -46,6 +46,8 @@ pub enum ImportPrefix {
     Pkg,
     /// Standard library: `core::module`
     Core,
+    /// Embedded platform ability module: `platform::Ability`
+    Platform,
     /// Same directory: `self::sibling`
     Self_,
     /// Parent directory: `super::parent`, `super::super::grandparent`
@@ -160,6 +162,15 @@ impl ModulePath {
                 // Core modules live under the reserved `core` root. `core`
                 // is a lexer keyword, so user modules can never collide.
                 let mut segments: Vec<Arc<str>> = vec![Arc::from("core")];
+                segments.extend(path.iter().cloned());
+                Ok(ModulePath { segments })
+            }
+            ImportPrefix::Platform => {
+                // Platform abilities live under the reserved `platform`
+                // root, registered as a declaration module by embedders.
+                // `platform` is a contextual keyword in use-prefix position,
+                // so a user module named `platform` never collides here.
+                let mut segments: Vec<Arc<str>> = vec![Arc::from("platform")];
                 segments.extend(path.iter().cloned());
                 Ok(ModulePath { segments })
             }
@@ -376,6 +387,17 @@ mod tests {
             .resolve_relative(&ImportPrefix::Core, &path)
             .expect("core paths resolve under the reserved `core` root");
         assert_eq!(resolved.to_string(), "core.List");
+    }
+
+    #[test]
+    fn test_resolve_platform() {
+        let current = ModulePath::root();
+        let path = vec![Arc::from("Network")];
+
+        let resolved = current
+            .resolve_relative(&ImportPrefix::Platform, &path)
+            .expect("platform paths resolve under the reserved `platform` root");
+        assert_eq!(resolved.to_string(), "platform.Network");
     }
 
     #[test]

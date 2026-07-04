@@ -109,8 +109,10 @@ impl PackageInfo {
 
     /// Build a module registry from discovered modules.
     ///
-    /// Core modules register alongside the package's own, so `use core::*`
-    /// imports resolve in the editor exactly as they do in a build.
+    /// Core and platform modules register alongside the package's own, so
+    /// `use core::*` and `use platform::*` imports — and fully-qualified
+    /// `platform::Network` references — resolve in the editor exactly as
+    /// they do in a build.
     #[allow(clippy::arc_with_non_send_sync)]
     pub fn build_registry(&self) -> ModuleRegistry {
         let mut registry = ModuleRegistry::new();
@@ -118,6 +120,13 @@ impl PackageInfo {
         let _ = ambient_engine::core_library::register_core_modules(&mut registry, |source| {
             ambient_parser::parse(source).map_err(|e| e.to_string())
         });
+
+        let _ = ambient_engine::core_library::register_declaration_module(
+            &mut registry,
+            &["platform"],
+            ambient_platform::ABILITY_DECLARATIONS,
+            |source| ambient_parser::parse(source).map_err(|e| e.to_string()),
+        );
 
         for module in self.modules.values() {
             registry.register(&module.path, Arc::new(module.ast.clone()));

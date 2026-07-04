@@ -270,7 +270,9 @@ impl ModuleRegistry {
     ) -> Option<ModulePath> {
         let prefix = match re_export.prefix {
             UsePrefix::Pkg => ImportPrefix::Pkg,
-            UsePrefix::Core => return None, // Core imports handled separately
+            // Core imports are handled separately; platform re-exports are
+            // unsupported (symmetric with core).
+            UsePrefix::Core | UsePrefix::Platform => return None,
             UsePrefix::Self_ => ImportPrefix::Self_,
             UsePrefix::Super(count) => ImportPrefix::Super(count),
         };
@@ -301,6 +303,7 @@ impl ModuleRegistry {
         let import_prefix = match prefix {
             UsePrefix::Pkg => ImportPrefix::Pkg,
             UsePrefix::Core => ImportPrefix::Core,
+            UsePrefix::Platform => ImportPrefix::Platform,
             UsePrefix::Self_ => ImportPrefix::Self_,
             UsePrefix::Super(count) => ImportPrefix::Super(*count),
         };

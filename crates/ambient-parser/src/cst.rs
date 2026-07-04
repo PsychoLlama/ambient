@@ -416,6 +416,8 @@ pub enum CstUsePrefix {
     Pkg(CstIdent),
     /// `core::module` - Standard library
     Core(CstIdent),
+    /// `platform::Ability` - Embedded platform ability module
+    Platform(CstIdent),
     /// `self::module` - Same directory
     Self_(CstIdent),
     /// `super::module` - Parent directory (stores the chain of super keywords)

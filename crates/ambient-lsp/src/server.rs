@@ -988,7 +988,12 @@ fn populate_symbol_db_from_package(db: &mut SymbolDb, pkg: &PackageInfo, connect
         let _ = send_progress(connection, report);
     };
 
-    let result = build_package(&pkg.root, parse_source, Some(&progress_cb));
+    let result = build_package(
+        &pkg.root,
+        parse_source,
+        ambient_platform::ABILITY_DECLARATIONS,
+        Some(&progress_cb),
+    );
 
     // Send progress end
     let end_message = match &result {

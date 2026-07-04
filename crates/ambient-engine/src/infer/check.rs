@@ -73,6 +73,7 @@ pub fn check_module(module: crate::ast::Module) -> CheckResult {
 /// 4. Ability enforcement — deferred until all bodies are checked so calls
 ///    to functions defined later (whose ability variables bind in phase 3)
 ///    resolve before their callers are judged.
+#[allow(clippy::too_many_lines)]
 fn check_module_core(
     mut infer: Infer,
     mut module: crate::ast::Module,
@@ -82,6 +83,13 @@ fn check_module_core(
 
     // Phase 1: registration.
     let mut env = if let Some((module_path, registry)) = cross_module {
+        // Platform abilities are always in scope fully-qualified. Seed them
+        // as namespaced dynamics from the `platform.*` declaration module
+        // before imports and local abilities resolve, so `platform::Console`
+        // references (inline uses and cross-module ability deps) and the
+        // `use platform::Network;` bridge all find their target — on every
+        // path that has a registry, including the package build.
+        seed_namespaced_platform_dynamics(&mut infer, registry, &mut errors);
         // Imported enums register first: foreign impl registration (next)
         // must resolve an imported enum target to its uuid, or the impl's
         // dispatch key won't match the call sites'.
@@ -108,6 +116,10 @@ fn check_module_core(
     register_type_aliases(&mut infer, &module);
     register_traits(&mut infer, &module);
     register_enums(&mut infer, &module, &mut env, &mut errors);
+    // ORDERING (load-bearing): `build_import_env` (above) already registered
+    // cross-module ability imports as bare dynamics; `register_abilities`
+    // runs *after* and overwrites, so a local `ability` shadows an imported
+    // one of the same bare name (matching the value/type shadowing rule).
     register_abilities(&mut infer, &mut module, &mut errors);
     collect_function_signatures(&mut infer, &module, &mut env);
     // Inherent method signatures register before any body is checked, so
@@ -1216,89 +1228,179 @@ fn register_abilities(
     module: &mut crate::ast::Module,
     errors: &mut Vec<BoxedTypeError>,
 ) -> Vec<Arc<crate::ability_resolver::DynAbility>> {
-    use crate::ability_resolver::{CanonicalTypeRenderer, DynAbility, DynMethod};
-
     let mut resolved = Vec::new();
     for item in &mut module.items {
         let crate::ast::ItemKind::Ability(def) = &mut item.kind else {
             continue;
         };
 
-        // Resolve dependencies first: they must already be known. The
-        // namespace policy applies here too: `ability Log with
-        // platform::Console` — a platform dependency needs its prefix.
-        let mut dependencies = Vec::new();
-        for dep in &def.dependencies {
-            match infer.resolve_ability_ref(dep, (def.name_span.start, def.name_span.end)) {
-                Ok(id) => dependencies.push(id),
-                Err(e) => errors.push(e),
-            }
-        }
-
-        let mut methods = Vec::new();
-        let mut canonical = Vec::new();
-        #[allow(clippy::cast_possible_truncation)]
-        for (idx, method) in def.methods.iter().enumerate() {
-            // Type parameters become quantified variables, substituted
-            // into the declared types.
-            let mut param_map = HashMap::new();
-            let mut quantified = Vec::new();
-            for tp in &method.type_params {
-                let var_id = infer.r#gen.fresh_id();
-                param_map.insert(Arc::clone(&tp.name), var_id);
-                quantified.push(var_id);
-            }
-
-            let params: Vec<Type> = method
-                .params
-                .iter()
-                .map(|(_, ty)| infer.resolve_holes(&substitute_type_params(ty, &param_map)))
-                .collect();
-            let ret = infer.resolve_holes(&substitute_type_params(&method.ret_ty, &param_map));
-
-            // One renderer per signature: variable numbering is
-            // signature-local, by first occurrence.
-            let mut renderer = CanonicalTypeRenderer::new();
-            let canon_params: Vec<String> = params.iter().map(|p| renderer.render(p)).collect();
-            let canon_ret = renderer.render(&ret);
-            canonical.push((Arc::clone(&method.name), canon_params, canon_ret));
-
-            methods.push(DynMethod {
-                id: idx as u16,
-                name: Arc::clone(&method.name),
-                param_names: method.params.iter().map(|(n, _)| Arc::clone(n)).collect(),
-                params,
-                ret,
-                quantified,
-            });
-        }
-
-        let id = DynAbility::hash_from_canonical(&def.name, &canonical);
-        def.resolved_id = Some(id);
-
-        // Record dependencies so `require_ability` pulls them transitively.
-        if !dependencies.is_empty() {
-            let registry = infer
-                .ability_registry
-                .get_or_insert_with(crate::types::AbilityRegistry::new);
-            let mut info = crate::types::AbilityInfo::new(def.name.as_ref());
-            for dep in &dependencies {
-                info = info.with_dependency(*dep);
-            }
-            registry.register(id, info);
-        }
-
-        infer.ability_resolver.register_dynamic(DynAbility {
-            id,
-            name: Arc::clone(&def.name),
-            methods,
-            dependencies,
-        });
+        let dyn_ab = resolve_ability_def(infer, def, errors);
+        // The compiler reads the identity back from the AST.
+        def.resolved_id = Some(dyn_ab.id);
+        infer.ability_resolver.register_dynamic(dyn_ab);
         if let Some(ability) = infer.ability_resolver.get_dynamic(&def.name) {
             resolved.push(Arc::clone(ability));
         }
     }
     resolved
+}
+
+/// Register a cross-module ability import (`use pkg::b::SomeAbility;`,
+/// `use platform::Network;`) as a *bare* local dynamic, resolved from the
+/// origin module's declaration.
+///
+/// The identity is content-addressed, so it unifies with the origin
+/// module's own registration — and with any namespaced copy
+/// (`platform::Network`) — meaning handlers, effect-rows, and linking need
+/// no changes. Called from `build_import_env` for each `ExportKind::Ability`
+/// import.
+fn register_imported_ability(
+    infer: &mut Infer,
+    registry: &ModuleRegistry,
+    from_module: &ModulePath,
+    name: &str,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    let Some(module_info) = registry.get(from_module) else {
+        return;
+    };
+    let Some(def) = module_info
+        .module
+        .items
+        .iter()
+        .find_map(|item| match &item.kind {
+            crate::ast::ItemKind::Ability(def) if def.name.as_ref() == name => Some(def),
+            _ => None,
+        })
+    else {
+        return;
+    };
+    let dyn_ab = resolve_ability_def(infer, def, errors);
+    infer.ability_resolver.register_dynamic(dyn_ab);
+}
+
+/// Seed the abilities of the reserved `platform` declaration module as
+/// namespaced dynamics (`platform::Network`, `platform::Console`, ...).
+///
+/// This is the ability-layer counterpart to registering `platform` as a
+/// module: it makes fully-qualified platform references resolve via
+/// `resolve_ref(["platform"], name)` on every checking path that has a
+/// registry — single-file, package, and LSP — including the package build,
+/// which previously had no platform resolver at all. `namespaced_by_name`
+/// is exactly the storage for "always in scope, must be qualified".
+///
+/// Declarations register in file order so a platform ability may depend on
+/// an earlier one (`Log with platform::Console`).
+fn seed_namespaced_platform_dynamics(
+    infer: &mut Infer,
+    registry: &ModuleRegistry,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    let Some(platform_path) = ModulePath::from_str_segments(&["platform"]) else {
+        return;
+    };
+    let Some(module_info) = registry.get(&platform_path) else {
+        return;
+    };
+    // Own the AST so the registry borrow ends before `&mut infer`.
+    let module = Arc::clone(&module_info.module);
+    for item in &module.items {
+        if let crate::ast::ItemKind::Ability(def) = &item.kind {
+            let dyn_ab = resolve_ability_def(infer, def, errors);
+            infer
+                .ability_resolver
+                .register_dynamic_in_namespace("platform", dyn_ab);
+        }
+    }
+}
+
+/// Resolve one `ability` declaration into a content-addressed
+/// [`DynAbility`], recording its transitive dependencies in the ability
+/// registry.
+///
+/// Shared by the local path ([`register_abilities`], which additionally
+/// writes the identity back into the AST and registers it *bare*) and the
+/// cross-module import path ([`build_import_env`], which registers the
+/// result bare from a foreign module's declaration). The identity is
+/// recomputed deterministically from the canonical interface, so a foreign
+/// import matches the origin module's own registration without touching the
+/// (immutable) foreign AST's `resolved_id`.
+fn resolve_ability_def(
+    infer: &mut Infer,
+    def: &crate::ast::AbilityDef,
+    errors: &mut Vec<BoxedTypeError>,
+) -> crate::ability_resolver::DynAbility {
+    use crate::ability_resolver::{CanonicalTypeRenderer, DynAbility, DynMethod};
+
+    // Resolve dependencies first: they must already be known. The
+    // namespace policy applies here too: `ability Log with
+    // platform::Console` — a platform dependency needs its prefix.
+    let mut dependencies = Vec::new();
+    for dep in &def.dependencies {
+        match infer.resolve_ability_ref(dep, (def.name_span.start, def.name_span.end)) {
+            Ok(id) => dependencies.push(id),
+            Err(e) => errors.push(e),
+        }
+    }
+
+    let mut methods = Vec::new();
+    let mut canonical = Vec::new();
+    #[allow(clippy::cast_possible_truncation)]
+    for (idx, method) in def.methods.iter().enumerate() {
+        // Type parameters become quantified variables, substituted
+        // into the declared types.
+        let mut param_map = HashMap::new();
+        let mut quantified = Vec::new();
+        for tp in &method.type_params {
+            let var_id = infer.r#gen.fresh_id();
+            param_map.insert(Arc::clone(&tp.name), var_id);
+            quantified.push(var_id);
+        }
+
+        let params: Vec<Type> = method
+            .params
+            .iter()
+            .map(|(_, ty)| infer.resolve_holes(&substitute_type_params(ty, &param_map)))
+            .collect();
+        let ret = infer.resolve_holes(&substitute_type_params(&method.ret_ty, &param_map));
+
+        // One renderer per signature: variable numbering is
+        // signature-local, by first occurrence.
+        let mut renderer = CanonicalTypeRenderer::new();
+        let canon_params: Vec<String> = params.iter().map(|p| renderer.render(p)).collect();
+        let canon_ret = renderer.render(&ret);
+        canonical.push((Arc::clone(&method.name), canon_params, canon_ret));
+
+        methods.push(DynMethod {
+            id: idx as u16,
+            name: Arc::clone(&method.name),
+            param_names: method.params.iter().map(|(n, _)| Arc::clone(n)).collect(),
+            params,
+            ret,
+            quantified,
+        });
+    }
+
+    let id = DynAbility::hash_from_canonical(&def.name, &canonical);
+
+    // Record dependencies so `require_ability` pulls them transitively.
+    if !dependencies.is_empty() {
+        let registry = infer
+            .ability_registry
+            .get_or_insert_with(crate::types::AbilityRegistry::new);
+        let mut info = crate::types::AbilityInfo::new(def.name.as_ref());
+        for dep in &dependencies {
+            info = info.with_dependency(*dep);
+        }
+        registry.register(id, info);
+    }
+
+    DynAbility {
+        id,
+        name: Arc::clone(&def.name),
+        methods,
+        dependencies,
+    }
 }
 
 /// Resolve a module's `ability` declarations without checking the rest of
@@ -1475,6 +1577,7 @@ pub fn check_module_with_registry_and_resolver(
 ///
 /// This processes the imports in the module and adds type schemes for
 /// each imported symbol to the environment.
+#[allow(clippy::too_many_lines)]
 fn build_import_env(
     infer: &mut Infer,
     module_path: &ModulePath,
@@ -1564,6 +1667,11 @@ fn build_import_env(
                     )));
                 }
                 ResolvedImport::Symbol {
+                    export_kind: ExportKind::Ability,
+                    from_module,
+                    ..
+                } => register_imported_ability(infer, registry, &from_module, &name, errors),
+                ResolvedImport::Symbol {
                     from_module,
                     export_kind,
                     ..
@@ -1582,11 +1690,15 @@ fn build_import_env(
         }
     }
 
-    // Core modules are always in scope under their fully qualified names
-    // (`core.List.map`), no import required.
+    // Core and platform modules are always in scope under their fully
+    // qualified names (`core.List.map`, `platform.Network`), no import
+    // required. (Platform exports are all abilities, which don't hydrate as
+    // value schemes, so this is a no-op for `platform` today — but it keeps
+    // the reserved roots symmetric and future-proofs non-ability exports.)
     for module_info in registry.all_modules() {
         let path = module_info.path.clone();
-        if !path.to_string().starts_with("core.") {
+        let root = path.segments().first().map(AsRef::as_ref);
+        if root != Some("core") && root != Some("platform") {
             continue;
         }
         for export in registry.get_public_exports(&path) {

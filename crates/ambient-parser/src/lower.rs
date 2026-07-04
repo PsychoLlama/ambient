@@ -300,6 +300,7 @@ fn lower_use(u: &CstUseDef) -> Result<UseDef, ParseError> {
     let prefix = match &u.prefix {
         CstUsePrefix::Pkg(_) => UsePrefix::Pkg,
         CstUsePrefix::Core(_) => UsePrefix::Core,
+        CstUsePrefix::Platform(_) => UsePrefix::Platform,
         CstUsePrefix::Self_(_) => UsePrefix::Self_,
         CstUsePrefix::Super(supers) => UsePrefix::Super(supers.len()),
     };

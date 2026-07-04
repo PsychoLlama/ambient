@@ -14,7 +14,7 @@
 //! effect system. Engine faults remain fatal.
 
 /// Terminal output.
-ability Console {
+pub ability Console {
   /// Write a line to stdout.
   fn print(message: string): ();
   /// Write a line to stderr.
@@ -24,7 +24,7 @@ ability Console {
 }
 
 /// Wall-clock time.
-ability Time {
+pub ability Time {
   /// Milliseconds since the Unix epoch.
   fn now(): number;
   /// Block for the given number of milliseconds.
@@ -32,7 +32,7 @@ ability Time {
 }
 
 /// Non-deterministic random numbers.
-ability Random {
+pub ability Random {
   /// A random number in `[0, 1)`.
   fn seed(): number;
   /// A random integer in `[0, max)`.
@@ -40,7 +40,7 @@ ability Random {
 }
 
 /// Leveled diagnostic logging.
-ability Log {
+pub ability Log {
   fn debug(message: string): ();
   fn info(message: string): ();
   fn warn(message: string): ();
@@ -48,7 +48,7 @@ ability Log {
 }
 
 /// File system access at scripting-language granularity.
-ability FileSystem {
+pub ability FileSystem {
   /// Read a file as UTF-8 text.
   fn read(path: string): string;
   /// Create or truncate a file with the given text.
@@ -68,7 +68,7 @@ ability FileSystem {
 }
 
 /// TCP networking. Listeners and connections are numeric handles.
-ability Network {
+pub ability Network {
   /// Bind a listener on a `(host, port)` endpoint like `("127.0.0.1", 8080)`.
   fn listen(endpoint: (string, number)): number;
   /// Block until a client connects; returns a connection handle.
@@ -96,7 +96,7 @@ ability Network {
 /// effect-polymorphic function parameters; the runtime checks their
 /// arity at spawn time (init takes no parameters, handler takes
 /// state and message).
-ability Process {
+pub ability Process {
   /// Spawn a named process; returns its pid. During a deploy pass this
   /// is a declaration: an existing live name is rebound (state kept)
   /// instead of respawned. Outside a deploy pass, spawning a live name
@@ -117,7 +117,7 @@ ability Process {
 
 /// Content-addressed remote execution: run functions by hash in an
 /// isolated VM whose capabilities the host decides.
-ability Execute {
+pub ability Execute {
   /// Whether the local store has the function.
   fn has_function(hash: string): bool;
   /// Hashes of everything the function transitively calls.

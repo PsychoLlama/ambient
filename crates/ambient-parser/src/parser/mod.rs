@@ -1059,6 +1059,24 @@ impl<'src> Parser<'src> {
                 self.skip_trivia();
                 Ok(CstUsePrefix::Core(ident))
             }
+            // `platform` is a *contextual* keyword recognized only in
+            // use-prefix position — unlike `core`/`pkg` it is not a lexer
+            // keyword, because it also appears as an ability head
+            // (`with platform::Network`) where it must lex as a plain
+            // identifier. Matching the identifier text here lets
+            // `use platform::Network;` resolve through the reserved-root
+            // machinery without a hard `TokenKind::Platform`.
+            TokenKind::Ident if self.current().text == "platform" => {
+                let token = self.current().clone();
+                let ident = CstIdent {
+                    name: token.text.into(),
+                    span: token.span,
+                    trailing_trivia: Trivia::default(),
+                };
+                self.advance();
+                self.skip_trivia();
+                Ok(CstUsePrefix::Platform(ident))
+            }
             TokenKind::Self_ => {
                 let token = self.current().clone();
                 let ident = CstIdent {
@@ -1104,7 +1122,7 @@ impl<'src> Parser<'src> {
             }
             _ => Err(ParseError::new(
                 ParseErrorKind::Expected {
-                    expected: "pkg, core, self, or super".into(),
+                    expected: "pkg, core, platform, self, or super".into(),
                     found: format!("{:?}", self.current_kind()),
                 },
                 self.current().span,
@@ -1597,6 +1615,82 @@ mod tests {
                 assert_eq!(&*u.path[0].name, "io");
             }
             _ => panic!("Expected use"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_platform() {
+        // `platform` is a contextual keyword in use-prefix position.
+        let source = "use platform::Network;";
+        let mut parser = Parser::new(source).unwrap();
+        let module = parser.parse_module().expect("parse error");
+        match &module.items[0].kind {
+            CstItemKind::Use(u) => {
+                assert!(matches!(&u.prefix, CstUsePrefix::Platform(_)));
+                assert_eq!(u.path.len(), 1);
+                assert_eq!(&*u.path[0].name, "Network");
+                assert!(matches!(&u.kind, CstUseKind::Module));
+            }
+            _ => panic!("Expected use"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_platform_items() {
+        let source = "use platform::{Network, Console};";
+        let mut parser = Parser::new(source).unwrap();
+        let module = parser.parse_module().expect("parse error");
+        match &module.items[0].kind {
+            CstItemKind::Use(u) => {
+                assert!(matches!(&u.prefix, CstUsePrefix::Platform(_)));
+                match &u.kind {
+                    CstUseKind::Items(items) => {
+                        assert_eq!(items.len(), 2);
+                        assert_eq!(&*items[0].name, "Network");
+                        assert_eq!(&*items[1].name, "Console");
+                    }
+                    _ => panic!("Expected items import"),
+                }
+            }
+            _ => panic!("Expected use"),
+        }
+    }
+
+    #[test]
+    fn test_parse_use_pkg_named_platform() {
+        // A user path segment `platform` under `pkg` is still `Pkg` — the
+        // contextual keyword only wins in prefix position.
+        let source = "use pkg::platform;";
+        let mut parser = Parser::new(source).unwrap();
+        let module = parser.parse_module().expect("parse error");
+        match &module.items[0].kind {
+            CstItemKind::Use(u) => {
+                assert!(matches!(&u.prefix, CstUsePrefix::Pkg(_)));
+                assert_eq!(u.path.len(), 1);
+                assert_eq!(&*u.path[0].name, "platform");
+            }
+            _ => panic!("Expected use"),
+        }
+    }
+
+    #[test]
+    fn test_with_platform_stays_qualified_name() {
+        // Regression: the soft `platform` keyword must NOT leak into
+        // `parse_qualified_name`, so a `with platform::Network` ability head
+        // still parses as a two-segment qualified name starting with
+        // `platform`.
+        let source = "fn f(): () with platform::Network { () }";
+        let mut parser = Parser::new(source).unwrap();
+        let module = parser.parse_module().expect("parse error");
+        match &module.items[0].kind {
+            CstItemKind::Function(f) => {
+                assert_eq!(f.abilities.len(), 1);
+                let segments = &f.abilities[0].segments;
+                assert_eq!(segments.len(), 2);
+                assert_eq!(&*segments[0].name, "platform");
+                assert_eq!(&*segments[1].name, "Network");
+            }
+            _ => panic!("Expected function"),
         }
     }
 

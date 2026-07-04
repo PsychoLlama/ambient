@@ -619,7 +619,7 @@ fn test_with_clause_requires_platform_namespace() {
         }
         "#,
     )
-    .expect_error("requires the `platform::` prefix");
+    .expect_error("qualify it as `platform::");
 }
 
 #[test]
@@ -639,7 +639,7 @@ fn test_handler_arm_requires_platform_namespace() {
         }
         "#,
     )
-    .expect_error("requires the `platform::` prefix");
+    .expect_error("qualify it as `platform::");
 }
 
 #[test]
@@ -653,7 +653,7 @@ fn test_sandbox_clause_requires_platform_namespace() {
         }
         "#,
     )
-    .expect_error("requires the `platform::` prefix");
+    .expect_error("qualify it as `platform::");
 }
 
 #[test]
@@ -669,7 +669,7 @@ fn test_effect_row_annotation_requires_platform_namespace() {
         }
         "#,
     )
-    .expect_error("requires the `platform::` prefix");
+    .expect_error("qualify it as `platform::");
 }
 
 #[test]

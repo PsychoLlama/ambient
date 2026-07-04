@@ -530,9 +530,10 @@ The platform abilities (Console, FileSystem, Network, ...) are themselves plain
 `ability` declarations — see "The platform module" below. User abilities
 are handled in-language (`handle` blocks or handler values); a performed
 ability with no handler in scope — in-language or host — is a runtime
-error. Current limits: declarations are visible in the declaring module
-(no cross-module ability imports yet), and the REPL does not register
-them.
+error. Abilities import across modules like any other item: `use
+pkg::b::SomeAbility;` (and `use platform::Network;`) brings the ability into
+scope under its bare name. Current limit: the REPL does not yet register
+`platform` as a module, so bare `use platform::…` there is a follow-up.
 
 ### Using Abilities
 
@@ -542,12 +543,17 @@ them.
 let content = FileSystem::read!("file.txt");
 ```
 
-Namespaced (platform) abilities must be written with their namespace in
-*every* position — performs, `with` clauses, effect-row annotations,
-handler arms, and sandbox clauses. A bare `Console` in any of those
-positions is a type error unless the module declares its own `Console`
-ability. User-declared abilities and the builtin `Exception` are always
-bare; they may not be spelled with a namespace.
+Platform abilities are always in scope *fully-qualified* (`platform::Console`
+in performs, `with` clauses, effect-row annotations, handler arms, and
+sandbox clauses) with no `use` — mirroring how `core::` items are always
+reachable qualified. To drop the prefix, import the ability:
+`use platform::Console;` then `with Console` and `Console::print!(...)` work
+bare thereafter. A bare `Console` that was *never* imported (and is not a
+local declaration) is a type error — the diagnostic suggests qualifying with
+`platform::` or adding the `use`. A local `ability Console` shadows an
+imported one under the bare name; the platform one stays reachable
+qualified. The builtin `Exception` is always bare and may not be spelled
+with a namespace.
 
 ### Ability Syntax in Type Signatures
 
@@ -655,21 +661,37 @@ Builtin abilities are not defined in engine code. The engine's only
 native ability is `Exception` (part of the language). Everything else —
 Console, Time, Random, Log, FileSystem, Network, Process, Execute — is declared once, in
 Ambient source, in the **platform bindings interface**
-(`crates/ambient-platform/src/platform.ab`), and named under the
-`platform` namespace in every position: performs
-(`platform::FileSystem::read!(path)`), `with` clauses and effect rows
-(`with platform::FileSystem`), handler arms
-(`platform::FileSystem::read(path) => ...`), and sandbox clauses
-(`sandbox with platform::Log`).
+(`crates/ambient-platform/src/platform.ab`).
 
-An embedder wires the two halves together:
+`platform` is a first-class importable module root, resolved through the
+same `ModuleRegistry` machinery as `core::`/`pkg::` (it is a *contextual*
+keyword — recognized only in use-prefix position, so it still lexes as a
+plain identifier in an ability head like `with platform::Network`). Its
+abilities are always in scope fully-qualified (`platform::FileSystem::read!`,
+`with platform::FileSystem`, `platform::FileSystem::read(path) => ...`,
+`sandbox with platform::Log`) with no `use`, and importable by name
+(`use platform::FileSystem;`) to use bare — exactly like `core::` items.
+Because ability identity is the content-addressed interface hash, a bare
+imported `FileSystem` and a qualified `platform::FileSystem` share one
+`AbilityId`, so handlers, effect rows, and linking unify with no special
+casing.
+
+The engine seeds the namespaced `platform::` abilities from the registered
+`platform` module during type checking (`seed_namespaced_platform_dynamics`),
+and the general cross-module bridge (`build_import_env`) registers an
+imported ability as a bare dynamic — the same code path any
+`use pkg::b::SomeAbility;` takes.
+
+An embedder still wires the **host binding** half:
 
 1. Parse the declarations and resolve them
-   (`resolve_ability_declarations`) into content-addressed interfaces.
-2. Register them as the `platform` ability prelude on the resolver used
-   for type checking and in `CompileOptions::prelude_abilities` for
-   compilation. Performs then type-check against the full declared
-   signatures — the same path user-declared abilities take.
+   (`resolve_ability_declarations`) into content-addressed interfaces, and
+   register the `platform` module in the registry
+   (`register_declaration_module`) so the naming layer resolves it.
+2. Pass the resolved interfaces in `CompileOptions::prelude_abilities` for
+   compilation. Type checking no longer needs an embedder ability resolver:
+   performs resolve against the seeded `platform` module, the same path
+   user-declared abilities take.
 3. Bind host handlers **by method name** against the resolved
    interfaces (`AbilityInterface`: identity plus name→method-id map) via
    `vm.register_host_handler(id, method_id, handler)`.

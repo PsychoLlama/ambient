@@ -129,6 +129,38 @@ pub fn register_core_modules(
     Ok(paths)
 }
 
+/// Parse a declaration-only module (e.g. the `platform` ability bindings
+/// interface) and register it at a reserved module path.
+///
+/// This is the general mechanism behind treating an embedder-supplied
+/// module — one containing only declarations, no bodies — as a first-class
+/// importable root such as `platform`. Kept parameterized by source string
+/// and parse closure so the engine takes no dependency on any particular
+/// embedder crate (e.g. `ambient-platform`); the caller supplies both.
+///
+/// # Errors
+///
+/// Returns the joined path and parse error if the source fails to parse.
+///
+/// # Panics
+///
+/// Panics if `segments` is empty (a caller bug — reserved roots always
+/// name at least one segment).
+#[allow(clippy::arc_with_non_send_sync)]
+pub fn register_declaration_module(
+    registry: &mut crate::module_registry::ModuleRegistry,
+    segments: &[&str],
+    source: &str,
+    parse: impl Fn(&str) -> Result<crate::ast::Module, String>,
+) -> Result<ModulePath, (String, String)> {
+    let joined = segments.join(".");
+    let module = parse(source).map_err(|e| (joined.clone(), e))?;
+    let path = ModulePath::from_str_segments(segments)
+        .unwrap_or_else(|| panic!("declaration module path must be non-empty"));
+    registry.register(&path, Arc::new(module));
+    Ok(path)
+}
+
 /// Convert a path to a module name.
 fn path_to_name(path: &[Arc<str>]) -> String {
     path.iter().map(AsRef::as_ref).collect::<Vec<_>>().join(".")

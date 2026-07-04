@@ -87,6 +87,8 @@ pub enum UsePrefixInfo {
     Pkg,
     /// `core::module` - Core library
     Core,
+    /// `platform::Ability` - Embedded platform ability module
+    Platform,
     /// `self::sibling` - Same directory
     Self_,
     /// `super::module` - Parent directory with level count
@@ -98,6 +100,7 @@ impl From<&UsePrefix> for UsePrefixInfo {
         match prefix {
             UsePrefix::Pkg => Self::Pkg,
             UsePrefix::Core => Self::Core,
+            UsePrefix::Platform => Self::Platform,
             UsePrefix::Self_ => Self::Self_,
             UsePrefix::Super(n) => Self::Super(*n),
         }
@@ -273,8 +276,9 @@ impl WorkspaceIndex {
                 // Absolute path from package root
                 Some(partial_path.to_vec())
             }
-            UsePrefixInfo::Core => {
-                // Core library - not in workspace index
+            UsePrefixInfo::Core | UsePrefixInfo::Platform => {
+                // Core/platform libraries are embedded, not in the workspace
+                // index.
                 None
             }
             UsePrefixInfo::Self_ => {
@@ -362,8 +366,9 @@ impl WorkspaceIndex {
                 // Absolute path from package root
                 Some(path_names)
             }
-            UsePrefixInfo::Core => {
-                // Core library - not in workspace index
+            UsePrefixInfo::Core | UsePrefixInfo::Platform => {
+                // Core/platform libraries are embedded, not in the workspace
+                // index.
                 None
             }
             UsePrefixInfo::Self_ => {
