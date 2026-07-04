@@ -29,8 +29,14 @@ module.exports = grammar({
   word: ($) => $.identifier,
 
   conflicts: ($) => [
-    // Brace-delimited constructs: {} could be empty block, record, or handler
-    [$.handler_literal, $.record_literal, $.block],
+    // Brace-delimited constructs: `{ x ...` could open a handler or a block
+    // until the token after the first identifier decides (a record is split
+    // off separately below, since it also carries an optional type prefix).
+    [$.handler_literal, $.block],
+    // `Name {` could be a typed record or a bare name followed by a block
+    // (as in `if cond { ... }`). The record needs `field:` inside the brace,
+    // so the block reading wins wherever the brace isn't `{ ident: ... }`.
+    [$._expression, $.record_literal],
     // Lambda parameters vs parenthesized expression: (x) could be either
     [$.lambda_parameter, $._expression],
     // Handler method starts with identifier, conflicts with expression
@@ -467,11 +473,16 @@ module.exports = grammar({
         "]"
       ),
 
+    // Record construction. `TypeName { field: value }` (typed) or a bare
+    // `{ field: value }` (structural). The type prefix is a plain or
+    // `::`-qualified name. At least one `field:` is required — an empty `{}`
+    // is always a block, never a record — which is what disambiguates a bare
+    // record from a block and a typed record from `expr { block }`.
     record_literal: ($) =>
       seq(
-        optional(seq($.identifier, "::")),
+        optional(field("type", choice($.identifier, $.scoped_identifier))),
         "{",
-        optional($.record_fields),
+        $.record_fields,
         "}"
       ),
 
@@ -551,7 +562,11 @@ module.exports = grammar({
         '"'
       ),
 
-    string_content: ($) => /[^"\\$]+|(\$[^{])/,
+    // A run of ordinary characters, or a lone `$` that does not open an
+    // interpolation. The `${` case is claimed by string_interpolation, which
+    // wins by longest-match, so a bare `$` (even right before the closing
+    // quote, as in "$") stays literal text.
+    string_content: ($) => /[^"\\$]+|\$/,
 
     escape_sequence: ($) => /\\[nrt\\"$]/,
 

@@ -137,6 +137,27 @@ fn test(): string {
         (string_content)))))
 
 ================================================================================
+Literal dollar sign
+================================================================================
+
+fn test(): string {
+  "Cost: $5"
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (string
+        (string_content)
+        (string_content)
+        (string_content)))))
+
+================================================================================
 List literal
 ================================================================================
 
@@ -173,6 +194,52 @@ fn test(): Point {
       (record_literal
         (record_fields
           (record_field name: (identifier) value: (number))
+          (record_field name: (identifier) value: (number)))))))
+
+================================================================================
+Typed record literal
+================================================================================
+
+fn test(): Money {
+  Money { cents: 5 }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (record_literal
+        type: (identifier)
+        (record_fields
+          (record_field name: (identifier) value: (number)))))))
+
+================================================================================
+Qualified typed record literal
+================================================================================
+
+fn test(): Shape {
+  pkg::shapes::Shape { radius: 1 }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (record_literal
+        type: (scoped_identifier
+          path: (scoped_identifier
+            path: (identifier)
+            name: (identifier))
+          name: (identifier))
+        (record_fields
           (record_field name: (identifier) value: (number)))))))
 
 ================================================================================

@@ -99,6 +99,16 @@
 (type_definition
   name: (identifier) @type)
 
+; Record construction: the `TypeName` in `TypeName { ... }`
+(record_literal
+  type: (identifier) @type)
+(record_literal
+  type: (scoped_identifier
+    name: (identifier) @type))
+
+(record_field
+  name: (identifier) @property)
+
 ; Parameters
 (parameter
   name: (identifier) @variable.parameter)
