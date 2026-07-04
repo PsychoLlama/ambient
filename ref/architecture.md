@@ -16,7 +16,11 @@ A content-addressed, ability-based programming language inspired by Unison, Rust
 Expression-based with C-like syntax. No statements, only expressions. Semicolons required.
 
 ```ambient
-// Constants
+// Constants map an identifier to a single hashed primitive value. The
+// initializer must be a literal (number, string, boolean, `()`, or a negated
+// numeric literal) — not an identifier, call, or compound expression. The
+// value is baked in when the module is built and inlined at each reference.
+// This is deliberately minimal and may widen later.
 const PI: number = 3.14159;
 
 // Functions

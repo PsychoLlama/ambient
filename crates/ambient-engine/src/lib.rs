@@ -17,6 +17,7 @@ pub mod build;
 pub mod bytecode;
 pub mod compilation_cache;
 pub mod compiler;
+mod const_eval;
 pub mod core_library;
 pub mod disk_store;
 pub mod format;

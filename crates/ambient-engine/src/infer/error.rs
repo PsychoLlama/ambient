@@ -258,6 +258,11 @@ pub enum TypeErrorKind {
     /// A trait impl method declared a `with` clause; trait method effects
     /// are not part of trait signatures yet.
     AbilityClauseOnTraitImpl { method: Arc<str> },
+
+    /// A `const` was initialized with something other than a literal value.
+    /// Constants map an identifier to a single hashed primitive, so their
+    /// initializer must be a literal (see `crate::const_eval`).
+    ConstNotLiteral { name: Arc<str> },
 }
 
 impl std::fmt::Display for TypeErrorKind {
@@ -506,6 +511,12 @@ impl std::fmt::Display for TypeErrorKind {
                 write!(
                     f,
                     "trait impl method `{method}` cannot declare a `with` clause: trait method effects are fixed by the trait signature"
+                )
+            }
+            Self::ConstNotLiteral { name } => {
+                write!(
+                    f,
+                    "`const {name}` must be initialized with a literal value (a number, string, boolean, or `()`)"
                 )
             }
         }

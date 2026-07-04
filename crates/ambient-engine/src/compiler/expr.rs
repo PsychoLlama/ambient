@@ -108,12 +108,15 @@ pub(super) fn compile_expr(
                 // This is a free variable from the parent - add it as a capture.
                 let capture_slot = fc.get_or_create_capture_by_name(Arc::clone(var_name));
                 fc.builder.emit_load_capture(capture_slot);
+            } else if let Some(value) = ctx.constant_value(var_name).cloned() {
+                // Module-level constant: inline its literal value. The value is
+                // baked in when the module is built, so a constant is a direct
+                // identifier→value mapping rather than a callable thunk.
+                fc.builder.emit_const(value);
             } else if let Some(&hash) = fc.function_hashes.get(var_name) {
-                // Check if it's a constant (thunk) that should be auto-called.
-                // Module-level constants are tracked on the context; the REPL
-                // tracks its own via `repl_context`.
-                if ctx.is_constant(var_name) || fc.is_repl_constant(var_name) {
-                    // Call the constant thunk with no arguments to get its value.
+                // The REPL still models its constants as zero-arg thunks (each
+                // REPL line is its own function), so a reference auto-calls.
+                if fc.is_repl_constant(var_name) {
                     fc.builder.emit_call(hash, 0);
                 } else {
                     // It's a function reference - push it for later use.

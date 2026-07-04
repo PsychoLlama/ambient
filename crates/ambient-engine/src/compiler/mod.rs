@@ -45,10 +45,10 @@ pub use repl::{
 use expr::compile_expr;
 use hash::{compute_temporary_hash, finalize_module_hashes};
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::ast::{BindingId, ConstDef, FunctionDef, ImplDef, ImplMethod, ItemKind, Module};
+use crate::ast::{BindingId, FunctionDef, ImplDef, ImplMethod, ItemKind, Module};
 use crate::bytecode::{BytecodeBuilder, CompiledFunction, DebugInfo, Opcode};
 use crate::value::Value;
 
@@ -481,10 +481,11 @@ struct ModuleContext {
     /// Seeded with the prelude (Option/Result); local enum declarations
     /// shadow prelude variants of the same name.
     enums: HashMap<Arc<str>, VariantInfo>,
-    /// Names of module-level constants. A reference to one of these compiles
-    /// to a zero-arg call of its thunk (auto-call) rather than a function
-    /// reference, so the name evaluates to the constant's value.
-    constants: HashSet<Arc<str>>,
+    /// Module-level constants: name → the literal value it denotes. A
+    /// reference to one compiles to a direct push of this value (the value is
+    /// baked in when the module is built), so a constant is genuinely a
+    /// mapping of identifier to hashed value rather than a callable thunk.
+    constants: HashMap<Arc<str>, Value>,
     /// Module-declared abilities in scope: ability name → compile info.
     /// The identity comes from the type checker (`AbilityDef::resolved_id`);
     /// the compiler never re-derives interface hashes.
@@ -546,25 +547,30 @@ impl ModuleContext {
             lambda_counter: 0,
             current_function: None,
             enums,
-            constants: HashSet::new(),
+            constants: HashMap::new(),
             abilities: HashMap::new(),
             prelude_abilities: HashMap::new(),
         }
     }
 
-    /// Record the module's constant names so references to them auto-call
-    /// the constant's thunk (see the `ExprKind::Name` arm in `expr.rs`).
+    /// Record each module-level constant's literal value so references to it
+    /// can be inlined (see the `ExprKind::Name` arm in `expr.rs`). The type
+    /// checker guarantees every `const` initializer is a literal before we get
+    /// here; a non-literal that somehow reaches this point is simply skipped
+    /// and left to surface as an undefined-name error at its reference site.
     fn register_constants(&mut self, module: &Module) {
         for item in &module.items {
-            if let ItemKind::Const(const_def) = &item.kind {
-                self.constants.insert(Arc::clone(&const_def.name));
+            if let ItemKind::Const(const_def) = &item.kind
+                && let Some(value) = crate::const_eval::literal_value(&const_def.value)
+            {
+                self.constants.insert(Arc::clone(&const_def.name), value);
             }
         }
     }
 
-    /// Whether `name` is a module-level constant.
-    fn is_constant(&self, name: &str) -> bool {
-        self.constants.contains(name)
+    /// The literal value of module-level constant `name`, if any.
+    fn constant_value(&self, name: &str) -> Option<&Value> {
+        self.constants.get(name)
     }
 
     /// Register prelude abilities (declaration modules resolved by the
@@ -877,15 +883,10 @@ fn compile_module_impl(
         temp_hashes.insert(Arc::clone(&func.name), hash);
     }
 
-    // Add temporary hashes for local constants. Each constant is compiled
-    // as a zero-arg thunk (below); registering its name here lets bodies
-    // resolve references to it, which the `ExprKind::Name` arm auto-calls.
-    for item in &module.items {
-        if let ItemKind::Const(const_def) = &item.kind {
-            let hash = compute_temporary_hash(&const_def.name);
-            temp_hashes.insert(Arc::clone(&const_def.name), hash);
-        }
-    }
+    // Constants are not compiled to functions: they carry no hash and appear
+    // in no call site. Each reference inlines the constant's literal value
+    // (registered on the `ModuleContext` below), so there is nothing to
+    // temp-hash or finalize here.
 
     // Add temporary hashes for impl methods under their canonical symbols.
     // Impl methods are ordinary functions named by `types::impl_method_symbol`;
@@ -937,15 +938,8 @@ fn compile_module_impl(
         compiled_functions.push((Arc::clone(&func.name), compiled, is_main));
     }
 
-    // Compile constants.
-    for item in &module.items {
-        if let ItemKind::Const(const_def) = &item.kind {
-            // Track current function for lambda parent relationships.
-            ctx.set_current_function(Arc::clone(&const_def.name));
-            let compiled = compile_const(const_def, &temp_hashes, &mut ctx, source, source_file)?;
-            compiled_functions.push((Arc::clone(&const_def.name), compiled, false));
-        }
-    }
+    // Constants are inlined at their reference sites (see `register_constants`
+    // and the `ExprKind::Name` arm), so they produce no compiled function.
 
     // Compile impl methods as ordinary named functions.
     for (impl_def, method) in &impl_methods {
@@ -1035,54 +1029,6 @@ fn compile_function_with_hash(
         dependencies,
         debug_info,
     })
-}
-
-/// Compile a constant definition to a function that returns the constant value.
-fn compile_const(
-    const_def: &ConstDef,
-    function_hashes: &HashMap<Arc<str>, blake3::Hash>,
-    ctx: &mut ModuleContext,
-    source: Option<&str>,
-    source_file: Option<&str>,
-) -> Result<CompiledFunction, CompileError> {
-    let mut fc = FunctionCompiler::new(function_hashes.clone());
-
-    // Compile the value expression.
-    compile_expr(&mut fc, &const_def.value, ctx)?;
-
-    // Return the value.
-    fc.builder.emit(Opcode::Return);
-
-    let mut compiled = fc.builder.build(fc.next_local, 0);
-    // Stamp the pre-computed temp hash (like `compile_function_with_hash`) so
-    // that references to this constant from other bodies — which call the
-    // temp hash — are recognized as local during hash finalization and
-    // rewritten to the constant's content hash. Without this the reference
-    // would target the raw temp hash, which no stored function carries.
-    compiled.hash = function_hashes[&const_def.name];
-
-    // Build debug info if source is available
-    if source.is_some() || source_file.is_some() {
-        let mut debug_info = fc.debug_info;
-        debug_info.function_name = Some(const_def.name.to_string());
-        debug_info.source_file = source_file.map(String::from);
-
-        // Compute line/column numbers from source spans
-        if let Some(src) = source {
-            for mapping in &mut debug_info.source_map {
-                let (line, col) = span_to_line_col(
-                    src,
-                    crate::ast::Span::new(mapping.source_start as u32, mapping.source_end as u32),
-                );
-                mapping.line = line;
-                mapping.column = col;
-            }
-        }
-
-        compiled.debug_info = Some(debug_info);
-    }
-
-    Ok(compiled)
 }
 
 /// Compile a single impl method as an ordinary function.
@@ -2398,9 +2344,9 @@ mod tests {
     }
 
     /// End-to-end: a module-level `const` referenced from a function body
-    /// compiles (its name resolves) and evaluates to the constant's value
-    /// (the thunk is auto-called). Regression test for consts being absent
-    /// from `temp_hashes` and only auto-called in REPL mode.
+    /// compiles (its name resolves) and evaluates to the constant's value,
+    /// which is inlined at the reference site. The constant itself produces
+    /// no compiled function.
     #[test]
     fn module_const_compiles_and_evaluates() {
         use crate::ast::ConstDef;
@@ -2451,6 +2397,13 @@ mod tests {
 
         let compiled = compile_module(&checked.module).expect("compilation failed");
 
+        // The constant is inlined, not compiled to a thunk: only `run` exists.
+        assert_eq!(
+            compiled.functions.len(),
+            1,
+            "constant should not produce a compiled function"
+        );
+
         let mut vm = Vm::new();
         for func in compiled.functions.values() {
             vm.load_function(func.clone());
@@ -2458,5 +2411,54 @@ mod tests {
         let entry = compiled.entry_point.expect("entry point");
         let result = vm.call(&entry, vec![]).expect("run failed");
         assert_eq!(result, Value::Number(1_000_000_000.0));
+    }
+
+    /// A `const` initialized with a non-literal (here, a reference to another
+    /// name) is rejected by the type checker: constants map an identifier to a
+    /// single hashed primitive, so the initializer must be a literal.
+    #[test]
+    fn non_literal_const_is_rejected() {
+        use crate::ast::ConstDef;
+        use crate::infer::TypeErrorKind;
+        use crate::types::Type;
+
+        // const A: number = 1;
+        // const B: number = A;   // not a literal
+        let module = Module {
+            name: Arc::from("test"),
+            doc: None,
+            items: vec![
+                Item::new(
+                    ItemKind::Const(ConstDef {
+                        name: Arc::from("A"),
+                        name_span: Span::default(),
+                        is_public: false,
+                        ty: Type::Number,
+                        value: Expr::number(1.0),
+                    }),
+                    test_span(),
+                ),
+                Item::new(
+                    ItemKind::Const(ConstDef {
+                        name: Arc::from("B"),
+                        name_span: Span::default(),
+                        is_public: false,
+                        ty: Type::Number,
+                        value: Expr::name("A"),
+                    }),
+                    test_span(),
+                ),
+            ],
+        };
+
+        let checked = crate::infer::check_module(module);
+        assert!(
+            checked
+                .errors
+                .iter()
+                .any(|e| matches!(e.kind, TypeErrorKind::ConstNotLiteral { .. })),
+            "expected a ConstNotLiteral error, got: {:?}",
+            checked.errors
+        );
     }
 }

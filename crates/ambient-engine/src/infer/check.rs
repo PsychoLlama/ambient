@@ -158,23 +158,7 @@ fn check_module_core(
         }
 
         if let crate::ast::ItemKind::Const(const_def) = &mut item.kind {
-            infer.reset_abilities();
-            let expected_ty = infer.resolve_holes(&const_def.ty);
-
-            match infer.infer_expr(&env, &mut const_def.value) {
-                Ok(actual_ty) => {
-                    let span = (const_def.value.span.start, const_def.value.span.end);
-                    if let Err(e) = infer.unify(&expected_ty, &actual_ty, span) {
-                        errors.push(e.with_context(format!(
-                            "in constant `{}`: type mismatch",
-                            const_def.name
-                        )));
-                    }
-                }
-                Err(e) => {
-                    errors.push(e.with_context(format!("in constant `{}`", const_def.name)));
-                }
-            }
+            check_const_body(&mut infer, &env, const_def, &mut errors);
         }
     }
 
@@ -1164,6 +1148,46 @@ fn collect_const_signatures(infer: &mut Infer, module: &crate::ast::Module, env:
             next_binding_id += 1;
             let ty = infer.resolve_holes(&const_def.ty);
             env.insert(binding_id, Arc::clone(&const_def.name), Scheme::mono(ty));
+        }
+    }
+}
+
+/// Check one `const` body: enforce that the initializer is a literal and
+/// that its type matches the annotation.
+fn check_const_body(
+    infer: &mut Infer,
+    env: &TypeEnv,
+    const_def: &mut crate::ast::ConstDef,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    infer.reset_abilities();
+
+    // A `const` maps an identifier to a single hashed primitive value, so its
+    // initializer must be a literal — not an identifier, call, or compound
+    // expression. `const_eval` is the shared authority on what qualifies; the
+    // compiler inlines exactly this set.
+    if crate::const_eval::literal_value(&const_def.value).is_none() {
+        errors.push(Box::new(TypeError::new(
+            TypeErrorKind::ConstNotLiteral {
+                name: Arc::clone(&const_def.name),
+            },
+            (const_def.value.span.start, const_def.value.span.end),
+        )));
+    }
+
+    let expected_ty = infer.resolve_holes(&const_def.ty);
+
+    match infer.infer_expr(env, &mut const_def.value) {
+        Ok(actual_ty) => {
+            let span = (const_def.value.span.start, const_def.value.span.end);
+            if let Err(e) = infer.unify(&expected_ty, &actual_ty, span) {
+                errors.push(
+                    e.with_context(format!("in constant `{}`: type mismatch", const_def.name)),
+                );
+            }
+        }
+        Err(e) => {
+            errors.push(e.with_context(format!("in constant `{}`", const_def.name)));
         }
     }
 }
