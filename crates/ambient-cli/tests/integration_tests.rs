@@ -2195,18 +2195,40 @@ fn test_core_option_and_list_methods() {
 
 #[test]
 fn test_core_method_and_module_call_coexist() {
-    // `Option::map(opt, f)` (module companion function) and `opt.map(f)`
-    // (inherent method) both resolve and agree.
-    CliTest::new(
-        r#"
-        pub fn run(): bool {
-            let via_module = core::Option::map(Some(5), (v) => v * 2);
-            let via_method = Some(5).map((v) => v * 2);
-            via_module.unwrap_or(0) == via_method.unwrap_or(1)
-        }
-    "#,
-    )
-    .expect_output("true");
+    // A module companion function `scaled(n, factor)` (called qualified as
+    // `nums::scaled(...)`) and an inherent method `.scaled(factor)` of the
+    // same name both resolve and agree. Core no longer exposes combinators
+    // as free functions, so the coexistence is demonstrated with a user
+    // module rather than `core::Option::map`.
+    let (_dir, pkg) = temp_multi_package(&[
+        (
+            "nums.ab",
+            r"
+            pub fn scaled(n: number, factor: number): number { n * factor }
+            ",
+        ),
+        (
+            "main.ab",
+            r"
+            use self::nums;
+
+            unique(BBBBCCCC-DDDD-EEEE-FFFF-000011112222) type Counter { value: number }
+
+            impl Counter {
+                fn scaled(self, factor: number): number { self.value * factor }
+            }
+
+            pub fn run(): bool {
+                let via_module = nums::scaled(5, 2);
+                let via_method = Counter { value: 5 }.scaled(2);
+                via_module == via_method
+            }
+            ",
+        ),
+    ]);
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("true"));
 }
 
 #[test]
@@ -2916,9 +2938,9 @@ fn test_option_constructors_and_core_helpers() {
     let (dir, pkg) = temp_package(
         r"
         pub fn run(): number {
-            let doubled = core::Option::map(Some(20), (x: number) => x * 2);
-            core::Option::unwrap_or(doubled, 0)
-                + core::Option::unwrap_or(core::Option::map(nothing(), (x: number) => x), 2)
+            let doubled = Some(20).map((x: number) => x * 2);
+            doubled.unwrap_or(0)
+                + nothing().map((x: number) => x).unwrap_or(2)
         }
 
         fn nothing(): Option<number> {
