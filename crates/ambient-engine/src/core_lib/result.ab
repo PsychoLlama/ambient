@@ -1,7 +1,16 @@
-// Core library: Result utilities.
+// Core library: the Result type and its utilities.
 //
-// `Ok`/`Err` constructors and the Result type are built in; these helpers
-// cover the common combinators.
+// This is the canonical declaration of `Result<T, E>`. Its uuid is the
+// reserved prelude identity: the type checker registers the same enum
+// (from the engine-side spec, which this declaration is validated
+// against on every build) into every module's scope, so `Result`,
+// `Ok`, and `Err` are available everywhere without an import. The
+// helpers below cover the common combinators.
+
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF02) enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
 
 pub fn is_ok<T, E>(res: Result<T, E>): bool {
     match res {

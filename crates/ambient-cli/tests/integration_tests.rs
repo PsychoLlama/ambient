@@ -1815,6 +1815,38 @@ fn test_enum_variant_import_is_rejected() {
 }
 
 #[test]
+fn test_reserved_uuid_cannot_be_hijacked() {
+    // Option's reserved uuid with a different shape must be rejected —
+    // otherwise the declaration would unify with real Options and claim
+    // their inherent methods.
+    let (_dir, pkg) = temp_multi_package(&[(
+        "main.ab",
+        r#"
+        unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF01) enum MyOption<T> {
+            Nothing,
+            Just(T),
+        }
+
+        pub fn run(): number {
+            0
+        }
+        "#,
+    )]);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&pkg)
+        .output()
+        .expect("failed to run ambient");
+    assert!(!output.status.success(), "expected hijack to be rejected");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("reserved identity"),
+        "expected reserved-identity error, got: {stderr}"
+    );
+}
+
+#[test]
 fn test_private_enum_is_not_importable() {
     // A bare `enum` (no `pub`) stays module-local.
     let (_dir, pkg) = temp_multi_package(&[

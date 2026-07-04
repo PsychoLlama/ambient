@@ -41,7 +41,18 @@ use pkg::utils::{a, b};   // Item import: a and b as bare names
 use self::utils;         // Whole-module import: call utils::helper(...)
 use core::List;          // Core modules import the same way: List::map(...)
 use core::List::{map};    // ... or by item
+use pkg::shapes::{Shape}; // Enum import: type, constructors, and patterns
 ```
+
+`pub` gates every export: functions, consts, types, enums, abilities, and
+traits are module-private unless declared `pub`. A failed import — missing
+module, missing symbol, or private symbol — is a compile error at the `use`
+item, never a silent no-op. Importing an enum brings its variant
+constructors and patterns into scope wholesale, as if declared locally
+(local declarations shadow imports, which shadow the prelude); a single
+variant cannot be imported on its own. `pub use` re-exports items, and
+imports through a re-export resolve (and link) to the module that defines
+the symbol.
 
 Core modules (`core::List`, `core::math`, `core::string`) are also always in
 scope fully qualified with no import: `core::List::map([1], f)`. They are
@@ -79,8 +90,8 @@ List<T>, Set<T>, Map<K, V>         // Collections
 // Enums (tagged unions) are nominal: every declaration carries a
 // mandatory `unique(<uuid>)` prefix, so two structurally identical enums
 // are distinct types (see Nominal Enums below). Option and Result are
-// equally nominal, but Rust-defined: reserved-name prelude enums with fixed
-// UUIDs whose constructors (Some, None, Ok, Err) are always in scope.
+// ordinary declarations in core (with fixed reserved UUIDs) whose
+// constructors (Some, None, Ok, Err) are always in scope via the prelude.
 unique(E1B2C3D4-0000-0000-0000-000000000001) enum Shape { Circle(number), Square(number), Dot }
 
 // Construct with the variant name; destructure with match. In pattern
@@ -165,19 +176,20 @@ same-named enum elsewhere can never claim them.
 
 `Option<T>` and `Result<T, E>` are nominal on the same footing: they carry
 fixed reserved UUIDs (`OPTION_UUID`/`RESULT_UUID`), so they are as distinct
-and non-interchangeable as any declared enum. They differ only in *where they
-are defined*. They cannot spell a `unique(<uuid>)` declaration in Ambient
-source, because the engine that builds the type checker's prelude has no
-parser (the parser depends on the engine, not the other way round), and
-cross-module enum imports do not exist yet — so a user module could not
-`import` them even if they were declared in `core`. They are therefore a
-Rust-defined prelude: registered into every module's scope with their reserved
-identity, their constructors (`Some`, `None`, `Ok`, `Err`) and companion
-modules (`core::Option`, `core::Result`) always available. Their combinators
-and predicates (`map`, `and_then`, `is_some`, `unwrap_or`, `is_ok`, …) are
-ordinary Ambient in `core_lib/option.ab` and `core_lib/result.ab`; only the
-type, its constructors, and the primitives that *return* an `Option`/`Result`
-at runtime are built in.
+and non-interchangeable as any declared enum. Their canonical declarations
+are ordinary Ambient source — `pub unique(…FF01) enum Option<T>` in
+`core_lib/option.ab`, likewise `Result` in `core_lib/result.ab` — alongside
+their combinators and predicates (`map`, `and_then`, `is_some`, `unwrap_or`,
+`is_ok`, …). What makes them special is the *prelude*: the engine that
+builds the type checker's prelude has no parser (the parser depends on the
+engine, not the other way round), so it registers the same two enums from a
+Rust-side spec (`PRELUDE_ENUMS`) into every module's scope — which is why
+`Some`, `None`, `Ok`, and `Err` need no import anywhere. The spec and the
+source declaration cannot drift: a declaration that claims a reserved uuid
+must match the spec's name, type parameters, and variant layout exactly
+(`validate_reserved_declaration`), so the core sources fail the build if
+they diverge — and no other module can hijack a reserved identity for a
+different shape.
 
 ## Traits
 
@@ -1130,8 +1142,6 @@ Roughly in priority order:
 - Name-aware type rendering: ability sets display as content hashes in
   compiler errors and IDE hover; rendering needs a resolver at every
   display site (one shared engine renderer, consumed by CLI and LSP)
-- Enum variants imported across modules (constructors are currently
-  visible to the declaring module plus the prelude)
 - Type unions (`A | B`)
 - Mutability — some form of first-class mutable state.
 

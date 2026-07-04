@@ -97,7 +97,7 @@ fn check_module_core(
 
     register_type_aliases(&mut infer, &module);
     register_traits(&mut infer, &module);
-    register_enums(&mut infer, &module, &mut env);
+    register_enums(&mut infer, &module, &mut env, &mut errors);
     register_abilities(&mut infer, &mut module, &mut errors);
     collect_function_signatures(&mut infer, &module, &mut env);
     // Inherent method signatures register before any body is checked, so
@@ -1266,9 +1266,24 @@ pub fn resolve_ability_declarations(
 /// Register the module's enum declarations and bring every visible
 /// variant constructor into scope (prelude `Option`/`Result` plus locals;
 /// locals shadow prelude variants of the same name).
-fn register_enums(infer: &mut Infer, module: &crate::ast::Module, env: &mut TypeEnv) {
+fn register_enums(
+    infer: &mut Infer,
+    module: &crate::ast::Module,
+    env: &mut TypeEnv,
+    errors: &mut Vec<BoxedTypeError>,
+) {
     for item in &module.items {
         if let crate::ast::ItemKind::Enum(enum_def) = &item.kind {
+            // A declaration claiming a reserved prelude uuid must *be* the
+            // canonical Option/Result declaration; anything else is an
+            // attempted identity hijack (or a drifted core source).
+            if let Err(message) = super::enums::validate_reserved_declaration(enum_def) {
+                errors.push(Box::new(TypeError::new(
+                    TypeErrorKind::InvalidDeclaration { message },
+                    (enum_def.name_span.start, enum_def.name_span.end),
+                )));
+                continue;
+            }
             infer.enum_registry.register_def(enum_def);
         }
     }

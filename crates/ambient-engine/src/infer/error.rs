@@ -107,6 +107,10 @@ pub enum TypeErrorKind {
     /// A `use` declaration failed to resolve.
     ImportFailed { message: String },
 
+    /// A declaration is malformed in a way types alone don't capture
+    /// (e.g. reusing a reserved prelude uuid with the wrong layout).
+    InvalidDeclaration { message: String },
+
     /// Match arms have different types.
     MatchArmTypeMismatch { first: Type, arm: Type },
 
@@ -292,6 +296,9 @@ impl std::fmt::Display for TypeErrorKind {
             }
             Self::ImportFailed { message } => {
                 write!(f, "import failed: {message}")
+            }
+            Self::InvalidDeclaration { message } => {
+                write!(f, "invalid declaration: {message}")
             }
             Self::MatchArmTypeMismatch { first, arm } => {
                 write!(

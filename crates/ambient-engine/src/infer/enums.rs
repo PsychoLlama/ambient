@@ -135,6 +135,83 @@ impl PreludeEnum {
     }
 }
 
+/// Validate a source declaration against the reserved prelude specs.
+///
+/// The canonical `Option`/`Result` declarations live in Ambient source
+/// (`core_lib/option.ab`, `core_lib/result.ab`), while the checker's
+/// prelude is built from [`PRELUDE_ENUMS`] because the engine cannot
+/// parse. This check pins the two together: a declaration that claims a
+/// reserved uuid must *be* the canonical declaration — same name, type
+/// parameters, and variant layout. The core sources therefore can never
+/// drift from the spec (they fail every build if they try), and no other
+/// module can hijack a reserved identity for a different shape.
+///
+/// # Errors
+///
+/// Returns a description of the mismatch if `def` reuses a reserved uuid
+/// without matching its spec. A declaration with a non-reserved uuid
+/// always passes.
+pub fn validate_reserved_declaration(def: &crate::ast::EnumDef) -> Result<(), String> {
+    let Some(spec) = PRELUDE_ENUMS.iter().find(|s| s.uuid == def.uuid) else {
+        return Ok(());
+    };
+
+    let mismatch = |what: &str| {
+        Err(format!(
+            "`unique({})` is the reserved identity of the prelude enum `{}`; \
+             a declaration using it must match the canonical layout exactly ({what})",
+            crate::types::uuid_to_source(&spec.uuid),
+            spec.name,
+        ))
+    };
+
+    if def.name.as_ref() != spec.name {
+        return mismatch(&format!(
+            "expected name `{}`, found `{}`",
+            spec.name, def.name
+        ));
+    }
+    let def_params: Vec<&str> = def.type_params.iter().map(|p| p.name.as_ref()).collect();
+    if def_params != spec.type_params {
+        return mismatch(&format!(
+            "expected type parameters {:?}, found {def_params:?}",
+            spec.type_params
+        ));
+    }
+    if def.variants.len() != spec.variants.len() {
+        return mismatch(&format!(
+            "expected {} variants, found {}",
+            spec.variants.len(),
+            def.variants.len()
+        ));
+    }
+    for (variant, spec_variant) in def.variants.iter().zip(spec.variants) {
+        if variant.name.as_ref() != spec_variant.name {
+            return mismatch(&format!(
+                "expected variant `{}`, found `{}`",
+                spec_variant.name, variant.name
+            ));
+        }
+        let payload_matches = match (&variant.payload, spec_variant.payload_param) {
+            (None, None) => true,
+            (Some(Type::Named(named)), Some(param)) => {
+                named.name.as_ref() == param && named.args.is_empty()
+            }
+            _ => false,
+        };
+        if !payload_matches {
+            return mismatch(&format!(
+                "variant `{}` must carry {}",
+                spec_variant.name,
+                spec_variant
+                    .payload_param
+                    .map_or_else(|| "no payload".to_string(), |p| format!("payload `{p}`")),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Registry of enums visible to the module being checked.
 #[derive(Debug, Default, Clone)]
 pub struct EnumRegistry {
@@ -333,5 +410,92 @@ mod tests {
                 assert_eq!(info.variants[tag as usize].payload.is_some(), has_payload);
             }
         }
+    }
+
+    fn enum_def(
+        name: &str,
+        uuid: Uuid,
+        type_params: &[&str],
+        variants: &[(&str, Option<&str>)],
+    ) -> crate::ast::EnumDef {
+        crate::ast::EnumDef {
+            name: Arc::from(name),
+            name_span: crate::ast::Span::default(),
+            is_public: true,
+            type_params: type_params
+                .iter()
+                .map(|p| crate::ast::TypeParam {
+                    name: Arc::from(*p),
+                    span: crate::ast::Span::default(),
+                })
+                .collect(),
+            variants: variants
+                .iter()
+                .map(|(v, payload)| crate::ast::EnumVariant {
+                    name: Arc::from(*v),
+                    payload: payload.map(|p| Type::named(p, vec![])),
+                    span: crate::ast::Span::default(),
+                })
+                .collect(),
+            uuid,
+        }
+    }
+
+    #[test]
+    fn reserved_uuid_accepts_the_canonical_declaration() {
+        let option = enum_def(
+            "Option",
+            OPTION_UUID,
+            &["T"],
+            &[("None", None), ("Some", Some("T"))],
+        );
+        assert!(validate_reserved_declaration(&option).is_ok());
+
+        let result = enum_def(
+            "Result",
+            RESULT_UUID,
+            &["T", "E"],
+            &[("Ok", Some("T")), ("Err", Some("E"))],
+        );
+        assert!(validate_reserved_declaration(&result).is_ok());
+    }
+
+    #[test]
+    fn reserved_uuid_rejects_any_other_shape() {
+        // Wrong name: a hijack of Option's identity.
+        let hijack = enum_def(
+            "MyOption",
+            OPTION_UUID,
+            &["T"],
+            &[("None", None), ("Some", Some("T"))],
+        );
+        assert!(validate_reserved_declaration(&hijack).is_err());
+
+        // Wrong variant order: would flip the runtime tags.
+        let flipped = enum_def(
+            "Option",
+            OPTION_UUID,
+            &["T"],
+            &[("Some", Some("T")), ("None", None)],
+        );
+        assert!(validate_reserved_declaration(&flipped).is_err());
+
+        // Wrong payload.
+        let payloadless = enum_def(
+            "Result",
+            RESULT_UUID,
+            &["T", "E"],
+            &[("Ok", Some("T")), ("Err", None)],
+        );
+        assert!(validate_reserved_declaration(&payloadless).is_err());
+
+        // A non-reserved uuid is free to be anything.
+        let user = enum_def(
+            "MyOption",
+            Uuid::from_u128(0x1234),
+            &["T"],
+            &[("Some", Some("T")), ("None", None)],
+        );
+        assert!(validate_reserved_declaration(&user).is_ok());
     }
 }

@@ -1,8 +1,17 @@
-// Core library: Option utilities.
+// Core library: the Option type and its utilities.
 //
-// The `Option` type and its `Some`/`None` constructors are a built-in
-// (reserved-name) prelude enum. Everything else — including the predicates
-// and `unwrap_or` — is ordinary Ambient defined here.
+// This is the canonical declaration of `Option<T>`. Its uuid is the
+// reserved prelude identity: the type checker registers the same enum
+// (from the engine-side spec, which this declaration is validated
+// against on every build) into every module's scope, so `Option`,
+// `Some`, and `None` are available everywhere without an import.
+// Everything else — the predicates and combinators — is ordinary
+// Ambient defined here.
+
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF01) enum Option<T> {
+    None,
+    Some(T),
+}
 
 // Is this a `Some`?
 pub fn is_some<T>(opt: Option<T>): bool {
