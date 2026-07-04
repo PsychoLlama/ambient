@@ -5,90 +5,65 @@
 // (from the engine-side spec, which this declaration is validated
 // against on every build) into every module's scope, so `Result`,
 // `Ok`, and `Err` are available everywhere without an import. The
-// helpers below cover the common combinators.
+// combinators below are exposed as inherent methods (`res.map(f)`), the
+// canonical core API.
 
 pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF02) enum Result<T, E> {
     Ok(T),
     Err(E),
 }
 
-pub fn is_ok<T, E>(res: Result<T, E>): bool {
-    match res {
-        Ok(_) => true,
-        Err(_) => false,
-    }
-}
-
-pub fn is_err<T, E>(res: Result<T, E>): bool {
-    match res {
-        Ok(_) => false,
-        Err(_) => true,
-    }
-}
-
-// Get the value or a default.
-pub fn unwrap_or<T, E>(res: Result<T, E>, default: T): T {
-    match res {
-        Ok(v) => v,
-        Err(_) => default,
-    }
-}
-
-// Transform the success value.
-pub fn map<T, U, E>(res: Result<T, E>, f: (T) -> U): Result<U, E> {
-    match res {
-        Ok(v) => Ok(f(v)),
-        Err(e) => Err(e),
-    }
-}
-
-// Transform the error value.
-pub fn map_err<T, E, F>(res: Result<T, E>, f: (E) -> F): Result<T, F> {
-    match res {
-        Ok(v) => Ok(v),
-        Err(e) => Err(f(e)),
-    }
-}
-
-// Chain a fallible operation.
-pub fn and_then<T, U, E>(res: Result<T, E>, f: (T) -> Result<U, E>): Result<U, E> {
-    match res {
-        Ok(v) => f(v),
-        Err(e) => Err(e),
-    }
-}
-
-// Convert to an Option, discarding the error.
-pub fn ok<T, E>(res: Result<T, E>): Option<T> {
-    match res {
-        Ok(v) => Some(v),
-        Err(_) => None,
-    }
-}
-
 // Method forms: `res.map(f)`, `res.unwrap_or(x)`, ... The inherent impl
-// attaches these to the type itself; the module functions above remain
-// for the qualified-call style (`Result::map(res, f)`).
+// attaches these to the type itself; these methods are the canonical way
+// to use Result's combinators and predicates.
 impl<T, E> Result<T, E> {
+    // Is this an `Ok`?
     fn is_ok(self): bool {
-        is_ok(self)
+        match self {
+            Ok(_) => true,
+            Err(_) => false,
+        }
     }
+    // Is this an `Err`?
     fn is_err(self): bool {
-        is_err(self)
+        match self {
+            Ok(_) => false,
+            Err(_) => true,
+        }
     }
+    // Get the value or a default.
     fn unwrap_or(self, default: T): T {
-        unwrap_or(self, default)
+        match self {
+            Ok(v) => v,
+            Err(_) => default,
+        }
     }
+    // Transform the success value.
     fn map<U>(self, f: (T) -> U): Result<U, E> {
-        map(self, f)
+        match self {
+            Ok(v) => Ok(f(v)),
+            Err(e) => Err(e),
+        }
     }
+    // Transform the error value.
     fn map_err<F>(self, f: (E) -> F): Result<T, F> {
-        map_err(self, f)
+        match self {
+            Ok(v) => Ok(v),
+            Err(e) => Err(f(e)),
+        }
     }
+    // Chain a fallible operation.
     fn and_then<U>(self, f: (T) -> Result<U, E>): Result<U, E> {
-        and_then(self, f)
+        match self {
+            Ok(v) => f(v),
+            Err(e) => Err(e),
+        }
     }
+    // Convert to an Option, discarding the error.
     fn ok(self): Option<T> {
-        ok(self)
+        match self {
+            Ok(v) => Some(v),
+            Err(_) => None,
+        }
     }
 }

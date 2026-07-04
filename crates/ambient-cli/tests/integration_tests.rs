@@ -2959,9 +2959,9 @@ fn test_result_constructors_and_chaining() {
     let (dir, pkg) = temp_package(
         r#"
         pub fn run(): string {
-            let ok = core::Result::map(parse(5), (x: number) => x * 10);
+            let ok = parse(5).map((x: number) => x * 10);
             let err = parse(0 - 3);
-            match core::Result::and_then(ok, (x: number) => parse(x)) {
+            match ok.and_then((x: number) => parse(x)) {
                 Ok(v) => core::string::from_number(v),
                 Err(e) => e,
             }
