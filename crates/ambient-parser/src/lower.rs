@@ -149,6 +149,7 @@ fn lower_const(ctx: &mut LoweringContext, c: &CstConstDef) -> Result<ConstDef, P
     Ok(ConstDef {
         name: c.name.name.clone(),
         name_span: c.name.span,
+        is_public: c.is_public,
         ty,
         value,
     })
@@ -187,6 +188,7 @@ fn lower_type_alias(t: &CstTypeAliasDef) -> Result<TypeAliasDef, ParseError> {
     Ok(TypeAliasDef {
         name: t.name.name.clone(),
         name_span: t.name.span,
+        is_public: t.is_public,
         type_params,
         ty,
         unique_id,
@@ -235,6 +237,7 @@ fn lower_enum(e: &CstEnumDef) -> Result<EnumDef, ParseError> {
     Ok(EnumDef {
         name: e.name.name.clone(),
         name_span: e.name.span,
+        is_public: e.is_public,
         type_params,
         variants,
         uuid,
@@ -281,6 +284,7 @@ fn lower_ability_def(a: &CstAbilityDef) -> Result<AbilityDef, ParseError> {
     Ok(AbilityDef {
         name: a.name.name.clone(),
         name_span: a.name.span,
+        is_public: a.is_public,
         dependencies,
         methods,
         resolved_id: None,
@@ -1125,6 +1129,7 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
     Ok(TraitDef {
         name: t.name.name.clone(),
         name_span: t.name.span,
+        is_public: t.is_public,
         type_params,
         supertraits,
         methods,

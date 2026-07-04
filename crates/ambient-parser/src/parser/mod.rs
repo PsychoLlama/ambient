@@ -259,15 +259,12 @@ impl<'src> Parser<'src> {
                 match self.current_kind() {
                     TokenKind::Fn => CstItemKind::Function(self.parse_function(true)?),
                     TokenKind::Use => CstItemKind::Use(self.parse_use(true)?),
-                    // Consts, types, enums, abilities, and traits are
-                    // currently always exported; `pub` on them is accepted
-                    // as documentation of that fact.
-                    TokenKind::Const => CstItemKind::Const(self.parse_const()?),
-                    TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(None)?),
-                    TokenKind::Enum => CstItemKind::Enum(self.parse_enum(None)?),
-                    TokenKind::Unique => self.parse_unique_item()?,
-                    TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def()?),
-                    TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def()?),
+                    TokenKind::Const => CstItemKind::Const(self.parse_const(true)?),
+                    TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(true, None)?),
+                    TokenKind::Enum => CstItemKind::Enum(self.parse_enum(true, None)?),
+                    TokenKind::Unique => self.parse_unique_item(true)?,
+                    TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(true)?),
+                    TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def(true)?),
                     _ => {
                         return Err(ParseError::new(
                             ParseErrorKind::Expected {
@@ -280,13 +277,13 @@ impl<'src> Parser<'src> {
                 }
             }
             TokenKind::Fn => CstItemKind::Function(self.parse_function(false)?),
-            TokenKind::Const => CstItemKind::Const(self.parse_const()?),
-            TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(None)?),
-            TokenKind::Enum => CstItemKind::Enum(self.parse_enum(None)?),
-            TokenKind::Unique => self.parse_unique_item()?,
-            TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def()?),
+            TokenKind::Const => CstItemKind::Const(self.parse_const(false)?),
+            TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(false, None)?),
+            TokenKind::Enum => CstItemKind::Enum(self.parse_enum(false, None)?),
+            TokenKind::Unique => self.parse_unique_item(false)?,
+            TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(false)?),
             TokenKind::Use => CstItemKind::Use(self.parse_use(false)?),
-            TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def()?),
+            TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def(false)?),
             TokenKind::Impl => CstItemKind::Impl(self.parse_impl_def()?),
             _ => {
                 return Err(ParseError::new(
@@ -467,7 +464,7 @@ impl<'src> Parser<'src> {
     // Other definitions
     // ─────────────────────────────────────────────────────────────────────────
 
-    fn parse_const(&mut self) -> Result<CstConstDef, ParseError> {
+    fn parse_const(&mut self, is_public: bool) -> Result<CstConstDef, ParseError> {
         self.expect(TokenKind::Const)?;
         let name = self.parse_ident()?;
         self.expect(TokenKind::Colon)?;
@@ -476,7 +473,12 @@ impl<'src> Parser<'src> {
         let value = self.parse_expression()?;
         self.expect(TokenKind::Semi)?;
 
-        Ok(CstConstDef { name, ty, value })
+        Ok(CstConstDef {
+            is_public,
+            name,
+            ty,
+            value,
+        })
     }
 
     /// Parse a `unique(<uuid>)` prefix, returning the UUID text.
@@ -508,12 +510,14 @@ impl<'src> Parser<'src> {
     /// Parse a `unique(<uuid>)`-prefixed item: a nominal `type` alias or a
     /// nominal `enum`. The `unique(...)` syntax is shared, so the prefix is
     /// parsed once here and the following keyword decides the item.
-    fn parse_unique_item(&mut self) -> Result<CstItemKind, ParseError> {
+    fn parse_unique_item(&mut self, is_public: bool) -> Result<CstItemKind, ParseError> {
         let unique_id = self.parse_unique_prefix()?;
         self.skip_trivia();
         match self.current_kind() {
-            TokenKind::Type => Ok(CstItemKind::TypeAlias(self.parse_type_alias(unique_id)?)),
-            TokenKind::Enum => Ok(CstItemKind::Enum(self.parse_enum(unique_id)?)),
+            TokenKind::Type => Ok(CstItemKind::TypeAlias(
+                self.parse_type_alias(is_public, unique_id)?,
+            )),
+            TokenKind::Enum => Ok(CstItemKind::Enum(self.parse_enum(is_public, unique_id)?)),
             other => Err(ParseError::new(
                 ParseErrorKind::Expected {
                     expected: "`type` or `enum` after `unique(...)`".into(),
@@ -526,6 +530,7 @@ impl<'src> Parser<'src> {
 
     fn parse_type_alias(
         &mut self,
+        is_public: bool,
         unique_id: Option<Arc<str>>,
     ) -> Result<CstTypeAliasDef, ParseError> {
         self.expect(TokenKind::Type)?;
@@ -548,6 +553,7 @@ impl<'src> Parser<'src> {
         };
 
         Ok(CstTypeAliasDef {
+            is_public,
             name,
             type_params,
             ty,
@@ -555,7 +561,11 @@ impl<'src> Parser<'src> {
         })
     }
 
-    fn parse_enum(&mut self, unique_id: Option<Arc<str>>) -> Result<CstEnumDef, ParseError> {
+    fn parse_enum(
+        &mut self,
+        is_public: bool,
+        unique_id: Option<Arc<str>>,
+    ) -> Result<CstEnumDef, ParseError> {
         self.expect(TokenKind::Enum)?;
         let name = self.parse_ident()?;
 
@@ -602,6 +612,7 @@ impl<'src> Parser<'src> {
         self.expect(TokenKind::RBrace)?;
 
         Ok(CstEnumDef {
+            is_public,
             name,
             type_params,
             variants,
@@ -609,7 +620,7 @@ impl<'src> Parser<'src> {
         })
     }
 
-    fn parse_ability_def(&mut self) -> Result<CstAbilityDef, ParseError> {
+    fn parse_ability_def(&mut self, is_public: bool) -> Result<CstAbilityDef, ParseError> {
         self.expect(TokenKind::Ability)?;
         let name = self.parse_ident()?;
 
@@ -635,6 +646,7 @@ impl<'src> Parser<'src> {
         self.expect(TokenKind::RBrace)?;
 
         Ok(CstAbilityDef {
+            is_public,
             name,
             dependencies,
             methods,
@@ -690,7 +702,7 @@ impl<'src> Parser<'src> {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Parse a trait definition: `trait Name<T> with Supertrait { fn method(self, ...): RetType; }`
-    fn parse_trait_def(&mut self) -> Result<CstTraitDef, ParseError> {
+    fn parse_trait_def(&mut self, is_public: bool) -> Result<CstTraitDef, ParseError> {
         let start = self.current().span.start;
         self.expect(TokenKind::Trait)?;
         let name = self.parse_ident()?;
@@ -723,6 +735,7 @@ impl<'src> Parser<'src> {
         let end = self.expect(TokenKind::RBrace)?.span.end;
 
         Ok(CstTraitDef {
+            is_public,
             name,
             type_params,
             supertraits,

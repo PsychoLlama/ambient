@@ -304,6 +304,8 @@ pub enum CstTypeExprKind {
 /// A constant definition.
 #[derive(Debug, Clone)]
 pub struct CstConstDef {
+    /// Whether public (`pub const`).
+    pub is_public: bool,
     /// Constant name.
     pub name: CstIdent,
     /// Type annotation.
@@ -315,6 +317,8 @@ pub struct CstConstDef {
 /// A type alias definition.
 #[derive(Debug, Clone)]
 pub struct CstTypeAliasDef {
+    /// Whether public (`pub type`).
+    pub is_public: bool,
     /// Type name.
     pub name: CstIdent,
     /// Type parameters.
@@ -328,6 +332,8 @@ pub struct CstTypeAliasDef {
 /// An enum definition.
 #[derive(Debug, Clone)]
 pub struct CstEnumDef {
+    /// Whether public (`pub enum`).
+    pub is_public: bool,
     /// Enum name.
     pub name: CstIdent,
     /// Type parameters.
@@ -354,6 +360,8 @@ pub struct CstEnumVariant {
 /// An ability definition.
 #[derive(Debug, Clone)]
 pub struct CstAbilityDef {
+    /// Whether public (`pub ability`).
+    pub is_public: bool,
     /// Ability name.
     pub name: CstIdent,
     /// Dependencies (`with OtherAbility`).
@@ -432,6 +440,8 @@ pub enum CstUseKind {
 /// Syntax: `trait Name<T> { fn method(self, ...): RetType; }`
 #[derive(Debug, Clone)]
 pub struct CstTraitDef {
+    /// Whether public (`pub trait`).
+    pub is_public: bool,
     /// Trait name.
     pub name: CstIdent,
     /// Type parameters.

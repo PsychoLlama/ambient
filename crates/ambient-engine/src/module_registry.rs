@@ -48,9 +48,10 @@ pub enum ResolvedImport {
 pub struct ExportInfo {
     /// The name of the symbol.
     pub name: Arc<str>,
-    /// The kind of symbol (function, const, type, enum, ability).
+    /// The kind of symbol (function, const, type, enum, variant, ability, trait).
     pub kind: ExportKind,
-    /// Whether the symbol is public.
+    /// Whether the symbol is public (declared with `pub`). Enum variants
+    /// inherit their enum's visibility.
     pub is_public: bool,
     /// If this is a re-export, the original module path.
     pub re_export_from: Option<ModulePath>,
@@ -328,13 +329,13 @@ fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> {
             ItemKind::Const(c) => Some(ExportInfo {
                 name: c.name.clone(),
                 kind: ExportKind::Const,
-                is_public: true, // Consts are always public for now
+                is_public: c.is_public,
                 re_export_from: None,
             }),
             ItemKind::TypeAlias(t) => Some(ExportInfo {
                 name: t.name.clone(),
                 kind: ExportKind::TypeAlias,
-                is_public: true, // Types are always public for now
+                is_public: t.is_public,
                 re_export_from: None,
             }),
             ItemKind::Enum(e) => {
@@ -344,19 +345,19 @@ fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> {
                     ExportInfo {
                         name: e.name.clone(),
                         kind: ExportKind::Enum,
-                        is_public: true,
+                        is_public: e.is_public,
                         re_export_from: None,
                     },
                 );
 
-                // Add each variant
+                // Variants inherit the enum's visibility.
                 for variant in &e.variants {
                     exports.insert(
                         variant.name.clone(),
                         ExportInfo {
                             name: variant.name.clone(),
                             kind: ExportKind::EnumVariant,
-                            is_public: true,
+                            is_public: e.is_public,
                             re_export_from: None,
                         },
                     );
@@ -366,13 +367,13 @@ fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> {
             ItemKind::Ability(a) => Some(ExportInfo {
                 name: a.name.clone(),
                 kind: ExportKind::Ability,
-                is_public: true, // Abilities are always public for now
+                is_public: a.is_public,
                 re_export_from: None,
             }),
             ItemKind::Trait(t) => Some(ExportInfo {
                 name: t.name.clone(),
                 kind: ExportKind::Trait,
-                is_public: true, // Traits are always public for now
+                is_public: t.is_public,
                 re_export_from: None,
             }),
             ItemKind::Use(_) | ItemKind::Impl(_) => None, // Use statements and impls are not exports
@@ -426,14 +427,67 @@ mod tests {
         )
     }
 
-    fn make_const(name: &str, value: f64) -> Item {
+    fn make_const(name: &str, value: f64, is_public: bool) -> Item {
         use crate::types::Type;
         Item::new(
             ItemKind::Const(ConstDef {
                 name: Arc::from(name),
                 name_span: Span::default(),
+                is_public,
                 ty: Type::Number,
                 value: Expr::number(value),
+            }),
+            Span::default(),
+        )
+    }
+
+    fn make_enum(name: &str, variants: &[&str], is_public: bool) -> Item {
+        use crate::ast::{EnumDef, EnumVariant};
+        Item::new(
+            ItemKind::Enum(EnumDef {
+                name: Arc::from(name),
+                name_span: Span::default(),
+                is_public,
+                type_params: vec![],
+                variants: variants
+                    .iter()
+                    .map(|v| EnumVariant {
+                        name: Arc::from(*v),
+                        payload: None,
+                        span: Span::default(),
+                    })
+                    .collect(),
+                uuid: uuid::Uuid::nil(),
+            }),
+            Span::default(),
+        )
+    }
+
+    fn make_trait(name: &str, is_public: bool) -> Item {
+        use crate::ast::TraitDef;
+        Item::new(
+            ItemKind::Trait(TraitDef {
+                name: Arc::from(name),
+                name_span: Span::default(),
+                is_public,
+                type_params: vec![],
+                supertraits: vec![],
+                methods: vec![],
+            }),
+            Span::default(),
+        )
+    }
+
+    fn make_ability(name: &str, is_public: bool) -> Item {
+        use crate::ast::AbilityDef;
+        Item::new(
+            ItemKind::Ability(AbilityDef {
+                name: Arc::from(name),
+                name_span: Span::default(),
+                is_public,
+                dependencies: vec![],
+                methods: vec![],
+                resolved_id: None,
             }),
             Span::default(),
         )
@@ -519,7 +573,7 @@ mod tests {
                 make_function("public1", true),
                 make_function("public2", true),
                 make_function("private", false),
-                make_const("PI", 3.14159),
+                make_const("PI", 3.14159, true),
             ],
         });
 
@@ -528,6 +582,71 @@ mod tests {
 
         let exports = registry.get_public_exports(&path);
         assert_eq!(exports.len(), 3); // 2 public functions + 1 const
+    }
+
+    #[test]
+    fn private_items_are_not_importable() {
+        let mut registry = ModuleRegistry::new();
+
+        let module = Arc::new(Module {
+            name: Arc::from("test"),
+            doc: None,
+            items: vec![
+                make_const("SECRET", 42.0, false),
+                make_enum("Hidden", &["A", "B"], false),
+                make_trait("Sealed", false),
+                make_ability("Internal", false),
+            ],
+        });
+
+        let path = ModulePath::from_str_segments(&["test"]).unwrap();
+        registry.register(&path, module);
+
+        for symbol in ["SECRET", "Hidden", "A", "B", "Sealed", "Internal"] {
+            let result = registry.lookup_symbol(&path, symbol);
+            assert!(
+                matches!(result, Err(RegistryError::NotPublic { .. })),
+                "expected NotPublic for `{symbol}`, got {result:?}"
+            );
+        }
+
+        assert!(registry.get_public_exports(&path).is_empty());
+    }
+
+    #[test]
+    fn public_items_are_importable() {
+        let mut registry = ModuleRegistry::new();
+
+        let module = Arc::new(Module {
+            name: Arc::from("test"),
+            doc: None,
+            items: vec![
+                make_const("ANSWER", 42.0, true),
+                make_enum("Visible", &["Yes"], true),
+                make_trait("Open", true),
+                make_ability("Exposed", true),
+            ],
+        });
+
+        let path = ModulePath::from_str_segments(&["test"]).unwrap();
+        registry.register(&path, module);
+
+        let cases = [
+            ("ANSWER", ExportKind::Const),
+            ("Visible", ExportKind::Enum),
+            ("Yes", ExportKind::EnumVariant),
+            ("Open", ExportKind::Trait),
+            ("Exposed", ExportKind::Ability),
+        ];
+        for (symbol, kind) in cases {
+            let export = registry
+                .lookup_symbol(&path, symbol)
+                .unwrap_or_else(|e| panic!("expected `{symbol}` to be public, got {e:?}"));
+            assert_eq!(export.kind, kind);
+        }
+
+        // Enum + variant + const + trait + ability
+        assert_eq!(registry.get_public_exports(&path).len(), 5);
     }
 
     #[test]

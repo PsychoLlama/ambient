@@ -733,6 +733,8 @@ pub struct ConstDef {
     pub name: Arc<str>,
     /// Span of the constant name (for go-to-definition).
     pub name_span: Span,
+    /// Whether this constant is public.
+    pub is_public: bool,
     /// Type annotation (required).
     pub ty: Type,
     /// The value expression.
@@ -749,6 +751,8 @@ pub struct TypeAliasDef {
     pub name: Arc<str>,
     /// Span of the type name (for go-to-definition).
     pub name_span: Span,
+    /// Whether this type alias is public.
+    pub is_public: bool,
     /// Type parameters (generics).
     pub type_params: Vec<TypeParam>,
     /// The aliased type (wrapped in `Type::Nominal` if `unique_id` is set).
@@ -769,6 +773,8 @@ pub struct EnumDef {
     pub name: Arc<str>,
     /// Span of the enum name (for go-to-definition).
     pub name_span: Span,
+    /// Whether this enum is public.
+    pub is_public: bool,
     /// Type parameters (generics).
     pub type_params: Vec<TypeParam>,
     /// Enum variants.
@@ -795,6 +801,8 @@ pub struct AbilityDef {
     pub name: Arc<str>,
     /// Span of the ability name (for go-to-definition).
     pub name_span: Span,
+    /// Whether this ability is public.
+    pub is_public: bool,
     /// Dependencies (other abilities this one requires).
     pub dependencies: Vec<QualifiedName>,
     /// Methods defined by this ability.
@@ -880,6 +888,8 @@ pub struct TraitDef {
     pub name: Arc<str>,
     /// Span of the trait name.
     pub name_span: Span,
+    /// Whether this trait is public.
+    pub is_public: bool,
     /// Type parameters.
     pub type_params: Vec<TypeParam>,
     /// Supertraits that this trait requires.

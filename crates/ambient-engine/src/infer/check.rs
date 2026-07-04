@@ -1534,6 +1534,7 @@ mod tests {
                 kind: crate::ast::ItemKind::Ability(crate::ast::AbilityDef {
                     name: Arc::from(name),
                     name_span: span(),
+                    is_public: true,
                     dependencies: vec![],
                     methods,
                     resolved_id: None,
