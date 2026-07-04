@@ -45,7 +45,7 @@ pub use repl::{
 use expr::compile_expr;
 use hash::{compute_temporary_hash, finalize_module_hashes};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::ast::{BindingId, ConstDef, FunctionDef, ImplDef, ImplMethod, ItemKind, Module};
@@ -481,6 +481,10 @@ struct ModuleContext {
     /// Seeded with the prelude (Option/Result); local enum declarations
     /// shadow prelude variants of the same name.
     enums: HashMap<Arc<str>, VariantInfo>,
+    /// Names of module-level constants. A reference to one of these compiles
+    /// to a zero-arg call of its thunk (auto-call) rather than a function
+    /// reference, so the name evaluates to the constant's value.
+    constants: HashSet<Arc<str>>,
     /// Module-declared abilities in scope: ability name → compile info.
     /// The identity comes from the type checker (`AbilityDef::resolved_id`);
     /// the compiler never re-derives interface hashes.
@@ -542,9 +546,25 @@ impl ModuleContext {
             lambda_counter: 0,
             current_function: None,
             enums,
+            constants: HashSet::new(),
             abilities: HashMap::new(),
             prelude_abilities: HashMap::new(),
         }
+    }
+
+    /// Record the module's constant names so references to them auto-call
+    /// the constant's thunk (see the `ExprKind::Name` arm in `expr.rs`).
+    fn register_constants(&mut self, module: &Module) {
+        for item in &module.items {
+            if let ItemKind::Const(const_def) = &item.kind {
+                self.constants.insert(Arc::clone(&const_def.name));
+            }
+        }
+    }
+
+    /// Whether `name` is a module-level constant.
+    fn is_constant(&self, name: &str) -> bool {
+        self.constants.contains(name)
     }
 
     /// Register prelude abilities (declaration modules resolved by the
@@ -857,6 +877,16 @@ fn compile_module_impl(
         temp_hashes.insert(Arc::clone(&func.name), hash);
     }
 
+    // Add temporary hashes for local constants. Each constant is compiled
+    // as a zero-arg thunk (below); registering its name here lets bodies
+    // resolve references to it, which the `ExprKind::Name` arm auto-calls.
+    for item in &module.items {
+        if let ItemKind::Const(const_def) = &item.kind {
+            let hash = compute_temporary_hash(&const_def.name);
+            temp_hashes.insert(Arc::clone(&const_def.name), hash);
+        }
+    }
+
     // Add temporary hashes for impl methods under their canonical symbols.
     // Impl methods are ordinary functions named by `types::impl_method_symbol`;
     // method-call sites resolve these symbols through the same name→hash table
@@ -892,6 +922,7 @@ fn compile_module_impl(
     let mut ctx = ModuleContext::new();
     ctx.register_imported_enums(&imported_enums);
     ctx.register_enums(module);
+    ctx.register_constants(module);
     ctx.register_prelude_abilities(prelude_abilities);
     ctx.register_abilities(module)?;
 
@@ -1023,6 +1054,12 @@ fn compile_const(
     fc.builder.emit(Opcode::Return);
 
     let mut compiled = fc.builder.build(fc.next_local, 0);
+    // Stamp the pre-computed temp hash (like `compile_function_with_hash`) so
+    // that references to this constant from other bodies — which call the
+    // temp hash — are recognized as local during hash finalization and
+    // rewritten to the constant's content hash. Without this the reference
+    // would target the raw temp hash, which no stored function carries.
+    compiled.hash = function_hashes[&const_def.name];
 
     // Build debug info if source is available
     if source.is_some() || source_file.is_some() {
@@ -2358,5 +2395,68 @@ mod tests {
         let compiled = compile_module(&module).expect("compilation failed");
         assert!(compiled.get_function("is_even").is_some());
         assert!(compiled.get_function("is_odd").is_some());
+    }
+
+    /// End-to-end: a module-level `const` referenced from a function body
+    /// compiles (its name resolves) and evaluates to the constant's value
+    /// (the thunk is auto-called). Regression test for consts being absent
+    /// from `temp_hashes` and only auto-called in REPL mode.
+    #[test]
+    fn module_const_compiles_and_evaluates() {
+        use crate::ast::ConstDef;
+        use crate::types::Type;
+        use crate::value::Value;
+        use crate::vm::Vm;
+
+        // const NANOS_PER_SEC: number = 1_000_000_000
+        // fn run() = NANOS_PER_SEC
+        let module = Module {
+            name: Arc::from("test"),
+            doc: None,
+            items: vec![
+                Item::new(
+                    ItemKind::Const(ConstDef {
+                        name: Arc::from("NANOS_PER_SEC"),
+                        name_span: Span::default(),
+                        is_public: false,
+                        ty: Type::Number,
+                        value: Expr::number(1_000_000_000.0),
+                    }),
+                    test_span(),
+                ),
+                Item::new(
+                    ItemKind::Function(FunctionDef {
+                        name: Arc::from("run"),
+                        name_span: Span::default(),
+                        is_public: true,
+                        type_params: vec![],
+                        params: vec![],
+                        ret_ty: None,
+                        abilities: vec![],
+                        body: Expr::name("NANOS_PER_SEC"),
+                    }),
+                    test_span(),
+                ),
+            ],
+        };
+
+        // Type-check first (the checker registers the const so the body
+        // resolves), then compile the checked module.
+        let checked = crate::infer::check_module(module);
+        assert!(
+            checked.errors.is_empty(),
+            "unexpected type errors: {:?}",
+            checked.errors
+        );
+
+        let compiled = compile_module(&checked.module).expect("compilation failed");
+
+        let mut vm = Vm::new();
+        for func in compiled.functions.values() {
+            vm.load_function(func.clone());
+        }
+        let entry = compiled.entry_point.expect("entry point");
+        let result = vm.call(&entry, vec![]).expect("run failed");
+        assert_eq!(result, Value::Number(1_000_000_000.0));
     }
 }

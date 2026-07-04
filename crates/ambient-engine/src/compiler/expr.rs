@@ -110,7 +110,9 @@ pub(super) fn compile_expr(
                 fc.builder.emit_load_capture(capture_slot);
             } else if let Some(&hash) = fc.function_hashes.get(var_name) {
                 // Check if it's a constant (thunk) that should be auto-called.
-                if fc.is_repl_constant(var_name) {
+                // Module-level constants are tracked on the context; the REPL
+                // tracks its own via `repl_context`.
+                if ctx.is_constant(var_name) || fc.is_repl_constant(var_name) {
                     // Call the constant thunk with no arguments to get its value.
                     fc.builder.emit_call(hash, 0);
                 } else {

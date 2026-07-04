@@ -97,6 +97,10 @@ fn check_module_core(
     // one of the same bare name (matching the value/type shadowing rule).
     register_abilities(&mut infer, &mut module, &mut errors);
     collect_function_signatures(&mut infer, &module, &mut env);
+    // Constants register alongside functions so they're referenceable from
+    // any function, const, or impl body regardless of declaration order —
+    // the value-level analogue of `collect_function_signatures`.
+    collect_const_signatures(&mut infer, &module, &mut env);
     // Inherent method signatures register before any body is checked, so
     // methods are callable from every function and impl body regardless of
     // declaration order.
@@ -1143,6 +1147,27 @@ fn collect_function_signatures(infer: &mut Infer, module: &crate::ast::Module, e
     }
 }
 
+/// Register module-level `const` declarations into the environment.
+///
+/// Runs in Phase 1 (before any body is checked) so a constant is in scope
+/// for every function/const/impl body irrespective of source order — the
+/// value-level counterpart to [`collect_function_signatures`]. Only the
+/// declared type is registered here; the value expression is type-checked
+/// against that annotation later in Phase 3. Aliases and holes in the
+/// annotation are resolved so the registered scheme matches the type uses
+/// unify against (mirroring the Phase 3 `resolve_holes` on the same type).
+fn collect_const_signatures(infer: &mut Infer, module: &crate::ast::Module, env: &mut TypeEnv) {
+    let mut next_binding_id: BindingId = 2_000_000;
+    for item in &module.items {
+        if let crate::ast::ItemKind::Const(const_def) = &item.kind {
+            let binding_id = next_binding_id;
+            next_binding_id += 1;
+            let ty = infer.resolve_holes(&const_def.ty);
+            env.insert(binding_id, Arc::clone(&const_def.name), Scheme::mono(ty));
+        }
+    }
+}
+
 /// Build a type scheme for a function from its signature.
 ///
 /// `infer_abilities` controls what an absent `with` clause means: for local
@@ -1967,5 +1992,58 @@ mod tests {
         assert_eq!(execute.id, expected);
         assert_eq!(execute.method("run").map(|m| m.id), Some(3));
         assert_eq!(execute.method("run_with").map(|m| m.id), Some(5));
+    }
+
+    /// A module-level `const` must be in scope inside function bodies,
+    /// regardless of declaration order. Regression test: consts used to be
+    /// checked (their value against their annotation) but never registered
+    /// into the module environment, so a reference from a function body
+    /// resolved to `UndefinedVariable`.
+    #[test]
+    fn module_const_is_in_scope_in_function_bodies() {
+        use crate::ast::{ConstDef, Expr, FunctionDef, Item, ItemKind, Module};
+
+        // `fn use_it() = NANOS_PER_SEC + 1` is declared *before* the const it
+        // references, to also cover forward references.
+        let module = Module {
+            name: Arc::from("test"),
+            doc: None,
+            items: vec![
+                Item::new(
+                    ItemKind::Function(FunctionDef {
+                        name: Arc::from("use_it"),
+                        name_span: span(),
+                        is_public: false,
+                        type_params: vec![],
+                        params: vec![],
+                        ret_ty: None,
+                        abilities: vec![],
+                        body: Expr::binary(
+                            crate::ast::BinaryOp::Add,
+                            Expr::name("NANOS_PER_SEC"),
+                            Expr::number(1.0),
+                        ),
+                    }),
+                    span(),
+                ),
+                Item::new(
+                    ItemKind::Const(ConstDef {
+                        name: Arc::from("NANOS_PER_SEC"),
+                        name_span: span(),
+                        is_public: false,
+                        ty: Type::Number,
+                        value: Expr::number(1_000_000_000.0),
+                    }),
+                    span(),
+                ),
+            ],
+        };
+
+        let result = check_module(module);
+        assert!(
+            result.errors.is_empty(),
+            "const reference from a function body should type-check, got: {:?}",
+            result.errors
+        );
     }
 }
