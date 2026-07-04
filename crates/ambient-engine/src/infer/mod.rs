@@ -305,6 +305,15 @@ impl Infer {
         self.type_aliases.get(name)
     }
 
+    /// Drop every registered type alias whose name does not satisfy `keep`.
+    ///
+    /// Used to retract foreign package aliases that were registered only to
+    /// hydrate imported signatures and impl targets, so they don't remain
+    /// resolvable by bare name in this module's own bodies.
+    pub(crate) fn retain_type_aliases(&mut self, keep: impl Fn(&str) -> bool) {
+        self.type_aliases.retain(|name, _| keep(name));
+    }
+
     /// Generate a fresh type variable.
     pub fn fresh(&mut self) -> Type {
         self.r#gen.fresh()

@@ -1,6 +1,6 @@
 //! Module-level type checking.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::ability_resolver::AbilityResolver;
@@ -90,7 +90,17 @@ fn check_module_core(
         // (signatures only). Runs before local registration and import
         // resolution so imported signatures resolve foreign nominal types.
         register_package_items(&mut infer, module_path, registry, &mut errors);
-        build_import_env(&mut infer, module_path, registry, &mut errors)
+        let env = build_import_env(&mut infer, module_path, registry, &mut errors);
+        // `register_package_items` registered *every* foreign module's type
+        // aliases so foreign impl targets and imported signatures could
+        // resolve to the right nominal identity. Those schemes are now
+        // hydrated into `env`, so retract the foreign aliases this module
+        // didn't explicitly `use` — otherwise their bare names would resolve
+        // in this module's own bodies regardless of `pub` or `use`. Traits
+        // and impls stay build-global for coherence; nominal *types* follow
+        // the same visibility rules as values.
+        retain_imported_type_aliases(&mut infer, module_path, registry);
+        env
     } else {
         TypeEnv::new()
     };
@@ -408,16 +418,6 @@ fn register_trait_def(infer: &mut Infer, trait_def: &crate::ast::TraitDef) {
     infer.trait_registry.register_trait(def);
 }
 
-/// Register types, traits, and impls declared in the *other* modules of the
-/// package so they are visible while checking this module.
-///
-/// Foreign items are registered by signature only — their bodies were (or
-/// will be) checked in their own module's check pass. Impls register the
-/// dispatch mapping `(trait, type uuid) → method symbol`; the symbols are
-/// resolved to content hashes at link time like any function name.
-///
-/// This runs before the current module's own registrations, so local
-/// declarations shadow foreign ones on name collisions.
 /// Register the enums a module imports (`use pkg::m::{SomeEnum}`) into the
 /// enum registry, as if they were declared locally: the type name resolves,
 /// and `register_enums` later binds their variant constructors and patterns
@@ -452,6 +452,66 @@ fn register_imported_enums(
     }
 }
 
+/// Retract the foreign type aliases that leaked into the alias table during
+/// package registration, keeping only the ones this module imports by name.
+///
+/// [`register_package_items`] registers every foreign module's type aliases
+/// so foreign impl targets and imported function/const signatures resolve to
+/// the right nominal identity. That same table backs bare-name type
+/// resolution in this module's own bodies (see [`Infer::resolve_holes`]), so
+/// leaving the foreign entries in would let code name any package type
+/// without a `use` and regardless of its visibility — undermining `pub`.
+///
+/// This must run after [`build_import_env`] (which needs the full foreign set
+/// to hydrate imported schemes) and before local aliases register, so the
+/// table holds only foreign entries: retaining the imported names drops
+/// exactly the leaked ones. Private foreign aliases can't be imported
+/// (`resolve_imports` rejects them), so they're dropped here too.
+fn retain_imported_type_aliases(
+    infer: &mut Infer,
+    current_module: &ModulePath,
+    registry: &ModuleRegistry,
+) {
+    // A failed resolution already surfaced diagnostics in `build_import_env`;
+    // with no trustworthy import list, drop every foreign alias rather than
+    // keep leaking them.
+    let imported: HashSet<Arc<str>> = registry
+        .resolve_imports(current_module)
+        .map(|resolved| {
+            resolved
+                .imports
+                .into_iter()
+                .filter_map(|(name, import)| {
+                    matches!(
+                        import,
+                        ResolvedImport::Symbol {
+                            export_kind: ExportKind::TypeAlias,
+                            ..
+                        }
+                    )
+                    .then_some(name)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    infer.retain_type_aliases(|name| imported.contains(name));
+}
+
+/// Register the types, traits, and impls declared in the *other* modules of
+/// the package so they can be resolved while checking this module.
+///
+/// Foreign items are registered by signature only — their bodies were (or
+/// will be) checked in their own module's check pass. Impls register the
+/// dispatch mapping `(trait, type uuid) → method symbol`; the symbols are
+/// resolved to content hashes at link time like any function name.
+///
+/// Traits and impls stay build-global for coherence, but the foreign *type
+/// aliases* registered here are transient: they exist so foreign impl
+/// targets and imported signatures resolve to the right nominal identity.
+/// [`retain_imported_type_aliases`] retracts the ones this module didn't
+/// import once that resolution is done, so they can't be named by bare
+/// identifier. This runs before the current module's own registrations, so
+/// local declarations shadow foreign ones on name collisions.
 fn register_package_items(
     infer: &mut Infer,
     current_module: &ModulePath,
