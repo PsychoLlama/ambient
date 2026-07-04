@@ -18,7 +18,7 @@
 /// Declare the process tree. Deploy passes re-run this against the
 /// live registry, so keep it declarative: spawn processes here, acquire
 /// resources (sockets, files) in their inits.
-pub fn run(): () with Process {
+pub fn run(): () with platform::Process {
   platform::Process::spawn!("stats", stats_init, on_hit);
   platform::Process::spawn!("acceptor", acceptor_init, acceptor);
 }
@@ -27,7 +27,7 @@ pub fn run(): () with Process {
 
 fn stats_init(): number { 0 }
 
-fn on_hit(total: number, n: number): number with Console {
+fn on_hit(total: number, n: number): number with platform::Console {
   let next = total + n;
   platform::Console::print!("served ${core::convert::to_string(next)} messages");
   next
@@ -35,14 +35,14 @@ fn on_hit(total: number, n: number): number with Console {
 
 // ─── acceptor: one reduction per accepted connection ────────────────────
 
-fn acceptor_init(): number with Network, Console, Process {
+fn acceptor_init(): number with platform::Network, platform::Console, platform::Process {
   let listener = platform::Network::listen!(("127.0.0.1", 7777));
   platform::Console::print!("live_server listening on 127.0.0.1:7777");
   platform::Process::send!(platform::Process::self_pid!(), "accept");
   listener
 }
 
-fn acceptor(listener: number, msg: string): number with Network, Process {
+fn acceptor(listener: number, msg: string): number with platform::Network, platform::Process {
   let conn = platform::Network::accept!(listener);
   let name = "conn-" + core::convert::to_string(conn);
   platform::Process::spawn!(name, () => {
@@ -59,7 +59,7 @@ fn serve_conn(
   state: { conn: number, hits: number },
   msg: string
 ): { conn: number, hits: number }
-  with Network, Process
+  with platform::Network, platform::Process
 {
   let data = handle platform::Network::receive!(state.conn) {
     Exception::throw(e) => core::bytes::from([])

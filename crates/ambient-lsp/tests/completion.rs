@@ -68,8 +68,23 @@ fn test_type_completion_bool() {
 
 #[test]
 fn test_ability_completion_console() {
+    // A bare prefix offers the platform::-qualified spelling — the only
+    // one the checker accepts.
     LspTest::new()
-        .with_source("fn foo() { Con/*|*/ }")
+        .with_source("fn foo() { plat/*|*/ }")
+        .complete_at("0")
+        .expect_item("platform::Console")
+        .expect_item_kind("platform::Console", CompletionItemKind::INTERFACE)
+        .done()
+        .shutdown();
+}
+
+#[test]
+fn test_ability_completion_after_namespace() {
+    // After `platform::` the bare ability names complete (the prefix is
+    // already typed).
+    LspTest::new()
+        .with_source("fn foo() { platform::Con/*|*/ }")
         .complete_at("0")
         .expect_item("Console")
         .expect_item_kind("Console", CompletionItemKind::INTERFACE)

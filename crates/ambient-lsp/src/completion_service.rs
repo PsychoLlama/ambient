@@ -297,12 +297,20 @@ mod tests {
     #[test]
     fn test_completion_service_basic() {
         let service = CompletionService::new();
-        let completions = service.get_completions("Con", 3);
 
-        // Should include Console (ability)
+        // Platform abilities complete under their namespace.
+        let completions = service.get_completions("platform::Con", 13);
         assert!(
             completions.iter().any(|c| c.label == "Console"),
-            "Should complete Console, got: {:?}",
+            "Should complete Console after platform::, got: {:?}",
+            completions.iter().map(|c| &c.label).collect::<Vec<_>>()
+        );
+
+        // A bare prefix offers the qualified spelling.
+        let completions = service.get_completions("plat", 4);
+        assert!(
+            completions.iter().any(|c| c.label == "platform::Console"),
+            "Should complete platform::Console, got: {:?}",
             completions.iter().map(|c| &c.label).collect::<Vec<_>>()
         );
     }

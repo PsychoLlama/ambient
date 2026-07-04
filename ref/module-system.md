@@ -133,7 +133,7 @@ pub fn run(): () {
 }
 
 // With abilities (optional)
-pub fn run(): () with Console, Filesystem {
+pub fn run(): () with platform::Console, platform::FileSystem {
     // ...
 }
 ```
@@ -300,8 +300,8 @@ version = "0.1.0"
 src = "src"
 
 $ cat my_project/src/main.ab
-pub fn run(): () with Console {
-    Console::print!("Hello, world!");
+pub fn run(): () with platform::Console {
+    platform::Console::print!("Hello, world!");
 }
 ```
 

@@ -18,8 +18,50 @@ impl Infer {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Convert an ability name to its ID using the resolver.
+    ///
+    /// Low-level bare lookup for rendering and set comparisons. Source
+    /// positions that name abilities (performs, `with` clauses, effect
+    /// rows, handler arms, sandbox clauses) must resolve through
+    /// [`Self::resolve_ability_ref`], which enforces the namespace policy.
     pub(crate) fn ability_name_to_id(&self, name: &str) -> Option<AbilityId> {
         self.ability_resolver.name_to_id(name)
+    }
+
+    /// Resolve an ability reference as written in source, enforcing the
+    /// namespace policy: namespaced (platform) abilities must be written
+    /// with their prefix everywhere, locals and builtins bare.
+    ///
+    /// # Errors
+    ///
+    /// `AbilityRequiresNamespace` when a namespaced ability was named
+    /// bare (or under the wrong namespace); `UnknownAbility` otherwise.
+    /// The error span prefers the reference's own name span when carried.
+    pub(crate) fn resolve_ability_ref(
+        &self,
+        ability: &QualifiedName,
+        fallback_span: (u32, u32),
+    ) -> InferResult<AbilityId> {
+        let span = ability
+            .name_span
+            .map_or(fallback_span, |s| (s.start, s.end));
+        self.ability_resolver
+            .resolve_ref(&ability.path, &ability.name)
+            .map_err(|err| {
+                let kind = match err {
+                    crate::ability_resolver::AbilityRefError::RequiresNamespace { namespace } => {
+                        TypeErrorKind::AbilityRequiresNamespace {
+                            ability: Arc::clone(&ability.name),
+                            expected_namespace: namespace,
+                        }
+                    }
+                    crate::ability_resolver::AbilityRefError::Unknown => {
+                        TypeErrorKind::UnknownAbility {
+                            name: Arc::clone(&ability.name),
+                        }
+                    }
+                };
+                type_error(kind, span)
+            })
     }
 
     /// Convert an ability ID to its name using the resolver.
@@ -94,50 +136,19 @@ impl Infer {
     ) -> InferResult<(AbilityId, Type, AbilitySet)> {
         let ability_name = &ability.name;
 
-        // Namespaced dynamic abilities (ability preludes, e.g. the
-        // `platform` module) resolve qualified performs with full declared
-        // signatures. They take precedence over the builtin-descriptor
-        // path below so a prelude declaration supersedes any descriptor
-        // registered under the same name.
-        if ability.path.len() == 1
-            && let Some(dynamic) = self
-                .ability_resolver
-                .get_namespaced(&ability.path[0], ability_name)
-                .cloned()
-        {
+        // One policy for every position that names an ability: namespaced
+        // dynamics (ability preludes, e.g. the `platform` module) resolve
+        // only under their prefix, local declarations and builtins only
+        // bare, with locals shadowing both (mirroring how local enums
+        // shadow the prelude).
+        let ability_id = self.resolve_ability_ref(ability, span)?;
+
+        // Dynamic abilities (local or namespaced) carry full declared
+        // signatures; they supersede any builtin descriptor registered
+        // under the same identity.
+        if let Some(dynamic) = self.ability_resolver.get_dynamic_by_id(ability_id).cloned() {
             return self.lookup_dynamic_method(&dynamic, method_name, arg_tys, span);
         }
-
-        // Module-declared abilities are used by bare name and take
-        // precedence over bare-name builtins (Exception), mirroring how
-        // local enums shadow the prelude. Namespaced prelude abilities
-        // are unaffected: user declarations never register under a path.
-        if ability.path.is_empty()
-            && let Some(dynamic) = self.ability_resolver.get_dynamic(ability_name).cloned()
-        {
-            return self.lookup_dynamic_method(&dynamic, method_name, arg_tys, span);
-        }
-
-        // A namespaced dynamic that wasn't matched above was named bare or
-        // under the wrong qualifier: performing it requires its namespace.
-        if let Some(namespace) = self.ability_resolver.dynamic_namespace_of(ability_name) {
-            return Err(type_error(
-                TypeErrorKind::AbilityRequiresNamespace {
-                    ability: ability_name.clone(),
-                    expected_namespace: Arc::clone(namespace),
-                },
-                span,
-            ));
-        }
-
-        let ability_id = self.ability_name_to_id(ability_name).ok_or_else(|| {
-            type_error(
-                TypeErrorKind::UnknownAbility {
-                    name: ability_name.clone(),
-                },
-                span,
-            )
-        })?;
 
         // Builtin descriptors declare full signatures too (their type
         // variables arrive as `Hole` and resolve to fresh inference
@@ -323,21 +334,50 @@ mod tests {
     }
 
     #[test]
-    fn test_ability_name_to_id() {
+    fn test_resolve_ability_ref_policy() {
         let mut infer = Infer::new();
         infer
             .ability_resolver
             .register_dynamic_in_namespace("platform", printer_ability(7));
 
-        // Exception is the only engine builtin; prelude abilities resolve
-        // by bare name too (effect rows, handler arms).
+        // Exception is the only engine builtin; it resolves bare and may
+        // not be namespaced.
         assert_eq!(
-            infer.ability_name_to_id("Exception"),
+            infer
+                .resolve_ability_ref(&QualifiedName::simple("Exception"), span())
+                .ok(),
             Some(ambient_core::exception::ability_id())
         );
+        assert!(
+            infer
+                .resolve_ability_ref(&platform_ability("Exception"), span())
+                .is_err()
+        );
+
+        // Namespaced prelude abilities resolve only with their prefix —
+        // in every position, not just performs.
+        assert_eq!(
+            infer
+                .resolve_ability_ref(&platform_ability("Printer"), span())
+                .ok(),
+            Some(aid(7))
+        );
+        let bare = infer.resolve_ability_ref(&QualifiedName::simple("Printer"), span());
+        assert!(matches!(
+            bare.unwrap_err().kind,
+            TypeErrorKind::AbilityRequiresNamespace { .. }
+        ));
+
+        // Unknown names are unknown.
+        assert!(
+            infer
+                .resolve_ability_ref(&QualifiedName::simple("Unknown"), span())
+                .is_err()
+        );
+
+        // The low-level bare lookup still resolves namespaced dynamics
+        // (rendering/tooling only).
         assert_eq!(infer.ability_name_to_id("Printer"), Some(aid(7)));
-        assert_eq!(infer.ability_name_to_id("Console"), None);
-        assert_eq!(infer.ability_name_to_id("Unknown"), None);
     }
 
     #[test]

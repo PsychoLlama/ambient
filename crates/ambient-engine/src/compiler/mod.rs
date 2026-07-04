@@ -572,18 +572,15 @@ impl ModuleContext {
 
     /// Resolve an ability name against locals and the prelude.
     ///
-    /// Namespace-qualified references prefer the prelude (that is what a
-    /// qualifier means); bare references prefer locals, mirroring the
-    /// type checker's shadowing rules.
+    /// Mirrors the type checker's namespace policy (which already gated
+    /// correctness): namespace-qualified references name the prelude,
+    /// bare references name locals. Bare builtins (Exception) are not
+    /// here — callers fall back to the core-ability tables for those.
     fn resolve_ability(&self, name: &str, namespaced: bool) -> Option<&CompiledAbilityInfo> {
         if namespaced {
-            self.prelude_abilities
-                .get(name)
-                .or_else(|| self.abilities.get(name))
+            self.prelude_abilities.get(name)
         } else {
-            self.abilities
-                .get(name)
-                .or_else(|| self.prelude_abilities.get(name))
+            self.abilities.get(name)
         }
     }
 

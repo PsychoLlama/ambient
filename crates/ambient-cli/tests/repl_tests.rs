@@ -74,11 +74,13 @@ fn test_define_constant() {
 
 #[test]
 fn test_tab_completion_console() {
+    // Platform abilities complete under their namespace: tab after
+    // `platform::Con` fills in the bare segment.
     ReplTest::new()
         .wait_ready()
-        .type_text("Con")
+        .type_text("platform::Con")
         .tab()
-        .expect_line("Console")
+        .expect_line("platform::Console")
         .shutdown();
 }
 

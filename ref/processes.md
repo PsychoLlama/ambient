@@ -22,17 +22,17 @@ reduction. That boundary is what makes upgrade, restart, and (future)
 remote migration well-defined operations rather than heuristics.
 
 Each process runs on its own OS thread with its own VM. All IO stays
-blocking — a process blocked in `Network::accept!` blocks only itself.
+blocking — a process blocked in `platform::Network::accept!` blocks only itself.
 Messages are ordinary values, delivered in send order, one reduction at
 a time. There is no shared memory between processes.
 
 ```ambient
-pub fn run(): () with Process {
+pub fn run(): () with platform::Process {
   let counter = platform::Process::spawn!("counter", () => 0, count_hits);
   platform::Process::send!(counter, "hit");
 }
 
-fn count_hits(count: number, msg: string): number with Console {
+fn count_hits(count: number, msg: string): number with platform::Console {
   platform::Console::print!("hits: ${to_string(count + 1)}");
   count + 1
 }
@@ -70,7 +70,7 @@ in ability declarations.
 Handlers and inits may use the full platform ability set (Console, Log,
 Time, Random, FileSystem, Network); their effects are granted by the
 runtime that drives the reduction, not tracked through `spawn`'s
-signature — the same host-boundary rule that governs `Execute::run`.
+signature — the same host-boundary rule that governs `platform::Execute::run`.
 
 ### Root vs dynamic processes
 
@@ -88,7 +88,7 @@ catchable `Exception`.
 
 ## Deploy passes: upgrade as reconciliation
 
-The entry function (`pub fn run(): () with Process`) is not a program —
+The entry function (`pub fn run(): () with platform::Process`) is not a program —
 it is a **declaration of the desired process tree**. `ambient dev`
 re-runs it against the running system every time the code changes, the
 way a UI framework re-renders and reconciles:

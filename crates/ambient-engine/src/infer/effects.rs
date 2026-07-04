@@ -167,14 +167,10 @@ impl Infer {
         span: (u32, u32),
     ) -> InferResult<AbilityId> {
         let handler_span = (handler.span.start, handler.span.end);
-        let Some(ability_id) = self.ability_name_to_id(&handler.ability.name) else {
-            return Err(type_error(
-                TypeErrorKind::UnknownAbility {
-                    name: handler.ability.name.clone(),
-                },
-                handler_span,
-            ));
-        };
+        // Same namespace policy as performs: platform abilities must be
+        // handled as `platform::Console::print(...)`, locals and the
+        // builtin Exception bare.
+        let ability_id = self.resolve_ability_ref(&handler.ability, handler_span)?;
 
         let Some((param_tys, ret_ty)) = self.ability_method_signature(ability_id, &handler.method)
         else {

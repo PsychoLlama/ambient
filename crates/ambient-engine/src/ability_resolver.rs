@@ -142,11 +142,14 @@ impl From<&DynAbility> for AbilityInterface {
 /// This is used by the type checker and compiler to look up ability and method
 /// information without hard-coding the ability definitions.
 ///
-/// Two populations live here: builtin descriptors (registered from
-/// providers/config) and dynamic, module-declared abilities. Name lookups
-/// prefer dynamic abilities, so a module declaration shadows a builtin of
-/// the same name (except the `platform.`-namespaced ones, which the type
-/// checker guards separately).
+/// Three populations live here: builtin descriptors (registered from
+/// providers/config), local module-declared dynamics, and namespaced
+/// dynamics (ability preludes such as `platform`). Source references
+/// resolve through [`AbilityResolver::resolve_ref`], which enforces the
+/// namespace policy: namespaced dynamics require their prefix
+/// everywhere, locals and builtins are bare, and locals shadow both.
+/// The remaining name lookups are low-level (tooling/rendering) and
+/// prefer dynamics over builtins.
 pub struct AbilityResolver {
     /// Map from ability name to descriptor.
     by_name: HashMap<Arc<str>, AbilityDescriptor<Type>>,
@@ -168,10 +171,28 @@ pub struct AbilityResolver {
     ///
     /// These come from ability preludes (declaration modules an embedder
     /// registers, e.g. the `platform` module). Unlike local dynamics they
-    /// must be performed with their namespace prefix
-    /// (`platform.Console.print!`); bare names still resolve in effect
-    /// rows and handler arms, where no qualification exists today.
+    /// must be named with their namespace prefix everywhere they appear
+    /// in source: performs (`platform::Console::print!`), `with` clauses,
+    /// effect-row annotations, handler arms, and sandbox clauses (see
+    /// [`AbilityResolver::resolve_ref`]).
     namespaced_by_name: HashMap<Arc<str>, (Arc<str>, Arc<DynAbility>)>,
+}
+
+/// Why a namespace-aware ability reference failed to resolve.
+///
+/// Produced by [`AbilityResolver::resolve_ref`], the policy-enforcing
+/// entry point every source position that names an ability goes through.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AbilityRefError {
+    /// The name belongs to a namespaced dynamic but was written bare (or
+    /// under the wrong namespace). The caller should tell the user to
+    /// qualify it with this namespace.
+    RequiresNamespace {
+        /// The namespace the ability was registered under.
+        namespace: Arc<str>,
+    },
+    /// No ability answers to this reference.
+    Unknown,
 }
 
 impl AbilityResolver {
@@ -197,9 +218,9 @@ impl AbilityResolver {
 
     /// Register a dynamic ability under a namespace.
     ///
-    /// Namespaced abilities are performed with their namespace prefix
-    /// (`<namespace>.<Ability>.<method>!`); they do not shadow bare-name
-    /// lookups of local declarations.
+    /// Namespaced abilities are referenced with their namespace prefix
+    /// (`<namespace>::<Ability>`) in every source position; they do not
+    /// shadow bare-name lookups of local declarations.
     pub fn register_dynamic_in_namespace(&mut self, namespace: &str, ability: DynAbility) {
         let ability = Arc::new(ability);
         self.namespaced_by_name.insert(
@@ -257,12 +278,71 @@ impl AbilityResolver {
         self.by_id.get(&id)
     }
 
+    /// Resolve an ability reference as written in source, enforcing the
+    /// namespace policy. This is the single entry point for every source
+    /// position that names an ability: performs, `with` clauses,
+    /// effect-row annotations, handler arms, and sandbox clauses.
+    ///
+    /// The policy:
+    /// - A bare name resolves to a local (module-declared) dynamic first,
+    ///   then to a builtin descriptor (`Exception`). A bare name that
+    ///   belongs to a namespaced dynamic is an error: namespaced abilities
+    ///   must be written with their prefix (`platform::Console`).
+    /// - A qualified name (`platform::Console`) resolves only to the
+    ///   dynamic registered under exactly that namespace. Locals and
+    ///   builtins may not be spelled with a namespace.
+    /// - A local dynamic that shadows a namespaced name keeps working
+    ///   bare; the namespaced one stays reachable via its prefix.
+    ///
+    /// # Errors
+    ///
+    /// [`AbilityRefError::RequiresNamespace`] when a namespaced dynamic
+    /// was named bare or under the wrong namespace;
+    /// [`AbilityRefError::Unknown`] otherwise.
+    pub fn resolve_ref(
+        &self,
+        path: &[impl AsRef<str>],
+        name: &str,
+    ) -> Result<AbilityId, AbilityRefError> {
+        match path {
+            [] => {
+                if let Some(dynamic) = self.dynamic_by_name.get(name) {
+                    return Ok(dynamic.id);
+                }
+                if let Some((namespace, _)) = self.namespaced_by_name.get(name) {
+                    return Err(AbilityRefError::RequiresNamespace {
+                        namespace: Arc::clone(namespace),
+                    });
+                }
+                self.by_name
+                    .get(name)
+                    .map(|a| a.id)
+                    .ok_or(AbilityRefError::Unknown)
+            }
+            [namespace] => {
+                if let Some(ability) = self.get_namespaced(namespace.as_ref(), name) {
+                    return Ok(ability.id);
+                }
+                // The right ability under the wrong qualifier still points
+                // the user at the namespace that would work.
+                if let Some((namespace, _)) = self.namespaced_by_name.get(name) {
+                    return Err(AbilityRefError::RequiresNamespace {
+                        namespace: Arc::clone(namespace),
+                    });
+                }
+                Err(AbilityRefError::Unknown)
+            }
+            _ => Err(AbilityRefError::Unknown),
+        }
+    }
+
     /// Convert an ability name to its ID.
     ///
-    /// Bare names resolve through local dynamics, then namespaced
-    /// dynamics, then builtin descriptors: effect rows and handler arms
-    /// name abilities without qualification, so prelude abilities must be
-    /// reachable here, while local declarations still shadow them.
+    /// This is a low-level bare-name lookup (local dynamics, then
+    /// namespaced dynamics, then builtin descriptors) for tooling and
+    /// rendering, where qualification may be absent. Source positions
+    /// that name abilities must go through [`Self::resolve_ref`], which
+    /// enforces the namespace policy.
     #[must_use]
     pub fn name_to_id(&self, name: &str) -> Option<AbilityId> {
         if let Some(dynamic) = self.dynamic_by_name.get(name) {
@@ -356,20 +436,39 @@ impl AbilityResolver {
             .collect()
     }
 
-    /// Every ability name visible to bare-name resolution (effect rows,
-    /// handler arms): local dynamics, namespaced dynamics, and builtin
-    /// descriptors. Sorted and deduplicated.
+    /// Every ability name spelled the way source must reference it:
+    /// local dynamics and builtin descriptors bare, namespaced dynamics
+    /// with their prefix (`platform::Console`). Sorted and deduplicated.
+    /// Suitable for completions in `with` clauses and handler arms.
     #[must_use]
     pub fn ability_names(&self) -> Vec<Arc<str>> {
         let mut names: Vec<Arc<str>> = self
             .dynamic_by_name
             .keys()
             .cloned()
-            .chain(self.namespaced_by_name.keys().cloned())
+            .chain(
+                self.namespaced_by_name
+                    .iter()
+                    .map(|(name, (namespace, _))| Arc::from(format!("{namespace}::{name}"))),
+            )
             .chain(self.by_name.keys().cloned())
             .collect();
         names.sort_unstable();
         names.dedup();
+        names
+    }
+
+    /// Bare names of the dynamic abilities registered under a namespace,
+    /// sorted. For tooling: completing `platform::` offers these.
+    #[must_use]
+    pub fn namespace_ability_names(&self, namespace: &str) -> Vec<Arc<str>> {
+        let mut names: Vec<Arc<str>> = self
+            .namespaced_by_name
+            .iter()
+            .filter(|(_, (ns, _))| ns.as_ref() == namespace)
+            .map(|(name, _)| Arc::clone(name))
+            .collect();
+        names.sort_unstable();
         names
     }
 
@@ -710,7 +809,7 @@ mod tests {
     }
 
     #[test]
-    fn namespaced_dynamics_resolve_qualified_and_bare() {
+    fn namespaced_dynamics_require_their_namespace() {
         let mut resolver = AbilityResolver::new();
         resolver.register_dynamic_in_namespace("platform", dyn_ability("Printer", 7));
 
@@ -722,7 +821,25 @@ mod tests {
             Some("platform")
         );
 
-        // Bare names still resolve for effect rows and handler arms.
+        // Source references resolve only with the namespace prefix.
+        assert_eq!(
+            resolver.resolve_ref(&["platform"], "Printer"),
+            Ok(AbilityId::from_bytes([7; 32]))
+        );
+        assert_eq!(
+            resolver.resolve_ref(&[] as &[&str], "Printer"),
+            Err(AbilityRefError::RequiresNamespace {
+                namespace: Arc::from("platform"),
+            })
+        );
+        assert_eq!(
+            resolver.resolve_ref(&["other"], "Printer"),
+            Err(AbilityRefError::RequiresNamespace {
+                namespace: Arc::from("platform"),
+            })
+        );
+
+        // Low-level bare lookups keep working for tooling/rendering.
         assert_eq!(
             resolver.name_to_id("Printer"),
             Some(AbilityId::from_bytes([7; 32]))
@@ -749,19 +866,77 @@ mod tests {
     }
 
     #[test]
+    fn resolve_ref_policy_for_locals_and_builtins() {
+        let mut resolver = core_abilities();
+        resolver.register_dynamic(dyn_ability("Printer", 9));
+
+        // Locals and the builtin Exception resolve bare.
+        assert_eq!(
+            resolver.resolve_ref(&[] as &[&str], "Printer"),
+            Ok(AbilityId::from_bytes([9; 32]))
+        );
+        assert_eq!(
+            resolver.resolve_ref(&[] as &[&str], "Exception"),
+            Ok(ambient_core::exception::ability_id())
+        );
+
+        // Neither may be spelled with a namespace.
+        assert_eq!(
+            resolver.resolve_ref(&["platform"], "Printer"),
+            Err(AbilityRefError::Unknown)
+        );
+        assert_eq!(
+            resolver.resolve_ref(&["platform"], "Exception"),
+            Err(AbilityRefError::Unknown)
+        );
+
+        // Unknown names are unknown, qualified or not.
+        assert_eq!(
+            resolver.resolve_ref(&[] as &[&str], "Nope"),
+            Err(AbilityRefError::Unknown)
+        );
+        assert_eq!(
+            resolver.resolve_ref(&["platform", "extra"], "Printer"),
+            Err(AbilityRefError::Unknown)
+        );
+    }
+
+    #[test]
     fn local_dynamics_shadow_namespaced_in_bare_lookups() {
         let mut resolver = AbilityResolver::new();
         resolver.register_dynamic_in_namespace("platform", dyn_ability("Printer", 7));
         resolver.register_dynamic(dyn_ability("Printer", 9));
 
+        // The bare reference means the local declaration.
+        assert_eq!(
+            resolver.resolve_ref(&[] as &[&str], "Printer"),
+            Ok(AbilityId::from_bytes([9; 32]))
+        );
         assert_eq!(
             resolver.name_to_id("Printer"),
             Some(AbilityId::from_bytes([9; 32]))
         );
         // The namespaced one remains reachable via qualification.
         assert_eq!(
+            resolver.resolve_ref(&["platform"], "Printer"),
+            Ok(AbilityId::from_bytes([7; 32]))
+        );
+        assert_eq!(
             resolver.get_namespaced("platform", "Printer").map(|a| a.id),
             Some(AbilityId::from_bytes([7; 32]))
         );
+    }
+
+    #[test]
+    fn ability_names_render_namespaced_qualified() {
+        let mut resolver = core_abilities();
+        resolver.register_dynamic_in_namespace("platform", dyn_ability("Printer", 7));
+        resolver.register_dynamic(dyn_ability("Local", 9));
+
+        let names = resolver.ability_names();
+        assert!(names.iter().any(|n| n.as_ref() == "platform::Printer"));
+        assert!(names.iter().any(|n| n.as_ref() == "Local"));
+        assert!(names.iter().any(|n| n.as_ref() == "Exception"));
+        assert!(!names.iter().any(|n| n.as_ref() == "Printer"));
     }
 }

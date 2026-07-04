@@ -88,7 +88,7 @@ fn point_str(p: Point): string {
 // Entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn run(): () with Console {
+pub fn run(): () with platform::Console {
     // Build a value straight from its default.
     let settings = Settings::default();
     platform::Console::println!(describe(settings));

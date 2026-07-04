@@ -4,7 +4,7 @@
 //! an Exception handler, then cleans up.
 
 /// Entry point demonstrating filesystem operations.
-pub fn run(): () with FileSystem, Console {
+pub fn run(): () with platform::FileSystem, platform::Console {
     let path = "/tmp/ambient_file_io_example.txt";
 
     // Write a file, then read it back.

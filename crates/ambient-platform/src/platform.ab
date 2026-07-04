@@ -3,8 +3,11 @@
 //! These declarations are the single description of what the native
 //! platform can do. Each ability's identity is the blake3 hash of its
 //! canonical interface; the host registers handlers keyed by that hash,
-//! so shipping this module *is* shipping the binding contract. Perform
-//! with the `platform.` prefix: `platform::Console::print!("hi")`.
+//! so shipping this module *is* shipping the binding contract. These
+//! abilities are named with the `platform::` prefix in every position:
+//! performs (`platform::Console::print!("hi")`), `with` clauses and
+//! effect rows (`with platform::Console`), handler arms, and sandbox
+//! clauses.
 //!
 //! Operational failures (missing files, refused connections, ...) do not
 //! return `Result`: handlers raise catchable `Exception`s through the

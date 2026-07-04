@@ -191,6 +191,16 @@ pub fn get_completions(
 
     // If we're completing pkg module members (after "module_name.")
     if let Some(module_path) = ctx.after_pkg_module_dot {
+        // An ability namespace (`platform::`) completes the bare names of
+        // its abilities — the prefix is already typed.
+        items.extend(get_namespace_ability_completions(
+            resolver,
+            module_path,
+            ctx.word_prefix,
+        ));
+        if !items.is_empty() {
+            return items;
+        }
         if let Some(db) = symbol_db {
             items.extend(get_pkg_module_completions(db, module_path, ctx.word_prefix));
         }
@@ -269,7 +279,9 @@ fn get_type_completions(prefix: &str) -> Vec<CompletionItem> {
 }
 
 /// Get ability completions from the resolver (builtins plus every
-/// registered platform/user declaration).
+/// registered platform/user declaration). Namespaced abilities complete
+/// with their required prefix (`platform::Console`) — the only spelling
+/// the checker accepts in `with` clauses and handler arms.
 fn get_ability_completions(resolver: &AbilityResolver, prefix: &str) -> Vec<CompletionItem> {
     resolver
         .ability_names()
@@ -279,6 +291,27 @@ fn get_ability_completions(resolver: &AbilityResolver, prefix: &str) -> Vec<Comp
             label: ab.to_string(),
             kind: Some(CompletionItemKind::INTERFACE),
             detail: Some("ability".to_string()),
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// Get the bare ability names registered under an ability namespace
+/// (`platform::` → `Console`, `FileSystem`, ...). Empty when the path is not
+/// a namespace, letting pkg-module completion take over.
+fn get_namespace_ability_completions(
+    resolver: &AbilityResolver,
+    namespace: &str,
+    prefix: &str,
+) -> Vec<CompletionItem> {
+    resolver
+        .namespace_ability_names(namespace)
+        .into_iter()
+        .filter(|ab| ab.starts_with(prefix))
+        .map(|ab| CompletionItem {
+            label: ab.to_string(),
+            kind: Some(CompletionItemKind::INTERFACE),
+            detail: Some(format!("ability ({namespace})")),
             ..Default::default()
         })
         .collect()

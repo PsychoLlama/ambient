@@ -403,7 +403,7 @@ impl std::fmt::Display for TypeErrorKind {
             } => {
                 write!(
                     f,
-                    "ability `{ability}` requires `{expected_namespace}.` prefix"
+                    "ability `{ability}` requires the `{expected_namespace}::` prefix: write `{expected_namespace}::{ability}`"
                 )
             }
             Self::UndefinedTypeName { name } => {

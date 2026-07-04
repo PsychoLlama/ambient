@@ -7,7 +7,7 @@
 //! (Make sure the network_server is running first!)
 
 /// Entry point that connects to a server and sends messages.
-pub fn run(): () with Console, Network {
+pub fn run(): () with platform::Console, platform::Network {
     platform::Console::print!("Client: connecting to 127.0.0.1:9000...");
     let conn = platform::Network::connect!(("127.0.0.1", 9000));
 

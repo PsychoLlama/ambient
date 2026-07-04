@@ -190,14 +190,25 @@ mod tests {
         let history = rustyline::history::DefaultHistory::new();
         let ctx = rustyline::Context::new(&history);
 
-        let result = completer.complete("Con", 3, &ctx);
+        // Platform abilities complete under their namespace; the prefix is
+        // already typed, so the replacement is the bare segment.
+        let result = completer.complete("platform::Con", 13, &ctx);
         assert!(result.is_ok());
         let (_, pairs) = result.unwrap();
-
-        // Should include Console
         assert!(
             pairs.iter().any(|p| p.replacement == "Console"),
             "Should complete Console, got: {:?}",
+            pairs.iter().map(|p| &p.replacement).collect::<Vec<_>>()
+        );
+
+        // A bare prefix offers the qualified spelling — the only one the
+        // checker accepts.
+        let result = completer.complete("plat", 4, &ctx);
+        assert!(result.is_ok());
+        let (_, pairs) = result.unwrap();
+        assert!(
+            pairs.iter().any(|p| p.replacement == "platform::Console"),
+            "Should complete platform::Console, got: {:?}",
             pairs.iter().map(|p| &p.replacement).collect::<Vec<_>>()
         );
     }
@@ -275,9 +286,10 @@ mod tests {
         let history = rustyline::history::DefaultHistory::new();
         let ctx = rustyline::Context::new(&history);
 
-        // Hint for "Con" should suggest "sole" (completing to Console)
-        let hint = completer.hint("Con", 3, &ctx);
-        assert!(hint.is_some(), "Should provide hint for Con");
+        // Hint for "platform::Con" should suggest "sole" (completing to
+        // platform::Console).
+        let hint = completer.hint("platform::Con", 13, &ctx);
+        assert!(hint.is_some(), "Should provide hint for platform::Con");
 
         // The hint should contain "sole" (the suffix to complete Console)
         let hint_text = hint.unwrap();

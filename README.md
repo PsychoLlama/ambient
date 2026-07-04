@@ -57,13 +57,13 @@ Examples:
 
 ```ambient
 // Effects are explicit capabilities ("abilities"), tracked in types.
-pub fn run(): () with Log {
+pub fn run(): () with platform::Log {
   greet("world");
 }
 
 // Private functions infer their abilities. No annotation needed.
 fn greet(name: string) {
-  Log::info!("Hello, ${name}!");
+  platform::Log::info!("Hello, ${name}!");
 }
 ```
 
@@ -86,17 +86,17 @@ Effect handlers are delimited continuations. Mock any capability in tests, sandb
 
 ```ambient
 fn roll_dice(): number {
-  math::abs(Random::in_range!(6))
+  math::abs(platform::Random::in_range!(6))
 }
 
-fn run(): () with Random, Log {
+fn run(): () with platform::Random, platform::Log {
   let roll = handle roll_dice() {
-    Random::in_range(max) => {
+    platform::Random::in_range(max) => {
       resume(4) // Chosen by fair dice roll. Guaranteed to be random.
     }
   };
 
-  Log::info!("Rolled ${roll}");
+  platform::Log::info!("Rolled ${roll}");
 }
 ```
 

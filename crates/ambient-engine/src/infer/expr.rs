@@ -592,18 +592,11 @@ impl Infer {
         sandbox_expr: &mut crate::ast::SandboxExpr,
         span: (u32, u32),
     ) -> InferResult<Type> {
-        // Resolve the allowed list; unknown names are errors.
+        // Resolve the allowed list; unknown names are errors, and the
+        // namespace policy applies: `sandbox with platform::Log { ... }`.
         let mut allowed_ability_ids = Vec::with_capacity(sandbox_expr.allowed_abilities.len());
         for ability_name in &sandbox_expr.allowed_abilities {
-            let Some(id) = self.ability_name_to_id(&ability_name.name) else {
-                return Err(type_error(
-                    TypeErrorKind::UnknownAbility {
-                        name: ability_name.name.clone(),
-                    },
-                    span,
-                ));
-            };
-            allowed_ability_ids.push(id);
+            allowed_ability_ids.push(self.resolve_ability_ref(ability_name, span)?);
         }
 
         // Infer the body with a clean accumulator so its effect set can be

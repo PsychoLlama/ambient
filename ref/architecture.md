@@ -525,13 +525,22 @@ them.
 ### Using Abilities
 
 ```ambient
-// Perform with !
+// Perform with ! (FileSystem here is the module-local declaration above;
+// the platform ability would be platform::FileSystem::read!)
 let content = FileSystem::read!("file.txt");
 ```
+
+Namespaced (platform) abilities must be written with their namespace in
+*every* position — performs, `with` clauses, effect-row annotations,
+handler arms, and sandbox clauses. A bare `Console` in any of those
+positions is a type error unless the module declares its own `Console`
+ability. User-declared abilities and the builtin `Exception` are always
+bare; they may not be spelled with a namespace.
 
 ### Ability Syntax in Type Signatures
 
 ```ambient
+// read_config uses the module-local FileSystem declared above.
 fn read_config(path: Path): Config
   with FileSystem
 {
@@ -539,9 +548,10 @@ fn read_config(path: Path): Config
   parse_config(content)
 }
 
-// Multiple abilities
+// Multiple abilities; platform abilities keep their namespace in
+// effect rows, and mix freely with local declarations like Log.
 fn fetch_and_log(url: Url): Response
-  with Network, Log
+  with platform::Network, Log
 { ... }
 
 // No abilities (pure function)
@@ -611,8 +621,8 @@ handle unit_test() with mock_fs {
 ### Sandboxing
 
 ```ambient
-sandbox with Log {
-  untrusted_code()  // Only Log ability available
+sandbox with platform::Log {
+  untrusted_code()  // Only the platform Log ability available
 }
 
 sandbox {
@@ -633,8 +643,12 @@ Builtin abilities are not defined in engine code. The engine's only
 native ability is `Exception` (part of the language). Everything else —
 Console, Time, Random, Log, FileSystem, Network, Process, Execute — is declared once, in
 Ambient source, in the **platform bindings interface**
-(`crates/ambient-platform/src/platform.ab`), and performed under the
-`platform` namespace: `platform::FileSystem::read!(path)`.
+(`crates/ambient-platform/src/platform.ab`), and named under the
+`platform` namespace in every position: performs
+(`platform::FileSystem::read!(path)`), `with` clauses and effect rows
+(`with platform::FileSystem`), handler arms
+(`platform::FileSystem::read(path) => ...`), and sandbox clauses
+(`sandbox with platform::Log`).
 
 An embedder wires the two halves together:
 
@@ -722,7 +736,7 @@ substitute value, and the IO caller continues as if the operation had
 succeeded:
 
 ```ambient
-fn fetch_or_default(): number with Network {
+fn fetch_or_default(): number with platform::Network {
   handle platform::Network::connect!(("10.0.0.1", 9)) {
     Exception::throw(msg) => resume(0 - 1)  // substitute connection id
   }
@@ -1047,7 +1061,7 @@ dedicated `serve` command.
 ### Hello World
 
 ```ambient
-pub fn run(): () with Console {
+pub fn run(): () with platform::Console {
   platform::Console::print!("Hello, world!");
 }
 ```

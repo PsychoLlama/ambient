@@ -4,7 +4,7 @@
 //! ability calls. The handler only affects code within its block.
 
 /// Entry point demonstrating effect handler interception.
-pub fn run(): () with Console {
+pub fn run(): () with platform::Console {
     // Handler intercepts platform::Console::print and adds a prefix
     handle {
         platform::Console::print!("Hello from inside the handler!");

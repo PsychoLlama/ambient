@@ -421,8 +421,11 @@ impl Infer {
     /// Resolve ability names from a source annotation to concrete ability IDs.
     ///
     /// Lowering has no ability resolver, so annotations like
-    /// `(T) -> U with Console` arrive as `AbilitySet::Unresolved(["Console"])`.
-    /// Unknown names are recorded in `pending_errors` (drained by the
+    /// `(T) -> U with platform::Console` arrive as
+    /// `AbilitySet::Unresolved(["platform::Console"])` — qualified names
+    /// keep their `::`-joined spelling so the namespace policy applies
+    /// here exactly like every other position that names an ability.
+    /// Errors are recorded in `pending_errors` (drained by the
     /// module-level check functions) rather than silently dropped.
     fn resolve_ability_annotation(&mut self, abilities: &AbilitySet) -> AbilitySet {
         let AbilitySet::Unresolved(names) = abilities else {
@@ -431,15 +434,27 @@ impl Infer {
 
         let mut ids = Vec::new();
         for name in names {
-            if let Some(id) = self.ability_name_to_id(name) {
-                ids.push(id);
-            } else {
-                self.pending_errors.push(Box::new(TypeError::new(
-                    TypeErrorKind::UnknownAbility {
-                        name: Arc::clone(name),
-                    },
-                    (0, 0),
-                )));
+            let mut segments: Vec<&str> = name.split("::").collect();
+            let bare = segments.pop().unwrap_or_default();
+            match self.ability_resolver.resolve_ref(&segments, bare) {
+                Ok(id) => ids.push(id),
+                Err(err) => {
+                    let kind = match err {
+                        crate::ability_resolver::AbilityRefError::RequiresNamespace {
+                            namespace,
+                        } => TypeErrorKind::AbilityRequiresNamespace {
+                            ability: Arc::from(bare),
+                            expected_namespace: namespace,
+                        },
+                        crate::ability_resolver::AbilityRefError::Unknown => {
+                            TypeErrorKind::UnknownAbility {
+                                name: Arc::clone(name),
+                            }
+                        }
+                    };
+                    self.pending_errors
+                        .push(Box::new(TypeError::new(kind, (0, 0))));
+                }
             }
         }
         AbilitySet::from_abilities(ids)

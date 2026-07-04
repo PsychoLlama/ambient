@@ -16,13 +16,13 @@
 ///
 /// It is effectful: the Log perform runs on the *server*, dispatched to
 /// the Log handler the server's host granted to executed code.
-fn double(x: number): number with Log {
+fn double(x: number): number with platform::Log {
     platform::Log::info!("doubling remotely");
     x * 2
 }
 
 /// Entry point that connects to server and executes a function remotely.
-pub fn run(): () with Console, Network, Execute {
+pub fn run(): () with platform::Console, platform::Network, platform::Execute {
     platform::Console::print!("Client: connecting to 127.0.0.1:8080...");
     let conn = platform::Network::connect!(("127.0.0.1", 8080));
 
@@ -51,7 +51,7 @@ pub fn run(): () with Console, Network, Execute {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Send a function for remote execution and receive the result.
-fn send_and_receive<A>(conn: number, arg: A, thunk: (A) -> number with Log): number with Console, Network, Execute {
+fn send_and_receive<A>(conn: number, arg: A, thunk: (A) -> number with platform::Log): number with platform::Console, platform::Network, platform::Execute {
     let hash = core::protocol::closure_hash(thunk);
     let captures = core::protocol::serialize_value(arg);
 
@@ -71,7 +71,7 @@ fn send_and_receive<A>(conn: number, arg: A, thunk: (A) -> number with Log): num
 }
 
 /// Handle server response.
-fn handle_response<A>(conn: number, thunk: (A) -> number with Log): number with Console, Network, Execute {
+fn handle_response<A>(conn: number, thunk: (A) -> number with platform::Log): number with platform::Console, platform::Network, platform::Execute {
     let response = platform::Network::receive!(conn);
 
     if core::bytes::length(response) == 0 {

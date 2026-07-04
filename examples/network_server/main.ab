@@ -6,7 +6,7 @@
 //! Run with: `ambient run examples/network_server`
 
 /// Entry point that starts a TCP server and echoes messages.
-pub fn run(): () with Console, Network {
+pub fn run(): () with platform::Console, platform::Network {
     platform::Console::print!("Server: binding to 127.0.0.1:9000...");
     let listener = platform::Network::listen!(("127.0.0.1", 9000));
 
@@ -26,7 +26,7 @@ pub fn run(): () with Console, Network {
 }
 
 /// Echo messages back to the client until an empty message is received.
-fn echo_loop(conn: number): () with Console, Network {
+fn echo_loop(conn: number): () with platform::Console, platform::Network {
     let msg = platform::Network::receive!(conn);
     let len = core::bytes::length(msg);
 

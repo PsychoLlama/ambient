@@ -942,14 +942,20 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
 
             // Ability names can't be resolved to IDs here (lowering has no
             // ability resolver); pass them through symbolically for the type
-            // checker's resolve_holes to resolve.
+            // checker's resolve_holes to resolve. Qualified names keep their
+            // full `::`-joined spelling (`platform::Console`) so the checker
+            // can enforce the namespace policy on effect rows too.
             let ability_set = if abilities.is_empty() {
                 ambient_engine::types::AbilitySet::empty()
             } else {
                 ambient_engine::types::AbilitySet::Unresolved(
                     abilities
                         .iter()
-                        .filter_map(|qn| qn.segments.last().map(|seg| seg.name.clone()))
+                        .map(|qn| {
+                            let segments: Vec<&str> =
+                                qn.segments.iter().map(|seg| seg.name.as_ref()).collect();
+                            std::sync::Arc::from(segments.join("::"))
+                        })
                         .collect(),
                 )
             };

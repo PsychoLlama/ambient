@@ -171,13 +171,13 @@ fn spawn_send_and_reduce() {
     let host = TestHost::new();
     host.deploy(
         r#"
-        pub fn run(): () with Process {
+        pub fn run(): () with platform::Process {
           let pid = platform::Process::spawn!("acc", init, add);
           platform::Process::send!(pid, 5);
           platform::Process::send!(pid, 7);
         }
         fn init(): number { 0 }
-        fn add(total: number, n: number): number with Console {
+        fn add(total: number, n: number): number with platform::Console {
           let next = total + n;
           platform::Console::print!("total " + core::convert::to_string(next));
           next
@@ -195,11 +195,11 @@ fn spawn_send_and_reduce() {
 fn upgrade_keeps_state() {
     let host = TestHost::new();
     let v1 = r#"
-        pub fn run(): () with Process {
+        pub fn run(): () with platform::Process {
           let pid = platform::Process::spawn!("acc", init, step);
         }
         fn init(): number { 0 }
-        fn step(total: number, n: number): number with Console {
+        fn step(total: number, n: number): number with platform::Console {
           let next = total + n;
           platform::Console::print!("v1 " + core::convert::to_string(next));
           next
@@ -207,11 +207,11 @@ fn upgrade_keeps_state() {
         "#;
     // v2 differs only in `step`'s body — the process must keep its count.
     let v2 = r#"
-        pub fn run(): () with Process {
+        pub fn run(): () with platform::Process {
           let pid = platform::Process::spawn!("acc", init, step);
         }
         fn init(): number { 0 }
-        fn step(total: number, n: number): number with Console {
+        fn step(total: number, n: number): number with platform::Console {
           let next = total + n;
           platform::Console::print!("v2 " + core::convert::to_string(next));
           next
@@ -245,7 +245,7 @@ fn reconcile_stops_removed_and_starts_added() {
         "#;
     let v1 = format!(
         r#"
-        pub fn run(): () with Process {{
+        pub fn run(): () with platform::Process {{
           platform::Process::spawn!("a", init, keep);
           platform::Process::spawn!("b", init, keep);
         }}
@@ -254,7 +254,7 @@ fn reconcile_stops_removed_and_starts_added() {
     );
     let v2 = format!(
         r#"
-        pub fn run(): () with Process {{
+        pub fn run(): () with platform::Process {{
           platform::Process::spawn!("b", init, keep);
           platform::Process::spawn!("c", init, keep);
         }}
@@ -282,11 +282,11 @@ fn crash_restarts_with_fresh_state() {
     let host = TestHost::new();
     host.deploy(
         r#"
-        pub fn run(): () with Process {
+        pub fn run(): () with platform::Process {
           let pid = platform::Process::spawn!("fragile", init, step);
         }
         fn init(): number { 0 }
-        fn step(total: number, n: number): number with Console, Exception {
+        fn step(total: number, n: number): number with platform::Console, Exception {
           if n < 0 {
             Exception::throw!("boom");
             total
@@ -322,15 +322,15 @@ fn crash_restarts_with_fresh_state() {
 fn dynamic_processes_survive_deploys_untouched() {
     let host = TestHost::new();
     let v1 = r#"
-        pub fn run(): () with Process {
+        pub fn run(): () with platform::Process {
           let pid = platform::Process::spawn!("parent", init, parent);
         }
         fn init(): number { 0 }
-        fn parent(total: number, n: number): number with Process {
+        fn parent(total: number, n: number): number with platform::Process {
           let child = platform::Process::spawn!("child", init, child_step);
           total
         }
-        fn child_step(total: number, n: number): number with Console {
+        fn child_step(total: number, n: number): number with platform::Console {
           platform::Console::print!("child v1");
           total
         }
@@ -338,15 +338,15 @@ fn dynamic_processes_survive_deploys_untouched() {
     // v2 removes the child spawn and changes nothing else the child
     // depends on. The dynamic child must survive, running v1 code.
     let v2 = r#"
-        pub fn run(): () with Process {
+        pub fn run(): () with platform::Process {
           let pid = platform::Process::spawn!("parent", init, parent);
         }
         fn init(): number { 0 }
-        fn parent(total: number, n: number): number with Console {
+        fn parent(total: number, n: number): number with platform::Console {
           platform::Console::print!("parent v2");
           total
         }
-        fn child_step(total: number, n: number): number with Console {
+        fn child_step(total: number, n: number): number with platform::Console {
           platform::Console::print!("child v2");
           total
         }
@@ -377,18 +377,18 @@ fn duplicate_spawn_is_a_catchable_exception() {
     let host = TestHost::new();
     host.deploy(
         r#"
-        pub fn run(): () with Process {
+        pub fn run(): () with platform::Process {
           let pid = platform::Process::spawn!("parent", init, parent);
         }
         fn init(): number { 0 }
-        fn parent(total: number, n: number): number with Process, Console {
+        fn parent(total: number, n: number): number with platform::Process, platform::Console {
           spawn_child();
           handle spawn_child() {
             Exception::throw(e) => platform::Console::print!("dup caught")
           };
           total
         }
-        fn spawn_child(): () with Process {
+        fn spawn_child(): () with platform::Process {
           let pid = platform::Process::spawn!("child", init, child_step);
         }
         fn child_step(total: number, n: number): number { total }
@@ -406,12 +406,12 @@ fn exit_stops_the_process() {
     let host = TestHost::new();
     host.deploy(
         r#"
-        pub fn run(): () with Process {
+        pub fn run(): () with platform::Process {
           let pid = platform::Process::spawn!("oneshot", init, step);
           platform::Process::send!(pid, 1);
         }
         fn init(): number { 0 }
-        fn step(total: number, n: number): number with Process, Console {
+        fn step(total: number, n: number): number with platform::Process, platform::Console {
           platform::Console::print!("handled");
           platform::Process::exit!();
           total

@@ -311,9 +311,24 @@ fn enforce_ability_subset(
 ) {
     let inferred = infer.apply_abilities(inferred);
 
+    // Namespace-aware resolution first (a `with platform::Console` clause
+    // must mean the platform ability even when a local declaration
+    // shadows the bare name), then a deliberately lenient bare fallback:
+    // the namespace policy was already enforced where the clause was
+    // resolved into the scheme (`build_function_scheme`,
+    // `resolve_declared_abilities`), which reported
+    // `AbilityRequiresNamespace` for a bare platform name. Resolving that
+    // name leniently here keeps the reported error from cascading into a
+    // second "uses ability but doesn't declare it" error.
     let declared: Vec<AbilityId> = declared
         .iter()
-        .filter_map(|qn| infer.ability_name_to_id(&qn.name))
+        .filter_map(|qn| {
+            infer
+                .ability_resolver
+                .resolve_ref(&qn.path, &qn.name)
+                .ok()
+                .or_else(|| infer.ability_name_to_id(&qn.name))
+        })
         .collect();
     let declared_set = AbilitySet::from_abilities(declared);
 
@@ -838,16 +853,9 @@ fn resolve_declared_abilities(
 ) -> AbilitySet {
     let mut ids = Vec::new();
     for qn in declared {
-        match infer.ability_name_to_id(&qn.name) {
-            Some(id) => ids.push(id),
-            None => {
-                errors.push(Box::new(TypeError::new(
-                    TypeErrorKind::UnknownAbility {
-                        name: Arc::clone(&qn.name),
-                    },
-                    (span.start, span.end),
-                )));
-            }
+        match infer.resolve_ability_ref(qn, (span.start, span.end)) {
+            Ok(id) => ids.push(id),
+            Err(e) => errors.push(e),
         }
     }
     AbilitySet::from_abilities(ids)
@@ -1104,19 +1112,11 @@ fn build_function_scheme(
     } else {
         let mut ability_ids: Vec<AbilityId> = Vec::with_capacity(func.abilities.len());
         for qn in &func.abilities {
-            if let Some(id) = infer.ability_name_to_id(&qn.name) {
-                ability_ids.push(id);
-            } else {
-                let span = qn.name_span.map_or((0, 0), |s| (s.start, s.end));
-                infer.pending_errors.push(Box::new(
-                    TypeError::new(
-                        TypeErrorKind::UnknownAbility {
-                            name: Arc::clone(&qn.name),
-                        },
-                        span,
-                    )
-                    .with_context(format!("in `with` clause of function `{}`", func.name)),
-                ));
+            match infer.resolve_ability_ref(qn, (0, 0)) {
+                Ok(id) => ability_ids.push(id),
+                Err(e) => infer
+                    .pending_errors
+                    .push(e.with_context(format!("in `with` clause of function `{}`", func.name))),
             }
         }
         AbilitySet::from_abilities(ability_ids)
@@ -1158,19 +1158,14 @@ fn register_abilities(
             continue;
         };
 
-        // Resolve dependencies first: they must already be known.
+        // Resolve dependencies first: they must already be known. The
+        // namespace policy applies here too: `ability Log with
+        // platform::Console` — a platform dependency needs its prefix.
         let mut dependencies = Vec::new();
         for dep in &def.dependencies {
-            match infer.ability_resolver.name_to_id(&dep.name) {
-                Some(id) => dependencies.push(id),
-                None => {
-                    errors.push(super::type_error(
-                        TypeErrorKind::UnknownAbility {
-                            name: Arc::clone(&dep.name),
-                        },
-                        (def.name_span.start, def.name_span.end),
-                    ));
-                }
+            match infer.resolve_ability_ref(dep, (def.name_span.start, def.name_span.end)) {
+                Ok(id) => dependencies.push(id),
+                Err(e) => errors.push(e),
             }
         }
 
