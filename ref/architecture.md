@@ -37,12 +37,24 @@ root), `self` (same directory), `super` (parent), `core` (standard
 library).
 
 ```ambient
-use pkg::utils::{a, b};   // Item import: a and b as bare names
-use self::utils;         // Whole-module import: call utils::helper(...)
-use core::List;          // Core modules import the same way: List::map(...)
-use core::List::{map};    // ... or by item
+use pkg::utils::helper;   // Item import: `helper` as a bare name
+use pkg::utils::{a, b};   // Braces group siblings: same as two item imports
+use self::utils;          // Whole-module import: call utils::helper(...)
+use core::List;           // Core modules import the same way: List::map(...)
+use core::List::{map};    // ... or by item (braces optional for a single one)
 use pkg::shapes::{Shape}; // Enum import: type, constructors, and patterns
 ```
+
+A `use` path names an entity by its final segment, resolved against the
+parent module named by the preceding segments. That segment can be a
+submodule (a whole-module import) or an item the parent exports — the
+resolver binds whichever exist, so the brace and non-brace forms carry no
+semantic difference: `use pkg::utils::{a, b}` is exactly
+`use pkg::utils::a; use pkg::utils::b;`. Modules, values, and types occupy
+separate namespaces resolved by syntactic position, so in the rare case a
+name is *both* a submodule of the parent and a symbol it exports, `use`
+binds both and the use site disambiguates (`c(...)` is the value, `c::foo`
+the module).
 
 `pub` gates every export: functions, consts, types, enums, abilities, and
 traits are module-private unless declared `pub`. A failed import — missing

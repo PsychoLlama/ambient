@@ -2622,6 +2622,54 @@ fn test_core_item_import() {
 }
 
 #[test]
+fn test_non_brace_item_import() {
+    // `use pkg::utils::triple;` (no braces) imports the *item* `triple`,
+    // exactly like the brace form. Braces are pure grouping.
+    let (dir, pkg) = temp_multi_package(&[
+        (
+            "main.ab",
+            r"
+            use pkg::utils::triple;
+
+            pub fn run(): number {
+                triple(7) + triple(1)
+            }
+            ",
+        ),
+        (
+            "utils.ab",
+            r"
+            pub fn triple(x: number): number { x * 3 }
+            ",
+        ),
+    ]);
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("24"));
+    drop(dir);
+}
+
+#[test]
+fn test_non_brace_core_item_import() {
+    // The unification reaches core too: `use core::List::map;` binds the
+    // bare name `map` without braces.
+    let (dir, pkg) = temp_package(
+        r"
+        use core::List::map;
+        use core::List::sum;
+
+        pub fn run(): number {
+            sum(map([1, 2, 3], (x: number) => x + 10))
+        }
+        ",
+    );
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("36"));
+    drop(dir);
+}
+
+#[test]
 fn test_whole_module_user_import() {
     // `use self::utils;` then `utils::helper()` — qualified module-member
     // calls on user modules.

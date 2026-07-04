@@ -62,9 +62,28 @@ pub struct ImportError {
 #[derive(Debug, Default)]
 pub struct ResolvedImports {
     /// Successfully resolved imports, keyed by local name.
-    pub imports: HashMap<Arc<str>, ResolvedImport>,
+    ///
+    /// A single name can carry up to two bindings — a module and a symbol
+    /// — because modules, values, and types occupy separate namespaces
+    /// resolved by syntactic position (`c(...)` is the symbol, `c::foo` the
+    /// module). `use a::b::c` binds whichever of those `c` names actually
+    /// exist under `a::b`; when both do, both land here and the use site
+    /// disambiguates. Within one namespace the last `use` wins.
+    pub imports: HashMap<Arc<str>, Vec<ResolvedImport>>,
     /// Imports that failed to resolve.
     pub errors: Vec<ImportError>,
+}
+
+impl ResolvedImports {
+    /// Bind `import` to `name`, keeping at most one module binding and one
+    /// symbol binding per name. A later import of the same namespace shadows
+    /// the earlier one; a module and a symbol coexist.
+    fn bind(&mut self, name: Arc<str>, import: ResolvedImport) {
+        let is_module = matches!(import, ResolvedImport::Module(_));
+        let entry = self.imports.entry(name).or_default();
+        entry.retain(|existing| matches!(existing, ResolvedImport::Module(_)) != is_module);
+        entry.push(import);
+    }
 }
 
 /// Information about an exported symbol.
@@ -198,22 +217,30 @@ impl ModuleRegistry {
             return Ok((export, module_path.clone()));
         }
 
-        // Then check re-exports
+        // Then check re-exports. Like the import side, a re-exported name is
+        // the final path segment resolved against its parent module — braces
+        // are just grouping. `pub use a::b::{x, y}` re-exports symbols `x`,
+        // `y` from `a::b`; `pub use a::b::x` re-exports `x` all the same. A
+        // bare `pub use a::b` (no parent) re-exports the module itself, not
+        // its contents, so it never matches a symbol lookup.
         for re_export in &info.re_exports {
-            match &re_export.kind {
-                UseKind::Module => {
-                    // `pub use pkg.other;` - re-exports the module itself, not its contents
-                    // The module can be accessed as `other.symbol` through the current module
-                }
-                UseKind::Items(items) => {
-                    // `pub use pkg.other.{a, b};` - re-exports specific symbols
-                    if items.iter().any(|item| item.as_ref() == symbol_name)
-                        && let Some(target_path) = Self::resolve_import_path(module_path, re_export)
-                        && let Ok(resolved) = self.lookup_symbol(&target_path, symbol_name)
-                    {
-                        return Ok(resolved);
-                    }
-                }
+            let matched = match &re_export.kind {
+                UseKind::Module => re_export
+                    .path
+                    .split_last()
+                    .filter(|(last, _)| last.as_ref() == symbol_name)
+                    .map(|(_, parent)| parent),
+                UseKind::Items(items) => items
+                    .iter()
+                    .any(|item| item.as_ref() == symbol_name)
+                    .then_some(re_export.path.as_slice()),
+            };
+
+            if let Some(parent) = matched
+                && let Some(target_path) = Self::resolve_import_path(module_path, re_export, parent)
+                && let Ok(resolved) = self.lookup_symbol(&target_path, symbol_name)
+            {
+                return Ok(resolved);
             }
         }
 
@@ -233,8 +260,14 @@ impl ModuleRegistry {
         info.exports.values().filter(|e| e.is_public).collect()
     }
 
-    /// Resolve an import path from a source module.
-    fn resolve_import_path(from: &ModulePath, re_export: &ReExport) -> Option<ModulePath> {
+    /// Resolve a re-export's target module path — the module `path` names
+    /// relative to `from`. `path` is passed explicitly because the parent of
+    /// a non-brace `pub use a::b::c` is `a::b`, not the whole stored path.
+    fn resolve_import_path(
+        from: &ModulePath,
+        re_export: &ReExport,
+        path: &[Arc<str>],
+    ) -> Option<ModulePath> {
         let prefix = match re_export.prefix {
             UsePrefix::Pkg => ImportPrefix::Pkg,
             UsePrefix::Core => return None, // Core imports handled separately
@@ -242,7 +275,7 @@ impl ModuleRegistry {
             UsePrefix::Super(count) => ImportPrefix::Super(count),
         };
 
-        from.resolve_relative(&prefix, &re_export.path).ok()
+        from.resolve_relative(&prefix, path).ok()
     }
 
     /// Get all registered modules.
@@ -308,65 +341,99 @@ impl ModuleRegistry {
             // Extract just the names from the path (ignoring spans)
             let path_names: Vec<_> = use_def.path.iter().map(|(name, _)| name.clone()).collect();
 
-            // Resolve the target module path
-            let target_path = match self.resolve_use_path(module_path, &use_def.prefix, &path_names)
-            {
-                Ok(path) => path,
-                Err(error) => {
-                    resolved.errors.push(ImportError {
-                        error,
-                        span: item.span,
-                    });
-                    continue;
-                }
-            };
-
+            // Both forms name a final segment that we resolve against its
+            // parent module: `use a::b::c` (Module) and `use a::b::{c}`
+            // (Items) mean the same thing. Braces are pure grouping — the
+            // difference collapses here, not in the parser. Each candidate
+            // is the full path down to the imported name.
             match &use_def.kind {
                 UseKind::Module => {
-                    // Import the module itself as a name
-                    // `use pkg.utils;` -> `utils` refers to the module
-                    let Some((last_name, _)) = use_def.path.last() else {
-                        continue;
-                    };
-                    if !self.modules.contains_key(&target_path.to_string()) {
-                        resolved.errors.push(ImportError {
-                            error: RegistryError::ModuleNotFound(target_path.to_string()),
-                            span: item.span,
-                        });
-                        continue;
-                    }
-                    resolved.imports.insert(
-                        last_name.clone(),
-                        ResolvedImport::Module(target_path.clone()),
+                    self.resolve_use_target(
+                        &mut resolved,
+                        &use_def.prefix,
+                        module_path,
+                        &path_names,
+                        item.span,
                     );
                 }
                 UseKind::Items(items) => {
-                    // Import specific items
                     for item_name in items {
-                        match self.lookup_symbol(&target_path, item_name) {
-                            Ok((export, origin)) => {
-                                resolved.imports.insert(
-                                    item_name.clone(),
-                                    ResolvedImport::Symbol {
-                                        from_module: origin,
-                                        export_kind: export.kind,
-                                        span: item.span,
-                                    },
-                                );
-                            }
-                            Err(error) => {
-                                resolved.errors.push(ImportError {
-                                    error,
-                                    span: item.span,
-                                });
-                            }
-                        }
+                        let mut full = path_names.clone();
+                        full.push(item_name.clone());
+                        self.resolve_use_target(
+                            &mut resolved,
+                            &use_def.prefix,
+                            module_path,
+                            &full,
+                            item.span,
+                        );
                     }
                 }
             }
         }
 
         Ok(resolved)
+    }
+
+    /// Resolve one `use` path down to its final segment and bind every
+    /// namespace meaning of that segment: the submodule at the full path,
+    /// and/or the symbol of that name exported by the parent module.
+    ///
+    /// This is the single site that unifies the brace and non-brace forms.
+    /// `full` is the entire path to the imported name (for `use a::b::c` and
+    /// for each item of `use a::b::{c}` alike, it is `[a, b, c]` after prefix
+    /// resolution). A name that resolves to neither a submodule nor a symbol
+    /// pushes one diagnostic.
+    fn resolve_use_target(
+        &self,
+        resolved: &mut ResolvedImports,
+        prefix: &UsePrefix,
+        module_path: &ModulePath,
+        full: &[Arc<str>],
+        span: crate::ast::Span,
+    ) {
+        // A bare `use self;` has no name to import.
+        let Some(local) = full.last().cloned() else {
+            return;
+        };
+
+        let target = match self.resolve_use_path(module_path, prefix, full) {
+            Ok(path) => path,
+            Err(error) => {
+                resolved.errors.push(ImportError { error, span });
+                return;
+            }
+        };
+
+        // Submodule meaning: the full path itself names a registered module.
+        let submodule_bound = self.modules.contains_key(&target.to_string());
+        if submodule_bound {
+            resolved.bind(local.clone(), ResolvedImport::Module(target.clone()));
+        }
+
+        // Symbol meaning: a name exported by the parent module. The parent of
+        // a top-level target is the package root module (`main`).
+        let symbol_parent = target.parent().unwrap_or_else(ModulePath::root);
+        match self.lookup_symbol(&symbol_parent, &local) {
+            Ok((export, origin)) => {
+                resolved.bind(
+                    local,
+                    ResolvedImport::Symbol {
+                        from_module: origin,
+                        export_kind: export.kind,
+                        span,
+                    },
+                );
+            }
+            Err(error) => {
+                // Only a diagnostic if neither namespace bound the name; a
+                // successful submodule import means the missing symbol (or
+                // missing parent module) was never what the user meant.
+                if !submodule_bound {
+                    resolved.errors.push(ImportError { error, span });
+                }
+            }
+        }
     }
 }
 
@@ -787,16 +854,18 @@ mod tests {
         // Resolve imports for main module
         let resolved = registry.resolve_imports(&main_path).unwrap();
         assert!(resolved.errors.is_empty());
-        match &resolved.imports["helper"] {
-            ResolvedImport::Symbol {
-                from_module,
-                export_kind,
-                ..
-            } => {
+        match resolved.imports["helper"].as_slice() {
+            [
+                ResolvedImport::Symbol {
+                    from_module,
+                    export_kind,
+                    ..
+                },
+            ] => {
                 assert_eq!(from_module.to_string(), "utils");
                 assert_eq!(*export_kind, ExportKind::Function);
             }
-            ResolvedImport::Module(_) => panic!("Expected symbol import"),
+            other => panic!("Expected a single symbol import, got {other:?}"),
         }
     }
 
@@ -837,9 +906,188 @@ mod tests {
         // "utils" should be imported as a module reference
         assert!(resolved.errors.is_empty());
         assert!(matches!(
-            &resolved.imports["utils"],
-            ResolvedImport::Module(_)
+            resolved.imports["utils"].as_slice(),
+            [ResolvedImport::Module(_)]
         ));
+    }
+
+    fn use_module(prefix: UsePrefix, path: &[&str], is_public: bool) -> Item {
+        use crate::ast::UseDef;
+        Item::new(
+            ItemKind::Use(UseDef {
+                is_public,
+                prefix,
+                path: path
+                    .iter()
+                    .map(|s| (Arc::from(*s), Span::default()))
+                    .collect(),
+                kind: UseKind::Module,
+            }),
+            Span::default(),
+        )
+    }
+
+    /// The non-brace form imports an item just like the brace form:
+    /// `use pkg::utils::helper` binds the symbol `helper` when `utils`
+    /// exports it, rather than demanding a submodule named `helper`.
+    #[test]
+    fn non_brace_path_imports_a_symbol() {
+        let mut registry = ModuleRegistry::new();
+
+        let utils_path = ModulePath::from_str_segments(&["utils"]).unwrap();
+        registry.register(
+            &utils_path,
+            Arc::new(Module {
+                name: Arc::from("utils"),
+                doc: None,
+                items: vec![make_function("helper", true)],
+            }),
+        );
+
+        let main_path = ModulePath::from_str_segments(&["main"]).unwrap();
+        registry.register(
+            &main_path,
+            Arc::new(Module {
+                name: Arc::from("main"),
+                doc: None,
+                items: vec![use_module(UsePrefix::Pkg, &["utils", "helper"], false)],
+            }),
+        );
+
+        let resolved = registry.resolve_imports(&main_path).unwrap();
+        assert!(resolved.errors.is_empty(), "errors: {:?}", resolved.errors);
+        assert!(
+            matches!(
+                resolved.imports["helper"].as_slice(),
+                [ResolvedImport::Symbol { .. }]
+            ),
+            "got {:?}",
+            resolved.imports.get("helper")
+        );
+    }
+
+    /// Symmetry the other way: the brace form imports a submodule just like
+    /// the non-brace form. `use pkg::a::{b}` binds submodule `a::b`.
+    #[test]
+    fn brace_form_imports_a_submodule() {
+        let mut registry = ModuleRegistry::new();
+
+        // Register submodule `a.b` and its parent `a`.
+        for path in [["a"].as_slice(), ["a", "b"].as_slice()] {
+            let module_path = ModulePath::from_str_segments(path).unwrap();
+            registry.register(
+                &module_path,
+                Arc::new(Module {
+                    name: Arc::from(*path.last().unwrap()),
+                    doc: None,
+                    items: vec![],
+                }),
+            );
+        }
+
+        let main_path = ModulePath::from_str_segments(&["main"]).unwrap();
+        registry.register(
+            &main_path,
+            Arc::new(Module {
+                name: Arc::from("main"),
+                doc: None,
+                items: vec![use_items(UsePrefix::Pkg, &["a"], &["b"], false)],
+            }),
+        );
+
+        let resolved = registry.resolve_imports(&main_path).unwrap();
+        assert!(resolved.errors.is_empty(), "errors: {:?}", resolved.errors);
+        assert!(matches!(
+            resolved.imports["b"].as_slice(),
+            [ResolvedImport::Module(_)]
+        ));
+    }
+
+    /// When a name is both a submodule of the parent and a symbol it
+    /// exports, `use` binds both — the use site disambiguates by position.
+    #[test]
+    fn name_that_is_both_submodule_and_symbol_binds_both() {
+        let mut registry = ModuleRegistry::new();
+
+        // `a` exports a symbol `b`, and `a.b` is also a submodule.
+        registry.register(
+            &ModulePath::from_str_segments(&["a"]).unwrap(),
+            Arc::new(Module {
+                name: Arc::from("a"),
+                doc: None,
+                items: vec![make_function("b", true)],
+            }),
+        );
+        registry.register(
+            &ModulePath::from_str_segments(&["a", "b"]).unwrap(),
+            Arc::new(Module {
+                name: Arc::from("b"),
+                doc: None,
+                items: vec![],
+            }),
+        );
+
+        let main_path = ModulePath::from_str_segments(&["main"]).unwrap();
+        registry.register(
+            &main_path,
+            Arc::new(Module {
+                name: Arc::from("main"),
+                doc: None,
+                items: vec![use_module(UsePrefix::Pkg, &["a", "b"], false)],
+            }),
+        );
+
+        let resolved = registry.resolve_imports(&main_path).unwrap();
+        assert!(resolved.errors.is_empty(), "errors: {:?}", resolved.errors);
+        let bindings = &resolved.imports["b"];
+        assert_eq!(
+            bindings.len(),
+            2,
+            "expected both bindings, got {bindings:?}"
+        );
+        assert!(
+            bindings
+                .iter()
+                .any(|b| matches!(b, ResolvedImport::Module(_)))
+        );
+        assert!(
+            bindings
+                .iter()
+                .any(|b| matches!(b, ResolvedImport::Symbol { .. }))
+        );
+    }
+
+    /// A non-brace `pub use pkg::origin::helper` re-exports the item just
+    /// like the braced form — braces are grouping on the re-export side too.
+    #[test]
+    fn non_brace_re_export_resolves_to_origin() {
+        let mut registry = ModuleRegistry::new();
+
+        let origin_path = ModulePath::from_str_segments(&["origin"]).unwrap();
+        registry.register(
+            &origin_path,
+            Arc::new(Module {
+                name: Arc::from("origin"),
+                doc: None,
+                items: vec![make_function("helper", true)],
+            }),
+        );
+
+        // facade re-exports `helper` without braces.
+        let facade_path = ModulePath::from_str_segments(&["facade"]).unwrap();
+        registry.register(
+            &facade_path,
+            Arc::new(Module {
+                name: Arc::from("facade"),
+                doc: None,
+                items: vec![use_module(UsePrefix::Pkg, &["origin", "helper"], true)],
+            }),
+        );
+
+        let (_, origin) = registry
+            .lookup_symbol(&facade_path, "helper")
+            .expect("non-brace re-export should resolve");
+        assert_eq!(origin, origin_path);
     }
 
     fn use_items(prefix: UsePrefix, path: &[&str], items: &[&str], is_public: bool) -> Item {
@@ -902,11 +1150,11 @@ mod tests {
         // and resolve_imports records the origin as from_module
         let resolved = registry.resolve_imports(&main_path).unwrap();
         assert!(resolved.errors.is_empty());
-        match &resolved.imports["helper"] {
-            ResolvedImport::Symbol { from_module, .. } => {
+        match resolved.imports["helper"].as_slice() {
+            [ResolvedImport::Symbol { from_module, .. }] => {
                 assert_eq!(*from_module, origin_path);
             }
-            ResolvedImport::Module(_) => panic!("Expected symbol import"),
+            other => panic!("Expected a single symbol import, got {other:?}"),
         }
     }
 

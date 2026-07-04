@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::ast::{ItemKind, Module, UsePrefix};
+use crate::ast::{ItemKind, Module, UseKind, UsePrefix};
 use crate::compiler::CompiledModule;
 use crate::module_path::{ImportPrefix, ModulePath};
 use crate::module_registry::{ModuleRegistry, ResolvedImport};
@@ -205,7 +205,7 @@ fn get_compilation_order(pkg: &Package, main_path: &ModulePath) -> Vec<ModulePat
 
         // Visit dependencies first.
         if let Some(module) = pkg.get_module(path) {
-            let deps = extract_dependencies(&module.ast, path);
+            let deps = extract_dependencies(&module.ast, path, pkg);
             for dep in deps {
                 visit(pkg, &dep, visited, order);
             }
@@ -234,22 +234,27 @@ pub fn build_imported_hashes_from_compiled(
     if let Ok(resolved_imports) = registry.resolve_imports(module_path) {
         // Failed imports were already reported as type errors during
         // checking; only the resolved bindings matter for linking.
-        for (local_name, resolved) in resolved_imports.imports {
-            match resolved {
-                ResolvedImport::Symbol { from_module, .. } => {
-                    if let Some(module_hashes) = compiled_hashes.get(&from_module)
-                        && let Some(hash) = module_hashes.get(&local_name)
-                    {
-                        hashes.insert(local_name, *hash);
+        for (local_name, bindings) in resolved_imports.imports {
+            // A name can carry both a module and a symbol binding; each
+            // populates a different key namespace (`alias.fn` vs `name`), so
+            // both apply independently.
+            for resolved in bindings {
+                match resolved {
+                    ResolvedImport::Symbol { from_module, .. } => {
+                        if let Some(module_hashes) = compiled_hashes.get(&from_module)
+                            && let Some(hash) = module_hashes.get(&local_name)
+                        {
+                            hashes.insert(local_name.clone(), *hash);
+                        }
                     }
-                }
-                ResolvedImport::Module(target_path) => {
-                    // Whole-module import: every function is callable as
-                    // `<alias>.<name>`, which is exactly the key the
-                    // compiler builds for a qualified call.
-                    if let Some(module_hashes) = compiled_hashes.get(&target_path) {
-                        for (fn_name, hash) in module_hashes {
-                            hashes.insert(format!("{local_name}.{fn_name}").into(), *hash);
+                    ResolvedImport::Module(target_path) => {
+                        // Whole-module import: every function is callable as
+                        // `<alias>.<name>`, which is exactly the key the
+                        // compiler builds for a qualified call.
+                        if let Some(module_hashes) = compiled_hashes.get(&target_path) {
+                            for (fn_name, hash) in module_hashes {
+                                hashes.insert(format!("{local_name}.{fn_name}").into(), *hash);
+                            }
                         }
                     }
                 }
@@ -297,21 +302,23 @@ pub fn build_imported_enums(
     let Ok(resolved) = registry.resolve_imports(module_path) else {
         return enums;
     };
-    for (name, import) in resolved.imports {
-        let ResolvedImport::Symbol {
-            from_module,
-            export_kind: crate::module_registry::ExportKind::Enum,
-            ..
-        } = import
-        else {
-            continue;
-        };
-        if let Some(info) = registry.get(&from_module) {
-            for item in &info.module.items {
-                if let ItemKind::Enum(def) = &item.kind
-                    && def.name == name
-                {
-                    enums.push(def.clone());
+    for (name, bindings) in resolved.imports {
+        for import in bindings {
+            let ResolvedImport::Symbol {
+                from_module,
+                export_kind: crate::module_registry::ExportKind::Enum,
+                ..
+            } = import
+            else {
+                continue;
+            };
+            if let Some(info) = registry.get(&from_module) {
+                for item in &info.module.items {
+                    if let ItemKind::Enum(def) = &item.kind
+                        && def.name == name
+                    {
+                        enums.push(def.clone());
+                    }
                 }
             }
         }
@@ -411,7 +418,7 @@ fn load_module_with_deps(
     }
 
     let loaded = load_module(pkg, path, parse)?;
-    let deps = extract_dependencies(&loaded.ast, path);
+    let deps = extract_dependencies(&loaded.ast, path, pkg);
     pkg.add_module(loaded);
 
     for dep_path in deps {
@@ -421,30 +428,81 @@ fn load_module_with_deps(
     Ok(())
 }
 
-/// Extract module dependencies from use statements.
-fn extract_dependencies(module: &crate::ast::Module, current_path: &ModulePath) -> Vec<ModulePath> {
+/// The module dependencies a module's `use` statements pull in.
+///
+/// Each imported name resolves against its parent module, so `use a::b::c`
+/// and `use a::b::{c}` both depend on `a::b` (and on submodule `a::b::c` when
+/// it exists). Shared with the CLI's package compiler so both loaders agree.
+#[must_use]
+pub fn extract_dependencies(
+    module: &crate::ast::Module,
+    current_path: &ModulePath,
+    pkg: &Package,
+) -> Vec<ModulePath> {
     let mut deps = Vec::new();
     let mut seen = HashSet::new();
+    let mut push = |resolved: ModulePath, deps: &mut Vec<ModulePath>| {
+        if seen.insert(resolved.to_string()) {
+            deps.push(resolved);
+        }
+    };
 
     for item in &module.items {
-        if let ItemKind::Use(use_def) = &item.kind {
-            if matches!(use_def.prefix, UsePrefix::Core) {
-                continue;
-            }
+        let ItemKind::Use(use_def) = &item.kind else {
+            continue;
+        };
 
-            let import_prefix = match use_def.prefix {
-                UsePrefix::Pkg => ImportPrefix::Pkg,
-                UsePrefix::Core => continue,
-                UsePrefix::Self_ => ImportPrefix::Self_,
-                UsePrefix::Super(n) => ImportPrefix::Super(n),
-            };
+        let import_prefix = match use_def.prefix {
+            // Core modules are embedded, not loaded from the package tree.
+            UsePrefix::Core => continue,
+            UsePrefix::Pkg => ImportPrefix::Pkg,
+            UsePrefix::Self_ => ImportPrefix::Self_,
+            UsePrefix::Super(n) => ImportPrefix::Super(n),
+        };
 
-            let path_names: Vec<_> = use_def.path.iter().map(|(name, _)| name.clone()).collect();
-            if let Ok(resolved) = current_path.resolve_relative(&import_prefix, &path_names) {
-                let key = resolved.to_string();
-                if !seen.contains(&key) {
-                    seen.insert(key);
-                    deps.push(resolved);
+        let path_names: Vec<_> = use_def.path.iter().map(|(name, _)| name.clone()).collect();
+
+        // Each imported name resolves against its parent module: `use a::b::c`
+        // and `use a::b::{c}` both name `c` under `a::b`. So for each name,
+        // the module that must load is either the submodule at the full path
+        // (a whole-module import) or the parent module that exports the name
+        // (an item import). Load whichever exist; if neither does, load the
+        // most specific candidate so the missing module is reported.
+        let fulls: Vec<Vec<_>> = match &use_def.kind {
+            UseKind::Module => vec![path_names.clone()],
+            UseKind::Items(items) => items
+                .iter()
+                .map(|item_name| {
+                    let mut full = path_names.clone();
+                    full.push(item_name.clone());
+                    full
+                })
+                .collect(),
+        };
+
+        for full in fulls {
+            let parent = &full[..full.len().saturating_sub(1)];
+            let full_mod = current_path.resolve_relative(&import_prefix, &full).ok();
+            let parent_mod = (!parent.is_empty())
+                .then(|| current_path.resolve_relative(&import_prefix, parent).ok())
+                .flatten();
+
+            let full_exists = full_mod.as_ref().is_some_and(|m| pkg.module_exists(m));
+            let parent_exists = parent_mod.as_ref().is_some_and(|m| pkg.module_exists(m));
+
+            if !full_exists && !parent_exists {
+                // Neither is a real module; surface the miss on the most
+                // specific candidate (the parent for an item import, else the
+                // full path).
+                if let Some(m) = parent_mod.or(full_mod) {
+                    push(m, &mut deps);
+                }
+            } else {
+                if let Some(m) = full_mod.filter(|_| full_exists) {
+                    push(m, &mut deps);
+                }
+                if let Some(m) = parent_mod.filter(|_| parent_exists) {
+                    push(m, &mut deps);
                 }
             }
         }

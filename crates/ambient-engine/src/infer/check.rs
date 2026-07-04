@@ -431,21 +431,23 @@ fn register_imported_enums(
     let Ok(resolved) = registry.resolve_imports(current_module) else {
         return;
     };
-    for (name, import) in resolved.imports {
-        let ResolvedImport::Symbol {
-            from_module,
-            export_kind: ExportKind::Enum,
-            ..
-        } = import
-        else {
-            continue;
-        };
-        if let Some(module_info) = registry.get(&from_module) {
-            for item in &module_info.module.items {
-                if let crate::ast::ItemKind::Enum(def) = &item.kind
-                    && def.name == name
-                {
-                    infer.enum_registry.register_def(def);
+    for (name, bindings) in resolved.imports {
+        for import in bindings {
+            let ResolvedImport::Symbol {
+                from_module,
+                export_kind: ExportKind::Enum,
+                ..
+            } = import
+            else {
+                continue;
+            };
+            if let Some(module_info) = registry.get(&from_module) {
+                for item in &module_info.module.items {
+                    if let crate::ast::ItemKind::Enum(def) = &item.kind
+                        && def.name == name
+                    {
+                        infer.enum_registry.register_def(def);
+                    }
                 }
             }
         }
@@ -481,15 +483,19 @@ fn retain_imported_type_aliases(
             resolved
                 .imports
                 .into_iter()
-                .filter_map(|(name, import)| {
-                    matches!(
-                        import,
-                        ResolvedImport::Symbol {
-                            export_kind: ExportKind::TypeAlias,
-                            ..
-                        }
-                    )
-                    .then_some(name)
+                .filter_map(|(name, bindings)| {
+                    bindings
+                        .iter()
+                        .any(|import| {
+                            matches!(
+                                import,
+                                ResolvedImport::Symbol {
+                                    export_kind: ExportKind::TypeAlias,
+                                    ..
+                                }
+                            )
+                        })
+                        .then_some(name)
                 })
                 .collect()
         })
@@ -1506,61 +1512,71 @@ fn build_import_env(
         }
     };
 
-    for (name, resolved_import) in imports {
-        match resolved_import {
-            ResolvedImport::Module(target_path) => {
-                // Whole-module import (`use pkg.utils;` / `use core.List;`):
-                // bind every public export under the qualified name
-                // `<alias>.<export>`, which is how qualified expressions
-                // look it up (see `ExprKind::Name` inference).
-                if let Some(module_info) = registry.get(&target_path) {
-                    for export in registry.get_public_exports(&target_path) {
-                        if let Some(scheme) =
-                            get_symbol_scheme(infer, &module_info.module, &export.name, export.kind)
-                        {
-                            let qualified: Arc<str> = format!("{name}.{}", export.name).into();
-                            let binding_id = next_binding_id;
-                            next_binding_id += 1;
-                            env.insert(binding_id, qualified, scheme);
+    for (name, bindings) in imports {
+        // A name may carry both a module and a symbol binding; the module
+        // populates qualified `alias.export` keys and the symbol the bare
+        // `name` key, so they never collide — the use site's syntax picks.
+        for resolved_import in bindings {
+            match resolved_import {
+                ResolvedImport::Module(target_path) => {
+                    // Whole-module import (`use pkg.utils;` / `use core.List;`):
+                    // bind every public export under the qualified name
+                    // `<alias>.<export>`, which is how qualified expressions
+                    // look it up (see `ExprKind::Name` inference).
+                    if let Some(module_info) = registry.get(&target_path) {
+                        for export in registry.get_public_exports(&target_path) {
+                            if let Some(scheme) = get_symbol_scheme(
+                                infer,
+                                &module_info.module,
+                                &export.name,
+                                export.kind,
+                            ) {
+                                let qualified: Arc<str> = format!("{name}.{}", export.name).into();
+                                let binding_id = next_binding_id;
+                                next_binding_id += 1;
+                                env.insert(binding_id, qualified, scheme);
+                            }
                         }
                     }
                 }
-            }
-            ResolvedImport::Symbol {
-                export_kind: ExportKind::Enum,
-                ..
-            } => {
-                // Already registered by `register_imported_enums`, which
-                // runs before foreign impl registration; `register_enums`
-                // binds the constructors along with local ones.
-            }
-            ResolvedImport::Symbol {
-                export_kind: ExportKind::EnumVariant,
-                span,
-                ..
-            } => {
-                // Variants don't import piecemeal: pattern matching and
-                // constructor tags need the whole declaration.
-                errors.push(Box::new(TypeError::new(
-                    TypeErrorKind::ImportFailed {
-                        message: format!("`{name}` is an enum variant; import its enum instead"),
-                    },
-                    (span.start, span.end),
-                )));
-            }
-            ResolvedImport::Symbol {
-                from_module,
-                export_kind,
-                ..
-            } => {
-                // Look up the symbol's type from the source module
-                if let Some(module_info) = registry.get(&from_module)
-                    && let Some(scheme) =
-                        get_symbol_scheme(infer, &module_info.module, &name, export_kind)
-                {
-                    let binding_id = next_binding_id;
-                    next_binding_id += 1;
-                    env.insert(binding_id, name, scheme);
+                ResolvedImport::Symbol {
+                    export_kind: ExportKind::Enum,
+                    ..
+                } => {
+                    // Already registered by `register_imported_enums`, which
+                    // runs before foreign impl registration; `register_enums`
+                    // binds the constructors along with local ones.
+                }
+                ResolvedImport::Symbol {
+                    export_kind: ExportKind::EnumVariant,
+                    span,
+                    ..
+                } => {
+                    // Variants don't import piecemeal: pattern matching and
+                    // constructor tags need the whole declaration.
+                    errors.push(Box::new(TypeError::new(
+                        TypeErrorKind::ImportFailed {
+                            message: format!(
+                                "`{name}` is an enum variant; import its enum instead"
+                            ),
+                        },
+                        (span.start, span.end),
+                    )));
+                }
+                ResolvedImport::Symbol {
+                    from_module,
+                    export_kind,
+                    ..
+                } => {
+                    // Look up the symbol's type from the source module
+                    if let Some(module_info) = registry.get(&from_module)
+                        && let Some(scheme) =
+                            get_symbol_scheme(infer, &module_info.module, &name, export_kind)
+                    {
+                        let binding_id = next_binding_id;
+                        next_binding_id += 1;
+                        env.insert(binding_id, Arc::clone(&name), scheme);
+                    }
                 }
             }
         }

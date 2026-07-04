@@ -7,11 +7,12 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 
-use ambient_engine::ast::{ItemKind, UsePrefix};
-use ambient_engine::build::{build_imported_hashes_from_compiled, compile_core_modules};
+use ambient_engine::build::{
+    build_imported_hashes_from_compiled, compile_core_modules, extract_dependencies,
+};
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::format::format_value_colored;
-use ambient_engine::module_path::{ImportPrefix, ModulePath};
+use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::package::{LoadedModule, Package};
 use ambient_platform::process::ProcessEvent;
@@ -155,7 +156,7 @@ fn get_compilation_order(pkg: &Package, main_path: &ModulePath) -> Vec<ModulePat
 
         // Visit dependencies first.
         if let Some(module) = pkg.get_module(path) {
-            let deps = extract_dependencies(&module.ast, path);
+            let deps = extract_dependencies(&module.ast, path, pkg);
             for dep in deps {
                 visit(pkg, &dep, visited, order);
             }
@@ -180,7 +181,7 @@ fn load_module_with_deps(pkg: &mut Package, path: &ModulePath) -> Result<()> {
     let loaded = load_module(pkg, path)?;
 
     // Extract dependencies from use statements.
-    let deps = extract_dependencies(&loaded.ast, path);
+    let deps = extract_dependencies(&loaded.ast, path, pkg);
 
     // Add module to package.
     pkg.add_module(loaded);
@@ -191,43 +192,6 @@ fn load_module_with_deps(pkg: &mut Package, path: &ModulePath) -> Result<()> {
     }
 
     Ok(())
-}
-
-/// Extract module dependencies from use statements.
-fn extract_dependencies(
-    module: &ambient_engine::ast::Module,
-    current_path: &ModulePath,
-) -> Vec<ModulePath> {
-    let mut deps = Vec::new();
-    let mut seen = HashSet::new();
-
-    for item in &module.items {
-        if let ItemKind::Use(use_def) = &item.kind {
-            // Skip core library imports - they're handled separately.
-            if matches!(use_def.prefix, UsePrefix::Core) {
-                continue;
-            }
-
-            // Resolve the import path.
-            let import_prefix = match use_def.prefix {
-                UsePrefix::Pkg => ImportPrefix::Pkg,
-                UsePrefix::Core => continue, // Already handled above
-                UsePrefix::Self_ => ImportPrefix::Self_,
-                UsePrefix::Super(n) => ImportPrefix::Super(n),
-            };
-
-            let path_names: Vec<_> = use_def.path.iter().map(|(name, _)| name.clone()).collect();
-            if let Ok(resolved) = current_path.resolve_relative(&import_prefix, &path_names) {
-                let key = resolved.to_string();
-                if !seen.contains(&key) {
-                    seen.insert(key);
-                    deps.push(resolved);
-                }
-            }
-        }
-    }
-
-    deps
 }
 
 /// Load a single module from a package.
