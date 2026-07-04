@@ -796,7 +796,7 @@ static INTRINSICS: &[Intrinsic] = &[
         "get",
         2,
         EmitStrategy::Opcode(Opcode::BytesGet),
-        |_| sig(vec![Type::Bytes, Type::Number], Type::Number),
+        |_| sig(vec![Type::Bytes, Type::Number], Type::option(Type::Number)),
     ),
     intrinsic(
         &["core", "bytes"],

@@ -41,7 +41,7 @@ fn serve_request(conn: number): () with platform::Console, platform::Network, pl
     if core::bytes::length(bytes) == 0 {
         platform::Console::print!("Server: connection closed")
     } else {
-        let msg_type = core::bytes::get(bytes, 0);
+        let msg_type = core::Option::unwrap_or(core::bytes::get(bytes, 0), 0);
 
         if msg_type == 1 {
             // Execute message
@@ -56,7 +56,7 @@ fn serve_request(conn: number): () with platform::Console, platform::Network, pl
 /// Handle an Execute request.
 fn handle_execute(conn: number, payload: Bytes): () with platform::Console, platform::Network, platform::Execute {
     // Parse hash length and hash
-    let hash_len = core::bytes::get(payload, 0);
+    let hash_len = core::Option::unwrap_or(core::bytes::get(payload, 0), 0);
     let rest = core::bytes::slice(payload, 1, core::bytes::length(payload));
     let hash_bytes = core::bytes::slice(rest, 0, hash_len);
     let captures = core::bytes::slice(rest, hash_len, core::bytes::length(rest));
@@ -88,7 +88,7 @@ fn request_function(conn: number, hash: string): () with platform::Console, plat
 
     // Receive Provide message
     let response = platform::Network::receive!(conn);
-    let msg_type = core::bytes::get(response, 0);
+    let msg_type = core::Option::unwrap_or(core::bytes::get(response, 0), 0);
 
     if msg_type == 3 {
         let payload = core::bytes::slice(response, 1, core::bytes::length(response));

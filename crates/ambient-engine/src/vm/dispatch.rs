@@ -1436,9 +1436,11 @@ impl Vm {
                             });
                         }
                     };
-                    // Return 0 for out of bounds
-                    let value = bytes.get(index).copied().unwrap_or(0);
-                    self.stack.push(Value::Number(f64::from(value)));
+                    let value = bytes
+                        .get(index)
+                        .copied()
+                        .map_or_else(Value::none, |b| Value::some(Value::Number(f64::from(b))));
+                    self.stack.push(value);
                 }
 
                 Opcode::BytesSlice => {
