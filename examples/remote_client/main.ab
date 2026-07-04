@@ -78,20 +78,20 @@ fn handle_response<A>(conn: number, thunk: (A) -> number with platform::Log): nu
         platform::Console::print!("Client: connection closed");
         0
     } else {
-        let msg_type = core::Option::unwrap_or(core::bytes::get(response, 0), 0);
+        let msg_type = core::bytes::get(response, 0).unwrap_or(0);
 
         if msg_type == 4 {
             // Result message
             let payload = core::bytes::slice(response, 1, core::bytes::length(response));
             let result_opt = core::protocol::deserialize_value(payload);
-            core::Option::unwrap_or(result_opt, 0)
+            result_opt.unwrap_or(0)
         } else {
             if msg_type == 2 {
                 // NeedDeps message
                 platform::Console::print!("Client: server needs function bytecode");
                 let payload = core::bytes::slice(response, 1, core::bytes::length(response));
                 let hashes_opt = core::protocol::deserialize_value(payload);
-                let hashes: List<string> = core::Option::unwrap_or(hashes_opt, []);
+                let hashes: List<string> = hashes_opt.unwrap_or([]);
 
                 // Send Provide message with function bytecode
                 let data = platform::Execute::get_functions!(hashes);
