@@ -157,6 +157,10 @@ pub fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
             source_file: Some(&source_file),
             imported_hashes: Some(core.hashes),
             imported_enums: ambient_engine::build::build_imported_enums(&main_path, &core.registry),
+            imported_constants: ambient_engine::build::build_imported_constants(
+                &main_path,
+                &core.registry,
+            ),
             prelude_abilities: &prelude,
         },
     )

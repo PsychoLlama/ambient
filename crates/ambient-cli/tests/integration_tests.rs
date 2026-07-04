@@ -1885,6 +1885,49 @@ fn test_cross_module_enum_import() {
 }
 
 #[test]
+fn test_cross_module_const_import() {
+    // A `pub const` imported into another module inlines its literal value
+    // at each reference, exactly as if it were declared locally. The value
+    // travels the same AST channel as imported enums, not a hash link.
+    let (_dir, pkg) = temp_multi_package(&[
+        (
+            "config.ab",
+            r#"
+            pub const ANSWER: number = 42;
+            pub const SCALE: number = 100;
+            "#,
+        ),
+        (
+            "main.ab",
+            r#"
+            use pkg::config::{ANSWER, SCALE};
+
+            pub fn run(): number {
+                ANSWER + SCALE
+            }
+            "#,
+        ),
+    ]);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&pkg)
+        .output()
+        .expect("failed to run ambient");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // 42 + 100
+    assert!(
+        stdout.contains("142"),
+        "expected 142 in output, got: {stdout}"
+    );
+}
+
+#[test]
 fn test_enum_variant_import_is_rejected() {
     // Variants don't import piecemeal — patterns and constructor tags
     // need the whole declaration in scope.

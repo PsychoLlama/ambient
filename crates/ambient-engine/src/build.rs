@@ -343,6 +343,45 @@ pub fn build_imported_enums(
     enums
 }
 
+/// Collect the constant definitions a module imports (`use pkg::m::{PI}`).
+///
+/// Constants inline their literal value at each reference site rather than
+/// linking by hash, so cross-module constant use hands the compiler the
+/// imported definitions themselves — a separate channel from
+/// `imported_hashes`, mirroring [`build_imported_enums`].
+#[must_use]
+pub fn build_imported_constants(
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> Vec<crate::ast::ConstDef> {
+    let mut constants = Vec::new();
+    let Ok(resolved) = registry.resolve_imports(module_path) else {
+        return constants;
+    };
+    for (name, bindings) in resolved.imports {
+        for import in bindings {
+            let ResolvedImport::Symbol {
+                from_module,
+                export_kind: crate::module_registry::ExportKind::Const,
+                ..
+            } = import
+            else {
+                continue;
+            };
+            if let Some(info) = registry.get(&from_module) {
+                for item in &info.module.items {
+                    if let ItemKind::Const(def) = &item.kind
+                        && def.name == name
+                    {
+                        constants.push(def.clone());
+                    }
+                }
+            }
+        }
+    }
+    constants
+}
+
 /// Register and compile the embedded core library modules.
 ///
 /// Core modules are registered in the registry under their reserved
@@ -585,6 +624,7 @@ fn compile_loaded_module_with_registry(
             source_file: Some(&source_file),
             imported_hashes: Some(imported_hashes),
             imported_enums: build_imported_enums(module_path, registry),
+            imported_constants: build_imported_constants(module_path, registry),
             prelude_abilities: &[],
         },
     )

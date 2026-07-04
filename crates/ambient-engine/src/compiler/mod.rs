@@ -558,6 +558,24 @@ impl ModuleContext {
     /// checker guarantees every `const` initializer is a literal before we get
     /// here; a non-literal that somehow reaches this point is simply skipped
     /// and left to surface as an undefined-name error at its reference site.
+    ///
+    /// Registers imported constant definitions (`use pkg::m::{PI}`). Runs
+    /// before [`Self::register_constants`], so a local `const` of the same
+    /// name shadows the imported one — the same precedence
+    /// [`Self::register_imported_enums`] applies to constructors.
+    fn register_imported_constants(&mut self, imported: &[crate::ast::ConstDef]) {
+        for const_def in imported {
+            if let Some(value) = crate::const_eval::literal_value(&const_def.value) {
+                self.constants.insert(Arc::clone(&const_def.name), value);
+            }
+        }
+    }
+
+    /// Record each module-level constant's literal value so references to it
+    /// can be inlined (see the `ExprKind::Name` arm in `expr.rs`). The type
+    /// checker guarantees every `const` initializer is a literal before we get
+    /// here; a non-literal that somehow reaches this point is simply skipped
+    /// and left to surface as an undefined-name error at its reference site.
     fn register_constants(&mut self, module: &Module) {
         for item in &module.items {
             if let ItemKind::Const(const_def) = &item.kind
@@ -733,6 +751,10 @@ pub struct CompileOptions<'a> {
     /// inline by tag rather than linking by hash, so the compiler needs
     /// the definitions themselves, not name→hash entries.
     pub imported_enums: Vec<crate::ast::EnumDef>,
+    /// Imported constant definitions (`use pkg::m::{PI}`). Constants inline
+    /// their literal value at each reference rather than linking by hash, so
+    /// the compiler needs the definitions themselves, not name→hash entries.
+    pub imported_constants: Vec<crate::ast::ConstDef>,
     /// Prelude abilities (embedder-resolved declaration modules, e.g. the
     /// platform bindings interface). Local declarations shadow them.
     pub prelude_abilities: &'a [std::sync::Arc<crate::ability_resolver::DynAbility>],
@@ -857,6 +879,7 @@ fn compile_module_impl(
         source_file,
         imported_hashes,
         imported_enums,
+        imported_constants,
         prelude_abilities,
     } = options;
     // Collect function definitions.
@@ -923,6 +946,7 @@ fn compile_module_impl(
     let mut ctx = ModuleContext::new();
     ctx.register_imported_enums(&imported_enums);
     ctx.register_enums(module);
+    ctx.register_imported_constants(&imported_constants);
     ctx.register_constants(module);
     ctx.register_prelude_abilities(prelude_abilities);
     ctx.register_abilities(module)?;
