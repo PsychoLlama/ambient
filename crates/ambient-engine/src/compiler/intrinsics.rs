@@ -56,8 +56,6 @@ enum Helper {
     SetIntersection,
     SetDifference,
     SetToList,
-    OptionUnwrapOr,
-    EnumIs(u16),
     EnumTag,
     EnumPayload,
 }
@@ -712,49 +710,6 @@ static INTRINSICS: &[Intrinsic] = &[
         |v| sig(vec![set(v.var(0))], list(v.var(0))),
     ),
     // ─────────────────────────────────────────────────────────────────────
-    // core.Option
-    // ─────────────────────────────────────────────────────────────────────
-    intrinsic(
-        &["core", "Option"],
-        "unwrap_or",
-        2,
-        EmitStrategy::Helper(Helper::OptionUnwrapOr),
-        |v| sig(vec![Type::option(v.var(0)), v.var(0)], v.var(0)),
-    ),
-    // Some has tag 1, None has tag 0.
-    intrinsic(
-        &["core", "Option"],
-        "is_some",
-        1,
-        EmitStrategy::Helper(Helper::EnumIs(1)),
-        |v| sig(vec![Type::option(v.var(0))], Type::Bool),
-    ),
-    intrinsic(
-        &["core", "Option"],
-        "is_none",
-        1,
-        EmitStrategy::Helper(Helper::EnumIs(0)),
-        |v| sig(vec![Type::option(v.var(0))], Type::Bool),
-    ),
-    // ─────────────────────────────────────────────────────────────────────
-    // core.Result
-    // ─────────────────────────────────────────────────────────────────────
-    // Ok has tag 0, Err has tag 1.
-    intrinsic(
-        &["core", "Result"],
-        "is_ok",
-        1,
-        EmitStrategy::Helper(Helper::EnumIs(0)),
-        |v| sig(vec![Type::result(v.var(0), v.var(1))], Type::Bool),
-    ),
-    intrinsic(
-        &["core", "Result"],
-        "is_err",
-        1,
-        EmitStrategy::Helper(Helper::EnumIs(1)),
-        |v| sig(vec![Type::result(v.var(0), v.var(1))], Type::Bool),
-    ),
-    // ─────────────────────────────────────────────────────────────────────
     // core.enum - Enum operations (general)
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
@@ -946,8 +901,6 @@ fn emit_intrinsic(fc: &mut FunctionCompiler, strategy: EmitStrategy) {
             Helper::SetIntersection => fc.builder.emit_set_intersection(),
             Helper::SetDifference => fc.builder.emit_set_difference(),
             Helper::SetToList => fc.builder.emit_set_to_list(),
-            Helper::OptionUnwrapOr => fc.builder.emit_option_unwrap_or(),
-            Helper::EnumIs(tag) => fc.builder.emit_enum_is(tag),
             Helper::EnumTag => fc.builder.emit_enum_tag(),
             Helper::EnumPayload => fc.builder.emit_enum_payload(),
         },

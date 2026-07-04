@@ -1269,38 +1269,6 @@ impl Vm {
                 // ─────────────────────────────────────────────────────────────
                 // Option/Result utilities
                 // ─────────────────────────────────────────────────────────────
-                Opcode::OptionUnwrapOr => {
-                    // Stack: [option, default] -> [value]
-                    let default = self.pop()?;
-                    let option = self.pop()?;
-
-                    match option {
-                        Value::Enum(e) if &*e.type_name == "Option" => {
-                            if e.tag == 1 {
-                                // Some(x) - return the payload
-                                if let Some(payload) = e.payload.as_deref() {
-                                    self.stack.push(payload.clone());
-                                } else {
-                                    return Err(VmError::EnumPayloadMissing {
-                                        type_name: "Option".to_string(),
-                                        variant_name: "Some".to_string(),
-                                    });
-                                }
-                            } else {
-                                // None - return the default
-                                self.stack.push(default);
-                            }
-                        }
-                        other => {
-                            return Err(VmError::TypeError {
-                                expected: "Option",
-                                got: other.type_name(),
-                                operation: "option_unwrap_or",
-                            });
-                        }
-                    }
-                }
-
                 Opcode::OptionMap => {
                     // Stack: [option, closure] -> [mapped_option]
                     // If Some(x), call f(x) and wrap result in Some

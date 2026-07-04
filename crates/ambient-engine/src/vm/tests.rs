@@ -1916,63 +1916,9 @@ fn test_enum_tag_none() {
 // Option/Result utility tests
 // ─────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_option_unwrap_or_some() {
-    // Some(42).unwrap_or(0) should return 42
-    let mut builder = BytecodeBuilder::new();
-    builder.emit_const(Value::Number(42.0));
-    builder.emit_some();
-    builder.emit_const(Value::Number(0.0)); // default
-    builder.emit_option_unwrap_or();
-    builder.emit(Opcode::Return);
-
-    let func = builder.build(0, 0);
-    let hash = func.hash;
-
-    let mut vm = Vm::new();
-    vm.load_function(func);
-
-    let result = vm.call(&hash, vec![]).unwrap();
-    assert_eq!(result, Value::Number(42.0));
-}
-
-#[test]
-fn test_option_unwrap_or_none() {
-    // None.unwrap_or(99) should return 99
-    let mut builder = BytecodeBuilder::new();
-    builder.emit_none();
-    builder.emit_const(Value::Number(99.0)); // default
-    builder.emit_option_unwrap_or();
-    builder.emit(Opcode::Return);
-
-    let func = builder.build(0, 0);
-    let hash = func.hash;
-
-    let mut vm = Vm::new();
-    vm.load_function(func);
-
-    let result = vm.call(&hash, vec![]).unwrap();
-    assert_eq!(result, Value::Number(99.0));
-}
-
-#[test]
-fn test_option_unwrap_or_string() {
-    // None.unwrap_or("default") should return "default"
-    let mut builder = BytecodeBuilder::new();
-    builder.emit_none();
-    builder.emit_const(Value::string("default"));
-    builder.emit_option_unwrap_or();
-    builder.emit(Opcode::Return);
-
-    let func = builder.build(0, 0);
-    let hash = func.hash;
-
-    let mut vm = Vm::new();
-    vm.load_function(func);
-
-    let result = vm.call(&hash, vec![]).unwrap();
-    assert_eq!(result, Value::string("default"));
-}
+// `unwrap_or` is now defined in pure Ambient (core_lib/option.ab) and
+// compiles to a `match`, so it no longer has a dedicated VM opcode; it is
+// exercised end-to-end through the core library rather than here.
 
 // =========================================================================
 // Option/Result Map Operations (Milestone 15 - Closure-based utilities)

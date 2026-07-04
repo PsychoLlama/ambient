@@ -507,12 +507,6 @@ impl BytecodeBuilder {
     // Option/Result utility operations
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// Emit `OptionUnwrapOr` instruction.
-    /// Stack: `[option, default] -> [value]`
-    pub fn emit_option_unwrap_or(&mut self) {
-        self.code.push(Opcode::OptionUnwrapOr as u8);
-    }
-
     // The following emit methods are defined but the VM operations are not yet
     // fully implemented (they require continuation frames for closure calls).
 

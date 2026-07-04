@@ -634,13 +634,6 @@ pub enum Opcode {
     // ─────────────────────────────────────────────────────────────────────────
     // Option/Result utilities
     // ─────────────────────────────────────────────────────────────────────────
-    /// `Option.unwrap_or`: Get inner value or default.
-    ///
-    /// Stack: `[option, default] -> [value]`
-    /// - If `Some(x)`: returns x
-    /// - If None: returns default
-    OptionUnwrapOr = 0xE3,
-
     /// `Option.map`: Apply a function to the inner value if Some.
     ///
     /// Stack: `[option, closure] -> [option]`
@@ -905,7 +898,6 @@ impl Opcode {
             0xFC => Some(Self::EnumPayload),
             0xFD => Some(Self::EnumTag),
             // Option/Result utilities
-            0xE3 => Some(Self::OptionUnwrapOr),
             0xE4 => Some(Self::OptionMap),
             0xE5 => Some(Self::OptionAndThen),
             0xE6 => Some(Self::ResultMap),

@@ -1,8 +1,32 @@
 // Core library: Option utilities.
 //
-// `Some`/`None` constructors and the Option type are built in;
-// `core::Option::is_some`, `is_none`, and `unwrap_or` are intrinsics.
-// These helpers cover the higher-order operations.
+// The `Option` type and its `Some`/`None` constructors are a built-in
+// (reserved-name) prelude enum. Everything else — including the predicates
+// and `unwrap_or` — is ordinary Ambient defined here.
+
+// Is this a `Some`?
+pub fn is_some<T>(opt: Option<T>): bool {
+    match opt {
+        Some(_) => true,
+        None => false,
+    }
+}
+
+// Is this a `None`?
+pub fn is_none<T>(opt: Option<T>): bool {
+    match opt {
+        Some(_) => false,
+        None => true,
+    }
+}
+
+// Get the contained value or a fallback.
+pub fn unwrap_or<T>(opt: Option<T>, fallback: T): T {
+    match opt {
+        Some(v) => v,
+        None => fallback,
+    }
+}
 
 // Transform the contained value.
 pub fn map<T, U>(opt: Option<T>, f: (T) -> U): Option<U> {
@@ -50,12 +74,12 @@ impl<T> Option<T> {
         or_else(self, fallback)
     }
     fn is_some(self): bool {
-        core::Option::is_some(self)
+        is_some(self)
     }
     fn is_none(self): bool {
-        core::Option::is_none(self)
+        is_none(self)
     }
     fn unwrap_or(self, fallback: T): T {
-        core::Option::unwrap_or(self, fallback)
+        unwrap_or(self, fallback)
     }
 }
