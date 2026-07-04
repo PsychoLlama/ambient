@@ -1924,6 +1924,126 @@ fn test_enum_variant_import_is_rejected() {
 }
 
 #[test]
+fn test_foreign_nominal_type_hidden_without_import() {
+    // A foreign package type is not visible by bare name unless imported:
+    // constructing it without a `use` is an error, even though its module
+    // is part of the same package. Trait/impl coherence stays build-global,
+    // but nominal types follow the same `pub`/`use` rules as values.
+    let (_dir, pkg) = temp_multi_package(&[
+        (
+            "widgets.ab",
+            r#"
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00004444) type Widget { size: number }
+            "#,
+        ),
+        (
+            "main.ab",
+            r#"
+            pub fn run(): number {
+                Widget { size: 42 }.size
+            }
+            "#,
+        ),
+    ]);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&pkg)
+        .output()
+        .expect("failed to run ambient");
+    assert!(
+        !output.status.success(),
+        "constructing an unimported foreign type must fail, stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+#[test]
+fn test_foreign_nominal_type_visible_with_import() {
+    // Importing the type by name makes it constructible, just like a local
+    // declaration — the `use` is what brings it into scope.
+    let (_dir, pkg) = temp_multi_package(&[
+        (
+            "widgets.ab",
+            r#"
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00005544) type Widget { size: number }
+            "#,
+        ),
+        (
+            "main.ab",
+            r#"
+            use pkg::widgets::{Widget};
+
+            pub fn run(): number {
+                Widget { size: 42 }.size
+            }
+            "#,
+        ),
+    ]);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&pkg)
+        .output()
+        .expect("failed to run ambient");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("42"),
+        "expected 42 in output, got: {stdout}"
+    );
+}
+
+#[test]
+fn test_imported_functions_share_foreign_nominal_identity() {
+    // A value of a foreign type flows between two imported functions
+    // without the caller ever naming the type: signature hydration still
+    // resolves the nominal identity even though the type stays hidden from
+    // bare-name use. This guards the retraction that closes the leak.
+    let (_dir, pkg) = temp_multi_package(&[
+        (
+            "widgets.ab",
+            r#"
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00006644) type Widget { size: number }
+
+            pub fn make(n: number): Widget { Widget { size: n } }
+            pub fn size_of(w: Widget): number { w.size }
+            "#,
+        ),
+        (
+            "main.ab",
+            r#"
+            use pkg::widgets::{make, size_of};
+
+            pub fn run(): number {
+                size_of(make(42))
+            }
+            "#,
+        ),
+    ]);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&pkg)
+        .output()
+        .expect("failed to run ambient");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("42"),
+        "expected 42 in output, got: {stdout}"
+    );
+}
+
+#[test]
 fn test_reserved_uuid_cannot_be_hijacked() {
     // Option's reserved uuid with a different shape must be rejected —
     // otherwise the declaration would unify with real Options and claim
