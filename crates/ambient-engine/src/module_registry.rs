@@ -36,11 +36,33 @@ pub enum ResolvedImport {
     Module(ModulePath),
     /// The import refers to a specific symbol from a module.
     Symbol {
-        /// The module the symbol comes from.
+        /// The module that defines the symbol, with `pub use` re-export
+        /// chains resolved to their origin — which is where the compiled
+        /// function hashes live.
         from_module: ModulePath,
         /// The kind of symbol.
         export_kind: ExportKind,
     },
+}
+
+/// An import that failed to resolve, with the span of the `use`
+/// declaration that caused it.
+#[derive(Debug, Clone)]
+pub struct ImportError {
+    /// Why the import failed.
+    pub error: RegistryError,
+    /// The span of the `use` item in the importing module.
+    pub span: crate::ast::Span,
+}
+
+/// The outcome of resolving a module's imports: the bindings that
+/// resolved, plus a diagnostic for each import that did not.
+#[derive(Debug, Default)]
+pub struct ResolvedImports {
+    /// Successfully resolved imports, keyed by local name.
+    pub imports: HashMap<Arc<str>, ResolvedImport>,
+    /// Imports that failed to resolve.
+    pub errors: Vec<ImportError>,
 }
 
 /// Information about an exported symbol.
@@ -141,7 +163,11 @@ impl ModuleRegistry {
 
     /// Look up a symbol in a module.
     ///
-    /// This handles re-exports by following the re-export chain.
+    /// This handles re-exports by following the re-export chain. On
+    /// success, returns the export along with the module that actually
+    /// defines it — for a direct export that is `module_path` itself; for
+    /// a `pub use` re-export it is the end of the chain, which is where
+    /// the compiled function hashes live.
     ///
     /// # Errors
     ///
@@ -153,7 +179,7 @@ impl ModuleRegistry {
         &self,
         module_path: &ModulePath,
         symbol_name: &str,
-    ) -> Result<&ExportInfo, RegistryError> {
+    ) -> Result<(&ExportInfo, ModulePath), RegistryError> {
         let info = self
             .modules
             .get(&module_path.to_string())
@@ -167,7 +193,7 @@ impl ModuleRegistry {
                     symbol: symbol_name.to_string(),
                 });
             }
-            return Ok(export);
+            return Ok((export, module_path.clone()));
         }
 
         // Then check re-exports
@@ -181,9 +207,9 @@ impl ModuleRegistry {
                     // `pub use pkg.other.{a, b};` - re-exports specific symbols
                     if items.iter().any(|item| item.as_ref() == symbol_name)
                         && let Some(target_path) = Self::resolve_import_path(module_path, re_export)
-                        && let Ok(export) = self.lookup_symbol(&target_path, symbol_name)
+                        && let Ok(resolved) = self.lookup_symbol(&target_path, symbol_name)
                     {
-                        return Ok(export);
+                        return Ok(resolved);
                     }
                 }
             }
@@ -250,59 +276,86 @@ impl ModuleRegistry {
 
     /// Get all imported symbols for a module.
     ///
-    /// This processes all `use` statements in the module and returns a map
-    /// from imported names to their source (module path and export info).
+    /// This processes all `use` statements in the module and returns the
+    /// resolved bindings alongside an error for each import that failed —
+    /// an unresolvable path, a missing module or symbol, or a private
+    /// symbol. Callers surface the errors as diagnostics; a failed import
+    /// never binds a name.
     ///
     /// # Errors
     ///
-    /// Returns an error if the module is not found in the registry.
+    /// Returns an error if the importing module itself is not in the
+    /// registry.
     pub fn resolve_imports(
         &self,
         module_path: &ModulePath,
-    ) -> Result<HashMap<Arc<str>, ResolvedImport>, RegistryError> {
+    ) -> Result<ResolvedImports, RegistryError> {
         let info = self
             .modules
             .get(&module_path.to_string())
             .ok_or_else(|| RegistryError::ModuleNotFound(module_path.to_string()))?;
 
-        let mut imports = HashMap::new();
+        let mut resolved = ResolvedImports::default();
 
         // Process use statements from the module's AST
         for item in &info.module.items {
-            if let ItemKind::Use(use_def) = &item.kind {
-                // Extract just the names from the path (ignoring spans)
-                let path_names: Vec<_> =
-                    use_def.path.iter().map(|(name, _)| name.clone()).collect();
+            let ItemKind::Use(use_def) = &item.kind else {
+                continue;
+            };
 
-                // Resolve the target module path
-                let Ok(target_path) =
-                    self.resolve_use_path(module_path, &use_def.prefix, &path_names)
-                else {
-                    continue; // Skip unresolvable imports for now
-                };
+            // Extract just the names from the path (ignoring spans)
+            let path_names: Vec<_> = use_def.path.iter().map(|(name, _)| name.clone()).collect();
 
-                match &use_def.kind {
-                    UseKind::Module => {
-                        // Import the module itself as a name
-                        // `use pkg.utils;` -> `utils` refers to the module
-                        if let Some((last_name, _)) = use_def.path.last() {
-                            imports.insert(
-                                last_name.clone(),
-                                ResolvedImport::Module(target_path.clone()),
-                            );
-                        }
+            // Resolve the target module path
+            let target_path = match self.resolve_use_path(module_path, &use_def.prefix, &path_names)
+            {
+                Ok(path) => path,
+                Err(error) => {
+                    resolved.errors.push(ImportError {
+                        error,
+                        span: item.span,
+                    });
+                    continue;
+                }
+            };
+
+            match &use_def.kind {
+                UseKind::Module => {
+                    // Import the module itself as a name
+                    // `use pkg.utils;` -> `utils` refers to the module
+                    let Some((last_name, _)) = use_def.path.last() else {
+                        continue;
+                    };
+                    if !self.modules.contains_key(&target_path.to_string()) {
+                        resolved.errors.push(ImportError {
+                            error: RegistryError::ModuleNotFound(target_path.to_string()),
+                            span: item.span,
+                        });
+                        continue;
                     }
-                    UseKind::Items(items) => {
-                        // Import specific items
-                        for item_name in items {
-                            if let Ok(export) = self.lookup_symbol(&target_path, item_name) {
-                                imports.insert(
+                    resolved.imports.insert(
+                        last_name.clone(),
+                        ResolvedImport::Module(target_path.clone()),
+                    );
+                }
+                UseKind::Items(items) => {
+                    // Import specific items
+                    for item_name in items {
+                        match self.lookup_symbol(&target_path, item_name) {
+                            Ok((export, origin)) => {
+                                resolved.imports.insert(
                                     item_name.clone(),
                                     ResolvedImport::Symbol {
-                                        from_module: target_path.clone(),
+                                        from_module: origin,
                                         export_kind: export.kind,
                                     },
                                 );
+                            }
+                            Err(error) => {
+                                resolved.errors.push(ImportError {
+                                    error,
+                                    span: item.span,
+                                });
                             }
                         }
                     }
@@ -310,7 +363,7 @@ impl ModuleRegistry {
             }
         }
 
-        Ok(imports)
+        Ok(resolved)
     }
 }
 
@@ -512,7 +565,9 @@ mod tests {
         // Public function should be found
         let result = registry.lookup_symbol(&path, "helper");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().kind, ExportKind::Function);
+        let (export, origin) = result.unwrap();
+        assert_eq!(export.kind, ExportKind::Function);
+        assert_eq!(origin, path);
 
         // Private function should error
         let result = registry.lookup_symbol(&path, "internal");
@@ -639,7 +694,7 @@ mod tests {
             ("Exposed", ExportKind::Ability),
         ];
         for (symbol, kind) in cases {
-            let export = registry
+            let (export, _) = registry
                 .lookup_symbol(&path, symbol)
                 .unwrap_or_else(|e| panic!("expected `{symbol}` to be public, got {e:?}"));
             assert_eq!(export.kind, kind);
@@ -727,9 +782,9 @@ mod tests {
         registry.register(&main_path, main_module);
 
         // Resolve imports for main module
-        let imports = registry.resolve_imports(&main_path).unwrap();
-        assert!(imports.contains_key("helper"));
-        match &imports["helper"] {
+        let resolved = registry.resolve_imports(&main_path).unwrap();
+        assert!(resolved.errors.is_empty());
+        match &resolved.imports["helper"] {
             ResolvedImport::Symbol {
                 from_module,
                 export_kind,
@@ -737,7 +792,7 @@ mod tests {
                 assert_eq!(from_module.to_string(), "utils");
                 assert_eq!(*export_kind, ExportKind::Function);
             }
-            _ => panic!("Expected symbol import"),
+            ResolvedImport::Module(_) => panic!("Expected symbol import"),
         }
     }
 
@@ -774,9 +829,127 @@ mod tests {
         registry.register(&main_path, main_module);
 
         // Resolve imports for main module
-        let imports = registry.resolve_imports(&main_path).unwrap();
+        let resolved = registry.resolve_imports(&main_path).unwrap();
         // "utils" should be imported as a module reference
-        assert!(imports.contains_key("utils"));
-        assert!(matches!(&imports["utils"], ResolvedImport::Module(_)));
+        assert!(resolved.errors.is_empty());
+        assert!(matches!(
+            &resolved.imports["utils"],
+            ResolvedImport::Module(_)
+        ));
+    }
+
+    fn use_items(prefix: UsePrefix, path: &[&str], items: &[&str], is_public: bool) -> Item {
+        use crate::ast::UseDef;
+        Item::new(
+            ItemKind::Use(UseDef {
+                is_public,
+                prefix,
+                path: path
+                    .iter()
+                    .map(|s| (Arc::from(*s), Span::default()))
+                    .collect(),
+                kind: UseKind::Items(items.iter().map(|s| Arc::from(*s)).collect()),
+            }),
+            Span::default(),
+        )
+    }
+
+    /// `pub use` chains resolve to the module that defines the symbol,
+    /// not the module that re-exports it — that is where compiled hashes
+    /// live, so linking depends on it.
+    #[test]
+    fn re_exports_resolve_to_their_origin() {
+        let mut registry = ModuleRegistry::new();
+
+        let origin_path = ModulePath::from_str_segments(&["origin"]).unwrap();
+        registry.register(
+            &origin_path,
+            Arc::new(Module {
+                name: Arc::from("origin"),
+                doc: None,
+                items: vec![make_function("helper", true)],
+            }),
+        );
+
+        let facade_path = ModulePath::from_str_segments(&["facade"]).unwrap();
+        registry.register(
+            &facade_path,
+            Arc::new(Module {
+                name: Arc::from("facade"),
+                doc: None,
+                items: vec![use_items(UsePrefix::Pkg, &["origin"], &["helper"], true)],
+            }),
+        );
+
+        let main_path = ModulePath::from_str_segments(&["main"]).unwrap();
+        registry.register(
+            &main_path,
+            Arc::new(Module {
+                name: Arc::from("main"),
+                doc: None,
+                items: vec![use_items(UsePrefix::Pkg, &["facade"], &["helper"], false)],
+            }),
+        );
+
+        // lookup through the facade lands on the origin
+        let (_, origin) = registry.lookup_symbol(&facade_path, "helper").unwrap();
+        assert_eq!(origin, origin_path);
+
+        // and resolve_imports records the origin as from_module
+        let resolved = registry.resolve_imports(&main_path).unwrap();
+        assert!(resolved.errors.is_empty());
+        match &resolved.imports["helper"] {
+            ResolvedImport::Symbol { from_module, .. } => {
+                assert_eq!(*from_module, origin_path);
+            }
+            ResolvedImport::Module(_) => panic!("Expected symbol import"),
+        }
+    }
+
+    /// Failed imports surface as errors instead of silently binding
+    /// nothing: missing symbols, private symbols, and missing modules.
+    #[test]
+    fn failed_imports_are_reported() {
+        let mut registry = ModuleRegistry::new();
+
+        let utils_path = ModulePath::from_str_segments(&["utils"]).unwrap();
+        registry.register(
+            &utils_path,
+            Arc::new(Module {
+                name: Arc::from("utils"),
+                doc: None,
+                items: vec![make_function("secret", false)],
+            }),
+        );
+
+        let main_path = ModulePath::from_str_segments(&["main"]).unwrap();
+        registry.register(
+            &main_path,
+            Arc::new(Module {
+                name: Arc::from("main"),
+                doc: None,
+                items: vec![
+                    use_items(UsePrefix::Pkg, &["utils"], &["missing"], false),
+                    use_items(UsePrefix::Pkg, &["utils"], &["secret"], false),
+                    use_items(UsePrefix::Pkg, &["nonexistent"], &["anything"], false),
+                ],
+            }),
+        );
+
+        let resolved = registry.resolve_imports(&main_path).unwrap();
+        assert!(resolved.imports.is_empty());
+        assert_eq!(resolved.errors.len(), 3);
+        assert!(matches!(
+            resolved.errors[0].error,
+            RegistryError::SymbolNotFound { .. }
+        ));
+        assert!(matches!(
+            resolved.errors[1].error,
+            RegistryError::NotPublic { .. }
+        ));
+        assert!(matches!(
+            resolved.errors[2].error,
+            RegistryError::ModuleNotFound(_)
+        ));
     }
 }

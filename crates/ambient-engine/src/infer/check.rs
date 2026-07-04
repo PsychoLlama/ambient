@@ -1372,7 +1372,19 @@ fn build_import_env(
 
     // Get resolved imports for this module
     let imports = match registry.resolve_imports(module_path) {
-        Ok(imports) => imports,
+        Ok(resolved) => {
+            // Each failed import is a real diagnostic at its `use` item:
+            // a missing module, a missing symbol, or a private symbol.
+            for failed in resolved.errors {
+                errors.push(Box::new(TypeError::new(
+                    TypeErrorKind::ImportFailed {
+                        message: failed.error.to_string(),
+                    },
+                    (failed.span.start, failed.span.end),
+                )));
+            }
+            resolved.imports
+        }
         Err(e) => {
             // Module not in registry - return empty env
             // This can happen for the root module being checked

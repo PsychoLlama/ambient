@@ -1603,8 +1603,6 @@ fn test_cross_module_trait_dispatch() {
         (
             "money.ab",
             r#"
-            use core::traits::Add;
-
             pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00001111) type Money { cents: number }
 
             impl Add for Money {

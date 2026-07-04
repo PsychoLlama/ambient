@@ -231,8 +231,10 @@ pub fn build_imported_hashes_from_compiled(
 ) -> HashMap<Arc<str>, blake3::Hash> {
     let mut hashes = HashMap::new();
 
-    if let Ok(imports) = registry.resolve_imports(module_path) {
-        for (local_name, resolved) in imports {
+    if let Ok(resolved_imports) = registry.resolve_imports(module_path) {
+        // Failed imports were already reported as type errors during
+        // checking; only the resolved bindings matter for linking.
+        for (local_name, resolved) in resolved_imports.imports {
             match resolved {
                 ResolvedImport::Symbol {
                     from_module,

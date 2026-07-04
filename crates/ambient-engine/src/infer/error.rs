@@ -104,6 +104,9 @@ pub enum TypeErrorKind {
     /// Cannot determine type.
     CannotInfer { hint: String },
 
+    /// A `use` declaration failed to resolve.
+    ImportFailed { message: String },
+
     /// Match arms have different types.
     MatchArmTypeMismatch { first: Type, arm: Type },
 
@@ -286,6 +289,9 @@ impl std::fmt::Display for TypeErrorKind {
             }
             Self::CannotInfer { hint } => {
                 write!(f, "cannot infer type: {hint}")
+            }
+            Self::ImportFailed { message } => {
+                write!(f, "import failed: {message}")
             }
             Self::MatchArmTypeMismatch { first, arm } => {
                 write!(
