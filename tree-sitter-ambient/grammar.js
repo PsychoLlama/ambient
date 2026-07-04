@@ -76,6 +76,7 @@ module.exports = grammar({
 
     const_definition: ($) =>
       seq(
+        optional($.visibility),
         "const",
         field("name", $.identifier),
         ":",
@@ -87,6 +88,7 @@ module.exports = grammar({
 
     type_definition: ($) =>
       seq(
+        optional($.visibility),
         optional($.unique_modifier),
         "type",
         field("name", $.identifier),
@@ -106,6 +108,7 @@ module.exports = grammar({
     enum_definition: ($) =>
       seq(
         optional($.visibility),
+        optional($.unique_modifier),
         "enum",
         field("name", $.identifier),
         optional($.type_parameters),
@@ -125,6 +128,7 @@ module.exports = grammar({
 
     ability_definition: ($) =>
       seq(
+        optional($.visibility),
         "ability",
         field("name", $.identifier),
         optional($.type_parameters),
@@ -147,7 +151,7 @@ module.exports = grammar({
         ";"
       ),
 
-    use_declaration: ($) => seq("use", $.use_path, ";"),
+    use_declaration: ($) => seq(optional($.visibility), "use", $.use_path, ";"),
 
     use_path: ($) =>
       seq(

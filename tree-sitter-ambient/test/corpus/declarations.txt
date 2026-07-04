@@ -12,11 +12,17 @@ fn add(x: number, y: number): number {
   (function_definition
     name: (identifier)
     (parameter_list
-      (parameter name: (identifier) type: (identifier))
-      (parameter name: (identifier) type: (identifier)))
+      (parameter
+        name: (identifier)
+        type: (identifier))
+      (parameter
+        name: (identifier)
+        type: (identifier)))
     return_type: (identifier)
     body: (block
-      (binary_expression (identifier) (identifier)))))
+      (binary_expression
+        (identifier)
+        (identifier)))))
 
 ================================================================================
 Public function
@@ -34,7 +40,8 @@ pub fn main(): () {
     name: (identifier)
     (parameter_list)
     return_type: (unit_type)
-    body: (block (number))))
+    body: (block
+      (number))))
 
 ================================================================================
 Function with abilities
@@ -52,14 +59,20 @@ fn read_file(path: string): string
   (function_definition
     name: (identifier)
     (parameter_list
-      (parameter name: (identifier) type: (identifier)))
+      (parameter
+        name: (identifier)
+        type: (identifier)))
     return_type: (identifier)
-    (ability_clause (identifier))
+    (ability_clause
+      (identifier))
     body: (block
       (call_expression
         (perform_expression
-          (member_expression (identifier) (identifier)))
-        (argument_list (identifier))))))
+          (member_expression
+            (identifier)
+            (identifier)))
+        (argument_list
+          (identifier))))))
 
 ================================================================================
 Const definition
@@ -89,10 +102,15 @@ enum Option<T> {
 (source_file
   (enum_definition
     name: (identifier)
-    (type_parameters (type_parameter (identifier)))
+    (type_parameters
+      (type_parameter
+        (identifier)))
     (enum_variant_list
-      (enum_variant name: (identifier) (identifier))
-      (enum_variant name: (identifier)))))
+      (enum_variant
+        name: (identifier)
+        (identifier))
+      (enum_variant
+        name: (identifier)))))
 
 ================================================================================
 Ability definition
@@ -109,7 +127,10 @@ ability Console {
     name: (identifier)
     (ability_method
       name: (identifier)
-      (parameter_list (parameter name: (identifier) type: (identifier)))
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (identifier)))
       return_type: (unit_type))))
 
 ================================================================================
@@ -127,10 +148,15 @@ ability Log
 (source_file
   (ability_definition
     name: (identifier)
-    (ability_dependency (identifier_list (identifier)))
+    (ability_dependency
+      (identifier_list
+        (identifier)))
     (ability_method
       name: (identifier)
-      (parameter_list (parameter name: (identifier) type: (identifier)))
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (identifier)))
       return_type: (unit_type))))
 
 ================================================================================
@@ -146,7 +172,10 @@ use some_library::mod::{a, b};
     (use_path
       (identifier)
       (identifier)
-      (use_group (identifier_list (identifier) (identifier))))))
+      (use_group
+        (identifier_list
+          (identifier)
+          (identifier))))))
 
 ================================================================================
 Type definition with unique
@@ -160,11 +189,14 @@ unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) type UserId {
 
 (source_file
   (type_definition
-    (unique_modifier (uuid))
+    (unique_modifier
+      (uuid))
     name: (identifier)
     (record_type_body
       (record_type_fields
-        (record_type_field name: (identifier) type: (identifier))))))
+        (record_type_field
+          name: (identifier)
+          type: (identifier))))))
 
 ================================================================================
 Never type
@@ -182,7 +214,9 @@ fn diverge(): ! {
     (parameter_list)
     return_type: (never_type)
     body: (block
-      (call_expression (identifier) (argument_list)))))
+      (call_expression
+        (identifier)
+        (argument_list)))))
 
 ================================================================================
 Infer type
@@ -199,4 +233,79 @@ fn test(): _ {
     name: (identifier)
     (parameter_list)
     return_type: (infer_type)
-    body: (block (number))))
+    body: (block
+      (number))))
+
+================================================================================
+Public nominal enum
+================================================================================
+
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF01) enum Option<T> {
+  None,
+  Some(T),
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (enum_definition
+    (visibility)
+    (unique_modifier
+      (uuid))
+    name: (identifier)
+    (type_parameters
+      (type_parameter
+        (identifier)))
+    (enum_variant_list
+      (enum_variant
+        name: (identifier))
+      (enum_variant
+        name: (identifier)
+        (identifier)))))
+
+================================================================================
+Public re-export
+================================================================================
+
+pub use pkg::option::{Option};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (use_declaration
+    (visibility)
+    (use_path
+      (identifier)
+      (identifier)
+      (use_group
+        (identifier_list
+          (identifier))))))
+
+================================================================================
+Public const and ability
+================================================================================
+
+pub const LIMIT: number = 10;
+
+pub ability Telemetry {
+  fn record(event: string): ();
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (const_definition
+    (visibility)
+    name: (identifier)
+    type: (identifier)
+    value: (number))
+  (ability_definition
+    (visibility)
+    name: (identifier)
+    (ability_method
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (identifier)))
+      return_type: (unit_type))))
