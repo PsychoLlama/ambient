@@ -14,7 +14,7 @@
 // Option<T>` block cannot name, so it stays a qualified module function
 // (`core::Option::flatten(opt)`).
 
-pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF01) enum Option<T> {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0001) enum Option<T> {
     None,
     Some(T),
 }

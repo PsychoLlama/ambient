@@ -2094,7 +2094,7 @@ fn test_reserved_uuid_cannot_be_hijacked() {
     let (_dir, pkg) = temp_multi_package(&[(
         "main.ab",
         r#"
-        unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF01) enum MyOption<T> {
+        unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0001) enum MyOption<T> {
             Nothing,
             Just(T),
         }

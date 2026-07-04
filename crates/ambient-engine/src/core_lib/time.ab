@@ -14,7 +14,7 @@ const MICROS_PER_SEC: number = 1000000;
 
 /// A span of time, held as whole seconds plus a subsecond nanosecond
 /// remainder in [0, NANOS_PER_SEC).
-pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF03) type Duration {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0003) type Duration {
     secs: number,
     nanos: number,
 }

@@ -533,7 +533,7 @@ fn inherent_method_symbols_use_type_identity() {
     );
     // `impl Option<T>` keys on Option's reserved uuid, not its head name.
     assert!(
-        names.contains(&"FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF01::or_default"),
+        names.contains(&"FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0001::or_default"),
         "expected Option's reserved-uuid-keyed symbol, got {names:?}"
     );
 }

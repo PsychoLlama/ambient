@@ -8,7 +8,7 @@
 // combinators below are exposed as inherent methods (`res.map(f)`), the
 // canonical core API.
 
-pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF02) enum Result<T, E> {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0002) enum Result<T, E> {
     Ok(T),
     Err(E),
 }

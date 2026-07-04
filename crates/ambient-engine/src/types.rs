@@ -991,11 +991,13 @@ impl ForallType {
 /// `Option`/`Result` are reserved-name prelude enums that predate the
 /// `unique(<uuid>)` syntax, so they cannot spell their identity in source.
 /// They take these fixed, reserved uuids instead. The all-`f` prefix marks
-/// them as built-ins and keeps them clear of any real (v4) enum uuid.
-pub const OPTION_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ff01);
+/// them as built-ins and keeps them clear of any real (v4) enum uuid; the
+/// low 16 bits are the per-type discriminator, giving the reserved
+/// namespace room for 65,535 types.
+pub const OPTION_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0001);
 
 /// Canonical nominal identity of the built-in `Result` enum. See [`OPTION_UUID`].
-pub const RESULT_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ff02);
+pub const RESULT_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0002);
 
 /// A named type constructor (like `List<T>` or `Option<T>`).
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -193,7 +193,7 @@ same-named enum elsewhere can never claim them.
 `Option<T>` and `Result<T, E>` are nominal on the same footing: they carry
 fixed reserved UUIDs (`OPTION_UUID`/`RESULT_UUID`), so they are as distinct
 and non-interchangeable as any declared enum. Their canonical declarations
-are ordinary Ambient source — `pub unique(…FF01) enum Option<T>` in
+are ordinary Ambient source — `pub unique(…FFFF0001) enum Option<T>` in
 `core_lib/option.ab`, likewise `Result` in `core_lib/result.ab` — alongside
 their combinators and predicates, exposed as inherent methods (`map`,
 `and_then`, `is_some`, `unwrap_or`, `is_ok`, …). What makes them special is
