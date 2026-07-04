@@ -597,6 +597,41 @@ mod tests {
     }
 
     #[test]
+    fn test_unify_option_resolves_none_identity_to_canonical() {
+        // A named reference to `Option` that arrives without a uuid (e.g. an
+        // unresolved annotation) still unifies with the resolved, uuid-carrying
+        // form — the registry fallback resolves the `None` to `OPTION_UUID`.
+        let mut infer = Infer::new();
+        let unresolved = Type::named("Option", vec![Type::Number]);
+        assert!(unresolved.as_option().is_some());
+        assert!(matches!(&unresolved, Type::Named(n) if n.uuid.is_none()));
+        assert!(
+            infer
+                .unify(&unresolved, &Type::option(Type::Number), span())
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_unify_option_rejects_foreign_identity() {
+        // A look-alike enum that shares the name `Option` but carries a
+        // *different* uuid must not unify with the real `Option` — this is the
+        // "None hole" being closed.
+        use crate::types::NamedType;
+        let mut infer = Infer::new();
+        let foreign = Type::Named(NamedType::with_identity(
+            "Option",
+            vec![Type::Number],
+            Some(Uuid::from_u128(0x1234)),
+        ));
+        assert!(
+            infer
+                .unify(&foreign, &Type::option(Type::Number), span())
+                .is_err()
+        );
+    }
+
+    #[test]
     fn test_unify_type_variable() {
         let mut infer = Infer::new();
         let var = infer.fresh();

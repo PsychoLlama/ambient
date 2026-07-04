@@ -78,9 +78,9 @@ List<T>, Set<T>, Map<K, V>         // Collections
 
 // Enums (tagged unions) are nominal: every declaration carries a
 // mandatory `unique(<uuid>)` prefix, so two structurally identical enums
-// are distinct types (see Nominal Enums below). Option and Result are the
-// built-in exceptions — reserved-name prelude enums whose constructors
-// (Some, None, Ok, Err) are always in scope.
+// are distinct types (see Nominal Enums below). Option and Result are
+// equally nominal, but Rust-defined: reserved-name prelude enums with fixed
+// UUIDs whose constructors (Some, None, Ok, Err) are always in scope.
 unique(E1B2C3D4-0000-0000-0000-000000000001) enum Shape { Circle(number), Square(number), Dot }
 
 // Construct with the variant name; destructure with match. In pattern
@@ -163,13 +163,21 @@ like a nominal `type`'s — see [Dispatch, Coherence, and
 Content-Addressing](#dispatch-coherence-and-content-addressing) — so a
 same-named enum elsewhere can never claim them.
 
-`Option<T>` and `Result<T, E>` are the two exceptions: they are reserved-name
-prelude enums, structurally identified by their heads (`Option`, `Result`) —
-names no user type can claim — rather than by a UUID. Their constructors
-(`Some`, `None`, `Ok`, `Err`) and companion modules (`core::Option`,
-`core::Result`) are always in scope. Migrating them to full UUID identity is
-future work; nothing else needs it, because every *declared* enum is already
-nominal.
+`Option<T>` and `Result<T, E>` are nominal on the same footing: they carry
+fixed reserved UUIDs (`OPTION_UUID`/`RESULT_UUID`), so they are as distinct
+and non-interchangeable as any declared enum. They differ only in *where they
+are defined*. They cannot spell a `unique(<uuid>)` declaration in Ambient
+source, because the engine that builds the type checker's prelude has no
+parser (the parser depends on the engine, not the other way round), and
+cross-module enum imports do not exist yet — so a user module could not
+`import` them even if they were declared in `core`. They are therefore a
+Rust-defined prelude: registered into every module's scope with their reserved
+identity, their constructors (`Some`, `None`, `Ok`, `Err`) and companion
+modules (`core::Option`, `core::Result`) always available. Their combinators
+and predicates (`map`, `and_then`, `is_some`, `unwrap_or`, `is_ok`, …) are
+ordinary Ambient in `core_lib/option.ab` and `core_lib/result.ab`; only the
+type, its constructors, and the primitives that *return* an `Option`/`Result`
+at runtime are built in.
 
 ## Traits
 
@@ -391,10 +399,11 @@ Method calls dispatch statically: the receiver's concrete type is known
 during type checking, which resolves the call to a canonical method symbol
 — `<type-uuid>::<Trait>::<method>` for trait methods, or the two-segment
 `<type-identity>::<method>` for inherent methods, where the identity is the
-UUID for any nominal type — a `unique type` or a declared enum — and the
-head name for the reserved-name prelude enums and built-in containers
-(`Option::map`, `List::fold`). The segment counts differ, so the two
-families can never collide. Impl methods
+UUID for any nominal type — a `unique type`, a declared enum, or the
+reserved-name prelude enums `Option`/`Result` (which carry fixed UUIDs) —
+and the head name for the built-in containers, which have no UUID
+(`List::fold`, `Map::get`). The segment counts differ, so the two families
+can never collide. Impl methods
 compile as ordinary named functions under their symbol, so they are
 content-addressed exactly like any other function (hash = bytecode +
 constants + dependency hashes), and call sites link against the content

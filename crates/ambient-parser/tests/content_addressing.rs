@@ -510,9 +510,11 @@ fn inherent_same_source_compiles_to_same_hashes() {
 
 #[test]
 fn inherent_method_symbols_use_type_identity() {
-    // Nominal targets key their symbols by UUID; built-in constructors by
-    // head name. Both are two-segment symbols, so they can never collide
-    // with three-segment trait method symbols.
+    // Nominal targets key their symbols by UUID — this includes the
+    // reserved-name prelude enums `Option`/`Result`, which carry fixed
+    // UUIDs (only the built-in containers `List`/`Map`/`Set`, which have no
+    // UUID, still key by head name). All are two-segment symbols, so they
+    // can never collide with three-segment trait method symbols.
     let module = compile(WALLET_MODULE);
     let names: Vec<&str> = module
         .function_names
@@ -529,9 +531,10 @@ fn inherent_method_symbols_use_type_identity() {
         names.contains(&"33333333-3333-3333-3333-333333333333::empty"),
         "expected uuid-keyed symbol, got {names:?}"
     );
+    // `impl Option<T>` keys on Option's reserved uuid, not its head name.
     assert!(
-        names.contains(&"Option::or_default"),
-        "expected head-name-keyed symbol, got {names:?}"
+        names.contains(&"FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF01::or_default"),
+        "expected Option's reserved-uuid-keyed symbol, got {names:?}"
     );
 }
 

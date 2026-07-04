@@ -522,21 +522,20 @@ pub(crate) struct VariantInfo {
 impl ModuleContext {
     fn new() -> Self {
         let mut enums = HashMap::new();
-        // Prelude constructors. Tags match the VM's Option/Result layout.
-        for (enum_name, tag, variant, has_payload) in [
-            ("Option", 0u16, "None", false),
-            ("Option", 1, "Some", true),
-            ("Result", 0, "Ok", true),
-            ("Result", 1, "Err", true),
-        ] {
-            enums.insert(
-                Arc::from(variant),
-                VariantInfo {
-                    enum_name: Arc::from(enum_name),
-                    tag,
-                    has_payload,
-                },
-            );
+        // Prelude constructors, derived from the same canonical specs the type
+        // registry uses (`PRELUDE_ENUMS`), so tags and payload shapes stay in
+        // lockstep with the VM's Option/Result layout.
+        for spec in crate::infer::enums::PRELUDE_ENUMS {
+            for (variant, tag, has_payload) in spec.constructors() {
+                enums.insert(
+                    Arc::from(variant),
+                    VariantInfo {
+                        enum_name: Arc::from(spec.name),
+                        tag,
+                        has_payload,
+                    },
+                );
+            }
         }
         Self {
             lambdas: Vec::new(),

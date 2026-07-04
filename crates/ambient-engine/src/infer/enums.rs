@@ -47,6 +47,94 @@ pub struct EnumInfo {
     pub uuid: Option<Uuid>,
 }
 
+/// One variant in a reserved prelude enum's canonical layout.
+struct PreludeVariant {
+    name: &'static str,
+    /// The type parameter this variant's payload is, or `None` for a unit
+    /// variant (`Some(T)` → `Some("T")`; `None` → `None`).
+    payload_param: Option<&'static str>,
+}
+
+/// A reserved-name prelude enum (`Option`/`Result`).
+///
+/// This is the single source of truth for their nominal uuid, type
+/// parameters, and variant layout. Both the type registry
+/// ([`EnumRegistry::with_prelude`]) and the compiler's constructor table
+/// ([`crate::compiler`]) derive from it, so their tags and payload shapes can
+/// never drift apart. Variant declaration order is the runtime tag, which
+/// must match how the VM constructs these values (`None`/`Ok` = 0,
+/// `Some`/`Err` = 1).
+pub(crate) struct PreludeEnum {
+    pub name: &'static str,
+    pub uuid: Uuid,
+    type_params: &'static [&'static str],
+    variants: &'static [PreludeVariant],
+}
+
+/// The reserved prelude enums, in the order they are registered.
+pub(crate) const PRELUDE_ENUMS: &[PreludeEnum] = &[
+    PreludeEnum {
+        name: "Option",
+        uuid: OPTION_UUID,
+        type_params: &["T"],
+        variants: &[
+            PreludeVariant {
+                name: "None",
+                payload_param: None,
+            },
+            PreludeVariant {
+                name: "Some",
+                payload_param: Some("T"),
+            },
+        ],
+    },
+    PreludeEnum {
+        name: "Result",
+        uuid: RESULT_UUID,
+        type_params: &["T", "E"],
+        variants: &[
+            PreludeVariant {
+                name: "Ok",
+                payload_param: Some("T"),
+            },
+            PreludeVariant {
+                name: "Err",
+                payload_param: Some("E"),
+            },
+        ],
+    },
+];
+
+impl PreludeEnum {
+    /// Build the type-checker's [`EnumInfo`] for this prelude enum.
+    fn to_enum_info(&self) -> EnumInfo {
+        EnumInfo {
+            name: Arc::from(self.name),
+            type_params: self.type_params.iter().map(|p| Arc::from(*p)).collect(),
+            variants: self
+                .variants
+                .iter()
+                .map(|v| EnumVariantInfo {
+                    name: Arc::from(v.name),
+                    payload: v.payload_param.map(|p| Type::named(p, vec![])),
+                })
+                .collect(),
+            uuid: Some(self.uuid),
+        }
+    }
+
+    /// The compiler's constructor layout: `(variant_name, tag, has_payload)`
+    /// for each variant, in declaration order.
+    pub(crate) fn constructors(&self) -> impl Iterator<Item = (&'static str, u16, bool)> + '_ {
+        // Zip against a `u16` range so the tag needs no fallible cast; a
+        // reserved prelude enum never has more than a handful of variants.
+        self.variants
+            .iter()
+            .zip(0u16..)
+            .map(|(v, tag)| (v.name, tag, v.payload_param.is_some()))
+    }
+}
+
 /// Registry of enums visible to the module being checked.
 #[derive(Debug, Default, Clone)]
 pub struct EnumRegistry {
@@ -56,40 +144,14 @@ pub struct EnumRegistry {
 }
 
 impl EnumRegistry {
-    /// Create a registry containing the built-in `Option` and `Result`.
+    /// Create a registry containing the built-in `Option` and `Result`,
+    /// derived from the canonical [`PRELUDE_ENUMS`] specs.
     #[must_use]
     pub fn with_prelude() -> Self {
         let mut registry = Self::default();
-        registry.register(Arc::new(EnumInfo {
-            name: Arc::from("Option"),
-            type_params: vec![Arc::from("T")],
-            uuid: Some(OPTION_UUID),
-            variants: vec![
-                EnumVariantInfo {
-                    name: Arc::from("None"),
-                    payload: None,
-                },
-                EnumVariantInfo {
-                    name: Arc::from("Some"),
-                    payload: Some(Type::named("T", vec![])),
-                },
-            ],
-        }));
-        registry.register(Arc::new(EnumInfo {
-            name: Arc::from("Result"),
-            type_params: vec![Arc::from("T"), Arc::from("E")],
-            uuid: Some(RESULT_UUID),
-            variants: vec![
-                EnumVariantInfo {
-                    name: Arc::from("Ok"),
-                    payload: Some(Type::named("T", vec![])),
-                },
-                EnumVariantInfo {
-                    name: Arc::from("Err"),
-                    payload: Some(Type::named("E", vec![])),
-                },
-            ],
-        }));
+        for spec in PRELUDE_ENUMS {
+            registry.register(Arc::new(spec.to_enum_info()));
+        }
         registry
     }
 
@@ -230,5 +292,46 @@ impl EnumInfo {
             .as_ref()
             .map(|p| infer.resolve_holes(&super::check::substitute_type_params(p, &type_var_map)));
         (enum_ty, payload_ty)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prelude_option_result_are_nominal() {
+        let registry = EnumRegistry::with_prelude();
+        let option = registry.get("Option").expect("Option registered");
+        let result = registry.get("Result").expect("Result registered");
+        assert_eq!(option.uuid, Some(OPTION_UUID));
+        assert_eq!(result.uuid, Some(RESULT_UUID));
+        assert_ne!(OPTION_UUID, RESULT_UUID);
+    }
+
+    #[test]
+    fn prelude_variant_tags_match_runtime_layout() {
+        // The VM constructs these with fixed tags (`None`/`Ok` = 0,
+        // `Some`/`Err` = 1); the registry and the compiler's constructor table
+        // both derive from `PRELUDE_ENUMS`, so pin that order here.
+        let registry = EnumRegistry::with_prelude();
+        let option = registry.get("Option").expect("Option registered");
+        assert_eq!(option.variants[0].name.as_ref(), "None");
+        assert!(option.variants[0].payload.is_none());
+        assert_eq!(option.variants[1].name.as_ref(), "Some");
+        assert!(option.variants[1].payload.is_some());
+
+        let result = registry.get("Result").expect("Result registered");
+        assert_eq!(result.variants[0].name.as_ref(), "Ok");
+        assert_eq!(result.variants[1].name.as_ref(), "Err");
+
+        // The compiler's constructor view must agree with the registry.
+        for spec in PRELUDE_ENUMS {
+            let info = registry.get(spec.name).expect("spec registered");
+            for (variant, tag, has_payload) in spec.constructors() {
+                assert_eq!(info.variants[tag as usize].name.as_ref(), variant);
+                assert_eq!(info.variants[tag as usize].payload.is_some(), has_payload);
+            }
+        }
     }
 }
