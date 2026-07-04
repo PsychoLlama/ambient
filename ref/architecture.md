@@ -44,8 +44,8 @@ library).
 use pkg::utils::helper;   // Item import: `helper` as a bare name
 use pkg::utils::{a, b};   // Braces group siblings: same as two item imports
 use self::utils;          // Whole-module import: call utils::helper(...)
-use core::List;           // Core modules import the same way: List::map(...)
-use core::List::{map};    // ... or by item (braces optional for a single one)
+use core::List;           // Core modules import the same way: List::range(...)
+use core::List::{range};  // ... or by item (braces optional for a single one)
 use pkg::shapes::{Shape}; // Enum import: type, constructors, and patterns
 ```
 
@@ -71,7 +71,7 @@ imports through a re-export resolve (and link) to the module that defines
 the symbol.
 
 Core modules (`core::List`, `core::math`, `core::string`) are also always in
-scope fully qualified with no import: `core::List::map([1], f)`. They are
+scope fully qualified with no import: `core::List::range(1, 4)`. They are
 ordinary Ambient modules — compiled, content-addressed, and stored exactly
 like user code (see `crates/ambient-engine/src/core_lib/`). Beneath them
 sits a fixed set of _intrinsics_ (`core::math::sqrt`, `core::List::length`,
@@ -81,7 +81,7 @@ keyword, so user modules can never collide with the standard library.
 
 A core module that backs a type takes that type's PascalCase name: `List`,
 `Option`, and `Result` are the companion modules of the `List<T>`, `Option<T>`,
-and `Result<T, E>` types, so `List::map` reads as an associated function of
+and `Result<T, E>` types, so `List::range` reads as an associated function of
 `List`. Plain namespaces stay lowercase (`math` backs no type; `string` is a
 primitive whose `string`→`String` alignment is future work). Types, values, and
 modules occupy separate namespaces resolved by syntactic position, so the type
@@ -195,8 +195,9 @@ fixed reserved UUIDs (`OPTION_UUID`/`RESULT_UUID`), so they are as distinct
 and non-interchangeable as any declared enum. Their canonical declarations
 are ordinary Ambient source — `pub unique(…FF01) enum Option<T>` in
 `core_lib/option.ab`, likewise `Result` in `core_lib/result.ab` — alongside
-their combinators and predicates (`map`, `and_then`, `is_some`, `unwrap_or`,
-`is_ok`, …). What makes them special is the *prelude*: the engine that
+their combinators and predicates, exposed as inherent methods (`map`,
+`and_then`, `is_some`, `unwrap_or`, `is_ok`, …). What makes them special is
+the *prelude*: the engine that
 builds the type checker's prelude has no parser (the parser depends on the
 engine, not the other way round), so it registers the same two enums from a
 Rust-side spec (`PRELUDE_ENUMS`) into every module's scope — which is why
@@ -381,17 +382,21 @@ Rules:
   functions), which have no identity to attach methods to.
 
 The core library uses inherent impls to expose its Option/Result/List
-helpers as methods (see `crates/ambient-engine/src/core_lib/*.ab`), so
-combinator chains read left to right:
+combinators as methods (see `crates/ambient-engine/src/core_lib/*.ab`) — the
+canonical core API — so chains read left to right:
 
 ```ambient
 [1, 2, 3].map((x) => x * 10).fold(0, (acc, x) => acc + x)   // 60
 Some(20).map((v) => v * 2).unwrap_or(0)                     // 40
 ```
 
-The module companion functions (`Option::map(opt, f)`, `core::List::map`)
-remain — a method call is just the receiver-first spelling of the same
-content-addressed function.
+The qualified module-function call form (`Module::f(x, ...)`) remains a
+general language feature for user code — a method call is just the
+receiver-first spelling of the same content-addressed function. Core itself,
+however, no longer publishes its combinators as free companion functions; the
+only free functions it keeps are the two with no method form: `List::range`
+(no receiver) and `Option::flatten` (its receiver would be
+`Option<Option<U>>`, inexpressible in `impl<T> Option<T>`).
 
 ### Prelude Traits
 
@@ -892,30 +897,41 @@ infallible: it returns `false` when the path can't be inspected.
 
 ### Standard Functions
 
-```ambient
-// Collections (head/get/first/last return Option — no sentinel values)
-List::map, List::filter, List::fold, List::concat, List::length, List::head, List::tail
-
-// Options
-Option::map, Option::unwrap_or, Option::and_then
-
-// Results
-Result::map, Result::map_err, Result::and_then
-
-// Strings
-String::split, String::join, String::trim, String::contains, String::length
-
-// Conversion (parsers return Option)
-to_string, parse_number, parse_bool
-```
-
-Option, Result, and List expose their combinators as methods too (inherent
-impls in the core modules), so pipelines read receiver-first:
+Option, Result, and List expose their combinators and predicates as inherent
+methods — the canonical core API — so pipelines read receiver-first
+(head/get/first/last return Option — no sentinel values):
 
 ```ambient
 [1, 2, 3].filter((x) => x % 2 == 1).map((x) => x * 10).fold(0, (a, x) => a + x)
 Some(20).map((v) => v * 2).unwrap_or(0)
 Ok(5).map((v) => v + 1).ok().is_some()
+```
+
+The method names, by type:
+
+```ambient
+// Collections
+List::{map, filter, fold, any, all, sum, get, head, tail, first, last,
+       length, is_empty, reverse, sort, slice, append, concat}
+
+// Options
+Option::{map, and_then, or_else, is_some, is_none, unwrap_or}
+
+// Results
+Result::{map, map_err, and_then, ok, is_ok, is_err, unwrap_or}
+```
+
+Two combinators have no method form and stay qualified module functions:
+`core::List::range(start, end)` (no receiver) and `core::Option::flatten(opt)`
+(its receiver would be `Option<Option<U>>`, inexpressible in an
+`impl<T> Option<T>` block). Strings and conversions remain module functions:
+
+```ambient
+// Strings
+String::split, String::join, String::trim, String::contains, String::length
+
+// Conversion (parsers return Option)
+to_string, parse_number, parse_bool
 ```
 
 ---
