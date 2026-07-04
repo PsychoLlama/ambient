@@ -1,0 +1,37 @@
+//! Duration Example
+//!
+//! Demonstrates `core::time::Duration`, a span of time mirroring Rust's
+//! `std::time::Duration`. A duration is stored as whole seconds plus a
+//! subsecond nanosecond remainder; the constructors and accessors mirror
+//! Rust's API, and the operator traits give it `+`, `-`, and ordering.
+
+use core::time::Duration;
+
+fn millis_str(d: Duration): string {
+    core::string::concat(core::convert::to_string(d.as_millis()), "ms")
+}
+
+pub fn run(): () with platform::Console {
+    // Build from whole seconds, and from a sub-second unit that carries
+    // its excess into the seconds field.
+    let timeout = Duration::from_secs(30);
+    let latency = Duration::from_millis(1500);
+
+    platform::Console::println!(core::string::concat(
+        "timeout secs = ",
+        core::convert::to_string(timeout.as_secs()),
+    ));
+    platform::Console::println!(core::string::concat("latency = ", millis_str(latency)));
+
+    // `+` and `-` come from the Add / Sub trait impls.
+    platform::Console::println!(core::string::concat("total = ", millis_str(timeout + latency)));
+    platform::Console::println!(core::string::concat("slack = ", millis_str(timeout - latency)));
+
+    // Ordering: `cmp` returns -1 / 0 / 1, like Ord elsewhere in the library.
+    let compared = if latency.cmp(timeout) == 0 - 1 {
+        "latency < timeout"
+    } else {
+        "latency >= timeout"
+    };
+    platform::Console::println!(compared);
+}

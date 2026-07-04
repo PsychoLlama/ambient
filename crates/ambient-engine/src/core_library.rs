@@ -93,7 +93,8 @@ impl CoreLibrary {
 /// order. Excludes `traits`: the operator traits (Add, Eq, Ord, ...) are
 /// the hardcoded prelude in `TraitRegistry::with_prelude`, and registering
 /// a second copy would collide with it.
-pub const REGISTERED_CORE_MODULES: &[&str] = &["math", "string", "List", "Option", "Result"];
+pub const REGISTERED_CORE_MODULES: &[&str] =
+    &["math", "string", "List", "Option", "Result", "time"];
 
 /// Parse every registered core module and register it in a module
 /// registry under its reserved `core.*` path.
@@ -174,6 +175,7 @@ fn get_core_modules() -> HashMap<&'static str, &'static str> {
     modules.insert("Result", include_str!("core_lib/result.ab"));
     modules.insert("string", include_str!("core_lib/string.ab"));
     modules.insert("math", include_str!("core_lib/math.ab"));
+    modules.insert("time", include_str!("core_lib/time.ab"));
     modules.insert("traits", include_str!("core_lib/traits.ab"));
     modules
 }
@@ -214,5 +216,17 @@ mod tests {
     fn test_module_not_found() {
         let result = CoreLibrary::get_source(&[Arc::from("nonexistent")]);
         assert!(matches!(result, Err(CoreLibraryError::ModuleNotFound(_))));
+    }
+
+    #[test]
+    fn test_time_module_registered() {
+        assert!(CoreLibrary::has_module(&[Arc::from("time")]));
+        assert!(REGISTERED_CORE_MODULES.contains(&"time"));
+
+        let source = CoreLibrary::get_source(&[Arc::from("time")]).expect("time source");
+        assert!(source.contains("type Duration"));
+
+        let path = CoreLibrary::to_module_path(&[Arc::from("time")]);
+        assert_eq!(path.to_string(), "core.time");
     }
 }

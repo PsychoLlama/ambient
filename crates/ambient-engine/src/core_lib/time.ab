@@ -1,0 +1,129 @@
+// Core library: time utilities.
+//
+// `Duration`, a span of time, mirroring Rust's `std::time::Duration`. It
+// is stored the way Rust stores it: whole `secs` plus a subsecond `nanos`
+// remainder kept normalized to [0, 1_000_000_000). Constructors normalize
+// on the way in so the invariant always holds.
+//
+// Conversion factors are written as literals (1e9 ns/s, 1e6 ns/ms,
+// 1e3 ns/us, 1e3 ms/s, 1e6 us/s); the language has no in-scope module
+// constants to name them.
+
+/// A span of time, held as whole seconds plus a subsecond nanosecond
+/// remainder in [0, 1_000_000_000).
+pub unique(1EF231DA-8546-479E-B7C3-C765E854B5B0) type Duration {
+    secs: number,
+    nanos: number,
+}
+
+impl Duration {
+    /// A `Duration` of `secs` seconds and `nanos` nanoseconds. Excess
+    /// nanoseconds (>= one second) carry into the seconds field so the
+    /// stored value is always normalized.
+    fn new(secs: number, nanos: number): Duration {
+        let carry = core::math::floor(nanos / 1000000000);
+        Duration { secs: secs + carry, nanos: nanos - carry * 1000000000 }
+    }
+
+    /// A `Duration` from a whole number of seconds.
+    fn from_secs(secs: number): Duration {
+        Duration { secs: secs, nanos: 0 }
+    }
+
+    /// A `Duration` from a number of milliseconds.
+    fn from_millis(millis: number): Duration {
+        Duration::new(0, millis * 1000000)
+    }
+
+    /// A `Duration` from a number of microseconds.
+    fn from_micros(micros: number): Duration {
+        Duration::new(0, micros * 1000)
+    }
+
+    /// A `Duration` from a number of nanoseconds.
+    fn from_nanos(nanos: number): Duration {
+        Duration::new(0, nanos)
+    }
+
+    /// The number of whole seconds.
+    fn as_secs(self): number {
+        self.secs
+    }
+
+    /// The subsecond component, in nanoseconds ([0, 1_000_000_000)).
+    fn subsec_nanos(self): number {
+        self.nanos
+    }
+
+    /// The subsecond component, in whole milliseconds.
+    fn subsec_millis(self): number {
+        core::math::floor(self.nanos / 1000000)
+    }
+
+    /// The subsecond component, in whole microseconds.
+    fn subsec_micros(self): number {
+        core::math::floor(self.nanos / 1000)
+    }
+
+    /// The total duration in whole milliseconds.
+    fn as_millis(self): number {
+        self.secs * 1000 + self.subsec_millis()
+    }
+
+    /// The total duration in whole microseconds.
+    fn as_micros(self): number {
+        self.secs * 1000000 + self.subsec_micros()
+    }
+
+    /// The total duration in nanoseconds.
+    fn as_nanos(self): number {
+        self.secs * 1000000000 + self.nanos
+    }
+
+    /// Whether this is the zero duration.
+    fn is_zero(self): bool {
+        self.secs == 0 && self.nanos == 0
+    }
+}
+
+impl Add for Duration {
+    fn add(self, other: Duration): Duration {
+        Duration::new(self.secs + other.secs, self.nanos + other.nanos)
+    }
+}
+
+impl Sub for Duration {
+    fn sub(self, other: Duration): Duration {
+        // Borrow a second when the subsecond part would go negative.
+        if self.nanos >= other.nanos {
+            Duration { secs: self.secs - other.secs, nanos: self.nanos - other.nanos }
+        } else {
+            Duration {
+                secs: self.secs - other.secs - 1,
+                nanos: self.nanos + 1000000000 - other.nanos,
+            }
+        }
+    }
+}
+
+impl Eq for Duration {
+    fn eq(self, other: Duration): bool {
+        self.secs == other.secs && self.nanos == other.nanos
+    }
+}
+
+impl Ord for Duration {
+    fn cmp(self, other: Duration): number {
+        if self.secs < other.secs {
+            0 - 1
+        } else if self.secs > other.secs {
+            1
+        } else if self.nanos < other.nanos {
+            0 - 1
+        } else if self.nanos > other.nanos {
+            1
+        } else {
+            0
+        }
+    }
+}

@@ -3597,6 +3597,43 @@ fn test_fs_remove_then_exists_is_false() {
 }
 
 #[test]
+fn test_core_time_duration() {
+    // Exercises core::time::Duration end to end: constructors that
+    // normalize sub-second units into the seconds field, the accessors,
+    // the borrow path in subtraction, and the operator/ordering traits.
+    // `run` returns the number of passing checks (12 when all hold).
+    CliTest::new(
+        r#"
+        use core::time::Duration;
+
+        pub fn run(): number {
+            let a = Duration::from_secs(2);
+            let b = Duration::from_millis(1500);   // 1s + 500_000_000ns
+
+            let sum = a + b;                        // 3.5s
+            let borrow = b - Duration::from_millis(700); // 0.8s (sub-second borrow)
+
+            let c1 = if b.as_secs() == 1 { 1 } else { 0 };
+            let c2 = if b.subsec_millis() == 500 { 1 } else { 0 };
+            let c3 = if b.subsec_nanos() == 500000000 { 1 } else { 0 };
+            let c4 = if sum.as_millis() == 3500 { 1 } else { 0 };
+            let c5 = if sum.as_secs() == 3 { 1 } else { 0 };
+            let c6 = if borrow.as_millis() == 800 { 1 } else { 0 };
+            let c7 = if Duration::from_micros(1500000).as_secs() == 1 { 1 } else { 0 };
+            let c8 = if Duration::from_nanos(2500000000).subsec_nanos() == 500000000 { 1 } else { 0 };
+            let c9 = if a.cmp(b) == 1 { 1 } else { 0 };
+            let c10 = if a == Duration::from_secs(2) { 1 } else { 0 };
+            let c11 = if Duration::from_secs(0).is_zero() { 1 } else { 0 };
+            let c12 = if a.as_nanos() == 2000000000 { 1 } else { 0 };
+
+            c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8 + c9 + c10 + c11 + c12
+        }
+        "#,
+    )
+    .expect_output("12");
+}
+
+#[test]
 fn test_execute_run_fs_is_not_granted() {
     // FileSystem is NOT granted to executed code: only Console/Log are. A shipped
     // function that touches the filesystem is an unhandled-ability error,
