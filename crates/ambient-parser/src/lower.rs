@@ -961,9 +961,12 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
         CstTypeExprKind::Name(qn) => {
             let name = type_name_from_segments(qn);
             match &*name {
-                "number" => Ok(Type::Number),
-                "string" => Ok(Type::String),
-                "bool" => Ok(Type::Bool),
+                // Accept both PascalCase (the canonical nominal spelling) and the
+                // legacy lowercase spelling; both lower to the same primitive type
+                // during the migration to real nominal primitives.
+                "number" | "Number" => Ok(Type::Number),
+                "string" | "String" => Ok(Type::String),
+                "bool" | "Bool" => Ok(Type::Bool),
                 "Bytes" => Ok(Type::Bytes),
                 _ => {
                     // Named type - could be generic, user-defined, etc.
