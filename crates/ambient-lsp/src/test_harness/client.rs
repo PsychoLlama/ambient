@@ -6,16 +6,21 @@ use std::thread::JoinHandle;
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId};
 use lsp_types::notification::{
-    DidOpenTextDocument, Initialized, Notification as NotificationTrait, PublishDiagnostics,
+    DidChangeTextDocument, DidOpenTextDocument, Initialized, Notification as NotificationTrait,
+    PublishDiagnostics,
 };
 use lsp_types::request::{
-    Completion, GotoDefinition, HoverRequest, Initialize, Request as RequestTrait, Shutdown,
+    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, Initialize, References,
+    Request as RequestTrait, SemanticTokensFullRequest, Shutdown,
 };
 use lsp_types::{
     ClientCapabilities, CompletionItem, CompletionParams, CompletionResponse, Diagnostic,
-    DidOpenTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
-    InitializeParams, InitializeResult, Location, Position, TextDocumentIdentifier,
-    TextDocumentItem, TextDocumentPositionParams, Uri,
+    DidChangeTextDocumentParams, DidOpenTextDocumentParams, DocumentSymbol, DocumentSymbolParams,
+    DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
+    InitializeParams, InitializeResult, Location, PartialResultParams, Position, ReferenceContext,
+    ReferenceParams, SemanticToken, SemanticTokensParams, SemanticTokensResult,
+    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
+    TextDocumentPositionParams, Uri, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
 };
 
 use crate::run_server_with_connection;
@@ -30,6 +35,8 @@ pub struct TestClient {
     server_thread: Option<JoinHandle<anyhow::Result<()>>>,
     /// Request ID counter.
     next_id: i32,
+    /// Monotonic document version counter for edits (`didChange`).
+    next_doc_version: i32,
     /// Collected diagnostics by URI.
     diagnostics: Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>,
 }
@@ -46,6 +53,7 @@ impl TestClient {
             connection: client_conn,
             server_thread: Some(server_thread),
             next_id: 1,
+            next_doc_version: 2,
             diagnostics: Arc::new(Mutex::new(HashMap::new())),
         };
 
@@ -222,6 +230,109 @@ impl TestClient {
                 })
                 .collect(),
             None => vec![],
+        }
+    }
+
+    /// Edit an already-open document by sending a full-text `didChange`.
+    ///
+    /// Uses full document sync (one change event carrying the whole text),
+    /// matching the server's expectation.
+    pub fn change_document(&mut self, uri: &Uri, text: &str) {
+        let version = self.next_doc_version;
+        self.next_doc_version += 1;
+
+        let params = DidChangeTextDocumentParams {
+            text_document: VersionedTextDocumentIdentifier {
+                uri: uri.clone(),
+                version,
+            },
+            content_changes: vec![TextDocumentContentChangeEvent {
+                range: None,
+                range_length: None,
+                text: text.to_string(),
+            }],
+        };
+
+        self.send_notification::<DidChangeTextDocument>(params);
+
+        // Give the server time to re-analyze and send diagnostics.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        self.process_notifications();
+    }
+
+    /// Request find-references at a position.
+    ///
+    /// Mirrors [`goto_definition`](Self::goto_definition), threading through
+    /// the `include_declaration` flag of the reference context.
+    pub fn references(
+        &mut self,
+        uri: &Uri,
+        line: u32,
+        character: u32,
+        include_declaration: bool,
+    ) -> Vec<Location> {
+        let params = ReferenceParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                position: Position { line, character },
+            },
+            work_done_progress_params: WorkDoneProgressParams {
+                work_done_token: None,
+            },
+            partial_result_params: PartialResultParams {
+                partial_result_token: None,
+            },
+            context: ReferenceContext {
+                include_declaration,
+            },
+        };
+
+        let response: Option<Vec<Location>> = self.send_request::<References>(params);
+        response.unwrap_or_default()
+    }
+
+    /// Request semantic tokens for the whole document.
+    pub fn semantic_tokens(&mut self, uri: &Uri) -> Vec<SemanticToken> {
+        let params = SemanticTokensParams {
+            work_done_progress_params: WorkDoneProgressParams {
+                work_done_token: None,
+            },
+            partial_result_params: PartialResultParams {
+                partial_result_token: None,
+            },
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+        };
+
+        let response: Option<SemanticTokensResult> =
+            self.send_request::<SemanticTokensFullRequest>(params);
+
+        match response {
+            Some(SemanticTokensResult::Tokens(tokens)) => tokens.data,
+            Some(SemanticTokensResult::Partial(partial)) => partial.data,
+            None => vec![],
+        }
+    }
+
+    /// Request document symbols. Returns the flat/nested symbol list.
+    pub fn document_symbol(&mut self, uri: &Uri) -> Vec<DocumentSymbol> {
+        let params = DocumentSymbolParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            work_done_progress_params: WorkDoneProgressParams {
+                work_done_token: None,
+            },
+            partial_result_params: PartialResultParams {
+                partial_result_token: None,
+            },
+        };
+
+        let response: Option<DocumentSymbolResponse> =
+            self.send_request::<DocumentSymbolRequest>(params);
+
+        match response {
+            Some(DocumentSymbolResponse::Nested(symbols)) => symbols,
+            // The server only emits the nested form; flat responses carry no
+            // hierarchy, so surface them as an empty list rather than inventing one.
+            Some(DocumentSymbolResponse::Flat(_)) | None => vec![],
         }
     }
 
