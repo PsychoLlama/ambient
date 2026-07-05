@@ -11,6 +11,7 @@
 use ambient_engine::ability_resolver::{AbilityResolver, EngineTypeFactory, MethodSignatureInfo};
 use ambient_engine::ast::{Expr, ExprKind, FunctionDef, ItemKind, Module, Param, StmtKind};
 use ambient_engine::core_library::CoreLibrary;
+use ambient_engine::module_registry::ExportKind;
 use ambient_engine::symbol_db::{SymbolDb, SymbolKind};
 use ambient_parser::TokenKind;
 use lsp_types::{CompletionItem, CompletionItemKind, CompletionItemLabelDetails, InsertTextFormat};
@@ -334,23 +335,29 @@ fn get_core_module_completions(prefix: &str) -> Vec<CompletionItem> {
         .collect()
 }
 
-/// Get documentation for a core library module: its own module doc
-/// comment, parsed from the shipped source.
+/// Get documentation for a core library module: its module doc comment,
+/// read from the registry's copy of the module (the same AST the checker
+/// resolves imports against).
 fn get_core_module_doc(module: &str) -> String {
-    use std::sync::Arc;
-    CoreLibrary::get_source(&[Arc::from(module)])
-        .ok()
-        .and_then(|source| ambient_parser::parse(source).ok())
-        .and_then(|parsed| parsed.doc.map(|d| d.to_string()))
+    core_module_path(module)
+        .and_then(|path| {
+            let registry = ambient_analysis::core_platform_registry();
+            registry
+                .get(&path)
+                .and_then(|info| info.module.doc.as_ref().map(ToString::to_string))
+        })
         .unwrap_or_else(|| format!("Core library module: {module}"))
 }
 
-/// Get core submodule member completions: the module's public functions
-/// and constants (from a real parse of the shipped source, not a line
-/// scanner) plus the intrinsics that live at the same path.
-fn get_core_submodule_member_completions(submodule: &str, prefix: &str) -> Vec<CompletionItem> {
-    use std::sync::Arc;
+/// The registry path of a core module (`List` → `core::List`).
+fn core_module_path(module: &str) -> Option<ambient_engine::module_path::ModulePath> {
+    ambient_engine::module_path::ModulePath::from_str_segments(&["core", module])
+}
 
+/// Get core submodule member completions: the module's public exports
+/// (straight from the registry, so completion can never drift from what
+/// import resolution sees) plus the intrinsics at the same path.
+fn get_core_submodule_member_completions(submodule: &str, prefix: &str) -> Vec<CompletionItem> {
     let mut items = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
@@ -368,23 +375,37 @@ fn get_core_submodule_member_completions(submodule: &str, prefix: &str) -> Vec<C
         }
     }
 
-    // Public functions and constants from the compiled core module source.
-    if let Ok(source) = CoreLibrary::get_source(&[Arc::from(submodule)])
-        && let Ok(parsed) = ambient_parser::parse(source)
+    // Public exports from the registry's copy of the core module.
+    let registry = ambient_analysis::core_platform_registry();
+    if let Some(path) = core_module_path(submodule)
+        && let Some(info) = registry.get(&path)
     {
-        for item in &parsed.items {
-            let (name, item_kind, detail) = match &item.kind {
-                ItemKind::Function(f) if f.is_public => {
-                    (f.name.as_ref(), CompletionItemKind::FUNCTION, "function")
-                }
-                ItemKind::Const(c) => (c.name.as_ref(), CompletionItemKind::CONSTANT, "constant"),
-                _ => continue,
+        // Deterministic source order (export tables are hash maps).
+        let mut exports: Vec<_> = info.exports.values().filter(|e| e.is_public).collect();
+        exports.sort_by_key(|e| e.name_span.start);
+
+        for export in exports {
+            let (item_kind, detail) = match export.kind {
+                ExportKind::Function => (CompletionItemKind::FUNCTION, "function"),
+                ExportKind::Const => (CompletionItemKind::CONSTANT, "constant"),
+                ExportKind::TypeAlias => (CompletionItemKind::STRUCT, "type"),
+                ExportKind::Enum => (CompletionItemKind::ENUM, "enum"),
+                ExportKind::Trait => (CompletionItemKind::INTERFACE, "trait"),
+                ExportKind::Ability => (CompletionItemKind::INTERFACE, "ability"),
+                // Variant constructors complete through their enum (and
+                // the prelude ones need no qualification at all).
+                ExportKind::EnumVariant => continue,
             };
+            let name = export.name.as_ref();
             if name.starts_with(prefix) && seen.insert(name.to_string()) {
                 items.push(CompletionItem {
                     label: name.to_string(),
                     kind: Some(item_kind),
                     detail: Some(format!("core::{submodule}::{name} ({detail})")),
+                    documentation: export
+                        .doc
+                        .as_ref()
+                        .map(|d| lsp_types::Documentation::String(d.to_string())),
                     ..Default::default()
                 });
             }
