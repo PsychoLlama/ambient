@@ -1,18 +1,27 @@
 //! Multi-module example.
 //!
-//! Demonstrates the module system with imports:
-//! - `use pkg::module;` for package-relative imports
-//! - `use self::sibling;` for same-directory imports
-//! - `use pkg::module::{item1, item2};` for specific items
+//! Demonstrates the module system:
+//! - `use pkg::module::{a, b};` — brace groups (nestable) of items
+//! - `use self::sibling;` — same-directory imports
+//! - `use pkg::module::item as alias;` — renamed imports
+//! - `use pkg::dir;` — directory namespaces are modules too
+//! - `use dir::child::item;` — paths may root at a module alias
+//! - inline fully-qualified paths, no import needed
+//! - block-scoped `use` inside a function body
 
-// Import specific functions from math_utils
-use pkg::math_utils::{abs, min, max, gcd, lcm};
-
-// Import specific functions from list_utils
-use pkg::list_utils::{sum, product, maximum, minimum};
+// Nested brace groups flatten to plain item imports.
+use pkg::{
+    math_utils::{abs, min, max, gcd, lcm},
+    list_utils::{sum, product, maximum as largest, minimum},
+};
 
 // Import from statistics (which itself imports from siblings)
-use pkg::statistics::{variance, range};
+use pkg::statistics::range;
+
+// A directory namespace imports like any module; a later use may root at
+// the alias it binds.
+use pkg::geometry;
+use geometry::circle::area;
 
 /// Entry point that demonstrates using functions from multiple modules.
 pub fn run(): number {
@@ -27,14 +36,26 @@ pub fn run(): number {
     let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     let s = sum(numbers);       // 55
     let p = product([1, 2, 3, 4, 5]);  // 120
-    let mx = maximum(numbers);  // 10
+    let mx = largest(numbers);  // 10 (imported as `maximum as largest`)
     let mn = minimum(numbers);  // 1
 
     // Test statistics functions
     let data = [2, 4, 4, 4, 5, 5, 7, 9];
     let r = range(data);        // 7 (9 - 2)
 
+    // A module in a directory namespace, reached three ways: bare import,
+    // alias path, and inline fully-qualified path.
+    let circ = area(3)                          // 28
+        + geometry::circle::area(3)             // 28
+        + pkg::geometry::circle::area(3);       // 28
+
+    // A block-scoped import binds to the end of its block.
+    let root = {
+        use core::math::sqrt;
+        sqrt(16)                                // 4
+    };
+
     // Combine results for verification
-    // 42 + 5 + 10 + 6 + 12 + 55 + 10 + 1 + 7 = 148
-    a + b + c + d + e + s + mx + mn + r
+    // 42 + 5 + 10 + 6 + 12 + 55 + 10 + 1 + 7 + 84 + 4 = 236
+    a + b + c + d + e + s + mx + mn + r + circ + root
 }

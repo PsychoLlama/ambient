@@ -1,0 +1,8 @@
+//! A module inside a directory namespace: directories need no
+//! declaration — `src/geometry/circle.ab` is `pkg::geometry::circle`.
+
+use core::math;
+
+pub fn area(radius: number): number {
+    math::floor(3.14159 * radius * radius)
+}

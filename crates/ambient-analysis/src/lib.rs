@@ -231,8 +231,24 @@ pub fn analyze_with_registry_and_resolver(
     resolver: Option<AbilityResolver>,
 ) -> AnalysisResult {
     let recovered = parse_recovering(source);
-    let parse_errors = recovered.errors;
+    let mut parse_errors = recovered.errors;
     let module = recovered.module;
+
+    // A user module may not take a reserved root name: its canonical
+    // names would shadow the real `core`/`platform` namespaces. The build
+    // rejects such packages outright; analysis reports the same fact as a
+    // module diagnostic.
+    if let Some(path) = module_path
+        && path.collides_with_reserved_root()
+    {
+        parse_errors.push(ambient_parser::ParseError::new(
+            ambient_parser::ParseErrorKind::LoweringError(format!(
+                "module `{path}` collides with the reserved `{}` namespace; rename the file",
+                path.segments()[0]
+            )),
+            ambient_engine::ast::Span::new(0, 0),
+        ));
+    }
 
     // Type check the (possibly partial) module. The registry carries the
     // `platform` declaration module, so `platform::…` abilities resolve

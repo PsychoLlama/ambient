@@ -229,7 +229,7 @@ fn register_cross_module(
     // (inline uses and cross-module ability deps) and the
     // `use platform::Network;` bridge all find their target — on every
     // path that has a registry, including the package build.
-    seed_namespaced_ability_dynamics(infer, module_path, registry, errors);
+    seed_namespaced_ability_dynamics(infer, registry, errors);
     // Imported enums register first: foreign impl registration (next)
     // must resolve an imported enum target to its uuid, or the impl's
     // dispatch key won't match the call sites'.
@@ -1388,23 +1388,24 @@ fn register_imported_ability(
 /// the content-addressed interface hash, seeding is deterministic and a
 /// bare local registration of the same declaration unifies with it.
 ///
-/// The current module is skipped: its declarations register *bare* in
-/// `register_abilities` (locals stay bare; references to them normalize
-/// to the bare form). The `platform` module seeds first so its intra-file
-/// dependencies (`Log with platform::Stdio`) resolve; other modules seed
-/// in path order. Resolution errors inside *foreign* modules are not this
-/// module's diagnostics — they surface when that module itself is checked
-/// — except for `platform`, whose declarations have no other checking
-/// path.
+/// Every module seeds — including the current one, whose declarations
+/// *also* register bare in `register_abilities` (locals stay bare;
+/// references to them normalize to the bare form). Seeding the current
+/// module's namespace matters for hydrating foreign signatures: checking
+/// `effects` hydrates `worker.tick`, whose `with` clause resolved to
+/// `effects::Counter`. The `platform` module seeds first so its
+/// intra-file dependencies (`Log with platform::Stdio`) resolve; other
+/// modules seed in path order. Resolution errors inside *foreign* modules
+/// are not this module's diagnostics — they surface when that module
+/// itself is checked — except for `platform`, whose declarations have no
+/// other checking path.
 fn seed_namespaced_ability_dynamics(
     infer: &mut Infer,
-    module_path: &ModulePath,
     registry: &ModuleRegistry,
     errors: &mut Vec<BoxedTypeError>,
 ) {
     let mut modules: Vec<_> = registry
         .all_modules()
-        .filter(|info| &info.path != module_path)
         .map(|info| (info.path.clone(), Arc::clone(&info.module)))
         .collect();
     modules.sort_by_key(|(path, _)| {

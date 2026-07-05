@@ -96,6 +96,19 @@ impl ModulePath {
         &self.segments
     }
 
+    /// Whether this path lives under a reserved root (`core`,
+    /// `platform`). User modules may not take these names: `core` is a
+    /// keyword and `platform` a contextual keyword, so such a module
+    /// could never be referenced — but worse, its canonical names would
+    /// collide with the reserved namespace.
+    #[must_use]
+    pub fn collides_with_reserved_root(&self) -> bool {
+        matches!(
+            self.segments.first().map(AsRef::as_ref),
+            Some("core" | "platform")
+        )
+    }
+
     /// Get the module name (last segment).
     #[must_use]
     pub fn name(&self) -> &str {

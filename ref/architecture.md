@@ -36,48 +36,91 @@ pub fn multiply(x: number, y: number): number {
 
 ### Modules
 
-Modules map 1:1 to files under `src/`. Import prefixes: `pkg` (package
-root), `self` (same directory), `super` (parent), `core` (standard
-library).
+Modules map 1:1 to files under `src/`; a directory is a namespace module
+whose members are its children, so `src/net/http/client.ab` is the module
+`pkg::net::http::client` with no `mod.rs`-style ceremony. Path roots:
+`pkg` (package root), `self` (same directory), `super` (parent directory,
+chainable), `core` (standard library), `platform` (host bindings).
+
+**Every item in a build has exactly one fully-qualified identity** —
+`<defining module>::<name>` — and the two access rules follow from it:
+
+1. Anything reachable by its fully-qualified path works through `use`,
+   and vice versa.
+2. However a reference is spelled — bare imported name, module-alias
+   path, inline rooted path — it resolves to that one identity. The
+   compiler front end canonicalizes every reference before checking
+   (`crates/ambient-engine/src/resolve.rs`), so the checker, the
+   intrinsic tables, the ability resolver, and the linker all key off
+   the same canonical name.
+
+`use` takes a Rust-style use-tree:
 
 ```ambient
-use pkg::utils::helper;   // Item import: `helper` as a bare name
-use pkg::utils::{a, b};   // Braces group siblings: same as two item imports
-use self::utils;          // Whole-module import: call utils::helper(...)
-use core::List;           // Core modules import the same way: List::range(...)
-use core::List::{range};  // ... or by item (braces optional for a single one)
-use pkg::shapes::{Shape}; // Enum import: type, constructors, and patterns
+use pkg::utils::helper;                 // Item import: `helper` as a bare name
+use pkg::utils::{a, deep::{b, c}};      // Brace groups, nested arbitrarily
+use core::math::sqrt as root2;          // `as` renames the local binding
+use {core::math, platform::Stdio};      // Root-level groups
+use self::utils;                        // Whole-module import: utils::helper(...)
+use pkg::net::http;                     // Directory namespaces import too:
+use http::client::get;                  //   ...and a module alias can root
+                                        //   another use (any order; resolved
+                                        //   by fixed point)
+use pkg::shapes::Shape;                 // Enum import: type, constructors, patterns
 ```
 
-A `use` path names an entity by its final segment, resolved against the
-parent module named by the preceding segments. That segment can be a
-submodule (a whole-module import) or an item the parent exports — the
-resolver binds whichever exist, so the brace and non-brace forms carry no
-semantic difference: `use pkg::utils::{a, b}` is exactly
-`use pkg::utils::a; use pkg::utils::b;`. Modules, values, and types occupy
-separate namespaces resolved by syntactic position, so in the rare case a
-name is *both* a submodule of the parent and a symbol it exports, `use`
-binds both and the use site disambiguates (`c(...)` is the value, `c::foo`
-the module).
+Braces are pure grouping — the tree flattens during lowering, so
+`use a::b::{c, d};` is exactly `use a::b::c; use a::b::d;`. A flattened
+path names an entity by its final segment, and the resolver binds every
+namespace meaning that exists: a submodule, a value, a type, an ability.
+Modules, values, types, and abilities occupy separate namespaces resolved
+by syntactic position, so a name that is both a submodule and an exported
+item binds both and the use site disambiguates (`c(...)` is the value,
+`c::foo` the module).
+
+`use` is also a statement: a block-scoped import binds from its statement
+to the end of the enclosing block, types as nothing, and compiles to
+nothing.
+
+```ambient
+pub fn hyp(a: number, b: number): number {
+  use core::math::sqrt;
+  sqrt(a * a + b * b)
+}
+```
+
+Inline fully-qualified paths need no import anywhere a name can appear:
+expressions (`pkg::utils::helper(1)`), type positions
+(`pkg::shapes::Money`, `core::List<number>`), effect rows
+(`with platform::Stdio`, `with pkg::effects::Counter`), performs, handler
+arms, and sandbox clauses. Local bindings shadow module-level names,
+which shadow imports, which shadow the prelude.
 
 `pub` gates every export: functions, consts, types, enums, abilities, and
 traits are module-private unless declared `pub`. A failed import — missing
 module, missing symbol, or private symbol — is a compile error at the `use`
 item, never a silent no-op. Importing an enum brings its variant
-constructors and patterns into scope wholesale, as if declared locally
-(local declarations shadow imports, which shadow the prelude); a single
-variant cannot be imported on its own. `pub use` re-exports items, and
-imports through a re-export resolve (and link) to the module that defines
-the symbol.
+constructors and patterns into scope wholesale, as if declared locally;
+a single variant cannot be imported on its own, and a qualified *type*
+reference alone (`pkg::shapes::Shape` in a signature) does not bring
+constructors into scope — import the enum where you construct or match
+it. `pub use` re-exports items (and whole modules), and imports through a
+re-export resolve (and link) to the module that defines the symbol.
+Re-export paths must be rooted (`pkg`/`core`/`platform`/`self`/`super`),
+not alias-relative, so downstream modules can resolve them without this
+module's scope.
 
-Core modules (`core::List`, `core::math`, `core::string`) are also always in
-scope fully qualified with no import: `core::List::range(1, 4)`. They are
-ordinary Ambient modules — compiled, content-addressed, and stored exactly
-like user code (see `crates/ambient-engine/src/core_lib/`). Beneath them
-sits a fixed set of _intrinsics_ (`core::math::sqrt`, `core::List::length`,
-`core::string::concat`, ...) that compile to dedicated opcodes; intrinsics
-take precedence over compiled functions at the same path. `core` is a
-keyword, so user modules can never collide with the standard library.
+Core modules (`core::List`, `core::math`, `core::string`) are ordinary
+Ambient modules — compiled, content-addressed, and stored exactly like
+user code (see `crates/ambient-engine/src/core_lib/`). Beneath them sits
+a fixed set of _intrinsics_ (`core::math::sqrt`, `core::List::length`,
+`core::string::concat`, ...) that compile to dedicated opcodes; an
+intrinsic is an ordinary item of its module — importable, aliasable,
+reachable through `use core::math;` + `math::sqrt(x)` — and takes
+precedence over a compiled function at the same path. `core` is a keyword
+and `platform` a contextual keyword, and a user module may not take
+either name (the build rejects `src/core.ab` / `src/platform.ab`), so the
+reserved namespaces can never be shadowed.
 
 A core module that backs a type takes that type's PascalCase name: `List`,
 `Option`, and `Result` are the companion modules of the `List<T>`, `Option<T>`,
@@ -86,6 +129,13 @@ and `Result<T, E>` types, so `List::range` reads as an associated function of
 primitive whose `string`→`String` alignment is future work). Types, values, and
 modules occupy separate namespaces resolved by syntactic position, so the type
 `List` and the module `core::List` coexist without ambiguity.
+
+Known gaps (deliberate, minor): qualified references to *generic* type
+aliases and generic `unique` types are unresolved (parameter substitution
+is checker work); ability names inside function *type* annotations
+(`(T) -> U with E`) accept only bare or `platform::` spellings; intrinsics
+are not first-class values (`let f = core::math::sqrt;` is an error —
+call them directly).
 
 A local binding shadows a module alias: after `let utils = ...;`,
 `utils.method()` is a trait-method call on the value.
@@ -541,8 +591,11 @@ are handled in-language (`handle` blocks or handler values); a performed
 ability with no handler in scope — in-language or host — is a runtime
 error. Abilities import across modules like any other item: `use
 pkg::b::SomeAbility;` (and `use platform::Network;`) brings the ability into
-scope under its bare name. Current limit: the REPL does not yet register
-`platform` as a module, so bare `use platform::…` there is a follow-up.
+scope under its bare name, and every ability is also reachable fully
+qualified with no import (`with pkg::b::SomeAbility`,
+`pkg::b::SomeAbility::method!(…)`) — the same rule as every other item.
+Current limit: the REPL does not yet register `platform` as a module, so
+bare `use platform::…` there is a follow-up.
 
 ### Using Abilities
 
@@ -552,10 +605,10 @@ scope under its bare name. Current limit: the REPL does not yet register
 let content = FileSystem::read!("file.txt");
 ```
 
-Platform abilities are always in scope *fully-qualified* (`platform::Stdio`
-in performs, `with` clauses, effect-row annotations, handler arms, and
-sandbox clauses) with no `use` — mirroring how `core::` items are always
-reachable qualified. To drop the prefix, import the ability:
+Every module's abilities are in scope *fully-qualified* (`platform::Stdio`
+or `pkg::effects::Counter` in performs, `with` clauses, effect-row
+annotations, handler arms, and sandbox clauses) with no `use` — the same
+rule as every other item. To drop the prefix, import the ability:
 `use platform::Stdio;` then `with Stdio` and `Stdio::out!(...)` work
 bare thereafter. A bare `Stdio` that was *never* imported (and is not a
 local declaration) is a type error — the diagnostic suggests qualifying with

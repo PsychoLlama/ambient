@@ -110,6 +110,7 @@ impl AnalysisPackage {
     /// Insert or replace a module from source (e.g. an in-editor buffer).
     pub fn insert_module(&mut self, path: ModulePath, source: String) {
         let recovered = ambient_parser::parse_recovering(&source);
+        let parse_errors = recovered.errors;
         let mut ast = recovered.module;
         ast.name = path
             .segments()
@@ -122,7 +123,7 @@ impl AnalysisPackage {
                 path,
                 source,
                 ast,
-                parse_errors: recovered.errors,
+                parse_errors,
             },
         );
     }

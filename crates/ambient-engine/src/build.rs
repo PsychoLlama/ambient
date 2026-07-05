@@ -292,6 +292,12 @@ fn load_all_modules(pkg: &mut Package, parse: ParseFn) -> Result<(), BuildError>
         .map_err(|e| BuildError::PackageOpen(format!("failed to scan src: {e}")))?;
     paths.sort_by_key(ToString::to_string);
     for module_path in paths {
+        if module_path.collides_with_reserved_root() {
+            return Err(BuildError::PackageOpen(format!(
+                "module `{module_path}` collides with the reserved `{}` namespace; rename the file",
+                module_path.segments()[0]
+            )));
+        }
         if pkg.is_loaded(&module_path) {
             continue;
         }
