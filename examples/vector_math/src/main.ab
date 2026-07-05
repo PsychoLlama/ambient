@@ -16,12 +16,12 @@ use core::math;
 
 /// A trait for types that can compute their magnitude/length.
 trait Magnitude {
-    fn magnitude(self): number;
+    fn magnitude(self): Number;
 }
 
 /// A trait for types that can be scaled by a number.
 trait Scale {
-    fn scale(self, factor: number): Self;
+    fn scale(self, factor: Number): Self;
 }
 
 /// A trait for types that can be normalized to unit length.
@@ -38,7 +38,7 @@ trait Normalize {
 
 /// A 2D vector with x and y components.
 /// The unique UUID makes this a nominal type - distinct from bare { x, y } records.
-unique(B3C4D5E6-F7A8-9012-BCDE-F12345678902) type Vec2 { x: number, y: number }
+unique(B3C4D5E6-F7A8-9012-BCDE-F12345678902) type Vec2 { x: Number, y: Number }
 
 // Implement operator traits
 
@@ -55,7 +55,7 @@ impl Sub for Vec2 {
 }
 
 impl Eq for Vec2 {
-    fn eq(self, other: Vec2): bool {
+    fn eq(self, other: Vec2): Bool {
         self.x == other.x && self.y == other.y
     }
 }
@@ -63,13 +63,13 @@ impl Eq for Vec2 {
 // Implement custom traits
 
 impl Magnitude for Vec2 {
-    fn magnitude(self): number {
+    fn magnitude(self): Number {
         math::sqrt(self.x * self.x + self.y * self.y)
     }
 }
 
 impl Scale for Vec2 {
-    fn scale(self, factor: number): Vec2 {
+    fn scale(self, factor: Number): Vec2 {
         Vec2 { x: self.x * factor, y: self.y * factor }
     }
 }
@@ -90,7 +90,7 @@ impl Normalize for Vec2 {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A 3D vector with x, y, and z components.
-unique(C4D5E6F7-A8B9-0123-CDEF-234567890123) type Vec3 { x: number, y: number, z: number }
+unique(C4D5E6F7-A8B9-0123-CDEF-234567890123) type Vec3 { x: Number, y: Number, z: Number }
 
 impl Add for Vec3 {
     fn add(self, other: Vec3): Vec3 {
@@ -105,19 +105,19 @@ impl Sub for Vec3 {
 }
 
 impl Eq for Vec3 {
-    fn eq(self, other: Vec3): bool {
+    fn eq(self, other: Vec3): Bool {
         self.x == other.x && self.y == other.y && self.z == other.z
     }
 }
 
 impl Magnitude for Vec3 {
-    fn magnitude(self): number {
+    fn magnitude(self): Number {
         math::sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
     }
 }
 
 impl Scale for Vec3 {
-    fn scale(self, factor: number): Vec3 {
+    fn scale(self, factor: Number): Vec3 {
         Vec3 { x: self.x * factor, y: self.y * factor, z: self.z * factor }
     }
 }
@@ -127,12 +127,12 @@ impl Scale for Vec3 {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Computes the dot product of two 2D vectors.
-fn dot2(a: Vec2, b: Vec2): number {
+fn dot2(a: Vec2, b: Vec2): Number {
     a.x * b.x + a.y * b.y
 }
 
 /// Computes the dot product of two 3D vectors.
-fn dot3(a: Vec3, b: Vec3): number {
+fn dot3(a: Vec3, b: Vec3): Number {
     a.x * b.x + a.y * b.y + a.z * b.z
 }
 
@@ -146,17 +146,17 @@ fn cross(a: Vec3, b: Vec3): Vec3 {
 }
 
 /// Linearly interpolates between two 2D vectors.
-fn lerp2(a: Vec2, b: Vec2, t: number): Vec2 {
+fn lerp2(a: Vec2, b: Vec2, t: Number): Vec2 {
     a + (b - a).scale(t)
 }
 
 /// Checks if a number is approximately zero.
-fn approx_zero(n: number): bool {
+fn approx_zero(n: Number): Bool {
     math::abs(n) < 0.0001
 }
 
 /// Checks if two numbers are approximately equal.
-fn approx_eq(a: number, b: number): bool {
+fn approx_eq(a: Number, b: Number): Bool {
     approx_zero(a - b)
 }
 
@@ -164,7 +164,7 @@ fn approx_eq(a: number, b: number): bool {
 // Entry Point
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn run(): number {
+pub fn run(): Number {
     // Create some 2D vectors
     let a = Vec2 { x: 3, y: 4 };
     let b = Vec2 { x: 1, y: 2 };

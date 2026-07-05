@@ -5,12 +5,12 @@
 use platform::Stdio;
 
 /// Simple function that returns a value.
-fn simple_function(): number {
+fn simple_function(): Number {
   100
 }
 
 /// Tests a simple handle with no ability use.
-fn test_simple_handle(): number {
+fn test_simple_handle(): Number {
   handle simple_function() {
     Stdio::out(msg) => {
       resume(())
@@ -19,7 +19,7 @@ fn test_simple_handle(): number {
 }
 
 /// Tests handle expression with multiple handlers.
-fn test_multiple_handlers(): number {
+fn test_multiple_handlers(): Number {
   handle simple_function() {
     Stdio::out(msg) => {
       resume(())
@@ -30,7 +30,7 @@ fn test_multiple_handlers(): number {
   }
 }
 
-pub fn run(): number {
+pub fn run(): Number {
   let r1 = test_simple_handle();
   let r2 = test_multiple_handlers();
   // Both should return 100

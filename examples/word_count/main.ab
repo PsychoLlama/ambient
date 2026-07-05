@@ -3,39 +3,37 @@
 //! Counts words, lines, and characters in text.
 //! Demonstrates string processing and accumulator patterns.
 
-use core::string;
-
 /// Counts the number of characters in text.
-fn count_chars(text: string): number {
-    string::length(text)
+fn count_chars(text: String): Number {
+    text.length()
 }
 
 /// Counts the number of lines in text.
-fn count_lines(text: string): number {
-    if string::length(text) == 0 {
+fn count_lines(text: String): Number {
+    if text.length() == 0 {
         0
     } else {
-        let parts = string::split(text, "\n");
+        let parts = text.split("\n");
         parts.length()
     }
 }
 
 /// Checks if a character is part of a word.
-fn is_word_char(c: string): bool {
+fn is_word_char(c: String): Bool {
     // Check if character is alphanumeric (simplified)
-    let code = string::length(c);  // Can't get char code, so use a workaround
+    let code = c.length();  // Can't get char code, so use a workaround
     c != " " && c != "\t" && c != "\n" && c != "\r" &&
     c != "." && c != "," && c != "!" && c != "?" &&
     c != ":" && c != ";" && c != "\"" && c != "'"
 }
 
 /// Counts words by iterating through characters.
-fn count_words_impl(text: string, idx: number, in_word: bool, count: number): number {
-    if idx >= string::length(text) {
+fn count_words_impl(text: String, idx: Number, in_word: Bool, count: Number): Number {
+    if idx >= text.length() {
         // End of string - add 1 if we were in a word
         if in_word { count + 1 } else { count }
     } else {
-        let c = string::slice(text, idx, idx + 1);
+        let c = text.slice(idx, idx + 1);
         let is_word = is_word_char(c);
 
         if in_word && !is_word {
@@ -52,22 +50,22 @@ fn count_words_impl(text: string, idx: number, in_word: bool, count: number): nu
 }
 
 /// Counts the number of words in text.
-fn count_words(text: string): number {
+fn count_words(text: String): Number {
     count_words_impl(text, 0, false, 0)
 }
 
 /// Builds a stats summary with lines, words, and characters.
-fn wc(text: string): string {
+fn wc(text: String): String {
     let lines = count_lines(text);
     let words = count_words(text);
     let chars = count_chars(text);
 
-    string::concat(core::convert::to_string(lines), string::concat(" lines, ",
-    string::concat(core::convert::to_string(words), string::concat(" words, ",
-    string::concat(core::convert::to_string(chars), " characters")))))
+    core::convert::to_string(lines).concat(" lines, ".concat(
+    core::convert::to_string(words).concat(" words, ".concat(
+    core::convert::to_string(chars).concat(" characters")))))
 }
 
-pub fn run(): string {
+pub fn run(): String {
     let sample = "Hello, world!
 This is a sample text.
 It has multiple lines.
@@ -77,5 +75,5 @@ Let's count everything!";
 
     let stats = wc(sample);
 
-    string::concat("Text:\n", string::concat(sample, string::concat("\n\nStats: ", stats)))
+    "Text:\n".concat(sample.concat("\n\nStats: ".concat(stats)))
 }

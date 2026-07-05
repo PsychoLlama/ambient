@@ -30,13 +30,13 @@ pub trait Mod {
 
 /// Trait for equality comparison (`==`, `!=`).
 pub trait Eq {
-    fn eq(self, other: Self): bool;
+    fn eq(self, other: Self): Bool;
 }
 
 /// Trait for ordering comparison (`<`, `>`, `<=`, `>=`).
 /// Returns -1 if self < other, 0 if equal, 1 if self > other.
 pub trait Ord {
-    fn cmp(self, other: Self): number;
+    fn cmp(self, other: Self): Number;
 }
 
 /// Trait for a type's default value.

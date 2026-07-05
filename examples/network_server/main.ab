@@ -5,7 +5,6 @@
 //!
 //! Run with: `ambient run examples/network_server`
 
-use core::string;
 use platform::{Stdio, Network};
 
 /// Entry point that starts a TCP server and echoes messages.
@@ -17,7 +16,7 @@ pub fn run(): () with Stdio, Network {
     let conn = Network::accept!(listener);
 
     let peer = Network::peer_addr!(conn);
-    Stdio::out!(string::concat("Server: client connected from ", peer));
+    Stdio::out!("Server: client connected from ".concat(peer));
 
     // Echo loop: receive message, send it back
     Stdio::out!("Server: entering echo loop (send empty message to quit)...");
@@ -29,12 +28,12 @@ pub fn run(): () with Stdio, Network {
 }
 
 /// Echo messages back to the client until an empty message is received.
-fn echo_loop(conn: number): () with Stdio, Network {
+fn echo_loop(conn: Number): () with Stdio, Network {
     let msg = Network::receive!(conn);
     let len = core::bytes::length(msg);
 
     if len > 0 {
-        Stdio::out!(string::concat("Server: received ", string::concat(core::convert::to_string(len), " bytes, echoing back...")));
+        Stdio::out!("Server: received ".concat(core::convert::to_string(len).concat(" bytes, echoing back...")));
         Network::send!(conn, msg);
         echo_loop(conn)
     } else {

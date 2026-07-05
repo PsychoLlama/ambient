@@ -3,7 +3,7 @@
 //! Demonstrates recursive computation.
 
 /// Computes the factorial of `n` using recursion.
-fn factorial(n: number): number {
+fn factorial(n: Number): Number {
   if n <= 1 {
     1
   } else {
@@ -12,6 +12,6 @@ fn factorial(n: number): number {
 }
 
 /// Entry point that computes 5!.
-fn run(): number {
+fn run(): Number {
   factorial(5)
 }

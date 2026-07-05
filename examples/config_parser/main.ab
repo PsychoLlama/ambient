@@ -9,24 +9,24 @@ use core::List;
 /// Parses a single line into a key-value pair.
 ///
 /// Returns an empty list on failure.
-fn parse_line(line: string): List<(string, string)> {
-    let trimmed = string::trim(line);
+fn parse_line(line: String): List<(String, String)> {
+    let trimmed = line.trim();
 
     // Skip empty lines and comments
-    if string::length(trimmed) == 0 {
+    if trimmed.length() == 0 {
         []
-    } else if string::starts_with(trimmed, "#") {
+    } else if trimmed.starts_with("#") {
         []
     } else {
         // Find the = separator
-        let parts = string::split(trimmed, "=");
+        let parts = trimmed.split("=");
         match parts.head() {
             Some(raw_key) => {
                 if parts.length() >= 2 {
-                    let key = string::trim(raw_key);
+                    let key = raw_key.trim();
                     // Join remaining parts in case value contains =
                     let value_parts = List::tail(parts);
-                    let value = string::trim(string::join(value_parts, "="));
+                    let value = string::join(value_parts, "=").trim();
                     [(key, value)]
                 } else {
                     []
@@ -38,12 +38,12 @@ fn parse_line(line: string): List<(string, string)> {
 }
 
 /// Parses multiple lines of config into key-value pairs.
-fn parse_config(text: string): List<(string, string)> {
-    let lines = string::split(text, "\n");
+fn parse_config(text: String): List<(String, String)> {
+    let lines = text.split("\n");
     parse_lines(lines, [])
 }
 
-fn parse_lines(lines: List<string>, acc: List<(string, string)>): List<(string, string)> {
+fn parse_lines(lines: List<String>, acc: List<(String, String)>): List<(String, String)> {
     match lines.head() {
         Some(line) => {
             let rest = List::tail(lines);
@@ -59,7 +59,7 @@ fn parse_lines(lines: List<string>, acc: List<(string, string)>): List<(string, 
 }
 
 /// Looks up a value by key, returns default if not found.
-fn get_config(config: List<(string, string)>, key: string, default: string): string {
+fn get_config(config: List<(String, String)>, key: String, default: String): String {
     match config.head() {
         Some(entry) => {
             if entry.0 == key {
@@ -72,7 +72,7 @@ fn get_config(config: List<(string, string)>, key: string, default: string): str
     }
 }
 
-pub fn run(): string {
+pub fn run(): String {
     // Sample config text
     let config_text = "# Database settings
 host=localhost
@@ -96,8 +96,8 @@ debug=true
     let missing = get_config(config, "nonexistent", "default_value");
 
     // Build a connection string
-    let conn = string::concat(host, string::concat(":", port));
+    let conn = host.concat(":".concat(port));
 
     // Return summary
-    string::concat("Connection: ", string::concat(conn, string::concat(", debug=", debug)))
+    "Connection: ".concat(conn.concat(", debug=".concat(debug)))
 }

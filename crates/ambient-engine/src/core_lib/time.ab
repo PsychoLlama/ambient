@@ -6,85 +6,85 @@
 // on the way in so the invariant always holds.
 
 // Conversion factors between the time units used below.
-const NANOS_PER_SEC: number = 1000000000;
-const NANOS_PER_MILLI: number = 1000000;
-const NANOS_PER_MICRO: number = 1000;
-const MILLIS_PER_SEC: number = 1000;
-const MICROS_PER_SEC: number = 1000000;
+const NANOS_PER_SEC: Number = 1000000000;
+const NANOS_PER_MILLI: Number = 1000000;
+const NANOS_PER_MICRO: Number = 1000;
+const MILLIS_PER_SEC: Number = 1000;
+const MICROS_PER_SEC: Number = 1000000;
 
 /// A span of time, held as whole seconds plus a subsecond nanosecond
 /// remainder in [0, NANOS_PER_SEC).
 pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0003) type Duration {
-    secs: number,
-    nanos: number,
+    secs: Number,
+    nanos: Number,
 }
 
 impl Duration {
     /// A `Duration` of `secs` seconds and `nanos` nanoseconds. Excess
     /// nanoseconds (>= one second) carry into the seconds field so the
     /// stored value is always normalized.
-    fn new(secs: number, nanos: number): Duration {
+    fn new(secs: Number, nanos: Number): Duration {
         let carry = core::math::floor(nanos / NANOS_PER_SEC);
         Duration { secs: secs + carry, nanos: nanos - carry * NANOS_PER_SEC }
     }
 
     /// A `Duration` from a whole number of seconds.
-    fn from_secs(secs: number): Duration {
+    fn from_secs(secs: Number): Duration {
         Duration { secs: secs, nanos: 0 }
     }
 
     /// A `Duration` from a number of milliseconds.
-    fn from_millis(millis: number): Duration {
+    fn from_millis(millis: Number): Duration {
         Duration::new(0, millis * NANOS_PER_MILLI)
     }
 
     /// A `Duration` from a number of microseconds.
-    fn from_micros(micros: number): Duration {
+    fn from_micros(micros: Number): Duration {
         Duration::new(0, micros * NANOS_PER_MICRO)
     }
 
     /// A `Duration` from a number of nanoseconds.
-    fn from_nanos(nanos: number): Duration {
+    fn from_nanos(nanos: Number): Duration {
         Duration::new(0, nanos)
     }
 
     /// The number of whole seconds.
-    fn as_secs(self): number {
+    fn as_secs(self): Number {
         self.secs
     }
 
     /// The subsecond component, in nanoseconds ([0, NANOS_PER_SEC)).
-    fn subsec_nanos(self): number {
+    fn subsec_nanos(self): Number {
         self.nanos
     }
 
     /// The subsecond component, in whole milliseconds.
-    fn subsec_millis(self): number {
+    fn subsec_millis(self): Number {
         core::math::floor(self.nanos / NANOS_PER_MILLI)
     }
 
     /// The subsecond component, in whole microseconds.
-    fn subsec_micros(self): number {
+    fn subsec_micros(self): Number {
         core::math::floor(self.nanos / NANOS_PER_MICRO)
     }
 
     /// The total duration in whole milliseconds.
-    fn as_millis(self): number {
+    fn as_millis(self): Number {
         self.secs * MILLIS_PER_SEC + self.subsec_millis()
     }
 
     /// The total duration in whole microseconds.
-    fn as_micros(self): number {
+    fn as_micros(self): Number {
         self.secs * MICROS_PER_SEC + self.subsec_micros()
     }
 
     /// The total duration in nanoseconds.
-    fn as_nanos(self): number {
+    fn as_nanos(self): Number {
         self.secs * NANOS_PER_SEC + self.nanos
     }
 
     /// Whether this is the zero duration.
-    fn is_zero(self): bool {
+    fn is_zero(self): Bool {
         self.secs == 0 && self.nanos == 0
     }
 }
@@ -110,13 +110,13 @@ impl Sub for Duration {
 }
 
 impl Eq for Duration {
-    fn eq(self, other: Duration): bool {
+    fn eq(self, other: Duration): Bool {
         self.secs == other.secs && self.nanos == other.nanos
     }
 }
 
 impl Ord for Duration {
-    fn cmp(self, other: Duration): number {
+    fn cmp(self, other: Duration): Number {
         if self.secs < other.secs {
             0 - 1
         } else if self.secs > other.secs {

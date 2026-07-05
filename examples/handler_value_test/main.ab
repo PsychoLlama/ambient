@@ -3,12 +3,12 @@
 //! Tests handle expressions with first-class handler values.
 
 /// Simple function that returns a value.
-fn simple_function(): number {
+fn simple_function(): Number {
   100
 }
 
 /// Tests using a handler value with handle expression.
-fn test_handler_value(): number {
+fn test_handler_value(): Number {
   let mock_console = {
     out(msg) => resume(())
   };
@@ -16,6 +16,6 @@ fn test_handler_value(): number {
   handle simple_function() with mock_console {}
 }
 
-pub fn run(): number {
+pub fn run(): Number {
   test_handler_value()
 }

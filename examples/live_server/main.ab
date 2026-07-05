@@ -27,9 +27,9 @@ pub fn run(): () with Process {
 
 // ─── stats: a counter that survives upgrades ────────────────────────────
 
-fn stats_init(): number { 0 }
+fn stats_init(): Number { 0 }
 
-fn on_hit(total: number, n: number): number with Stdio {
+fn on_hit(total: Number, n: Number): Number with Stdio {
   let next = total + n;
   Stdio::out!("served ${core::convert::to_string(next)} messages");
   next
@@ -37,14 +37,14 @@ fn on_hit(total: number, n: number): number with Stdio {
 
 // ─── acceptor: one reduction per accepted connection ────────────────────
 
-fn acceptor_init(): number with Network, Stdio, Process {
+fn acceptor_init(): Number with Network, Stdio, Process {
   let listener = Network::listen!(("127.0.0.1", 7777));
   Stdio::out!("live_server listening on 127.0.0.1:7777");
   Process::send!(Process::self_pid!(), "accept");
   listener
 }
 
-fn acceptor(listener: number, msg: string): number with Network, Process {
+fn acceptor(listener: Number, msg: String): Number with Network, Process {
   let conn = Network::accept!(listener);
   let name = "conn-" + core::convert::to_string(conn);
   Process::spawn!(name, () => {
@@ -58,9 +58,9 @@ fn acceptor(listener: number, msg: string): number with Network, Process {
 // ─── per-connection worker (dynamic: pinned to spawn-time code) ─────────
 
 fn serve_conn(
-  state: { conn: number, hits: number },
-  msg: string
-): { conn: number, hits: number }
+  state: { conn: Number, hits: Number },
+  msg: String
+): { conn: Number, hits: Number }
   with Network, Process
 {
   let data = handle Network::receive!(state.conn) {

@@ -3,6 +3,6 @@
 
 use core::math;
 
-pub fn area(radius: number): number {
+pub fn area(radius: Number): Number {
     math::floor(3.14159 * radius * radius)
 }

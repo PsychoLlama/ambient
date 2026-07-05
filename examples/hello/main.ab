@@ -3,4 +3,4 @@
 //! The simplest possible Ambient program.
 
 /// Entry point that returns the answer to everything.
-fn run(): number { 42 }
+fn run(): Number { 42 }

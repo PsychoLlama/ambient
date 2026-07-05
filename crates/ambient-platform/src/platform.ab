@@ -28,18 +28,18 @@ use core::time::Duration;
 /// Standard input/output streams of the host process.
 pub ability Stdio {
   /// Write a line to stdout.
-  fn out(message: string): ();
+  fn out(message: String): ();
   /// Write a line to stderr.
-  fn err(message: string): ();
+  fn err(message: String): ();
   /// Read a line from stdin, without the trailing newline. Returns the
   /// empty string at end of input.
-  fn read(): string;
+  fn read(): String;
 }
 
 /// Wall-clock time.
 pub ability Time {
   /// Milliseconds since the Unix epoch.
-  fn now(): number;
+  fn now(): Number;
   /// Block for the given duration.
   fn wait(duration: Duration): ();
 }
@@ -47,60 +47,60 @@ pub ability Time {
 /// Non-deterministic random numbers.
 pub ability Random {
   /// A random number in `[0, 1)`.
-  fn seed(): number;
+  fn seed(): Number;
   /// A random integer in `[0, max)`.
-  fn in_range(max: number): number;
+  fn in_range(max: Number): Number;
 }
 
 /// Leveled diagnostic logging. Its output is emitted through
 /// `platform::Stdio`, so a handler for `Stdio` also captures log lines.
 pub ability Log with platform::Stdio {
-  fn debug(message: string): ();
-  fn info(message: string): ();
-  fn warn(message: string): ();
-  fn error(message: string): ();
+  fn debug(message: String): ();
+  fn info(message: String): ();
+  fn warn(message: String): ();
+  fn error(message: String): ();
 }
 
 /// File system access at scripting-language granularity.
 pub ability FileSystem {
   /// Read a file as UTF-8 text.
-  fn read(path: string): string;
+  fn read(path: String): String;
   /// Create or truncate a file with the given text.
-  fn write(path: string, content: string): ();
+  fn write(path: String, content: String): ();
   /// Read a file as raw bytes.
-  fn read_bytes(path: string): Bytes;
+  fn read_bytes(path: String): Bytes;
   /// Create or truncate a file with the given bytes.
-  fn write_bytes(path: string, data: Bytes): ();
+  fn write_bytes(path: String, data: Bytes): ();
   /// Whether the path exists (infallible: unreadable paths are `false`).
-  fn exists(path: string): bool;
+  fn exists(path: String): Bool;
   /// Sorted entry names of a directory.
-  fn list(path: string): List<string>;
+  fn list(path: String): List<String>;
   /// Remove a file or empty directory.
-  fn remove(path: string): ();
+  fn remove(path: String): ();
   /// Create a directory and any missing parents.
-  fn create_dir(path: string): ();
+  fn create_dir(path: String): ();
 }
 
 /// TCP networking. Listeners and connections are numeric handles.
 pub ability Network {
   /// Bind a listener on a `(host, port)` endpoint like `("127.0.0.1", 8080)`.
-  fn listen(endpoint: (string, number)): number;
+  fn listen(endpoint: (String, Number)): Number;
   /// Block until a client connects; returns a connection handle.
-  fn accept(listener: number): number;
+  fn accept(listener: Number): Number;
   /// Close a listener.
-  fn close_listener(listener: number): ();
+  fn close_listener(listener: Number): ();
   /// Connect to a remote `(host, port)` endpoint; returns a connection handle.
-  fn connect(endpoint: (string, number)): number;
+  fn connect(endpoint: (String, Number)): Number;
   /// Close a connection.
-  fn close(connection: number): ();
+  fn close(connection: Number): ();
   /// Send bytes over a connection.
-  fn send(connection: number, data: Bytes): ();
+  fn send(connection: Number, data: Bytes): ();
   /// Block until bytes arrive on a connection.
-  fn receive(connection: number): Bytes;
+  fn receive(connection: Number): Bytes;
   /// The local address of a connection.
-  fn local_addr(connection: number): string;
+  fn local_addr(connection: Number): String;
   /// The remote address of a connection.
-  fn peer_addr(connection: number): string;
+  fn peer_addr(connection: Number): String;
 }
 
 /// Erlang-inspired processes: named reducers with isolated state,
@@ -115,16 +115,16 @@ pub ability Process {
   /// is a declaration: an existing live name is rebound (state kept)
   /// instead of respawned. Outside a deploy pass, spawning a live name
   /// raises an Exception.
-  fn spawn<I, H>(name: string, init: I, handler: H): number;
+  fn spawn<I, H>(name: String, init: I, handler: H): Number;
   /// Deliver a message to a pid. Never fails; sends to dead processes
   /// are dropped.
-  fn send<M>(pid: number, msg: M): ();
+  fn send<M>(pid: Number, msg: M): ();
   /// Deliver a message to a named process (dropped if no such name).
-  fn send_named<M>(name: string, msg: M): ();
+  fn send_named<M>(name: String, msg: M): ();
   /// The calling process's pid (0 outside any process).
-  fn self_pid(): number;
+  fn self_pid(): Number;
   /// The pid registered under a name, or 0 if none.
-  fn whereis(name: string): number;
+  fn whereis(name: String): Number;
   /// Stop the calling process after the current reduction.
   fn exit(): ();
 }
@@ -133,15 +133,15 @@ pub ability Process {
 /// isolated VM whose capabilities the host decides.
 pub ability Execute {
   /// Whether the local store has the function.
-  fn has_function(hash: string): bool;
+  fn has_function(hash: String): Bool;
   /// Hashes of everything the function transitively calls.
-  fn get_dependencies(hash: string): List<string>;
+  fn get_dependencies(hash: String): List<String>;
   /// Load a serialized function bundle into the store.
   fn load_functions(bundle: Bytes): ();
   /// Run a stored function with the given arguments.
-  fn run<T, R>(hash: string, args: T): R;
+  fn run<T, R>(hash: String, args: T): R;
   /// Serialize functions (with dependencies) for shipping.
-  fn get_functions(hashes: List<string>): Bytes;
+  fn get_functions(hashes: List<String>): Bytes;
   /// Run a stored function with a handler value installed.
-  fn run_with<T, U, R>(hash: string, args: T, handler: U): R;
+  fn run_with<T, U, R>(hash: String, args: T, handler: U): R;
 }

@@ -10,7 +10,7 @@
 use platform::Random;
 
 /// Entry point demonstrating Random ability handlers.
-pub fn run(): number {
+pub fn run(): Number {
     // The handler intercepts platform::Random::seed!() calls
     // We can verify the handler is invoked by the program completing
     let result = handle {

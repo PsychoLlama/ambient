@@ -14,14 +14,14 @@ use platform::Stdio;
 pub fn run(): () with Stdio {
     let numbers = core::List::range(1, 11);
 
-    let squares = numbers.map((x: number) => x * x);
-    let evens = squares.filter((x: number) => is_even(x));
-    let total = evens.fold(0, (acc: number, x: number) => acc + x);
+    let squares = numbers.map((x: Number) => x * x);
+    let evens = squares.filter((x: Number) => is_even(x));
+    let total = evens.fold(0, (acc: Number, x: Number) => acc + x);
 
     Stdio::out!(string::from_number(total));
     Stdio::out!(string::from_number(stats::mean(squares)));
 }
 
-fn is_even(x: number): bool {
+fn is_even(x: Number): Bool {
     x - math::floor(x / 2) * 2 == 0
 }

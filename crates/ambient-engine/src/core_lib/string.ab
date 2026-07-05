@@ -1,39 +1,110 @@
 // Core library: string utilities.
 //
-// Helpers built on the string intrinsics (core::string::length,
-// core::string::concat, ...).
+// The public string API is exposed as inherent methods (`s.length()`,
+// `s.to_upper()`, ...), the canonical core surface. Each method delegates to
+// a low-level string intrinsic (core::string::length, core::string::concat,
+// ...), which remains the private implementation. This mirrors the
+// `impl<T> List<T>` pattern in list.ab.
+//
+// The exceptions are constructors and multi-string operations that have no
+// single `String` receiver: `from_number`/`from_bool` build a string from
+// another type, and `join` takes a `List<String>`. They stay free functions,
+// like `range` in list.ab.
 
-pub fn is_empty(s: string): bool {
-    core::string::length(s) == 0
-}
-
-pub fn from_number(n: number): string {
+pub fn from_number(n: Number): String {
     core::convert::to_string(n)
 }
 
-pub fn from_bool(b: bool): string {
+pub fn from_bool(b: Bool): String {
     if b { "true" } else { "false" }
 }
 
-// Pad on the left with `pad` until the string is at least `width` long.
-pub fn pad_start(s: string, width: number, pad: string): string {
-    if core::string::length(s) >= width {
-        s
-    } else {
-        pad_start(core::string::concat(pad, s), width, pad)
+// Method forms: `s.length()`, `s.to_upper()`, ... The inherent impl attaches
+// these to the type itself; these methods (over the string intrinsics) are
+// the canonical core API.
+impl String {
+    // Number of characters in the string.
+    fn length(self): Number {
+        core::string::length(self)
     }
-}
-
-// Pad on the right with `pad` until the string is at least `width` long.
-pub fn pad_end(s: string, width: number, pad: string): string {
-    if core::string::length(s) >= width {
-        s
-    } else {
-        pad_end(core::string::concat(s, pad), width, pad)
+    // True if the string has no characters.
+    fn is_empty(self): Bool {
+        core::string::length(self) == 0
     }
-}
-
-// Split into lines.
-pub fn lines(s: string): List<string> {
-    core::string::split(s, "\n")
+    // Concatenate `other` onto the end of this string.
+    fn concat(self, other: String): String {
+        core::string::concat(self, other)
+    }
+    // True if `needle` appears anywhere in the string.
+    fn contains(self, needle: String): Bool {
+        core::string::contains(self, needle)
+    }
+    // Split on every occurrence of `sep`.
+    fn split(self, sep: String): List<String> {
+        core::string::split(self, sep)
+    }
+    // Strip leading and trailing whitespace.
+    fn trim(self): String {
+        core::string::trim(self)
+    }
+    // The substring in [start, end).
+    fn slice(self, start: Number, end: Number): String {
+        core::string::slice(self, start, end)
+    }
+    // The characters as a list of single-character strings.
+    fn chars(self): List<String> {
+        core::string::chars(self)
+    }
+    // Replace every occurrence of `from` with `to`.
+    fn replace(self, from: String, to: String): String {
+        core::string::replace(self, from, to)
+    }
+    // True if the string begins with `prefix`.
+    fn starts_with(self, prefix: String): Bool {
+        core::string::starts_with(self, prefix)
+    }
+    // True if the string ends with `suffix`.
+    fn ends_with(self, suffix: String): Bool {
+        core::string::ends_with(self, suffix)
+    }
+    // Upper-case the string.
+    fn to_upper(self): String {
+        core::string::to_upper(self)
+    }
+    // Lower-case the string.
+    fn to_lower(self): String {
+        core::string::to_lower(self)
+    }
+    // Index of the first occurrence of `needle`, if any.
+    fn index_of(self, needle: String): Option<Number> {
+        core::string::index_of(self, needle)
+    }
+    // Repeat the string `count` times.
+    fn repeat(self, count: Number): String {
+        core::string::repeat(self, count)
+    }
+    // Reverse the string.
+    fn reverse(self): String {
+        core::string::reverse(self)
+    }
+    // Pad on the left with `pad` until the string is at least `width` long.
+    fn pad_start(self, width: Number, pad: String): String {
+        if core::string::length(self) >= width {
+            self
+        } else {
+            core::string::concat(pad, self).pad_start(width, pad)
+        }
+    }
+    // Pad on the right with `pad` until the string is at least `width` long.
+    fn pad_end(self, width: Number, pad: String): String {
+        if core::string::length(self) >= width {
+            self
+        } else {
+            core::string::concat(self, pad).pad_end(width, pad)
+        }
+    }
+    // Split into lines.
+    fn lines(self): List<String> {
+        core::string::split(self, "\n")
+    }
 }

@@ -9,14 +9,14 @@
 // (it constructs a list from two numbers), so it stays a qualified module
 // function (`core::List::range(start, end)`).
 
-fn map_from<T, U>(list: List<T>, f: (T) -> U, i: number, acc: List<U>): List<U> {
+fn map_from<T, U>(list: List<T>, f: (T) -> U, i: Number, acc: List<U>): List<U> {
     match core::List::get(list, i) {
         Some(item) => map_from(list, f, i + 1, core::List::append(acc, f(item))),
         None => acc,
     }
 }
 
-fn filter_from<T>(list: List<T>, pred: (T) -> bool, i: number, acc: List<T>): List<T> {
+fn filter_from<T>(list: List<T>, pred: (T) -> Bool, i: Number, acc: List<T>): List<T> {
     match core::List::get(list, i) {
         Some(item) => {
             let next = if pred(item) { core::List::append(acc, item) } else { acc };
@@ -26,21 +26,21 @@ fn filter_from<T>(list: List<T>, pred: (T) -> bool, i: number, acc: List<T>): Li
     }
 }
 
-fn fold_from<T, A>(list: List<T>, acc: A, f: (A, T) -> A, i: number): A {
+fn fold_from<T, A>(list: List<T>, acc: A, f: (A, T) -> A, i: Number): A {
     match core::List::get(list, i) {
         Some(item) => fold_from(list, f(acc, item), f, i + 1),
         None => acc,
     }
 }
 
-fn any_from<T>(list: List<T>, pred: (T) -> bool, i: number): bool {
+fn any_from<T>(list: List<T>, pred: (T) -> Bool, i: Number): Bool {
     match core::List::get(list, i) {
         Some(item) => pred(item) || any_from(list, pred, i + 1),
         None => false,
     }
 }
 
-fn all_from<T>(list: List<T>, pred: (T) -> bool, i: number): bool {
+fn all_from<T>(list: List<T>, pred: (T) -> Bool, i: Number): Bool {
     match core::List::get(list, i) {
         Some(item) => pred(item) && all_from(list, pred, i + 1),
         None => true,
@@ -49,7 +49,7 @@ fn all_from<T>(list: List<T>, pred: (T) -> bool, i: number): bool {
 
 // The numbers start..end (end exclusive): range(1, 4) == [1, 2, 3]. Kept as a
 // free function because it takes no receiver, so it has no method form.
-pub fn range(start: number, end: number): List<number> {
+pub fn range(start: Number, end: Number): List<Number> {
     if start >= end {
         []
     } else {
@@ -66,7 +66,7 @@ impl<T> List<T> {
         map_from(self, f, 0, [])
     }
     // Keep only elements matching the predicate.
-    fn filter(self, pred: (T) -> bool): List<T> {
+    fn filter(self, pred: (T) -> Bool): List<T> {
         filter_from(self, pred, 0, [])
     }
     // Fold from the left: [1, 2, 3].fold(0, (acc, x) => acc + x) == 6.
@@ -74,14 +74,14 @@ impl<T> List<T> {
         fold_from(self, init, f, 0)
     }
     // True if any element matches the predicate.
-    fn any(self, pred: (T) -> bool): bool {
+    fn any(self, pred: (T) -> Bool): Bool {
         any_from(self, pred, 0)
     }
     // True if every element matches the predicate.
-    fn all(self, pred: (T) -> bool): bool {
+    fn all(self, pred: (T) -> Bool): Bool {
         all_from(self, pred, 0)
     }
-    fn get(self, i: number): Option<T> {
+    fn get(self, i: Number): Option<T> {
         core::List::get(self, i)
     }
     fn head(self): Option<T> {
@@ -96,10 +96,10 @@ impl<T> List<T> {
     fn last(self): Option<T> {
         core::List::last(self)
     }
-    fn length(self): number {
+    fn length(self): Number {
         core::List::length(self)
     }
-    fn is_empty(self): bool {
+    fn is_empty(self): Bool {
         core::List::is_empty(self)
     }
     fn reverse(self): List<T> {
@@ -108,7 +108,7 @@ impl<T> List<T> {
     fn sort(self): List<T> {
         core::List::sort(self)
     }
-    fn slice(self, start: number, end: number): List<T> {
+    fn slice(self, start: Number, end: Number): List<T> {
         core::List::slice(self, start, end)
     }
     fn append(self, item: T): List<T> {
@@ -122,8 +122,8 @@ impl<T> List<T> {
 // Sum of a list of numbers. A concrete-instantiation inherent impl: it
 // attaches `sum` only to `List<number>`, and coexists with the generic
 // `impl<T> List<T>` above.
-impl List<number> {
-    fn sum(self): number {
-        self.fold(0, (acc: number, x: number) => acc + x)
+impl List<Number> {
+    fn sum(self): Number {
+        self.fold(0, (acc: Number, x: Number) => acc + x)
     }
 }

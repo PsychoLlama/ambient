@@ -17,19 +17,19 @@
 
 /// A unique user identifier.
 /// The UUID makes this type distinct from any other type with the same structure.
-unique(A1B2C3D4-E5F6-7890-ABCD-EF1234567890) type UserId { value: string }
+unique(A1B2C3D4-E5F6-7890-ABCD-EF1234567890) type UserId { value: String }
 
 /// A unique order identifier.
 /// Structurally identical to UserId (both wrap a string),
 /// but completely incompatible at the type level.
-unique(B2C3D4E5-F6A7-8901-BCDE-F12345678901) type OrderId { value: string }
+unique(B2C3D4E5-F6A7-8901-BCDE-F12345678901) type OrderId { value: String }
 
 /// US Dollars stored as cents.
-unique(D4E5F6A7-B8C9-0123-DEFA-234567890123) type USD { cents: number }
+unique(D4E5F6A7-B8C9-0123-DEFA-234567890123) type USD { cents: Number }
 
 /// Euros stored as cents.
 /// Same structure as USD, but cannot be mixed.
-unique(E5F6A7B8-C9D0-1234-EFAB-345678901234) type EUR { cents: number }
+unique(E5F6A7B8-C9D0-1234-EFAB-345678901234) type EUR { cents: Number }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Why Nominal Types Matter
@@ -58,18 +58,18 @@ unique(E5F6A7B8-C9D0-1234-EFAB-345678901234) type EUR { cents: number }
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Helper function that takes a UserId - not an OrderId or bare record!
-fn get_user_name(id: UserId): string {
+fn get_user_name(id: UserId): String {
     id.value
 }
 
 /// Helper function that takes USD - not EUR or bare number!
-fn format_usd(amount: USD): number {
+fn format_usd(amount: USD): Number {
     // Return the cents value
     amount.cents
 }
 
 /// Entry point - demonstrates nominal type construction and field access.
-pub fn run(): number {
+pub fn run(): Number {
     // Construct nominal types using TypeName { field: value } syntax
     let user = UserId { value: "user-123" };
     let order = OrderId { value: "order-456" };

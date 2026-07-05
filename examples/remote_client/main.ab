@@ -8,7 +8,6 @@
 //! Run with: `ambient run examples/remote_client`
 //! (Make sure the remote_server is running first!)
 
-use core::string;
 use platform::{Stdio, Network, Execute, Log};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -19,7 +18,7 @@ use platform::{Stdio, Network, Execute, Log};
 ///
 /// It is effectful: the Log perform runs on the *server*, dispatched to
 /// the Log handler the server's host granted to executed code.
-fn double(x: number): number with Log, Stdio {
+fn double(x: Number): Number with Log, Stdio {
     Log::info!("doubling remotely");
     x * 2
 }
@@ -30,7 +29,7 @@ pub fn run(): () with Stdio, Network, Execute {
     let conn = Network::connect!(("127.0.0.1", 8080));
 
     let local = Network::local_addr!(conn);
-    Stdio::out!(string::concat("Client: connected from ", local));
+    Stdio::out!("Client: connected from ".concat(local));
 
     // The value we want to double remotely
     let value = 21;
@@ -38,12 +37,12 @@ pub fn run(): () with Stdio, Network, Execute {
     // Create a function that takes an argument (not a capture) for remote execution
     let thunk = (x) => double(x);
 
-    Stdio::out!(string::concat("Client: sending double(", string::concat(core::convert::to_string(value), ") for remote execution...")));
+    Stdio::out!("Client: sending double(".concat(core::convert::to_string(value).concat(") for remote execution...")));
 
     // Send the Execute message
     let result = send_and_receive(conn, value, thunk);
 
-    Stdio::out!(string::concat("Client: got result = ", core::convert::to_string(result)));
+    Stdio::out!("Client: got result = ".concat(core::convert::to_string(result)));
 
     Network::close!(conn);
     Stdio::out!("Client: done")
@@ -54,11 +53,11 @@ pub fn run(): () with Stdio, Network, Execute {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Send a function for remote execution and receive the result.
-fn send_and_receive<A>(conn: number, arg: A, thunk: (A) -> number with Log, Stdio): number with Stdio, Network, Execute {
+fn send_and_receive<A>(conn: Number, arg: A, thunk: (A) -> Number with Log, Stdio): Number with Stdio, Network, Execute {
     let hash = core::protocol::closure_hash(thunk);
     let captures = core::protocol::serialize_value(arg);
 
-    Stdio::out!(string::concat("Client: closure hash = ", hash));
+    Stdio::out!("Client: closure hash = ".concat(hash));
 
     // Build Execute message: [msg_type, hash_len, hash_bytes, captures]
     let hash_bytes = core::protocol::serialize_value(hash);
@@ -74,7 +73,7 @@ fn send_and_receive<A>(conn: number, arg: A, thunk: (A) -> number with Log, Stdi
 }
 
 /// Handle server response.
-fn handle_response<A>(conn: number, thunk: (A) -> number with Log, Stdio): number with Stdio, Network, Execute {
+fn handle_response<A>(conn: Number, thunk: (A) -> Number with Log, Stdio): Number with Stdio, Network, Execute {
     let response = Network::receive!(conn);
 
     if core::bytes::length(response) == 0 {
@@ -94,7 +93,7 @@ fn handle_response<A>(conn: number, thunk: (A) -> number with Log, Stdio): numbe
                 Stdio::out!("Client: server needs function bytecode");
                 let payload = core::bytes::slice(response, 1, core::bytes::length(response));
                 let hashes_opt = core::protocol::deserialize_value(payload);
-                let hashes: List<string> = hashes_opt.unwrap_or([]);
+                let hashes: List<String> = hashes_opt.unwrap_or([]);
 
                 // Send Provide message with function bytecode
                 let data = Execute::get_functions!(hashes);

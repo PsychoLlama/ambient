@@ -5,7 +5,7 @@
 //! "FizzBuzz" for multiples of both, or the number itself.
 
 /// Returns the fizzbuzz result for a single number.
-fn fizzbuzz(n: number): string {
+fn fizzbuzz(n: Number): String {
     let div3 = n % 3 == 0;
     let div5 = n % 5 == 0;
 
@@ -21,7 +21,7 @@ fn fizzbuzz(n: number): string {
 }
 
 /// Computes fizzbuzz for all numbers in a range.
-fn fizzbuzz_range(start: number, end: number, acc: List<string>): List<string> {
+fn fizzbuzz_range(start: Number, end: Number, acc: List<String>): List<String> {
     if start > end {
         acc
     } else {
@@ -29,7 +29,7 @@ fn fizzbuzz_range(start: number, end: number, acc: List<string>): List<string> {
     }
 }
 
-pub fn run(): string {
+pub fn run(): String {
     let results = fizzbuzz_range(1, 20, []);
     core::string::join(results, ", ")
 }

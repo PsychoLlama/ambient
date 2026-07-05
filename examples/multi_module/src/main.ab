@@ -24,7 +24,7 @@ use pkg::geometry;
 use geometry::circle::area;
 
 /// Entry point that demonstrates using functions from multiple modules.
-pub fn run(): number {
+pub fn run(): Number {
     // Test math_utils functions
     let a = abs(0 - 42);        // 42
     let b = min(10, 5);         // 5

@@ -6,7 +6,6 @@
 //! Run with: `ambient run examples/network_client`
 //! (Make sure the network_server is running first!)
 
-use core::string;
 use platform::{Stdio, Network};
 
 /// Entry point that connects to a server and sends messages.
@@ -15,16 +14,16 @@ pub fn run(): () with Stdio, Network {
     let conn = Network::connect!(("127.0.0.1", 9000));
 
     let local = Network::local_addr!(conn);
-    Stdio::out!(string::concat("Client: connected from ", local));
+    Stdio::out!("Client: connected from ".concat(local));
 
     // Send a message as Bytes
     let message = string_to_bytes("Hello from Ambient!");
-    Stdio::out!(string::concat("Client: sending ", string::concat(core::convert::to_string(core::bytes::length(message)), " bytes...")));
+    Stdio::out!("Client: sending ".concat(core::convert::to_string(core::bytes::length(message)).concat(" bytes...")));
     Network::send!(conn, message);
 
     // Receive the echo
     let response = Network::receive!(conn);
-    Stdio::out!(string::concat("Client: received ", string::concat(core::convert::to_string(core::bytes::length(response)), " bytes back")));
+    Stdio::out!("Client: received ".concat(core::convert::to_string(core::bytes::length(response)).concat(" bytes back")));
 
     // Send empty message to signal quit
     Stdio::out!("Client: sending empty message to quit...");
@@ -35,7 +34,7 @@ pub fn run(): () with Stdio, Network {
 }
 
 /// Convert a string to Bytes (ASCII).
-fn string_to_bytes(s: string): Bytes {
+fn string_to_bytes(s: String): Bytes {
     // For now, just create a simple test payload
     // In a real implementation, we'd use core::string::bytes or similar
     // "Hello from Ambient!" in ASCII

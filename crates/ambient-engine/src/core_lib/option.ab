@@ -55,14 +55,14 @@ impl<T> Option<T> {
         }
     }
     // Is this a `Some`?
-    fn is_some(self): bool {
+    fn is_some(self): Bool {
         match self {
             Some(_) => true,
             None => false,
         }
     }
     // Is this a `None`?
-    fn is_none(self): bool {
+    fn is_none(self): Bool {
         match self {
             Some(_) => false,
             None => true,

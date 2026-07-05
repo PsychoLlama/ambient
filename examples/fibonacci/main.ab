@@ -3,7 +3,7 @@
 //! Demonstrates recursion and different algorithmic approaches.
 
 /// Classic recursive fibonacci (exponential time complexity).
-fn fib_recursive(n: number): number {
+fn fib_recursive(n: Number): Number {
     if n <= 1 {
         n
     } else {
@@ -12,11 +12,11 @@ fn fib_recursive(n: number): number {
 }
 
 /// Tail-recursive fibonacci with accumulator (linear time complexity).
-fn fib_tail(n: number): number {
+fn fib_tail(n: Number): Number {
     fib_tail_helper(n, 0, 1)
 }
 
-fn fib_tail_helper(n: number, a: number, b: number): number {
+fn fib_tail_helper(n: Number, a: Number, b: Number): Number {
     if n == 0 {
         a
     } else {
@@ -25,7 +25,7 @@ fn fib_tail_helper(n: number, a: number, b: number): number {
 }
 
 /// Generates the first `n` fibonacci numbers as a list.
-fn fib_list(n: number): List<number> {
+fn fib_list(n: Number): List<Number> {
     if n <= 0 {
         []
     } else if n == 1 {
@@ -35,7 +35,7 @@ fn fib_list(n: number): List<number> {
     }
 }
 
-fn fib_list_helper(remaining: number, acc: List<number>): List<number> {
+fn fib_list_helper(remaining: Number, acc: List<Number>): List<Number> {
     if remaining <= 0 {
         acc
     } else {
@@ -46,11 +46,11 @@ fn fib_list_helper(remaining: number, acc: List<number>): List<number> {
 }
 
 /// Checks if a number is a fibonacci number.
-fn is_fibonacci(n: number): bool {
+fn is_fibonacci(n: Number): Bool {
     is_fib_helper(n, 0, 1)
 }
 
-fn is_fib_helper(target: number, a: number, b: number): bool {
+fn is_fib_helper(target: Number, a: Number, b: Number): Bool {
     if a == target {
         true
     } else if a > target {
@@ -60,7 +60,7 @@ fn is_fib_helper(target: number, a: number, b: number): bool {
     }
 }
 
-pub fn run(): number {
+pub fn run(): Number {
     // Test recursive fib (small n due to exponential time)
     let r1 = fib_recursive(10);  // Expected: 55
 

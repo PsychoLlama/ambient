@@ -6,7 +6,7 @@ use self::math_utils::{abs, approx_eq};
 use self::list_utils::{sum, average, maximum, minimum};
 
 /// Calculates the variance of a list of numbers.
-pub fn variance(xs: List<number>): number {
+pub fn variance(xs: List<Number>): Number {
     let len = xs.length();
     if len == 0 {
         0
@@ -16,7 +16,7 @@ pub fn variance(xs: List<number>): number {
     }
 }
 
-fn sum_squared_diff(xs: List<number>, mean: number, acc: number): number {
+fn sum_squared_diff(xs: List<Number>, mean: Number, acc: Number): Number {
     match xs.head() {
         Some(h) => {
             let diff = h - mean;
@@ -27,7 +27,7 @@ fn sum_squared_diff(xs: List<number>, mean: number, acc: number): number {
 }
 
 /// Calculates the range (max - min) of a list.
-pub fn range(xs: List<number>): number {
+pub fn range(xs: List<Number>): Number {
     if xs.length() == 0 {
         0
     } else {
@@ -36,6 +36,6 @@ pub fn range(xs: List<number>): number {
 }
 
 /// Checks if two lists have the same sum.
-pub fn same_sum(xs: List<number>, ys: List<number>): bool {
+pub fn same_sum(xs: List<Number>, ys: List<Number>): Bool {
     approx_eq(sum(xs), sum(ys))
 }

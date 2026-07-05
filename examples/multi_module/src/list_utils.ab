@@ -3,11 +3,11 @@
 //! This module provides common list operations.
 
 /// Sums all numbers in a list.
-pub fn sum(xs: List<number>): number {
+pub fn sum(xs: List<Number>): Number {
     sum_helper(xs, 0)
 }
 
-fn sum_helper(xs: List<number>, acc: number): number {
+fn sum_helper(xs: List<Number>, acc: Number): Number {
     match xs.head() {
         Some(h) => sum_helper(core::List::tail(xs), acc + h),
         None => acc,
@@ -15,11 +15,11 @@ fn sum_helper(xs: List<number>, acc: number): number {
 }
 
 /// Computes the product of all numbers in a list.
-pub fn product(xs: List<number>): number {
+pub fn product(xs: List<Number>): Number {
     product_helper(xs, 1)
 }
 
-fn product_helper(xs: List<number>, acc: number): number {
+fn product_helper(xs: List<Number>, acc: Number): Number {
     match xs.head() {
         Some(h) => product_helper(core::List::tail(xs), acc * h),
         None => acc,
@@ -27,14 +27,14 @@ fn product_helper(xs: List<number>, acc: number): number {
 }
 
 /// Finds the maximum value in a list (0 for an empty list).
-pub fn maximum(xs: List<number>): number {
+pub fn maximum(xs: List<Number>): Number {
     match xs.head() {
         Some(h) => max_helper(core::List::tail(xs), h),
         None => 0,
     }
 }
 
-fn max_helper(xs: List<number>, current: number): number {
+fn max_helper(xs: List<Number>, current: Number): Number {
     match xs.head() {
         Some(h) => {
             let new_max = if h > current { h } else { current };
@@ -45,14 +45,14 @@ fn max_helper(xs: List<number>, current: number): number {
 }
 
 /// Finds the minimum value in a list (0 for an empty list).
-pub fn minimum(xs: List<number>): number {
+pub fn minimum(xs: List<Number>): Number {
     match xs.head() {
         Some(h) => min_helper(core::List::tail(xs), h),
         None => 0,
     }
 }
 
-fn min_helper(xs: List<number>, current: number): number {
+fn min_helper(xs: List<Number>, current: Number): Number {
     match xs.head() {
         Some(h) => {
             let new_min = if h < current { h } else { current };
@@ -63,7 +63,7 @@ fn min_helper(xs: List<number>, current: number): number {
 }
 
 /// Calculates the average of a list of numbers.
-pub fn average(xs: List<number>): number {
+pub fn average(xs: List<Number>): Number {
     let len = xs.length();
     if len == 0 {
         0

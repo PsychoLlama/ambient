@@ -18,14 +18,14 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0002) enum Result<T, E> {
 // to use Result's combinators and predicates.
 impl<T, E> Result<T, E> {
     // Is this an `Ok`?
-    fn is_ok(self): bool {
+    fn is_ok(self): Bool {
         match self {
             Ok(_) => true,
             Err(_) => false,
         }
     }
     // Is this an `Err`?
-    fn is_err(self): bool {
+    fn is_err(self): Bool {
         match self {
             Ok(_) => false,
             Err(_) => true,

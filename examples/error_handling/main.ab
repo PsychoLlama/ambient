@@ -4,7 +4,7 @@
 //! Shows how to catch and handle errors using handlers.
 
 /// Entry point demonstrating error handling with handlers.
-pub fn run(): number {
+pub fn run(): Number {
     // Test 1: Success case - no exception thrown
     let success_result = handle {
         // No error here, just return a value
