@@ -50,53 +50,7 @@
 
     {
       packages = eachSystem (
-        system: pkgs:
-        let
-          rustToolchain = rustToolchainFor pkgs;
-          rustPlatform = pkgs.makeRustPlatform {
-            cargo = rustToolchain;
-            rustc = rustToolchain;
-          };
-        in
-        {
-          ambient = rustPlatform.buildRustPackage {
-            pname = "ambient";
-            version = "0.1.0";
-            src = ./.;
-            cargoLock.lockFile = ./Cargo.lock;
-
-            # Skip PTY integration tests in nix build (dynamic linker issues in sandbox)
-            checkFlags = [
-              "--skip=test_basic_arithmetic"
-              "--skip=test_boolean_literal"
-              "--skip=test_clear_command"
-              "--skip=test_completion_no_snippet_syntax"
-              "--skip=test_console_dot_completion_preserves_prefix"
-              "--skip=test_core_string_methods_completion"
-              "--skip=test_ctrl_c_interrupt"
-              "--skip=test_define_and_call_function"
-              "--skip=test_define_constant"
-              "--skip=test_help_command"
-              "--skip=test_history_up_arrow"
-              "--skip=test_multiplication"
-              "--skip=test_parse_error"
-              "--skip=test_tab_completion_console"
-              "--skip=test_tab_completion_keyword"
-              "--skip=test_undefined_variable"
-              "--skip=test_unterminated_string_does_not_crash"
-              "--skip=test_core_list_shadow_suggestion_shows_only_suffix"
-              "--skip=test_core_list_dot_shows_function_completions"
-              "--skip=test_core_list_first_inspects_as_function"
-              "--skip=test_dotted_module_path_is_rejected"
-              "--skip=test_user_defined_function_inspection"
-            ];
-
-            meta = {
-              description = "Ambient programming language CLI";
-              mainProgram = "ambient";
-            };
-          };
-
+        system: pkgs: {
           tree-sitter-ambient = pkgs.stdenv.mkDerivation {
             pname = "tree-sitter-ambient";
             version = "0.1.0";
@@ -152,8 +106,6 @@
                 homepage = "https://github.com/psychollama/ambient";
               };
             };
-
-          default = self.packages.${system}.ambient;
         }
       );
 
