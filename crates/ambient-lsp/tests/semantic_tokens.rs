@@ -10,7 +10,7 @@ use lsp_types::Uri;
 fn semantic_tokens_are_produced_for_a_document() {
     let mut client = TestClient::new();
     let uri: Uri = "file:///test.ab".parse().unwrap();
-    client.open_document(uri.clone(), "fn greet(): number { 42 }\n");
+    client.open_document(uri.clone(), "fn greet(): Number { 42 }\n");
 
     let tokens = client.semantic_tokens(&uri);
 

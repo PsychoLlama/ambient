@@ -331,8 +331,7 @@ impl TokenKind {
     #[must_use]
     pub const fn builtin_types() -> &'static [&'static str] {
         &[
-            "number", "string", "bool", "Number", "String", "Bool", "Bytes", "List", "Map", "Set",
-            "Option", "Result",
+            "Number", "String", "Bool", "Bytes", "List", "Map", "Set", "Option", "Result",
         ]
     }
 

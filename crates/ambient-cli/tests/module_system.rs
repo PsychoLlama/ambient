@@ -108,7 +108,7 @@ fn check_passes(dir: &Path) {
 // Deep module trees and directory namespaces
 // ─────────────────────────────────────────────────────────────────────────
 
-const LEAF: &str = "pub fn leaf_fn(): number { 7 }\n";
+const LEAF: &str = "pub fn leaf_fn(): Number { 7 }\n";
 
 #[test]
 fn every_spelling_reaches_a_deep_module() {
@@ -126,7 +126,7 @@ use pkg::deep::nested;
 use pkg::deep;
 use deep::nested as nested2;
 
-pub fn run(): number {
+pub fn run(): Number {
   leaf_fn()
     + leaf::leaf_fn()
     + nested::leaf::leaf_fn()
@@ -143,15 +143,15 @@ pub fn run(): number {
 #[test]
 fn self_and_super_are_directory_relative() {
     let dir = package(&[
-        ("a/b/mid.ab", "pub fn mid(): number { 10 }\n"),
+        ("a/b/mid.ab", "pub fn mid(): Number { 10 }\n"),
         (
             "a/b/user.ab",
-            "use self::mid::mid;\npub fn both(): number { mid() + super::top::top() }\n",
+            "use self::mid::mid;\npub fn both(): Number { mid() + super::top::top() }\n",
         ),
-        ("a/top.ab", "pub fn top(): number { 3 }\n"),
+        ("a/top.ab", "pub fn top(): Number { 3 }\n"),
         (
             "main.ab",
-            "pub fn run(): number { pkg::a::b::user::both() }\n",
+            "pub fn run(): Number { pkg::a::b::user::both() }\n",
         ),
     ]);
     assert_eq!(run(dir.path()), "13");
@@ -166,7 +166,7 @@ fn use_trees_flatten_to_plain_imports() {
     let dir = package(&[
         (
             "util.ab",
-            "pub fn double(x: number): number { x * 2 }\npub const ANSWER: number = 42;\n",
+            "pub fn double(x: Number): Number { x * 2 }\npub const ANSWER: Number = 42;\n",
         ),
         ("deep/nested/leaf.ab", LEAF),
         (
@@ -175,7 +175,7 @@ fn use_trees_flatten_to_plain_imports() {
 use {pkg::util::double, pkg::deep::{nested::leaf::leaf_fn as leaf7}};
 use core::math::sqrt as root;
 
-pub fn run(): number {
+pub fn run(): Number {
   double(leaf7()) + root(4)
 }
 ",
@@ -187,11 +187,11 @@ pub fn run(): number {
 #[test]
 fn use_works_in_blocks_and_scopes_to_them() {
     let dir = package(&[
-        ("util.ab", "pub const ANSWER: number = 42;\n"),
+        ("util.ab", "pub const ANSWER: Number = 42;\n"),
         (
             "main.ab",
             r"
-pub fn run(): number {
+pub fn run(): Number {
   let a = {
     use pkg::util::ANSWER;
     ANSWER
@@ -207,11 +207,11 @@ pub fn run(): number {
 #[test]
 fn block_import_does_not_leak_out_of_its_block() {
     let dir = package(&[
-        ("util.ab", "pub const ANSWER: number = 42;\n"),
+        ("util.ab", "pub const ANSWER: Number = 42;\n"),
         (
             "main.ab",
             r"
-pub fn run(): number {
+pub fn run(): Number {
   let a = { use pkg::util::ANSWER; ANSWER };
   ANSWER
 }
@@ -235,7 +235,7 @@ use core::math::sqrt;
 use core::math;
 use core::List;
 
-pub fn run(): number {
+pub fn run(): Number {
   sqrt(16) + math::sqrt(16) + core::math::sqrt(16) + List::length(List::range(1, 4))
 }
 ",
@@ -250,14 +250,14 @@ pub fn run(): number {
 #[test]
 fn constants_resolve_through_every_spelling() {
     let dir = package(&[
-        ("util.ab", "pub const ANSWER: number = 42;\n"),
+        ("util.ab", "pub const ANSWER: Number = 42;\n"),
         (
             "main.ab",
             r"
 use pkg::util::ANSWER;
 use pkg::util;
 
-pub fn run(): number { ANSWER + util::ANSWER + pkg::util::ANSWER }
+pub fn run(): Number { ANSWER + util::ANSWER + pkg::util::ANSWER }
 ",
         ),
     ]);
@@ -273,17 +273,17 @@ fn abilities_perform_and_handle_across_modules() {
     let dir = package(&[
         (
             "effects.ab",
-            "pub ability Counter {\n  fn next(): number;\n}\n",
+            "pub ability Counter {\n  fn next(): Number;\n}\n",
         ),
         (
             "main.ab",
             r"
 use pkg::effects::Counter;
 
-fn tick(): number with Counter { Counter::next!() }
-fn tock(): number with pkg::effects::Counter { pkg::effects::Counter::next!() }
+fn tick(): Number with Counter { Counter::next!() }
+fn tock(): Number with pkg::effects::Counter { pkg::effects::Counter::next!() }
 
-pub fn run(): number {
+pub fn run(): Number {
   handle tick() + tock() {
     Counter::next() => resume(5)
   }
@@ -299,16 +299,16 @@ fn qualified_handler_arms_match_imported_performs() {
     let dir = package(&[
         (
             "effects.ab",
-            "pub ability Counter {\n  fn next(): number;\n}\n",
+            "pub ability Counter {\n  fn next(): Number;\n}\n",
         ),
         (
             "worker.ab",
-            "use pkg::effects::Counter;\npub fn tick(): number with Counter { Counter::next!() }\n",
+            "use pkg::effects::Counter;\npub fn tick(): Number with Counter { Counter::next!() }\n",
         ),
         (
             "main.ab",
             r"
-pub fn run(): number {
+pub fn run(): Number {
   handle pkg::worker::tick() {
     pkg::effects::Counter::next() => resume(9)
   }
@@ -324,8 +324,8 @@ pub fn run(): number {
 // ─────────────────────────────────────────────────────────────────────────
 
 const SHAPES: &str = r"
-pub unique(D098767B-4093-4D5C-BA37-AD92AA7B5D01) type Money { cents: number }
-pub unique(D098767B-4093-4D5C-BA37-AD92AA7B5D02) enum Shape { Circle(number), Dot }
+pub unique(D098767B-4093-4D5C-BA37-AD92AA7B5D01) type Money { cents: Number }
+pub unique(D098767B-4093-4D5C-BA37-AD92AA7B5D02) enum Shape { Circle(Number), Dot }
 ";
 
 #[test]
@@ -335,7 +335,7 @@ fn qualified_types_work_in_annotations_and_constructors() {
         (
             "main.ab",
             r"
-pub fn run(): number {
+pub fn run(): Number {
   let m: pkg::shapes::Money = pkg::shapes::Money { cents: 7 };
   m.cents
 }
@@ -354,11 +354,11 @@ fn qualified_enum_type_unifies_with_imported_constructors() {
             r"
 use pkg::shapes::Shape;
 
-pub fn area(s: pkg::shapes::Shape): number {
+pub fn area(s: pkg::shapes::Shape): Number {
   match s { Circle(r) => r * r, Dot => 0 }
 }
 
-pub fn run(): number { area(Circle(3)) }
+pub fn run(): Number { area(Circle(3)) }
 ",
         ),
     ]);
@@ -372,7 +372,7 @@ pub fn run(): number { area(Circle(3)) }
 #[test]
 fn re_exports_resolve_to_their_origin() {
     let dir = package(&[
-        ("origin.ab", "pub fn helper(): number { 11 }\n"),
+        ("origin.ab", "pub fn helper(): Number { 11 }\n"),
         (
             "facade.ab",
             "pub use pkg::origin::helper;\npub use pkg::origin::helper as aka;\npub use pkg::origin;\n",
@@ -383,7 +383,7 @@ fn re_exports_resolve_to_their_origin() {
 use pkg::facade::helper;
 use pkg::facade::aka;
 
-pub fn run(): number {
+pub fn run(): Number {
   helper() + aka() + pkg::facade::helper() + pkg::facade::origin::helper()
 }
 ",
@@ -399,8 +399,8 @@ pub fn run(): number {
 #[test]
 fn private_items_stay_private_through_paths() {
     let dir = package(&[
-        ("util.ab", "fn secret(): number { 1 }\n"),
-        ("main.ab", "pub fn run(): number { pkg::util::secret() }\n"),
+        ("util.ab", "fn secret(): Number { 1 }\n"),
+        ("main.ab", "pub fn run(): Number { pkg::util::secret() }\n"),
     ]);
     let out = check_fails(dir.path());
     assert!(out.contains("secret"), "unexpected output:\n{out}");
@@ -410,7 +410,7 @@ fn private_items_stay_private_through_paths() {
 fn missing_import_is_an_error_at_the_use_item() {
     let dir = package(&[(
         "main.ab",
-        "use pkg::nonexistent::thing;\npub fn run(): number { 1 }\n",
+        "use pkg::nonexistent::thing;\npub fn run(): Number { 1 }\n",
     )]);
     let out = check_fails(dir.path());
     assert!(out.contains("import failed"), "unexpected output:\n{out}");
@@ -420,7 +420,7 @@ fn missing_import_is_an_error_at_the_use_item() {
 fn unresolved_alias_head_is_an_error() {
     let dir = package(&[(
         "main.ab",
-        "use nowhere::thing;\npub fn run(): number { 1 }\n",
+        "use nowhere::thing;\npub fn run(): Number { 1 }\n",
     )]);
     let out = check_fails(dir.path());
     assert!(out.contains("nowhere"), "unexpected output:\n{out}");
@@ -429,8 +429,8 @@ fn unresolved_alias_head_is_an_error() {
 #[test]
 fn reserved_root_module_names_are_rejected() {
     let dir = package(&[
-        ("core.ab", "pub fn f(): number { 1 }\n"),
-        ("main.ab", "pub fn run(): number { 1 }\n"),
+        ("core.ab", "pub fn f(): Number { 1 }\n"),
+        ("main.ab", "pub fn run(): Number { 1 }\n"),
     ]);
     let out = check_fails(dir.path());
     assert!(out.contains("reserved"), "unexpected output:\n{out}");
@@ -442,7 +442,7 @@ fn check_and_run_agree_on_the_full_matrix() {
     // clean and runs.
     let dir = package(&[
         ("shapes.ab", SHAPES),
-        ("util.ab", "pub fn double(x: number): number { x * 2 }\n"),
+        ("util.ab", "pub fn double(x: Number): Number { x * 2 }\n"),
         ("deep/nested/leaf.ab", LEAF),
         (
             "main.ab",
@@ -450,7 +450,7 @@ fn check_and_run_agree_on_the_full_matrix() {
 use {pkg::util::double, pkg::shapes::Shape};
 use pkg::deep::nested;
 
-pub fn run(): number {
+pub fn run(): Number {
   let s: Shape = Circle(nested::leaf::leaf_fn());
   match s { Circle(r) => double(r), Dot => 0 }
 }

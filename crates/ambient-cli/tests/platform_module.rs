@@ -123,7 +123,7 @@ fn local_ability_shadows_imported_platform() {
     // qualified. Both spellings type-check.
     let errors = check_errors(
         "use platform::Stdio;\n\
-         ability Stdio { fn out(msg: string): (); }\n\
+         ability Stdio { fn out(msg: String): (); }\n\
          fn local(): () with Stdio { Stdio::out!(\"hi\") }\n\
          fn plat(): () with platform::Stdio { platform::Stdio::out!(\"hi\") }",
     );

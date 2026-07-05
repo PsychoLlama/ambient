@@ -963,9 +963,9 @@ mod tests {
 
     #[test]
     fn test_type_completions() {
-        let items = get_type_completions("num");
+        let items = get_type_completions("Num");
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].label, "number");
+        assert_eq!(items[0].label, "Number");
     }
 
     #[test]

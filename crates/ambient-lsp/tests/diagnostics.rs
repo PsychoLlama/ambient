@@ -5,7 +5,7 @@ use ambient_lsp::test_harness::LspTest;
 #[test]
 fn test_valid_code_no_diagnostics() {
     LspTest::new()
-        .with_source("fn add(x: number, y: number): number { x + y }")
+        .with_source("fn add(x: Number, y: Number): Number { x + y }")
         .expect_no_diagnostics()
         .shutdown();
 }
@@ -21,7 +21,7 @@ fn test_simple_function_no_diagnostics() {
 #[test]
 fn test_type_mismatch_diagnostic() {
     LspTest::new()
-        .with_source("fn bad(): string { 42 }")
+        .with_source("fn bad(): String { 42 }")
         .expect_diagnostic_at(1, "type mismatch")
         .expect_diagnostic_count(1)
         .shutdown();
@@ -49,8 +49,8 @@ fn test_multiple_errors() {
     LspTest::new()
         .with_source(
             r#"
-fn bad1(): string { 42 }
-fn bad2(): bool { "hello" }
+fn bad1(): String { 42 }
+fn bad2(): Bool { "hello" }
 "#,
         )
         .expect_diagnostic_count(2)
@@ -62,7 +62,7 @@ fn test_multiline_function_no_errors() {
     LspTest::new()
         .with_source(
             r#"
-fn add(a: number, b: number): number {
+fn add(a: Number, b: Number): Number {
     let sum = a + b;
     sum
 }
@@ -77,7 +77,7 @@ fn test_if_expression_type_mismatch() {
     LspTest::new()
         .with_source(
             r#"
-fn foo(): number {
+fn foo(): Number {
     if true { 42 } else { "wrong" }
 }
 "#,
@@ -93,7 +93,7 @@ fn test_function_call_arity_mismatch() {
     LspTest::new()
         .with_source(
             r#"
-fn add(x: number, y: number): number { x + y }
+fn add(x: Number, y: Number): Number { x + y }
 fn test() { add(1) }
 "#,
         )
@@ -106,7 +106,7 @@ fn test_recursive_function_no_error() {
     LspTest::new()
         .with_source(
             r#"
-fn factorial(n: number): number {
+fn factorial(n: Number): Number {
     if n <= 1 { 1 } else { n * factorial(n - 1) }
 }
 "#,

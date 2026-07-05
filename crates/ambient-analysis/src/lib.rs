@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn clean_source_has_no_diagnostics() {
-        let result = analyze("fn add(x: number, y: number): number { x + y }");
+        let result = analyze("fn add(x: Number, y: Number): Number { x + y }");
         assert!(!result.has_errors());
         assert_eq!(result.module.items.len(), 1);
         assert!(result.diagnostics().is_empty());
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn type_error_is_reported() {
-        let result = analyze("fn bad(): string { 42 }");
+        let result = analyze("fn bad(): String { 42 }");
         assert!(result.has_errors());
         assert_eq!(result.parse_errors.len(), 0);
         assert!(!result.type_errors.is_empty());
@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     fn parse_error_still_yields_partial_module() {
-        let result = analyze("fn ok(): number { 1 }\nfn broken(\n");
+        let result = analyze("fn ok(): Number { 1 }\nfn broken(\n");
         assert!(!result.parse_errors.is_empty());
         assert_eq!(result.module.items.len(), 1);
     }
@@ -328,7 +328,7 @@ mod tests {
         // `bad` has a type error, `broken` a parse error. Reporting shows
         // only the parse error (CLI parity); the type error is still
         // computed for IDE consumers.
-        let result = analyze("fn bad(): string { 42 }\nfn broken(\n");
+        let result = analyze("fn bad(): String { 42 }\nfn broken(\n");
         let diagnostics = result.diagnostics();
         assert!(!result.parse_errors.is_empty());
         assert!(!result.type_errors.is_empty());
@@ -337,14 +337,14 @@ mod tests {
 
     #[test]
     fn lexer_error_yields_empty_module() {
-        let result = analyze("fn s(): string { \"unterminated }");
+        let result = analyze("fn s(): String { \"unterminated }");
         assert!(result.module.items.is_empty());
         assert_eq!(result.diagnostics().len(), 1);
     }
 
     #[test]
     fn diagnostics_are_in_source_order() {
-        let result = analyze("fn a(): string { 1 }\nfn b(): string { 2 }");
+        let result = analyze("fn a(): String { 1 }\nfn b(): String { 2 }");
         let diagnostics = result.diagnostics();
         assert_eq!(diagnostics.len(), 2);
         assert!(diagnostics[0].span.start < diagnostics[1].span.start);

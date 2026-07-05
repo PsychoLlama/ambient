@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn diagnostics_carry_shared_message_text() {
-        let source = "fn bad(): string { 42 }";
+        let source = "fn bad(): String { 42 }";
         let doc = test_doc(source);
         let result = ambient_analysis::analyze(source);
         let diagnostics = result.diagnostics();
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn parse_error_diagnostic_has_position() {
-        let source = "fn foo(): number { 1 }\nfn broken(\n";
+        let source = "fn foo(): Number { 1 }\nfn broken(\n";
         let doc = test_doc(source);
         let result = ambient_analysis::analyze(source);
         let diagnostics = result.diagnostics();

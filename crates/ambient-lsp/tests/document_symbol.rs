@@ -12,7 +12,7 @@ fn document_symbol_lists_top_level_items() {
     let uri: Uri = "file:///test.ab".parse().unwrap();
     client.open_document(
         uri.clone(),
-        "fn foo(): number { 1 }\nfn bar(): number { foo() }\n",
+        "fn foo(): Number { 1 }\nfn bar(): Number { foo() }\n",
     );
 
     let symbols = client.document_symbol(&uri);

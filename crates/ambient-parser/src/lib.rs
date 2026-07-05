@@ -40,7 +40,7 @@
 //! use ambient_parser::{parse, parse_expr};
 //!
 //! // Parse a complete module
-//! let source = "fn add(x: number, y: number): number { x + y }";
+//! let source = "fn add(x: Number, y: Number): Number { x + y }";
 //! let module = parse(source).expect("parse error");
 //!
 //! // Parse a single expression

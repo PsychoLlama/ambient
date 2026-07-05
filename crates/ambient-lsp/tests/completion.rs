@@ -38,10 +38,10 @@ fn test_keyword_completion_if() {
 #[test]
 fn test_type_completion_number() {
     LspTest::new()
-        .with_source("fn foo(x: num/*|*/)")
+        .with_source("fn foo(x: Num/*|*/)")
         .complete_at("0")
-        .expect_item("number")
-        .expect_item_kind("number", CompletionItemKind::TYPE_PARAMETER)
+        .expect_item("Number")
+        .expect_item_kind("Number", CompletionItemKind::TYPE_PARAMETER)
         .done()
         .shutdown();
 }
@@ -49,9 +49,9 @@ fn test_type_completion_number() {
 #[test]
 fn test_type_completion_string() {
     LspTest::new()
-        .with_source("fn foo(x: str/*|*/)")
+        .with_source("fn foo(x: Str/*|*/)")
         .complete_at("0")
-        .expect_item("string")
+        .expect_item("String")
         .done()
         .shutdown();
 }
@@ -59,9 +59,9 @@ fn test_type_completion_string() {
 #[test]
 fn test_type_completion_bool() {
     LspTest::new()
-        .with_source("fn foo(x: bo/*|*/)")
+        .with_source("fn foo(x: Bo/*|*/)")
         .complete_at("0")
-        .expect_item("bool")
+        .expect_item("Bool")
         .done()
         .shutdown();
 }
@@ -128,7 +128,7 @@ fn test_local_variable_completion() {
 #[test]
 fn test_parameter_completion() {
     LspTest::new()
-        .with_source("fn foo(param: number) { par/*|*/ }")
+        .with_source("fn foo(param: Number) { par/*|*/ }")
         .complete_at("0")
         .expect_item("param")
         .expect_item_kind("param", CompletionItemKind::VARIABLE)
@@ -226,7 +226,7 @@ fn test_time_ability_methods() {
 #[test]
 fn test_unique_uuid_completion() {
     let (test, items) = LspTest::new()
-        .with_source("unique(/*|*/) type UserId { value: string }")
+        .with_source("unique(/*|*/) type UserId { value: String }")
         .complete_at("0")
         .raw();
 
@@ -276,7 +276,7 @@ fn test_unique_uuid_completion() {
 fn test_unique_uuid_completion_partial() {
     // Even with partial UUID already typed, should still offer completion
     let (test, items) = LspTest::new()
-        .with_source("unique(abc/*|*/) type UserId { value: string }")
+        .with_source("unique(abc/*|*/) type UserId { value: String }")
         .complete_at("0")
         .raw();
 

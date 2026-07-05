@@ -97,12 +97,12 @@ fn range_width(loc: &Location) -> u32 {
     loc.range.end.character - loc.range.start.character
 }
 
-const UTILS: &str = "pub fn target(): number { 42 }\n";
+const UTILS: &str = "pub fn target(): Number { 42 }\n";
 
 /// A caller in a separate module that imports and calls `target`.
 const MAIN_ONE_CALLER: &str = "\
 use pkg::utils::{target};
-fn caller(): number { target() }
+fn caller(): Number { target() }
 ";
 
 #[test]
@@ -191,7 +191,7 @@ fn references_reach_a_caller_in_an_unopened_file() {
     // occurrence index walks every module the package discovered on disk.
     let other = "\
 use pkg::utils::{target};
-fn other_caller(): number { target() + 1 }
+fn other_caller(): Number { target() + 1 }
 ";
     let mut fx = Fixture::new(
         &[
@@ -219,8 +219,8 @@ fn other_caller(): number { target() + 1 }
 fn references_on_never_referenced_symbol_is_only_its_declaration() {
     // `lonely` is defined but imported and called nowhere, so without the
     // declaration there are no references at all.
-    let utils = "pub fn lonely(): number { 7 }\n";
-    let main = "pub fn run(): number { 1 }\n";
+    let utils = "pub fn lonely(): Number { 7 }\n";
+    let main = "pub fn run(): Number { 1 }\n";
     let mut fx = Fixture::new(
         &[("src/utils.ab", utils), ("src/main.ab", main)],
         "src/utils.ab",
@@ -245,7 +245,7 @@ fn references_on_never_referenced_symbol_is_only_its_declaration() {
 #[test]
 fn references_on_non_name_expression_is_empty() {
     // Cursor on a numeric literal is on no occurrence; empty, no error.
-    let main = "fn main(): number { 42 }\n";
+    let main = "fn main(): Number { 42 }\n";
     let mut fx = Fixture::new(&[("src/main.ab", main)], "src/main.ab");
 
     let uri = fx.uri("src/main.ab");
@@ -277,8 +277,8 @@ fn references_are_fresh_after_edit_adding_a_caller() {
     // Add a second caller of `target` via an edit.
     let main_after = "\
 use pkg::utils::{target};
-fn caller(): number { target() }
-fn caller_two(): number { target() }
+fn caller(): Number { target() }
+fn caller_two(): Number { target() }
 ";
     fx.client.change_document(&uri, main_after);
 

@@ -39,7 +39,7 @@ fn temp_package(source: &str) -> TempDir {
 #[test]
 fn build_package_type_error_is_structured_with_nonzero_span() {
     // `run` returns a number from a function declared to return a string.
-    let dir = temp_package("pub fn run(): string { 42 }\n");
+    let dir = temp_package("pub fn run(): String { 42 }\n");
 
     let Err(err) = build_package(
         dir.path(),
@@ -85,7 +85,7 @@ fn build_package_type_error_is_structured_with_nonzero_span() {
 
 #[test]
 fn build_package_parse_error_is_structured_with_span() {
-    let dir = temp_package("pub fn run(): number {\n  1 +\n}\n");
+    let dir = temp_package("pub fn run(): Number {\n  1 +\n}\n");
 
     let Err(err) = build_package(
         dir.path(),

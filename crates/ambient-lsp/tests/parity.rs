@@ -126,9 +126,9 @@ fn clean_package_reports_nothing_on_both_sides() {
     assert_parity(&[
         (
             "main.ab",
-            "use pkg::utils::helper;\npub fn run(): number { helper() }\n",
+            "use pkg::utils::helper;\npub fn run(): Number { helper() }\n",
         ),
-        ("utils.ab", "pub fn helper(): number { 1 }\n"),
+        ("utils.ab", "pub fn helper(): Number { 1 }\n"),
     ]);
 }
 
@@ -136,7 +136,7 @@ fn clean_package_reports_nothing_on_both_sides() {
 fn type_errors_match() {
     assert_parity(&[(
         "main.ab",
-        "pub fn run(): string { 42 }\nfn extra(): number { \"nope\" }\n",
+        "pub fn run(): String { 42 }\nfn extra(): Number { \"nope\" }\n",
     )]);
 }
 
@@ -147,7 +147,7 @@ fn parse_errors_match_and_suppress_type_errors() {
     // old LSP went completely dark past the first syntax error).
     assert_parity(&[(
         "main.ab",
-        "pub fn run(): string { 42 }\n\nfn broken(\n\nfn also_broken(]\n",
+        "pub fn run(): String { 42 }\n\nfn broken(\n\nfn also_broken(]\n",
     )]);
 }
 
@@ -156,15 +156,15 @@ fn cross_module_import_errors_match() {
     assert_parity(&[
         (
             "main.ab",
-            "use pkg::utils::nonexistent;\npub fn run(): number { 1 }\n",
+            "use pkg::utils::nonexistent;\npub fn run(): Number { 1 }\n",
         ),
         (
             "utils.ab",
-            "pub fn helper(): number { 1 }\nfn private_one(): number { 2 }\n",
+            "pub fn helper(): Number { 1 }\nfn private_one(): Number { 2 }\n",
         ),
         (
             "other.ab",
-            "use pkg::utils::private_one;\npub fn go(): number { private_one() }\n",
+            "use pkg::utils::private_one;\npub fn go(): Number { private_one() }\n",
         ),
     ]);
 }
@@ -177,8 +177,8 @@ fn broken_dependency_still_resolves_for_importers() {
     assert_parity(&[
         (
             "main.ab",
-            "use pkg::utils::helper;\npub fn run(): number { helper() }\n",
+            "use pkg::utils::helper;\npub fn run(): Number { helper() }\n",
         ),
-        ("utils.ab", "fn broken(\n\npub fn helper(): number { 1 }\n"),
+        ("utils.ab", "fn broken(\n\npub fn helper(): Number { 1 }\n"),
     ]);
 }

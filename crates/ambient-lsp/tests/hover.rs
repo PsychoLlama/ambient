@@ -50,7 +50,7 @@ fn test_hover_on_variable_usage() {
 #[test]
 fn test_hover_on_function_name() {
     LspTest::new()
-        .with_source("fn add/*h*/(a: number, b: number): number { a + b }")
+        .with_source("fn add/*h*/(a: Number, b: Number): Number { a + b }")
         .hover_at("h")
         .expect_contains("fn add(a: Number, b: Number): Number")
         .shutdown();
@@ -60,7 +60,7 @@ fn test_hover_on_function_name() {
 fn test_hover_on_parameter() {
     // Note: Hover on parameter names is not yet implemented
     LspTest::new()
-        .with_source("fn foo(x/*h*/: number) { x }")
+        .with_source("fn foo(x/*h*/: Number) { x }")
         .hover_at("h")
         .expect_none()
         .shutdown();
@@ -80,7 +80,7 @@ fn test_hover_on_function_call() {
     LspTest::new()
         .with_source(
             r#"
-fn add(a: number, b: number): number { a + b }
+fn add(a: Number, b: Number): Number { a + b }
 fn test() { add(1, 2)/*h*/ }
 "#,
         )
@@ -141,7 +141,7 @@ fn test_hover_outside_expression_is_none() {
 fn test_hover_on_function_with_doc_comment() {
     LspTest::new()
         .with_source(
-            "/// Adds two numbers together.\nfn add/*h*/(a: number, b: number): number { a + b }",
+            "/// Adds two numbers together.\nfn add/*h*/(a: Number, b: Number): Number { a + b }",
         )
         .hover_at("h")
         .expect_contains("Adds two numbers together.")

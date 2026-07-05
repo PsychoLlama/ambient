@@ -178,8 +178,8 @@ fn spawn_send_and_reduce() {
           platform::Process::send!(pid, 5);
           platform::Process::send!(pid, 7);
         }
-        fn init(): number { 0 }
-        fn add(total: number, n: number): number with platform::Stdio {
+        fn init(): Number { 0 }
+        fn add(total: Number, n: Number): Number with platform::Stdio {
           let next = total + n;
           platform::Stdio::out!("total " + core::convert::to_string(next));
           next
@@ -200,8 +200,8 @@ fn upgrade_keeps_state() {
         pub fn run(): () with platform::Process {
           let pid = platform::Process::spawn!("acc", init, step);
         }
-        fn init(): number { 0 }
-        fn step(total: number, n: number): number with platform::Stdio {
+        fn init(): Number { 0 }
+        fn step(total: Number, n: Number): Number with platform::Stdio {
           let next = total + n;
           platform::Stdio::out!("v1 " + core::convert::to_string(next));
           next
@@ -212,8 +212,8 @@ fn upgrade_keeps_state() {
         pub fn run(): () with platform::Process {
           let pid = platform::Process::spawn!("acc", init, step);
         }
-        fn init(): number { 0 }
-        fn step(total: number, n: number): number with platform::Stdio {
+        fn init(): Number { 0 }
+        fn step(total: Number, n: Number): Number with platform::Stdio {
           let next = total + n;
           platform::Stdio::out!("v2 " + core::convert::to_string(next));
           next
@@ -242,8 +242,8 @@ fn upgrade_keeps_state() {
 fn reconcile_stops_removed_and_starts_added() {
     let host = TestHost::new();
     let common = r#"
-        fn init(): number { 0 }
-        fn keep(total: number, n: number): number { total + n }
+        fn init(): Number { 0 }
+        fn keep(total: Number, n: Number): Number { total + n }
         "#;
     let v1 = format!(
         r#"
@@ -287,8 +287,8 @@ fn crash_restarts_with_fresh_state() {
         pub fn run(): () with platform::Process {
           let pid = platform::Process::spawn!("fragile", init, step);
         }
-        fn init(): number { 0 }
-        fn step(total: number, n: number): number with platform::Stdio, Exception {
+        fn init(): Number { 0 }
+        fn step(total: Number, n: Number): Number with platform::Stdio, Exception {
           if n < 0 {
             Exception::throw!("boom");
             total
@@ -327,12 +327,12 @@ fn dynamic_processes_survive_deploys_untouched() {
         pub fn run(): () with platform::Process {
           let pid = platform::Process::spawn!("parent", init, parent);
         }
-        fn init(): number { 0 }
-        fn parent(total: number, n: number): number with platform::Process {
+        fn init(): Number { 0 }
+        fn parent(total: Number, n: Number): Number with platform::Process {
           let child = platform::Process::spawn!("child", init, child_step);
           total
         }
-        fn child_step(total: number, n: number): number with platform::Stdio {
+        fn child_step(total: Number, n: Number): Number with platform::Stdio {
           platform::Stdio::out!("child v1");
           total
         }
@@ -343,12 +343,12 @@ fn dynamic_processes_survive_deploys_untouched() {
         pub fn run(): () with platform::Process {
           let pid = platform::Process::spawn!("parent", init, parent);
         }
-        fn init(): number { 0 }
-        fn parent(total: number, n: number): number with platform::Stdio {
+        fn init(): Number { 0 }
+        fn parent(total: Number, n: Number): Number with platform::Stdio {
           platform::Stdio::out!("parent v2");
           total
         }
-        fn child_step(total: number, n: number): number with platform::Stdio {
+        fn child_step(total: Number, n: Number): Number with platform::Stdio {
           platform::Stdio::out!("child v2");
           total
         }
@@ -382,8 +382,8 @@ fn duplicate_spawn_is_a_catchable_exception() {
         pub fn run(): () with platform::Process {
           let pid = platform::Process::spawn!("parent", init, parent);
         }
-        fn init(): number { 0 }
-        fn parent(total: number, n: number): number with platform::Process, platform::Stdio {
+        fn init(): Number { 0 }
+        fn parent(total: Number, n: Number): Number with platform::Process, platform::Stdio {
           spawn_child();
           handle spawn_child() {
             Exception::throw(e) => platform::Stdio::out!("dup caught")
@@ -393,7 +393,7 @@ fn duplicate_spawn_is_a_catchable_exception() {
         fn spawn_child(): () with platform::Process {
           let pid = platform::Process::spawn!("child", init, child_step);
         }
-        fn child_step(total: number, n: number): number { total }
+        fn child_step(total: Number, n: Number): Number { total }
         "#,
     );
 
@@ -412,8 +412,8 @@ fn exit_stops_the_process() {
           let pid = platform::Process::spawn!("oneshot", init, step);
           platform::Process::send!(pid, 1);
         }
-        fn init(): number { 0 }
-        fn step(total: number, n: number): number with platform::Process, platform::Stdio {
+        fn init(): Number { 0 }
+        fn step(total: Number, n: Number): Number with platform::Process, platform::Stdio {
           platform::Stdio::out!("handled");
           platform::Process::exit!();
           total

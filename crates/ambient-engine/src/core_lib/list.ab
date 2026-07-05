@@ -120,7 +120,7 @@ impl<T> List<T> {
 }
 
 // Sum of a list of numbers. A concrete-instantiation inherent impl: it
-// attaches `sum` only to `List<number>`, and coexists with the generic
+// attaches `sum` only to `List<Number>`, and coexists with the generic
 // `impl<T> List<T>` above.
 impl List<Number> {
     fn sum(self): Number {

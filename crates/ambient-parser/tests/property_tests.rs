@@ -240,11 +240,11 @@ fn function_def_strategy() -> impl Strategy<Value = String> {
         .prop_map(|(name, params)| {
             let param_list: String = params
                 .iter()
-                .map(|p| format!("{}: number", p))
+                .map(|p| format!("{}: Number", p))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(
-                "fn {}({}): number {{ {} }}",
+                "fn {}({}): Number {{ {} }}",
                 name,
                 param_list,
                 if params.is_empty() {
@@ -708,7 +708,7 @@ fn test_very_long_identifier() {
 
 #[test]
 fn test_many_function_parameters() {
-    let params: Vec<String> = (0..50).map(|i| format!("p{}: number", i)).collect();
+    let params: Vec<String> = (0..50).map(|i| format!("p{}: Number", i)).collect();
     let source = format!("fn many({}) {{ 42 }}", params.join(", "));
     let result = parse(&source);
     assert!(result.is_ok());

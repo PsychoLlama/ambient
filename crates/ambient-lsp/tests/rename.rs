@@ -139,10 +139,10 @@ fn apply_workspace_edit(edit: &WorkspaceEdit) {
     }
 }
 
-const UTILS: &str = "pub fn target(): number { 42 }\n";
+const UTILS: &str = "pub fn target(): Number { 42 }\n";
 const MAIN_ONE_CALLER: &str = "\
 use pkg::utils::{target};
-fn caller(): number { target() }
+fn caller(): Number { target() }
 ";
 
 #[test]
@@ -184,7 +184,7 @@ fn rename_function_across_modules_roundtrips() {
 
 #[test]
 fn rename_local_parameter_same_file_roundtrips() {
-    let src = "fn run(count: number): number { count + count }\n";
+    let src = "fn run(count: Number): Number { count + count }\n";
     let mut fx = Fixture::new(&[("src/main.ab", src)], "src/main.ab");
 
     let uri = fx.uri("src/main.ab");
@@ -198,7 +198,7 @@ fn rename_local_parameter_same_file_roundtrips() {
 
     let main = fx.read("src/main.ab");
     assert_eq!(
-        main, "fn run(total: number): number { total + total }\n",
+        main, "fn run(total: Number): Number { total + total }\n",
         "all three occurrences renamed"
     );
 
@@ -209,7 +209,7 @@ fn rename_local_parameter_same_file_roundtrips() {
 #[test]
 fn rename_rejects_a_module_level_collision() {
     // `goal` already exists in utils, so renaming `target` to it is rejected.
-    let utils = "pub fn target(): number { 1 }\npub fn goal(): number { 2 }\n";
+    let utils = "pub fn target(): Number { 1 }\npub fn goal(): Number { 2 }\n";
     let mut fx = Fixture::new(
         &[("src/utils.ab", utils), ("src/main.ab", MAIN_ONE_CALLER)],
         "src/main.ab",
@@ -228,7 +228,7 @@ fn rename_rejects_a_module_level_collision() {
 
 #[test]
 fn rename_rejects_a_local_collision() {
-    let src = "fn run(x: number, y: number): number { x + y }\n";
+    let src = "fn run(x: Number, y: Number): Number { x + y }\n";
     let mut fx = Fixture::new(&[("src/main.ab", src)], "src/main.ab");
 
     let uri = fx.uri("src/main.ab");
@@ -244,7 +244,7 @@ fn rename_rejects_a_local_collision() {
 
 #[test]
 fn prepare_rename_allows_a_function_and_rejects_a_literal() {
-    let main = "fn helper(): number { 1 }\nfn run(): number { helper() + 42 }\n";
+    let main = "fn helper(): Number { 1 }\nfn run(): Number { helper() + 42 }\n";
     let mut fx = Fixture::new(&[("src/main.ab", main)], "src/main.ab");
     let uri = fx.uri("src/main.ab");
 
@@ -272,7 +272,7 @@ fn prepare_rename_allows_a_function_and_rejects_a_literal() {
 fn prepare_rename_rejects_a_type() {
     // Types aren't fully indexed yet, so rename is gated off for them.
     let main = "\
-unique(A1B2C3D4-0000-0000-0000-000000000001) type Money { cents: number }
+unique(A1B2C3D4-0000-0000-0000-000000000001) type Money { cents: Number }
 fn run(): Money { Money { cents: 1 } }
 ";
     let mut fx = Fixture::new(&[("src/main.ab", main)], "src/main.ab");

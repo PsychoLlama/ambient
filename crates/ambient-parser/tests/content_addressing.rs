@@ -49,30 +49,30 @@ fn method_hash(module: &CompiledModule, fragment: &str) -> blake3::Hash {
 
 const MONEY_MODULE: &str = r#"
     trait Show {
-        fn show(self): number;
+        fn show(self): Number;
     }
 
     trait Scale {
-        fn scale(self, factor: number): Self;
+        fn scale(self, factor: Number): Self;
     }
 
-    unique(11111111-1111-1111-1111-111111111111) type Money { cents: number }
+    unique(11111111-1111-1111-1111-111111111111) type Money { cents: Number }
 
-    fn tax_rate(): number { 1.08 }
+    fn tax_rate(): Number { 1.08 }
 
     impl Show for Money {
-        fn show(self): number {
+        fn show(self): Number {
             self.cents * tax_rate()
         }
     }
 
     impl Scale for Money {
-        fn scale(self, factor: number): Money {
+        fn scale(self, factor: Number): Money {
             Money { cents: self.cents * factor }
         }
     }
 
-    fn run(): number {
+    fn run(): Number {
         let m = Money { cents: 100 };
         let scaled = m.scale(2);
         scaled.show()
@@ -93,30 +93,30 @@ fn trait_declaration_order_does_not_affect_hashes() {
     // content hash.
     let reordered = r#"
         trait Scale {
-            fn scale(self, factor: number): Self;
+            fn scale(self, factor: Number): Self;
         }
 
         trait Show {
-            fn show(self): number;
+            fn show(self): Number;
         }
 
-        unique(11111111-1111-1111-1111-111111111111) type Money { cents: number }
+        unique(11111111-1111-1111-1111-111111111111) type Money { cents: Number }
 
-        fn tax_rate(): number { 1.08 }
+        fn tax_rate(): Number { 1.08 }
 
         impl Scale for Money {
-            fn scale(self, factor: number): Money {
+            fn scale(self, factor: Number): Money {
                 Money { cents: self.cents * factor }
             }
         }
 
         impl Show for Money {
-            fn show(self): number {
+            fn show(self): Number {
                 self.cents * tax_rate()
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let m = Money { cents: 100 };
             let scaled = m.scale(2);
             scaled.show()
@@ -135,16 +135,16 @@ fn unrelated_declarations_do_not_affect_method_hashes() {
     let extended = format!(
         r#"
         trait Unrelated {{
-            fn noop(self): number;
+            fn noop(self): Number;
         }}
 
-        unique(22222222-2222-2222-2222-222222222222) type Other {{ x: number }}
+        unique(22222222-2222-2222-2222-222222222222) type Other {{ x: Number }}
 
         impl Unrelated for Other {{
-            fn noop(self): number {{ self.x }}
+            fn noop(self): Number {{ self.x }}
         }}
 
-        fn unused_helper(): number {{ 7 }}
+        fn unused_helper(): Number {{ 7 }}
 
         {MONEY_MODULE}
     "#
@@ -188,8 +188,8 @@ fn dependency_change_propagates_to_method_hash() {
     // `Show::show` calls `tax_rate`; changing `tax_rate`'s body must ripple
     // into the method's hash (hash = implementation + dependencies).
     let modified = MONEY_MODULE.replace(
-        "fn tax_rate(): number { 1.08 }",
-        "fn tax_rate(): number { 1.2 }",
+        "fn tax_rate(): Number { 1.08 }",
+        "fn tax_rate(): Number { 1.2 }",
     );
     assert_ne!(modified, MONEY_MODULE, "replacement must apply");
 
@@ -306,15 +306,15 @@ fn every_function_is_materializable_from_a_self_verifying_object() {
 }
 
 const MUTUAL_RECURSION: &str = r"
-    fn is_even(n: number): bool {
+    fn is_even(n: Number): Bool {
         if n == 0 { true } else { is_odd(n - 1) }
     }
 
-    fn is_odd(n: number): bool {
+    fn is_odd(n: Number): Bool {
         if n == 0 { false } else { is_even(n - 1) }
     }
 
-    fn run(): bool {
+    fn run(): Bool {
         is_even(10)
     }
 ";
@@ -379,25 +379,25 @@ fn recursive_group_hash_ignores_unrelated_lambdas() {
     // compilation-wide lambda counters — otherwise unrelated lambdas
     // elsewhere in the module would shift the hash.
     let base = r"
-        fn countdown(n: number): number {
-            let step = (k: number) => countdown(k);
+        fn countdown(n: Number): Number {
+            let step = (k: Number) => countdown(k);
             if n <= 0 { 0 } else { step(n - 1) }
         }
 
-        fn run(): number { countdown(3) }
+        fn run(): Number { countdown(3) }
     ";
     let with_unrelated_lambda_first = r"
-        fn unrelated(): number {
-            let f = (x: number) => x * 2;
+        fn unrelated(): Number {
+            let f = (x: Number) => x * 2;
             f(21)
         }
 
-        fn countdown(n: number): number {
-            let step = (k: number) => countdown(k);
+        fn countdown(n: Number): Number {
+            let step = (k: Number) => countdown(k);
             if n <= 0 { 0 } else { step(n - 1) }
         }
 
-        fn run(): number { countdown(3) }
+        fn run(): Number { countdown(3) }
     ";
 
     let a = compile(base);
@@ -411,8 +411,8 @@ fn recursive_group_hash_ignores_unrelated_lambdas() {
 
 #[test]
 fn renaming_a_non_recursive_function_keeps_its_hash() {
-    let a = compile("fn helper(): number { 41 + 1 }");
-    let b = compile("fn renamed(): number { 41 + 1 }");
+    let a = compile("fn helper(): Number { 41 + 1 }");
+    let b = compile("fn renamed(): Number { 41 + 1 }");
     assert_eq!(
         named_hashes(&a)["helper"],
         named_hashes(&b)["renamed"],
@@ -427,24 +427,24 @@ fn renaming_a_non_recursive_function_keeps_its_hash() {
 #[test]
 fn disassembler_decodes_all_compiled_instructions() {
     let source = r#"
-        fn choose(n: number): number {
+        fn choose(n: Number): Number {
             if n > 3 { n * 2 } else { n + 1 }
         }
 
-        fn is_even(n: number): bool {
+        fn is_even(n: Number): Bool {
             if n == 0 { true } else { is_odd(n - 1) }
         }
 
-        fn is_odd(n: number): bool {
+        fn is_odd(n: Number): Bool {
             if n == 0 { false } else { is_even(n - 1) }
         }
 
-        fn apply(f: (number) -> number, x: number): number {
+        fn apply(f: (Number) -> Number, x: Number): Number {
             f(x)
         }
 
-        fn run(): number {
-            let doubler = (x: number) => x * 2;
+        fn run(): Number {
+            let doubler = (x: Number) => x * 2;
             let list = [1, 2, 3];
             let tuple = (1, "two");
             let record = { a: 1, b: "x" };
@@ -472,9 +472,9 @@ fn disassembler_decodes_all_compiled_instructions() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const WALLET_MODULE: &str = r#"
-    unique(33333333-3333-3333-3333-333333333333) type Wallet { cents: number }
+    unique(33333333-3333-3333-3333-333333333333) type Wallet { cents: Number }
 
-    fn fee(): number { 3 }
+    fn fee(): Number { 3 }
 
     impl Wallet {
         fn charge(self): Wallet {
@@ -494,7 +494,7 @@ const WALLET_MODULE: &str = r#"
         }
     }
 
-    fn run(): number {
+    fn run(): Number {
         let w = Wallet { cents: 100 };
         let charged = w.charge();
         Some(charged.cents).or_default(Wallet::empty().cents)
@@ -580,7 +580,7 @@ fn inherent_impl_block_order_does_not_affect_hashes() {
     // Splitting methods across impl blocks and reordering them (and the
     // impl blocks themselves) must not change any hash.
     let reordered = r#"
-        unique(33333333-3333-3333-3333-333333333333) type Wallet { cents: number }
+        unique(33333333-3333-3333-3333-333333333333) type Wallet { cents: Number }
 
         impl<T> Option<T> {
             fn or_default(self, fallback: T): T {
@@ -603,9 +603,9 @@ fn inherent_impl_block_order_does_not_affect_hashes() {
             }
         }
 
-        fn fee(): number { 3 }
+        fn fee(): Number { 3 }
 
-        fn run(): number {
+        fn run(): Number {
             let w = Wallet { cents: 100 };
             let charged = w.charge();
             Some(charged.cents).or_default(Wallet::empty().cents)
@@ -621,7 +621,7 @@ fn inherent_impl_block_order_does_not_affect_hashes() {
 fn inherent_dependency_change_propagates_to_method_hash() {
     // `charge` calls `fee`; changing `fee` must ripple into `charge`'s
     // hash but leave `empty` and `or_default` untouched.
-    let modified = WALLET_MODULE.replace("fn fee(): number { 3 }", "fn fee(): number { 5 }");
+    let modified = WALLET_MODULE.replace("fn fee(): Number { 3 }", "fn fee(): Number { 5 }");
     assert_ne!(modified, WALLET_MODULE, "replacement must apply");
 
     let original = compile(WALLET_MODULE);

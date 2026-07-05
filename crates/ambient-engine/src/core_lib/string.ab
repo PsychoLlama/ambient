@@ -1,4 +1,4 @@
-// Core library: string utilities.
+// Core library: utilities for the String type.
 //
 // The public string API is exposed as inherent methods (`s.length()`,
 // `s.to_upper()`, ...), the canonical core surface. Each method delegates to

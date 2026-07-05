@@ -43,17 +43,17 @@ fn trait_impl_method_performing_ability_is_rejected() {
     assert_err_containing(
         &r"
         ability Printer {
-          fn print(msg: string): ();
+          fn print(msg: String): ();
         }
 
         trait Show {
-          fn show(self): string;
+          fn show(self): String;
         }
 
-        unique(11111111-1111-1111-1111-111111111111) type Money { cents: number }
+        unique(11111111-1111-1111-1111-111111111111) type Money { cents: Number }
 
         impl Show for Money {
-          fn show(self): string {
+          fn show(self): String {
             Printer::print!('effect');
             'money'
           }
@@ -75,16 +75,16 @@ fn pure_trait_impl_method_is_accepted() {
     assert_ok(
         &r"
         trait Show {
-          fn show(self): string;
+          fn show(self): String;
         }
 
-        unique(11111111-1111-1111-1111-111111111111) type Money { cents: number }
+        unique(11111111-1111-1111-1111-111111111111) type Money { cents: Number }
 
         impl Show for Money {
-          fn show(self): string { 'money' }
+          fn show(self): String { 'money' }
         }
 
-        pub fn run(): string {
+        pub fn run(): String {
           Money { cents: 100 }.show()
         }
         "
@@ -103,12 +103,12 @@ fn pure_trait_impl_method_is_accepted() {
 fn handler_arm_param_takes_declared_type() {
     assert_err_containing(
         &r"
-        fn boom(): number with Exception {
+        fn boom(): Number with Exception {
           Exception::throw!('boom');
           1
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
           handle boom() {
             Exception::throw(e) => e * 2
           }
@@ -123,12 +123,12 @@ fn handler_arm_param_takes_declared_type() {
 fn handler_arm_param_usable_at_declared_type() {
     assert_ok(
         &r"
-        fn boom(): string with Exception {
+        fn boom(): String with Exception {
           Exception::throw!('boom');
           'unreachable'
         }
 
-        pub fn run(): string {
+        pub fn run(): String {
           handle boom() {
             Exception::throw(e) => e + '!'
           }
@@ -149,14 +149,14 @@ fn resume_value_must_match_method_return_type() {
     assert_err_containing(
         &r"
         ability Reader {
-          fn read(): number;
+          fn read(): Number;
         }
 
-        fn get(): number with Reader {
+        fn get(): Number with Reader {
           Reader::read!()
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
           handle get() {
             Reader::read() => resume('not a number')
           }
@@ -172,14 +172,14 @@ fn resume_with_correct_type_is_accepted() {
     assert_ok(
         &r"
         ability Reader {
-          fn read(): number;
+          fn read(): Number;
         }
 
-        fn get(): number with Reader {
+        fn get(): Number with Reader {
           Reader::read!()
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
           handle get() {
             Reader::read() => resume(42)
           }
@@ -197,14 +197,14 @@ fn resume_expression_takes_handle_result_type() {
     assert_ok(
         &r"
         ability Reader {
-          fn read(): number;
+          fn read(): Number;
         }
 
-        fn get(): number with Reader {
+        fn get(): Number with Reader {
           Reader::read!() + 1
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
           handle get() {
             Reader::read() => resume(41)
           }
@@ -218,7 +218,7 @@ fn resume_expression_takes_handle_result_type() {
 fn resume_outside_handler_is_rejected() {
     assert_err_containing(
         &r"
-        pub fn run(): number {
+        pub fn run(): Number {
           resume(1);
           2
         }
@@ -240,17 +240,17 @@ fn handler_arm_effects_flow_to_enclosing_function() {
     assert_err_containing(
         &r"
         ability Reader {
-          fn read(): number;
+          fn read(): Number;
         }
         ability Printer {
-          fn print(msg: string): ();
+          fn print(msg: String): ();
         }
 
-        fn get(): number with Reader {
+        fn get(): Number with Reader {
           Reader::read!()
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
           handle get() {
             Reader::read() => {
               Printer::print!('arm effect');
@@ -277,16 +277,16 @@ fn handle_discharges_effects_of_functions_declared_later() {
     assert_ok(
         &r"
         ability Reader {
-          fn read(): number;
+          fn read(): Number;
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
           handle helper() {
             Reader::read() => resume(7)
           }
         }
 
-        fn helper(): number with Reader {
+        fn helper(): Number with Reader {
           Reader::read!() + 1
         }
         "
@@ -301,19 +301,19 @@ fn handle_does_not_discharge_unhandled_abilities() {
     assert_err_containing(
         &r"
         ability Reader {
-          fn read(): number;
+          fn read(): Number;
         }
         ability Printer {
-          fn print(msg: string): ();
+          fn print(msg: String): ();
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
           handle helper() {
             Reader::read() => resume(7)
           }
         }
 
-        fn helper(): number with Reader, Printer {
+        fn helper(): Number with Reader, Printer {
           Printer::print!('leak');
           Reader::read!()
         }
@@ -334,7 +334,7 @@ fn handle_does_not_discharge_unhandled_abilities() {
 fn builtin_perform_arguments_are_checked() {
     assert_err_containing(
         &r"
-        pub fn run(): number with Exception {
+        pub fn run(): Number with Exception {
           Exception::throw!(42);
           1
         }
@@ -351,7 +351,7 @@ fn perform_arguments_are_checked() {
     assert_err_containing(
         &r"
         ability Printer {
-          fn print(msg: string): ();
+          fn print(msg: String): ();
         }
 
         pub fn run(): () with Printer {
@@ -376,7 +376,7 @@ fn sandbox_body_effects_flow_to_enclosing_function() {
     assert_err_containing(
         &r"
         ability Printer {
-          fn print(msg: string): ();
+          fn print(msg: String): ();
         }
 
         pub fn run(): () {
@@ -398,19 +398,19 @@ fn sandbox_restriction_applies_to_functions_declared_later() {
     assert_err_containing(
         &r"
         ability Reader {
-          fn read(): number;
+          fn read(): Number;
         }
         ability Printer {
-          fn print(msg: string): ();
+          fn print(msg: String): ();
         }
 
-        pub fn run(): number with Reader, Printer {
+        pub fn run(): Number with Reader, Printer {
           sandbox with Reader {
             helper()
           }
         }
 
-        fn helper(): number with Reader, Printer {
+        fn helper(): Number with Reader, Printer {
           Printer::print!('not allowed in sandbox');
           Reader::read!()
         }
@@ -425,16 +425,16 @@ fn sandbox_with_allowed_abilities_is_accepted() {
     assert_ok(
         &r"
         ability Reader {
-          fn read(): number;
+          fn read(): Number;
         }
 
-        pub fn run(): number with Reader {
+        pub fn run(): Number with Reader {
           sandbox with Reader {
             helper()
           }
         }
 
-        fn helper(): number with Reader {
+        fn helper(): Number with Reader {
           Reader::read!()
         }
         "
@@ -474,7 +474,7 @@ fn unknown_ability_in_with_clause_is_reported() {
 fn generalization_respects_substituted_env_vars() {
     assert_err_containing(
         &r"
-        fn apply_twice(): number {
+        fn apply_twice(): Number {
           let f = (x) => {
             let g = x;
             g + 1;

@@ -961,14 +961,28 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
         CstTypeExprKind::Name(qn) => {
             let name = type_name_from_segments(qn);
             match &*name {
-                // Accept both PascalCase (the canonical nominal spelling) and the
-                // legacy lowercase spelling; both lower to the same primitive
-                // `Named` type carrying its reserved uuid, so an annotation
-                // `s: String` and an inferred literal type agree by construction.
-                "number" | "Number" => Ok(Type::number()),
-                "string" | "String" => Ok(Type::string()),
-                "bool" | "Bool" => Ok(Type::bool()),
+                // Primitives are nominal types spelled in PascalCase; the parser
+                // stamps their reserved uuid so an annotation `s: String` and an
+                // inferred literal type agree by construction.
+                "Number" => Ok(Type::number()),
+                "String" => Ok(Type::string()),
+                "Bool" => Ok(Type::bool()),
                 "Bytes" => Ok(Type::bytes()),
+                // The old lowercase spellings are gone; point at the fix.
+                "number" | "string" | "bool" => {
+                    let suggestion = match &*name {
+                        "number" => "Number",
+                        "string" => "String",
+                        _ => "Bool",
+                    };
+                    Err(ParseError::new(
+                        ParseErrorKind::Expected {
+                            expected: format!("`{suggestion}`"),
+                            found: format!("`{name}` (primitive types are PascalCase)"),
+                        },
+                        ty.span,
+                    ))
+                }
                 _ => {
                     // Named type - could be generic, user-defined, etc.
                     // For now, represent as a named type
@@ -1359,7 +1373,7 @@ mod tests {
 
     #[test]
     fn test_lower_simple_function() {
-        let source = "fn add(x: number, y: number): number { x + y }";
+        let source = "fn add(x: Number, y: Number): Number { x + y }";
         let module = parse(source).expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
@@ -1451,7 +1465,7 @@ mod tests {
 
     #[test]
     fn test_lower_function_with_doc_comment() {
-        let source = "/// Adds two numbers.\nfn add(x: number, y: number): number { x + y }";
+        let source = "/// Adds two numbers.\nfn add(x: Number, y: Number): Number { x + y }";
         let module = parse(source).expect("parse error");
         assert_eq!(module.items.len(), 1);
         let doc = module.items[0].doc.as_ref().expect("Expected doc comment");
@@ -1468,7 +1482,7 @@ mod tests {
 
     #[test]
     fn test_lower_nominal_type() {
-        let source = "unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) type UserId { value: string }";
+        let source = "unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) type UserId { value: String }";
         let module = parse(source).expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
@@ -1491,7 +1505,7 @@ mod tests {
         // (here `2EB9553C`) once crashed the lexer, which mistook `2E...` for a
         // malformed scientific-notation literal. It is now lexed as a single
         // `Uuid` token and must validate as a real UUID like any other.
-        let source = "unique(2EB9553C-1FDF-46FB-A8B1-F2C5A1CFCA94) type Example { value: string }";
+        let source = "unique(2EB9553C-1FDF-46FB-A8B1-F2C5A1CFCA94) type Example { value: String }";
         let module = parse(source).expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
@@ -1507,7 +1521,7 @@ mod tests {
 
     #[test]
     fn test_lower_regular_type_alias() {
-        let source = "type Point { x: number, y: number }";
+        let source = "type Point { x: Number, y: Number }";
         let module = parse(source).expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
@@ -1526,7 +1540,7 @@ mod tests {
         // Non-UUID content in `unique(...)` is now rejected at parse time (the
         // lexer only produces a `Uuid` token for canonical uppercase UUIDs),
         // so the error is `ExpectedUuid` rather than a lowering `InvalidUuid`.
-        let source = "unique(not-a-valid-uuid) type BadId { value: string }";
+        let source = "unique(not-a-valid-uuid) type BadId { value: String }";
         let result = parse(source);
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -1537,7 +1551,7 @@ mod tests {
     fn test_lower_lowercase_uuid_rejected() {
         // A lowercase UUID is not a UUID literal in Ambient; it must be
         // rejected rather than silently accepted as a non-nominal type.
-        let source = "unique(2eb9553c-1fdf-46fb-a8b1-f2c5a1cfca94) type BadId { value: string }";
+        let source = "unique(2eb9553c-1fdf-46fb-a8b1-f2c5a1cfca94) type BadId { value: String }";
         let result = parse(source);
         assert!(result.is_err());
         assert!(matches!(

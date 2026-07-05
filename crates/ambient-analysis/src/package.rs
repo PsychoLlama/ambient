@@ -222,10 +222,10 @@ mod tests {
         fs::create_dir_all(&src).expect("create src dir");
         fs::write(
             src.join("main.ab"),
-            "use pkg::utils::helper;\npub fn run(): number { helper() }",
+            "use pkg::utils::helper;\npub fn run(): Number { helper() }",
         )
         .expect("write main");
-        fs::write(src.join("utils.ab"), "pub fn helper(): number { 1 }").expect("write utils");
+        fs::write(src.join("utils.ab"), "pub fn helper(): Number { 1 }").expect("write utils");
 
         dir
     }
@@ -260,7 +260,7 @@ mod tests {
         // good one and must still resolve.
         fs::write(
             dir.path().join("src/utils.ab"),
-            "fn broken(\n\npub fn helper(): number { 1 }",
+            "fn broken(\n\npub fn helper(): Number { 1 }",
         )
         .expect("rewrite utils");
 
@@ -302,7 +302,7 @@ mod tests {
             "use platform::Stdio;\n\npub fn run(): () with Stdio {\n    Stdio::out!(\"hi\")\n}\n",
         )
         .expect("write main");
-        fs::write(src.join("sibling.ab"), "pub fn noop(): number { 1 }\n").expect("write sibling");
+        fs::write(src.join("sibling.ab"), "pub fn noop(): Number { 1 }\n").expect("write sibling");
 
         let package = AnalysisPackage::open(root).expect("open package");
         let results = package.analyze_all();
@@ -320,7 +320,7 @@ mod tests {
         let dir = create_test_package();
         fs::write(
             dir.path().join("src/main.ab"),
-            "use pkg::utils::nonexistent;\npub fn run(): number { 1 }",
+            "use pkg::utils::nonexistent;\npub fn run(): Number { 1 }",
         )
         .expect("rewrite main");
 

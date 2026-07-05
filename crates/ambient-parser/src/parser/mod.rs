@@ -1267,7 +1267,7 @@ mod tests {
 
     #[test]
     fn test_parse_function() {
-        let source = "fn add(x: number, y: number): number { x + y }";
+        let source = "fn add(x: Number, y: Number): Number { x + y }";
         let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         assert_eq!(module.items.len(), 1);
@@ -1298,7 +1298,7 @@ mod tests {
 
     #[test]
     fn test_parse_function_with_abilities() {
-        let source = "fn read_file(path: string): string with Filesystem { path }";
+        let source = "fn read_file(path: String): String with Filesystem { path }";
         let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
@@ -1327,7 +1327,7 @@ mod tests {
 
     #[test]
     fn test_parse_ability_def() {
-        let source = "ability Console { fn print(message: string): (); }";
+        let source = "ability Console { fn print(message: String): (); }";
         let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         match &module.items[0].kind {
@@ -1627,7 +1627,7 @@ mod tests {
 
     #[test]
     fn test_parse_use_in_block() {
-        let source = "fn f(): number {\n  use core::math::sqrt;\n  sqrt(16)\n}";
+        let source = "fn f(): Number {\n  use core::math::sqrt;\n  sqrt(16)\n}";
         let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         let lowered = crate::lower::lower_module(&module).expect("lower error");

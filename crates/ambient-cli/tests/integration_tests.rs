@@ -189,24 +189,24 @@ impl CliTest {
 
 #[test]
 fn test_run_simple_return() {
-    CliTest::new("fn run(): number { 42 }").expect_output("42");
+    CliTest::new("fn run(): Number { 42 }").expect_output("42");
 }
 
 #[test]
 fn test_run_arithmetic() {
-    CliTest::new("fn run(): number { 2 + 3 * 4 }").expect_output("14");
+    CliTest::new("fn run(): Number { 2 + 3 * 4 }").expect_output("14");
 }
 
 #[test]
 fn test_run_boolean_logic() {
-    CliTest::new("fn run(): bool { true && false || true }").expect_output("true");
+    CliTest::new("fn run(): Bool { true && false || true }").expect_output("true");
 }
 
 #[test]
 fn test_run_if_else() {
     CliTest::new(
         r#"
-        fn run(): number {
+        fn run(): Number {
             if 5 > 3 { 100 } else { 0 }
         }
     "#,
@@ -218,8 +218,8 @@ fn test_run_if_else() {
 fn test_run_function_call() {
     CliTest::new(
         r#"
-        fn double(x: number): number { x * 2 }
-        fn run(): number { double(21) }
+        fn double(x: Number): Number { x * 2 }
+        fn run(): Number { double(21) }
     "#,
     )
     .expect_output("42");
@@ -229,10 +229,10 @@ fn test_run_function_call() {
 fn test_run_recursive_factorial() {
     CliTest::new(
         r#"
-        fn factorial(n: number): number {
+        fn factorial(n: Number): Number {
             if n <= 1 { 1 } else { n * factorial(n - 1) }
         }
-        fn run(): number { factorial(5) }
+        fn run(): Number { factorial(5) }
     "#,
     )
     .expect_output("120");
@@ -242,9 +242,9 @@ fn test_run_recursive_factorial() {
 fn test_run_multiple_functions() {
     CliTest::new(
         r#"
-        fn add(a: number, b: number): number { a + b }
-        fn square(x: number): number { x * x }
-        fn run(): number { square(add(2, 3)) }
+        fn add(a: Number, b: Number): Number { a + b }
+        fn square(x: Number): Number { x * x }
+        fn run(): Number { square(add(2, 3)) }
     "#,
     )
     .expect_output("25");
@@ -254,7 +254,7 @@ fn test_run_multiple_functions() {
 fn test_run_let_binding() {
     CliTest::new(
         r#"
-        fn run(): number {
+        fn run(): Number {
             let x = 10;
             let y = 20;
             x + y
@@ -266,7 +266,7 @@ fn test_run_let_binding() {
 
 #[test]
 fn test_run_string_literal() {
-    CliTest::new(r#"fn run(): string { "hello" }"#).expect_output("hello");
+    CliTest::new(r#"fn run(): String { "hello" }"#).expect_output("hello");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -275,7 +275,7 @@ fn test_run_string_literal() {
 
 #[test]
 fn test_compile_creates_output_file() {
-    let (dir, path) = temp_source("fn run(): number { 42 }");
+    let (dir, path) = temp_source("fn run(): Number { 42 }");
     let output_path = dir.path().join("test.ambient");
 
     let output = ambient_cmd()
@@ -308,7 +308,7 @@ fn test_compile_creates_output_file() {
 
 #[test]
 fn test_compile_custom_output_path() {
-    let (dir, path) = temp_source("fn run(): number { 42 }");
+    let (dir, path) = temp_source("fn run(): Number { 42 }");
     let output_path = dir.path().join("custom.abc");
 
     let output = ambient_cmd()
@@ -329,10 +329,10 @@ fn test_compile_custom_output_path() {
 fn test_compile_then_run() {
     let (dir, path) = temp_source(
         r#"
-        fn factorial(n: number): number {
+        fn factorial(n: Number): Number {
             if n <= 1 { 1 } else { n * factorial(n - 1) }
         }
-        fn run(): number { factorial(6) }
+        fn run(): Number { factorial(6) }
     "#,
     );
     let compiled_path = dir.path().join("test.ambient");
@@ -376,8 +376,8 @@ fn test_compile_then_run() {
 fn test_check_valid_file() {
     CliTest::new(
         r#"
-        fn add(a: number, b: number): number { a + b }
-        fn run(): number { add(1, 2) }
+        fn add(a: Number, b: Number): Number { a + b }
+        fn run(): Number { add(1, 2) }
     "#,
     )
     .check()
@@ -396,7 +396,7 @@ fn test_check_invalid_syntax() {
 
 #[test]
 fn test_ast_output() {
-    CliTest::new("fn run(): number { 42 }")
+    CliTest::new("fn run(): Number { 42 }")
         .ast()
         .expect_output("run");
 }
@@ -408,7 +408,7 @@ fn test_ast_output() {
 #[test]
 fn test_run_missing_run_function() {
     // Package with no run function
-    CliTest::new("fn other(): number { 42 }").expect_failure();
+    CliTest::new("fn other(): Number { 42 }").expect_failure();
 }
 
 #[test]
@@ -430,7 +430,7 @@ fn test_run_non_package_file() {
     // Trying to run a regular file that's not a .ambient bytecode file
     let dir = TempDir::new().expect("failed to create temp dir");
     let path = dir.path().join("test.txt");
-    fs::write(&path, "fn run(): number { 42 }").expect("failed to write");
+    fs::write(&path, "fn run(): Number { 42 }").expect("failed to write");
 
     let output = ambient_cmd()
         .arg("run")
@@ -491,16 +491,16 @@ fn test_example_factorial() {
 fn test_handler_value_basic() {
     CliTest::new(
         r#"
-        fn simple_function(): number { 100 }
+        fn simple_function(): Number { 100 }
 
-        fn test_handler_value(): number {
+        fn test_handler_value(): Number {
             let mock_console = {
                 out(msg) => resume(())
             };
             handle simple_function() with mock_console {}
         }
 
-        fn run(): number { test_handler_value() }
+        fn run(): Number { test_handler_value() }
     "#,
     )
     .expect_output("100");
@@ -510,15 +510,15 @@ fn test_handler_value_basic() {
 fn test_handler_value_multiple() {
     CliTest::new(
         r#"
-        fn simple_function(): number { 200 }
+        fn simple_function(): Number { 200 }
 
-        fn test_multiple_handlers(): number {
+        fn test_multiple_handlers(): Number {
             let handler1 = { out(msg) => resume(()) };
             let handler2 = { throw(err) => resume(()) };
             handle simple_function() with handler1, handler2 {}
         }
 
-        fn run(): number { test_multiple_handlers() }
+        fn run(): Number { test_multiple_handlers() }
     "#,
     )
     .expect_output("200");
@@ -528,9 +528,9 @@ fn test_handler_value_multiple() {
 fn test_handler_value_with_inline() {
     CliTest::new(
         r#"
-        fn simple_function(): number { 300 }
+        fn simple_function(): Number { 300 }
 
-        fn test_mixed(): number {
+        fn test_mixed(): Number {
             let mock_console = { out(msg) => resume(()) };
             handle simple_function() with mock_console {
                 Exception::throw(err) => {
@@ -539,7 +539,7 @@ fn test_handler_value_with_inline() {
             }
         }
 
-        fn run(): number { test_mixed() }
+        fn run(): Number { test_mixed() }
     "#,
     )
     .expect_output("300");
@@ -571,11 +571,11 @@ fn test_example_handler_value() {
 fn test_sandbox_pure_computation() {
     CliTest::new(
         r#"
-        fn pure_add(x: number, y: number): number {
+        fn pure_add(x: Number, y: Number): Number {
             x + y
         }
 
-        fn run(): number {
+        fn run(): Number {
             sandbox {
                 pure_add(2, 3)
             }
@@ -589,11 +589,11 @@ fn test_sandbox_pure_computation() {
 fn test_sandbox_with_allowed_ability() {
     CliTest::new(
         r#"
-        fn compute(): number {
+        fn compute(): Number {
             42
         }
 
-        fn run(): number {
+        fn run(): Number {
             sandbox with platform::Stdio {
                 compute()
             }
@@ -646,7 +646,7 @@ fn test_handler_arm_requires_platform_namespace() {
 fn test_sandbox_clause_requires_platform_namespace() {
     CliTest::new(
         r#"
-        pub fn run(): number {
+        pub fn run(): Number {
             sandbox with Stdio {
                 42
             }
@@ -692,10 +692,10 @@ fn test_local_ability_shadows_platform_name() {
     CliTest::new(
         r#"
         ability Stdio {
-            fn shout(message: string): string;
+            fn shout(message: String): String;
         }
 
-        fn noise(): string with Stdio {
+        fn noise(): String with Stdio {
             Stdio::shout!("quiet")
         }
 
@@ -723,7 +723,7 @@ fn test_time_wait_accepts_duration() {
         r#"
         use core::time::Duration;
 
-        pub fn run(): number with platform::Time {
+        pub fn run(): Number with platform::Time {
             platform::Time::wait!(Duration::from_millis(1));
             7
         }
@@ -751,11 +751,11 @@ fn test_time_wait_rejects_raw_number() {
 fn test_sandbox_nested_pure() {
     CliTest::new(
         r#"
-        fn factorial(n: number): number {
+        fn factorial(n: Number): Number {
             if n <= 1 { 1 } else { n * factorial(n - 1) }
         }
 
-        fn run(): number {
+        fn run(): Number {
             sandbox {
                 factorial(5)
             }
@@ -774,7 +774,7 @@ fn test_error_parse_missing_brace() {
     // Missing closing brace should produce a parse error
     let (_dir, path) = temp_source(
         r#"
-        fn run(): number {
+        fn run(): Number {
             42
         // missing closing brace
     "#,
@@ -800,7 +800,7 @@ fn test_error_type_mismatch() {
     // Type mismatch should produce a type error
     let (_dir, path) = temp_source(
         r#"
-        fn run(): number {
+        fn run(): Number {
             "hello"
         }
     "#,
@@ -826,7 +826,7 @@ fn test_error_undefined_function() {
     // Calling undefined function should produce an error
     let (_dir, path) = temp_source(
         r#"
-        fn run(): number {
+        fn run(): Number {
             undefined_function()
         }
     "#,
@@ -855,11 +855,11 @@ fn test_error_wrong_argument_count() {
     // Calling function with wrong number of args
     let (_dir, path) = temp_source(
         r#"
-        fn add(x: number, y: number): number {
+        fn add(x: Number, y: Number): Number {
             x + y
         }
 
-        fn run(): number {
+        fn run(): Number {
             add(1)
         }
     "#,
@@ -882,7 +882,7 @@ fn test_end_to_end_tuples() {
     // Test tuple creation and access through full pipeline
     CliTest::new(
         r#"
-        fn run(): number {
+        fn run(): Number {
             let t = (1, 2, 3);
             t.0 + t.1 + t.2
         }
@@ -898,7 +898,7 @@ fn test_end_to_end_records() {
     // (parsed as qualified name - see ticket 3.1)
     CliTest::new(
         r#"
-        fn run(): number {
+        fn run(): Number {
             let _r = { x: 10, y: 20 };
             30
         }
@@ -912,7 +912,7 @@ fn test_end_to_end_lists() {
     // Test list creation through full pipeline
     CliTest::new(
         r#"
-        fn run(): number {
+        fn run(): Number {
             let xs = [1, 2, 3];
             3
         }
@@ -926,7 +926,7 @@ fn test_end_to_end_match() {
     // Test match expression through full pipeline
     CliTest::new(
         r#"
-        fn classify(n: number): number {
+        fn classify(n: Number): Number {
             match n {
                 0 => 0,
                 1 => 1,
@@ -934,7 +934,7 @@ fn test_end_to_end_match() {
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             classify(5)
         }
     "#,
@@ -947,9 +947,9 @@ fn test_end_to_end_closure() {
     // Test closure capture through full pipeline
     CliTest::new(
         r#"
-        fn run(): number {
+        fn run(): Number {
             let multiplier = 10;
-            let f = (x: number) => x * multiplier;
+            let f = (x: Number) => x * multiplier;
             f(5)
         }
     "#,
@@ -962,10 +962,10 @@ fn test_end_to_end_nested_calls() {
     // Test nested function calls through full pipeline
     CliTest::new(
         r#"
-        fn double(x: number): number { x * 2 }
-        fn add_one(x: number): number { x + 1 }
+        fn double(x: Number): Number { x * 2 }
+        fn add_one(x: Number): Number { x + 1 }
 
-        fn run(): number {
+        fn run(): Number {
             add_one(double(add_one(double(5))))
         }
     "#,
@@ -978,15 +978,15 @@ fn test_end_to_end_mutual_recursion() {
     // Test mutual recursion through full pipeline
     CliTest::new(
         r#"
-        fn is_even(n: number): bool {
+        fn is_even(n: Number): Bool {
             if n == 0 { true } else { is_odd(n - 1) }
         }
 
-        fn is_odd(n: number): bool {
+        fn is_odd(n: Number): Bool {
             if n == 0 { false } else { is_even(n - 1) }
         }
 
-        fn run(): bool {
+        fn run(): Bool {
             is_even(10)
         }
     "#,
@@ -999,12 +999,12 @@ fn test_end_to_end_higher_order() {
     // Test higher-order functions through full pipeline
     CliTest::new(
         r#"
-        fn apply_twice(f: (number) -> number, x: number): number {
+        fn apply_twice(f: (Number) -> Number, x: Number): Number {
             f(f(x))
         }
 
-        fn run(): number {
-            let double = (x: number) => x * 2;
+        fn run(): Number {
+            let double = (x: Number) => x * 2;
             apply_twice(double, 3)
         }
     "#,
@@ -1017,7 +1017,7 @@ fn test_end_to_end_complex_expression() {
     // Test complex nested expression through full pipeline
     CliTest::new(
         r#"
-        fn run(): number {
+        fn run(): Number {
             let x = (1 + 2) * 3;
             let y = if x > 5 { x * 2 } else { x };
             y + 1
@@ -1037,18 +1037,18 @@ fn test_trait_definition_and_impl() {
     CliTest::new(
         r#"
         trait Show {
-            fn show(self): number;
+            fn show(self): Number;
         }
 
-        unique(A1B2C3D4-0000-0000-0000-000000000001) type Counter { value: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000001) type Counter { value: Number }
 
         impl Show for Counter {
-            fn show(self): number {
+            fn show(self): Number {
                 self.value
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let c = Counter { value: 42 };
             c.show()
         }
@@ -1063,18 +1063,18 @@ fn test_trait_method_with_args() {
     CliTest::new(
         r#"
         trait Scalable {
-            fn scale(self, factor: number): number;
+            fn scale(self, factor: Number): Number;
         }
 
-        unique(A1B2C3D4-0000-0000-0000-000000000002) type Size { width: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000002) type Size { width: Number }
 
         impl Scalable for Size {
-            fn scale(self, factor: number): number {
+            fn scale(self, factor: Number): Number {
                 self.width * factor
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let s = Size { width: 10 };
             s.scale(5)
         }
@@ -1092,7 +1092,7 @@ fn test_operator_overloading_add() {
             fn add(self, other: Self): Self;
         }
 
-        unique(A1B2C3D4-0000-0000-0000-000000000003) type Money { cents: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000003) type Money { cents: Number }
 
         impl Add for Money {
             fn add(self, other: Money): Money {
@@ -1100,7 +1100,7 @@ fn test_operator_overloading_add() {
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let a = Money { cents: 100 };
             let b = Money { cents: 50 };
             let total = a + b;
@@ -1117,18 +1117,18 @@ fn test_operator_overloading_eq() {
     CliTest::new(
         r#"
         trait Eq {
-            fn eq(self, other: Self): bool;
+            fn eq(self, other: Self): Bool;
         }
 
-        unique(A1B2C3D4-0000-0000-0000-000000000004) type Id { value: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000004) type Id { value: Number }
 
         impl Eq for Id {
-            fn eq(self, other: Id): bool {
+            fn eq(self, other: Id): Bool {
                 self.value == other.value
             }
         }
 
-        fn run(): bool {
+        fn run(): Bool {
             let a = Id { value: 42 };
             let b = Id { value: 42 };
             a == b
@@ -1144,7 +1144,7 @@ fn test_default_trait_associated_call() {
     // `default(): Self`, invoked as `Type::default()`.
     CliTest::new(
         r#"
-        unique(A1B2C3D4-0000-0000-0000-000000000010) type Config { level: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000010) type Config { level: Number }
 
         impl Default for Config {
             fn default(): Config {
@@ -1152,7 +1152,7 @@ fn test_default_trait_associated_call() {
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let c = Config::default();
             c.level
         }
@@ -1167,7 +1167,7 @@ fn test_default_trait_composes_with_operator() {
     // with operators like any other value.
     CliTest::new(
         r#"
-        unique(A1B2C3D4-0000-0000-0000-000000000011) type Vec2 { x: number, y: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000011) type Vec2 { x: Number, y: Number }
 
         impl Default for Vec2 {
             fn default(): Vec2 {
@@ -1181,7 +1181,7 @@ fn test_default_trait_composes_with_operator() {
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let v = Vec2::default() + Vec2 { x: 3, y: 4 };
             v.x + v.y
         }
@@ -1198,18 +1198,18 @@ fn test_associated_trait_method_with_argument() {
     CliTest::new(
         r#"
         trait FromNumber {
-            fn from_number(n: number): Self;
+            fn from_number(n: Number): Self;
         }
 
-        unique(A1B2C3D4-0000-0000-0000-000000000012) type Wrapped { value: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000012) type Wrapped { value: Number }
 
         impl FromNumber for Wrapped {
-            fn from_number(n: number): Wrapped {
+            fn from_number(n: Number): Wrapped {
                 Wrapped { value: n * 2 }
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let w = Wrapped::from_number(21);
             w.value
         }
@@ -1228,7 +1228,7 @@ fn test_inherent_impl_method_call() {
     // dot dispatch resolves them without any trait.
     CliTest::new(
         r#"
-        unique(B1B2C3D4-0000-0000-0000-000000000001) type Money { cents: number }
+        unique(B1B2C3D4-0000-0000-0000-000000000001) type Money { cents: Number }
 
         impl Money {
             fn double(self): Money {
@@ -1236,7 +1236,7 @@ fn test_inherent_impl_method_call() {
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let m = Money { cents: 21 };
             m.double().cents
         }
@@ -1251,18 +1251,18 @@ fn test_inherent_impl_associated_call() {
     // `Type::method(args)` — no trait declaration needed.
     CliTest::new(
         r#"
-        unique(B1B2C3D4-0000-0000-0000-000000000002) type Money { cents: number }
+        unique(B1B2C3D4-0000-0000-0000-000000000002) type Money { cents: Number }
 
         impl Money {
-            fn from_dollars(d: number): Money {
+            fn from_dollars(d: Number): Money {
                 Money { cents: d * 100 }
             }
-            fn cents(self): number {
+            fn cents(self): Number {
                 self.cents
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             Money::from_dollars(3).cents()
         }
     "#,
@@ -1276,7 +1276,7 @@ fn test_inherent_impl_methods_call_each_other() {
     // methods can call each other regardless of declaration order.
     CliTest::new(
         r#"
-        unique(B1B2C3D4-0000-0000-0000-000000000003) type Counter { n: number }
+        unique(B1B2C3D4-0000-0000-0000-000000000003) type Counter { n: Number }
 
         impl Counter {
             fn bump_twice(self): Counter {
@@ -1287,7 +1287,7 @@ fn test_inherent_impl_methods_call_each_other() {
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let c = Counter { n: 0 };
             c.bump_twice().n
         }
@@ -1311,9 +1311,9 @@ fn test_inherent_impl_generic_option() {
             }
         }
 
-        fn run(): number {
-            let a: Option<number> = Some(40);
-            let b: Option<number> = None;
+        fn run(): Number {
+            let a: Option<Number> = Some(40);
+            let b: Option<Number> = None;
             a.get_or(0) + b.get_or(2)
         }
     "#,
@@ -1327,10 +1327,10 @@ fn test_inherent_impl_generic_method_on_user_enum() {
     // user-declared enum.
     CliTest::new(
         r#"
-        unique(C1B2C3D4-0000-0000-0000-000000000010) enum Box2 { Full(number), Empty }
+        unique(C1B2C3D4-0000-0000-0000-000000000010) enum Box2 { Full(Number), Empty }
 
         impl Box2 {
-            fn map_or<U>(self, fallback: U, f: (number) -> U): U {
+            fn map_or<U>(self, fallback: U, f: (Number) -> U): U {
                 match self {
                     Full(v) => f(v),
                     Empty => fallback,
@@ -1338,7 +1338,7 @@ fn test_inherent_impl_generic_method_on_user_enum() {
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let b = Full(20);
             b.map_or(0, (v) => v * 2) + Empty.map_or(2, (v) => v)
         }
@@ -1354,7 +1354,7 @@ fn test_inherent_method_with_ability() {
     // sites.
     CliTest::new(
         r#"
-        unique(B1B2C3D4-0000-0000-0000-000000000004) type Greeter { name: string }
+        unique(B1B2C3D4-0000-0000-0000-000000000004) type Greeter { name: String }
 
         impl Greeter {
             fn greet(self): () with platform::Stdio {
@@ -1377,7 +1377,7 @@ fn test_inherent_method_undeclared_ability_error() {
     // rejected, exactly like a public function.
     CliTest::new(
         r#"
-        unique(B1B2C3D4-0000-0000-0000-000000000005) type Greeter { name: string }
+        unique(B1B2C3D4-0000-0000-0000-000000000005) type Greeter { name: String }
 
         impl Greeter {
             fn greet(self): () {
@@ -1400,7 +1400,7 @@ fn test_inherent_method_ability_required_at_call_site() {
     // function cannot call an effectful method.
     CliTest::new(
         r#"
-        unique(B1B2C3D4-0000-0000-0000-000000000006) type Greeter { name: string }
+        unique(B1B2C3D4-0000-0000-0000-000000000006) type Greeter { name: String }
 
         impl Greeter {
             fn greet(self): () with platform::Stdio {
@@ -1423,7 +1423,7 @@ fn test_duplicate_inherent_method_error() {
     // for one dispatch symbol; coherence rejects the second.
     CliTest::new(
         r#"
-        unique(B1B2C3D4-0000-0000-0000-000000000007) type Money { cents: number }
+        unique(B1B2C3D4-0000-0000-0000-000000000007) type Money { cents: Number }
 
         impl Money {
             fn double(self): Money {
@@ -1437,7 +1437,7 @@ fn test_duplicate_inherent_method_error() {
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             Money { cents: 1 }.double().cents
         }
     "#,
@@ -1456,7 +1456,7 @@ fn test_inherent_method_shadows_trait_method() {
             fn double(self): Self;
         }
 
-        unique(B1B2C3D4-0000-0000-0000-000000000008) type Num { val: number }
+        unique(B1B2C3D4-0000-0000-0000-000000000008) type Num { val: Number }
 
         impl Doubler for Num {
             fn double(self): Num {
@@ -1470,7 +1470,7 @@ fn test_inherent_method_shadows_trait_method() {
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let n = Num { val: 4 };
             n.double().val
         }
@@ -1485,10 +1485,10 @@ fn test_inherent_impl_multiple_blocks_merge() {
     // names collide.
     CliTest::new(
         r#"
-        unique(B1B2C3D4-0000-0000-0000-000000000009) type Point { x: number, y: number }
+        unique(B1B2C3D4-0000-0000-0000-000000000009) type Point { x: Number, y: Number }
 
         impl Point {
-            fn sum(self): number {
+            fn sum(self): Number {
                 self.x + self.y
             }
         }
@@ -1499,7 +1499,7 @@ fn test_inherent_impl_multiple_blocks_merge() {
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let p = Point { x: 1, y: 41 };
             p.swap().sum()
         }
@@ -1513,13 +1513,13 @@ fn test_inherent_impl_on_structural_type_error() {
     // Structural types have no identity to attach methods to.
     CliTest::new(
         r#"
-        impl { x: number } {
-            fn get_x(self): number {
+        impl { x: Number } {
+            fn get_x(self): Number {
                 self.x
             }
         }
 
-        fn run(): number { 0 }
+        fn run(): Number { 0 }
     "#,
     )
     .expect_failure();
@@ -1531,7 +1531,7 @@ fn test_inherent_impl_missing_return_type_error() {
     // type must be declared.
     CliTest::new(
         r#"
-        unique(B1B2C3D4-0000-0000-0000-00000000000A) type Money { cents: number }
+        unique(B1B2C3D4-0000-0000-0000-00000000000A) type Money { cents: Number }
 
         impl Money {
             fn double(self) {
@@ -1539,7 +1539,7 @@ fn test_inherent_impl_missing_return_type_error() {
             }
         }
 
-        fn run(): number { 0 }
+        fn run(): Number { 0 }
     "#,
     )
     .expect_error("must declare a return type");
@@ -1558,7 +1558,7 @@ fn test_multiple_traits_same_type() {
             fn triple(self): Self;
         }
 
-        unique(A1B2C3D4-0000-0000-0000-000000000005) type Num { val: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000005) type Num { val: Number }
 
         impl Doubler for Num {
             fn double(self): Num {
@@ -1572,7 +1572,7 @@ fn test_multiple_traits_same_type() {
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let n = Num { val: 5 };
             let doubled = n.double();
             let tripled = n.triple();
@@ -1592,20 +1592,20 @@ fn test_impl_method_calls_top_level_function() {
     CliTest::new(
         r#"
         trait Show {
-            fn show(self): number;
+            fn show(self): Number;
         }
 
-        unique(A1B2C3D4-0000-0000-0000-000000000006) type Wrapper { value: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000006) type Wrapper { value: Number }
 
-        fn double(n: number): number { n * 2 }
+        fn double(n: Number): Number { n * 2 }
 
         impl Show for Wrapper {
-            fn show(self): number {
+            fn show(self): Number {
                 double(self.value)
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let w = Wrapper { value: 21 };
             w.show()
         }
@@ -1622,19 +1622,19 @@ fn test_impl_method_with_lambda() {
     CliTest::new(
         r#"
         trait Transform {
-            fn apply(self): number;
+            fn apply(self): Number;
         }
 
-        unique(A1B2C3D4-0000-0000-0000-000000000007) type Box { value: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000007) type Box { value: Number }
 
         impl Transform for Box {
-            fn apply(self): number {
+            fn apply(self): Number {
                 let f = (x) => x + 1;
                 f(self.value)
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let b = Box { value: 41 };
             b.apply()
         }
@@ -1649,18 +1649,18 @@ fn test_operator_overloading_ne() {
     CliTest::new(
         r#"
         trait Eq {
-            fn eq(self, other: Self): bool;
+            fn eq(self, other: Self): Bool;
         }
 
-        unique(A1B2C3D4-0000-0000-0000-000000000008) type Id { value: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000008) type Id { value: Number }
 
         impl Eq for Id {
-            fn eq(self, other: Id): bool {
+            fn eq(self, other: Id): Bool {
                 self.value == other.value
             }
         }
 
-        fn run(): bool {
+        fn run(): Bool {
             let a = Id { value: 1 };
             let b = Id { value: 2 };
             a != b
@@ -1677,20 +1677,20 @@ fn test_operator_overloading_ordering() {
     CliTest::new(
         r#"
         trait Ord {
-            fn cmp(self, other: Self): number;
+            fn cmp(self, other: Self): Number;
         }
 
-        unique(A1B2C3D4-0000-0000-0000-000000000009) type Money { cents: number }
+        unique(A1B2C3D4-0000-0000-0000-000000000009) type Money { cents: Number }
 
         impl Ord for Money {
-            fn cmp(self, other: Money): number {
+            fn cmp(self, other: Money): Number {
                 if self.cents < other.cents { 0 - 1 } else {
                     if self.cents > other.cents { 1 } else { 0 }
                 }
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let small = Money { cents: 50 };
             let big = Money { cents: 100 };
 
@@ -1747,7 +1747,7 @@ fn test_cross_module_trait_dispatch() {
         (
             "money.ab",
             r#"
-            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00001111) type Money { cents: number }
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00001111) type Money { cents: Number }
 
             impl Add for Money {
                 fn add(self, other: Money): Money {
@@ -1756,16 +1756,16 @@ fn test_cross_module_trait_dispatch() {
             }
 
             pub trait Doubled {
-                fn doubled(self): number;
+                fn doubled(self): Number;
             }
 
             impl Doubled for Money {
-                fn doubled(self): number {
+                fn doubled(self): Number {
                     self.cents * 2
                 }
             }
 
-            pub fn make(cents: number): Money {
+            pub fn make(cents: Number): Money {
                 Money { cents: cents }
             }
             "#,
@@ -1775,7 +1775,7 @@ fn test_cross_module_trait_dispatch() {
             r#"
             use pkg::money::{Money, make};
 
-            pub fn run(): number {
+            pub fn run(): Number {
                 let total = make(100) + make(50);
                 total.doubled() + total.cents
             }
@@ -1809,10 +1809,10 @@ fn test_cross_module_inherent_dispatch() {
         (
             "money.ab",
             r#"
-            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00003333) type Money { cents: number }
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00003333) type Money { cents: Number }
 
             impl Money {
-                fn doubled(self): number {
+                fn doubled(self): Number {
                     self.cents * 2
                 }
                 fn zero(): Money {
@@ -1820,7 +1820,7 @@ fn test_cross_module_inherent_dispatch() {
                 }
             }
 
-            pub fn make(cents: number): Money {
+            pub fn make(cents: Number): Money {
                 Money { cents: cents }
             }
             "#,
@@ -1830,7 +1830,7 @@ fn test_cross_module_inherent_dispatch() {
             r#"
             use pkg::money::{Money, make};
 
-            pub fn run(): number {
+            pub fn run(): Number {
                 let m = make(100);
                 m.doubled() + Money::zero().cents
             }
@@ -1865,13 +1865,13 @@ fn test_cross_module_enum_import() {
             "shapes.ab",
             r#"
             pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00002222) enum Shape {
-                Circle(number),
-                Square(number),
+                Circle(Number),
+                Square(Number),
                 Dot,
             }
 
             impl Shape {
-                fn area(self): number {
+                fn area(self): Number {
                     match self {
                         Circle(r) => 3 * r * r,
                         Square(side) => side * side,
@@ -1886,7 +1886,7 @@ fn test_cross_module_enum_import() {
             r#"
             use pkg::shapes::{Shape};
 
-            fn describe(s: Shape): number {
+            fn describe(s: Shape): Number {
                 match s {
                     Circle(r) => r,
                     Square(side) => side * 2,
@@ -1894,7 +1894,7 @@ fn test_cross_module_enum_import() {
                 }
             }
 
-            pub fn run(): number {
+            pub fn run(): Number {
                 describe(Circle(10)) + describe(Dot) + Circle(2).area() + Square(3).area()
             }
             "#,
@@ -1928,8 +1928,8 @@ fn test_cross_module_const_import() {
         (
             "config.ab",
             r#"
-            pub const ANSWER: number = 42;
-            pub const SCALE: number = 100;
+            pub const ANSWER: Number = 42;
+            pub const SCALE: Number = 100;
             "#,
         ),
         (
@@ -1937,7 +1937,7 @@ fn test_cross_module_const_import() {
             r#"
             use pkg::config::{ANSWER, SCALE};
 
-            pub fn run(): number {
+            pub fn run(): Number {
                 ANSWER + SCALE
             }
             "#,
@@ -1971,7 +1971,7 @@ fn test_enum_variant_import_is_rejected() {
             "shapes.ab",
             r#"
             pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00005555) enum Shape {
-                Circle(number),
+                Circle(Number),
                 Dot,
             }
             "#,
@@ -1981,7 +1981,7 @@ fn test_enum_variant_import_is_rejected() {
             r#"
             use pkg::shapes::{Circle};
 
-            pub fn run(): number {
+            pub fn run(): Number {
                 0
             }
             "#,
@@ -2011,13 +2011,13 @@ fn test_foreign_nominal_type_hidden_without_import() {
         (
             "widgets.ab",
             r#"
-            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00004444) type Widget { size: number }
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00004444) type Widget { size: Number }
             "#,
         ),
         (
             "main.ab",
             r#"
-            pub fn run(): number {
+            pub fn run(): Number {
                 Widget { size: 42 }.size
             }
             "#,
@@ -2044,7 +2044,7 @@ fn test_foreign_nominal_type_visible_with_import() {
         (
             "widgets.ab",
             r#"
-            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00005544) type Widget { size: number }
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00005544) type Widget { size: Number }
             "#,
         ),
         (
@@ -2052,7 +2052,7 @@ fn test_foreign_nominal_type_visible_with_import() {
             r#"
             use pkg::widgets::{Widget};
 
-            pub fn run(): number {
+            pub fn run(): Number {
                 Widget { size: 42 }.size
             }
             "#,
@@ -2086,10 +2086,10 @@ fn test_imported_functions_share_foreign_nominal_identity() {
         (
             "widgets.ab",
             r#"
-            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00006644) type Widget { size: number }
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00006644) type Widget { size: Number }
 
-            pub fn make(n: number): Widget { Widget { size: n } }
-            pub fn size_of(w: Widget): number { w.size }
+            pub fn make(n: Number): Widget { Widget { size: n } }
+            pub fn size_of(w: Widget): Number { w.size }
             "#,
         ),
         (
@@ -2097,7 +2097,7 @@ fn test_imported_functions_share_foreign_nominal_identity() {
             r#"
             use pkg::widgets::{make, size_of};
 
-            pub fn run(): number {
+            pub fn run(): Number {
                 size_of(make(42))
             }
             "#,
@@ -2134,7 +2134,7 @@ fn test_reserved_uuid_cannot_be_hijacked() {
             Just(T),
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
             0
         }
         "#,
@@ -2170,7 +2170,7 @@ fn test_private_enum_is_not_importable() {
             r#"
             use pkg::shapes::{Secret};
 
-            pub fn run(): number {
+            pub fn run(): Number {
                 0
             }
             "#,
@@ -2200,13 +2200,13 @@ fn test_cross_module_duplicate_inherent_method_error() {
         (
             "a.ab",
             r#"
-            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00004444) type Money { cents: number }
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00004444) type Money { cents: Number }
 
             impl Money {
-                fn doubled(self): number { self.cents * 2 }
+                fn doubled(self): Number { self.cents * 2 }
             }
 
-            pub fn make(cents: number): Money {
+            pub fn make(cents: Number): Money {
                 Money { cents: cents }
             }
             "#,
@@ -2217,10 +2217,10 @@ fn test_cross_module_duplicate_inherent_method_error() {
             use pkg::a::{Money};
 
             impl Money {
-                fn doubled(self): number { self.cents * 4 }
+                fn doubled(self): Number { self.cents * 4 }
             }
 
-            pub fn touch(): number { 1 }
+            pub fn touch(): Number { 1 }
             "#,
         ),
         (
@@ -2229,7 +2229,7 @@ fn test_cross_module_duplicate_inherent_method_error() {
             use pkg::a::{make};
             use pkg::b::{touch};
 
-            pub fn run(): number {
+            pub fn run(): Number {
                 make(touch()).doubled()
             }
             "#,
@@ -2258,7 +2258,7 @@ fn test_core_option_and_list_methods() {
     // methods via inherent impls written in Ambient (core_lib/*.ab).
     CliTest::new(
         r#"
-        pub fn run(): number {
+        pub fn run(): Number {
             let doubled = Some(20).map((v) => v * 2).unwrap_or(0);
             let empty = None.unwrap_or(2);
             let list_sum = [1, 2, 3].map((x) => x * 10).fold(0, (acc, x) => acc + x);
@@ -2282,7 +2282,7 @@ fn test_core_method_and_module_call_coexist() {
         (
             "nums.ab",
             r"
-            pub fn scaled(n: number, factor: number): number { n * factor }
+            pub fn scaled(n: Number, factor: Number): Number { n * factor }
             ",
         ),
         (
@@ -2290,13 +2290,13 @@ fn test_core_method_and_module_call_coexist() {
             r"
             use self::nums;
 
-            unique(BBBBCCCC-DDDD-EEEE-FFFF-000011112222) type Counter { value: number }
+            unique(BBBBCCCC-DDDD-EEEE-FFFF-000011112222) type Counter { value: Number }
 
             impl Counter {
-                fn scaled(self, factor: number): number { self.value * factor }
+                fn scaled(self, factor: Number): Number { self.value * factor }
             }
 
-            pub fn run(): bool {
+            pub fn run(): Bool {
                 let via_module = nums::scaled(5, 2);
                 let via_method = Counter { value: 5 }.scaled(2);
                 via_module == via_method
@@ -2321,7 +2321,7 @@ fn test_user_cannot_redefine_core_method() {
             }
         }
 
-        fn run(): number { 0 }
+        fn run(): Number { 0 }
     "#,
     )
     .expect_error("duplicate inherent method");
@@ -2333,19 +2333,19 @@ fn test_inherent_impl_on_primitives() {
     // reserved lowercase head no user type can claim.
     CliTest::new(
         r#"
-        impl string {
-            fn shout(self): string {
+        impl String {
+            fn shout(self): String {
                 core::string::to_upper(self)
             }
         }
 
-        impl number {
-            fn clamped(self, lo: number, hi: number): number {
+        impl Number {
+            fn clamped(self, lo: Number, hi: Number): Number {
                 core::math::min(core::math::max(self, lo), hi)
             }
         }
 
-        pub fn run(): string {
+        pub fn run(): String {
             "hi ${(99).clamped(0, 42)} " + "there".shout()
         }
     "#,
@@ -2359,7 +2359,7 @@ fn test_string_concat_operator_at_runtime() {
     // this; the VM used to reject it at runtime).
     CliTest::new(
         r#"
-        pub fn run(): string {
+        pub fn run(): String {
             let name = "world";
             "hello " + name + "!"
         }
@@ -2383,7 +2383,7 @@ fn test_user_can_extend_core_type_with_new_method() {
             }
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
             Some(7).to_list().length() + None.to_list().length()
         }
     "#,
@@ -2397,7 +2397,7 @@ fn test_prelude_traits_no_import_needed() {
     // any use statement or local trait declaration.
     CliTest::new(
         r#"
-        unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00002222) type Meters { value: number }
+        unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00002222) type Meters { value: Number }
 
         impl Add for Meters {
             fn add(self, other: Meters): Meters {
@@ -2405,7 +2405,7 @@ fn test_prelude_traits_no_import_needed() {
             }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let d = Meters { value: 3 } + Meters { value: 4 };
             d.value
         }
@@ -2420,11 +2420,11 @@ fn test_zero_parameter_lambda() {
     // where it begins a zero-parameter lambda.
     CliTest::new(
         r#"
-        fn call_thunk(f: () -> number): number {
+        fn call_thunk(f: () -> Number): Number {
             f()
         }
 
-        fn run(): number {
+        fn run(): Number {
             let t = () => 42;
             let a = t();
             let b = call_thunk(() => { let x = 7; x * 2 });
@@ -2452,11 +2452,11 @@ fn test_private_function_ability_inference() {
             helper_outer();
         }
 
-        fn ping(n: number) {
+        fn ping(n: Number) {
             if n > 0 { platform::Stdio::out!("ping"); pong(n - 1); } else { () }
         }
 
-        fn pong(n: number) {
+        fn pong(n: Number) {
             if n > 0 { platform::Stdio::out!("pong"); ping(n - 1); } else { () }
         }
 
@@ -2494,20 +2494,20 @@ fn test_duplicate_impl_is_error() {
     CliTest::new(
         r#"
         trait Show {
-            fn show(self): number;
+            fn show(self): Number;
         }
 
-        unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00003333) type Id { value: number }
+        unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00003333) type Id { value: Number }
 
         impl Show for Id {
-            fn show(self): number { self.value }
+            fn show(self): Number { self.value }
         }
 
         impl Show for Id {
-            fn show(self): number { self.value * 2 }
+            fn show(self): Number { self.value * 2 }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let i = Id { value: 1 };
             i.show()
         }
@@ -2523,24 +2523,24 @@ fn test_ambiguous_method_is_error() {
     CliTest::new(
         r#"
         trait Html {
-            fn render(self): number;
+            fn render(self): Number;
         }
 
         trait Text {
-            fn render(self): number;
+            fn render(self): Number;
         }
 
-        unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00004444) type Page { id: number }
+        unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00004444) type Page { id: Number }
 
         impl Html for Page {
-            fn render(self): number { self.id }
+            fn render(self): Number { self.id }
         }
 
         impl Text for Page {
-            fn render(self): number { self.id * 2 }
+            fn render(self): Number { self.id * 2 }
         }
 
-        fn run(): number {
+        fn run(): Number {
             let p = Page { id: 1 };
             p.render()
         }
@@ -2559,7 +2559,7 @@ fn test_list_accessors_return_option() {
     // `None` when the element is missing — never a substituted `()`.
     let (dir, pkg) = temp_package(
         r#"
-        pub fn run(): string {
+        pub fn run(): String {
             let hit = match core::List::get([1, 2, 3], 1) {
                 Some(v) => v,
                 None => 0 - 1,
@@ -2587,11 +2587,11 @@ fn test_list_option_chains_through_method_combinators() {
     // `xs.head().unwrap_or(...)`, `xs.get(i).map(...)`.
     let (dir, pkg) = temp_package(
         r"
-        pub fn run(): number {
+        pub fn run(): Number {
             let xs = [10, 20, 30];
-            let empty: List<number> = [];
+            let empty: List<Number> = [];
             xs.head().unwrap_or(0)
-                + xs.get(2).map((v: number) => v * 2).unwrap_or(0)
+                + xs.get(2).map((v: Number) => v * 2).unwrap_or(0)
                 + xs.last().unwrap_or(0)
                 + empty.head().unwrap_or(1000)
         }
@@ -2608,7 +2608,7 @@ fn test_list_option_chains_through_method_combinators() {
 fn test_parse_number_and_parse_bool_return_option() {
     let (dir, pkg) = temp_package(
         r#"
-        pub fn run(): string {
+        pub fn run(): String {
             let good = core::convert::parse_number("42.5").unwrap_or(0);
             let bad = match core::convert::parse_number("abc") {
                 Some(_) => "some",
@@ -2631,7 +2631,7 @@ fn test_parse_number_and_parse_bool_return_option() {
 fn test_map_get_returns_option() {
     let (dir, pkg) = temp_package(
         r#"
-        pub fn run(): string {
+        pub fn run(): String {
             let m = core::map::insert(core::map::empty(), "a", 1);
             let hit = core::map::get(m, "a").unwrap_or(0);
             let miss = match core::map::get(m, "b") {
@@ -2652,7 +2652,7 @@ fn test_map_get_returns_option() {
 fn test_string_index_of_returns_option() {
     let (dir, pkg) = temp_package(
         r#"
-        pub fn run(): string {
+        pub fn run(): String {
             let found = core::string::index_of("hello world", "wor").unwrap_or(0 - 1);
             let missing = core::string::index_of("hello", "xyz").is_none();
             core::convert::to_string(found) + " " + core::convert::to_string(missing)
@@ -2676,7 +2676,7 @@ fn test_core_functions_fully_qualified() {
     // now methods, so the chain uses `.sum()`.
     let (dir, pkg) = temp_package(
         r"
-        pub fn run(): number {
+        pub fn run(): Number {
             core::List::range(1, 5).sum()
         }
         ",
@@ -2694,8 +2694,8 @@ fn test_core_whole_module_import_alias() {
         r"
         use core::List;
 
-        pub fn run(): number {
-            List::range(1, 5).fold(0, (acc: number, x: number) => acc + x)
+        pub fn run(): Number {
+            List::range(1, 5).fold(0, (acc: Number, x: Number) => acc + x)
         }
         ",
     );
@@ -2714,7 +2714,7 @@ fn test_core_item_import() {
         r"
         use core::List::{range};
 
-        pub fn run(): number {
+        pub fn run(): Number {
             range(1, 5).sum()
         }
         ",
@@ -2735,7 +2735,7 @@ fn test_non_brace_item_import() {
             r"
             use pkg::utils::triple;
 
-            pub fn run(): number {
+            pub fn run(): Number {
                 triple(7) + triple(1)
             }
             ",
@@ -2743,7 +2743,7 @@ fn test_non_brace_item_import() {
         (
             "utils.ab",
             r"
-            pub fn triple(x: number): number { x * 3 }
+            pub fn triple(x: Number): Number { x * 3 }
             ",
         ),
     ]);
@@ -2761,7 +2761,7 @@ fn test_non_brace_core_item_import() {
         r"
         use core::List::range;
 
-        pub fn run(): number {
+        pub fn run(): Number {
             range(1, 4).sum()
         }
         ",
@@ -2782,7 +2782,7 @@ fn test_whole_module_user_import() {
             r"
             use self::utils;
 
-            pub fn run(): number {
+            pub fn run(): Number {
                 utils::triple(7) + utils::triple(1)
             }
             ",
@@ -2790,7 +2790,7 @@ fn test_whole_module_user_import() {
         (
             "utils.ab",
             r"
-            pub fn triple(x: number): number { x * 3 }
+            pub fn triple(x: Number): Number { x * 3 }
             ",
         ),
     ]);
@@ -2810,7 +2810,7 @@ fn test_local_variable_shadows_module_alias() {
             r"
             use self::utils;
 
-            pub fn run(): number {
+            pub fn run(): Number {
                 let utils = 5;
                 utils.triple(7)
             }
@@ -2819,7 +2819,7 @@ fn test_local_variable_shadows_module_alias() {
         (
             "utils.ab",
             r"
-            pub fn triple(x: number): number { x * 3 }
+            pub fn triple(x: Number): Number { x * 3 }
             ",
         ),
     ]);
@@ -2839,14 +2839,14 @@ fn test_method_call_resolves_inside_perform_arguments() {
     // discarded and compilation failed.
     let (dir, pkg) = temp_package(
         r#"
-        unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00001111) type Point { x: number }
+        unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00001111) type Point { x: Number }
 
         trait Doubled {
-            fn doubled(self): number;
+            fn doubled(self): Number;
         }
 
         impl Doubled for Point {
-            fn doubled(self): number { self.x * 2 }
+            fn doubled(self): Number { self.x * 2 }
         }
 
         pub fn run(): () with platform::Stdio {
@@ -2869,13 +2869,13 @@ fn test_method_call_resolves_inside_perform_arguments() {
 fn test_user_enum_construct_and_match() {
     let (dir, pkg) = temp_package(
         r"
-        unique(C1B2C3D4-0000-0000-0000-000000000011) enum Shape { Circle(number), Square(number), Dot }
+        unique(C1B2C3D4-0000-0000-0000-000000000011) enum Shape { Circle(Number), Square(Number), Dot }
 
-        pub fn run(): number {
+        pub fn run(): Number {
             area(Circle(2)) + area(Square(3)) + area(Dot)
         }
 
-        fn area(s: Shape): number {
+        fn area(s: Shape): Number {
             match s {
                 Circle(r) => 3 * r * r,
                 Square(side) => side * side,
@@ -2898,7 +2898,7 @@ fn test_bare_enum_requires_unique() {
         r"
         enum Color { Red, Green, Blue }
 
-        pub fn run(): number { 0 }
+        pub fn run(): Number { 0 }
         ",
     )
     .check()
@@ -2912,14 +2912,14 @@ fn test_distinct_enums_are_not_interchangeable() {
     // nominal identity — shape no longer implies interchangeability.
     CliTest::new(
         r"
-        unique(C1B2C3D4-0000-0000-0000-000000000020) enum Meters { M(number) }
-        unique(C1B2C3D4-0000-0000-0000-000000000021) enum Feet { F(number) }
+        unique(C1B2C3D4-0000-0000-0000-000000000020) enum Meters { M(Number) }
+        unique(C1B2C3D4-0000-0000-0000-000000000021) enum Feet { F(Number) }
 
-        fn meters_value(x: Meters): number {
+        fn meters_value(x: Meters): Number {
             match x { M(v) => v }
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
             meters_value(F(3))
         }
         ",
@@ -2949,7 +2949,7 @@ fn test_duplicate_inherent_method_on_enum_error() {
             }
         }
 
-        pub fn run(): number { 0 }
+        pub fn run(): Number { 0 }
     "#,
     )
     .check()
@@ -2974,7 +2974,7 @@ fn test_generic_nominal_enum_roundtrips() {
             }
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
             Full(40).get_or(0) + Empty.get_or(2)
         }
         ",
@@ -2992,16 +2992,16 @@ fn test_enum_payload_is_another_nominal_enum() {
     // dispatches on the payload enum's uuid — not its head name.
     let (dir, pkg) = temp_package(
         r"
-        unique(D1B2C3D4-0000-0000-0000-000000000001) enum Inner { Val(number) }
+        unique(D1B2C3D4-0000-0000-0000-000000000001) enum Inner { Val(Number) }
         unique(D1B2C3D4-0000-0000-0000-000000000002) enum Outer { Wrap(Inner) }
 
         impl Inner {
-            fn doubled(self): number {
+            fn doubled(self): Number {
                 match self { Val(v) => v * 2 }
             }
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
             match Wrap(Val(21)) {
                 Wrap(inner) => inner.doubled(),
             }
@@ -3018,13 +3018,13 @@ fn test_enum_payload_is_another_nominal_enum() {
 fn test_option_constructors_and_core_helpers() {
     let (dir, pkg) = temp_package(
         r"
-        pub fn run(): number {
-            let doubled = Some(20).map((x: number) => x * 2);
+        pub fn run(): Number {
+            let doubled = Some(20).map((x: Number) => x * 2);
             doubled.unwrap_or(0)
-                + nothing().map((x: number) => x).unwrap_or(2)
+                + nothing().map((x: Number) => x).unwrap_or(2)
         }
 
-        fn nothing(): Option<number> {
+        fn nothing(): Option<Number> {
             None
         }
         ",
@@ -3039,16 +3039,16 @@ fn test_option_constructors_and_core_helpers() {
 fn test_result_constructors_and_chaining() {
     let (dir, pkg) = temp_package(
         r#"
-        pub fn run(): string {
-            let ok = parse(5).map((x: number) => x * 10);
+        pub fn run(): String {
+            let ok = parse(5).map((x: Number) => x * 10);
             let err = parse(0 - 3);
-            match ok.and_then((x: number) => parse(x)) {
+            match ok.and_then((x: Number) => parse(x)) {
                 Ok(v) => core::string::from_number(v),
                 Err(e) => e,
             }
         }
 
-        fn parse(n: number): Result<number, string> {
+        fn parse(n: Number): Result<Number, String> {
             if n > 0 { Ok(n) } else { Err("negative") }
         }
         "#,
@@ -3065,7 +3065,7 @@ fn test_match_takes_correct_arm() {
     // to the fail target, so every variant arm skipped its own body.
     let (dir, pkg) = temp_package(
         r"
-        pub fn run(): number {
+        pub fn run(): Number {
             let hit = match Some(41) {
                 Some(v) => v,
                 None => 0 - 1,
@@ -3077,7 +3077,7 @@ fn test_match_takes_correct_arm() {
             hit + miss
         }
 
-        fn nothing(): Option<number> {
+        fn nothing(): Option<Number> {
             None
         }
         ",
@@ -3092,7 +3092,7 @@ fn test_match_takes_correct_arm() {
 fn test_unknown_variant_pattern_is_error() {
     let (dir, pkg) = temp_package(
         r"
-        pub fn run(): number {
+        pub fn run(): Number {
             match Some(1) {
                 Sume(v) => v,
                 None => 0,
@@ -3113,7 +3113,7 @@ fn test_unknown_variant_pattern_is_error() {
 fn test_variant_payload_mismatch_is_error() {
     let (dir, pkg) = temp_package(
         r"
-        pub fn run(): number {
+        pub fn run(): Number {
             match Some(1) {
                 Some => 1,
                 None => 0,
@@ -3135,7 +3135,7 @@ fn test_lowercase_pattern_still_binds() {
     // Only uppercase-initial bare identifiers are variant patterns.
     let (dir, pkg) = temp_package(
         r"
-        pub fn run(): number {
+        pub fn run(): Number {
             match 42 {
                 x => x,
             }
@@ -3157,14 +3157,14 @@ fn test_user_ability_inline_handler() {
     CliTest::new(
         r#"
         ability Greeter {
-            fn greet(name: string): string;
+            fn greet(name: String): String;
         }
 
-        fn hello(): string with Greeter {
+        fn hello(): String with Greeter {
             Greeter::greet!("world")
         }
 
-        pub fn run(): string {
+        pub fn run(): String {
             handle hello() {
                 Greeter::greet(name) => {
                     resume(core::string::concat("hi ", name))
@@ -3186,14 +3186,14 @@ fn test_user_ability_handler_value_and_generic_method() {
         r#"
         ability Picker {
             fn pick<T>(a: T, b: T): T;
-            fn label(): string;
+            fn label(): String;
         }
 
-        fn choose(): number with Picker {
+        fn choose(): Number with Picker {
             Picker::pick!(10, 32)
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
             let first = {
                 pick(a, b) => resume(a),
                 label() => resume("first")
@@ -3211,10 +3211,10 @@ fn test_user_ability_unhandled_is_runtime_error() {
     CliTest::new(
         r#"
         ability Missing {
-            fn gone(): string;
+            fn gone(): String;
         }
 
-        pub fn run(): string with Missing {
+        pub fn run(): String with Missing {
             Missing::gone!()
         }
         "#,
@@ -3227,10 +3227,10 @@ fn test_user_ability_unknown_method_is_type_error() {
     CliTest::new(
         r#"
         ability Greeter {
-            fn greet(name: string): string;
+            fn greet(name: String): String;
         }
 
-        pub fn run(): string with Greeter {
+        pub fn run(): String with Greeter {
             Greeter::shout!("hi")
         }
         "#,
@@ -3243,10 +3243,10 @@ fn test_user_ability_wrong_arg_type_is_type_error() {
     CliTest::new(
         r#"
         ability Greeter {
-            fn greet(name: string): string;
+            fn greet(name: String): String;
         }
 
-        pub fn run(): string with Greeter {
+        pub fn run(): String with Greeter {
             Greeter::greet!(42)
         }
         "#,
@@ -3259,10 +3259,10 @@ fn test_user_ability_unknown_dependency_is_error() {
     CliTest::new(
         r"
         ability Loud with NoSuchAbility {
-            fn shout(msg: string): ();
+            fn shout(msg: String): ();
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
             7
         }
         ",
@@ -3277,10 +3277,10 @@ fn test_suspend_form_is_removed() {
     CliTest::new(
         r#"
         ability Greeter {
-            fn greet(name: string): string;
+            fn greet(name: String): String;
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
             let op = Greeter::greet~("later");
             7
         }
@@ -3300,12 +3300,12 @@ fn test_execute_run_with_granted_ability() {
     // can be run by hash and its logs land on the executing host.
     CliTest::new(
         r#"
-        fn shout(x: number): number with platform::Log, platform::Stdio {
+        fn shout(x: Number): Number with platform::Log, platform::Stdio {
             platform::Log::info!("computing remotely");
             x * 2
         }
 
-        pub fn run(): number with platform::Execute {
+        pub fn run(): Number with platform::Execute {
             let thunk = (x) => shout(x);
             let hash = core::protocol::closure_hash(thunk);
             platform::Execute::run!(hash, 21)
@@ -3321,12 +3321,12 @@ fn test_execute_run_ungranted_ability_is_unhandled() {
     // isolated VM is an unhandled-ability error, not a silent escape.
     CliTest::new(
         r#"
-        fn phone_home(x: number): number with platform::Network {
+        fn phone_home(x: Number): Number with platform::Network {
             let conn = platform::Network::connect!(("127.0.0.1", 1));
             x
         }
 
-        pub fn run(): number with platform::Execute {
+        pub fn run(): Number with platform::Execute {
             let thunk = (x) => phone_home(x);
             let hash = core::protocol::closure_hash(thunk);
             platform::Execute::run!(hash, 1)
@@ -3346,14 +3346,14 @@ fn test_execute_run_with_shipped_handler() {
     CliTest::new(
         r"
         ability Oracle {
-            fn answer(): number;
+            fn answer(): Number;
         }
 
-        fn consult(x: number): number with Oracle {
+        fn consult(x: Number): Number with Oracle {
             x + Oracle::answer!()
         }
 
-        pub fn run(): number with platform::Execute {
+        pub fn run(): Number with platform::Execute {
             let oracle = { answer() => resume(40) };
             let thunk = (x) => consult(x);
             let hash = core::protocol::closure_hash(thunk);
@@ -3371,10 +3371,10 @@ fn test_handler_methods_intrinsic() {
     CliTest::new(
         r"
         ability Oracle {
-            fn answer(): number;
+            fn answer(): Number;
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
             let oracle = { answer() => resume(42) };
             core::List::length(core::protocol::handler_methods(oracle))
         }
@@ -3394,12 +3394,12 @@ fn test_handle_catch_and_continue() {
     // essential try/catch shape.
     CliTest::new(
         r#"
-        fn risky(): number with Exception {
+        fn risky(): Number with Exception {
             Exception::throw!("kaboom");
             1
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
             let caught = handle risky() {
                 Exception::throw(msg) => 0 - 1
             };
@@ -3418,16 +3418,16 @@ fn test_resume_restores_locals() {
     CliTest::new(
         r#"
         ability Oracle {
-            fn ask(q: string): number;
+            fn ask(q: String): Number;
         }
 
-        fn asker(): number with Oracle {
+        fn asker(): Number with Oracle {
             let base = 100;
             let answer = Oracle::ask!("q");
             base + answer
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
             handle asker() {
                 Oracle::ask(q) => resume(42)
             }
@@ -3445,17 +3445,17 @@ fn test_handle_multi_perform_with_capturing_arm() {
     CliTest::new(
         r"
         ability Counter {
-            fn next(): number;
+            fn next(): Number;
         }
 
-        fn count_three(): number with Counter {
+        fn count_three(): Number with Counter {
             let a = Counter::next!();
             let b = Counter::next!();
             let c = Counter::next!();
             a + b + c
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
             let step = 10;
             handle count_three() {
                 Counter::next() => resume(step)
@@ -3472,7 +3472,7 @@ fn test_handle_else_transforms_normal_completion() {
     // handler arms bypass it.
     CliTest::new(
         r"
-        pub fn run(): number {
+        pub fn run(): Number {
             handle 5 {
                 Exception::throw(msg) => 0
                 else { (r) => r * 2 }
@@ -3491,22 +3491,22 @@ fn test_exception_unwinds_through_inner_handle() {
     CliTest::new(
         r#"
         ability Ping {
-            fn ping(): number;
+            fn ping(): Number;
         }
 
-        fn inner(): number with Ping, Exception {
+        fn inner(): Number with Ping, Exception {
             let p = Ping::ping!();
             Exception::throw!("escape");
             p
         }
 
-        fn middle(): number with Exception {
+        fn middle(): Number with Exception {
             handle inner() {
                 Ping::ping() => resume(7)
             }
         }
 
-        pub fn run(): number {
+        pub fn run(): Number {
             let x = handle middle() {
                 Exception::throw(msg) => 50
             };
@@ -3526,7 +3526,7 @@ fn test_uncaught_exception_reports_value() {
     // With no handler in scope, the thrown value surfaces in the error.
     let output = CliTest::new(
         r#"
-        pub fn run(): number with Exception {
+        pub fn run(): Number with Exception {
             Exception::throw!("boom with value 7");
             0
         }
@@ -3547,12 +3547,12 @@ fn test_host_raised_exception_is_catchable() {
     // a catchable exception instead of aborting the VM.
     CliTest::new(
         r#"
-        fn try_connect(): string with platform::Network {
+        fn try_connect(): String with platform::Network {
             let conn = platform::Network::connect!(("127.0.0.1", 9));
             "connected"
         }
 
-        pub fn run(): string with platform::Network {
+        pub fn run(): String with platform::Network {
             handle try_connect() {
                 Exception::throw(msg) => "failed"
             }
@@ -3569,12 +3569,12 @@ fn test_host_raised_exception_resume_substitute() {
     // continues executing after the failed connect.
     CliTest::new(
         r#"
-        fn try_connect(): number with platform::Network {
+        fn try_connect(): Number with platform::Network {
             let conn = platform::Network::connect!(("127.0.0.1", 9));
             conn + 1000
         }
 
-        pub fn run(): number with platform::Network {
+        pub fn run(): Number with platform::Network {
             handle try_connect() {
                 Exception::throw(msg) => resume(0 - 1)
             }
@@ -3594,7 +3594,7 @@ fn test_fs_write_read_roundtrip() {
     let path = dir.path().join("note.txt");
     CliTest::new(format!(
         r#"
-        pub fn run(): string with platform::FileSystem {{
+        pub fn run(): String with platform::FileSystem {{
             platform::FileSystem::write!("{path}", "hello from ambient");
             platform::FileSystem::read!("{path}")
         }}
@@ -3610,11 +3610,11 @@ fn test_fs_read_missing_file_is_catchable_exception() {
     // of aborting the VM.
     CliTest::new(
         r#"
-        fn try_read(): string with platform::FileSystem {
+        fn try_read(): String with platform::FileSystem {
             platform::FileSystem::read!("/nonexistent/ambient_fs_test/missing.txt")
         }
 
-        pub fn run(): string with platform::FileSystem {
+        pub fn run(): String with platform::FileSystem {
             handle try_read() {
                 Exception::throw(msg) => "caught"
             }
@@ -3647,7 +3647,7 @@ fn test_fs_list_returns_written_entries() {
     let base = dir.path().display().to_string();
     CliTest::new(format!(
         r#"
-        pub fn run(): number with platform::FileSystem {{
+        pub fn run(): Number with platform::FileSystem {{
             platform::FileSystem::write!("{base}/a.txt", "1");
             platform::FileSystem::write!("{base}/b.txt", "2");
             core::List::length(platform::FileSystem::list!("{base}"))
@@ -3663,7 +3663,7 @@ fn test_fs_remove_then_exists_is_false() {
     let path = dir.path().join("ephemeral.txt");
     CliTest::new(format!(
         r#"
-        pub fn run(): bool with platform::FileSystem {{
+        pub fn run(): Bool with platform::FileSystem {{
             platform::FileSystem::write!("{path}", "gone soon");
             platform::FileSystem::remove!("{path}");
             platform::FileSystem::exists!("{path}")
@@ -3684,7 +3684,7 @@ fn test_core_time_duration() {
         r#"
         use core::time::Duration;
 
-        pub fn run(): number {
+        pub fn run(): Number {
             let a = Duration::from_secs(2);
             let b = Duration::from_millis(1500);   // 1s + 500_000_000ns
 
@@ -3718,12 +3718,12 @@ fn test_execute_run_fs_is_not_granted() {
     // not a silent escape.
     CliTest::new(
         r#"
-        fn sneaky(x: number): number with platform::FileSystem {
+        fn sneaky(x: Number): Number with platform::FileSystem {
             let content = platform::FileSystem::read!("/etc/hostname");
             x
         }
 
-        pub fn run(): number with platform::Execute {
+        pub fn run(): Number with platform::Execute {
             let thunk = (x) => sneaky(x);
             let hash = core::protocol::closure_hash(thunk);
             platform::Execute::run!(hash, 1)

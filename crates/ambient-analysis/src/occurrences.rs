@@ -543,7 +543,7 @@ mod tests {
 
     #[test]
     fn function_definition_and_call_share_a_target() {
-        let occ = occurrences_of("fn helper(): number { 1 }\nfn run(): number { helper() }");
+        let occ = occurrences_of("fn helper(): Number { 1 }\nfn run(): Number { helper() }");
         let def = find(&occ, "helper", true);
         let refs = find(&occ, "helper", false);
         assert_eq!(def.len(), 1);
@@ -553,7 +553,7 @@ mod tests {
 
     #[test]
     fn local_param_and_uses_share_a_target() {
-        let occ = occurrences_of("fn run(x: number): number { x + x }");
+        let occ = occurrences_of("fn run(x: Number): Number { x + x }");
         let all: Vec<_> = occ
             .iter()
             .filter(|o| o.target.is_local() && o.target.name().as_ref() == "x")
@@ -567,7 +567,7 @@ mod tests {
 
     #[test]
     fn param_definition_span_excludes_the_type() {
-        let occ = occurrences_of("fn run(count: number): number { count }");
+        let occ = occurrences_of("fn run(count: Number): Number { count }");
         let def = find(&occ, "count", true);
         assert_eq!(def.len(), 1);
         // "fn run(" is 7 bytes; `count` spans [7, 12), not `count: number`.
@@ -577,7 +577,7 @@ mod tests {
     #[test]
     fn let_shadow_rhs_refers_to_outer_binding() {
         // `let y = x; ...` — the two `x` uses are the param; `y` is distinct.
-        let occ = occurrences_of("fn run(x: number): number { let y = x; y }");
+        let occ = occurrences_of("fn run(x: Number): Number { let y = x; y }");
         let xs: Vec<_> = occ
             .iter()
             .filter(|o| o.target.is_local() && o.target.name().as_ref() == "x")
@@ -594,7 +594,7 @@ mod tests {
     #[test]
     fn inner_shadow_is_a_distinct_binding() {
         // The lambda's `x` shadows the param `x`: two distinct targets.
-        let occ = occurrences_of("fn run(x: number): number { let f = (x) => x + 1; x }");
+        let occ = occurrences_of("fn run(x: Number): Number { let f = (x) => x + 1; x }");
         let targets: std::collections::HashSet<_> = occ
             .iter()
             .filter(|o| o.target.is_local() && o.target.name().as_ref() == "x")

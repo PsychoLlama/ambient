@@ -61,7 +61,7 @@ fn test_define_and_call_function() {
 fn test_define_constant() {
     ReplTest::new()
         .wait_ready()
-        .type_line("const PI: number = 3;")
+        .type_line("const PI: Number = 3;")
         .expect_output("Defined: PI")
         .type_line("PI + 1")
         .expect_output("4")
@@ -133,7 +133,7 @@ fn test_help_command() {
 fn test_clear_command() {
     ReplTest::new()
         .wait_ready()
-        .type_line("const X: number = 42;")
+        .type_line("const X: Number = 42;")
         .expect_output("Defined: X")
         .type_line(":clear")
         .expect_output("State cleared")

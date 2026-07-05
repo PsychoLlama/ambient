@@ -37,8 +37,8 @@ unique(E5F6A7B8-C9D0-1234-EFAB-345678901234) type EUR { cents: Number }
 //
 // Without nominal types, these bugs would compile:
 //
-//   fn get_user(id: { value: string }): User { ... }
-//   fn get_order(id: { value: string }): Order { ... }
+//   fn get_user(id: { value: String }): User { ... }
+//   fn get_order(id: { value: String }): Order { ... }
 //
 //   let user_id = { value: "user-123" };
 //   let order_id = { value: "order-456" };

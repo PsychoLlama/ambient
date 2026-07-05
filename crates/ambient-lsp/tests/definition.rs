@@ -38,7 +38,7 @@ fn test_goto_recursive_call() {
     let (test, locations) = LspTest::new()
         .with_source(
             r#"
-fn factorial(n: number): number {
+fn factorial(n: Number): Number {
     if n <= 1 { 1 } else { n * factorial/*use*/(n - 1) }
 }
 "#,
@@ -98,7 +98,7 @@ fn test_goto_cross_file_imported_function() {
     // Go to definition of an imported function should jump to the other file
     let (test, locations) = LspTest::new()
         .with_package()
-        .with_file("src/utils.ab", "pub fn helper(): number { 42 }")
+        .with_file("src/utils.ab", "pub fn helper(): Number { 42 }")
         .with_file(
             "src/main.ab",
             r#"
@@ -136,8 +136,8 @@ fn test_goto_cross_file_specific_import() {
         .with_file(
             "src/helpers.ab",
             r#"
-pub fn first(): number { 1 }
-pub fn second(): number { 2 }
+pub fn first(): Number { 1 }
+pub fn second(): Number { 2 }
 "#,
         )
         .with_file(
@@ -177,9 +177,9 @@ fn test_goto_cross_file_multiple_functions() {
         .with_file(
             "src/funcs.ab",
             r#"
-pub fn first(): number { 1 }
-pub fn second(): number { 2 }
-pub fn third(): number { 3 }
+pub fn first(): Number { 1 }
+pub fn second(): Number { 2 }
+pub fn third(): Number { 3 }
 "#,
         )
         .with_file(
@@ -219,7 +219,7 @@ fn test_goto_cross_file_expect_file_helper() {
     // Test the expect_file() assertion helper
     LspTest::new()
         .with_package()
-        .with_file("src/target.ab", "pub fn defined_here(): number { 99 }")
+        .with_file("src/target.ab", "pub fn defined_here(): Number { 99 }")
         .with_file(
             "src/main.ab",
             r#"
