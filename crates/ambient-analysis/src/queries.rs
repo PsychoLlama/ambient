@@ -173,6 +173,22 @@ pub fn format_type(ty: &Type) -> String {
     ty.to_string()
 }
 
+/// Format a type for hover, surfacing the module-qualified identity of a
+/// primitive (`core::String`) that its bare `Display` name (`String`) omits.
+///
+/// Hover is the one surface that shows a nominal type's fully-qualified
+/// identity; diagnostics, completions, and the REPL keep the terse bare
+/// `Display` via [`format_type`]. The FQN comes from engine data (the
+/// reserved-uuid → `core::*` table on `Primitive`), not an LSP-private
+/// resolver, so the renderer stays a pure view over engine facts.
+#[must_use]
+pub fn format_type_hover(ty: &Type) -> String {
+    match ty.as_primitive() {
+        Some(prim) => prim.fqn().to_string(),
+        None => ty.to_string(),
+    }
+}
+
 /// Where a definition lives.
 #[derive(Debug, Clone)]
 pub struct Definition {

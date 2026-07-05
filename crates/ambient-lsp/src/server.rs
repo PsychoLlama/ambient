@@ -42,7 +42,9 @@ use ambient_engine::ast::{ItemKind, Module, QualifiedName};
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::{ExportKind, ModuleRegistry};
 
-use crate::analysis::{find_definition, find_expr_at_offset, find_item_at_offset, format_type};
+use crate::analysis::{
+    find_definition, find_expr_at_offset, find_item_at_offset, format_type, format_type_hover,
+};
 use crate::completions::{CompletionContext, get_completions};
 use crate::convert::{diagnostic_to_lsp, offset_range_to_lsp_range};
 use crate::documents::DocumentStore;
@@ -496,37 +498,62 @@ fn format_module_hover(module_path: &ModulePath, registry: &ModuleRegistry) -> S
 }
 
 /// Format hover content for an expression.
+///
+/// Renders the expression's type through [`format_type_hover`], so a
+/// primitive-typed expression shows its fully-qualified identity
+/// (`core::String`) rather than the bare `String`. The literal arms fall back
+/// to that same FQN when inference hasn't attached a type, since a literal's
+/// primitive is unambiguous.
 fn format_expr_hover(expr: &ambient_engine::ast::Expr) -> String {
+    use ambient_engine::types::Primitive;
     match &expr.kind {
         ambient_engine::ast::ExprKind::Local(local_id) => {
-            let type_info = expr.ty.as_ref().map_or("unknown".to_string(), format_type);
+            let type_info = expr
+                .ty
+                .as_ref()
+                .map_or("unknown".to_string(), format_type_hover);
             format!("```ambient\nlocal_{local_id}: {type_info}\n```")
         }
         ambient_engine::ast::ExprKind::Name(qname) => {
             let type_info = expr
                 .ty
                 .as_ref()
-                .map_or_else(|| "unknown".to_string(), format_type);
+                .map_or_else(|| "unknown".to_string(), format_type_hover);
             format!("```ambient\n{}: {type_info}\n```", qname.name)
         }
         ambient_engine::ast::ExprKind::Bool(b) => {
-            let type_info = expr.ty.as_ref().map_or("bool".to_string(), format_type);
+            let type_info = expr
+                .ty
+                .as_ref()
+                .map_or_else(|| Primitive::Bool.fqn().to_string(), format_type_hover);
             format!("```ambient\n{b}: {type_info}\n```")
         }
         ambient_engine::ast::ExprKind::Number(n) => {
-            let type_info = expr.ty.as_ref().map_or("number".to_string(), format_type);
+            let type_info = expr
+                .ty
+                .as_ref()
+                .map_or_else(|| Primitive::Number.fqn().to_string(), format_type_hover);
             format!("```ambient\n{n}: {type_info}\n```")
         }
         ambient_engine::ast::ExprKind::String(s) => {
-            let type_info = expr.ty.as_ref().map_or("string".to_string(), format_type);
+            let type_info = expr
+                .ty
+                .as_ref()
+                .map_or_else(|| Primitive::String.fqn().to_string(), format_type_hover);
             format!("```ambient\n\"{s}\": {type_info}\n```")
         }
         ambient_engine::ast::ExprKind::RecordField(_, field_name) => {
-            let type_info = expr.ty.as_ref().map_or("unknown".to_string(), format_type);
+            let type_info = expr
+                .ty
+                .as_ref()
+                .map_or("unknown".to_string(), format_type_hover);
             format!("```ambient\n{field_name}: {type_info}\n```")
         }
         _ => {
-            let type_info = expr.ty.as_ref().map_or("unknown".to_string(), format_type);
+            let type_info = expr
+                .ty
+                .as_ref()
+                .map_or("unknown".to_string(), format_type_hover);
             format!("```ambient\n{type_info}\n```")
         }
     }
