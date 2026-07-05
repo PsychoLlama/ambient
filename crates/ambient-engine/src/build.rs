@@ -547,13 +547,20 @@ pub fn compile_core_modules(
 
         // Core modules share plain names (`list::map`, `option::map`, ...).
         // The merged artifact binds them fully qualified so they never
-        // collide with each other or with user functions.
+        // collide with each other or with user functions. Impl-method
+        // dispatch symbols are already globally unique and carry their own
+        // `::` (`List::all`), so they pass through unqualified — qualifying
+        // them again would produce a double-qualified `core::List::all`.
         let mut compiled = compiled;
         compiled.function_names = compiled
             .function_names
             .iter()
             .map(|(name, hash)| {
-                let qualified: Arc<str> = format!("{core_path}::{name}").into();
+                let qualified: Arc<str> = if name.contains("::") {
+                    Arc::clone(name)
+                } else {
+                    format!("{core_path}::{name}").into()
+                };
                 (qualified, *hash)
             })
             .collect();
