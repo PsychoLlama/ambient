@@ -15,41 +15,43 @@
 //! connection. That is the whole live-upgrade story — the entry `run`
 //! is a declaration of the process tree, re-reconciled on each deploy.
 
+use platform::{Process, Network, Stdio};
+
 /// Declare the process tree. Deploy passes re-run this against the
 /// live registry, so keep it declarative: spawn processes here, acquire
 /// resources (sockets, files) in their inits.
-pub fn run(): () with platform::Process {
-  platform::Process::spawn!("stats", stats_init, on_hit);
-  platform::Process::spawn!("acceptor", acceptor_init, acceptor);
+pub fn run(): () with Process {
+  Process::spawn!("stats", stats_init, on_hit);
+  Process::spawn!("acceptor", acceptor_init, acceptor);
 }
 
 // ─── stats: a counter that survives upgrades ────────────────────────────
 
 fn stats_init(): number { 0 }
 
-fn on_hit(total: number, n: number): number with platform::Stdio {
+fn on_hit(total: number, n: number): number with Stdio {
   let next = total + n;
-  platform::Stdio::out!("served ${core::convert::to_string(next)} messages");
+  Stdio::out!("served ${core::convert::to_string(next)} messages");
   next
 }
 
 // ─── acceptor: one reduction per accepted connection ────────────────────
 
-fn acceptor_init(): number with platform::Network, platform::Stdio, platform::Process {
-  let listener = platform::Network::listen!(("127.0.0.1", 7777));
-  platform::Stdio::out!("live_server listening on 127.0.0.1:7777");
-  platform::Process::send!(platform::Process::self_pid!(), "accept");
+fn acceptor_init(): number with Network, Stdio, Process {
+  let listener = Network::listen!(("127.0.0.1", 7777));
+  Stdio::out!("live_server listening on 127.0.0.1:7777");
+  Process::send!(Process::self_pid!(), "accept");
   listener
 }
 
-fn acceptor(listener: number, msg: string): number with platform::Network, platform::Process {
-  let conn = platform::Network::accept!(listener);
+fn acceptor(listener: number, msg: string): number with Network, Process {
+  let conn = Network::accept!(listener);
   let name = "conn-" + core::convert::to_string(conn);
-  platform::Process::spawn!(name, () => {
-    platform::Process::send!(platform::Process::self_pid!(), "next");
+  Process::spawn!(name, () => {
+    Process::send!(Process::self_pid!(), "next");
     { conn: conn, hits: 0 }
   }, serve_conn);
-  platform::Process::send!(platform::Process::self_pid!(), "accept");
+  Process::send!(Process::self_pid!(), "accept");
   listener
 }
 
@@ -59,21 +61,21 @@ fn serve_conn(
   state: { conn: number, hits: number },
   msg: string
 ): { conn: number, hits: number }
-  with platform::Network, platform::Process
+  with Network, Process
 {
-  let data = handle platform::Network::receive!(state.conn) {
+  let data = handle Network::receive!(state.conn) {
     Exception::throw(e) => core::bytes::from([])
   };
   if core::bytes::length(data) == 0 {
-    handle platform::Network::close!(state.conn) {
+    handle Network::close!(state.conn) {
       Exception::throw(e) => ()
     };
-    platform::Process::exit!();
+    Process::exit!();
     state
   } else {
-    platform::Network::send!(state.conn, data);
-    platform::Process::send_named!("stats", 1);
-    platform::Process::send!(platform::Process::self_pid!(), "next");
+    Network::send!(state.conn, data);
+    Process::send_named!("stats", 1);
+    Process::send!(Process::self_pid!(), "next");
     { conn: state.conn, hits: state.hits + 1 }
   }
 }

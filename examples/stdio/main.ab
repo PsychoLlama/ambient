@@ -4,26 +4,29 @@
 //! `err` — and shows an effect handler intercepting `out` to prefix every
 //! line it emits. The handler only affects code within its block.
 
+use core::string;
+use platform::Stdio;
+
 /// Entry point: greet whoever is at the other end of stdin.
-pub fn run(): () with platform::Stdio {
-    platform::Stdio::out!("What is your name?");
+pub fn run(): () with Stdio {
+    Stdio::out!("What is your name?");
 
     // `read` yields one line without the trailing newline, or "" at end of
     // input (e.g. when nothing is piped in), so fall back to a default.
-    let typed = platform::Stdio::read!();
-    let name = if core::string::is_empty(typed) { "stranger" } else { typed };
+    let typed = Stdio::read!();
+    let name = if string::is_empty(typed) { "stranger" } else { typed };
 
     // The handler intercepts `platform::Stdio::out` within its block and
     // prefixes each line. `out!` calls made *inside* the arm print directly.
     handle {
-        platform::Stdio::out!(core::string::concat("Hello, ", name));
+        Stdio::out!(string::concat("Hello, ", name));
     } {
-        platform::Stdio::out(msg) => {
-            platform::Stdio::out!(core::string::concat("[greeting] ", msg));
+        Stdio::out(msg) => {
+            Stdio::out!(string::concat("[greeting] ", msg));
             resume(())
         }
     };
 
     // `err` writes to stderr, kept separate from the greeting on stdout.
-    platform::Stdio::err!("greeting delivered");
+    Stdio::err!("greeting delivered");
 }

@@ -7,26 +7,27 @@
 
 use core::string;
 use core::time::Duration;
+use platform::Stdio;
 
 fn millis_str(d: Duration): string {
     string::concat(core::convert::to_string(d.as_millis()), "ms")
 }
 
-pub fn run(): () with platform::Stdio {
+pub fn run(): () with Stdio {
     // Build from whole seconds, and from a sub-second unit that carries
     // its excess into the seconds field.
     let timeout = Duration::from_secs(30);
     let latency = Duration::from_millis(1500);
 
-    platform::Stdio::out!(string::concat(
+    Stdio::out!(string::concat(
         "timeout secs = ",
         core::convert::to_string(timeout.as_secs()),
     ));
-    platform::Stdio::out!(string::concat("latency = ", millis_str(latency)));
+    Stdio::out!(string::concat("latency = ", millis_str(latency)));
 
     // `+` and `-` come from the Add / Sub trait impls.
-    platform::Stdio::out!(string::concat("total = ", millis_str(timeout + latency)));
-    platform::Stdio::out!(string::concat("slack = ", millis_str(timeout - latency)));
+    Stdio::out!(string::concat("total = ", millis_str(timeout + latency)));
+    Stdio::out!(string::concat("slack = ", millis_str(timeout - latency)));
 
     // Ordering: `cmp` returns -1 / 0 / 1, like Ord elsewhere in the library.
     let compared = if latency.cmp(timeout) == 0 - 1 {
@@ -34,5 +35,5 @@ pub fn run(): () with platform::Stdio {
     } else {
         "latency >= timeout"
     };
-    platform::Stdio::out!(compared);
+    Stdio::out!(compared);
 }

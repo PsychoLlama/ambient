@@ -7,27 +7,30 @@
 //!
 //! Run with: `ambient run examples/remote_server`
 
+use core::string;
+use platform::{Stdio, Network, Execute};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Entry Point
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Entry point that starts the server.
-pub fn run(): () with platform::Stdio, platform::Network, platform::Execute {
-    platform::Stdio::out!("Server: listening on 127.0.0.1:8080...");
-    let listener = platform::Network::listen!(("127.0.0.1", 8080));
+pub fn run(): () with Stdio, Network, Execute {
+    Stdio::out!("Server: listening on 127.0.0.1:8080...");
+    let listener = Network::listen!(("127.0.0.1", 8080));
 
-    platform::Stdio::out!("Server: waiting for connection...");
-    let conn = platform::Network::accept!(listener);
+    Stdio::out!("Server: waiting for connection...");
+    let conn = Network::accept!(listener);
 
-    let peer = platform::Network::peer_addr!(conn);
-    platform::Stdio::out!(core::string::concat("Server: client connected from ", peer));
+    let peer = Network::peer_addr!(conn);
+    Stdio::out!(string::concat("Server: client connected from ", peer));
 
     // Handle the remote execution request
     serve_request(conn);
 
-    platform::Network::close!(conn);
-    platform::Network::close_listener!(listener);
-    platform::Stdio::out!("Server: done")
+    Network::close!(conn);
+    Network::close_listener!(listener);
+    Stdio::out!("Server: done")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,11 +38,11 @@ pub fn run(): () with platform::Stdio, platform::Network, platform::Execute {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Serve a remote execution request.
-fn serve_request(conn: number): () with platform::Stdio, platform::Network, platform::Execute {
-    let bytes = platform::Network::receive!(conn);
+fn serve_request(conn: number): () with Stdio, Network, Execute {
+    let bytes = Network::receive!(conn);
 
     if core::bytes::length(bytes) == 0 {
-        platform::Stdio::out!("Server: connection closed")
+        Stdio::out!("Server: connection closed")
     } else {
         let msg_type = core::bytes::get(bytes, 0).unwrap_or(0);
 
@@ -48,13 +51,13 @@ fn serve_request(conn: number): () with platform::Stdio, platform::Network, plat
             let payload = core::bytes::slice(bytes, 1, core::bytes::length(bytes));
             handle_execute(conn, payload)
         } else {
-            platform::Stdio::out!("Server: unknown message type")
+            Stdio::out!("Server: unknown message type")
         }
     }
 }
 
 /// Handle an Execute request.
-fn handle_execute(conn: number, payload: Bytes): () with platform::Stdio, platform::Network, platform::Execute {
+fn handle_execute(conn: number, payload: Bytes): () with Stdio, Network, Execute {
     // Parse hash length and hash
     let hash_len = core::bytes::get(payload, 0).unwrap_or(0);
     let rest = core::bytes::slice(payload, 1, core::bytes::length(payload));
@@ -65,14 +68,14 @@ fn handle_execute(conn: number, payload: Bytes): () with platform::Stdio, platfo
     let hash_opt = core::protocol::deserialize_value(hash_bytes);
     let hash = hash_opt.unwrap_or("");
 
-    platform::Stdio::out!(core::string::concat("Server: received Execute for hash ", hash));
+    Stdio::out!(string::concat("Server: received Execute for hash ", hash));
 
     // Check if we have the function
-    if platform::Execute::has_function!(hash) {
-        platform::Stdio::out!("Server: function found locally");
+    if Execute::has_function!(hash) {
+        Stdio::out!("Server: function found locally");
         execute_function(conn, hash, captures)
     } else {
-        platform::Stdio::out!("Server: function not found, requesting from client");
+        Stdio::out!("Server: function not found, requesting from client");
         request_function(conn, hash);
         // After receiving the function, execute it
         execute_function(conn, hash, captures)
@@ -80,42 +83,42 @@ fn handle_execute(conn: number, payload: Bytes): () with platform::Stdio, platfo
 }
 
 /// Request a function from the client.
-fn request_function(conn: number, hash: string): () with platform::Stdio, platform::Network, platform::Execute {
+fn request_function(conn: number, hash: string): () with Stdio, Network, Execute {
     // Send NeedDeps message with the hash
     let serialized = core::protocol::serialize_value([hash]);
     let msg = core::bytes::concat(core::bytes::from([2]), serialized);
-    platform::Network::send!(conn, msg);
+    Network::send!(conn, msg);
 
     // Receive Provide message
-    let response = platform::Network::receive!(conn);
+    let response = Network::receive!(conn);
     let msg_type = core::bytes::get(response, 0).unwrap_or(0);
 
     if msg_type == 3 {
         let payload = core::bytes::slice(response, 1, core::bytes::length(response));
-        platform::Execute::load_functions!(payload);
-        platform::Stdio::out!("Server: loaded function from client")
+        Execute::load_functions!(payload);
+        Stdio::out!("Server: loaded function from client")
     } else {
-        platform::Stdio::out!("Server: unexpected response to NeedDeps")
+        Stdio::out!("Server: unexpected response to NeedDeps")
     }
 }
 
 /// Execute the function and send the result.
-fn execute_function(conn: number, hash: string, captures: Bytes): () with platform::Stdio, platform::Network, platform::Execute {
+fn execute_function(conn: number, hash: string, captures: Bytes): () with Stdio, Network, Execute {
     // Deserialize captures
     let arg_opt = core::protocol::deserialize_value(captures);
     let arg: number = arg_opt.unwrap_or(0);
 
-    platform::Stdio::out!(core::string::concat("Server: executing with arg = ", core::convert::to_string(arg)));
+    Stdio::out!(string::concat("Server: executing with arg = ", core::convert::to_string(arg)));
 
     // Execute the function remotely using the loaded bytecode
-    let result: number = platform::Execute::run!(hash, arg);
+    let result: number = Execute::run!(hash, arg);
 
-    platform::Stdio::out!(core::string::concat("Server: result = ", core::convert::to_string(result)));
+    Stdio::out!(string::concat("Server: result = ", core::convert::to_string(result)));
 
     // Send Result message
     let result_bytes = core::protocol::serialize_value(result);
     let msg = core::bytes::concat(core::bytes::from([4]), result_bytes);
-    platform::Network::send!(conn, msg);
+    Network::send!(conn, msg);
 
-    platform::Stdio::out!("Server: sent result to client")
+    Stdio::out!("Server: sent result to client")
 }

@@ -2,6 +2,8 @@
 //!
 //! Demonstrates handle expressions with ability handlers.
 
+use platform::Stdio;
+
 /// Simple function that returns a value.
 fn simple_function(): number {
   100
@@ -10,7 +12,7 @@ fn simple_function(): number {
 /// Tests a simple handle with no ability use.
 fn test_simple_handle(): number {
   handle simple_function() {
-    platform::Stdio::out(msg) => {
+    Stdio::out(msg) => {
       resume(())
     }
   }
@@ -19,7 +21,7 @@ fn test_simple_handle(): number {
 /// Tests handle expression with multiple handlers.
 fn test_multiple_handlers(): number {
   handle simple_function() {
-    platform::Stdio::out(msg) => {
+    Stdio::out(msg) => {
       resume(())
     },
     Exception::throw(e) => {

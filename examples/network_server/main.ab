@@ -5,36 +5,39 @@
 //!
 //! Run with: `ambient run examples/network_server`
 
+use core::string;
+use platform::{Stdio, Network};
+
 /// Entry point that starts a TCP server and echoes messages.
-pub fn run(): () with platform::Stdio, platform::Network {
-    platform::Stdio::out!("Server: binding to 127.0.0.1:9000...");
-    let listener = platform::Network::listen!(("127.0.0.1", 9000));
+pub fn run(): () with Stdio, Network {
+    Stdio::out!("Server: binding to 127.0.0.1:9000...");
+    let listener = Network::listen!(("127.0.0.1", 9000));
 
-    platform::Stdio::out!("Server: waiting for connection...");
-    let conn = platform::Network::accept!(listener);
+    Stdio::out!("Server: waiting for connection...");
+    let conn = Network::accept!(listener);
 
-    let peer = platform::Network::peer_addr!(conn);
-    platform::Stdio::out!(core::string::concat("Server: client connected from ", peer));
+    let peer = Network::peer_addr!(conn);
+    Stdio::out!(string::concat("Server: client connected from ", peer));
 
     // Echo loop: receive message, send it back
-    platform::Stdio::out!("Server: entering echo loop (send empty message to quit)...");
+    Stdio::out!("Server: entering echo loop (send empty message to quit)...");
     echo_loop(conn);
 
-    platform::Network::close!(conn);
-    platform::Network::close_listener!(listener);
-    platform::Stdio::out!("Server: done")
+    Network::close!(conn);
+    Network::close_listener!(listener);
+    Stdio::out!("Server: done")
 }
 
 /// Echo messages back to the client until an empty message is received.
-fn echo_loop(conn: number): () with platform::Stdio, platform::Network {
-    let msg = platform::Network::receive!(conn);
+fn echo_loop(conn: number): () with Stdio, Network {
+    let msg = Network::receive!(conn);
     let len = core::bytes::length(msg);
 
     if len > 0 {
-        platform::Stdio::out!(core::string::concat("Server: received ", core::string::concat(core::convert::to_string(len), " bytes, echoing back...")));
-        platform::Network::send!(conn, msg);
+        Stdio::out!(string::concat("Server: received ", string::concat(core::convert::to_string(len), " bytes, echoing back...")));
+        Network::send!(conn, msg);
         echo_loop(conn)
     } else {
-        platform::Stdio::out!("Server: received empty message, closing connection")
+        Stdio::out!("Server: received empty message, closing connection")
     }
 }

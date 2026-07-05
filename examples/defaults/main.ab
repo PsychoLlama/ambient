@@ -8,6 +8,7 @@
 //! dot-notation on a value.
 
 use core::string;
+use platform::Stdio;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // A settings record with sensible defaults
@@ -90,20 +91,20 @@ fn point_str(p: Point): string {
 // Entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn run(): () with platform::Stdio {
+pub fn run(): () with Stdio {
     // Build a value straight from its default.
     let settings = Settings::default();
-    platform::Stdio::out!(describe(settings));
+    Stdio::out!(describe(settings));
 
     // Override a field on top of the default (records are immutable, so this
     // produces a fresh value).
     let loud = Settings { volume: 100, muted: settings.muted, theme: settings.theme };
-    platform::Stdio::out!(describe(loud));
+    Stdio::out!(describe(loud));
 
     // Associated calls are ordinary expressions: they nest and compose.
     let origin = Point::default();
-    platform::Stdio::out!(string::concat("origin = ", point_str(origin)));
+    Stdio::out!(string::concat("origin = ", point_str(origin)));
 
     let shifted = Point::default() + Point { x: 3, y: 4 };
-    platform::Stdio::out!(string::concat("shifted = ", point_str(shifted)));
+    Stdio::out!(string::concat("shifted = ", point_str(shifted)));
 }

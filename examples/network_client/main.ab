@@ -6,29 +6,32 @@
 //! Run with: `ambient run examples/network_client`
 //! (Make sure the network_server is running first!)
 
-/// Entry point that connects to a server and sends messages.
-pub fn run(): () with platform::Stdio, platform::Network {
-    platform::Stdio::out!("Client: connecting to 127.0.0.1:9000...");
-    let conn = platform::Network::connect!(("127.0.0.1", 9000));
+use core::string;
+use platform::{Stdio, Network};
 
-    let local = platform::Network::local_addr!(conn);
-    platform::Stdio::out!(core::string::concat("Client: connected from ", local));
+/// Entry point that connects to a server and sends messages.
+pub fn run(): () with Stdio, Network {
+    Stdio::out!("Client: connecting to 127.0.0.1:9000...");
+    let conn = Network::connect!(("127.0.0.1", 9000));
+
+    let local = Network::local_addr!(conn);
+    Stdio::out!(string::concat("Client: connected from ", local));
 
     // Send a message as Bytes
     let message = string_to_bytes("Hello from Ambient!");
-    platform::Stdio::out!(core::string::concat("Client: sending ", core::string::concat(core::convert::to_string(core::bytes::length(message)), " bytes...")));
-    platform::Network::send!(conn, message);
+    Stdio::out!(string::concat("Client: sending ", string::concat(core::convert::to_string(core::bytes::length(message)), " bytes...")));
+    Network::send!(conn, message);
 
     // Receive the echo
-    let response = platform::Network::receive!(conn);
-    platform::Stdio::out!(core::string::concat("Client: received ", core::string::concat(core::convert::to_string(core::bytes::length(response)), " bytes back")));
+    let response = Network::receive!(conn);
+    Stdio::out!(string::concat("Client: received ", string::concat(core::convert::to_string(core::bytes::length(response)), " bytes back")));
 
     // Send empty message to signal quit
-    platform::Stdio::out!("Client: sending empty message to quit...");
-    platform::Network::send!(conn, core::bytes::from([]));
+    Stdio::out!("Client: sending empty message to quit...");
+    Network::send!(conn, core::bytes::from([]));
 
-    platform::Network::close!(conn);
-    platform::Stdio::out!("Client: done")
+    Network::close!(conn);
+    Stdio::out!("Client: done")
 }
 
 /// Convert a string to Bytes (ASCII).
