@@ -131,11 +131,28 @@ impl AnalysisPackage {
     /// Build the module registry: core + platform declaration modules plus
     /// every package module. This is the same registry shape the engine's
     /// build pipeline checks against.
+    ///
+    /// Two passes, mirroring the engine build pipeline (`build.rs`): register
+    /// the raw ASTs so resolution can see every module (imports may point
+    /// anywhere in the package), then canonicalize each module and *replace*
+    /// its raw AST with the resolved one. The replacement matters because
+    /// cross-module signature hydration reads a foreign item's signature
+    /// straight from the registry — if that signature still spells an ability
+    /// bare (e.g. `with Stdio`), it gets re-resolved against the *importing*
+    /// module's scope and spuriously fails whenever that module doesn't also
+    /// import the ability. Registering the resolved AST (`with platform.Stdio`)
+    /// keeps `ambient check`/LSP in step with `ambient run` on multi-module
+    /// packages.
     #[must_use]
     pub fn build_registry(&self) -> ModuleRegistry {
         let mut registry = crate::core_platform_registry();
         for module in self.modules.values() {
             registry.register(&module.path, Arc::new(module.ast.clone()));
+        }
+        for module in self.modules.values() {
+            let mut ast = module.ast.clone();
+            let _ = ambient_engine::resolve::resolve_module(&mut ast, &module.path, &registry);
+            registry.register(&module.path, Arc::new(ast));
         }
         registry
     }
@@ -259,6 +276,43 @@ mod tests {
             "main should resolve helper from the partial module: {:?}",
             main.diagnostics()
         );
+    }
+
+    #[test]
+    fn multi_module_use_imported_ability_checks_clean() {
+        // Regression: `ambient check`/LSP must match `ambient run` on a
+        // multi-module package whose entry point imports a platform ability
+        // via `use`. The bug was that cross-module signature hydration read
+        // `run`'s foreign `with Stdio` signature raw (bare `Stdio`) and
+        // re-resolved it against the *other* module's scope, which doesn't
+        // import Stdio — a false "not in scope" error. The sibling here is
+        // deliberately empty of abilities: adding it must not change whether
+        // `main` resolves its own import.
+        let dir = TempDir::new().expect("create temp dir");
+        let root = dir.path();
+        fs::write(
+            root.join("ambient.toml"),
+            "[package]\nname = \"test\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"src\"\n",
+        )
+        .expect("write manifest");
+        let src = root.join("src");
+        fs::create_dir_all(&src).expect("create src dir");
+        fs::write(
+            src.join("main.ab"),
+            "use platform::Stdio;\n\npub fn run(): () with Stdio {\n    Stdio::out!(\"hi\")\n}\n",
+        )
+        .expect("write main");
+        fs::write(src.join("sibling.ab"), "pub fn noop(): number { 1 }\n").expect("write sibling");
+
+        let package = AnalysisPackage::open(root).expect("open package");
+        let results = package.analyze_all();
+        for (path, result) in &results {
+            assert!(
+                result.diagnostics().is_empty(),
+                "unexpected diagnostics in {path}: {:?}",
+                result.diagnostics()
+            );
+        }
     }
 
     #[test]
