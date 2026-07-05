@@ -142,6 +142,12 @@ impl Package {
         self.modules.values()
     }
 
+    /// Iterate mutably over all loaded modules (the resolve pass rewrites
+    /// module ASTs in place).
+    pub fn all_modules_mut(&mut self) -> impl Iterator<Item = &mut LoadedModule> {
+        self.modules.values_mut()
+    }
+
     /// Check if a module is loaded.
     #[must_use]
     pub fn is_loaded(&self, path: &ModulePath) -> bool {

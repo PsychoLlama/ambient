@@ -45,7 +45,7 @@ impl Infer {
             .name_span
             .map_or(fallback_span, |s| (s.start, s.end));
         self.ability_resolver
-            .resolve_ref(&ability.path, &ability.name)
+            .resolve_ref(&ability.resolved_module_segments(), ability.resolved_name())
             .map_err(|err| {
                 let kind = match err {
                     crate::ability_resolver::AbilityRefError::RequiresNamespace { namespace } => {

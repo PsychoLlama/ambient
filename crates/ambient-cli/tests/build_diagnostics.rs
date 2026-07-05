@@ -44,8 +44,10 @@ fn build_package_type_error_is_structured_with_nonzero_span() {
     let Err(err) = build_package(
         dir.path(),
         parse_source,
-        ambient_platform::ABILITY_DECLARATIONS,
-        None,
+        &ambient_engine::build::BuildOptions {
+            platform_source: ambient_platform::ABILITY_DECLARATIONS,
+            ..Default::default()
+        },
     ) else {
         panic!("type error should fail the build");
     };
@@ -88,8 +90,10 @@ fn build_package_parse_error_is_structured_with_span() {
     let Err(err) = build_package(
         dir.path(),
         parse_source,
-        ambient_platform::ABILITY_DECLARATIONS,
-        None,
+        &ambient_engine::build::BuildOptions {
+            platform_source: ambient_platform::ABILITY_DECLARATIONS,
+            ..Default::default()
+        },
     ) else {
         panic!("parse error should fail the build");
     };

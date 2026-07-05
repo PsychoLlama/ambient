@@ -125,6 +125,28 @@ pub fn register_core_modules(
         let module = parse(source).map_err(|e| ((*name).to_string(), e))?;
         let path = CoreLibrary::to_module_path(&[Arc::from(*name)]);
         registry.register(&path, Arc::new(module));
+
+        // Intrinsics are items of their core module even though they have
+        // no AST declaration (they compile to dedicated opcodes), so they
+        // export like any compiled function: `use core::math::sqrt;` and
+        // `use core::math;` + `math::sqrt(…)` resolve the same way
+        // `core::math::sqrt(…)` does.
+        let segments: Vec<&str> = path.segments().iter().map(AsRef::as_ref).collect();
+        let intrinsic_exports = intrinsics_for_module(&segments)
+            .into_iter()
+            .map(
+                |(intrinsic_name, _arity)| crate::module_registry::ExportInfo {
+                    name: Arc::from(intrinsic_name),
+                    kind: crate::module_registry::ExportKind::Function,
+                    is_public: true,
+                    re_export_from: None,
+                    name_span: crate::ast::Span::default(),
+                    doc: None,
+                },
+            )
+            .collect();
+        registry.add_exports(&path, intrinsic_exports);
+
         paths.push(path);
     }
     Ok(paths)

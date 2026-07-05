@@ -1,18 +1,23 @@
 //! Package building and symbol database population.
 //!
-//! This module provides functionality for compiling Ambient packages
-//! and populating the symbol database with the compiled results.
+//! This is the *single* package pipeline: load every module, register the
+//! core/platform/user modules in one registry, canonicalize references
+//! (the resolve pass), order modules by their resolved dependencies, and
+//! check + compile each one. `ambient run`, `ambient compile`, and
+//! `ambient dev` are all frontends over [`build_package`]; behavior that
+//! must differ between them is expressed in [`BuildOptions`], never by
+//! forking the pipeline.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::ast::{ItemKind, Module, UseKind, UsePrefix};
+use crate::ast::{ItemKind, Module};
 use crate::compiler::CompiledModule;
 use crate::infer::BoxedTypeError;
-use crate::module_path::{ImportPrefix, ModulePath};
-use crate::module_registry::{ModuleRegistry, ResolvedImport};
+use crate::module_path::ModulePath;
+use crate::module_registry::{ExportKind, ModuleRegistry};
 use crate::package::{LoadedModule, Package};
 use crate::symbol_db::SymbolDb;
 
@@ -40,6 +45,20 @@ pub struct ParseFailure {
 
 /// Parse function type for parsing source code into an AST.
 pub type ParseFn = fn(&str) -> Result<Module, ParseFailure>;
+
+/// Knobs for a package build.
+#[derive(Default)]
+pub struct BuildOptions<'a> {
+    /// Source of the embedder's `platform` declaration module (ability
+    /// bindings interface). Empty disables platform registration.
+    pub platform_source: &'a str,
+    /// Embedder-resolved prelude abilities for the compiler (host binding
+    /// identities). The type checker resolves abilities through the
+    /// registry; this is the compiler's separate concern.
+    pub prelude_abilities: &'a [Arc<crate::ability_resolver::DynAbility>],
+    /// Optional callback for reporting per-module progress.
+    pub progress: Option<ProgressCallback<'a>>,
+}
 
 /// Result of building a package.
 pub struct BuildResult {
@@ -107,14 +126,14 @@ impl std::error::Error for BuildError {}
 
 /// Build an Ambient package and populate the symbol database.
 ///
-/// This function compiles all modules in topological order and populates
-/// the symbol database with function definitions and dependencies.
-///
-/// # Arguments
-///
-/// * `path` - Path to the package root directory (containing `ambient.toml`)
-/// * `parse` - Function to parse source code into an AST
-/// * `progress` - Optional callback for reporting progress
+/// Pipeline:
+/// 1. Load and parse every `.ab` file under `src/`.
+/// 2. Register core modules (compiling them), the `platform` declaration
+///    module, and every package module in one [`ModuleRegistry`].
+/// 3. Run the resolve pass over each package module: canonicalize every
+///    cross-module reference and collect the true dependency graph.
+/// 4. Compile modules in dependency order, linking canonical names to
+///    content-addressed hashes.
 ///
 /// # Errors
 ///
@@ -127,26 +146,71 @@ impl std::error::Error for BuildError {}
 pub fn build_package(
     path: &Path,
     parse: ParseFn,
-    platform_source: &str,
-    progress: Option<ProgressCallback<'_>>,
+    options: &BuildOptions<'_>,
 ) -> Result<BuildResult, BuildError> {
     // Open package (validates manifest and entry point).
     let mut pkg = Package::open(path).map_err(|e| BuildError::PackageOpen(e.to_string()))?;
 
     let package_name = pkg.manifest().name.clone();
 
-    // Load the main module and all its dependencies.
-    let main_path = ModulePath::root();
-    load_module_with_deps(&mut pkg, &main_path, parse)?;
+    // Load every module in the package. Loading everything (rather than
+    // chasing `use` statements from `main`) is what makes directory
+    // namespaces and inline `pkg::a::b::f()` references work: the module
+    // graph is defined by the filesystem, and the *dependency* graph by
+    // the resolve pass below.
+    load_all_modules(&mut pkg, parse)?;
 
-    // Build module registry with all loaded modules.
     let mut registry = ModuleRegistry::new();
+
+    // Core modules compile first: they are ordinary Ambient modules and
+    // every user module may reference them. Core registration only needs a
+    // string on failure (a parse error there is a compiler bug, not user
+    // error), so adapt the richer `ParseFn`.
+    let parse_str = |s: &str| parse(s).map_err(|e| e.message);
+    let mut all_compiled = CompiledModule::new();
+    let mut module_function_hashes: HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>> =
+        HashMap::new();
+    let core_compiled =
+        compile_core_modules(&mut registry, &mut module_function_hashes, parse_str)?;
+    all_compiled.merge(&core_compiled);
+
+    // Register the embedder-supplied `platform` declaration module so its
+    // abilities are in scope fully-qualified (`platform::Network`) and
+    // importable (`use platform::Network;`). Declaration-only: never
+    // compiled.
+    if !options.platform_source.is_empty() {
+        crate::core_library::register_declaration_module(
+            &mut registry,
+            &["platform"],
+            options.platform_source,
+            parse_str,
+        )
+        .map_err(|(module, error)| BuildError::Compile { module, error })?;
+    }
+
+    // Register every package module, then canonicalize. Resolution needs
+    // all modules registered (imports may point anywhere in the package);
+    // the resolved ASTs then *replace* the raw ones in the registry so
+    // cross-module signature hydration sees canonical references too.
+    for module in pkg.all_modules() {
+        registry.register(&module.path, Arc::new(module.ast.clone()));
+    }
+    let mut deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut paths_by_key: BTreeMap<String, ModulePath> = BTreeMap::new();
+    for module in pkg.all_modules_mut() {
+        let module_deps = crate::resolve::resolve_module(&mut module.ast, &module.path, &registry);
+        deps.insert(
+            module.path.to_string(),
+            module_deps.iter().map(ToString::to_string).collect(),
+        );
+        paths_by_key.insert(module.path.to_string(), module.path.clone());
+    }
     for module in pkg.all_modules() {
         registry.register(&module.path, Arc::new(module.ast.clone()));
     }
 
-    // Get modules in topological order (dependencies first).
-    let module_order = get_compilation_order(&pkg, &main_path);
+    // Compile in dependency order (dependencies first).
+    let module_order = compilation_order(&deps);
     let total_modules = module_order.len();
 
     // Open symbol database in build directory (create if needed).
@@ -155,66 +219,39 @@ pub fn build_package(
     let db_path = build_dir.join("symbols.db");
     let mut symbol_db = SymbolDb::open(&db_path).ok();
 
-    // Compile modules in dependency order, tracking function hashes.
-    let mut all_compiled = CompiledModule::new();
-    let mut module_function_hashes: HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>> =
-        HashMap::new();
-
-    // Core modules compile first: they are ordinary Ambient modules and
-    // every user module may reference them. Core registration only needs a
-    // string on failure (a parse error there is a compiler bug, not user
-    // error), so adapt the richer `ParseFn`.
-    let parse_str = |s: &str| parse(s).map_err(|e| e.message);
-    let core_compiled =
-        compile_core_modules(&mut registry, &mut module_function_hashes, parse_str)?;
-    all_compiled.merge(&core_compiled);
-
-    // Register the embedder-supplied `platform` declaration module so its
-    // abilities are in scope fully-qualified (`platform::Network`) and
-    // importable (`use platform::Network;`). Declaration-only: never
-    // compiled, and skipped by dependency extraction.
-    crate::core_library::register_declaration_module(
-        &mut registry,
-        &["platform"],
-        platform_source,
-        parse_str,
-    )
-    .map_err(|(module, error)| BuildError::Compile { module, error })?;
-
-    for (idx, module_path) in module_order.iter().enumerate() {
+    for (idx, module_key) in module_order.iter().enumerate() {
+        let module_path = paths_by_key
+            .get(module_key)
+            .cloned()
+            .ok_or_else(|| BuildError::PackageOpen(format!("module not found: {module_key}")))?;
         let module = pkg
-            .get_module(module_path)
+            .get_module(&module_path)
             .ok_or_else(|| BuildError::PackageOpen(format!("module not found: {module_path}")))?;
-        let file_path = pkg.module_file_path(module_path);
+        let file_path = pkg.module_file_path(&module_path);
 
         // Report progress
-        if let Some(ref cb) = progress {
-            cb(&module_path.to_string(), idx + 1, total_modules);
+        if let Some(ref cb) = options.progress {
+            cb(module_key, idx + 1, total_modules);
         }
-
-        // Build imported function hashes from already-compiled dependencies.
-        let imported_hashes =
-            build_imported_hashes_from_compiled(module_path, &registry, &module_function_hashes);
 
         let compiled = compile_loaded_module_with_registry(
             module,
             &file_path,
-            module_path,
+            &module_path,
             &registry,
-            imported_hashes,
+            linking_table(&module_function_hashes),
+            options.prelude_abilities,
         )?;
 
         // Populate symbol database with compiled module.
         if let Some(ref mut db) = symbol_db {
             let visibility = extract_function_visibility(&module.ast);
-            let module_path_str = module_path.to_string();
 
             // Clean up old symbols for this module before repopulating.
-            let _ = db.remove_module(&module_path_str);
+            let _ = db.remove_module(module_key);
 
             // Populate with new symbols.
-            let _ =
-                db.populate_from_module(&compiled, &package_name, &module_path_str, &visibility);
+            let _ = db.populate_from_module(&compiled, &package_name, module_key, &visibility);
         }
 
         // Record this module's function hashes for dependents.
@@ -246,141 +283,134 @@ fn extract_function_visibility(module: &crate::ast::Module) -> HashMap<Arc<str>,
     visibility
 }
 
-/// Get modules in topological order (dependencies first).
+/// Load and parse every `.ab` file under the package's `src/` directory.
+fn load_all_modules(pkg: &mut Package, parse: ParseFn) -> Result<(), BuildError> {
+    let mut paths = discover_module_paths(&pkg.src_path())
+        .map_err(|e| BuildError::PackageOpen(format!("failed to scan src: {e}")))?;
+    paths.sort_by_key(ToString::to_string);
+    for module_path in paths {
+        if pkg.is_loaded(&module_path) {
+            continue;
+        }
+        let loaded = load_module(pkg, &module_path, parse)?;
+        pkg.add_module(loaded);
+    }
+    Ok(())
+}
+
+/// Every module path under a source directory: each `.ab` file, mapped
+/// through the canonical file↔module mapping.
+///
+/// # Errors
+///
+/// Returns an error if the directory tree cannot be read.
+pub fn discover_module_paths(src: &Path) -> std::io::Result<Vec<ModulePath>> {
+    let mut found = Vec::new();
+    let mut stack = vec![src.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("ab")
+                && let Ok(relative) = path.strip_prefix(src)
+                && let Some(module_path) = ModulePath::from_relative_file_path(relative)
+            {
+                found.push(module_path);
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// Topologically order modules by their resolved dependencies
+/// (dependencies first). Modules outside the package (core, platform) are
+/// skipped; cycles fall back to name order and surface as link errors at
+/// the offending call sites.
 #[allow(clippy::items_after_statements)]
-fn get_compilation_order(pkg: &Package, main_path: &ModulePath) -> Vec<ModulePath> {
+fn compilation_order(deps: &BTreeMap<String, Vec<String>>) -> Vec<String> {
     let mut order = Vec::new();
     let mut visited = HashSet::new();
 
     fn visit(
-        pkg: &Package,
-        path: &ModulePath,
+        key: &str,
+        deps: &BTreeMap<String, Vec<String>>,
         visited: &mut HashSet<String>,
-        order: &mut Vec<ModulePath>,
+        order: &mut Vec<String>,
     ) {
-        let key = path.to_string();
-        if visited.contains(&key) {
+        if visited.contains(key) {
             return;
         }
-        visited.insert(key);
-
-        // Visit dependencies first.
-        if let Some(module) = pkg.get_module(path) {
-            let deps = extract_dependencies(&module.ast, path, pkg);
-            for dep in deps {
-                visit(pkg, &dep, visited, order);
+        visited.insert(key.to_string());
+        if let Some(module_deps) = deps.get(key) {
+            for dep in module_deps {
+                // Only package modules participate; core/platform compile
+                // ahead of the package.
+                if deps.contains_key(dep) {
+                    visit(dep, deps, visited, order);
+                }
             }
+            order.push(key.to_string());
         }
-
-        // Add this module after its dependencies.
-        order.push(path.clone());
     }
 
-    visit(pkg, main_path, &mut visited, &mut order);
+    for key in deps.keys() {
+        visit(key, deps, &mut visited, &mut order);
+    }
     order
 }
 
-/// Build imported function hashes from already-compiled modules.
+/// The linking table for a module about to compile: every already-compiled
+/// function, bound under its canonical name.
 ///
-/// Public so the CLI's diagnostics-oriented build path can share it.
+/// - Ordinary functions bind as `<module path>.<name>` (`core.List.map`,
+///   `utils.helper`). The resolve pass rewrites every cross-module
+///   reference to exactly this key.
+/// - Impl-method dispatch symbols (`<uuid>::Trait::method`) are globally
+///   unique and bind as-is, so cross-module method calls link.
+///
+/// Module-local calls use the module's own bare names, which the compiler
+/// seeds itself — they never pass through this table.
 #[must_use]
 #[allow(clippy::implicit_hasher)]
-pub fn build_imported_hashes_from_compiled(
-    module_path: &ModulePath,
-    registry: &ModuleRegistry,
+pub fn linking_table(
     compiled_hashes: &HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>>,
 ) -> HashMap<Arc<str>, blake3::Hash> {
-    let mut hashes = HashMap::new();
-
-    if let Ok(resolved_imports) = registry.resolve_imports(module_path) {
-        // Failed imports were already reported as type errors during
-        // checking; only the resolved bindings matter for linking.
-        for (local_name, bindings) in resolved_imports.imports {
-            // A name can carry both a module and a symbol binding; each
-            // populates a different key namespace (`alias.fn` vs `name`), so
-            // both apply independently.
-            for resolved in bindings {
-                match resolved {
-                    ResolvedImport::Symbol { from_module, .. } => {
-                        if let Some(module_hashes) = compiled_hashes.get(&from_module)
-                            && let Some(hash) = module_hashes.get(&local_name)
-                        {
-                            hashes.insert(local_name.clone(), *hash);
-                        }
-                    }
-                    ResolvedImport::Module(target_path) => {
-                        // Whole-module import: every function is callable as
-                        // `<alias>.<name>`, which is exactly the key the
-                        // compiler builds for a qualified call.
-                        if let Some(module_hashes) = compiled_hashes.get(&target_path) {
-                            for (fn_name, hash) in module_hashes {
-                                hashes.insert(format!("{local_name}.{fn_name}").into(), *hash);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Core and platform modules are always in scope under their fully
-    // qualified names (`core.List.map`, `platform.Network`), no import
-    // required. (Platform is a declaration-only module with no compiled
-    // functions, so it never appears in `compiled_hashes` today — but the
-    // check keeps the reserved roots symmetric with the type checker's.)
+    let mut table = HashMap::new();
     for (path, module_hashes) in compiled_hashes {
-        let root = path.segments().first().map(AsRef::as_ref);
-        if root != Some("core") && root != Some("platform") {
-            continue;
-        }
-        for (fn_name, hash) in module_hashes {
-            hashes.insert(format!("{path}.{fn_name}").into(), *hash);
-        }
-    }
-
-    // Trait impl methods dispatch through canonical `uuid::Trait::method`
-    // symbols rather than imported names, and the symbols are globally
-    // unique (UUID-keyed). Make every already-compiled impl method
-    // resolvable so cross-module method calls link.
-    for module_hashes in compiled_hashes.values() {
         for (name, hash) in module_hashes {
             if name.contains("::") {
-                hashes.insert(Arc::clone(name), *hash);
+                table.insert(Arc::clone(name), *hash);
+            } else {
+                table.insert(format!("{path}.{name}").into(), *hash);
             }
         }
     }
-
-    hashes
+    table
 }
 
 /// Collect the enum definitions a module imports (`use pkg::m::{SomeEnum}`).
 ///
 /// Enum constructors compile inline by tag rather than linking by hash,
 /// so cross-module enum use hands the compiler the imported definitions
-/// themselves — a separate channel from `imported_hashes`.
+/// themselves — a separate channel from the linking table.
 #[must_use]
 pub fn build_imported_enums(
     module_path: &ModulePath,
     registry: &ModuleRegistry,
 ) -> Vec<crate::ast::EnumDef> {
     let mut enums = Vec::new();
-    let Ok(resolved) = registry.resolve_imports(module_path) else {
-        return enums;
-    };
-    for (name, bindings) in resolved.imports {
-        for import in bindings {
-            let ResolvedImport::Symbol {
-                from_module,
-                export_kind: crate::module_registry::ExportKind::Enum,
-                ..
-            } = import
-            else {
+    let scope = registry.build_module_scope(module_path);
+    for imports in scope.items.values() {
+        for import in imports {
+            if import.kind != ExportKind::Enum {
                 continue;
-            };
-            if let Some(info) = registry.get(&from_module) {
+            }
+            if let Some(info) = registry.get(&import.module) {
                 for item in &info.module.items {
                     if let ItemKind::Enum(def) = &item.kind
-                        && def.name == name
+                        && def.name == import.name
                     {
                         enums.push(def.clone());
                     }
@@ -391,39 +421,29 @@ pub fn build_imported_enums(
     enums
 }
 
-/// Collect the constant definitions a module imports (`use pkg::m::{PI}`).
-///
-/// Constants inline their literal value at each reference site rather than
-/// linking by hash, so cross-module constant use hands the compiler the
-/// imported definitions themselves — a separate channel from
-/// `imported_hashes`, mirroring [`build_imported_enums`].
+/// Collect every foreign constant in the build, keyed canonically
+/// (`utils.MAX`). Constants inline their literal value at each reference
+/// site rather than linking by hash, so the compiler needs the
+/// definitions themselves — a separate channel from the linking table,
+/// mirroring [`build_imported_enums`]. All public constants are provided
+/// (not just imported ones) because inline `pkg::utils::MAX` references
+/// need no import.
 #[must_use]
-pub fn build_imported_constants(
+pub fn build_foreign_constants(
     module_path: &ModulePath,
     registry: &ModuleRegistry,
-) -> Vec<crate::ast::ConstDef> {
+) -> Vec<(Arc<str>, crate::ast::ConstDef)> {
     let mut constants = Vec::new();
-    let Ok(resolved) = registry.resolve_imports(module_path) else {
-        return constants;
-    };
-    for (name, bindings) in resolved.imports {
-        for import in bindings {
-            let ResolvedImport::Symbol {
-                from_module,
-                export_kind: crate::module_registry::ExportKind::Const,
-                ..
-            } = import
-            else {
-                continue;
-            };
-            if let Some(info) = registry.get(&from_module) {
-                for item in &info.module.items {
-                    if let ItemKind::Const(def) = &item.kind
-                        && def.name == name
-                    {
-                        constants.push(def.clone());
-                    }
-                }
+    for info in registry.all_modules() {
+        if &info.path == module_path {
+            continue;
+        }
+        for item in &info.module.items {
+            if let ItemKind::Const(def) = &item.kind
+                && def.is_public
+            {
+                let key: Arc<str> = format!("{}.{}", info.path, def.name).into();
+                constants.push((key, def.clone()));
             }
         }
     }
@@ -481,14 +501,14 @@ pub fn compile_core_modules(
             });
         }
 
-        let imported_hashes =
-            build_imported_hashes_from_compiled(&core_path, registry, module_function_hashes);
-        let compiled =
-            crate::compiler::compile_module_with_imports(&check_result.module, imported_hashes)
-                .map_err(|e| BuildError::Compile {
-                    module: core_path.to_string(),
-                    error: e.to_string(),
-                })?;
+        let compiled = crate::compiler::compile_module_with_imports(
+            &check_result.module,
+            linking_table(module_function_hashes),
+        )
+        .map_err(|e| BuildError::Compile {
+            module: core_path.to_string(),
+            error: e.to_string(),
+        })?;
 
         let mut func_hashes = HashMap::new();
         for (name, hash) in &compiled.function_names {
@@ -513,111 +533,6 @@ pub fn compile_core_modules(
     }
 
     Ok(merged)
-}
-
-/// Load a module and all its dependencies recursively.
-fn load_module_with_deps(
-    pkg: &mut Package,
-    path: &ModulePath,
-    parse: ParseFn,
-) -> Result<(), BuildError> {
-    if pkg.is_loaded(path) {
-        return Ok(());
-    }
-
-    let loaded = load_module(pkg, path, parse)?;
-    let deps = extract_dependencies(&loaded.ast, path, pkg);
-    pkg.add_module(loaded);
-
-    for dep_path in deps {
-        load_module_with_deps(pkg, &dep_path, parse)?;
-    }
-
-    Ok(())
-}
-
-/// The module dependencies a module's `use` statements pull in.
-///
-/// Each imported name resolves against its parent module, so `use a::b::c`
-/// and `use a::b::{c}` both depend on `a::b` (and on submodule `a::b::c` when
-/// it exists). Shared with the CLI's package compiler so both loaders agree.
-#[must_use]
-pub fn extract_dependencies(
-    module: &crate::ast::Module,
-    current_path: &ModulePath,
-    pkg: &Package,
-) -> Vec<ModulePath> {
-    let mut deps = Vec::new();
-    let mut seen = HashSet::new();
-    let mut push = |resolved: ModulePath, deps: &mut Vec<ModulePath>| {
-        if seen.insert(resolved.to_string()) {
-            deps.push(resolved);
-        }
-    };
-
-    for item in &module.items {
-        let ItemKind::Use(use_def) = &item.kind else {
-            continue;
-        };
-
-        let import_prefix = match use_def.prefix {
-            // Core and platform modules are embedded, not loaded from the
-            // package tree.
-            UsePrefix::Core | UsePrefix::Platform => continue,
-            UsePrefix::Pkg => ImportPrefix::Pkg,
-            UsePrefix::Self_ => ImportPrefix::Self_,
-            UsePrefix::Super(n) => ImportPrefix::Super(n),
-        };
-
-        let path_names: Vec<_> = use_def.path.iter().map(|(name, _)| name.clone()).collect();
-
-        // Each imported name resolves against its parent module: `use a::b::c`
-        // and `use a::b::{c}` both name `c` under `a::b`. So for each name,
-        // the module that must load is either the submodule at the full path
-        // (a whole-module import) or the parent module that exports the name
-        // (an item import). Load whichever exist; if neither does, load the
-        // most specific candidate so the missing module is reported.
-        let fulls: Vec<Vec<_>> = match &use_def.kind {
-            UseKind::Module => vec![path_names.clone()],
-            UseKind::Items(items) => items
-                .iter()
-                .map(|(item_name, _)| {
-                    let mut full = path_names.clone();
-                    full.push(item_name.clone());
-                    full
-                })
-                .collect(),
-        };
-
-        for full in fulls {
-            let parent = &full[..full.len().saturating_sub(1)];
-            let full_mod = current_path.resolve_relative(&import_prefix, &full).ok();
-            let parent_mod = (!parent.is_empty())
-                .then(|| current_path.resolve_relative(&import_prefix, parent).ok())
-                .flatten();
-
-            let full_exists = full_mod.as_ref().is_some_and(|m| pkg.module_exists(m));
-            let parent_exists = parent_mod.as_ref().is_some_and(|m| pkg.module_exists(m));
-
-            if !full_exists && !parent_exists {
-                // Neither is a real module; surface the miss on the most
-                // specific candidate (the parent for an item import, else the
-                // full path).
-                if let Some(m) = parent_mod.or(full_mod) {
-                    push(m, &mut deps);
-                }
-            } else {
-                if let Some(m) = full_mod.filter(|_| full_exists) {
-                    push(m, &mut deps);
-                }
-                if let Some(m) = parent_mod.filter(|_| parent_exists) {
-                    push(m, &mut deps);
-                }
-            }
-        }
-    }
-
-    deps
 }
 
 /// Load a single module from a package.
@@ -655,6 +570,7 @@ fn compile_loaded_module_with_registry(
     module_path: &ModulePath,
     registry: &ModuleRegistry,
     imported_hashes: HashMap<Arc<str>, blake3::Hash>,
+    prelude_abilities: &[Arc<crate::ability_resolver::DynAbility>],
 ) -> Result<CompiledModule, BuildError> {
     let check_result =
         crate::infer::check_module_with_registry(loaded.ast.clone(), module_path, registry);
@@ -676,8 +592,9 @@ fn compile_loaded_module_with_registry(
             source_file: Some(&source_file),
             imported_hashes: Some(imported_hashes),
             imported_enums: build_imported_enums(module_path, registry),
-            imported_constants: build_imported_constants(module_path, registry),
-            prelude_abilities: &[],
+            imported_constants: build_foreign_constants(module_path, registry),
+            prelude_abilities,
+            foreign_abilities: crate::infer::resolve_registry_abilities(registry),
         },
     )
     .map_err(|e| BuildError::Compile {

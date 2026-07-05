@@ -69,6 +69,39 @@ impl<T> Spanned<T> {
 /// A unique identifier for a local binding (parameter or let binding).
 pub type BindingId = u32;
 
+/// The canonical target of a name reference, filled in by the resolve
+/// pass (`crate::resolve`).
+///
+/// Every item in a build has exactly one fully-qualified identity:
+/// `<defining module path>.<item name>`. The resolve pass maps each
+/// spelling of a reference — a bare imported name, a module-alias path,
+/// an inline `pkg::`/`self::`/`super::`/`core::`/`platform::` path — to
+/// that identity without disturbing the source spelling (whose spans
+/// serve IDE features). `None` means the reference is module-local (or
+/// the module was checked without a registry).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolved {
+    /// Dotted path of the defining module (`core.math`, `utils.format`).
+    pub module: Arc<str>,
+    /// The item's name in the defining module (aliases unfolded: a
+    /// reference through `use pkg::m::f as g;` resolves to name `f`).
+    pub name: Arc<str>,
+}
+
+impl Resolved {
+    /// The canonical dotted form: `<module>.<name>`.
+    #[must_use]
+    pub fn joined(&self) -> Arc<str> {
+        format!("{}.{}", self.module, self.name).into()
+    }
+
+    /// The defining module's path segments.
+    #[must_use]
+    pub fn module_segments(&self) -> Vec<&str> {
+        self.module.split('.').collect()
+    }
+}
+
 /// A reference to a named item (function, type, ability).
 #[derive(Debug, Clone)]
 pub struct QualifiedName {
@@ -81,11 +114,17 @@ pub struct QualifiedName {
     pub name: Arc<str>,
     /// Source span for the name (for IDE features).
     pub name_span: Option<Span>,
+    /// Canonical target, filled in by the resolve pass. Source spelling
+    /// (`path`/`name`) is preserved for IDE features; consumers that need
+    /// the semantic target go through [`QualifiedName::resolution_key`] or
+    /// [`QualifiedName::resolved_module_segments`].
+    pub resolved: Option<Resolved>,
 }
 
 impl PartialEq for QualifiedName {
     fn eq(&self, other: &Self) -> bool {
-        // Ignore spans for equality - only compare semantic content
+        // Ignore spans and resolution for equality - only compare the
+        // spelled semantic content.
         self.path == other.path && self.name == other.name
     }
 }
@@ -109,6 +148,35 @@ impl QualifiedName {
         s.into()
     }
 
+    /// The key this reference is bound under in checker environments and
+    /// linker tables: the canonical form when resolved, else the spelled
+    /// dotted form (which is already canonical for module-local names).
+    #[must_use]
+    pub fn resolution_key(&self) -> Arc<str> {
+        self.resolved
+            .as_ref()
+            .map_or_else(|| self.joined(), Resolved::joined)
+    }
+
+    /// The defining module's path segments for a resolved reference, else
+    /// the spelled path segments. Intrinsic tables match on this.
+    #[must_use]
+    pub fn resolved_module_segments(&self) -> Vec<&str> {
+        self.resolved.as_ref().map_or_else(
+            || self.path.iter().map(AsRef::as_ref).collect(),
+            Resolved::module_segments,
+        )
+    }
+
+    /// The item name at the resolved target (aliases unfolded), else the
+    /// spelled name.
+    #[must_use]
+    pub fn resolved_name(&self) -> &str {
+        self.resolved
+            .as_ref()
+            .map_or_else(|| self.name.as_ref(), |r| r.name.as_ref())
+    }
+
     /// Create a simple unqualified name.
     #[must_use]
     pub fn simple(name: impl Into<Arc<str>>) -> Self {
@@ -117,6 +185,7 @@ impl QualifiedName {
             path_spans: Vec::new(),
             name: name.into(),
             name_span: None,
+            resolved: None,
         }
     }
 
@@ -128,6 +197,7 @@ impl QualifiedName {
             path_spans: Vec::new(),
             name: name.into(),
             name_span: None,
+            resolved: None,
         }
     }
 
@@ -144,6 +214,7 @@ impl QualifiedName {
             path_spans,
             name,
             name_span: Some(name_span),
+            resolved: None,
         }
     }
 }

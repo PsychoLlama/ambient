@@ -128,6 +128,12 @@ pub struct ModuleInfo {
     pub exports: HashMap<Arc<str>, ExportInfo>,
     /// Re-exports from other modules (`pub use`).
     pub re_exports: Vec<ReExport>,
+    /// Whether this entry is a directory namespace (no backing file). A
+    /// namespace module has no items of its own; its only members are its
+    /// child modules. Registering a real module at the same path replaces
+    /// the namespace entry (a `foo.ab` file alongside a `foo/` directory
+    /// contributes items *and* children).
+    pub is_namespace: bool,
 }
 
 /// A re-export (`pub use`).
@@ -139,6 +145,111 @@ pub struct ReExport {
     pub path: Vec<Arc<str>>,
     /// What is re-exported.
     pub kind: UseKind,
+}
+
+impl ReExport {
+    /// The local name a whole-module re-export exposes: the final path
+    /// segment of `pub use a::b::c;`. Item re-exports (`{…}` form) expose
+    /// symbol names instead and have no module alias.
+    #[must_use]
+    pub fn alias(&self) -> Option<&str> {
+        match &self.kind {
+            UseKind::Module => self.path.last().map(AsRef::as_ref),
+            UseKind::Items(_) => None,
+        }
+    }
+}
+
+/// One imported item binding in a module's scope: a local name mapped to
+/// the item's canonical identity (defining module + original name), with
+/// `pub use` re-export chains already chased to their origin.
+#[derive(Debug, Clone)]
+pub struct ItemImport {
+    /// The defining module.
+    pub module: ModulePath,
+    /// The item's name in the defining module (differs from the local
+    /// name only under an `as` alias).
+    pub name: Arc<str>,
+    /// The kind of item.
+    pub kind: ExportKind,
+    /// The span of the `use` item that created this binding.
+    pub span: Span,
+}
+
+impl ItemImport {
+    /// The canonical dotted identity: `<module>.<name>`.
+    #[must_use]
+    pub fn canonical(&self) -> crate::ast::Resolved {
+        crate::ast::Resolved {
+            module: self.module.to_string().into(),
+            name: Arc::clone(&self.name),
+        }
+    }
+}
+
+/// A module's import scope: every name its `use` items bind, interpreted
+/// once, canonically. This is the single source of truth consumed by the
+/// resolve pass, the type checker's import channels, and the linker.
+///
+/// A single local name can bind in several namespaces at once — a module
+/// alias, a value, a type, an ability — and the use site's syntactic
+/// position picks. Within one namespace the last `use` wins.
+#[derive(Debug, Default)]
+pub struct ModuleScope {
+    /// Module aliases: `use pkg::utils;` binds `utils` → the module path.
+    pub modules: HashMap<Arc<str>, ModulePath>,
+    /// Item imports by local name. At most one binding per namespace
+    /// (values, types, abilities, traits) per name.
+    pub items: HashMap<Arc<str>, Vec<ItemImport>>,
+    /// Imports that failed to resolve.
+    pub errors: Vec<ImportError>,
+}
+
+/// The namespace an item kind occupies. Imports shadow within a
+/// namespace and coexist across namespaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Namespace {
+    Value,
+    Type,
+    Ability,
+    Trait,
+}
+
+impl ExportKind {
+    /// The namespace this kind of item occupies.
+    #[must_use]
+    pub fn namespace(self) -> Namespace {
+        match self {
+            Self::Function | Self::Const | Self::EnumVariant => Namespace::Value,
+            Self::TypeAlias | Self::Enum => Namespace::Type,
+            Self::Ability => Namespace::Ability,
+            Self::Trait => Namespace::Trait,
+        }
+    }
+}
+
+impl ModuleScope {
+    /// The item bound to `local` in `ns`, if any.
+    #[must_use]
+    pub fn item(&self, local: &str, ns: Namespace) -> Option<&ItemImport> {
+        self.items
+            .get(local)?
+            .iter()
+            .find(|import| import.kind.namespace() == ns)
+    }
+
+    /// The module bound to `local`, if any.
+    #[must_use]
+    pub fn module(&self, local: &str) -> Option<&ModulePath> {
+        self.modules.get(local)
+    }
+
+    fn bind_item(&mut self, local: Arc<str>, import: ItemImport) {
+        let ns = import.kind.namespace();
+        let entry = self.items.entry(local).or_default();
+        entry.retain(|existing| existing.kind.namespace() != ns);
+        entry.push(import);
+    }
 }
 
 /// Registry of all loaded modules.
@@ -161,7 +272,10 @@ impl ModuleRegistry {
 
     /// Register a module in the registry.
     ///
-    /// This analyzes the module and extracts its exports.
+    /// This analyzes the module and extracts its exports. Every ancestor
+    /// directory of the path that has no registered module of its own is
+    /// registered as a namespace module, so `src/a/b/c.ab` makes `a` and
+    /// `a.b` importable namespaces whose members are their children.
     pub fn register(&mut self, path: &ModulePath, module: Arc<Module>) {
         let exports = extract_exports(&module);
         let re_exports = extract_re_exports(&module);
@@ -171,9 +285,94 @@ impl ModuleRegistry {
             module,
             exports,
             re_exports,
+            is_namespace: false,
         };
 
         self.modules.insert(path.to_string(), info);
+        self.register_namespace_ancestors(path);
+    }
+
+    /// Fill in namespace entries for every unregistered ancestor of `path`.
+    fn register_namespace_ancestors(&mut self, path: &ModulePath) {
+        let mut ancestor = path.parent();
+        while let Some(dir) = ancestor {
+            let key = dir.to_string();
+            if self.modules.contains_key(&key) {
+                break;
+            }
+            self.modules.insert(
+                key,
+                ModuleInfo {
+                    path: dir.clone(),
+                    module: Arc::new(Module {
+                        name: Arc::from(dir.name()),
+                        doc: None,
+                        items: Vec::new(),
+                    }),
+                    exports: HashMap::new(),
+                    re_exports: Vec::new(),
+                    is_namespace: true,
+                },
+            );
+            ancestor = dir.parent();
+        }
+    }
+
+    /// Add exports to an already-registered module.
+    ///
+    /// Core modules use this to expose their intrinsics: an intrinsic has
+    /// no AST item (it compiles to a dedicated opcode), but it is still an
+    /// item of its module — `use core::math::sqrt;` must resolve exactly
+    /// like a compiled function would.
+    pub fn add_exports(&mut self, path: &ModulePath, exports: Vec<ExportInfo>) {
+        if let Some(info) = self.modules.get_mut(&path.to_string()) {
+            for export in exports {
+                // Declared items win over injected ones: an intrinsic and a
+                // compiled function at the same path prefer the declaration's
+                // spans and docs for tooling. (Execution-side precedence is
+                // the compiler's concern, not the registry's.)
+                info.exports
+                    .entry(Arc::clone(&export.name))
+                    .or_insert(export);
+            }
+        }
+    }
+
+    /// Resolve one path segment as a child module of `parent`.
+    ///
+    /// `None` as the parent means the package root: children are the
+    /// top-level modules (`src/*.ab` files and `src/*/` directories).
+    /// A child is a registered (sub)module, or a whole-module re-export
+    /// (`pub use pkg::other::sub;`) in the parent.
+    #[must_use]
+    pub fn resolve_module_child(
+        &self,
+        parent: Option<&ModulePath>,
+        name: &str,
+    ) -> Option<ModulePath> {
+        let candidate = match parent {
+            Some(dir) => dir.child(name),
+            None => ModulePath::from_str_segments(&[name])?,
+        };
+        if self.modules.contains_key(&candidate.to_string()) {
+            return Some(candidate);
+        }
+
+        // A module re-export: `pub use pkg::a::b;` in the parent makes `b`
+        // a child of the parent for path-walking purposes.
+        let parent_info = parent.and_then(|p| self.modules.get(&p.to_string()))?;
+        for re_export in &parent_info.re_exports {
+            if re_export.alias() != Some(name) {
+                continue;
+            }
+            if let Some(target) =
+                Self::resolve_import_path(&parent_info.path, re_export, &re_export.path)
+                && self.modules.contains_key(&target.to_string())
+            {
+                return Some(target);
+            }
+        }
+        None
     }
 
     /// Check if a module is registered.
@@ -276,9 +475,8 @@ impl ModuleRegistry {
     ) -> Option<ModulePath> {
         let prefix = match re_export.prefix {
             UsePrefix::Pkg => ImportPrefix::Pkg,
-            // Core imports are handled separately; platform re-exports are
-            // unsupported (symmetric with core).
-            UsePrefix::Core | UsePrefix::Platform => return None,
+            UsePrefix::Core => ImportPrefix::Core,
+            UsePrefix::Platform => ImportPrefix::Platform,
             UsePrefix::Self_ => ImportPrefix::Self_,
             UsePrefix::Super(count) => ImportPrefix::Super(count),
         };
@@ -318,47 +516,38 @@ impl ModuleRegistry {
             .map_err(RegistryError::PathResolution)
     }
 
-    /// Get all imported symbols for a module.
+    /// Build a module's import scope: interpret every `use` item once,
+    /// canonically. This is the single site that decides what a `use`
+    /// means; everything else (checker, resolve pass, linker,
+    /// [`Self::resolve_imports`]) consumes its output.
     ///
-    /// This processes all `use` statements in the module and returns the
-    /// resolved bindings alongside an error for each import that failed —
-    /// an unresolvable path, a missing module or symbol, or a private
-    /// symbol. Callers surface the errors as diagnostics; a failed import
-    /// never binds a name.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the importing module itself is not in the
-    /// registry.
-    pub fn resolve_imports(
-        &self,
-        module_path: &ModulePath,
-    ) -> Result<ResolvedImports, RegistryError> {
-        let info = self
-            .modules
-            .get(&module_path.to_string())
-            .ok_or_else(|| RegistryError::ModuleNotFound(module_path.to_string()))?;
+    /// Braces are pure grouping: `use a::b::{c}` and `use a::b::c` both
+    /// name `c` under `a::b`. Each imported name binds every namespace
+    /// meaning of its final segment — the submodule at the full path
+    /// and/or the item of that name exported by the parent module. A name
+    /// that binds in no namespace pushes one diagnostic.
+    #[must_use]
+    pub fn build_module_scope(&self, module_path: &ModulePath) -> ModuleScope {
+        let mut scope = ModuleScope::default();
+        let Some(info) = self.modules.get(&module_path.to_string()) else {
+            scope.errors.push(ImportError {
+                error: RegistryError::ModuleNotFound(module_path.to_string()),
+                span: Span::default(),
+            });
+            return scope;
+        };
 
-        let mut resolved = ResolvedImports::default();
-
-        // Process use statements from the module's AST
         for item in &info.module.items {
             let ItemKind::Use(use_def) = &item.kind else {
                 continue;
             };
 
-            // Extract just the names from the path (ignoring spans)
             let path_names: Vec<_> = use_def.path.iter().map(|(name, _)| name.clone()).collect();
 
-            // Both forms name a final segment that we resolve against its
-            // parent module: `use a::b::c` (Module) and `use a::b::{c}`
-            // (Items) mean the same thing. Braces are pure grouping — the
-            // difference collapses here, not in the parser. Each candidate
-            // is the full path down to the imported name.
             match &use_def.kind {
                 UseKind::Module => {
-                    self.resolve_use_target(
-                        &mut resolved,
+                    self.bind_use_target(
+                        &mut scope,
                         &use_def.prefix,
                         module_path,
                         &path_names,
@@ -369,8 +558,8 @@ impl ModuleRegistry {
                     for (item_name, _) in items {
                         let mut full = path_names.clone();
                         full.push(item_name.clone());
-                        self.resolve_use_target(
-                            &mut resolved,
+                        self.bind_use_target(
+                            &mut scope,
                             &use_def.prefix,
                             module_path,
                             &full,
@@ -381,25 +570,18 @@ impl ModuleRegistry {
             }
         }
 
-        Ok(resolved)
+        scope
     }
 
     /// Resolve one `use` path down to its final segment and bind every
-    /// namespace meaning of that segment: the submodule at the full path,
-    /// and/or the symbol of that name exported by the parent module.
-    ///
-    /// This is the single site that unifies the brace and non-brace forms.
-    /// `full` is the entire path to the imported name (for `use a::b::c` and
-    /// for each item of `use a::b::{c}` alike, it is `[a, b, c]` after prefix
-    /// resolution). A name that resolves to neither a submodule nor a symbol
-    /// pushes one diagnostic.
-    fn resolve_use_target(
+    /// namespace meaning of that segment into `scope`.
+    fn bind_use_target(
         &self,
-        resolved: &mut ResolvedImports,
+        scope: &mut ModuleScope,
         prefix: &UsePrefix,
         module_path: &ModulePath,
         full: &[Arc<str>],
-        span: crate::ast::Span,
+        span: Span,
     ) {
         // A bare `use self;` has no name to import.
         let Some(local) = full.last().cloned() else {
@@ -409,40 +591,84 @@ impl ModuleRegistry {
         let target = match self.resolve_use_path(module_path, prefix, full) {
             Ok(path) => path,
             Err(error) => {
-                resolved.errors.push(ImportError { error, span });
+                scope.errors.push(ImportError { error, span });
                 return;
             }
         };
 
-        // Submodule meaning: the full path itself names a registered module.
-        let submodule_bound = self.modules.contains_key(&target.to_string());
-        if submodule_bound {
-            resolved.bind(local.clone(), ResolvedImport::Module(target.clone()));
+        // Submodule meaning: the full path itself names a registered module
+        // (a file, a directory namespace, or a module re-export in the
+        // parent).
+        let parent = target.parent();
+        let submodule = self.resolve_module_child(parent.as_ref(), &local);
+        if let Some(ref submodule_path) = submodule {
+            scope
+                .modules
+                .insert(Arc::clone(&local), submodule_path.clone());
         }
 
-        // Symbol meaning: a name exported by the parent module. The parent of
+        // Item meaning: a name exported by the parent module. The parent of
         // a top-level target is the package root module (`main`).
-        let symbol_parent = target.parent().unwrap_or_else(ModulePath::root);
+        let symbol_parent = parent.unwrap_or_else(ModulePath::root);
         match self.lookup_symbol(&symbol_parent, &local) {
             Ok((export, origin)) => {
-                resolved.bind(
-                    local,
-                    ResolvedImport::Symbol {
-                        from_module: origin,
-                        export_kind: export.kind,
+                scope.bind_item(
+                    Arc::clone(&local),
+                    ItemImport {
+                        module: origin,
+                        name: Arc::clone(&export.name),
+                        kind: export.kind,
                         span,
                     },
                 );
             }
             Err(error) => {
-                // Only a diagnostic if neither namespace bound the name; a
+                // Only a diagnostic if no namespace bound the name; a
                 // successful submodule import means the missing symbol (or
                 // missing parent module) was never what the user meant.
-                if !submodule_bound {
-                    resolved.errors.push(ImportError { error, span });
+                if submodule.is_none() {
+                    scope.errors.push(ImportError { error, span });
                 }
             }
         }
+    }
+
+    /// Get all imported symbols for a module.
+    ///
+    /// An adapter over [`Self::build_module_scope`] for consumers that
+    /// want the flat binding view.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the importing module itself is not in the
+    /// registry.
+    pub fn resolve_imports(
+        &self,
+        module_path: &ModulePath,
+    ) -> Result<ResolvedImports, RegistryError> {
+        if !self.modules.contains_key(&module_path.to_string()) {
+            return Err(RegistryError::ModuleNotFound(module_path.to_string()));
+        }
+        let scope = self.build_module_scope(module_path);
+
+        let mut resolved = ResolvedImports {
+            imports: HashMap::new(),
+            errors: scope.errors,
+        };
+        for (local, module) in scope.modules {
+            resolved.bind(local, ResolvedImport::Module(module));
+        }
+        for (local, imports) in scope.items {
+            let entry = resolved.imports.entry(local).or_default();
+            for import in imports {
+                entry.push(ResolvedImport::Symbol {
+                    from_module: import.module,
+                    export_kind: import.kind,
+                    span: import.span,
+                });
+            }
+        }
+        Ok(resolved)
     }
 }
 

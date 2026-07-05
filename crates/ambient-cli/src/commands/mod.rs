@@ -175,11 +175,12 @@ pub fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
             source_file: Some(&source_file),
             imported_hashes: Some(core.hashes),
             imported_enums: ambient_engine::build::build_imported_enums(&main_path, &core.registry),
-            imported_constants: ambient_engine::build::build_imported_constants(
+            imported_constants: ambient_engine::build::build_foreign_constants(
                 &main_path,
                 &core.registry,
             ),
             prelude_abilities: &prelude,
+            foreign_abilities: ambient_engine::infer::resolve_registry_abilities(&core.registry),
         },
     )
     .map_err(|e| anyhow::anyhow!("compile error at {}: {e}", file.display()))?;

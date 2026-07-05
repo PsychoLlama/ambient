@@ -495,6 +495,9 @@ struct ModuleContext {
     /// declaration and a namespaced prelude ability of the same name
     /// resolve independently.
     prelude_abilities: HashMap<Arc<str>, CompiledAbilityInfo>,
+    /// Foreign ability identities keyed by canonical qualified name
+    /// (`effects.Counter`); see [`CompileOptions::foreign_abilities`].
+    foreign_abilities: HashMap<Arc<str>, CompiledAbilityInfo>,
 }
 
 /// Compile-time info for one module-declared ability.
@@ -550,6 +553,7 @@ impl ModuleContext {
             constants: HashMap::new(),
             abilities: HashMap::new(),
             prelude_abilities: HashMap::new(),
+            foreign_abilities: HashMap::new(),
         }
     }
 
@@ -559,14 +563,14 @@ impl ModuleContext {
     /// here; a non-literal that somehow reaches this point is simply skipped
     /// and left to surface as an undefined-name error at its reference site.
     ///
-    /// Registers imported constant definitions (`use pkg::m::{PI}`). Runs
-    /// before [`Self::register_constants`], so a local `const` of the same
-    /// name shadows the imported one — the same precedence
-    /// [`Self::register_imported_enums`] applies to constructors.
-    fn register_imported_constants(&mut self, imported: &[crate::ast::ConstDef]) {
-        for const_def in imported {
+    /// Registers foreign constant definitions under their canonical
+    /// qualified keys (`utils.MAX`). Canonical keys never collide with the
+    /// module's own bare-named constants, so registration order against
+    /// [`Self::register_constants`] is immaterial.
+    fn register_imported_constants(&mut self, imported: &[(Arc<str>, crate::ast::ConstDef)]) {
+        for (key, const_def) in imported {
             if let Some(value) = crate::const_eval::literal_value(&const_def.value) {
-                self.constants.insert(Arc::clone(&const_def.name), value);
+                self.constants.insert(Arc::clone(key), value);
             }
         }
     }
@@ -620,11 +624,48 @@ impl ModuleContext {
     /// correctness): namespace-qualified references name the prelude,
     /// bare references name locals. Bare builtins (Exception) are not
     /// here — callers fall back to the core-ability tables for those.
-    fn resolve_ability(&self, name: &str, namespaced: bool) -> Option<&CompiledAbilityInfo> {
-        if namespaced {
-            self.prelude_abilities.get(name)
-        } else {
-            self.abilities.get(name)
+    /// Resolve an ability reference to its compile-time info.
+    ///
+    /// Bare unresolved references are local declarations. Resolved or
+    /// path-qualified references try the canonical foreign channel first,
+    /// then the prelude (platform declarations, keyed by bare name — the
+    /// `platform` module never compiles, so it has no canonical entry).
+    fn resolve_ability(&self, ability: &crate::ast::QualifiedName) -> Option<&CompiledAbilityInfo> {
+        if ability.resolved.is_none() && ability.path.is_empty() {
+            return self.abilities.get(&ability.name);
+        }
+        let key = ability.resolution_key();
+        // A resolved reference into the current module normalizes to the
+        // bare form; its key is the bare name.
+        if ability
+            .resolved
+            .as_ref()
+            .is_some_and(|r| r.module.is_empty())
+        {
+            return self.abilities.get(&key);
+        }
+        self.foreign_abilities
+            .get(&key)
+            .or_else(|| self.prelude_abilities.get(ability.resolved_name()))
+    }
+
+    /// Register the foreign-ability channel (see
+    /// [`CompileOptions::foreign_abilities`]).
+    fn register_foreign_abilities(
+        &mut self,
+        foreign: &[(
+            Arc<str>,
+            std::sync::Arc<crate::ability_resolver::DynAbility>,
+        )],
+    ) {
+        for (key, dyn_ab) in foreign {
+            self.foreign_abilities.insert(
+                Arc::clone(key),
+                CompiledAbilityInfo {
+                    id: dyn_ab.id,
+                    methods: dyn_ab.methods.iter().map(|m| Arc::clone(&m.name)).collect(),
+                },
+            );
         }
     }
 
@@ -751,13 +792,24 @@ pub struct CompileOptions<'a> {
     /// inline by tag rather than linking by hash, so the compiler needs
     /// the definitions themselves, not name→hash entries.
     pub imported_enums: Vec<crate::ast::EnumDef>,
-    /// Imported constant definitions (`use pkg::m::{PI}`). Constants inline
-    /// their literal value at each reference rather than linking by hash, so
-    /// the compiler needs the definitions themselves, not name→hash entries.
-    pub imported_constants: Vec<crate::ast::ConstDef>,
+    /// Foreign constant definitions, keyed by canonical qualified name
+    /// (`utils.MAX`). Constants inline their literal value at each
+    /// reference rather than linking by hash, so the compiler needs the
+    /// definitions themselves, not name→hash entries. The resolve pass
+    /// rewrites every cross-module constant reference to its canonical
+    /// key, which is looked up here.
+    pub imported_constants: Vec<(Arc<str>, crate::ast::ConstDef)>,
     /// Prelude abilities (embedder-resolved declaration modules, e.g. the
     /// platform bindings interface). Local declarations shadow them.
     pub prelude_abilities: &'a [std::sync::Arc<crate::ability_resolver::DynAbility>],
+    /// Foreign ability identities, keyed by canonical qualified name
+    /// (`effects.Counter`). The resolve pass rewrites cross-module ability
+    /// references to these keys; identities come from the checker (the
+    /// content-addressed interface hash), never re-derived here.
+    pub foreign_abilities: Vec<(
+        Arc<str>,
+        std::sync::Arc<crate::ability_resolver::DynAbility>,
+    )>,
 }
 
 /// Compile a module to bytecode.
@@ -881,6 +933,7 @@ fn compile_module_impl(
         imported_enums,
         imported_constants,
         prelude_abilities,
+        foreign_abilities,
     } = options;
     // Collect function definitions.
     let functions: Vec<&FunctionDef> = module
@@ -949,6 +1002,7 @@ fn compile_module_impl(
     ctx.register_imported_constants(&imported_constants);
     ctx.register_constants(module);
     ctx.register_prelude_abilities(prelude_abilities);
+    ctx.register_foreign_abilities(&foreign_abilities);
     ctx.register_abilities(module)?;
 
     // Phase 2: Compile each function using temporary hashes.

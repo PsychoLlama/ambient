@@ -27,8 +27,11 @@ impl Infer {
         args: &mut [Expr],
         span: (u32, u32),
     ) -> InferResult<Option<Type>> {
-        let path: Vec<&str> = qualified_name.path.iter().map(AsRef::as_ref).collect();
-        let name = qualified_name.name.as_ref();
+        // Match on the canonical target: `use core::math; math::sqrt(x)`,
+        // `use core::math::sqrt; sqrt(x)`, and a literal `core::math::sqrt(x)`
+        // all resolve to the same intrinsic.
+        let path = qualified_name.resolved_module_segments();
+        let name = qualified_name.resolved_name();
 
         let Some(intrinsic) = crate::compiler::intrinsics::find(&path, name) else {
             return Ok(None);

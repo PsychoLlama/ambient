@@ -1052,6 +1052,7 @@ fn lower_qualified_name(qn: &CstQualifiedName) -> QualifiedName {
             path_spans: Vec::new(),
             name: seg.name.clone(),
             name_span: Some(seg.span),
+            resolved: None,
         }
     } else {
         let name_seg = qn.segments.last().expect("segments not empty");
@@ -1068,6 +1069,7 @@ fn lower_qualified_name(qn: &CstQualifiedName) -> QualifiedName {
             path_spans,
             name: name_seg.name.clone(),
             name_span: Some(name_seg.span),
+            resolved: None,
         }
     }
 }

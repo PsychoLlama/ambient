@@ -80,6 +80,14 @@ fn check_module_core(
 ) -> CheckResult {
     let mut errors = Vec::new();
 
+    // Phase 0: canonicalize cross-module references. Every import, module
+    // alias, and inline rooted path is resolved to its one fully-qualified
+    // identity (`QualifiedName::resolved`); everything downstream keys off
+    // that.
+    if let Some((module_path, registry)) = cross_module {
+        crate::resolve::resolve_module(&mut module, module_path, registry);
+    }
+
     // Phase 1: registration.
     let mut env = match cross_module {
         Some((module_path, registry)) => {
@@ -205,13 +213,13 @@ fn register_cross_module(
     registry: &ModuleRegistry,
     errors: &mut Vec<BoxedTypeError>,
 ) -> TypeEnv {
-    // Platform abilities are always in scope fully-qualified. Seed them
-    // as namespaced dynamics from the `platform.*` declaration module
-    // before imports and local abilities resolve, so `platform::Stdio`
-    // references (inline uses and cross-module ability deps) and the
+    // Every module's abilities are always in scope fully-qualified. Seed
+    // them as namespaced dynamics before imports and local abilities
+    // resolve, so `platform::Stdio` / `pkg::effects::Counter` references
+    // (inline uses and cross-module ability deps) and the
     // `use platform::Network;` bridge all find their target — on every
     // path that has a registry, including the package build.
-    seed_namespaced_platform_dynamics(infer, registry, errors);
+    seed_namespaced_ability_dynamics(infer, module_path, registry, errors);
     // Imported enums register first: foreign impl registration (next)
     // must resolve an imported enum target to its uuid, or the impl's
     // dispatch key won't match the call sites'.
@@ -349,7 +357,7 @@ fn enforce_ability_subset(
         .filter_map(|qn| {
             infer
                 .ability_resolver
-                .resolve_ref(&qn.path, &qn.name)
+                .resolve_ref(&qn.resolved_module_segments(), qn.resolved_name())
                 .ok()
                 .or_else(|| infer.ability_name_to_id(&qn.name))
         })
@@ -1342,37 +1350,59 @@ fn register_imported_ability(
     infer.ability_resolver.register_dynamic(dyn_ab);
 }
 
-/// Seed the abilities of the reserved `platform` declaration module as
-/// namespaced dynamics (`platform::Network`, `platform::Stdio`, ...).
+/// Seed every registered module's `ability` declarations as namespaced
+/// dynamics under the declaring module's dotted path (`platform.Network`,
+/// `effects.Counter`, `deep.nested.fx.Log`).
 ///
-/// This is the ability-layer counterpart to registering `platform` as a
-/// module: it makes fully-qualified platform references resolve via
-/// `resolve_ref(["platform"], name)` on every checking path that has a
-/// registry — single-file, package, and LSP — including the package build,
-/// which previously had no platform resolver at all. `namespaced_by_name`
-/// is exactly the storage for "always in scope, must be qualified".
+/// This is the ability-layer counterpart of canonical name resolution:
+/// the resolve pass rewrites every qualified or imported ability
+/// reference to `<declaring module>::<Ability>`, and this seeding is what
+/// makes that namespace resolvable — on every checking path that has a
+/// registry (single-file, package, and LSP). Because ability identity is
+/// the content-addressed interface hash, seeding is deterministic and a
+/// bare local registration of the same declaration unifies with it.
 ///
-/// Declarations register in file order so a platform ability may depend on
-/// an earlier one (`Log with platform::Stdio`).
-fn seed_namespaced_platform_dynamics(
+/// The current module is skipped: its declarations register *bare* in
+/// `register_abilities` (locals stay bare; references to them normalize
+/// to the bare form). The `platform` module seeds first so its intra-file
+/// dependencies (`Log with platform::Stdio`) resolve; other modules seed
+/// in path order. Resolution errors inside *foreign* modules are not this
+/// module's diagnostics — they surface when that module itself is checked
+/// — except for `platform`, whose declarations have no other checking
+/// path.
+fn seed_namespaced_ability_dynamics(
     infer: &mut Infer,
+    module_path: &ModulePath,
     registry: &ModuleRegistry,
     errors: &mut Vec<BoxedTypeError>,
 ) {
-    let Some(platform_path) = ModulePath::from_str_segments(&["platform"]) else {
-        return;
-    };
-    let Some(module_info) = registry.get(&platform_path) else {
-        return;
-    };
-    // Own the AST so the registry borrow ends before `&mut infer`.
-    let module = Arc::clone(&module_info.module);
-    for item in &module.items {
-        if let crate::ast::ItemKind::Ability(def) = &item.kind {
-            let dyn_ab = resolve_ability_def(infer, def, errors);
-            infer
-                .ability_resolver
-                .register_dynamic_in_namespace("platform", dyn_ab);
+    let mut modules: Vec<_> = registry
+        .all_modules()
+        .filter(|info| &info.path != module_path)
+        .map(|info| (info.path.clone(), Arc::clone(&info.module)))
+        .collect();
+    modules.sort_by_key(|(path, _)| {
+        // Platform first, then path order.
+        (
+            path.segments().first().map(AsRef::as_ref) != Some("platform"),
+            path.to_string(),
+        )
+    });
+
+    for (path, module) in modules {
+        let is_platform = path.segments().first().map(AsRef::as_ref) == Some("platform");
+        let namespace = path.to_string();
+        let mut foreign_errors = Vec::new();
+        for item in &module.items {
+            if let crate::ast::ItemKind::Ability(def) = &item.kind {
+                let dyn_ab = resolve_ability_def(infer, def, &mut foreign_errors);
+                infer
+                    .ability_resolver
+                    .register_dynamic_in_namespace(&namespace, dyn_ab);
+            }
+        }
+        if is_platform {
+            errors.append(&mut foreign_errors);
         }
     }
 }
@@ -1509,6 +1539,56 @@ pub fn resolve_ability_declarations(
         }
     }
     (abilities, errors)
+}
+
+/// Resolve every registered module's `ability` declarations to their
+/// content-addressed identities, keyed canonically
+/// (`<module path>.<Ability>`).
+///
+/// The build hands this to the compiler as its foreign-ability channel:
+/// performs and handler arms that the resolve pass canonicalized to a
+/// foreign module need the interface identity and method order, which no
+/// name→hash table carries. Identity is deterministic (the interface
+/// hash), so recomputing here matches the declaring module's own
+/// registration exactly. Cross-module dependency resolution failures are
+/// ignored — they don't affect identity and are reported when the
+/// declaring module checks.
+#[must_use]
+pub fn resolve_registry_abilities(
+    registry: &ModuleRegistry,
+) -> Vec<(Arc<str>, Arc<crate::ability_resolver::DynAbility>)> {
+    let mut infer = Infer::new();
+    let mut discarded = Vec::new();
+    let mut out = Vec::new();
+    let mut modules: Vec<_> = registry
+        .all_modules()
+        .map(|info| (info.path.clone(), Arc::clone(&info.module)))
+        .collect();
+    modules.sort_by_key(|(path, _)| {
+        (
+            path.segments().first().map(AsRef::as_ref) != Some("platform"),
+            path.to_string(),
+        )
+    });
+    for (path, module) in modules {
+        let namespace = path.to_string();
+        for item in &module.items {
+            if let crate::ast::ItemKind::Ability(def) = &item.kind {
+                let dyn_ab = resolve_ability_def(&mut infer, def, &mut discarded);
+                infer
+                    .ability_resolver
+                    .register_dynamic_in_namespace(&namespace, dyn_ab);
+                if let Some(ability) = infer.ability_resolver.get_namespaced(&namespace, &def.name)
+                {
+                    out.push((
+                        format!("{namespace}.{}", def.name).into(),
+                        Arc::clone(ability),
+                    ));
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Register the module's enum declarations and bring every visible
@@ -1700,39 +1780,27 @@ fn build_import_env(
     };
 
     for (name, bindings) in imports {
-        // A name may carry both a module and a symbol binding; the module
-        // populates qualified `alias.export` keys and the symbol the bare
-        // `name` key, so they never collide — the use site's syntax picks.
+        // Value imports need no bare env binding: the resolve pass rewrote
+        // every reference to an imported function or const to its canonical
+        // qualified key, which `bind_all_module_exports` covers. The
+        // channels that survive here carry information a scheme can't:
+        // enum declarations (constructors and patterns) and abilities
+        // (interface identities).
         for resolved_import in bindings {
             match resolved_import {
-                ResolvedImport::Module(target_path) => {
-                    // Whole-module import (`use pkg::utils;` / `use core::List;`):
-                    // bind every public export under the qualified name
-                    // `<alias>.<export>`, which is how qualified expressions
-                    // look it up (see `ExprKind::Name` inference).
-                    if let Some(module_info) = registry.get(&target_path) {
-                        for export in registry.get_public_exports(&target_path) {
-                            if let Some(scheme) = get_symbol_scheme(
-                                infer,
-                                &module_info.module,
-                                &export.name,
-                                export.kind,
-                            ) {
-                                let qualified: Arc<str> = format!("{name}.{}", export.name).into();
-                                let binding_id = next_binding_id;
-                                next_binding_id += 1;
-                                env.insert(binding_id, qualified, scheme);
-                            }
-                        }
-                    }
-                }
-                ResolvedImport::Symbol {
-                    export_kind: ExportKind::Enum,
+                ResolvedImport::Module(_)
+                | ResolvedImport::Symbol {
+                    export_kind:
+                        ExportKind::Enum
+                        | ExportKind::Function
+                        | ExportKind::Const
+                        | ExportKind::TypeAlias
+                        | ExportKind::Trait,
                     ..
                 } => {
-                    // Already registered by `register_imported_enums`, which
-                    // runs before foreign impl registration; `register_enums`
-                    // binds the constructors along with local ones.
+                    // Modules resolve through paths; enums are registered by
+                    // `register_imported_enums`; values resolve canonically;
+                    // types/traits register through `register_package_items`.
                 }
                 ResolvedImport::Symbol {
                     export_kind: ExportKind::EnumVariant,
@@ -1755,47 +1823,35 @@ fn build_import_env(
                     from_module,
                     ..
                 } => register_imported_ability(infer, registry, &from_module, &name, errors),
-                ResolvedImport::Symbol {
-                    from_module,
-                    export_kind,
-                    ..
-                } => {
-                    // Look up the symbol's type from the source module
-                    if let Some(module_info) = registry.get(&from_module)
-                        && let Some(scheme) =
-                            get_symbol_scheme(infer, &module_info.module, &name, export_kind)
-                    {
-                        let binding_id = next_binding_id;
-                        next_binding_id += 1;
-                        env.insert(binding_id, Arc::clone(&name), scheme);
-                    }
-                }
             }
         }
     }
 
-    bind_reserved_root_exports(infer, registry, &mut env, &mut next_binding_id);
+    bind_all_module_exports(infer, module_path, registry, &mut env, &mut next_binding_id);
 
     env
 }
 
-/// Bind the reserved-root (`core` and `platform`) exports into `env`.
+/// Bind every registered module's public exports into `env` under their
+/// canonical qualified names (`core.List.map`, `utils.helper`,
+/// `deep.nested.leaf.leaf_fn`).
 ///
-/// Core and platform modules are always in scope under their fully
-/// qualified names (`core.List.map`, `platform.Network`), no import
-/// required. (Platform exports are all abilities, which don't hydrate as
-/// value schemes, so this is a no-op for `platform` today — but it keeps
-/// the reserved roots symmetric and future-proofs non-ability exports.)
-fn bind_reserved_root_exports(
+/// This is the single environment-side convention the resolve pass
+/// targets: a reference — however it was spelled — resolves to its
+/// canonical key, and that key is bound here. The current module is
+/// skipped: its own items bind bare (references into it normalize to the
+/// bare form), and unannotated private functions don't hydrate as foreign
+/// schemes.
+fn bind_all_module_exports(
     infer: &mut Infer,
+    module_path: &ModulePath,
     registry: &ModuleRegistry,
     env: &mut TypeEnv,
     next_binding_id: &mut BindingId,
 ) {
     for module_info in registry.all_modules() {
         let path = module_info.path.clone();
-        let root = path.segments().first().map(AsRef::as_ref);
-        if root != Some("core") && root != Some("platform") {
+        if &path == module_path {
             continue;
         }
         for export in registry.get_public_exports(&path) {

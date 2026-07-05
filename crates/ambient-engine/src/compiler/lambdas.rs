@@ -225,13 +225,12 @@ fn compile_handler_arm(
     handler: &crate::ast::Handler,
     ctx: &mut ModuleContext,
 ) -> Result<(), CompileError> {
-    // Get ability ID for this handler. Locals and prelude abilities
-    // resolve through the context; core builtins (Exception) fall back
-    // to the resolver.
+    // Get ability ID for this handler. Locals, foreign, and prelude
+    // abilities resolve through the context; core builtins (Exception)
+    // fall back to the resolver.
     let ability_name = &handler.ability.name;
-    let namespaced = !handler.ability.path.is_empty();
     let ability_id = ctx
-        .resolve_ability(ability_name, namespaced)
+        .resolve_ability(&handler.ability)
         .map(|info| info.id)
         .or_else(|| get_ability_id(ability_name))
         .ok_or_else(|| {
@@ -306,15 +305,14 @@ pub(super) fn compile_ability_call(
         compile_expr(fc, arg, ctx)?;
     }
 
-    // Get ability and method IDs. Locals and prelude abilities resolve
-    // through the context (identities come from the type checker); core
-    // builtins (Exception) fall back to the resolver.
+    // Get ability and method IDs. Locals, foreign, and prelude abilities
+    // resolve through the context (identities come from the type
+    // checker); core builtins (Exception) fall back to the resolver.
     let ability_name = &ability_call.ability.name;
     let method_name = &ability_call.method;
-    let is_namespaced = !ability_call.ability.path.is_empty();
 
     let (ability_id, method_id) = ctx
-        .resolve_ability(ability_name, is_namespaced)
+        .resolve_ability(&ability_call.ability)
         .and_then(|info| info.method_id(method_name).map(|m| (info.id, m)))
         .or_else(|| get_ability_ids(ability_name, method_name))
         .ok_or_else(|| {

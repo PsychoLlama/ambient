@@ -66,6 +66,7 @@ fn compile(src: &str) -> CompiledModule {
             imported_enums: Vec::new(),
             imported_constants: Vec::new(),
             prelude_abilities: &prelude,
+            foreign_abilities: Vec::new(),
         },
     )
     .expect("test program compiles")

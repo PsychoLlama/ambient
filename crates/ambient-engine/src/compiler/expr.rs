@@ -96,27 +96,37 @@ pub(super) fn compile_expr(
         }
 
         ExprKind::Name(name) => {
-            // First check if it's a local variable (parameter or let binding).
+            // Locals go by their bare spelled name; everything else goes by
+            // the resolution key — the canonical qualified form for
+            // cross-module references, the bare name for module-local ones.
             let var_name = &name.name;
-            if let Some(slot) = fc.get_local_by_name(var_name) {
+            let key = name.resolution_key();
+            if name.path.is_empty()
+                && name.resolved.is_none()
+                && let Some(slot) = fc.get_local_by_name(var_name)
+            {
                 // Load the local variable.
                 fc.builder.emit_u16(Opcode::LoadLocal, slot);
-            } else if let Some(&capture_slot) = fc.capture_names.get(var_name) {
+            } else if name.path.is_empty()
+                && name.resolved.is_none()
+                && let Some(&capture_slot) = fc.capture_names.get(var_name)
+            {
                 // Load from captured environment.
                 fc.builder.emit_load_capture(capture_slot);
-            } else if fc.is_parent_name(var_name) {
+            } else if name.path.is_empty() && name.resolved.is_none() && fc.is_parent_name(var_name)
+            {
                 // This is a free variable from the parent - add it as a capture.
                 let capture_slot = fc.get_or_create_capture_by_name(Arc::clone(var_name));
                 fc.builder.emit_load_capture(capture_slot);
-            } else if let Some(value) = ctx.constant_value(var_name).cloned() {
+            } else if let Some(value) = ctx.constant_value(&key).cloned() {
                 // Module-level constant: inline its literal value. The value is
                 // baked in when the module is built, so a constant is a direct
                 // identifier→value mapping rather than a callable thunk.
                 fc.builder.emit_const(value);
-            } else if let Some(&hash) = fc.function_hashes.get(var_name) {
+            } else if let Some(&hash) = fc.function_hashes.get(&key) {
                 // The REPL still models its constants as zero-arg thunks (each
                 // REPL line is its own function), so a reference auto-calls.
-                if fc.is_repl_constant(var_name) {
+                if fc.is_repl_constant(&key) {
                     fc.builder.emit_call(hash, 0);
                 } else {
                     // It's a function reference - push it for later use.
@@ -338,33 +348,25 @@ pub(super) fn compile_expr(
             // Check if this is a direct call to a known function or an indirect call.
             if let ExprKind::Name(name) = &callee.kind {
                 // Check for intrinsic functions first
+                let key = name.resolution_key();
+                let is_cross_module = name.resolved.is_some() || !name.path.is_empty();
                 if try_compile_intrinsic(fc, name, args, ctx)?.is_some() {
                     // Intrinsic was compiled, nothing more to do
-                } else if fc.function_hashes.contains_key(&name.name) {
-                    // Direct function call to a known function (simple name).
+                } else if fc.function_hashes.contains_key(&key) {
+                    // Direct call to a known function: module-local by bare
+                    // name, cross-module by canonical qualified key.
                     // Compile arguments first (left to right).
                     for arg in args {
                         compile_expr(fc, arg, ctx)?;
                     }
-                    let hash = fc.function_hashes[&name.name];
+                    let hash = fc.function_hashes[&key];
                     fc.builder.emit_call(hash, args.len() as u8);
-                } else if !name.path.is_empty() {
-                    // Qualified name like core.List.last - construct full path and look up
-                    let qualified: Arc<str> =
-                        format!("{}.{}", name.path.join("."), name.name).into();
-                    if let Some(&hash) = fc.function_hashes.get(&qualified) {
-                        // Found the qualified function
-                        for arg in args {
-                            compile_expr(fc, arg, ctx)?;
-                        }
-                        fc.builder.emit_call(hash, args.len() as u8);
-                    } else {
-                        // Unknown qualified function
-                        return Err(CompileError::new(
-                            CompileErrorKind::UndefinedFunction { name: qualified },
-                            (callee.span.start, callee.span.end),
-                        ));
-                    }
+                } else if is_cross_module {
+                    // A qualified reference that linked to nothing.
+                    return Err(CompileError::new(
+                        CompileErrorKind::UndefinedFunction { name: key },
+                        (callee.span.start, callee.span.end),
+                    ));
                 } else if fc.get_local_by_name(&name.name).is_some()
                     || fc.capture_names.contains_key(&name.name)
                     || fc.is_parent_name(&name.name)

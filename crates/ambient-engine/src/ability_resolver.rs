@@ -167,15 +167,16 @@ pub struct AbilityResolver {
     /// inference) treat them uniformly.
     dynamic_by_id: HashMap<AbilityId, Arc<DynAbility>>,
 
-    /// Namespaced dynamic abilities: name → (namespace, ability).
+    /// Namespaced dynamic abilities: (namespace, name) → ability.
     ///
-    /// These come from ability preludes (declaration modules an embedder
-    /// registers, e.g. the `platform` module). Unlike local dynamics they
-    /// must be named with their namespace prefix everywhere they appear
-    /// in source: performs (`platform::Stdio::out!`), `with` clauses,
-    /// effect-row annotations, handler arms, and sandbox clauses (see
-    /// [`AbilityResolver::resolve_ref`]).
-    namespaced_by_name: HashMap<Arc<str>, (Arc<str>, Arc<DynAbility>)>,
+    /// A namespace is a dotted module path: the reserved `platform`
+    /// declaration module, or any module in the build (`utils`,
+    /// `deep.nested.effects`). The resolve pass canonicalizes every
+    /// qualified or imported ability reference to its declaring module's
+    /// namespace, so performs (`platform::Stdio::out!`), `with` clauses,
+    /// effect-row annotations, handler arms, and sandbox clauses all
+    /// resolve here (see [`AbilityResolver::resolve_ref`]).
+    namespaced_by_name: HashMap<(Arc<str>, Arc<str>), Arc<DynAbility>>,
 }
 
 /// Why a namespace-aware ability reference failed to resolve.
@@ -224,8 +225,8 @@ impl AbilityResolver {
     pub fn register_dynamic_in_namespace(&mut self, namespace: &str, ability: DynAbility) {
         let ability = Arc::new(ability);
         self.namespaced_by_name.insert(
-            Arc::clone(&ability.name),
-            (Arc::from(namespace), Arc::clone(&ability)),
+            (Arc::from(namespace), Arc::clone(&ability.name)),
+            Arc::clone(&ability),
         );
         self.dynamic_by_id.insert(ability.id, ability);
     }
@@ -240,15 +241,17 @@ impl AbilityResolver {
     #[must_use]
     pub fn get_namespaced(&self, namespace: &str, name: &str) -> Option<&Arc<DynAbility>> {
         self.namespaced_by_name
-            .get(name)
-            .filter(|(ns, _)| ns.as_ref() == namespace)
-            .map(|(_, ability)| ability)
+            .get(&(Arc::from(namespace), Arc::from(name)))
     }
 
-    /// The namespace a dynamic ability was registered under, if any.
+    /// A namespace a dynamic ability of this name was registered under, if
+    /// any (used to suggest the qualifier for a bare misspelling).
     #[must_use]
     pub fn dynamic_namespace_of(&self, name: &str) -> Option<&Arc<str>> {
-        self.namespaced_by_name.get(name).map(|(ns, _)| ns)
+        self.namespaced_by_name
+            .keys()
+            .find(|(_, n)| n.as_ref() == name)
+            .map(|(ns, _)| ns)
     }
 
     /// Look up a module-declared ability by identity.
@@ -309,7 +312,7 @@ impl AbilityResolver {
                 if let Some(dynamic) = self.dynamic_by_name.get(name) {
                     return Ok(dynamic.id);
                 }
-                if let Some((namespace, _)) = self.namespaced_by_name.get(name) {
+                if let Some(namespace) = self.dynamic_namespace_of(name) {
                     return Err(AbilityRefError::RequiresNamespace {
                         namespace: Arc::clone(namespace),
                     });
@@ -319,20 +322,26 @@ impl AbilityResolver {
                     .map(|a| a.id)
                     .ok_or(AbilityRefError::Unknown)
             }
-            [namespace] => {
-                if let Some(ability) = self.get_namespaced(namespace.as_ref(), name) {
+            segments => {
+                // A namespace is a dotted module path of any depth; the
+                // reference's segments join to name it.
+                let namespace = segments
+                    .iter()
+                    .map(AsRef::as_ref)
+                    .collect::<Vec<_>>()
+                    .join(".");
+                if let Some(ability) = self.get_namespaced(&namespace, name) {
                     return Ok(ability.id);
                 }
                 // The right ability under the wrong qualifier still points
                 // the user at the namespace that would work.
-                if let Some((namespace, _)) = self.namespaced_by_name.get(name) {
+                if let Some(namespace) = self.dynamic_namespace_of(name) {
                     return Err(AbilityRefError::RequiresNamespace {
                         namespace: Arc::clone(namespace),
                     });
                 }
                 Err(AbilityRefError::Unknown)
             }
-            _ => Err(AbilityRefError::Unknown),
         }
     }
 
@@ -348,10 +357,19 @@ impl AbilityResolver {
         if let Some(dynamic) = self.dynamic_by_name.get(name) {
             return Some(dynamic.id);
         }
-        if let Some((_, dynamic)) = self.namespaced_by_name.get(name) {
+        if let Some(dynamic) = self.namespaced_dynamic_by_bare_name(name) {
             return Some(dynamic.id);
         }
         self.by_name.get(name).map(|a| a.id)
+    }
+
+    /// The first namespaced dynamic answering to a bare name, if any
+    /// (tooling/rendering fallback where qualification may be absent).
+    fn namespaced_dynamic_by_bare_name(&self, name: &str) -> Option<&Arc<DynAbility>> {
+        self.namespaced_by_name
+            .iter()
+            .find(|((_, n), _)| n.as_ref() == name)
+            .map(|(_, ability)| ability)
     }
 
     /// Convert an ability ID to its name.
@@ -374,7 +392,7 @@ impl AbilityResolver {
             let method = dynamic.method(method_name)?;
             return Some((dynamic.id, method.id));
         }
-        if let Some((_, dynamic)) = self.namespaced_by_name.get(ability_name) {
+        if let Some(dynamic) = self.namespaced_dynamic_by_bare_name(ability_name) {
             let method = dynamic.method(method_name)?;
             return Some((dynamic.id, method.id));
         }
@@ -448,8 +466,8 @@ impl AbilityResolver {
             .cloned()
             .chain(
                 self.namespaced_by_name
-                    .iter()
-                    .map(|(name, (namespace, _))| Arc::from(format!("{namespace}::{name}"))),
+                    .keys()
+                    .map(|(namespace, name)| Arc::from(format!("{namespace}::{name}"))),
             )
             .chain(self.by_name.keys().cloned())
             .collect();
@@ -464,9 +482,9 @@ impl AbilityResolver {
     pub fn namespace_ability_names(&self, namespace: &str) -> Vec<Arc<str>> {
         let mut names: Vec<Arc<str>> = self
             .namespaced_by_name
-            .iter()
-            .filter(|(_, (ns, _))| ns.as_ref() == namespace)
-            .map(|(name, _)| Arc::clone(name))
+            .keys()
+            .filter(|(ns, _)| ns.as_ref() == namespace)
+            .map(|(_, name)| Arc::clone(name))
             .collect();
         names.sort_unstable();
         names
@@ -536,7 +554,7 @@ impl AbilityResolver {
         if let Some(dynamic) = self.dynamic_by_name.get(ability_name) {
             return dynamic.method(method_name).map(|m| m.ret.clone());
         }
-        if let Some((_, dynamic)) = self.namespaced_by_name.get(ability_name) {
+        if let Some(dynamic) = self.namespaced_dynamic_by_bare_name(ability_name) {
             return dynamic.method(method_name).map(|m| m.ret.clone());
         }
         let ability = self.by_name.get(ability_name)?;
@@ -550,7 +568,7 @@ impl AbilityResolver {
         if let Some(dynamic) = self.dynamic_by_name.get(ability_name) {
             return dynamic.method(method_name).is_some();
         }
-        if let Some((_, dynamic)) = self.namespaced_by_name.get(ability_name) {
+        if let Some(dynamic) = self.namespaced_dynamic_by_bare_name(ability_name) {
             return dynamic.method(method_name).is_some();
         }
         self.by_name

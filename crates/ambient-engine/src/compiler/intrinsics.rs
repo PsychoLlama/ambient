@@ -824,9 +824,11 @@ pub(super) fn try_compile_intrinsic(
     args: &[Expr],
     ctx: &mut ModuleContext,
 ) -> Result<Option<()>, CompileError> {
-    // Convert path to slice for matching
-    let path: Vec<&str> = qualified_name.path.iter().map(AsRef::as_ref).collect();
-    let name = qualified_name.name.as_ref();
+    // Match on the canonical target, so aliased and imported spellings hit
+    // the intrinsic exactly like the fully-qualified one (mirrors
+    // `Infer::try_infer_intrinsic`).
+    let path = qualified_name.resolved_module_segments();
+    let name = qualified_name.resolved_name();
 
     // The type checker already verified arity against this same table, so
     // a mismatch here means the expression bypassed checking.
