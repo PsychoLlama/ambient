@@ -24,6 +24,20 @@
 
       overlays = [ fenix.overlays.default ];
 
+      # Shared toolchain for every build and the dev shell. `rust-src` lets
+      # rust-analyzer load the standard library from the sysroot; `rust-analyzer`
+      # rides along so the editor resolves against this exact toolchain.
+      rustToolchainFor =
+        pkgs:
+        pkgs.fenix.stable.withComponents [
+          "cargo"
+          "clippy"
+          "rust-analyzer"
+          "rust-src"
+          "rustc"
+          "rustfmt"
+        ];
+
       eachSystem = lib.flip lib.mapAttrs (
         lib.genAttrs (import systems) (
           system:
@@ -38,7 +52,7 @@
       packages = eachSystem (
         system: pkgs:
         let
-          rustToolchain = pkgs.fenix.stable.defaultToolchain;
+          rustToolchain = rustToolchainFor pkgs;
           rustPlatform = pkgs.makeRustPlatform {
             cargo = rustToolchain;
             rustc = rustToolchain;
@@ -147,8 +161,8 @@
         system: pkgs: {
           default = pkgs.mkShell {
             packages = [
-              pkgs.fenix.stable.defaultToolchain
-              pkgs.fenix.stable.rust-analyzer
+              (rustToolchainFor pkgs)
+
               pkgs.cargo-nextest
               pkgs.just
               pkgs.nixfmt
