@@ -10,17 +10,19 @@ use lsp_types::notification::{
     PublishDiagnostics,
 };
 use lsp_types::request::{
-    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, Initialize, References,
-    Request as RequestTrait, SemanticTokensFullRequest, Shutdown,
+    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, Initialize,
+    PrepareRenameRequest, References, Rename, Request as RequestTrait, SemanticTokensFullRequest,
+    Shutdown,
 };
 use lsp_types::{
     ClientCapabilities, CompletionItem, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeTextDocumentParams, DidOpenTextDocumentParams, DocumentSymbol, DocumentSymbolParams,
     DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
-    InitializeParams, InitializeResult, Location, PartialResultParams, Position, ReferenceContext,
-    ReferenceParams, SemanticToken, SemanticTokensParams, SemanticTokensResult,
-    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
-    TextDocumentPositionParams, Uri, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
+    InitializeParams, InitializeResult, Location, PartialResultParams, Position,
+    PrepareRenameResponse, ReferenceContext, ReferenceParams, RenameParams, SemanticToken,
+    SemanticTokensParams, SemanticTokensResult, TextDocumentContentChangeEvent,
+    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, Uri,
+    VersionedTextDocumentIdentifier, WorkDoneProgressParams, WorkspaceEdit,
 };
 
 use crate::run_server_with_connection;
@@ -131,6 +133,53 @@ impl TestClient {
                 Message::Request(_) => {
                     // Server-initiated requests - ignore for now
                 }
+            }
+        }
+    }
+
+    /// Send a request and wait for the response, surfacing a server error as
+    /// `Err(message)` instead of panicking.
+    fn send_request_result<R: RequestTrait>(
+        &mut self,
+        params: R::Params,
+    ) -> Result<R::Result, String>
+    where
+        R::Params: serde::Serialize,
+        R::Result: serde::de::DeserializeOwned,
+    {
+        let id = RequestId::from(self.next_id);
+        self.next_id += 1;
+
+        let request = Request::new(
+            id.clone(),
+            R::METHOD.to_string(),
+            serde_json::to_value(params).unwrap(),
+        );
+
+        self.connection
+            .sender
+            .send(Message::Request(request))
+            .expect("Failed to send request");
+
+        loop {
+            let msg = self
+                .connection
+                .receiver
+                .recv()
+                .expect("Failed to receive message");
+
+            match msg {
+                Message::Response(response) => {
+                    if response.id == id {
+                        if let Some(err) = response.error {
+                            return Err(err.message);
+                        }
+                        return Ok(serde_json::from_value(response.result.unwrap_or_default())
+                            .expect("Failed to parse response"));
+                    }
+                }
+                Message::Notification(notif) => self.handle_notification(notif),
+                Message::Request(_) => {}
             }
         }
     }
@@ -289,6 +338,55 @@ impl TestClient {
 
         let response: Option<Vec<Location>> = self.send_request::<References>(params);
         response.unwrap_or_default()
+    }
+
+    /// Request prepare-rename at a position. `None` means the server rejected
+    /// the position as non-renameable.
+    pub fn prepare_rename(
+        &mut self,
+        uri: &Uri,
+        line: u32,
+        character: u32,
+    ) -> Option<PrepareRenameResponse> {
+        let params = TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            position: Position { line, character },
+        };
+        self.send_request::<PrepareRenameRequest>(params)
+    }
+
+    /// Request a rename, expecting success. Panics if the server returns an
+    /// error (use [`try_rename`](Self::try_rename) for the rejection path).
+    pub fn rename(
+        &mut self,
+        uri: &Uri,
+        line: u32,
+        character: u32,
+        new_name: &str,
+    ) -> Option<WorkspaceEdit> {
+        self.try_rename(uri, line, character, new_name)
+            .expect("rename request failed")
+    }
+
+    /// Request a rename, surfacing a server-side rejection as `Err(message)`.
+    pub fn try_rename(
+        &mut self,
+        uri: &Uri,
+        line: u32,
+        character: u32,
+        new_name: &str,
+    ) -> Result<Option<WorkspaceEdit>, String> {
+        let params = RenameParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                position: Position { line, character },
+            },
+            new_name: new_name.to_string(),
+            work_done_progress_params: WorkDoneProgressParams {
+                work_done_token: None,
+            },
+        };
+        self.send_request_result::<Rename>(params)
     }
 
     /// Request semantic tokens for the whole document.

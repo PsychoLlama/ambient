@@ -874,7 +874,9 @@ pub enum UseKind {
     /// Brings the module name into scope.
     Module,
     /// Import specific items: `use pkg::utils::{helper, format};`
-    Items(Vec<Arc<str>>),
+    /// Each item carries the source span of its name (for IDE features:
+    /// go-to-definition, references, and rename on a braced import name).
+    Items(Vec<(Arc<str>, Span)>),
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

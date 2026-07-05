@@ -39,6 +39,7 @@
 #![cfg_attr(not(test), deny(clippy::expect_used))]
 #![allow(clippy::missing_errors_doc)]
 
+pub mod occurrences;
 pub mod package;
 pub mod queries;
 

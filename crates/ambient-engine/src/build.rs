@@ -581,7 +581,7 @@ pub fn extract_dependencies(
             UseKind::Module => vec![path_names.clone()],
             UseKind::Items(items) => items
                 .iter()
-                .map(|item_name| {
+                .map(|(item_name, _)| {
                     let mut full = path_names.clone();
                     full.push(item_name.clone());
                     full

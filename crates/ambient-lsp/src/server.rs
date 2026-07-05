@@ -10,39 +10,37 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
-use lsp_types::notification::Progress;
 use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, Notification as _,
     PublishDiagnostics,
 };
 use lsp_types::request::{
-    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, References, Request as _,
-    SemanticTokensFullRequest, WorkspaceSymbolRequest,
+    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, PrepareRenameRequest,
+    References, Rename, Request as _, SemanticTokensFullRequest, WorkspaceSymbolRequest,
 };
 use lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
     GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
-    InitializeParams, InitializeResult, Location, MarkedString, MarkupContent, MarkupKind,
-    NumberOrString, OneOf, ProgressParams, ProgressParamsValue, PublishDiagnosticsParams,
-    ReferenceParams, SemanticTokens, SemanticTokensFullOptions, SemanticTokensOptions,
-    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
-    ServerCapabilities, SymbolInformation, SymbolKind as LspSymbolKind, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Uri, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressEnd,
-    WorkDoneProgressReport, WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    InitializeParams, InitializeResult, Location, MarkedString, MarkupContent, MarkupKind, OneOf,
+    PrepareRenameResponse, PublishDiagnosticsParams, ReferenceParams, RenameOptions, RenameParams,
+    SemanticTokens, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
+    SymbolKind as LspSymbolKind, TextDocumentPositionParams, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions, WorkspaceEdit,
+    WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use serde_json::Value;
 
+use ambient_analysis::occurrences::{Occurrence, SymbolTarget, collect_occurrences};
 use ambient_analysis::package::AnalysisPackage;
 use ambient_analysis::queries::{
     find_qname_module_at_offset, find_use_module_at_offset, resolve_qualified_name,
 };
-use ambient_engine::ast::{ItemKind, Module};
-use ambient_engine::build::{ParseFailure, build_package};
+use ambient_engine::ast::{ItemKind, Module, QualifiedName};
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::{ExportKind, ModuleRegistry};
-use ambient_engine::symbol_db::SymbolDb;
 
 use crate::analysis::{find_definition, find_expr_at_offset, find_item_at_offset, format_type};
 use crate::completions::{CompletionContext, get_completions};
@@ -60,6 +58,18 @@ struct DocumentAnalysis {
     registry: Arc<ModuleRegistry>,
 }
 
+/// One module's occurrence list plus where to render its spans.
+///
+/// References and rename both read this: the occurrence list is the source of
+/// exact reference ranges, and `uri` turns a module-local span into an LSP
+/// [`Location`]. Rebuilt from the package's parsed modules on every edit, so
+/// results are always fresh (unlike the old, snapshot-once symbol database).
+struct ModuleOccurrences {
+    module_path: ModulePath,
+    uri: Uri,
+    occurrences: Vec<Occurrence>,
+}
+
 /// Server-wide state.
 struct ServerState {
     documents: DocumentStore,
@@ -71,9 +81,11 @@ struct ServerState {
     /// The registry for the whole package (shared by all open documents
     /// when a package is loaded). Rebuilt on every edit.
     package_registry: Option<Arc<ModuleRegistry>>,
-    /// Symbol database for find-references (populated by a full package
-    /// compile at first open; see `populate_symbol_db_from_package`).
-    symbol_db: Option<SymbolDb>,
+    /// Occurrence index backing find-references and rename: every definition
+    /// and reference site of every symbol, with exact spans, for every module
+    /// in the package (opened or not). Rebuilt on every edit alongside the
+    /// registry, so it never goes stale.
+    occurrences: Vec<ModuleOccurrences>,
     /// Ability resolver for completions/hover: the platform prelude plus
     /// builtins, the same interfaces analysis checks against.
     ability_resolver: ambient_engine::ability_resolver::AbilityResolver,
@@ -112,6 +124,12 @@ pub fn run_server_with_connection(connection: Connection) -> anyhow::Result<()> 
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         definition_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
+        rename_provider: Some(OneOf::Right(RenameOptions {
+            // `prepareRename` lets the editor pre-validate a rename and pick
+            // the identifier range before prompting for the new name.
+            prepare_provider: Some(true),
+            work_done_progress_options: WorkDoneProgressOptions::default(),
+        })),
         completion_provider: Some(CompletionOptions {
             trigger_characters: Some(vec![".".to_string()]),
             resolve_provider: Some(false),
@@ -153,7 +171,7 @@ fn main_loop(connection: &Connection) -> anyhow::Result<()> {
         analyses: HashMap::new(),
         package: None,
         package_registry: None,
-        symbol_db: None,
+        occurrences: Vec::new(),
         ability_resolver: crate::analysis::platform_prelude_resolver(),
     };
 
@@ -219,6 +237,14 @@ fn handle_request(req: &Request, state: &ServerState) -> Response {
         },
         References::METHOD => match parse_params(&req.params, &id) {
             Ok(params) => handle_references(id, &params, state),
+            Err(e) => e,
+        },
+        PrepareRenameRequest::METHOD => match parse_params(&req.params, &id) {
+            Ok(params) => handle_prepare_rename(id, &params, state),
+            Err(e) => e,
+        },
+        Rename::METHOD => match parse_params(&req.params, &id) {
+            Ok(params) => handle_rename(id, &params, state),
             Err(e) => e,
         },
         _ => Response::new_err(id, -32601, format!("Unknown method: {}", req.method)),
@@ -563,134 +589,285 @@ fn handle_goto_definition(
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
 }
 
-/// Handle find references request.
-fn handle_references(id: RequestId, params: &ReferenceParams, state: &ServerState) -> Response {
-    // Helper for returning empty references list
-    let empty_response = || Response::new_ok(id.clone(), Value::Array(vec![]));
+/// The occurrence (and the module it lives in) under `offset` in `uri`.
+///
+/// Occurrences are leaf identifiers and never nest, so the first span that
+/// contains the offset is the answer.
+fn occurrence_at<'a>(
+    state: &'a ServerState,
+    uri: &Uri,
+    offset: u32,
+) -> Option<(&'a ModuleOccurrences, &'a Occurrence)> {
+    let module = state
+        .occurrences
+        .iter()
+        .find(|m| m.uri.as_str() == uri.as_str())?;
+    let occurrence = module
+        .occurrences
+        .iter()
+        .find(|o| offset >= o.span.start && offset <= o.span.end)?;
+    Some((module, occurrence))
+}
 
+/// Every occurrence of `target` across the package, as LSP locations.
+///
+/// An `Item` is visible package-wide, so every module is scanned; a `Local`
+/// is same-file only. With `include_declaration` false, the symbol's own
+/// definition site is dropped (LSP "references excluding the declaration").
+fn gather_locations(
+    state: &ServerState,
+    target: &SymbolTarget,
+    include_declaration: bool,
+) -> Vec<Location> {
+    let mut locations = Vec::new();
+    for module in &state.occurrences {
+        if target.is_local() && module.module_path != *target.module() {
+            continue;
+        }
+        for occ in &module.occurrences {
+            if occ.target != *target || (occ.is_definition && !include_declaration) {
+                continue;
+            }
+            let range = range_in_file(
+                &state.documents,
+                &module.uri,
+                occ.span.start as usize,
+                occ.span.end as usize,
+            );
+            locations.push(Location {
+                uri: module.uri.clone(),
+                range,
+            });
+        }
+    }
+    locations
+}
+
+/// Handle find references request.
+///
+/// Resolves the symbol under the cursor from the occurrence index and returns
+/// every occurrence's exact range — fresh after every edit and including
+/// references in files that were never opened in the editor.
+fn handle_references(id: RequestId, params: &ReferenceParams, state: &ServerState) -> Response {
     let uri = &params.text_document_position.text_document.uri;
     let position = params.text_document_position.position;
 
     let Some(doc) = state.documents.get(uri) else {
-        return empty_response();
+        return Response::new_ok(id, Value::Array(vec![]));
     };
-
-    let Some(analysis) = state.analyses.get(uri.as_str()) else {
-        return empty_response();
-    };
-    let module = &analysis.result.module;
 
     let offset = doc.position_to_offset(position.line, position.character);
-
-    // Find the expression at the cursor position
     #[allow(clippy::cast_possible_truncation)]
-    let Some(expr) = find_expr_at_offset(module, offset as u32) else {
-        return empty_response();
+    let offset = offset as u32;
+
+    let Some((_, occurrence)) = occurrence_at(state, uri, offset) else {
+        return Response::new_ok(id, Value::Array(vec![]));
     };
 
-    // Extract the qualified name from the expression
-    let qname = match &expr.kind {
-        ambient_engine::ast::ExprKind::Name(qname) => qname,
-        ambient_engine::ast::ExprKind::Call(callee, _) => {
-            if let ambient_engine::ast::ExprKind::Name(qname) = &callee.kind {
-                qname
-            } else {
-                return empty_response();
-            }
-        }
-        _ => {
-            return empty_response();
-        }
-    };
-
-    // Resolve to the defining module through the registry.
-    let defining_module =
-        resolve_qualified_name(module, &analysis.module_path, &analysis.registry, qname)
-            .and_then(|d| d.module)
-            .unwrap_or_else(|| analysis.module_path.clone());
-
-    // Get the symbol's hash from the database
-    let Some(db) = state.symbol_db.as_ref() else {
-        return empty_response();
-    };
-
-    let target_module_path = defining_module.to_string();
-    let Ok(symbols) = db.search_symbols(&qname.name) else {
-        return empty_response();
-    };
-
-    // Find the matching symbol by module path. The root module records
-    // an empty module path in the database.
-    let target_entry = symbols.iter().find(|entry| {
-        entry.module_path == target_module_path
-            || (entry.module_path.is_empty() && defining_module == ModulePath::root())
-    });
-
-    let Some(target_entry) = target_entry else {
-        return empty_response();
-    };
-
-    // Query all dependents (functions that call this one)
-    let Ok(dependent_hashes) = db.get_dependents(target_entry.hash) else {
-        return empty_response();
-    };
-
-    // Resolve each dependent to a location
-    let mut locations = Vec::new();
-
-    // Optionally include the definition itself
-    if params.context.include_declaration
-        && let Some(loc) = resolve_symbol_to_location(&target_entry.path, state)
-    {
-        locations.push(loc);
-    }
-
-    // Add all reference locations
-    for dep_hash in dependent_hashes {
-        let Ok(dep_paths) = db.get_symbol_paths(dep_hash) else {
-            continue;
-        };
-        for path in dep_paths {
-            if let Some(loc) = resolve_symbol_to_location(&path, state) {
-                locations.push(loc);
-            }
-        }
-    }
-
+    let locations = gather_locations(
+        state,
+        &occurrence.target,
+        params.context.include_declaration,
+    );
     Response::new_ok(id, serde_json::to_value(locations).unwrap_or(Value::Null))
 }
 
-/// Resolve a symbol path (e.g., "pkg.module.name") to an LSP Location,
-/// using the package registry's span-carrying exports.
-fn resolve_symbol_to_location(symbol_path: &str, state: &ServerState) -> Option<Location> {
-    let registry = state.package_registry.as_ref()?;
+/// Handle prepare-rename: return the identifier range under the cursor when
+/// the symbol there can be renamed, `null` otherwise (so the editor blocks
+/// the rename before prompting).
+fn handle_prepare_rename(
+    id: RequestId,
+    params: &TextDocumentPositionParams,
+    state: &ServerState,
+) -> Response {
+    let uri = &params.text_document.uri;
+    let position = params.position;
 
-    // Parse symbol path: "package.module1.module2.name".
-    let parts: Vec<&str> = symbol_path.split('.').collect();
-    let (name, module_segments) = match parts.as_slice() {
-        [] | [_] => return None,
-        [_package, name] => (*name, Vec::new()),
-        [_package, segments @ .., name] => (*name, segments.to_vec()),
+    let Some(doc) = state.documents.get(uri) else {
+        return Response::new_ok(id, Value::Null);
     };
+    let offset = doc.position_to_offset(position.line, position.character);
+    #[allow(clippy::cast_possible_truncation)]
+    let offset = offset as u32;
 
-    let module_path = if module_segments.is_empty() {
-        ModulePath::root()
-    } else {
-        ModulePath::from_str_segments(&module_segments)?
+    let Some((module, occurrence)) = occurrence_at(state, uri, offset) else {
+        return Response::new_ok(id, Value::Null);
     };
+    if !is_renameable_target(state, &occurrence.target) {
+        return Response::new_ok(id, Value::Null);
+    }
 
-    let info = registry.get(&module_path)?;
-    let export = info.exports.get(name)?;
-
-    let uri = module_uri(state.package.as_ref(), &module_path)?;
     let range = range_in_file(
         &state.documents,
-        &uri,
-        export.name_span.start as usize,
-        export.name_span.end as usize,
+        &module.uri,
+        occurrence.span.start as usize,
+        occurrence.span.end as usize,
     );
+    let response = PrepareRenameResponse::Range(range);
+    Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
+}
 
-    Some(Location { uri, range })
+/// Handle rename: rewrite the symbol under the cursor and all its occurrences
+/// to `new_name`, rejecting collisions.
+// `WorkspaceEdit::changes` is keyed by `Uri`, whose interior mutability trips
+// `mutable_key_type`; we only build and serialize the map, never mutate a key.
+#[allow(clippy::mutable_key_type)]
+fn handle_rename(id: RequestId, params: &RenameParams, state: &ServerState) -> Response {
+    let uri = &params.text_document_position.text_document.uri;
+    let position = params.text_document_position.position;
+    let new_name = params.new_name.trim();
+
+    let Some(doc) = state.documents.get(uri) else {
+        return rename_error(id, "no document to rename in");
+    };
+    let offset = doc.position_to_offset(position.line, position.character);
+    #[allow(clippy::cast_possible_truncation)]
+    let offset = offset as u32;
+
+    let Some((_, occurrence)) = occurrence_at(state, uri, offset) else {
+        return rename_error(id, "no renameable symbol at this position");
+    };
+    let target = occurrence.target.clone();
+
+    if !is_renameable_target(state, &target) {
+        return rename_error(id, "this symbol cannot be renamed");
+    }
+    if !is_valid_identifier(new_name) {
+        return rename_error(id, &format!("`{new_name}` is not a valid identifier"));
+    }
+    // Renaming to the current name is a no-op (and would trip collision check).
+    if new_name == target.name().as_ref() {
+        return Response::new_ok(
+            id,
+            serde_json::to_value(WorkspaceEdit::default()).unwrap_or(Value::Null),
+        );
+    }
+    if let Some(reason) = rename_collision(state, &target, new_name) {
+        return rename_error(id, &reason);
+    }
+
+    // Rewrite every occurrence (definition included), grouped by file.
+    let mut changes: HashMap<Uri, Vec<TextEdit>> = HashMap::new();
+    for module in &state.occurrences {
+        if target.is_local() && module.module_path != *target.module() {
+            continue;
+        }
+        for occ in &module.occurrences {
+            if occ.target != target {
+                continue;
+            }
+            let range = range_in_file(
+                &state.documents,
+                &module.uri,
+                occ.span.start as usize,
+                occ.span.end as usize,
+            );
+            changes
+                .entry(module.uri.clone())
+                .or_default()
+                .push(TextEdit {
+                    range,
+                    new_text: new_name.to_string(),
+                });
+        }
+    }
+
+    let edit = WorkspaceEdit {
+        changes: Some(changes),
+        document_changes: None,
+        change_annotations: None,
+    };
+    Response::new_ok(id, serde_json::to_value(edit).unwrap_or(Value::Null))
+}
+
+/// A rename request error carrying a user-facing message (LSP "request
+/// failed"). The editor surfaces `message` to the user.
+fn rename_error(id: RequestId, message: &str) -> Response {
+    Response::new_err(id, -32803, message.to_string())
+}
+
+/// Whether `target` can be renamed (before a new name is known).
+///
+/// Locals are renameable (except `self`); a module item is renameable only
+/// when it is a function or const defined in a package module — the symbols
+/// whose references the occurrence index captures completely. Types, enums,
+/// traits, abilities, and anything from core/platform are rejected: their
+/// references (type positions, variant constructors) aren't indexed yet, so a
+/// partial rename would break the code.
+fn is_renameable_target(state: &ServerState, target: &SymbolTarget) -> bool {
+    match target {
+        SymbolTarget::Local { name, .. } => name.as_ref() != "self",
+        SymbolTarget::Item { module, name, .. } => {
+            let Some(package) = state.package.as_ref() else {
+                return false;
+            };
+            if !package.modules.contains_key(&module.to_string()) {
+                return false;
+            }
+            let Some(registry) = state.package_registry.as_ref() else {
+                return false;
+            };
+            matches!(
+                registry
+                    .get(module)
+                    .and_then(|info| info.exports.get(name.as_ref()))
+                    .map(|export| export.kind),
+                Some(ExportKind::Function | ExportKind::Const)
+            )
+        }
+    }
+}
+
+/// Reject a rename whose new name is already visible in an affected module.
+///
+/// Conservative by design: for every module that defines or references the
+/// symbol, ask the registry whether `new_name` already resolves to a
+/// module-level symbol there; for a local, additionally reject if another
+/// binding in the same file already uses the name. `Some(reason)` aborts.
+fn rename_collision(state: &ServerState, target: &SymbolTarget, new_name: &str) -> Option<String> {
+    let (Some(package), Some(registry)) = (state.package.as_ref(), state.package_registry.as_ref())
+    else {
+        return None;
+    };
+    let candidate = QualifiedName::simple(std::sync::Arc::from(new_name));
+
+    for module in &state.occurrences {
+        if target.is_local() && module.module_path != *target.module() {
+            continue;
+        }
+        if !module.occurrences.iter().any(|o| o.target == *target) {
+            continue;
+        }
+
+        if let Some(parsed) = package.modules.get(&module.module_path.to_string())
+            && resolve_qualified_name(&parsed.ast, &module.module_path, registry, &candidate)
+                .is_some()
+        {
+            return Some(format!(
+                "`{new_name}` already resolves to a symbol in module `{}`",
+                module.module_path
+            ));
+        }
+
+        if target.is_local()
+            && module.occurrences.iter().any(|o| {
+                o.target.is_local() && o.target != *target && o.target.name().as_ref() == new_name
+            })
+        {
+            return Some(format!("`{new_name}` is already bound in this scope"));
+        }
+    }
+    None
+}
+
+/// Whether `name` is a syntactically valid Ambient identifier.
+fn is_valid_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c == '_' || c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|c| c == '_' || c.is_ascii_alphanumeric())
 }
 
 /// Handle completion request.
@@ -806,105 +983,6 @@ fn handle_workspace_symbol(
 
     let response = WorkspaceSymbolResponse::Flat(symbols);
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
-}
-
-/// Parse source code into an AST (wrapper for `ambient_parser::parse`).
-fn parse_source(source: &str) -> Result<Module, ParseFailure> {
-    ambient_parser::parse(source).map_err(|e| ParseFailure {
-        message: e.kind.to_string(),
-        span: (e.span.start, e.span.end),
-        context: e.context,
-    })
-}
-
-/// Populate the symbol database by compiling the package.
-///
-/// This compiles all modules and populates the symbol database with
-/// function definitions and their dependencies.
-fn populate_symbol_db_from_package(
-    db: &mut SymbolDb,
-    package: &AnalysisPackage,
-    connection: &Connection,
-) {
-    let token = NumberOrString::String("indexing".to_string());
-
-    // Send progress begin
-    let begin = ProgressParams {
-        token: token.clone(),
-        value: ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(WorkDoneProgressBegin {
-            title: "Indexing".to_string(),
-            cancellable: Some(false),
-            message: Some("Compiling package...".to_string()),
-            percentage: Some(0),
-        })),
-    };
-    let _ = send_progress(connection, begin);
-
-    // Build the package with progress callback
-    #[allow(clippy::cast_possible_truncation)]
-    let progress_cb = |module: &str, current: usize, total: usize| {
-        let percentage = (current * 100).checked_div(total).map(|p| p as u32);
-
-        let report = ProgressParams {
-            token: token.clone(),
-            value: ProgressParamsValue::WorkDone(WorkDoneProgress::Report(
-                WorkDoneProgressReport {
-                    cancellable: Some(false),
-                    message: Some(format!("[{current}/{total}] {module}")),
-                    percentage,
-                },
-            )),
-        };
-        let _ = send_progress(connection, report);
-    };
-
-    let result = build_package(
-        &package.root,
-        parse_source,
-        ambient_platform::ABILITY_DECLARATIONS,
-        Some(&progress_cb),
-    );
-
-    // Send progress end
-    let end_message = match &result {
-        Ok(r) => Some(format!("Indexed {} modules", r.module_count)),
-        Err(e) => Some(format!("Indexing failed: {e}")),
-    };
-
-    let end = ProgressParams {
-        token,
-        value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(WorkDoneProgressEnd {
-            message: end_message,
-        })),
-    };
-    let _ = send_progress(connection, end);
-
-    // Log the result (the database was populated by build_package)
-    match result {
-        Ok(r) => {
-            log::info!(
-                "Indexed {} modules for package {}",
-                r.module_count,
-                r.package_name
-            );
-            // The build_package function already populates the symbol database
-            // We need to reload it since build_package creates its own instance
-            let db_path = package.root.join("build").join("symbols.db");
-            if let Ok(new_db) = SymbolDb::open(&db_path) {
-                *db = new_db;
-            }
-        }
-        Err(e) => {
-            log::warn!("Failed to index package: {e}");
-        }
-    }
-}
-
-/// Send a progress notification to the client.
-fn send_progress(connection: &Connection, params: ProgressParams) -> anyhow::Result<()> {
-    let notif = Notification::new(Progress::METHOD.to_string(), params);
-    connection.sender.send(Message::Notification(notif))?;
-    Ok(())
 }
 
 /// Handle semantic tokens request.
@@ -1199,24 +1277,13 @@ fn handle_notification(
 
             state.documents.open(uri.clone(), version, text);
 
-            // Discover package if not already discovered
+            // Discover the package once, so cross-module analysis and the
+            // occurrence index (built in `reanalyze_all`) see every module.
             if state.package.is_none()
                 && let Some(file_path) = uri_to_path(&uri)
                 && let Some(mut package) = AnalysisPackage::discover(&file_path)
             {
                 package.load_modules();
-
-                // Initialize the symbol database
-                let db_path = package.root.join("build").join("symbols.db");
-                if let Some(parent) = db_path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                if let Ok(mut db) = SymbolDb::open(&db_path) {
-                    // Compile package and populate database
-                    populate_symbol_db_from_package(&mut db, &package, connection);
-                    state.symbol_db = Some(db);
-                }
-
                 state.package = Some(package);
             }
 
@@ -1325,7 +1392,56 @@ fn reanalyze_all(
     for uri in uris {
         reanalyze_document(&uri, state, connection)?;
     }
+
+    // Refresh the occurrence index against the rebuilt registry, so
+    // find-references and rename never see stale results.
+    rebuild_occurrence_index(state);
     Ok(())
+}
+
+/// Rebuild the whole-package occurrence index from the current parsed modules
+/// and registry.
+///
+/// Walks every package module (opened or not) so references and rename reach
+/// files never opened in the editor. With no package, each open document is
+/// indexed as a standalone root. Cheap enough to run on every edit — a pure
+/// AST walk that resolves names through the already-built registry.
+fn rebuild_occurrence_index(state: &mut ServerState) {
+    let mut index = Vec::new();
+
+    if let (Some(package), Some(registry)) =
+        (state.package.as_ref(), state.package_registry.as_ref())
+    {
+        for module in package.modules.values() {
+            let Some(uri) = module_uri(Some(package), &module.path) else {
+                continue;
+            };
+            let occurrences = collect_occurrences(&module.ast, &module.path, registry);
+            index.push(ModuleOccurrences {
+                module_path: module.path.clone(),
+                uri,
+                occurrences,
+            });
+        }
+    } else {
+        for (uri_str, analysis) in &state.analyses {
+            let Ok(uri) = uri_str.parse::<Uri>() else {
+                continue;
+            };
+            let occurrences = collect_occurrences(
+                &analysis.result.module,
+                &analysis.module_path,
+                &analysis.registry,
+            );
+            index.push(ModuleOccurrences {
+                module_path: analysis.module_path.clone(),
+                uri,
+                occurrences,
+            });
+        }
+    }
+
+    state.occurrences = index;
 }
 
 /// Re-analyze one open document against the current registry and publish

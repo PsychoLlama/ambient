@@ -238,7 +238,7 @@ impl ModuleRegistry {
                     .map(|(_, parent)| parent),
                 UseKind::Items(items) => items
                     .iter()
-                    .any(|item| item.as_ref() == symbol_name)
+                    .any(|(item, _)| item.as_ref() == symbol_name)
                     .then_some(re_export.path.as_slice()),
             };
 
@@ -366,7 +366,7 @@ impl ModuleRegistry {
                     );
                 }
                 UseKind::Items(items) => {
-                    for item_name in items {
+                    for (item_name, _) in items {
                         let mut full = path_names.clone();
                         full.push(item_name.clone());
                         self.resolve_use_target(
@@ -866,7 +866,7 @@ mod tests {
                     is_public: false,
                     prefix: UsePrefix::Pkg,
                     path: vec![(Arc::from("utils"), Span::default())],
-                    kind: UseKind::Items(vec![Arc::from("helper")]),
+                    kind: UseKind::Items(vec![(Arc::from("helper"), Span::default())]),
                 }),
                 Span::default(),
             )],
@@ -1123,7 +1123,12 @@ mod tests {
                     .iter()
                     .map(|s| (Arc::from(*s), Span::default()))
                     .collect(),
-                kind: UseKind::Items(items.iter().map(|s| Arc::from(*s)).collect()),
+                kind: UseKind::Items(
+                    items
+                        .iter()
+                        .map(|s| (Arc::from(*s), Span::default()))
+                        .collect(),
+                ),
             }),
             Span::default(),
         )
