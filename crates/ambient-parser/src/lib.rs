@@ -70,8 +70,8 @@ pub use cst::{
     CstAbilityDef, CstAbilityMethod, CstConstDef, CstEnumDef, CstEnumVariant, CstExpr, CstExprKind,
     CstFunctionDef, CstHandleExpr, CstHandler, CstItem, CstItemKind, CstLambda, CstLetBinding,
     CstMatchArm, CstModule, CstParam, CstPattern, CstPatternKind, CstReplInput, CstStmt,
-    CstStmtKind, CstTypeAliasDef, CstTypeExpr, CstTypeExprKind, CstUseDef, CstUseKind,
-    CstUsePrefix, Trivia, TriviaKind,
+    CstStmtKind, CstTypeAliasDef, CstTypeExpr, CstTypeExprKind, CstUseDef, CstUseTree,
+    CstUseTreeKind, Trivia, TriviaKind,
 };
 pub use error::{ParseError, ParseErrorKind};
 pub use lexer::{Lexer, Token, TokenKind};
@@ -96,10 +96,13 @@ pub struct RecoveredParse {
 /// REPL input after lowering from CST to AST.
 #[derive(Debug, Clone)]
 pub enum ReplInput {
-    /// An item definition (function, const, type, etc.).
-    Item(Item),
-    /// An expression to evaluate.
-    Expr(Expr),
+    /// Item definitions (function, const, type, etc.). A single source
+    /// item usually lowers to one AST item; a `use` tree flattens to one
+    /// per imported leaf.
+    Items(Vec<Item>),
+    /// An expression to evaluate. Boxed to keep the variants close in
+    /// size.
+    Expr(Box<Expr>),
 }
 
 /// Parse source code into an AST module.
@@ -199,7 +202,7 @@ pub fn parse_repl_input(source: &str) -> Result<ReplInput, ParseError> {
     let mut parser = Parser::new(source)?;
     let cst = parser.parse_repl_input()?;
     match cst {
-        CstReplInput::Item(item) => Ok(ReplInput::Item(lower::lower_item(&item)?)),
-        CstReplInput::Expr(expr) => Ok(ReplInput::Expr(lower::lower_expr(&expr)?)),
+        CstReplInput::Item(item) => Ok(ReplInput::Items(lower::lower_item(&item)?)),
+        CstReplInput::Expr(expr) => Ok(ReplInput::Expr(Box::new(lower::lower_expr(&expr)?))),
     }
 }

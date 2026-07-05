@@ -253,26 +253,29 @@ fn eval_repl_input(
     };
 
     match input {
-        ReplInput::Item(item) => {
-            // Compile the item.
-            let compiled =
-                compile_repl_item(&item, ctx).map_err(|e| format!("compile error: {e}"))?;
+        ReplInput::Items(items) => {
+            // A single source item usually lowers to one AST item; a
+            // `use` tree flattens to one per imported leaf.
+            for item in items {
+                let compiled =
+                    compile_repl_item(&item, ctx).map_err(|e| format!("compile error: {e}"))?;
 
-            let name = compiled.name.clone();
-            let hash = compiled.function.hash;
-            let kind = compiled.kind;
+                let name = compiled.name.clone();
+                let hash = compiled.function.hash;
+                let kind = compiled.kind;
 
-            // Load the function into the VM.
-            vm.load_function(compiled.function);
+                // Load the function into the VM.
+                vm.load_function(compiled.function);
 
-            // Register the name in the context for future references.
-            match kind {
-                ReplItemKind::Function => ctx.register_function(name.clone(), hash),
-                ReplItemKind::Constant => ctx.register_constant(name.clone(), hash),
+                // Register the name in the context for future references.
+                match kind {
+                    ReplItemKind::Function => ctx.register_function(name.clone(), hash),
+                    ReplItemKind::Constant => ctx.register_constant(name.clone(), hash),
+                }
+
+                // Print confirmation of the definition.
+                eprintln!("Defined: {name}");
             }
-
-            // Print confirmation of the definition.
-            eprintln!("Defined: {name}");
 
             // Definitions don't produce a value.
             Ok(None)

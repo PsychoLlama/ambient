@@ -1010,6 +1010,18 @@ impl Parser<'_> {
             let leading_trivia = self.skip_trivia();
             let stmt_start = self.current().span.start;
 
+            // Block-scoped import
+            if self.check(TokenKind::Use) {
+                let use_def = self.parse_use(false)?;
+                let end = self.current().span.start;
+                stmts.push(CstStmt {
+                    leading_trivia,
+                    kind: CstStmtKind::Use(use_def),
+                    span: Span::new(stmt_start, end),
+                });
+                continue;
+            }
+
             // Let statement
             if self.check(TokenKind::Let) {
                 self.advance();

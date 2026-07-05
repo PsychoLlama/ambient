@@ -385,52 +385,54 @@ pub struct CstAbilityMethod {
     pub span: Span,
 }
 
-/// A use/import definition.
+/// A use/import definition: a Rust-style use-tree.
 ///
 /// Examples:
 /// - `use pkg::utils;`
 /// - `use pkg::utils::helper;`
-/// - `use pkg::utils::{helper, format};`
-/// - `use self::sibling;`
-/// - `use super::parent;`
-/// - `use core::List;`
+/// - `use pkg::utils::{helper, deep::{a, b}};`
+/// - `use core::math::sqrt as root2;`
+/// - `use {core::math, platform::Stdio};`
+/// - `use self::sibling;` / `use super::parent;`
+/// - `use utils::inner;` (rooted at a module alias from another `use`)
 /// - `pub use pkg::other::Thing;`
 #[derive(Debug, Clone)]
 pub struct CstUseDef {
     /// Whether this is a public re-export (`pub use`).
     pub is_public: bool,
-    /// The import prefix (pkg, core, self, super).
-    pub prefix: CstUsePrefix,
-    /// Path segments after the prefix.
-    pub path: Vec<CstIdent>,
-    /// What to import.
-    pub kind: CstUseKind,
+    /// The use tree.
+    pub tree: CstUseTree,
     /// Source span.
     pub span: Span,
 }
 
-/// The prefix of a use path.
+/// One node of a use tree: leading path segments and a tail.
+///
+/// Keyword roots (`pkg`, `core`, `self`, `super`, contextual `platform`)
+/// are ordinary segments here; lowering validates they only appear at the
+/// head of a full path.
 #[derive(Debug, Clone)]
-pub enum CstUsePrefix {
-    /// `pkg::module` - Local package
-    Pkg(CstIdent),
-    /// `core::module` - Standard library
-    Core(CstIdent),
-    /// `platform::Ability` - Embedded platform ability module
-    Platform(CstIdent),
-    /// `self::module` - Same directory
-    Self_(CstIdent),
-    /// `super::module` - Parent directory (stores the chain of super keywords)
-    Super(Vec<CstIdent>),
+pub struct CstUseTree {
+    /// Leading path segments (empty for a root brace group).
+    pub segments: Vec<CstIdent>,
+    /// What follows the path.
+    pub kind: CstUseTreeKind,
+    /// Source span.
+    pub span: Span,
 }
 
-/// What to import from a use path.
+/// The tail of a use-tree node.
 #[derive(Debug, Clone)]
-pub enum CstUseKind {
-    /// Import the module itself: `use pkg::utils;`
-    Module,
-    /// Import specific items: `use pkg::utils::{a, b}`.
-    Items(Vec<CstIdent>),
+pub enum CstUseTreeKind {
+    /// A leaf: import the final path segment, optionally renamed with
+    /// `as`.
+    Leaf {
+        /// The `as` alias, if given.
+        alias: Option<CstIdent>,
+    },
+    /// A brace group: `path::{tree, tree}` (or `{tree, tree}` at the
+    /// root).
+    Group(Vec<CstUseTree>),
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -937,6 +939,8 @@ pub enum CstStmtKind {
     Expr(CstExpr),
     /// Error recovery.
     Error,
+    /// Block-scoped import: `use pkg::utils::helper;`.
+    Use(CstUseDef),
 }
 
 /// A let binding.

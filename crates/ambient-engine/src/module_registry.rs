@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::ast::{ItemKind, Module, Span, UseKind, UsePrefix};
+use crate::ast::{ItemKind, Module, Span, UseDef, UsePrefix};
 use crate::module_path::{ImportPrefix, ModulePath, ResolutionError};
 
 /// Error that can occur during module registry operations.
@@ -27,6 +27,19 @@ pub enum RegistryError {
     /// Symbol is not public.
     #[error("symbol `{symbol}` in module `{module}` is not public")]
     NotPublic { module: String, symbol: String },
+
+    /// A `Local`-rooted use path whose head never resolved to a module
+    /// alias in scope.
+    #[error(
+        "cannot resolve `{head}`: use paths start with pkg, core, platform, self, super, or a module alias from another `use`"
+    )]
+    UnresolvedHead { head: String },
+
+    /// A `pub use` re-export rooted at a module alias — re-exports must
+    /// use a rooted path so downstream modules can resolve them without
+    /// this module's scope.
+    #[error("re-export paths must start with pkg, core, platform, self, or super")]
+    LocalReExport,
 }
 
 /// A resolved import - what a name refers to after processing `use` statements.
@@ -136,27 +149,25 @@ pub struct ModuleInfo {
     pub is_namespace: bool,
 }
 
-/// A re-export (`pub use`).
+/// A re-export (`pub use`), one flattened leaf.
 #[derive(Debug, Clone)]
 pub struct ReExport {
     /// The prefix of the import.
     pub prefix: UsePrefix,
-    /// The module path being re-exported from.
+    /// The path being re-exported.
     pub path: Vec<Arc<str>>,
-    /// What is re-exported.
-    pub kind: UseKind,
+    /// The exported name when renamed with `as`.
+    pub alias: Option<Arc<str>>,
 }
 
 impl ReExport {
-    /// The local name a whole-module re-export exposes: the final path
-    /// segment of `pub use a::b::c;`. Item re-exports (`{…}` form) expose
-    /// symbol names instead and have no module alias.
+    /// The local name this re-export exposes: the alias if renamed, else
+    /// the final path segment.
     #[must_use]
-    pub fn alias(&self) -> Option<&str> {
-        match &self.kind {
-            UseKind::Module => self.path.last().map(AsRef::as_ref),
-            UseKind::Items(_) => None,
-        }
+    pub fn exported_name(&self) -> Option<&str> {
+        self.alias
+            .as_deref()
+            .or_else(|| self.path.last().map(AsRef::as_ref))
     }
 }
 
@@ -203,6 +214,17 @@ pub struct ModuleScope {
     pub items: HashMap<Arc<str>, Vec<ItemImport>>,
     /// Imports that failed to resolve.
     pub errors: Vec<ImportError>,
+}
+
+/// The outcome of resolving one `use` leaf's target path.
+enum UseTarget {
+    /// The absolute module path the leaf names.
+    Resolved(ModulePath),
+    /// A `Local`-rooted leaf whose head alias isn't bound yet; retried
+    /// until the scope reaches a fixed point.
+    Waiting,
+    /// The leaf cannot resolve.
+    Failed(RegistryError),
 }
 
 /// The namespace an item kind occupies. Imports shadow within a
@@ -362,7 +384,7 @@ impl ModuleRegistry {
         // a child of the parent for path-walking purposes.
         let parent_info = parent.and_then(|p| self.modules.get(&p.to_string()))?;
         for re_export in &parent_info.re_exports {
-            if re_export.alias() != Some(name) {
+            if re_export.exported_name() != Some(name) {
                 continue;
             }
             if let Some(target) =
@@ -422,28 +444,24 @@ impl ModuleRegistry {
             return Ok((export, module_path.clone()));
         }
 
-        // Then check re-exports. Like the import side, a re-exported name is
-        // the final path segment resolved against its parent module — braces
-        // are just grouping. `pub use a::b::{x, y}` re-exports symbols `x`,
-        // `y` from `a::b`; `pub use a::b::x` re-exports `x` all the same. A
-        // bare `pub use a::b` (no parent) re-exports the module itself, not
-        // its contents, so it never matches a symbol lookup.
+        // Then check re-exports. A re-exported name is the final path
+        // segment (or its `as` alias) resolved against its parent module:
+        // `pub use a::b::x;` re-exports symbol `x` from `a::b`, and
+        // `pub use a::b::x as y;` re-exports it as `y`. A single-segment
+        // `pub use a;` re-exports the module itself (served by
+        // `resolve_module_child`), never a symbol.
         for re_export in &info.re_exports {
-            let matched = match &re_export.kind {
-                UseKind::Module => re_export
-                    .path
-                    .split_last()
-                    .filter(|(last, _)| last.as_ref() == symbol_name)
-                    .map(|(_, parent)| parent),
-                UseKind::Items(items) => items
-                    .iter()
-                    .any(|(item, _)| item.as_ref() == symbol_name)
-                    .then_some(re_export.path.as_slice()),
+            if re_export.exported_name() != Some(symbol_name) {
+                continue;
+            }
+            let Some((original, parent)) = re_export.path.split_last() else {
+                continue;
             };
-
-            if let Some(parent) = matched
-                && let Some(target_path) = Self::resolve_import_path(module_path, re_export, parent)
-                && let Ok(resolved) = self.lookup_symbol(&target_path, symbol_name)
+            if parent.is_empty() {
+                continue;
+            }
+            if let Some(parent_path) = Self::resolve_import_path(module_path, re_export, parent)
+                && let Ok(resolved) = self.lookup_symbol(&parent_path, original)
             {
                 return Ok(resolved);
             }
@@ -479,6 +497,9 @@ impl ModuleRegistry {
             UsePrefix::Platform => ImportPrefix::Platform,
             UsePrefix::Self_ => ImportPrefix::Self_,
             UsePrefix::Super(count) => ImportPrefix::Super(count),
+            // Alias-rooted re-exports are rejected at scope building; a
+            // stray one resolves to nothing.
+            UsePrefix::Local => return None,
         };
 
         from.resolve_relative(&prefix, path).ok()
@@ -510,6 +531,14 @@ impl ModuleRegistry {
             UsePrefix::Platform => ImportPrefix::Platform,
             UsePrefix::Self_ => ImportPrefix::Self_,
             UsePrefix::Super(count) => ImportPrefix::Super(*count),
+            UsePrefix::Local => {
+                // Alias-rooted paths resolve against a scope, which this
+                // path-arithmetic helper doesn't have; `build_module_scope`
+                // resolves the head before calling in.
+                return Err(RegistryError::UnresolvedHead {
+                    head: path.first().map(ToString::to_string).unwrap_or_default(),
+                });
+            }
         };
 
         from.resolve_relative(&import_prefix, path)
@@ -521,15 +550,20 @@ impl ModuleRegistry {
     /// means; everything else (checker, resolve pass, linker,
     /// [`Self::resolve_imports`]) consumes its output.
     ///
-    /// Braces are pure grouping: `use a::b::{c}` and `use a::b::c` both
-    /// name `c` under `a::b`. Each imported name binds every namespace
-    /// meaning of its final segment — the submodule at the full path
-    /// and/or the item of that name exported by the parent module. A name
-    /// that binds in no namespace pushes one diagnostic.
+    /// Each flattened `use` leaf names an entity by its final segment and
+    /// binds every namespace meaning of that segment — the submodule at
+    /// the full path and/or the item of that name exported by the parent
+    /// module — under the leaf's local name (its `as` alias, else the
+    /// segment itself). A leaf that binds in no namespace pushes one
+    /// diagnostic.
+    ///
+    /// `Local`-rooted leaves (`use utils::inner;` where `utils` is a
+    /// module alias from another `use`) resolve by fixed point, so their
+    /// declaration order doesn't matter.
     #[must_use]
     pub fn build_module_scope(&self, module_path: &ModulePath) -> ModuleScope {
-        let mut scope = ModuleScope::default();
         let Some(info) = self.modules.get(&module_path.to_string()) else {
+            let mut scope = ModuleScope::default();
             scope.errors.push(ImportError {
                 error: RegistryError::ModuleNotFound(module_path.to_string()),
                 span: Span::default(),
@@ -537,70 +571,125 @@ impl ModuleRegistry {
             return scope;
         };
 
-        for item in &info.module.items {
-            let ItemKind::Use(use_def) = &item.kind else {
-                continue;
-            };
+        let uses: Vec<(&UseDef, Span)> = info
+            .module
+            .items
+            .iter()
+            .filter_map(|item| match &item.kind {
+                ItemKind::Use(use_def) => Some((use_def, item.span)),
+                _ => None,
+            })
+            .collect();
+        self.build_scope_from_uses(module_path, &uses)
+    }
 
-            let path_names: Vec<_> = use_def.path.iter().map(|(name, _)| name.clone()).collect();
+    /// Interpret a list of `use` items into a scope. Shared by module
+    /// scope building and block-scoped `use` resolution.
+    #[must_use]
+    pub fn build_scope_from_uses(
+        &self,
+        module_path: &ModulePath,
+        uses: &[(&UseDef, Span)],
+    ) -> ModuleScope {
+        let mut scope = ModuleScope::default();
 
-            match &use_def.kind {
-                UseKind::Module => {
-                    self.bind_use_target(
-                        &mut scope,
-                        &use_def.prefix,
-                        module_path,
-                        &path_names,
-                        item.span,
-                    );
-                }
-                UseKind::Items(items) => {
-                    for (item_name, _) in items {
-                        let mut full = path_names.clone();
-                        full.push(item_name.clone());
-                        self.bind_use_target(
-                            &mut scope,
-                            &use_def.prefix,
-                            module_path,
-                            &full,
-                            item.span,
-                        );
+        // Fixed point: `Local`-rooted leaves wait for the alias they hang
+        // off; everything else binds in the first round.
+        let mut pending: Vec<&(&UseDef, Span)> = uses.iter().collect();
+        loop {
+            let mut progress = false;
+            let mut still = Vec::new();
+            for entry in pending {
+                let (use_def, span) = *entry;
+                match self.use_target(&scope, module_path, use_def) {
+                    UseTarget::Resolved(target) => {
+                        self.bind_use_target(&mut scope, use_def, &target, span);
+                        progress = true;
+                    }
+                    UseTarget::Waiting => still.push(entry),
+                    UseTarget::Failed(error) => {
+                        scope.errors.push(ImportError { error, span });
+                        progress = true;
                     }
                 }
             }
+            pending = still;
+            if pending.is_empty() || !progress {
+                break;
+            }
+        }
+        for (use_def, span) in pending {
+            let head = use_def
+                .path
+                .first()
+                .map(|(name, _)| name.to_string())
+                .unwrap_or_default();
+            scope.errors.push(ImportError {
+                error: RegistryError::UnresolvedHead { head },
+                span: *span,
+            });
         }
 
         scope
     }
 
-    /// Resolve one `use` path down to its final segment and bind every
-    /// namespace meaning of that segment into `scope`.
-    fn bind_use_target(
+    /// Resolve one flattened `use` leaf to the absolute module path it
+    /// names (the full path including the final segment).
+    fn use_target(
+        &self,
+        scope: &ModuleScope,
+        module_path: &ModulePath,
+        use_def: &UseDef,
+    ) -> UseTarget {
+        let path_names: Vec<Arc<str>> = use_def.path.iter().map(|(name, _)| name.clone()).collect();
+
+        if use_def.prefix == UsePrefix::Local {
+            if use_def.is_public {
+                return UseTarget::Failed(RegistryError::LocalReExport);
+            }
+            let Some(head) = path_names.first() else {
+                return UseTarget::Failed(RegistryError::UnresolvedHead {
+                    head: String::new(),
+                });
+            };
+            let Some(base) = scope.module(head) else {
+                return UseTarget::Waiting;
+            };
+            let mut segments = base.segments().to_vec();
+            segments.extend(path_names[1..].iter().cloned());
+            return match ModulePath::from_segments(segments) {
+                Some(target) => UseTarget::Resolved(target),
+                None => UseTarget::Failed(RegistryError::UnresolvedHead {
+                    head: head.to_string(),
+                }),
+            };
+        }
+
+        match self.resolve_use_path(module_path, &use_def.prefix, &path_names) {
+            Ok(target) => UseTarget::Resolved(target),
+            Err(error) => UseTarget::Failed(error),
+        }
+    }
+
+    /// Bind every namespace meaning of a resolved `use` leaf into `scope`.
+    pub(crate) fn bind_use_target(
         &self,
         scope: &mut ModuleScope,
-        prefix: &UsePrefix,
-        module_path: &ModulePath,
-        full: &[Arc<str>],
+        use_def: &UseDef,
+        target: &ModulePath,
         span: Span,
     ) {
         // A bare `use self;` has no name to import.
-        let Some(local) = full.last().cloned() else {
+        let Some(local) = use_def.local_name().cloned() else {
             return;
         };
-
-        let target = match self.resolve_use_path(module_path, prefix, full) {
-            Ok(path) => path,
-            Err(error) => {
-                scope.errors.push(ImportError { error, span });
-                return;
-            }
-        };
+        let original = target.name();
 
         // Submodule meaning: the full path itself names a registered module
         // (a file, a directory namespace, or a module re-export in the
         // parent).
         let parent = target.parent();
-        let submodule = self.resolve_module_child(parent.as_ref(), &local);
+        let submodule = self.resolve_module_child(parent.as_ref(), original);
         if let Some(ref submodule_path) = submodule {
             scope
                 .modules
@@ -610,10 +699,10 @@ impl ModuleRegistry {
         // Item meaning: a name exported by the parent module. The parent of
         // a top-level target is the package root module (`main`).
         let symbol_parent = parent.unwrap_or_else(ModulePath::root);
-        match self.lookup_symbol(&symbol_parent, &local) {
+        match self.lookup_symbol(&symbol_parent, original) {
             Ok((export, origin)) => {
                 scope.bind_item(
-                    Arc::clone(&local),
+                    local,
                     ItemImport {
                         module: origin,
                         name: Arc::clone(&export.name),
@@ -770,7 +859,7 @@ fn extract_re_exports(module: &Module) -> Vec<ReExport> {
             re_exports.push(ReExport {
                 prefix: use_def.prefix,
                 path: use_def.path.iter().map(|(name, _)| name.clone()).collect(),
-                kind: use_def.kind.clone(),
+                alias: use_def.alias.as_ref().map(|(name, _)| name.clone()),
             });
         }
     }
@@ -1091,8 +1180,11 @@ mod tests {
                 ItemKind::Use(UseDef {
                     is_public: false,
                     prefix: UsePrefix::Pkg,
-                    path: vec![(Arc::from("utils"), Span::default())],
-                    kind: UseKind::Items(vec![(Arc::from("helper"), Span::default())]),
+                    path: vec![
+                        (Arc::from("utils"), Span::default()),
+                        (Arc::from("helper"), Span::default()),
+                    ],
+                    alias: None,
                 }),
                 Span::default(),
             )],
@@ -1142,7 +1234,7 @@ mod tests {
                     is_public: false,
                     prefix: UsePrefix::Pkg,
                     path: vec![(Arc::from("utils"), Span::default())],
-                    kind: UseKind::Module,
+                    alias: None,
                 }),
                 Span::default(),
             )],
@@ -1170,7 +1262,7 @@ mod tests {
                     .iter()
                     .map(|s| (Arc::from(*s), Span::default()))
                     .collect(),
-                kind: UseKind::Module,
+                alias: None,
             }),
             Span::default(),
         )
@@ -1240,7 +1332,7 @@ mod tests {
             Arc::new(Module {
                 name: Arc::from("main"),
                 doc: None,
-                items: vec![use_items(UsePrefix::Pkg, &["a"], &["b"], false)],
+                items: use_items(UsePrefix::Pkg, &["a"], &["b"], false),
             }),
         );
 
@@ -1339,25 +1431,17 @@ mod tests {
         assert_eq!(origin, origin_path);
     }
 
-    fn use_items(prefix: UsePrefix, path: &[&str], items: &[&str], is_public: bool) -> Item {
-        use crate::ast::UseDef;
-        Item::new(
-            ItemKind::Use(UseDef {
-                is_public,
-                prefix,
-                path: path
-                    .iter()
-                    .map(|s| (Arc::from(*s), Span::default()))
-                    .collect(),
-                kind: UseKind::Items(
-                    items
-                        .iter()
-                        .map(|s| (Arc::from(*s), Span::default()))
-                        .collect(),
-                ),
-            }),
-            Span::default(),
-        )
+    /// The old braced form flattens to one `UseDef` per item at lowering;
+    /// tests build the flattened items directly.
+    fn use_items(prefix: UsePrefix, path: &[&str], items: &[&str], is_public: bool) -> Vec<Item> {
+        items
+            .iter()
+            .map(|item| {
+                let mut full: Vec<&str> = path.to_vec();
+                full.push(item);
+                use_module(prefix, &full, is_public)
+            })
+            .collect()
     }
 
     /// `pub use` chains resolve to the module that defines the symbol,
@@ -1383,7 +1467,7 @@ mod tests {
             Arc::new(Module {
                 name: Arc::from("facade"),
                 doc: None,
-                items: vec![use_items(UsePrefix::Pkg, &["origin"], &["helper"], true)],
+                items: use_items(UsePrefix::Pkg, &["origin"], &["helper"], true),
             }),
         );
 
@@ -1393,7 +1477,7 @@ mod tests {
             Arc::new(Module {
                 name: Arc::from("main"),
                 doc: None,
-                items: vec![use_items(UsePrefix::Pkg, &["facade"], &["helper"], false)],
+                items: use_items(UsePrefix::Pkg, &["facade"], &["helper"], false),
             }),
         );
 
@@ -1434,11 +1518,12 @@ mod tests {
             Arc::new(Module {
                 name: Arc::from("main"),
                 doc: None,
-                items: vec![
+                items: [
                     use_items(UsePrefix::Pkg, &["utils"], &["missing"], false),
                     use_items(UsePrefix::Pkg, &["utils"], &["secret"], false),
                     use_items(UsePrefix::Pkg, &["nonexistent"], &["anything"], false),
-                ],
+                ]
+                .concat(),
             }),
         );
 

@@ -83,9 +83,19 @@ fn check_module_core(
     // Phase 0: canonicalize cross-module references. Every import, module
     // alias, and inline rooted path is resolved to its one fully-qualified
     // identity (`QualifiedName::resolved`); everything downstream keys off
-    // that.
+    // that. Module-level import failures are reported from the module
+    // scope in `build_import_env`; block-scoped `use` failures only exist
+    // here.
     if let Some((module_path, registry)) = cross_module {
-        crate::resolve::resolve_module(&mut module, module_path, registry);
+        let outcome = crate::resolve::resolve_module(&mut module, module_path, registry);
+        for failed in outcome.errors {
+            errors.push(Box::new(TypeError::new(
+                TypeErrorKind::ImportFailed {
+                    message: failed.error.to_string(),
+                },
+                (failed.span.start, failed.span.end),
+            )));
+        }
     }
 
     // Phase 1: registration.
@@ -522,7 +532,10 @@ fn retain_imported_type_aliases(
                 .collect()
         })
         .unwrap_or_default();
-    infer.retain_type_aliases(|name| imported.contains(name));
+    // Canonical qualified keys (`shapes.Money`) always stay: they can't
+    // collide with bare names, and qualified references are visibility-
+    // checked by the resolve pass.
+    infer.retain_type_aliases(|name| name.contains('.') || imported.contains(name));
 }
 
 /// Register the types, traits, and impls declared in the *other* modules of
@@ -555,6 +568,19 @@ fn register_package_items(
     for info in &foreign_modules {
         register_type_aliases(infer, &info.module);
         register_traits(infer, &info.module);
+        // Public type aliases also register under their canonical
+        // qualified key (`shapes.Money`): the resolve pass rewrites
+        // qualified type constructors (`pkg::shapes::Money { … }`) to that
+        // key, and canonical keys are never retracted (they can't leak as
+        // bare names).
+        for item in &info.module.items {
+            if let crate::ast::ItemKind::TypeAlias(alias) = &item.kind
+                && alias.is_public
+            {
+                let key: Arc<str> = format!("{}.{}", info.path, alias.name).into();
+                infer.register_type_alias(key, alias.ty.clone());
+            }
+        }
     }
 
     for info in &foreign_modules {

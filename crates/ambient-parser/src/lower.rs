@@ -13,7 +13,7 @@ use ambient_engine::ast::{
     Expr, ExprKind, FunctionDef, HandleExpr, Handler, HandlerLiteralExpr, HandlerLiteralMethod,
     ImplDef, ImplMethod, Item, ItemKind, Lambda, LetBinding, Literal, MatchArm, Module, Param,
     Pattern, PatternKind, QualifiedName, SandboxExpr, Span, Stmt, StmtKind, TraitDef, TraitMethod,
-    TypeAliasDef, TypeParam, UnaryOp, UseDef, UseKind, UsePrefix, WhereClause,
+    TypeAliasDef, TypeParam, UnaryOp, UseDef, UsePrefix, WhereClause,
 };
 use ambient_engine::types::{NominalType, Type};
 
@@ -22,7 +22,7 @@ use crate::cst::{
     CstImplDef, CstItem, CstItemKind, CstLambda, CstLiteral, CstMatchArm, CstModule, CstParam,
     CstPattern, CstPatternKind, CstQualifiedName, CstRecordPatternField, CstStmt, CstStmtKind,
     CstTraitDef, CstTraitParamKind, CstTypeAliasDef, CstTypeExpr, CstTypeExprKind, CstUnaryOp,
-    CstUseDef, CstUseKind, CstUsePrefix, StringPart,
+    CstUseDef, CstUseTree, CstUseTreeKind, StringPart,
 };
 use crate::error::{ParseError, ParseErrorKind};
 
@@ -59,7 +59,7 @@ pub fn lower_module(cst: &CstModule) -> Result<Module, ParseError> {
 
     let mut items = Vec::new();
     for cst_item in &cst.items {
-        items.push(lower_item_impl(&mut ctx, cst_item)?);
+        items.extend(lower_item_impl(&mut ctx, cst_item)?);
     }
 
     Ok(Module {
@@ -87,7 +87,7 @@ pub fn lower_module_recovering(cst: &CstModule) -> (Module, Vec<ParseError>) {
     let mut errors = Vec::new();
     for cst_item in &cst.items {
         match lower_item_impl(&mut ctx, cst_item) {
-            Ok(item) => items.push(item),
+            Ok(lowered) => items.extend(lowered),
             Err(e) => errors.push(e),
         }
     }
@@ -106,13 +106,14 @@ pub fn lower_expr(cst: &CstExpr) -> Result<Expr, ParseError> {
     lower_expression(&mut ctx, cst)
 }
 
-/// Lower a single item.
-pub fn lower_item(item: &CstItem) -> Result<Item, ParseError> {
+/// Lower a single item. A `use` tree flattens to one item per imported
+/// leaf; everything else lowers 1:1.
+pub fn lower_item(item: &CstItem) -> Result<Vec<Item>, ParseError> {
     let mut ctx = LoweringContext::new();
     lower_item_impl(&mut ctx, item)
 }
 
-fn lower_item_impl(ctx: &mut LoweringContext, item: &CstItem) -> Result<Item, ParseError> {
+fn lower_item_impl(ctx: &mut LoweringContext, item: &CstItem) -> Result<Vec<Item>, ParseError> {
     // Extract item documentation from doc comments (`///`)
     let doc = item.leading_trivia.extract_doc_comments().map(Arc::from);
 
@@ -122,7 +123,13 @@ fn lower_item_impl(ctx: &mut LoweringContext, item: &CstItem) -> Result<Item, Pa
         CstItemKind::TypeAlias(t) => ItemKind::TypeAlias(lower_type_alias(t)?),
         CstItemKind::Enum(e) => ItemKind::Enum(lower_enum(e)?),
         CstItemKind::Ability(a) => ItemKind::Ability(lower_ability_def(a)?),
-        CstItemKind::Use(u) => ItemKind::Use(lower_use(u)?),
+        CstItemKind::Use(u) => {
+            // A use tree flattens to one item per imported leaf.
+            return Ok(lower_use(u)?
+                .into_iter()
+                .map(|use_def| Item::with_doc(ItemKind::Use(use_def), item.span, doc.clone()))
+                .collect());
+        }
         CstItemKind::Trait(t) => ItemKind::Trait(lower_trait_def(t)?),
         CstItemKind::Impl(i) => ItemKind::Impl(lower_impl_def(ctx, i)?),
         CstItemKind::Error => {
@@ -133,7 +140,7 @@ fn lower_item_impl(ctx: &mut LoweringContext, item: &CstItem) -> Result<Item, Pa
         }
     };
 
-    Ok(Item::with_doc(kind, item.span, doc))
+    Ok(vec![Item::with_doc(kind, item.span, doc)])
 }
 
 fn lower_function(
@@ -322,32 +329,85 @@ fn lower_ability_def(a: &CstAbilityDef) -> Result<AbilityDef, ParseError> {
     })
 }
 
-/// Lower a use statement. Returns Result for API consistency with other lower
-/// functions, even though use lowering never fails.
-#[allow(clippy::unnecessary_wraps)]
-fn lower_use(u: &CstUseDef) -> Result<UseDef, ParseError> {
-    let path = u.path.iter().map(|i| (i.name.clone(), i.span)).collect();
+/// Lower a use tree, flattening it to one `UseDef` per imported leaf.
+/// Braces are pure grouping: `use a::{b, c};` lowers exactly like
+/// `use a::b; use a::c;`.
+fn lower_use(u: &CstUseDef) -> Result<Vec<UseDef>, ParseError> {
+    let mut out = Vec::new();
+    flatten_use_tree(&u.tree, &[], u.is_public, &mut out)?;
+    Ok(out)
+}
 
-    let prefix = match &u.prefix {
-        CstUsePrefix::Pkg(_) => UsePrefix::Pkg,
-        CstUsePrefix::Core(_) => UsePrefix::Core,
-        CstUsePrefix::Platform(_) => UsePrefix::Platform,
-        CstUsePrefix::Self_(_) => UsePrefix::Self_,
-        CstUsePrefix::Super(supers) => UsePrefix::Super(supers.len()),
-    };
-
-    let kind = match &u.kind {
-        CstUseKind::Module => UseKind::Module,
-        CstUseKind::Items(items) => {
-            UseKind::Items(items.iter().map(|i| (i.name.clone(), i.span)).collect())
+fn flatten_use_tree(
+    tree: &CstUseTree,
+    base: &[crate::cst::CstIdent],
+    is_public: bool,
+    out: &mut Vec<UseDef>,
+) -> Result<(), ParseError> {
+    let mut full: Vec<crate::cst::CstIdent> = base.to_vec();
+    full.extend(tree.segments.iter().cloned());
+    match &tree.kind {
+        CstUseTreeKind::Leaf { alias } => {
+            out.push(lower_use_leaf(&full, alias.as_ref(), is_public, tree.span)?);
         }
+        CstUseTreeKind::Group(children) => {
+            for child in children {
+                flatten_use_tree(child, &full, is_public, out)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Lower one flattened use path. The head segment determines the root:
+/// a keyword (`pkg`, `core`, `self`, `super`, contextual `platform`) or a
+/// module alias from another `use` (`UsePrefix::Local`). Root keywords
+/// anywhere but the head are errors.
+fn lower_use_leaf(
+    full: &[crate::cst::CstIdent],
+    alias: Option<&crate::cst::CstIdent>,
+    is_public: bool,
+    span: Span,
+) -> Result<UseDef, ParseError> {
+    let Some(head) = full.first() else {
+        return Err(ParseError::new(
+            ParseErrorKind::LoweringError("empty use path".into()),
+            span,
+        ));
     };
+
+    let (prefix, consumed) = match head.name.as_ref() {
+        "pkg" => (UsePrefix::Pkg, 1),
+        "core" => (UsePrefix::Core, 1),
+        "platform" => (UsePrefix::Platform, 1),
+        "self" => (UsePrefix::Self_, 1),
+        "super" => {
+            let supers = full
+                .iter()
+                .take_while(|seg| seg.name.as_ref() == "super")
+                .count();
+            (UsePrefix::Super(supers), supers)
+        }
+        _ => (UsePrefix::Local, 0),
+    };
+
+    for seg in &full[consumed..] {
+        if matches!(seg.name.as_ref(), "pkg" | "core" | "self" | "super") {
+            return Err(ParseError::new(
+                ParseErrorKind::LoweringError(format!("`{}` may only begin a use path", seg.name)),
+                seg.span,
+            ));
+        }
+    }
 
     Ok(UseDef {
-        is_public: u.is_public,
+        is_public,
         prefix,
-        path,
-        kind,
+        path: full[consumed..]
+            .iter()
+            .map(|seg| (seg.name.clone(), seg.span))
+            .collect(),
+        alias: alias.map(|a| (a.name.clone(), a.span)),
     })
 }
 
@@ -474,10 +534,10 @@ fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, P
         }
 
         CstExprKind::Block { stmts, result } => {
-            let lowered_stmts = stmts
-                .iter()
-                .map(|s| lower_stmt(ctx, s))
-                .collect::<Result<Vec<_>, _>>()?;
+            let mut lowered_stmts = Vec::new();
+            for s in stmts {
+                lowered_stmts.extend(lower_stmt(ctx, s)?);
+            }
             let lowered_result = result
                 .as_ref()
                 .map(|e| lower_expression(ctx, e))
@@ -747,7 +807,7 @@ fn make_string_concat_call(left: Expr, right: Expr, span: Span) -> Expr {
     Expr::new(ExprKind::Call(Box::new(callee), vec![left, right]), span)
 }
 
-fn lower_stmt(ctx: &mut LoweringContext, stmt: &CstStmt) -> Result<Stmt, ParseError> {
+fn lower_stmt(ctx: &mut LoweringContext, stmt: &CstStmt) -> Result<Vec<Stmt>, ParseError> {
     let kind = match &stmt.kind {
         CstStmtKind::Let(binding) => {
             let id = ctx.fresh_binding();
@@ -762,6 +822,14 @@ fn lower_stmt(ctx: &mut LoweringContext, stmt: &CstStmt) -> Result<Stmt, ParseEr
                 init,
             })
         }
+        CstStmtKind::Use(use_def) => {
+            // A block-scoped use tree flattens exactly like a module-level
+            // one: one statement per imported leaf.
+            return Ok(lower_use(use_def)?
+                .into_iter()
+                .map(|flat| Stmt::new(StmtKind::Use(flat), stmt.span))
+                .collect());
+        }
         CstStmtKind::Expr(expr) => {
             let lowered = lower_expression(ctx, expr)?;
             StmtKind::Expr(lowered)
@@ -774,7 +842,7 @@ fn lower_stmt(ctx: &mut LoweringContext, stmt: &CstStmt) -> Result<Stmt, ParseEr
         }
     };
 
-    Ok(Stmt::new(kind, stmt.span))
+    Ok(vec![Stmt::new(kind, stmt.span)])
 }
 
 fn lower_lambda(ctx: &mut LoweringContext, lambda: &CstLambda) -> Result<Lambda, ParseError> {
@@ -891,13 +959,8 @@ fn lower_record_pattern_field(
 fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
     match &ty.kind {
         CstTypeExprKind::Name(qn) => {
-            // Qualified names always have at least one segment by parser construction
-            let name = &qn
-                .segments
-                .last()
-                .expect("qualified name must have segments")
-                .name;
-            match &**name {
+            let name = type_name_from_segments(qn);
+            match &*name {
                 "number" => Ok(Type::Number),
                 "string" => Ok(Type::String),
                 "bool" => Ok(Type::Bool),
@@ -906,7 +969,7 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
                     // Named type - could be generic, user-defined, etc.
                     // For now, represent as a named type
                     Ok(Type::Named(ambient_engine::types::NamedType {
-                        name: name.clone(),
+                        name,
                         args: Vec::new(),
                         uuid: None,
                     }))
@@ -917,12 +980,7 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
         CstTypeExprKind::Generic { base, args } => {
             // Extract base name
             let base_name = match &base.kind {
-                CstTypeExprKind::Name(qn) => qn
-                    .segments
-                    .last()
-                    .expect("qualified name must have segments")
-                    .name
-                    .clone(),
+                CstTypeExprKind::Name(qn) => type_name_from_segments(qn),
                 _ => {
                     return Err(ParseError::new(ParseErrorKind::InvalidType, base.span));
                 }
@@ -1035,6 +1093,24 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
             ParseErrorKind::LoweringError("cannot lower error type".into()),
             ty.span,
         )),
+    }
+}
+
+/// The dotted name a type reference lowers to: the bare last segment for
+/// an unqualified reference, the full dotted path (`pkg.types.Money`,
+/// `core.time.Duration`) for a qualified one. The resolve pass
+/// (`ambient_engine::resolve`) rewrites dotted type names to their
+/// canonical target.
+fn type_name_from_segments(qn: &CstQualifiedName) -> Arc<str> {
+    if qn.segments.len() == 1 {
+        qn.segments[0].name.clone()
+    } else {
+        qn.segments
+            .iter()
+            .map(|seg| seg.name.as_ref())
+            .collect::<Vec<_>>()
+            .join(".")
+            .into()
     }
 }
 

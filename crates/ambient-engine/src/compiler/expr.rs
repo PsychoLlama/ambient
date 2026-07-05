@@ -520,6 +520,10 @@ pub(super) fn compile_stmt(
             // Discard the result of expression statements.
             fc.builder.emit(Opcode::Pop);
         }
+        StmtKind::Use(_) => {
+            // Block-scoped imports were consumed by the resolve pass;
+            // nothing executes.
+        }
     }
     Ok(())
 }

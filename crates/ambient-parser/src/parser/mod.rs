@@ -30,7 +30,7 @@ use crate::cst::{
     CstAbilityDef, CstAbilityMethod, CstConstDef, CstEnumDef, CstEnumVariant, CstFunctionDef,
     CstIdent, CstImplDef, CstImplMethod, CstItem, CstItemKind, CstModule, CstParam,
     CstQualifiedName, CstReplInput, CstTraitDef, CstTraitMethod, CstTraitParam, CstTraitParamKind,
-    CstTypeAliasDef, CstTypeParam, CstUseDef, CstUseKind, CstUsePrefix, CstWhereClause, Trivia,
+    CstTypeAliasDef, CstTypeParam, CstUseDef, CstUseTree, CstUseTreeKind, CstWhereClause, Trivia,
     TriviaItem, TriviaKind,
 };
 use crate::error::{ParseError, ParseErrorKind};
@@ -980,81 +980,110 @@ impl<'src> Parser<'src> {
 
     /// Parse a use/import statement.
     ///
-    /// Grammar:
+    /// Grammar (Rust-style use trees):
     /// ```text
-    /// use_def = ["pub"] "use" use_prefix "::" path_rest ";"
-    /// use_prefix = "pkg" | "core" | "self" | super_chain
-    /// super_chain = "super" ("::" "super")*
-    /// path_rest = (ident "::")* (ident | "{" ident_list "}")
-    /// ident_list = ident ("," ident)* [","]
+    /// use_def   = ["pub"] "use" use_tree ";"
+    /// use_tree  = "{" tree_list "}"
+    ///           | segment ("::" segment)* tail
+    /// tail      = "::" "{" tree_list "}"
+    ///           | "as" ident
+    ///           | ε
+    /// tree_list = use_tree ("," use_tree)* [","]
+    /// segment   = ident | "pkg" | "core" | "self" | "super"
     /// ```
+    ///
+    /// `as` is contextual (an identifier in alias position), like
+    /// `platform` in path-head position. Keyword segments are only valid
+    /// at the head of a full path — validated during lowering, where the
+    /// flattened paths exist.
     fn parse_use(&mut self, is_public: bool) -> Result<CstUseDef, ParseError> {
         let start = self.current().span.start;
         self.expect(TokenKind::Use)?;
-
-        // Parse the prefix (pkg, core, self, super)
-        let prefix = self.parse_use_prefix()?;
-
-        // Expect path separator after prefix
-        self.expect(TokenKind::ColonColon)?;
-
-        // Parse the rest of the path
-        let mut path = Vec::new();
-
-        loop {
-            // Check for grouped imports: `use pkg::module::{a, b};`
-            if self.check(TokenKind::LBrace) {
-                self.advance();
-                let mut items = Vec::new();
-
-                loop {
-                    if self.check(TokenKind::RBrace) {
-                        break;
-                    }
-
-                    items.push(self.parse_ident()?);
-
-                    if self.consume(TokenKind::Comma).is_none() {
-                        break;
-                    }
-                }
-
-                self.expect(TokenKind::RBrace)?;
-                let end = self.expect(TokenKind::Semi)?.span.end;
-
-                return Ok(CstUseDef {
-                    is_public,
-                    prefix,
-                    path,
-                    kind: CstUseKind::Items(items),
-                    span: Span::new(start, end),
-                });
-            }
-
-            // Parse an identifier in the path
-            path.push(self.parse_ident()?);
-
-            // Check if there's more path to parse
-            if self.consume(TokenKind::ColonColon).is_none() {
-                break;
-            }
-        }
-
+        let tree = self.parse_use_tree()?;
         let end = self.expect(TokenKind::Semi)?.span.end;
         Ok(CstUseDef {
             is_public,
-            prefix,
-            path,
-            kind: CstUseKind::Module,
+            tree,
             span: Span::new(start, end),
         })
     }
 
-    /// Parse the prefix of a use path (pkg, core, self, super).
-    fn parse_use_prefix(&mut self) -> Result<CstUsePrefix, ParseError> {
+    /// Parse one use-tree node (see [`Parser::parse_use`] for the grammar).
+    fn parse_use_tree(&mut self) -> Result<CstUseTree, ParseError> {
+        self.skip_trivia();
+        let start = self.current().span.start;
+
+        // Root brace group: `use {a::b, c};`
+        if self.check(TokenKind::LBrace) {
+            let group = self.parse_use_group()?;
+            let end = self.current().span.start;
+            return Ok(CstUseTree {
+                segments: Vec::new(),
+                kind: CstUseTreeKind::Group(group),
+                span: Span::new(start, end),
+            });
+        }
+
+        let mut segments = vec![self.parse_use_segment()?];
+        loop {
+            if self.consume(TokenKind::ColonColon).is_none() {
+                break;
+            }
+            self.skip_trivia();
+            if self.check(TokenKind::LBrace) {
+                let group = self.parse_use_group()?;
+                let end = self.current().span.start;
+                return Ok(CstUseTree {
+                    segments,
+                    kind: CstUseTreeKind::Group(group),
+                    span: Span::new(start, end),
+                });
+            }
+            segments.push(self.parse_use_segment()?);
+        }
+
+        // Contextual `as` alias: `use a::b as c;`
+        let alias = if self.check(TokenKind::Ident) && self.current().text == "as" {
+            self.advance();
+            self.skip_trivia();
+            Some(self.parse_ident()?)
+        } else {
+            None
+        };
+
+        let end = self.current().span.start;
+        Ok(CstUseTree {
+            segments,
+            kind: CstUseTreeKind::Leaf { alias },
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Parse a brace group's contents: `{ tree, tree, }`.
+    fn parse_use_group(&mut self) -> Result<Vec<CstUseTree>, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut trees = Vec::new();
+        loop {
+            self.skip_trivia();
+            if self.check(TokenKind::RBrace) {
+                break;
+            }
+            trees.push(self.parse_use_tree()?);
+            if self.consume(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(trees)
+    }
+
+    /// Parse one use-path segment: an identifier or a path-root keyword
+    /// (`pkg`, `core`, `self`, `super`; `platform` is a plain identifier).
+    fn parse_use_segment(&mut self) -> Result<CstIdent, ParseError> {
         self.skip_trivia();
         match self.current_kind() {
-            TokenKind::Pkg => {
+            TokenKind::Ident => self.parse_ident(),
+            TokenKind::Pkg | TokenKind::Core | TokenKind::Self_ | TokenKind::Super => {
                 let token = self.current().clone();
                 let ident = CstIdent {
                     name: token.text.into(),
@@ -1063,83 +1092,12 @@ impl<'src> Parser<'src> {
                 };
                 self.advance();
                 self.skip_trivia();
-                Ok(CstUsePrefix::Pkg(ident))
-            }
-            TokenKind::Core => {
-                let token = self.current().clone();
-                let ident = CstIdent {
-                    name: token.text.into(),
-                    span: token.span,
-                    trailing_trivia: Trivia::default(),
-                };
-                self.advance();
-                self.skip_trivia();
-                Ok(CstUsePrefix::Core(ident))
-            }
-            // `platform` is a *contextual* keyword recognized only in
-            // use-prefix position — unlike `core`/`pkg` it is not a lexer
-            // keyword, because it also appears as an ability head
-            // (`with platform::Network`) where it must lex as a plain
-            // identifier. Matching the identifier text here lets
-            // `use platform::Network;` resolve through the reserved-root
-            // machinery without a hard `TokenKind::Platform`.
-            TokenKind::Ident if self.current().text == "platform" => {
-                let token = self.current().clone();
-                let ident = CstIdent {
-                    name: token.text.into(),
-                    span: token.span,
-                    trailing_trivia: Trivia::default(),
-                };
-                self.advance();
-                self.skip_trivia();
-                Ok(CstUsePrefix::Platform(ident))
-            }
-            TokenKind::Self_ => {
-                let token = self.current().clone();
-                let ident = CstIdent {
-                    name: token.text.into(),
-                    span: token.span,
-                    trailing_trivia: Trivia::default(),
-                };
-                self.advance();
-                self.skip_trivia();
-                Ok(CstUsePrefix::Self_(ident))
-            }
-            TokenKind::Super => {
-                // Parse chain of super::super::super...
-                let mut supers = Vec::new();
-                while self.check(TokenKind::Super) {
-                    let token = self.current().clone();
-                    let ident = CstIdent {
-                        name: token.text.into(),
-                        span: token.span,
-                        trailing_trivia: Trivia::default(),
-                    };
-                    supers.push(ident);
-                    self.advance();
-                    self.skip_trivia();
-
-                    // Check for another super after the path separator
-                    if self.check(TokenKind::ColonColon) {
-                        // Peek ahead to see if it's followed by super
-                        // We need to commit to the separator only if next is super
-                        let next_pos = self.pos + 1;
-                        if next_pos < self.tokens.len() {
-                            let next_kind = self.tokens[next_pos].kind;
-                            if next_kind == TokenKind::Super {
-                                self.advance(); // consume the `::`
-                                self.skip_trivia();
-                                continue;
-                            }
-                        }
-                    }
-                    break;
-                }
-                Ok(CstUsePrefix::Super(supers))
+                Ok(ident)
             }
             _ => Err(ParseError::new(
                 ParseErrorKind::Expected {
-                    expected: "pkg, core, platform, self, or super".into(),
+                    expected: "a path segment (identifier, pkg, core, platform, self, or super)"
+                        .into(),
                     found: format!("{:?}", self.current_kind()),
                 },
                 self.current().span,
@@ -1165,13 +1123,16 @@ impl<'src> Parser<'src> {
         let mut segments = Vec::new();
         let start = self.current().span.start;
 
-        segments.push(self.parse_ident()?);
+        // A path may be rooted at a keyword (`pkg::m::T`, `core::List`,
+        // `self::m::T`, `super::m::T`); segments after the head are plain
+        // identifiers. `parse_use_segment` accepts exactly this set.
+        segments.push(self.parse_use_segment()?);
 
         while self.consume(TokenKind::ColonColon).is_some() {
-            if !self.check(TokenKind::Ident) {
+            if !self.check(TokenKind::Ident) && !self.check(TokenKind::Super) {
                 break;
             }
-            segments.push(self.parse_ident()?);
+            segments.push(self.parse_use_segment()?);
         }
 
         let end = segments.last().expect("segments not empty").span.end;
@@ -1562,132 +1523,144 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_parse_use_pkg_module() {
-        let source = "use pkg::utils;";
+    /// Parse a module expected to contain use items, and flatten them
+    /// through lowering (the semantic surface tests care about).
+    fn flatten_uses(source: &str) -> Vec<ambient_engine::ast::UseDef> {
         let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
-        assert_eq!(module.items.len(), 1);
-        match &module.items[0].kind {
-            CstItemKind::Use(u) => {
-                assert!(!u.is_public);
-                assert!(matches!(&u.prefix, CstUsePrefix::Pkg(_)));
-                assert_eq!(u.path.len(), 1);
-                assert_eq!(&*u.path[0].name, "utils");
-                assert!(matches!(u.kind, CstUseKind::Module));
-            }
-            _ => panic!("Expected use"),
-        }
+        let lowered = crate::lower::lower_module(&module).expect("lower error");
+        lowered
+            .items
+            .into_iter()
+            .filter_map(|item| match item.kind {
+                ambient_engine::ast::ItemKind::Use(u) => Some(u),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn path_names(u: &ambient_engine::ast::UseDef) -> Vec<&str> {
+        u.path.iter().map(|(name, _)| name.as_ref()).collect()
+    }
+
+    #[test]
+    fn test_parse_use_pkg_module() {
+        let uses = flatten_uses("use pkg::utils;");
+        assert_eq!(uses.len(), 1);
+        assert!(!uses[0].is_public);
+        assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Pkg);
+        assert_eq!(path_names(&uses[0]), ["utils"]);
+        assert!(uses[0].alias.is_none());
     }
 
     #[test]
     fn test_parse_use_pkg_nested() {
-        let source = "use pkg::utils::format;";
-        let mut parser = Parser::new(source).unwrap();
-        let module = parser.parse_module().expect("parse error");
-        match &module.items[0].kind {
-            CstItemKind::Use(u) => {
-                assert!(matches!(&u.prefix, CstUsePrefix::Pkg(_)));
-                assert_eq!(u.path.len(), 2);
-                assert_eq!(&*u.path[0].name, "utils");
-                assert_eq!(&*u.path[1].name, "format");
-                assert!(matches!(u.kind, CstUseKind::Module));
-            }
-            _ => panic!("Expected use"),
-        }
+        let uses = flatten_uses("use pkg::utils::format;");
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Pkg);
+        assert_eq!(path_names(&uses[0]), ["utils", "format"]);
     }
 
     #[test]
     fn test_parse_use_pkg_items() {
-        let source = "use pkg::utils::{format, parse};";
-        let mut parser = Parser::new(source).unwrap();
-        let module = parser.parse_module().expect("parse error");
-        match &module.items[0].kind {
-            CstItemKind::Use(u) => {
-                assert!(matches!(&u.prefix, CstUsePrefix::Pkg(_)));
-                assert_eq!(u.path.len(), 1);
-                assert_eq!(&*u.path[0].name, "utils");
-                match &u.kind {
-                    CstUseKind::Items(items) => {
-                        assert_eq!(items.len(), 2);
-                        assert_eq!(&*items[0].name, "format");
-                        assert_eq!(&*items[1].name, "parse");
-                    }
-                    _ => panic!("Expected items import"),
-                }
-            }
-            _ => panic!("Expected use"),
-        }
+        // Braces are pure grouping: the tree flattens to one UseDef per leaf.
+        let uses = flatten_uses("use pkg::utils::{format, parse};");
+        assert_eq!(uses.len(), 2);
+        assert_eq!(path_names(&uses[0]), ["utils", "format"]);
+        assert_eq!(path_names(&uses[1]), ["utils", "parse"]);
     }
 
     #[test]
-    fn test_parse_use_core() {
-        let source = "use core::io;";
+    fn test_parse_use_nested_groups() {
+        let uses = flatten_uses("use pkg::a::{b::c, d::{e, f as g}};");
+        assert_eq!(uses.len(), 3);
+        assert_eq!(path_names(&uses[0]), ["a", "b", "c"]);
+        assert_eq!(path_names(&uses[1]), ["a", "d", "e"]);
+        assert_eq!(path_names(&uses[2]), ["a", "d", "f"]);
+        assert_eq!(uses[2].alias.as_ref().map(|(n, _)| n.as_ref()), Some("g"));
+        assert_eq!(uses[2].local_name().map(AsRef::as_ref), Some("g"));
+    }
+
+    #[test]
+    fn test_parse_use_root_group() {
+        let uses = flatten_uses("use {core::math, platform::Stdio};");
+        assert_eq!(uses.len(), 2);
+        assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Core);
+        assert_eq!(path_names(&uses[0]), ["math"]);
+        assert_eq!(uses[1].prefix, ambient_engine::ast::UsePrefix::Platform);
+        assert_eq!(path_names(&uses[1]), ["Stdio"]);
+    }
+
+    #[test]
+    fn test_parse_use_alias() {
+        let uses = flatten_uses("use core::math::sqrt as root2;");
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Core);
+        assert_eq!(path_names(&uses[0]), ["math", "sqrt"]);
+        assert_eq!(uses[0].local_name().map(AsRef::as_ref), Some("root2"));
+    }
+
+    #[test]
+    fn test_parse_use_local_root() {
+        // A path rooted at a module alias from another use.
+        let uses = flatten_uses("use pkg::deep::nested;\nuse nested::leaf::f;");
+        assert_eq!(uses.len(), 2);
+        assert_eq!(uses[1].prefix, ambient_engine::ast::UsePrefix::Local);
+        assert_eq!(path_names(&uses[1]), ["nested", "leaf", "f"]);
+    }
+
+    #[test]
+    fn test_parse_use_super_chain() {
+        let uses = flatten_uses("use super::super::m::f;");
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Super(2));
+        assert_eq!(path_names(&uses[0]), ["m", "f"]);
+    }
+
+    #[test]
+    fn test_parse_use_keyword_mid_path_is_error() {
+        let source = "use pkg::a::core::b;";
+        let mut parser = Parser::new(source).unwrap();
+        let module = parser.parse_module().expect("parse ok");
+        assert!(crate::lower::lower_module(&module).is_err());
+    }
+
+    #[test]
+    fn test_parse_use_in_block() {
+        let source = "fn f(): number {\n  use core::math::sqrt;\n  sqrt(16)\n}";
         let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
-        match &module.items[0].kind {
-            CstItemKind::Use(u) => {
-                assert!(matches!(&u.prefix, CstUsePrefix::Core(_)));
-                assert_eq!(u.path.len(), 1);
-                assert_eq!(&*u.path[0].name, "io");
-            }
-            _ => panic!("Expected use"),
-        }
+        let lowered = crate::lower::lower_module(&module).expect("lower error");
+        let ambient_engine::ast::ItemKind::Function(f) = &lowered.items[0].kind else {
+            panic!("expected function");
+        };
+        let ambient_engine::ast::ExprKind::Block(stmts, result) = &f.body.kind else {
+            panic!("expected block body");
+        };
+        assert!(matches!(
+            stmts[0].kind,
+            ambient_engine::ast::StmtKind::Use(_)
+        ));
+        assert!(result.is_some());
     }
 
     #[test]
     fn test_parse_use_platform() {
-        // `platform` is a contextual keyword in use-prefix position.
-        let source = "use platform::Network;";
-        let mut parser = Parser::new(source).unwrap();
-        let module = parser.parse_module().expect("parse error");
-        match &module.items[0].kind {
-            CstItemKind::Use(u) => {
-                assert!(matches!(&u.prefix, CstUsePrefix::Platform(_)));
-                assert_eq!(u.path.len(), 1);
-                assert_eq!(&*u.path[0].name, "Network");
-                assert!(matches!(&u.kind, CstUseKind::Module));
-            }
-            _ => panic!("Expected use"),
-        }
-    }
-
-    #[test]
-    fn test_parse_use_platform_items() {
-        let source = "use platform::{Network, Console};";
-        let mut parser = Parser::new(source).unwrap();
-        let module = parser.parse_module().expect("parse error");
-        match &module.items[0].kind {
-            CstItemKind::Use(u) => {
-                assert!(matches!(&u.prefix, CstUsePrefix::Platform(_)));
-                match &u.kind {
-                    CstUseKind::Items(items) => {
-                        assert_eq!(items.len(), 2);
-                        assert_eq!(&*items[0].name, "Network");
-                        assert_eq!(&*items[1].name, "Console");
-                    }
-                    _ => panic!("Expected items import"),
-                }
-            }
-            _ => panic!("Expected use"),
-        }
+        // `platform` is a contextual keyword in use-root position.
+        let uses = flatten_uses("use platform::Network;");
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Platform);
+        assert_eq!(path_names(&uses[0]), ["Network"]);
     }
 
     #[test]
     fn test_parse_use_pkg_named_platform() {
         // A user path segment `platform` under `pkg` is still `Pkg` — the
-        // contextual keyword only wins in prefix position.
-        let source = "use pkg::platform;";
-        let mut parser = Parser::new(source).unwrap();
-        let module = parser.parse_module().expect("parse error");
-        match &module.items[0].kind {
-            CstItemKind::Use(u) => {
-                assert!(matches!(&u.prefix, CstUsePrefix::Pkg(_)));
-                assert_eq!(u.path.len(), 1);
-                assert_eq!(&*u.path[0].name, "platform");
-            }
-            _ => panic!("Expected use"),
-        }
+        // contextual keyword only wins in root position.
+        let uses = flatten_uses("use pkg::platform;");
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Pkg);
+        assert_eq!(path_names(&uses[0]), ["platform"]);
     }
 
     #[test]
@@ -1713,70 +1686,33 @@ mod tests {
 
     #[test]
     fn test_parse_use_self() {
-        let source = "use self::sibling;";
-        let mut parser = Parser::new(source).unwrap();
-        let module = parser.parse_module().expect("parse error");
-        match &module.items[0].kind {
-            CstItemKind::Use(u) => {
-                assert!(matches!(&u.prefix, CstUsePrefix::Self_(_)));
-                assert_eq!(u.path.len(), 1);
-                assert_eq!(&*u.path[0].name, "sibling");
-            }
-            _ => panic!("Expected use"),
-        }
+        let uses = flatten_uses("use self::sibling;");
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Self_);
+        assert_eq!(path_names(&uses[0]), ["sibling"]);
     }
 
     #[test]
     fn test_parse_use_super() {
-        let source = "use super::parent;";
-        let mut parser = Parser::new(source).unwrap();
-        let module = parser.parse_module().expect("parse error");
-        match &module.items[0].kind {
-            CstItemKind::Use(u) => {
-                match &u.prefix {
-                    CstUsePrefix::Super(supers) => {
-                        assert_eq!(supers.len(), 1);
-                    }
-                    _ => panic!("Expected super prefix"),
-                }
-                assert_eq!(u.path.len(), 1);
-                assert_eq!(&*u.path[0].name, "parent");
-            }
-            _ => panic!("Expected use"),
-        }
+        let uses = flatten_uses("use super::parent;");
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Super(1));
+        assert_eq!(path_names(&uses[0]), ["parent"]);
     }
 
     #[test]
     fn test_parse_use_super_super() {
-        let source = "use super::super::grandparent;";
-        let mut parser = Parser::new(source).unwrap();
-        let module = parser.parse_module().expect("parse error");
-        match &module.items[0].kind {
-            CstItemKind::Use(u) => {
-                match &u.prefix {
-                    CstUsePrefix::Super(supers) => {
-                        assert_eq!(supers.len(), 2);
-                    }
-                    _ => panic!("Expected super prefix"),
-                }
-                assert_eq!(u.path.len(), 1);
-                assert_eq!(&*u.path[0].name, "grandparent");
-            }
-            _ => panic!("Expected use"),
-        }
+        let uses = flatten_uses("use super::super::grandparent;");
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Super(2));
+        assert_eq!(path_names(&uses[0]), ["grandparent"]);
     }
 
     #[test]
     fn test_parse_pub_use() {
-        let source = "pub use pkg::utils;";
-        let mut parser = Parser::new(source).unwrap();
-        let module = parser.parse_module().expect("parse error");
-        match &module.items[0].kind {
-            CstItemKind::Use(u) => {
-                assert!(u.is_public);
-                assert!(matches!(&u.prefix, CstUsePrefix::Pkg(_)));
-            }
-            _ => panic!("Expected use"),
-        }
+        let uses = flatten_uses("pub use pkg::utils;");
+        assert_eq!(uses.len(), 1);
+        assert!(uses[0].is_public);
+        assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Pkg);
     }
 }

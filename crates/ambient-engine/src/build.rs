@@ -198,10 +198,13 @@ pub fn build_package(
     let mut deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut paths_by_key: BTreeMap<String, ModulePath> = BTreeMap::new();
     for module in pkg.all_modules_mut() {
-        let module_deps = crate::resolve::resolve_module(&mut module.ast, &module.path, &registry);
+        // Block-use failures surface as diagnostics when the module
+        // checks (the pass runs again there); only the dependency set
+        // matters here.
+        let outcome = crate::resolve::resolve_module(&mut module.ast, &module.path, &registry);
         deps.insert(
             module.path.to_string(),
-            module_deps.iter().map(ToString::to_string).collect(),
+            outcome.deps.iter().map(ToString::to_string).collect(),
         );
         paths_by_key.insert(module.path.to_string(), module.path.clone());
     }

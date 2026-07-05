@@ -40,7 +40,7 @@ use std::sync::Arc;
 
 use ambient_engine::ast::{
     BindingId, Expr, ExprKind, Item, ItemKind, Module, Param, Pattern, PatternKind, QualifiedName,
-    Span, Stmt, StmtKind, UseDef, UseKind,
+    Span, Stmt, StmtKind, UseDef,
 };
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
@@ -333,22 +333,13 @@ impl Collector<'_> {
 
     /// Record reference occurrences for the symbols a `use` item imports.
     ///
-    /// A braced item (`use pkg::m::{foo}`) carries its name span directly. A
-    /// non-braced tail (`use pkg::m::foo`) leaves the final segment in the
-    /// path; it names a symbol only when it resolves as one (otherwise it is a
-    /// whole-module import, which is not a symbol occurrence).
+    /// Use trees are flattened during lowering, so every `UseDef` names one
+    /// entity by its final path segment; it counts as a symbol occurrence
+    /// only when it resolves as one (a whole-module import is not a symbol
+    /// occurrence).
     fn use_items(&mut self, use_def: &UseDef) {
-        match &use_def.kind {
-            UseKind::Items(items) => {
-                for (name, span) in items {
-                    self.import_ref(name, *span);
-                }
-            }
-            UseKind::Module => {
-                if let Some((name, span)) = use_def.path.last() {
-                    self.import_ref(name, *span);
-                }
-            }
+        if let Some((name, span)) = use_def.path.last() {
+            self.import_ref(name, *span);
         }
     }
 
@@ -502,6 +493,7 @@ impl Collector<'_> {
                 self.bind_local(binding.id, &binding.name, binding.name_span);
             }
             StmtKind::Expr(e) => self.expr(e),
+            StmtKind::Use(use_def) => self.use_items(use_def),
         }
     }
 

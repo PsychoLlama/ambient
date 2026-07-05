@@ -31,7 +31,10 @@ use crate::ast::{
     Expr, ExprKind, ItemKind, Module, Pattern, PatternKind, QualifiedName, Resolved, Stmt, StmtKind,
 };
 use crate::module_path::ModulePath;
-use crate::module_registry::{ExportKind, ModuleRegistry, ModuleScope, Namespace};
+use crate::module_registry::{
+    ExportKind, ImportError, ItemImport, ModuleRegistry, ModuleScope, Namespace,
+};
+use crate::types::{NamedType, Type};
 
 /// Resolve every cross-module reference in `module` to its canonical
 /// identity. See the module docs for the contract.
@@ -44,7 +47,7 @@ pub fn resolve_module(
     module: &mut Module,
     module_path: &ModulePath,
     registry: &ModuleRegistry,
-) -> BTreeSet<Arc<str>> {
+) -> ResolveOutcome {
     let scope = registry.build_module_scope(module_path);
     let mut resolver = Resolver::new(module, module_path, registry, scope);
     resolver.resolve(module);
@@ -56,7 +59,22 @@ pub fn resolve_module(
             resolver.deps.insert(import.module.to_string().into());
         }
     }
-    resolver.deps
+    ResolveOutcome {
+        deps: resolver.deps,
+        errors: resolver.import_errors,
+    }
+}
+
+/// What the resolve pass learned about a module.
+pub struct ResolveOutcome {
+    /// Foreign modules the module's references resolved into (dotted
+    /// paths, ordered): its true dependency set, which the build uses for
+    /// compilation ordering.
+    pub deps: BTreeSet<Arc<str>>,
+    /// Failed block-scoped imports. (Module-level import failures are
+    /// reported by the checker from the module scope; block-level `use`
+    /// items only exist here.)
+    pub errors: Vec<ImportError>,
 }
 
 struct Resolver<'r> {
@@ -76,6 +94,11 @@ struct Resolver<'r> {
     /// Lexical scope stack of local binding names (params, lets, pattern
     /// bindings, handler params). Locals shadow everything.
     locals: Vec<Vec<Arc<str>>>,
+    /// Import overlays from block-scoped `use` statements, innermost
+    /// last. Consulted before the module scope; popped with their block.
+    overlays: Vec<ModuleScope>,
+    /// Failed block-scoped imports, surfaced through [`ResolveOutcome`].
+    import_errors: Vec<ImportError>,
     /// Foreign modules that references resolved into (dotted paths).
     deps: BTreeSet<Arc<str>>,
 }
@@ -121,6 +144,8 @@ impl<'r> Resolver<'r> {
             module_types,
             module_abilities,
             locals: Vec::new(),
+            overlays: Vec::new(),
+            import_errors: Vec::new(),
             deps: BTreeSet::new(),
         }
     }
@@ -133,20 +158,46 @@ impl<'r> Resolver<'r> {
                     for ability in &mut f.abilities {
                         self.resolve_ability_ref(ability);
                     }
+                    for param in &mut f.params {
+                        if let Some(ty) = &mut param.ty {
+                            self.resolve_type(ty);
+                        }
+                    }
+                    if let Some(ty) = &mut f.ret_ty {
+                        self.resolve_type(ty);
+                    }
                     self.push_scope(f.params.iter().map(|p| Arc::clone(&p.name)).collect());
                     self.resolve_expr(&mut f.body);
                     self.pop_scope();
                 }
-                ItemKind::Const(c) => self.resolve_expr(&mut c.value),
+                ItemKind::Const(c) => {
+                    self.resolve_type(&mut c.ty);
+                    self.resolve_expr(&mut c.value);
+                }
                 ItemKind::Ability(a) => {
                     for dep in &mut a.dependencies {
                         self.resolve_ability_ref(dep);
                     }
+                    for method in &mut a.methods {
+                        for (_, ty) in &mut method.params {
+                            self.resolve_type(ty);
+                        }
+                        self.resolve_type(&mut method.ret_ty);
+                    }
                 }
                 ItemKind::Impl(imp) => {
+                    self.resolve_type(&mut imp.for_type);
                     for method in &mut imp.methods {
                         for ability in &mut method.abilities {
                             self.resolve_ability_ref(ability);
+                        }
+                        for param in &mut method.params {
+                            if let Some(ty) = &mut param.ty {
+                                self.resolve_type(ty);
+                            }
+                        }
+                        if let Some(ty) = &mut method.ret_ty {
+                            self.resolve_type(ty);
                         }
                         let mut names: Vec<Arc<str>> =
                             method.params.iter().map(|p| Arc::clone(&p.name)).collect();
@@ -158,10 +209,23 @@ impl<'r> Resolver<'r> {
                         self.pop_scope();
                     }
                 }
-                ItemKind::TypeAlias(_)
-                | ItemKind::Enum(_)
-                | ItemKind::Trait(_)
-                | ItemKind::Use(_) => {}
+                ItemKind::TypeAlias(t) => self.resolve_type(&mut t.ty),
+                ItemKind::Enum(e) => {
+                    for variant in &mut e.variants {
+                        if let Some(payload) = &mut variant.payload {
+                            self.resolve_type(payload);
+                        }
+                    }
+                }
+                ItemKind::Trait(t) => {
+                    for method in &mut t.methods {
+                        for (_, ty) in &mut method.params {
+                            self.resolve_type(ty);
+                        }
+                        self.resolve_type(&mut method.ret_ty);
+                    }
+                }
+                ItemKind::Use(_) => {}
             }
         }
     }
@@ -184,6 +248,24 @@ impl<'r> Resolver<'r> {
         } else {
             self.locals.push(vec![name]);
         }
+    }
+
+    /// The item bound to `name` in `ns`, innermost block overlay first.
+    fn scope_item(&self, name: &str, ns: Namespace) -> Option<&ItemImport> {
+        self.overlays
+            .iter()
+            .rev()
+            .find_map(|overlay| overlay.item(name, ns))
+            .or_else(|| self.scope.item(name, ns))
+    }
+
+    /// The module alias bound to `name`, innermost block overlay first.
+    fn scope_module(&self, name: &str) -> Option<&ModulePath> {
+        self.overlays
+            .iter()
+            .rev()
+            .find_map(|overlay| overlay.module(name))
+            .or_else(|| self.scope.module(name))
     }
 
     fn is_local(&self, name: &str) -> bool {
@@ -225,7 +307,7 @@ impl<'r> Resolver<'r> {
             if self.is_local(&name.name) || self.module_values.contains(&name.name) {
                 return;
             }
-            if let Some(import) = self.scope.item(&name.name, Namespace::Value)
+            if let Some(import) = self.scope_item(&name.name, Namespace::Value)
                 && matches!(import.kind, ExportKind::Function | ExportKind::Const)
             {
                 name.resolved = Some(self.canonical(&import.module.clone(), &import.name.clone()));
@@ -263,7 +345,7 @@ impl<'r> Resolver<'r> {
             if self.module_abilities.contains(&name.name) {
                 return;
             }
-            if let Some(import) = self.scope.item(&name.name, Namespace::Ability) {
+            if let Some(import) = self.scope_item(&name.name, Namespace::Ability) {
                 name.resolved = Some(self.canonical(&import.module.clone(), &import.name.clone()));
             }
             return;
@@ -281,12 +363,106 @@ impl<'r> Resolver<'r> {
             if self.module_types.contains(&name.name) {
                 return;
             }
-            if let Some(import) = self.scope.item(&name.name, Namespace::Type) {
+            if let Some(import) = self.scope_item(&name.name, Namespace::Type) {
                 name.resolved = Some(self.canonical(&import.module.clone(), &import.name.clone()));
             }
             return;
         }
         self.resolve_path_ref(name);
+    }
+
+    /// Resolve a dotted type reference inside a `types::Type` value.
+    ///
+    /// Type syntax lowers qualified names to dotted `Named` heads
+    /// (`pkg.shapes.Money`, `types.Shape`); this rewrites each to the
+    /// type it names:
+    ///
+    /// - an enum → `Named` with the enum's bare name and nominal uuid
+    ///   (exactly what the enum's own constructors produce),
+    /// - a non-generic type alias → the aliased type itself (`unique`
+    ///   aliases are already wrapped in `Type::Nominal`, so identity
+    ///   rides along),
+    /// - a reference into the current module → the bare local spelling.
+    ///
+    /// Generic type aliases would need parameter substitution, which
+    /// belongs to the checker; qualified references to them stay
+    /// unresolved and surface as undefined-type errors for now.
+    fn resolve_type(&mut self, ty: &mut Type) {
+        match ty {
+            Type::Named(n) => {
+                for arg in &mut n.args {
+                    self.resolve_type(arg);
+                }
+                if !n.name.contains('.') {
+                    return;
+                }
+                let segments: Vec<Arc<str>> = n.name.split('.').map(Arc::from).collect();
+                let Some((item, prefix)) = segments.split_last() else {
+                    return;
+                };
+                let Some(target) = self.resolve_module_prefix(prefix) else {
+                    return;
+                };
+                if target == *self.current {
+                    // A self-reference by qualified path: the bare local
+                    // name is the canonical spelling.
+                    n.name = Arc::clone(item);
+                    return;
+                }
+                // Visibility check (and re-export chasing) through the
+                // ordinary symbol lookup.
+                let Ok((_, origin)) = self.registry.lookup_symbol(&target, item) else {
+                    return;
+                };
+                let Some(info) = self.registry.get(&origin) else {
+                    return;
+                };
+                self.deps.insert(origin.to_string().into());
+                for decl in &info.module.items {
+                    match &decl.kind {
+                        ItemKind::Enum(def) if def.name == *item => {
+                            *ty = Type::Named(NamedType {
+                                name: Arc::clone(&def.name),
+                                args: std::mem::take(&mut n.args),
+                                uuid: Some(def.uuid),
+                            });
+                            return;
+                        }
+                        ItemKind::TypeAlias(def)
+                            if def.name == *item && def.type_params.is_empty() =>
+                        {
+                            *ty = def.ty.clone();
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Type::Tuple(elems) => {
+                for elem in elems {
+                    self.resolve_type(elem);
+                }
+            }
+            Type::Record(rec) => {
+                let fields = std::mem::take(&mut rec.fields);
+                rec.fields = fields
+                    .into_iter()
+                    .map(|(name, mut field_ty)| {
+                        self.resolve_type(&mut field_ty);
+                        (name, field_ty)
+                    })
+                    .collect();
+            }
+            Type::Function(f) => {
+                for param in &mut f.params {
+                    self.resolve_type(param);
+                }
+                self.resolve_type(&mut f.ret);
+            }
+            Type::Nominal(n) => self.resolve_type(&mut n.inner),
+            Type::Forall(forall) => self.resolve_type(&mut forall.body),
+            _ => {}
+        }
     }
 
     /// Look up `name` as an item of `module`, chasing `pub use` re-export
@@ -348,7 +524,7 @@ impl<'r> Resolver<'r> {
                 if self.is_local(head) || self.module_types.contains(head) {
                     return None;
                 }
-                let alias = self.scope.module(head)?;
+                let alias = self.scope_module(head)?;
                 (Some(alias.clone()), &path[1..])
             }
         };
@@ -383,7 +559,7 @@ impl<'r> Resolver<'r> {
                 let target = (name.path.is_empty()
                     && !self.is_local(&name.name)
                     && !self.module_values.contains(&name.name))
-                .then(|| self.scope.module(&name.name).cloned())
+                .then(|| self.scope_module(&name.name).cloned())
                 .flatten()
                 .filter(|module| self.item_exists(module, method));
                 target.map(|module| {
@@ -468,15 +644,25 @@ impl<'r> Resolver<'r> {
             }
             ExprKind::Block(stmts, result) => {
                 self.push_scope(Vec::new());
+                self.overlays.push(ModuleScope::default());
                 for stmt in stmts {
                     self.resolve_stmt(stmt);
                 }
                 if let Some(result) = result {
                     self.resolve_expr(result);
                 }
+                self.overlays.pop();
                 self.pop_scope();
             }
             ExprKind::Lambda(lambda) => {
+                for param in &mut lambda.params {
+                    if let Some(ty) = &mut param.ty {
+                        self.resolve_type(ty);
+                    }
+                }
+                if let Some(ty) = &mut lambda.ret_ty {
+                    self.resolve_type(ty);
+                }
                 self.push_scope(lambda.params.iter().map(|p| Arc::clone(&p.name)).collect());
                 self.resolve_expr(&mut lambda.body);
                 self.pop_scope();
@@ -527,10 +713,68 @@ impl<'r> Resolver<'r> {
     fn resolve_stmt(&mut self, stmt: &mut Stmt) {
         match &mut stmt.kind {
             StmtKind::Let(binding) => {
+                if let Some(ty) = &mut binding.ty {
+                    self.resolve_type(ty);
+                }
                 self.resolve_expr(&mut binding.init);
                 self.declare_local(Arc::clone(&binding.name));
             }
             StmtKind::Expr(expr) => self.resolve_expr(expr),
+            StmtKind::Use(use_def) => self.bind_block_use(use_def, stmt.span),
+        }
+    }
+
+    /// Bind a block-scoped `use` into the innermost overlay. Semantics
+    /// match a module-level `use`, except the binding ends with the
+    /// enclosing block and `Local` heads may resolve through any visible
+    /// scope (outer blocks, then the module scope).
+    fn bind_block_use(&mut self, use_def: &crate::ast::UseDef, span: crate::ast::Span) {
+        use crate::ast::UsePrefix;
+
+        let path_names: Vec<Arc<str>> = use_def.path.iter().map(|(name, _)| name.clone()).collect();
+        let target = if use_def.prefix == UsePrefix::Local {
+            let Some(head) = path_names.first() else {
+                return;
+            };
+            let Some(base) = self.scope_module(head).cloned() else {
+                self.import_errors.push(ImportError {
+                    error: crate::module_registry::RegistryError::UnresolvedHead {
+                        head: head.to_string(),
+                    },
+                    span,
+                });
+                return;
+            };
+            let mut segments = base.segments().to_vec();
+            segments.extend(path_names[1..].iter().cloned());
+            match ModulePath::from_segments(segments) {
+                Some(target) => target,
+                None => return,
+            }
+        } else {
+            match self
+                .registry
+                .resolve_use_path(self.current, &use_def.prefix, &path_names)
+            {
+                Ok(target) => target,
+                Err(error) => {
+                    self.import_errors.push(ImportError { error, span });
+                    return;
+                }
+            }
+        };
+
+        let mut bound = ModuleScope::default();
+        self.registry
+            .bind_use_target(&mut bound, use_def, &target, span);
+        self.import_errors.append(&mut bound.errors);
+        if let Some(overlay) = self.overlays.last_mut() {
+            for (name, module) in bound.modules {
+                overlay.modules.insert(name, module);
+            }
+            for (name, imports) in bound.items {
+                overlay.items.insert(name, imports);
+            }
         }
     }
 }

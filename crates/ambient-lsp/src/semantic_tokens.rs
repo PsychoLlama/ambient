@@ -422,6 +422,10 @@ impl<'a> TokenCollector<'a> {
             StmtKind::Expr(expr) => {
                 self.visit_expr(expr);
             }
+            StmtKind::Use(_) => {
+                // Import paths get their coloring from the syntactic
+                // highlighter; nothing semantic to add.
+            }
         }
     }
 

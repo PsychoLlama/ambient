@@ -103,6 +103,7 @@ fn find_expr_in_tree(expr: &Expr, offset: u32) -> Option<&Expr> {
                         StmtKind::Expr(e) => {
                             return find_expr_in_tree(e, offset);
                         }
+                        StmtKind::Use(_) => return None,
                     }
                 }
             }

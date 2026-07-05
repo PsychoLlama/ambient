@@ -120,15 +120,19 @@ impl Infer {
             }
 
             ExprKind::TypedRecord { type_name, fields } => {
-                // Look up the type alias
-                let type_alias = self.get_type_alias(&type_name.name).ok_or_else(|| {
-                    type_error(
-                        TypeErrorKind::UndefinedTypeName {
-                            name: type_name.name.clone(),
-                        },
-                        span,
-                    )
-                })?;
+                // Look up the type alias by its resolution key: the bare
+                // name for local/imported types, the canonical qualified
+                // key for path references (`pkg::shapes::Money { … }`).
+                let type_alias = self
+                    .get_type_alias(&type_name.resolution_key())
+                    .ok_or_else(|| {
+                        type_error(
+                            TypeErrorKind::UndefinedTypeName {
+                                name: type_name.joined(),
+                            },
+                            span,
+                        )
+                    })?;
                 let full_type = type_alias.clone();
 
                 // Get the expected record type (unwrap Nominal if present)
@@ -297,6 +301,11 @@ impl Infer {
                         }
                         StmtKind::Expr(expr) => {
                             self.infer_expr(&block_env, expr)?;
+                        }
+                        StmtKind::Use(_) => {
+                            // Block-scoped imports are a name-resolution
+                            // construct consumed by the resolve pass; they
+                            // type as nothing and compile to nothing.
                         }
                     }
                 }

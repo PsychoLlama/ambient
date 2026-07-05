@@ -678,6 +678,13 @@ pub enum StmtKind {
 
     /// Expression statement: `expr;`.
     Expr(Expr),
+
+    /// Block-scoped import: `use pkg::utils::helper;` inside a block.
+    /// Binds like a module-level `use` from here to the end of the
+    /// enclosing block. Purely a name-resolution construct: the resolve
+    /// pass consumes it, the checker types it as `()`, and the compiler
+    /// emits nothing for it.
+    Use(UseDef),
 }
 
 /// A let binding.
@@ -899,27 +906,46 @@ pub struct AbilityMethod {
     pub span: Span,
 }
 
-/// A use/import statement.
+/// One flattened use/import declaration.
 ///
-/// Examples:
-/// - `use pkg::utils;` - Import module
-/// - `use pkg::utils::helper;` - Import specific item
-/// - `use pkg::utils::{helper, format};` - Import multiple items
-/// - `use pkg::utils::*;` - Import all public items
-/// - `use self::sibling;` - Relative import (same directory)
-/// - `use super::parent;` - Parent directory import
-/// - `use core::List;` - Standard library import
-/// - `pub use pkg::other::Thing;` - Re-export
+/// Source `use` items are Rust-style use-trees — nested brace groups,
+/// `as` aliases, keyword or alias roots — and lowering flattens each
+/// tree into one `UseDef` per imported leaf. Braces are pure grouping:
+/// `use a::b::{c, d};` is exactly `use a::b::c; use a::b::d;`. Each leaf
+/// names an entity by its final segment, and the resolver binds every
+/// namespace meaning that exists (submodule, value, type, ability).
+///
+/// Examples (each line is one `UseDef` after flattening):
+/// - `use pkg::utils;` — whole-module import
+/// - `use pkg::utils::helper;` — item import
+/// - `use core::math::sqrt as root2;` — aliased import
+/// - `use utils::inner;` — `Local` root: `utils` is a module alias from
+///   an earlier `use`
+/// - `pub use pkg::other::Thing;` — re-export
 #[derive(Debug, Clone)]
 pub struct UseDef {
     /// Whether this is a public re-export.
     pub is_public: bool,
     /// The import prefix determining the root.
     pub prefix: UsePrefix,
-    /// Path segments after the prefix, with their source spans.
+    /// Path segments after the prefix, with their source spans. For a
+    /// `Local` prefix the first segment is the in-scope module alias the
+    /// path is rooted at.
     pub path: Vec<(Arc<str>, Span)>,
-    /// What to import from the path.
-    pub kind: UseKind,
+    /// The local binding name when renamed with `as`.
+    pub alias: Option<(Arc<str>, Span)>,
+}
+
+impl UseDef {
+    /// The local name this import binds: the alias if renamed, else the
+    /// final path segment.
+    #[must_use]
+    pub fn local_name(&self) -> Option<&Arc<str>> {
+        self.alias
+            .as_ref()
+            .map(|(name, _)| name)
+            .or_else(|| self.path.last().map(|(name, _)| name))
+    }
 }
 
 /// The prefix of a use path, determining the root.
@@ -936,18 +962,9 @@ pub enum UsePrefix {
     /// `super::module` - Parent directory (can be chained: `super::super`)
     /// The number indicates how many levels up (1 for super, 2 for `super::super`)
     Super(usize),
-}
-
-/// What to import from a use path.
-#[derive(Debug, Clone)]
-pub enum UseKind {
-    /// Import the module itself: `use pkg::utils;`
-    /// Brings the module name into scope.
-    Module,
-    /// Import specific items: `use pkg::utils::{helper, format};`
-    /// Each item carries the source span of its name (for IDE features:
-    /// go-to-definition, references, and rename on a braced import name).
-    Items(Vec<(Arc<str>, Span)>),
+    /// `alias::module` - Rooted at a module alias bound by another `use`
+    /// in the same scope. The alias is the path's first segment.
+    Local,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
