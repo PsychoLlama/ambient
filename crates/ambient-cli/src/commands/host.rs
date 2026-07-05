@@ -113,9 +113,17 @@ impl RuntimeHost {
     /// Deploy a build: install it as the current code generation and run
     /// `entry` as a reconciliation pass over the live process tree.
     pub fn deploy(&self, compiled: &CompiledModule, entry: &str) -> Result<DeployOutcome> {
+        // Function names in the merged build carry their canonical module
+        // qualifier (`main::run`). A bare entry (`run`, the default) names a
+        // function in the root `main` module, so fall back to that identity.
         let entry_hash = compiled
             .function_names
             .get(entry)
+            .or_else(|| {
+                compiled
+                    .function_names
+                    .get(format!("main::{entry}").as_str())
+            })
             .ok_or_else(|| anyhow::anyhow!("entry function `{entry}` not found"))?;
 
         // Execute serves functions from the store; register every

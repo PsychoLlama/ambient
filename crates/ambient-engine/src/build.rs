@@ -257,14 +257,35 @@ pub fn build_package(
             let _ = db.populate_from_module(&compiled, &package_name, module_key, &visibility);
         }
 
-        // Record this module's function hashes for dependents.
+        // Record this module's function hashes for dependents, keyed by
+        // their bare names (the linking table qualifies them itself).
         let mut func_hashes = HashMap::new();
         for (name, hash) in &compiled.function_names {
             func_hashes.insert(Arc::clone(name), *hash);
         }
         module_function_hashes.insert(module_path.clone(), func_hashes);
 
-        // Merge into the final module.
+        // Merge into the final module, qualifying this module's function
+        // names with its module path (`math::gcd`) — the canonical identity
+        // (`resolution_key`), matching how core modules are merged below.
+        // Package modules were previously merged bare, which surfaced as
+        // unqualified store names (`gcd`) and silently clobbered same-named
+        // functions across modules in the merged map. Impl-method dispatch
+        // symbols are already globally unique (`<uuid>::Trait::method`), so
+        // they pass through unqualified like in `linking_table`.
+        let mut compiled = compiled;
+        compiled.function_names = compiled
+            .function_names
+            .iter()
+            .map(|(name, hash)| {
+                let qualified: Arc<str> = if name.contains("::") {
+                    Arc::clone(name)
+                } else {
+                    format!("{module_path}::{name}").into()
+                };
+                (qualified, *hash)
+            })
+            .collect();
         all_compiled.merge(&compiled);
     }
 
