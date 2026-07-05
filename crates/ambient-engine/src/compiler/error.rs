@@ -71,7 +71,7 @@ impl std::fmt::Display for CompileErrorKind {
             Self::Unsupported { feature } => write!(f, "unsupported feature: {feature}"),
             Self::UnknownAbility { name } => write!(f, "unknown ability: `{name}`"),
             Self::UnknownAbilityMethod { ability, method } => {
-                write!(f, "unknown ability method: `{ability}.{method}`")
+                write!(f, "unknown method `{method}` for ability `{ability}`")
             }
             Self::Internal { message } => write!(f, "internal compiler error: {message}"),
         }

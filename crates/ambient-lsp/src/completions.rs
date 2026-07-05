@@ -37,7 +37,7 @@ pub struct CompletionContext<'a> {
     /// Contains the submodule name (e.g., "List" for `core::List::`).
     pub after_core_submodule_dot: Option<&'a str>,
     /// Whether we're after a pkg module path (for pkg module member completion).
-    /// Contains the module path (e.g., "utils" for "utils." or "utils.format" for "utils.format.").
+    /// Contains the module path (e.g., "utils" for `utils::` or `utils::format` for `utils::format::`).
     pub after_pkg_module_dot: Option<&'a str>,
     /// Whether we're after a use statement prefix (pkg, core, self, super).
     pub in_use_statement: bool,
@@ -194,7 +194,7 @@ pub fn get_completions(
         return items;
     }
 
-    // If we're completing pkg module members (after "module_name.")
+    // If we're completing pkg module members (after "module_name::")
     if let Some(module_path) = ctx.after_pkg_module_dot {
         // An ability namespace (`platform::`) completes the bare names of
         // its abilities — the prefix is already typed.

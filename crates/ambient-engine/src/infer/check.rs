@@ -535,7 +535,7 @@ fn retain_imported_type_aliases(
     // Canonical qualified keys (`shapes.Money`) always stay: they can't
     // collide with bare names, and qualified references are visibility-
     // checked by the resolve pass.
-    infer.retain_type_aliases(|name| name.contains('.') || imported.contains(name));
+    infer.retain_type_aliases(|name| name.contains("::") || imported.contains(name));
 }
 
 /// Register the types, traits, and impls declared in the *other* modules of
@@ -577,7 +577,7 @@ fn register_package_items(
             if let crate::ast::ItemKind::TypeAlias(alias) = &item.kind
                 && alias.is_public
             {
-                let key: Arc<str> = format!("{}.{}", info.path, alias.name).into();
+                let key: Arc<str> = format!("{}::{}", info.path, alias.name).into();
                 infer.register_type_alias(key, alias.ty.clone());
             }
         }
@@ -1570,7 +1570,7 @@ pub fn resolve_ability_declarations(
 
 /// Resolve every registered module's `ability` declarations to their
 /// content-addressed identities, keyed canonically
-/// (`<module path>.<Ability>`).
+/// (`<module path>::<Ability>`).
 ///
 /// The build hands this to the compiler as its foreign-ability channel:
 /// performs and handler arms that the resolve pass canonicalized to a
@@ -1608,7 +1608,7 @@ pub fn resolve_registry_abilities(
                 if let Some(ability) = infer.ability_resolver.get_namespaced(&namespace, &def.name)
                 {
                     out.push((
-                        format!("{namespace}.{}", def.name).into(),
+                        format!("{namespace}::{}", def.name).into(),
                         Arc::clone(ability),
                     ));
                 }
@@ -1885,7 +1885,7 @@ fn bind_all_module_exports(
             if let Some(scheme) =
                 get_symbol_scheme(infer, &module_info.module, &export.name, export.kind)
             {
-                let qualified: Arc<str> = format!("{path}.{}", export.name).into();
+                let qualified: Arc<str> = format!("{path}::{}", export.name).into();
                 let binding_id = *next_binding_id;
                 *next_binding_id += 1;
                 env.insert(binding_id, qualified, scheme);

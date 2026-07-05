@@ -37,11 +37,10 @@ impl ReplLspBridge {
                 ReplItemKind::Function => ExternalSymbolKind::Function,
                 ReplItemKind::Constant => ExternalSymbolKind::Constant,
             };
-            // Names are keyed internally by their dotted path (e.g.
-            // `core.List.any`), but namespaces are surfaced to the user with
-            // `::`. Translate so completions read `core::List::any`. The eval
-            // path translates the accepted `::` back to `.` for lookup.
-            symbols.push(ExternalSymbol::new(name.replace('.', "::"), kind));
+            // Names are keyed internally by their `::` path (e.g.
+            // `core::List::any`), which is exactly how completions surface
+            // them to the user.
+            symbols.push(ExternalSymbol::new(name.to_string(), kind));
         }
 
         self.service.set_external_symbols(symbols);
@@ -238,7 +237,7 @@ fn path_to_module(path: &Path, src_root: &Path) -> Option<String> {
     let relative = path.strip_prefix(src_root).ok()?;
     let module_path = ambient_engine::module_path::ModulePath::from_relative_file_path(relative)?;
     // Qualified module paths are addressed with `::` (e.g. `pkg::foo::bar`).
-    Some(module_path.to_string().replace('.', "::"))
+    Some(module_path.to_string())
 }
 
 #[cfg(test)]

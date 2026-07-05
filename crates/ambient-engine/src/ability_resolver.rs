@@ -323,13 +323,13 @@ impl AbilityResolver {
                     .ok_or(AbilityRefError::Unknown)
             }
             segments => {
-                // A namespace is a dotted module path of any depth; the
+                // A namespace is a qualified module path of any depth; the
                 // reference's segments join to name it.
                 let namespace = segments
                     .iter()
                     .map(AsRef::as_ref)
                     .collect::<Vec<_>>()
-                    .join(".");
+                    .join("::");
                 if let Some(ability) = self.get_namespaced(&namespace, name) {
                     return Ok(ability.id);
                 }

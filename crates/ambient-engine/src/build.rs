@@ -257,14 +257,35 @@ pub fn build_package(
             let _ = db.populate_from_module(&compiled, &package_name, module_key, &visibility);
         }
 
-        // Record this module's function hashes for dependents.
+        // Record this module's function hashes for dependents, keyed by
+        // their bare names (the linking table qualifies them itself).
         let mut func_hashes = HashMap::new();
         for (name, hash) in &compiled.function_names {
             func_hashes.insert(Arc::clone(name), *hash);
         }
         module_function_hashes.insert(module_path.clone(), func_hashes);
 
-        // Merge into the final module.
+        // Merge into the final module, qualifying this module's function
+        // names with its module path (`math::gcd`) — the canonical identity
+        // (`resolution_key`), matching how core modules are merged below.
+        // Package modules were previously merged bare, which surfaced as
+        // unqualified store names (`gcd`) and silently clobbered same-named
+        // functions across modules in the merged map. Impl-method dispatch
+        // symbols are already globally unique (`<uuid>::Trait::method`), so
+        // they pass through unqualified like in `linking_table`.
+        let mut compiled = compiled;
+        compiled.function_names = compiled
+            .function_names
+            .iter()
+            .map(|(name, hash)| {
+                let qualified: Arc<str> = if name.contains("::") {
+                    Arc::clone(name)
+                } else {
+                    format!("{module_path}::{name}").into()
+                };
+                (qualified, *hash)
+            })
+            .collect();
         all_compiled.merge(&compiled);
     }
 
@@ -373,8 +394,8 @@ fn compilation_order(deps: &BTreeMap<String, Vec<String>>) -> Vec<String> {
 /// The linking table for a module about to compile: every already-compiled
 /// function, bound under its canonical name.
 ///
-/// - Ordinary functions bind as `<module path>.<name>` (`core.List.map`,
-///   `utils.helper`). The resolve pass rewrites every cross-module
+/// - Ordinary functions bind as `<module path>::<name>` (`core::List::map`,
+///   `utils::helper`). The resolve pass rewrites every cross-module
 ///   reference to exactly this key.
 /// - Impl-method dispatch symbols (`<uuid>::Trait::method`) are globally
 ///   unique and bind as-is, so cross-module method calls link.
@@ -392,7 +413,7 @@ pub fn linking_table(
             if name.contains("::") {
                 table.insert(Arc::clone(name), *hash);
             } else {
-                table.insert(format!("{path}.{name}").into(), *hash);
+                table.insert(format!("{path}::{name}").into(), *hash);
             }
         }
     }
@@ -431,7 +452,7 @@ pub fn build_imported_enums(
 }
 
 /// Collect every foreign constant in the build, keyed canonically
-/// (`utils.MAX`). Constants inline their literal value at each reference
+/// (`utils::MAX`). Constants inline their literal value at each reference
 /// site rather than linking by hash, so the compiler needs the
 /// definitions themselves — a separate channel from the linking table,
 /// mirroring [`build_imported_enums`]. All public constants are provided
@@ -451,7 +472,7 @@ pub fn build_foreign_constants(
             if let ItemKind::Const(def) = &item.kind
                 && def.is_public
             {
-                let key: Arc<str> = format!("{}.{}", info.path, def.name).into();
+                let key: Arc<str> = format!("{}::{}", info.path, def.name).into();
                 constants.push((key, def.clone()));
             }
         }
@@ -462,7 +483,7 @@ pub fn build_foreign_constants(
 /// Register and compile the embedded core library modules.
 ///
 /// Core modules are registered in the registry under their reserved
-/// `core.*` paths (so type checking can see them), compiled through the
+/// `core::*` paths (so type checking can see them), compiled through the
 /// ordinary pipeline, and their per-module function hashes are recorded
 /// into `module_function_hashes` (so calls link).
 ///
@@ -524,15 +545,22 @@ pub fn compile_core_modules(
             func_hashes.insert(Arc::clone(name), *hash);
         }
 
-        // Core modules share plain names (`list.map`, `option.map`, ...).
+        // Core modules share plain names (`list::map`, `option::map`, ...).
         // The merged artifact binds them fully qualified so they never
-        // collide with each other or with user functions.
+        // collide with each other or with user functions. Impl-method
+        // dispatch symbols are already globally unique and carry their own
+        // `::` (`List::all`), so they pass through unqualified — qualifying
+        // them again would produce a double-qualified `core::List::all`.
         let mut compiled = compiled;
         compiled.function_names = compiled
             .function_names
             .iter()
             .map(|(name, hash)| {
-                let qualified: Arc<str> = format!("{core_path}.{name}").into();
+                let qualified: Arc<str> = if name.contains("::") {
+                    Arc::clone(name)
+                } else {
+                    format!("{core_path}::{name}").into()
+                };
                 (qualified, *hash)
             })
             .collect();

@@ -221,11 +221,10 @@ fn eval_repl_input(
     // are addressed with `::`; a `.` is value/field access and must never resolve
     // a namespace, so a dotted path (e.g. `core.math.sign`) is not a module
     // inspection — it falls through to the parser, which rejects it. Modules are
-    // keyed internally by their dotted path, so translate the `::` the user types.
+    // keyed internally by their `::` path, matching what the user types.
     let trimmed = line.trim();
     if !trimmed.contains('.') {
-        let lookup = trimmed.replace("::", ".");
-        if let Some(module) = ctx.get_module(&lookup) {
+        if let Some(module) = ctx.get_module(trimmed) {
             return Ok(Some(ambient_engine::value::Value::Module(
                 std::sync::Arc::clone(module),
             )));
@@ -233,7 +232,7 @@ fn eval_repl_input(
 
         // Check if the input is a module member path (e.g., "core::List::first").
         // This allows users to inspect functions and constants from modules.
-        if let Some(kind) = ctx.get_module_member(&lookup) {
+        if let Some(kind) = ctx.get_module_member(trimmed) {
             use ambient_engine::value::ModuleMemberRef;
             return Ok(Some(ambient_engine::value::Value::ModuleMember(
                 std::sync::Arc::new(ModuleMemberRef {
@@ -372,8 +371,8 @@ fn register_project_modules(project_dir: &Path, repl_ctx: &Arc<Mutex<ReplContext
     let pkg_exports: Vec<ModuleExport> = modules
         .iter()
         .filter_map(|(name, _)| {
-            // Only include top-level modules (no dots in name)
-            if !name.contains('.') {
+            // Only include top-level modules (no `::` in name)
+            if !name.contains("::") {
                 Some(ModuleExport::new(name.as_str(), ModuleExportKind::Module))
             } else {
                 None
@@ -388,7 +387,7 @@ fn register_project_modules(project_dir: &Path, repl_ctx: &Arc<Mutex<ReplContext
     // Register each module with its exports
     for (module_name, source) in modules {
         let exports = parse_module_exports(&source);
-        let path = format!("pkg.{module_name}");
+        let path = format!("pkg::{module_name}");
         ctx.register_module(path.clone(), ModuleValue::new(path, exports));
 
         // Also register without pkg prefix for convenience (e.g., "math_utils" directly)
@@ -438,7 +437,7 @@ fn path_to_module_name(path: &Path, src_root: &Path) -> Option<String> {
         }
     }
 
-    Some(segments.join("."))
+    Some(segments.join("::"))
 }
 
 /// Compile core library modules and load them into the VM.
@@ -475,7 +474,7 @@ fn compile_and_load_core_library(ctx: &mut ReplContext, vm: &mut Vm) {
             let qualified_name: std::sync::Arc<str> = if name.contains("::") {
                 std::sync::Arc::clone(name)
             } else {
-                format!("core.{module_name}.{name}").into()
+                format!("core::{module_name}::{name}").into()
             };
 
             // Register the hash so the expression compiler can find it

@@ -81,7 +81,7 @@ pub type BindingId = u32;
 /// the module was checked without a registry).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resolved {
-    /// Dotted path of the defining module (`core.math`, `utils.format`).
+    /// Qualified path of the defining module (`core::math`, `utils::format`).
     pub module: Arc<str>,
     /// The item's name in the defining module (aliases unfolded: a
     /// reference through `use pkg::m::f as g;` resolves to name `f`).
@@ -89,16 +89,20 @@ pub struct Resolved {
 }
 
 impl Resolved {
-    /// The canonical dotted form: `<module>.<name>`.
+    /// The canonical qualified form: `<module>::<name>`, or the bare
+    /// `name` for a same-module reference (`module` is empty).
     #[must_use]
     pub fn joined(&self) -> Arc<str> {
-        format!("{}.{}", self.module, self.name).into()
+        if self.module.is_empty() {
+            return Arc::clone(&self.name);
+        }
+        format!("{}::{}", self.module, self.name).into()
     }
 
     /// The defining module's path segments.
     #[must_use]
     pub fn module_segments(&self) -> Vec<&str> {
-        self.module.split('.').collect()
+        self.module.split("::").collect()
     }
 }
 
@@ -132,8 +136,8 @@ impl PartialEq for QualifiedName {
 impl Eq for QualifiedName {}
 
 impl QualifiedName {
-    /// The full dotted form of this name (`core.List.map`), or just the
-    /// name when the path is empty.
+    /// The full qualified form of this name (`core::List::map`), or just
+    /// the name when the path is empty.
     #[must_use]
     pub fn joined(&self) -> Arc<str> {
         if self.path.is_empty() {
@@ -142,7 +146,7 @@ impl QualifiedName {
         let mut s = String::new();
         for segment in &self.path {
             s.push_str(segment);
-            s.push('.');
+            s.push_str("::");
         }
         s.push_str(&self.name);
         s.into()
@@ -150,7 +154,7 @@ impl QualifiedName {
 
     /// The key this reference is bound under in checker environments and
     /// linker tables: the canonical form when resolved, else the spelled
-    /// dotted form (which is already canonical for module-local names).
+    /// qualified form (which is already canonical for module-local names).
     #[must_use]
     pub fn resolution_key(&self) -> Arc<str> {
         self.resolved

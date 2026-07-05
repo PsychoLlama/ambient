@@ -269,7 +269,7 @@ impl std::fmt::Display for ModulePath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (i, segment) in self.segments.iter().enumerate() {
             if i > 0 {
-                write!(f, ".")?;
+                write!(f, "::")?;
             }
             write!(f, "{segment}")?;
         }
@@ -294,7 +294,7 @@ mod tests {
         let path = ModulePath::from_str_segments(&["utils", "format"]).unwrap();
         assert_eq!(path.segments().len(), 2);
         assert_eq!(path.name(), "format");
-        assert_eq!(path.to_string(), "utils.format");
+        assert_eq!(path.to_string(), "utils::format");
     }
 
     #[test]
@@ -306,7 +306,7 @@ mod tests {
     fn test_parent() {
         let path = ModulePath::from_str_segments(&["a", "b", "c"]).unwrap();
         let parent = path.parent().unwrap();
-        assert_eq!(parent.to_string(), "a.b");
+        assert_eq!(parent.to_string(), "a::b");
 
         let grandparent = parent.parent().unwrap();
         assert_eq!(grandparent.to_string(), "a");
@@ -318,7 +318,7 @@ mod tests {
     fn test_child() {
         let path = ModulePath::from_str_segments(&["utils"]).unwrap();
         let child = path.child("format");
-        assert_eq!(child.to_string(), "utils.format");
+        assert_eq!(child.to_string(), "utils::format");
     }
 
     #[test]
@@ -333,7 +333,7 @@ mod tests {
         let path = vec![Arc::from("utils"), Arc::from("helper")];
 
         let resolved = current.resolve_relative(&ImportPrefix::Pkg, &path).unwrap();
-        assert_eq!(resolved.to_string(), "utils.helper");
+        assert_eq!(resolved.to_string(), "utils::helper");
     }
 
     #[test]
@@ -344,7 +344,7 @@ mod tests {
         let resolved = current
             .resolve_relative(&ImportPrefix::Self_, &path)
             .unwrap();
-        assert_eq!(resolved.to_string(), "foo.sibling");
+        assert_eq!(resolved.to_string(), "foo::sibling");
     }
 
     #[test]
@@ -366,7 +366,7 @@ mod tests {
         let resolved = current
             .resolve_relative(&ImportPrefix::Super(1), &path)
             .unwrap();
-        assert_eq!(resolved.to_string(), "a.other");
+        assert_eq!(resolved.to_string(), "a::other");
     }
 
     #[test]
@@ -399,7 +399,7 @@ mod tests {
         let resolved = current
             .resolve_relative(&ImportPrefix::Core, &path)
             .expect("core paths resolve under the reserved `core` root");
-        assert_eq!(resolved.to_string(), "core.List");
+        assert_eq!(resolved.to_string(), "core::List");
     }
 
     #[test]
@@ -410,7 +410,7 @@ mod tests {
         let resolved = current
             .resolve_relative(&ImportPrefix::Platform, &path)
             .expect("platform paths resolve under the reserved `platform` root");
-        assert_eq!(resolved.to_string(), "platform.Network");
+        assert_eq!(resolved.to_string(), "platform::Network");
     }
 
     #[test]
