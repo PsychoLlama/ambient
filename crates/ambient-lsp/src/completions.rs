@@ -12,9 +12,9 @@ use ambient_engine::ability_resolver::{AbilityResolver, EngineTypeFactory, Metho
 use ambient_engine::ast::{Expr, ExprKind, FunctionDef, ItemKind, Module, Param, StmtKind};
 use ambient_engine::core_library::CoreLibrary;
 use ambient_engine::module_registry::ExportKind;
-use ambient_engine::symbol_db::{SymbolDb, SymbolKind};
 use ambient_parser::TokenKind;
 use lsp_types::{CompletionItem, CompletionItemKind, CompletionItemLabelDetails, InsertTextFormat};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::analysis::format_type;
@@ -150,11 +150,15 @@ impl<'a> CompletionContext<'a> {
 }
 
 /// Generate completions for a given context.
+///
+/// `registry` supplies pkg-module member completions; it is the same
+/// registry the document was checked against, rebuilt on every edit, so
+/// module members never go stale.
 #[must_use]
 pub fn get_completions(
     ctx: &CompletionContext<'_>,
     module: Option<&Module>,
-    symbol_db: Option<&SymbolDb>,
+    registry: Option<&ambient_engine::module_registry::ModuleRegistry>,
     resolver: &AbilityResolver,
 ) -> Vec<CompletionItem> {
     let mut items = Vec::new();
@@ -202,8 +206,12 @@ pub fn get_completions(
         if !items.is_empty() {
             return items;
         }
-        if let Some(db) = symbol_db {
-            items.extend(get_pkg_module_completions(db, module_path, ctx.word_prefix));
+        if let Some(registry) = registry {
+            items.extend(get_pkg_module_completions(
+                registry,
+                module_path,
+                ctx.word_prefix,
+            ));
         }
         return items;
     }
@@ -415,43 +423,60 @@ fn get_core_submodule_member_completions(submodule: &str, prefix: &str) -> Vec<C
     items
 }
 
-/// Get completions for pkg module members from `SymbolDb`.
+/// Get completions for pkg module members from the registry's export
+/// tables — the same data import resolution reads, refreshed per edit.
 fn get_pkg_module_completions(
-    db: &SymbolDb,
+    registry: &ambient_engine::module_registry::ModuleRegistry,
     module_path: &str,
     prefix: &str,
 ) -> Vec<CompletionItem> {
-    // The symbol database keys modules by their internal dotted path.
-    let Ok(symbols) = db.get_module_symbols(&module_path.replace("::", ".")) else {
+    let segments: Vec<Arc<str>> = module_path.split("::").map(Arc::from).collect();
+    let direct = ambient_engine::module_path::ModulePath::from_segments(segments.clone())
+        .and_then(|path| registry.get(&path));
+    // The path may be an alias whose bare name matches the module's final
+    // segment (`use pkg::a::b;` binds `b`). Fall back to a suffix match
+    // against registered modules.
+    let info = direct.or_else(|| {
+        registry
+            .all_modules()
+            .find(|info| info.path.segments().ends_with(&segments))
+    });
+    let Some(info) = info else {
         return Vec::new();
     };
 
-    symbols
+    let mut exports: Vec<_> = info.exports.values().filter(|e| e.is_public).collect();
+    exports.sort_by_key(|e| e.name_span.start);
+
+    exports
         .into_iter()
-        .filter_map(|entry| {
-            // Extract symbol name from path (last segment after the last dot)
-            let name = entry.path.rsplit('.').next()?;
+        .filter_map(|export| {
+            let name = export.name.as_ref();
             if !name.starts_with(prefix) {
                 return None;
             }
 
-            let item_kind = match entry.kind {
-                SymbolKind::Function => CompletionItemKind::FUNCTION,
-                SymbolKind::Const => CompletionItemKind::CONSTANT,
-                SymbolKind::Enum => CompletionItemKind::ENUM,
-                SymbolKind::Ability => CompletionItemKind::INTERFACE,
+            let item_kind = match export.kind {
+                ExportKind::Function => CompletionItemKind::FUNCTION,
+                ExportKind::Const => CompletionItemKind::CONSTANT,
+                ExportKind::TypeAlias => CompletionItemKind::STRUCT,
+                ExportKind::Enum => CompletionItemKind::ENUM,
+                ExportKind::EnumVariant => CompletionItemKind::ENUM_MEMBER,
+                ExportKind::Ability | ExportKind::Trait => CompletionItemKind::INTERFACE,
             };
-
-            let detail = format!("{module_path}::{name}");
 
             Some(CompletionItem {
                 label: name.to_string(),
                 kind: Some(item_kind),
-                detail: Some(detail),
+                detail: Some(format!("{module_path}::{name}")),
                 label_details: Some(CompletionItemLabelDetails {
                     detail: None,
                     description: Some(module_path.to_string()),
                 }),
+                documentation: export
+                    .doc
+                    .as_ref()
+                    .map(|d| lsp_types::Documentation::String(d.to_string())),
                 ..Default::default()
             })
         })

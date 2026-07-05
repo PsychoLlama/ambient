@@ -946,6 +946,32 @@ Source (.ab) → Parser (CST → AST) → Type Checker → Compiler → Bytecode
                                                    Bytecode VM
 ```
 
+### The shared analysis layer
+
+`crates/ambient-analysis` composes the parser and engine into one
+parse → check → diagnose pipeline, and it is the *only* place that
+decides what is an error. `ambient check` and the language server are
+both renderers over it: same package loading, same `ModuleRegistry`,
+same diagnostic text and spans, byte for byte (pinned by
+`crates/ambient-lsp/tests/parity.rs`). Behavior that must differ
+between the compiler and the editor is expressed inside the analysis
+crate, where it is visible and testable — never re-implemented in a
+frontend.
+
+Editor buffers are routinely mid-edit, so analysis parses with
+recovery (`ambient_parser::parse_recovering`): items that fail to
+parse are dropped, everything else is analyzed, and a broken file
+still contributes its parseable exports to the rest of the package.
+Type errors are computed on the partial module (they feed hover and
+completion) but reporting suppresses them while parse errors exist —
+a module with missing items produces cascading nonsense. The compiler
+pipeline (`build_package`) keeps fail-fast parsing.
+
+Cross-module name resolution — for the checker, for `use` handling,
+for go-to-definition and completions alike — is the engine's
+`ModuleRegistry` (`resolve_imports`, `lookup_symbol`,
+span-and-doc-carrying `ExportInfo`). The LSP holds no parallel index.
+
 ### Bytecode VM
 
 Stack-based VM with:

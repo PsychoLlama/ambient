@@ -710,14 +710,15 @@ fn handle_completion(id: RequestId, params: &CompletionParams, state: &ServerSta
         .get(uri.as_str())
         .map(|analysis| &analysis.result.module);
 
-    // Create completion context and get completions.
+    // Create completion context and get completions. Module-member
+    // completions read the same registry the document was checked
+    // against, so they refresh with every edit.
+    let registry = state
+        .analyses
+        .get(uri.as_str())
+        .map(|analysis| analysis.registry.as_ref());
     let ctx = CompletionContext::new(&doc.text, offset, &state.ability_resolver);
-    let items = get_completions(
-        &ctx,
-        module,
-        state.symbol_db.as_ref(),
-        &state.ability_resolver,
-    );
+    let items = get_completions(&ctx, module, registry, &state.ability_resolver);
 
     let response = CompletionResponse::Array(items);
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
