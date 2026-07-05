@@ -367,8 +367,8 @@ impl std::fmt::Display for TypeErrorKind {
             } => {
                 write!(
                     f,
-                    "handler method `{ability}.{method}` expects {expected} parameters, \
-                     but handler provides {actual}"
+                    "handler method `{method}` for ability `{ability}` expects \
+                     {expected} parameters, but handler provides {actual}"
                 )
             }
             Self::HandlerMissingMethod { ability, method } => {
