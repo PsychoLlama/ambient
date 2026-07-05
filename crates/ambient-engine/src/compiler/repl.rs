@@ -97,15 +97,15 @@ impl ReplContext {
         self.modules.contains_key(path)
     }
 
-    /// Look up a module member by path (e.g., "core.List.first").
+    /// Look up a module member by path (e.g., `core::List::first`).
     /// Returns the export kind if found.
     #[must_use]
     pub fn get_module_member(&self, path: &str) -> Option<ModuleExportKind> {
         // Split path into module path and member name
-        // e.g., "core.List.first" -> module="core.List", member="first"
-        let dot_pos = path.rfind('.')?;
-        let module_path = &path[..dot_pos];
-        let member_name = &path[dot_pos + 1..];
+        // e.g., "core::List::first" -> module="core::List", member="first"
+        let sep_pos = path.rfind("::")?;
+        let module_path = &path[..sep_pos];
+        let member_name = &path[sep_pos + 2..];
 
         // Look up the module
         let module = self.modules.get(module_path)?;
@@ -155,7 +155,7 @@ impl ReplContext {
                 }
             }
 
-            let path = format!("core.{module_name}");
+            let path = format!("core::{module_name}");
             self.register_module(path.clone(), ModuleValue::new(path, exports));
         }
     }
@@ -163,7 +163,7 @@ impl ReplContext {
     /// Register a core library function with its qualified name.
     ///
     /// Called by the REPL initialization code after compiling core library modules.
-    /// E.g., `register_core_function("core.List.last", hash)` makes `core::List::last()`
+    /// E.g., `register_core_function("core::List::last", hash)` makes `core::List::last()`
     /// callable from the REPL.
     pub fn register_core_function(&mut self, qualified_name: Arc<str>, hash: blake3::Hash) {
         self.function_hashes.insert(qualified_name.clone(), hash);

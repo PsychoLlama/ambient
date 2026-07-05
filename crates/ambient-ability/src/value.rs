@@ -99,7 +99,7 @@ pub enum Value {
 /// Reference to a module member for introspection.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModuleMemberRef {
-    /// Full path to the member (e.g., "core.List.first").
+    /// Full path to the member (e.g., `core::List::first`).
     pub path: Arc<str>,
     /// The kind of member.
     pub kind: ModuleExportKind,
@@ -413,7 +413,7 @@ impl EnumValue {
 /// path and list of exports (functions, constants, types, etc.).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModuleValue {
-    /// The module path (e.g., "pkg.utils" or "core.math").
+    /// The module path (e.g., `pkg::utils` or `core::math`).
     pub path: Arc<str>,
 
     /// Exported symbols from this module.
@@ -1272,8 +1272,8 @@ mod tests {
             ModuleExport::new("func1", ModuleExportKind::Function),
             ModuleExport::new("const1", ModuleExportKind::Const),
         ];
-        let module = ModuleValue::new("pkg.utils", exports);
-        assert_eq!(&*module.path, "pkg.utils");
+        let module = ModuleValue::new("pkg::utils", exports);
+        assert_eq!(&*module.path, "pkg::utils");
         assert_eq!(module.exports.len(), 2);
     }
 

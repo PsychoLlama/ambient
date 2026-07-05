@@ -176,7 +176,7 @@ pub fn register_declaration_module(
     source: &str,
     parse: impl Fn(&str) -> Result<crate::ast::Module, String>,
 ) -> Result<ModulePath, (String, String)> {
-    let joined = segments.join(".");
+    let joined = segments.join("::");
     let module = parse(source).map_err(|e| (joined.clone(), e))?;
     let path = ModulePath::from_str_segments(segments)
         .unwrap_or_else(|| panic!("declaration module path must be non-empty"));
@@ -186,7 +186,10 @@ pub fn register_declaration_module(
 
 /// Convert a path to a module name.
 fn path_to_name(path: &[Arc<str>]) -> String {
-    path.iter().map(AsRef::as_ref).collect::<Vec<_>>().join(".")
+    path.iter()
+        .map(AsRef::as_ref)
+        .collect::<Vec<_>>()
+        .join("::")
 }
 
 /// Get the map of core modules and their source code.
@@ -231,7 +234,7 @@ mod tests {
     #[test]
     fn test_to_module_path() {
         let path = CoreLibrary::to_module_path(&[Arc::from("List")]);
-        assert_eq!(path.to_string(), "core.List");
+        assert_eq!(path.to_string(), "core::List");
     }
 
     #[test]
@@ -249,6 +252,6 @@ mod tests {
         assert!(source.contains("type Duration"));
 
         let path = CoreLibrary::to_module_path(&[Arc::from("time")]);
-        assert_eq!(path.to_string(), "core.time");
+        assert_eq!(path.to_string(), "core::time");
     }
 }

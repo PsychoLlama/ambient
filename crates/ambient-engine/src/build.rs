@@ -373,8 +373,8 @@ fn compilation_order(deps: &BTreeMap<String, Vec<String>>) -> Vec<String> {
 /// The linking table for a module about to compile: every already-compiled
 /// function, bound under its canonical name.
 ///
-/// - Ordinary functions bind as `<module path>.<name>` (`core.List.map`,
-///   `utils.helper`). The resolve pass rewrites every cross-module
+/// - Ordinary functions bind as `<module path>::<name>` (`core::List::map`,
+///   `utils::helper`). The resolve pass rewrites every cross-module
 ///   reference to exactly this key.
 /// - Impl-method dispatch symbols (`<uuid>::Trait::method`) are globally
 ///   unique and bind as-is, so cross-module method calls link.
@@ -392,7 +392,7 @@ pub fn linking_table(
             if name.contains("::") {
                 table.insert(Arc::clone(name), *hash);
             } else {
-                table.insert(format!("{path}.{name}").into(), *hash);
+                table.insert(format!("{path}::{name}").into(), *hash);
             }
         }
     }
@@ -431,7 +431,7 @@ pub fn build_imported_enums(
 }
 
 /// Collect every foreign constant in the build, keyed canonically
-/// (`utils.MAX`). Constants inline their literal value at each reference
+/// (`utils::MAX`). Constants inline their literal value at each reference
 /// site rather than linking by hash, so the compiler needs the
 /// definitions themselves — a separate channel from the linking table,
 /// mirroring [`build_imported_enums`]. All public constants are provided
@@ -451,7 +451,7 @@ pub fn build_foreign_constants(
             if let ItemKind::Const(def) = &item.kind
                 && def.is_public
             {
-                let key: Arc<str> = format!("{}.{}", info.path, def.name).into();
+                let key: Arc<str> = format!("{}::{}", info.path, def.name).into();
                 constants.push((key, def.clone()));
             }
         }
@@ -462,7 +462,7 @@ pub fn build_foreign_constants(
 /// Register and compile the embedded core library modules.
 ///
 /// Core modules are registered in the registry under their reserved
-/// `core.*` paths (so type checking can see them), compiled through the
+/// `core::*` paths (so type checking can see them), compiled through the
 /// ordinary pipeline, and their per-module function hashes are recorded
 /// into `module_function_hashes` (so calls link).
 ///
@@ -524,7 +524,7 @@ pub fn compile_core_modules(
             func_hashes.insert(Arc::clone(name), *hash);
         }
 
-        // Core modules share plain names (`list.map`, `option.map`, ...).
+        // Core modules share plain names (`list::map`, `option::map`, ...).
         // The merged artifact binds them fully qualified so they never
         // collide with each other or with user functions.
         let mut compiled = compiled;
@@ -532,7 +532,7 @@ pub fn compile_core_modules(
             .function_names
             .iter()
             .map(|(name, hash)| {
-                let qualified: Arc<str> = format!("{core_path}.{name}").into();
+                let qualified: Arc<str> = format!("{core_path}::{name}").into();
                 (qualified, *hash)
             })
             .collect();

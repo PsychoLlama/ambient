@@ -749,14 +749,14 @@ impl SymbolDb {
     /// Populate the database from a compiled module.
     ///
     /// This registers all named symbols and their dependencies from the compiled module.
-    /// The `module_path` should be the fully qualified module path (e.g., "mylib.utils").
+    /// The `module_path` should be the fully qualified module path (e.g., `mylib::utils`).
     /// The `package_name` is the package name for constructing symbol paths.
     ///
     /// # Example
     ///
     /// ```ignore
     /// let compiled = compile_module(&ast)?;
-    /// db.populate_from_module(&compiled, "mylib", "mylib.utils", &function_map)?;
+    /// db.populate_from_module(&compiled, "mylib", "mylib::utils", &function_map)?;
     /// ```
     /// Populate the database from a compiled module.
     ///
@@ -774,11 +774,11 @@ impl SymbolDb {
 
         // Register each named function
         for (name, hash) in &compiled.function_names {
-            // Build the full symbol path: package.module.name
+            // Build the full symbol path: package::module::name
             let symbol_path = if module_path.is_empty() {
-                format!("{package_name}.{name}")
+                format!("{package_name}::{name}")
             } else {
-                format!("{package_name}.{module_path}.{name}")
+                format!("{package_name}::{module_path}::{name}")
             };
 
             self.register_symbol(&symbol_path, SymbolKind::Function, module_path, *hash)?;
@@ -795,11 +795,11 @@ impl SymbolDb {
 
         // Register lambdas with their parent functions
         for (lambda_hash, parent_name) in &compiled.lambda_parents {
-            // Build the full parent symbol path: package.module.name
+            // Build the full parent symbol path: package::module::name
             let parent_path = if module_path.is_empty() {
-                format!("{package_name}.{parent_name}")
+                format!("{package_name}::{parent_name}")
             } else {
-                format!("{package_name}.{module_path}.{parent_name}")
+                format!("{package_name}::{module_path}::{parent_name}")
             };
 
             self.register_lambda(*lambda_hash, &parent_path)?;
@@ -845,28 +845,28 @@ mod tests {
         let hash = blake3::hash(b"test function");
 
         db.register_symbol(
-            "mylib.utils.format",
+            "mylib::utils::format",
             SymbolKind::Function,
-            "mylib.utils",
+            "mylib::utils",
             hash,
         )
         .expect("register failed");
 
         // Forward lookup: path -> hash
-        let found_hash = db.get_hash("mylib.utils.format").expect("lookup failed");
+        let found_hash = db.get_hash("mylib::utils::format").expect("lookup failed");
         assert_eq!(found_hash, Some(hash));
 
         // Reverse lookup: hash -> paths
         let paths = db.get_symbol_paths(hash).expect("reverse lookup failed");
-        assert_eq!(paths, vec!["mylib.utils.format"]);
+        assert_eq!(paths, vec!["mylib::utils::format"]);
 
         // Full entry lookup
         let entry = db
-            .lookup_symbol_path("mylib.utils.format")
+            .lookup_symbol_path("mylib::utils::format")
             .expect("lookup failed")
             .expect("not found");
         assert_eq!(entry.kind, SymbolKind::Function);
-        assert_eq!(entry.module_path, "mylib.utils");
+        assert_eq!(entry.module_path, "mylib::utils");
         assert_eq!(entry.hash, hash);
     }
 
@@ -876,24 +876,24 @@ mod tests {
         let hash = blake3::hash(b"identical implementation");
 
         db.register_symbol(
-            "lib1.utils.format",
+            "lib1::utils::format",
             SymbolKind::Function,
-            "lib1.utils",
+            "lib1::utils",
             hash,
         )
         .expect("register failed");
         db.register_symbol(
-            "lib2.utils.format",
+            "lib2::utils::format",
             SymbolKind::Function,
-            "lib2.utils",
+            "lib2::utils",
             hash,
         )
         .expect("register failed");
 
         let paths = db.get_symbol_paths(hash).expect("lookup failed");
         assert_eq!(paths.len(), 2);
-        assert!(paths.contains(&"lib1.utils.format".to_string()));
-        assert!(paths.contains(&"lib2.utils.format".to_string()));
+        assert!(paths.contains(&"lib1::utils::format".to_string()));
+        assert!(paths.contains(&"lib2::utils::format".to_string()));
     }
 
     #[test]
@@ -901,14 +901,14 @@ mod tests {
         let mut db = SymbolDb::open_in_memory().expect("open failed");
         let lambda_hash = blake3::hash(b"lambda body");
 
-        db.register_lambda(lambda_hash, "mylib.utils.process")
+        db.register_lambda(lambda_hash, "mylib::utils::process")
             .expect("register failed");
 
         let parent = db.get_lambda_parent(lambda_hash).expect("lookup failed");
-        assert_eq!(parent, Some("mylib.utils.process".to_string()));
+        assert_eq!(parent, Some("mylib::utils::process".to_string()));
 
         let lambdas = db
-            .get_lambdas_for_parent("mylib.utils.process")
+            .get_lambdas_for_parent("mylib::utils::process")
             .expect("lookup failed");
         assert_eq!(lambdas, vec![lambda_hash]);
     }
@@ -920,9 +920,9 @@ mod tests {
         let signature = Type::function(vec![Type::Number], Type::String);
 
         db.register_type(
-            "mylib.models.User",
+            "mylib::models::User",
             TypeKind::Named,
-            "mylib.models",
+            "mylib::models",
             type_hash,
             &signature,
             None,
@@ -930,7 +930,7 @@ mod tests {
         .expect("register failed");
 
         let entry = db
-            .get_type("mylib.models.User")
+            .get_type("mylib::models::User")
             .expect("lookup failed")
             .expect("not found");
         assert_eq!(entry.kind, TypeKind::Named);
@@ -961,17 +961,27 @@ mod tests {
         let mut db = SymbolDb::open_in_memory().expect("open failed");
         let hash = blake3::hash(b"test");
 
-        db.register_symbol("mylib.utils.foo", SymbolKind::Function, "mylib.utils", hash)
-            .expect("register failed");
-        db.register_symbol("mylib.utils.bar", SymbolKind::Function, "mylib.utils", hash)
-            .expect("register failed");
+        db.register_symbol(
+            "mylib::utils::foo",
+            SymbolKind::Function,
+            "mylib::utils",
+            hash,
+        )
+        .expect("register failed");
+        db.register_symbol(
+            "mylib::utils::bar",
+            SymbolKind::Function,
+            "mylib::utils",
+            hash,
+        )
+        .expect("register failed");
 
-        assert!(db.get_hash("mylib.utils.foo").expect("lookup").is_some());
+        assert!(db.get_hash("mylib::utils::foo").expect("lookup").is_some());
 
-        db.remove_module("mylib.utils").expect("remove failed");
+        db.remove_module("mylib::utils").expect("remove failed");
 
-        assert!(db.get_hash("mylib.utils.foo").expect("lookup").is_none());
-        assert!(db.get_hash("mylib.utils.bar").expect("lookup").is_none());
+        assert!(db.get_hash("mylib::utils::foo").expect("lookup").is_none());
+        assert!(db.get_hash("mylib::utils::bar").expect("lookup").is_none());
     }
 
     #[test]
@@ -979,11 +989,16 @@ mod tests {
         let mut db = SymbolDb::open_in_memory().expect("open failed");
         let hash = blake3::hash(b"test");
 
-        db.register_symbol("mylib.utils.foo", SymbolKind::Function, "mylib.utils", hash)
-            .expect("register failed");
+        db.register_symbol(
+            "mylib::utils::foo",
+            SymbolKind::Function,
+            "mylib::utils",
+            hash,
+        )
+        .expect("register failed");
 
         // Remove symbol but hash remains
-        db.remove_module("mylib.utils").expect("remove failed");
+        db.remove_module("mylib::utils").expect("remove failed");
 
         // GC should clean up orphaned hash
         let removed = db.gc_orphaned_hashes().expect("gc failed");
@@ -996,23 +1011,23 @@ mod tests {
         let hash = blake3::hash(b"test");
 
         db.register_symbol(
-            "mylib.utils.format",
+            "mylib::utils::format",
             SymbolKind::Function,
-            "mylib.utils",
+            "mylib::utils",
             hash,
         )
         .expect("register failed");
         db.register_symbol(
-            "mylib.utils.parse",
+            "mylib::utils::parse",
             SymbolKind::Function,
-            "mylib.utils",
+            "mylib::utils",
             hash,
         )
         .expect("register failed");
 
         let results = db.search_symbols("format").expect("search failed");
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].path, "mylib.utils.format");
+        assert_eq!(results[0].path, "mylib::utils::format");
 
         let results = db.search_symbols("utils").expect("search failed");
         assert_eq!(results.len(), 2);

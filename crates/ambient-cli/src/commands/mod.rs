@@ -106,7 +106,7 @@ pub fn core_context() -> Result<CoreContext> {
     let mut hashes = HashMap::new();
     for (path, module_hashes) in &module_function_hashes {
         for (name, hash) in module_hashes {
-            hashes.insert(format!("{path}.{name}").into(), *hash);
+            hashes.insert(format!("{path}::{name}").into(), *hash);
         }
     }
 

@@ -393,10 +393,10 @@ impl<'r> Resolver<'r> {
                 for arg in &mut n.args {
                     self.resolve_type(arg);
                 }
-                if !n.name.contains('.') {
+                if !n.name.contains("::") {
                     return;
                 }
-                let segments: Vec<Arc<str>> = n.name.split('.').map(Arc::from).collect();
+                let segments: Vec<Arc<str>> = n.name.split("::").map(Arc::from).collect();
                 let Some((item, prefix)) = segments.split_last() else {
                     return;
                 };

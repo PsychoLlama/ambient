@@ -1096,10 +1096,10 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
     }
 }
 
-/// The dotted name a type reference lowers to: the bare last segment for
-/// an unqualified reference, the full dotted path (`pkg.types.Money`,
-/// `core.time.Duration`) for a qualified one. The resolve pass
-/// (`ambient_engine::resolve`) rewrites dotted type names to their
+/// The qualified name a type reference lowers to: the bare last segment
+/// for an unqualified reference, the full qualified path (`pkg::types::Money`,
+/// `core::time::Duration`) for a qualified one. The resolve pass
+/// (`ambient_engine::resolve`) rewrites qualified type names to their
 /// canonical target.
 fn type_name_from_segments(qn: &CstQualifiedName) -> Arc<str> {
     if qn.segments.len() == 1 {
@@ -1109,7 +1109,7 @@ fn type_name_from_segments(qn: &CstQualifiedName) -> Arc<str> {
             .iter()
             .map(|seg| seg.name.as_ref())
             .collect::<Vec<_>>()
-            .join(".")
+            .join("::")
             .into()
     }
 }

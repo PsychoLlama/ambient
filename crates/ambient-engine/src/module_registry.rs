@@ -188,7 +188,7 @@ pub struct ItemImport {
 }
 
 impl ItemImport {
-    /// The canonical dotted identity: `<module>.<name>`.
+    /// The canonical identity: `<module>::<name>`.
     #[must_use]
     pub fn canonical(&self) -> crate::ast::Resolved {
         crate::ast::Resolved {
@@ -1120,7 +1120,7 @@ mod tests {
 
         let resolved = registry.resolve_use_path(&from, &UsePrefix::Pkg, &path);
         assert!(resolved.is_ok());
-        assert_eq!(resolved.unwrap().to_string(), "utils.format");
+        assert_eq!(resolved.unwrap().to_string(), "utils::format");
     }
 
     #[test]
@@ -1131,7 +1131,7 @@ mod tests {
 
         let resolved = registry.resolve_use_path(&from, &UsePrefix::Self_, &path);
         assert!(resolved.is_ok());
-        assert_eq!(resolved.unwrap().to_string(), "utils.sibling");
+        assert_eq!(resolved.unwrap().to_string(), "utils::sibling");
     }
 
     #[test]
@@ -1142,7 +1142,7 @@ mod tests {
 
         let resolved = registry.resolve_use_path(&from, &UsePrefix::Super(1), &path);
         assert!(resolved.is_ok());
-        assert_eq!(resolved.unwrap().to_string(), "a.other");
+        assert_eq!(resolved.unwrap().to_string(), "a::other");
     }
 
     #[test]
@@ -1154,7 +1154,7 @@ mod tests {
         let resolved = registry
             .resolve_use_path(&from, &UsePrefix::Core, &path)
             .expect("core resolves under the reserved root");
-        assert_eq!(resolved.to_string(), "core.List");
+        assert_eq!(resolved.to_string(), "core::List");
     }
 
     #[test]

@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS hashes (
 
 -- Symbol path -> Hash mapping
 CREATE TABLE IF NOT EXISTS symbol_paths (
-    path TEXT PRIMARY KEY,           -- e.g., "mylib.utils.format"
+    path TEXT PRIMARY KEY,           -- e.g., mylib::utils::format
     kind TEXT NOT NULL,              -- 'function', 'const', 'enum', 'ability'
     module_path TEXT NOT NULL,       -- for cleanup by module
     hash_id INTEGER NOT NULL REFERENCES hashes(id)
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS lambda_parents (
 
 -- Type registry (separate namespace)
 CREATE TABLE IF NOT EXISTS types (
-    path TEXT PRIMARY KEY,           -- "mylib.foo.MyType" or "mylib.foo.bar:param:0"
+    path TEXT PRIMARY KEY,           -- mylib::foo::MyType or "mylib::foo::bar:param:0"
     kind TEXT NOT NULL,              -- 'named', 'enum', 'alias', 'anonymous_record', 'anonymous_tuple'
     module_path TEXT NOT NULL,
     type_hash BLOB NOT NULL,
