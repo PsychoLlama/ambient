@@ -32,7 +32,7 @@ fn declarations_expose_the_expected_interfaces() {
     let prelude = resolved_prelude();
 
     let expected: [(&str, &[&str]); 8] = [
-        ("Console", &["print", "eprint", "println"]),
+        ("Stdio", &["out", "err", "read"]),
         ("Time", &["now", "wait"]),
         ("Random", &["seed", "in_range"]),
         ("Log", &["debug", "info", "warn", "error"]),

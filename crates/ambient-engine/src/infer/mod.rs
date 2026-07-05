@@ -37,7 +37,7 @@
 //! # Ability Tracking
 //!
 //! The type system tracks algebraic effects through ability sets on function
-//! types. A function `fn(): number / Console` can perform Console operations.
+//! types. A function `fn(): number / Stdio` can perform Stdio operations.
 //! The inference engine propagates these ability requirements and checks that
 //! all abilities are handled.
 //!
@@ -430,8 +430,8 @@ impl Infer {
     /// Resolve ability names from a source annotation to concrete ability IDs.
     ///
     /// Lowering has no ability resolver, so annotations like
-    /// `(T) -> U with platform::Console` arrive as
-    /// `AbilitySet::Unresolved(["platform::Console"])` — qualified names
+    /// `(T) -> U with platform::Stdio` arrive as
+    /// `AbilitySet::Unresolved(["platform::Stdio"])` — qualified names
     /// keep their `::`-joined spelling so the namespace policy applies
     /// here exactly like every other position that names an ability.
     /// Errors are recorded in `pending_errors` (drained by the

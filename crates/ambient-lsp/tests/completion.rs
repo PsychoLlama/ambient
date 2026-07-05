@@ -67,14 +67,14 @@ fn test_type_completion_bool() {
 }
 
 #[test]
-fn test_ability_completion_console() {
+fn test_ability_completion_stdio() {
     // A bare prefix offers the platform::-qualified spelling — the only
     // one the checker accepts.
     LspTest::new()
         .with_source("fn foo() { plat/*|*/ }")
         .complete_at("0")
-        .expect_item("platform::Console")
-        .expect_item_kind("platform::Console", CompletionItemKind::INTERFACE)
+        .expect_item("platform::Stdio")
+        .expect_item_kind("platform::Stdio", CompletionItemKind::INTERFACE)
         .done()
         .shutdown();
 }
@@ -84,31 +84,31 @@ fn test_ability_completion_after_namespace() {
     // After `platform::` the bare ability names complete (the prefix is
     // already typed).
     LspTest::new()
-        .with_source("fn foo() { platform::Con/*|*/ }")
+        .with_source("fn foo() { platform::Std/*|*/ }")
         .complete_at("0")
-        .expect_item("Console")
-        .expect_item_kind("Console", CompletionItemKind::INTERFACE)
+        .expect_item("Stdio")
+        .expect_item_kind("Stdio", CompletionItemKind::INTERFACE)
         .done()
         .shutdown();
 }
 
 #[test]
-fn test_ability_method_completion_print() {
+fn test_ability_method_completion_out() {
     LspTest::new()
-        .with_source("fn foo() { Console::pr/*|*/ }")
+        .with_source("fn foo() { Stdio::o/*|*/ }")
         .complete_at("0")
-        .expect_items(&["print!", "println!"])
-        .expect_item_kind("print!", CompletionItemKind::METHOD)
+        .expect_items(&["out!"])
+        .expect_item_kind("out!", CompletionItemKind::METHOD)
         .done()
         .shutdown();
 }
 
 #[test]
-fn test_ability_method_completion_all_console() {
+fn test_ability_method_completion_all_stdio() {
     LspTest::new()
-        .with_source("fn foo() { Console::/*|*/ }")
+        .with_source("fn foo() { Stdio::/*|*/ }")
         .complete_at("0")
-        .expect_items(&["print!", "println!", "eprint!"])
+        .expect_items(&["out!", "err!", "read!"])
         .expect_count(3)
         .done()
         .shutdown();

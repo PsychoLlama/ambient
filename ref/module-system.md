@@ -133,7 +133,7 @@ pub fn run(): () {
 }
 
 // With abilities (optional)
-pub fn run(): () with platform::Console, platform::FileSystem {
+pub fn run(): () with platform::Stdio, platform::FileSystem {
     // ...
 }
 ```
@@ -145,7 +145,7 @@ pub fn run(): () with platform::Console, platform::FileSystem {
 - Abilities are optional (default: none)
 - No parameters
 
-The platform provides handlers for core abilities (`Console`, `Filesystem`, `Time`, `Random`, etc.) automatically.
+The platform provides handlers for core abilities (`Stdio`, `Filesystem`, `Time`, `Random`, etc.) automatically.
 
 ## Visibility Semantics
 
@@ -300,8 +300,8 @@ version = "0.1.0"
 src = "src"
 
 $ cat my_project/src/main.ab
-pub fn run(): () with platform::Console {
-    platform::Console::print!("Hello, world!");
+pub fn run(): () with platform::Stdio {
+    platform::Stdio::out!("Hello, world!");
 }
 ```
 

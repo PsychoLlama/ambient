@@ -3,7 +3,7 @@
 //! Each test compiles real Ambient source against the platform prelude
 //! and drives it through [`ProcessRuntime::deploy`] — the same path
 //! `ambient run` and `ambient dev` use. Observation happens through a
-//! collector-backed Console, runtime introspection (`whereis`,
+//! collector-backed Stdio, runtime introspection (`whereis`,
 //! `process_count`), and the event sink.
 
 use std::collections::HashMap;
@@ -18,7 +18,7 @@ use ambient_engine::vm::Vm;
 use ambient_platform::process::{
     DeployOutcome, ProcessEvent, ProcessRuntime, ProcessRuntimeConfig, functions_from_module,
 };
-use ambient_platform::register_console_with_collector;
+use ambient_platform::register_stdio_with_collector;
 
 /// Resolve the platform bindings interface (fresh per call; the
 /// resolved types are not `Send`).
@@ -80,7 +80,7 @@ struct TestHost {
 impl TestHost {
     fn new() -> Self {
         let prelude = platform_prelude();
-        let console = interface(&prelude, "Console");
+        let stdio = interface(&prelude, "Stdio");
         let process = interface(&prelude, "Process");
 
         let output: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
@@ -89,7 +89,7 @@ impl TestHost {
         let collector = Arc::clone(&output);
         let vm_factory = Arc::new(move || {
             let mut vm = Vm::new();
-            register_console_with_collector(&mut vm, &console, Arc::clone(&collector));
+            register_stdio_with_collector(&mut vm, &stdio, Arc::clone(&collector));
             vm
         });
 
@@ -143,7 +143,7 @@ impl TestHost {
         self.events.lock().expect("events lock").clone()
     }
 
-    /// Poll until the collected Console output satisfies `pred`.
+    /// Poll until the collected Stdio output satisfies `pred`.
     fn wait_for_output(&self, pred: impl Fn(&[String]) -> bool) {
         wait_until(|| pred(&self.output()));
     }
@@ -178,9 +178,9 @@ fn spawn_send_and_reduce() {
           platform::Process::send!(pid, 7);
         }
         fn init(): number { 0 }
-        fn add(total: number, n: number): number with platform::Console {
+        fn add(total: number, n: number): number with platform::Stdio {
           let next = total + n;
-          platform::Console::print!("total " + core::convert::to_string(next));
+          platform::Stdio::out!("total " + core::convert::to_string(next));
           next
         }
         "#,
@@ -200,9 +200,9 @@ fn upgrade_keeps_state() {
           let pid = platform::Process::spawn!("acc", init, step);
         }
         fn init(): number { 0 }
-        fn step(total: number, n: number): number with platform::Console {
+        fn step(total: number, n: number): number with platform::Stdio {
           let next = total + n;
-          platform::Console::print!("v1 " + core::convert::to_string(next));
+          platform::Stdio::out!("v1 " + core::convert::to_string(next));
           next
         }
         "#;
@@ -212,9 +212,9 @@ fn upgrade_keeps_state() {
           let pid = platform::Process::spawn!("acc", init, step);
         }
         fn init(): number { 0 }
-        fn step(total: number, n: number): number with platform::Console {
+        fn step(total: number, n: number): number with platform::Stdio {
           let next = total + n;
-          platform::Console::print!("v2 " + core::convert::to_string(next));
+          platform::Stdio::out!("v2 " + core::convert::to_string(next));
           next
         }
         "#;
@@ -287,13 +287,13 @@ fn crash_restarts_with_fresh_state() {
           let pid = platform::Process::spawn!("fragile", init, step);
         }
         fn init(): number { 0 }
-        fn step(total: number, n: number): number with platform::Console, Exception {
+        fn step(total: number, n: number): number with platform::Stdio, Exception {
           if n < 0 {
             Exception::throw!("boom");
             total
           } else {
             let next = total + n;
-            platform::Console::print!("at " + core::convert::to_string(next));
+            platform::Stdio::out!("at " + core::convert::to_string(next));
             next
           }
         }
@@ -331,8 +331,8 @@ fn dynamic_processes_survive_deploys_untouched() {
           let child = platform::Process::spawn!("child", init, child_step);
           total
         }
-        fn child_step(total: number, n: number): number with platform::Console {
-          platform::Console::print!("child v1");
+        fn child_step(total: number, n: number): number with platform::Stdio {
+          platform::Stdio::out!("child v1");
           total
         }
         "#;
@@ -343,12 +343,12 @@ fn dynamic_processes_survive_deploys_untouched() {
           let pid = platform::Process::spawn!("parent", init, parent);
         }
         fn init(): number { 0 }
-        fn parent(total: number, n: number): number with platform::Console {
-          platform::Console::print!("parent v2");
+        fn parent(total: number, n: number): number with platform::Stdio {
+          platform::Stdio::out!("parent v2");
           total
         }
-        fn child_step(total: number, n: number): number with platform::Console {
-          platform::Console::print!("child v2");
+        fn child_step(total: number, n: number): number with platform::Stdio {
+          platform::Stdio::out!("child v2");
           total
         }
         "#;
@@ -382,10 +382,10 @@ fn duplicate_spawn_is_a_catchable_exception() {
           let pid = platform::Process::spawn!("parent", init, parent);
         }
         fn init(): number { 0 }
-        fn parent(total: number, n: number): number with platform::Process, platform::Console {
+        fn parent(total: number, n: number): number with platform::Process, platform::Stdio {
           spawn_child();
           handle spawn_child() {
-            Exception::throw(e) => platform::Console::print!("dup caught")
+            Exception::throw(e) => platform::Stdio::out!("dup caught")
           };
           total
         }
@@ -412,8 +412,8 @@ fn exit_stops_the_process() {
           platform::Process::send!(pid, 1);
         }
         fn init(): number { 0 }
-        fn step(total: number, n: number): number with platform::Process, platform::Console {
-          platform::Console::print!("handled");
+        fn step(total: number, n: number): number with platform::Process, platform::Stdio {
+          platform::Stdio::out!("handled");
           platform::Process::exit!();
           total
         }

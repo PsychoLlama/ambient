@@ -216,7 +216,7 @@ fn eval_repl_input(
     ctx: &mut ReplContext,
     line: &str,
 ) -> Result<Option<ambient_engine::value::Value>, String> {
-    // Check if the input is a module path (e.g., "core", "core::math", "Console").
+    // Check if the input is a module path (e.g., "core", "core::math", "Stdio").
     // This allows users to inspect modules by just typing their name. Namespaces
     // are addressed with `::`; a `.` is value/field access and must never resolve
     // a namespace, so a dotted path (e.g. `core.math.sign`) is not a module

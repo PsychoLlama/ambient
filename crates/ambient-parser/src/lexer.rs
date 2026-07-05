@@ -339,7 +339,7 @@ impl TokenKind {
     #[must_use]
     pub const fn builtin_abilities() -> &'static [&'static str] {
         &[
-            "Console",
+            "Stdio",
             "Exception",
             "Time",
             "Random",

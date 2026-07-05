@@ -529,13 +529,13 @@ ability Picker {
 }
 
 // Abilities can depend on other abilities: performing Log also
-// requires Console in the effect row.
-ability Log with Console {
+// requires Stdio in the effect row.
+ability Log with Stdio {
   fn info(message: string): ();
 }
 ```
 
-The platform abilities (Console, FileSystem, Network, ...) are themselves plain
+The platform abilities (Stdio, FileSystem, Network, ...) are themselves plain
 `ability` declarations — see "The platform module" below. User abilities
 are handled in-language (`handle` blocks or handler values); a performed
 ability with no handler in scope — in-language or host — is a runtime
@@ -552,14 +552,14 @@ scope under its bare name. Current limit: the REPL does not yet register
 let content = FileSystem::read!("file.txt");
 ```
 
-Platform abilities are always in scope *fully-qualified* (`platform::Console`
+Platform abilities are always in scope *fully-qualified* (`platform::Stdio`
 in performs, `with` clauses, effect-row annotations, handler arms, and
 sandbox clauses) with no `use` — mirroring how `core::` items are always
 reachable qualified. To drop the prefix, import the ability:
-`use platform::Console;` then `with Console` and `Console::print!(...)` work
-bare thereafter. A bare `Console` that was *never* imported (and is not a
+`use platform::Stdio;` then `with Stdio` and `Stdio::out!(...)` work
+bare thereafter. A bare `Stdio` that was *never* imported (and is not a
 local declaration) is a type error — the diagnostic suggests qualifying with
-`platform::` or adding the `use`. A local `ability Console` shadows an
+`platform::` or adding the `use`. A local `ability Stdio` shadows an
 imported one under the bare name; the platform one stays reachable
 qualified. The builtin `Exception` is always bare and may not be spelled
 with a namespace.
@@ -668,7 +668,7 @@ function like any other code.
 
 Builtin abilities are not defined in engine code. The engine's only
 native ability is `Exception` (part of the language). Everything else —
-Console, Time, Random, Log, FileSystem, Network, Process, Execute — is declared once, in
+Stdio, Time, Random, Log, FileSystem, Network, Process, Execute — is declared once, in
 Ambient source, in the **platform bindings interface**
 (`crates/ambient-platform/src/platform.ab`).
 
@@ -852,13 +852,16 @@ ability Random {
   fn in_range(max: number): number;
 }
 
-ability Console {
-  fn print(message: string): ();
-  fn eprint(message: string): ();
-  fn println(message: string): ();
+ability Stdio {
+  fn out(message: string): ();   // write a line to stdout
+  fn err(message: string): ();   // write a line to stderr
+  fn read(): string;             // read a line from stdin
 }
 
-ability Log {
+// Log is emitted through Stdio, so it declares the dependency: performing
+// Log requires Stdio in the effect row, and a handler for Stdio captures
+// log lines.
+ability Log with platform::Stdio {
   fn debug(message: string): ();
   fn info(message: string): ();
   fn warn(message: string): ();
@@ -1095,7 +1098,7 @@ ability handlers — nothing proxies back to the caller. Effects reach it
 two ways:
 
 - **Host grants** (`ExecuteConfig::grants`): the executing host decides
-  which host handlers each isolated VM gets. The CLI grants Console and
+  which host handlers each isolated VM gets. The CLI grants Stdio and
   Log — shipped code can print/log on the executing host but has no
   Network, Time, Random, or recursive Execute. Performing an ungranted
   ability is a hard unhandled-ability error. This is the wasm-style
@@ -1146,8 +1149,8 @@ dedicated `serve` command.
 ### Hello World
 
 ```ambient
-pub fn run(): () with platform::Console {
-  platform::Console::print!("Hello, world!");
+pub fn run(): () with platform::Stdio {
+  platform::Stdio::out!("Hello, world!");
 }
 ```
 

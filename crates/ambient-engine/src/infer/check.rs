@@ -207,7 +207,7 @@ fn register_cross_module(
 ) -> TypeEnv {
     // Platform abilities are always in scope fully-qualified. Seed them
     // as namespaced dynamics from the `platform.*` declaration module
-    // before imports and local abilities resolve, so `platform::Console`
+    // before imports and local abilities resolve, so `platform::Stdio`
     // references (inline uses and cross-module ability deps) and the
     // `use platform::Network;` bridge all find their target — on every
     // path that has a registry, including the package build.
@@ -335,7 +335,7 @@ fn enforce_ability_subset(
 ) {
     let inferred = infer.apply_abilities(inferred);
 
-    // Namespace-aware resolution first (a `with platform::Console` clause
+    // Namespace-aware resolution first (a `with platform::Stdio` clause
     // must mean the platform ability even when a local declaration
     // shadows the bare name), then a deliberately lenient bare fallback:
     // the namespace policy was already enforced where the clause was
@@ -1282,7 +1282,7 @@ fn build_function_scheme(
 /// builtin; the computed identity is stored back into the AST for the
 /// compiler.
 ///
-/// Declared dependencies (`ability Log with Console`) resolve against
+/// Declared dependencies (a local `ability B with A`) resolve against
 /// abilities already known to the resolver — builtins or dynamics
 /// registered earlier in the item list — and are recorded in the ability
 /// registry so requiring the ability transitively requires them.
@@ -1343,7 +1343,7 @@ fn register_imported_ability(
 }
 
 /// Seed the abilities of the reserved `platform` declaration module as
-/// namespaced dynamics (`platform::Network`, `platform::Console`, ...).
+/// namespaced dynamics (`platform::Network`, `platform::Stdio`, ...).
 ///
 /// This is the ability-layer counterpart to registering `platform` as a
 /// module: it makes fully-qualified platform references resolve via
@@ -1353,7 +1353,7 @@ fn register_imported_ability(
 /// is exactly the storage for "always in scope, must be qualified".
 ///
 /// Declarations register in file order so a platform ability may depend on
-/// an earlier one (`Log with platform::Console`).
+/// an earlier one (`Log with platform::Stdio`).
 fn seed_namespaced_platform_dynamics(
     infer: &mut Infer,
     registry: &ModuleRegistry,
@@ -1397,7 +1397,7 @@ fn resolve_ability_def(
 
     // Resolve dependencies first: they must already be known. The
     // namespace policy applies here too: `ability Log with
-    // platform::Console` — a platform dependency needs its prefix.
+    // platform::Stdio` — a platform dependency needs its prefix.
     let mut dependencies = Vec::new();
     for dep in &def.dependencies {
         match infer.resolve_ability_ref(dep, (def.name_span.start, def.name_span.end)) {
@@ -1485,7 +1485,29 @@ pub fn resolve_ability_declarations(
 ) {
     let mut infer = Infer::new();
     let mut errors = Vec::new();
-    let abilities = register_abilities(&mut infer, module, &mut errors);
+
+    // Register each declaration under the reserved `platform` namespace
+    // *before* resolving the next, so an intra-module dependency
+    // (`ability Log with platform::Stdio`) resolves exactly as it does when
+    // checking user code (see `seed_namespaced_platform_dynamics`, which
+    // also hardcodes `platform`). Registering these bare — as the local
+    // module path does — would leave a `platform::`-qualified dependency
+    // unresolvable.
+    let mut abilities = Vec::new();
+    for item in &mut module.items {
+        let crate::ast::ItemKind::Ability(def) = &mut item.kind else {
+            continue;
+        };
+        let dyn_ab = resolve_ability_def(&mut infer, def, &mut errors);
+        // The compiler reads the identity back from the AST.
+        def.resolved_id = Some(dyn_ab.id);
+        infer
+            .ability_resolver
+            .register_dynamic_in_namespace("platform", dyn_ab);
+        if let Some(ability) = infer.ability_resolver.get_namespaced("platform", &def.name) {
+            abilities.push(Arc::clone(ability));
+        }
+    }
     (abilities, errors)
 }
 

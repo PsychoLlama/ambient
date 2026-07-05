@@ -977,7 +977,7 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
             // Ability names can't be resolved to IDs here (lowering has no
             // ability resolver); pass them through symbolically for the type
             // checker's resolve_holes to resolve. Qualified names keep their
-            // full `::`-joined spelling (`platform::Console`) so the checker
+            // full `::`-joined spelling (`platform::Stdio`) so the checker
             // can enforce the namespace policy on effect rows too.
             let ability_set = if abilities.is_empty() {
                 ambient_engine::types::AbilitySet::empty()

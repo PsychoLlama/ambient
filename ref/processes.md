@@ -32,8 +32,8 @@ pub fn run(): () with platform::Process {
   platform::Process::send!(counter, "hit");
 }
 
-fn count_hits(count: number, msg: string): number with platform::Console {
-  platform::Console::print!("hits: ${to_string(count + 1)}");
+fn count_hits(count: number, msg: string): number with platform::Stdio {
+  platform::Stdio::out!("hits: ${to_string(count + 1)}");
   count + 1
 }
 ```
@@ -67,7 +67,7 @@ function parameters (`(S, M) -> S with E`); the runtime checks arity at
 spawn time instead. Typed spawn is future work tied to effect variables
 in ability declarations.
 
-Handlers and inits may use the full platform ability set (Console, Log,
+Handlers and inits may use the full platform ability set (Stdio, Log,
 Time, Random, FileSystem, Network); their effects are granted by the
 runtime that drives the reduction, not tracked through `spawn`'s
 signature — the same host-boundary rule that governs `platform::Execute::run`.

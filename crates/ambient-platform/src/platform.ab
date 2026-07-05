@@ -5,8 +5,8 @@
 //! canonical interface; the host registers handlers keyed by that hash,
 //! so shipping this module *is* shipping the binding contract. These
 //! abilities are named with the `platform::` prefix in every position:
-//! performs (`platform::Console::print!("hi")`), `with` clauses and
-//! effect rows (`with platform::Console`), handler arms, and sandbox
+//! performs (`platform::Stdio::out!("hi")`), `with` clauses and
+//! effect rows (`with platform::Stdio`), handler arms, and sandbox
 //! clauses.
 //!
 //! Operational failures (missing files, refused connections, ...) do not
@@ -22,17 +22,18 @@ use core::time::Duration;
 // a non-`pub` symbol), so `use platform::Network;` needs `pub ability
 // Network` — exactly as the core library marks its surface with `pub fn` /
 // `pub enum`. `pub` affects *only* the import path; fully-qualified use
-// (`platform::Console::print!`, `with platform::Console`, handler arms,
+// (`platform::Stdio::out!`, `with platform::Stdio`, handler arms,
 // effect rows) is seeded as namespaced dynamics regardless of visibility.
 
-/// Terminal output.
-pub ability Console {
+/// Standard input/output streams of the host process.
+pub ability Stdio {
   /// Write a line to stdout.
-  fn print(message: string): ();
+  fn out(message: string): ();
   /// Write a line to stderr.
-  fn eprint(message: string): ();
-  /// Write a line to stdout (alias of `print`).
-  fn println(message: string): ();
+  fn err(message: string): ();
+  /// Read a line from stdin, without the trailing newline. Returns the
+  /// empty string at end of input.
+  fn read(): string;
 }
 
 /// Wall-clock time.
@@ -51,8 +52,9 @@ pub ability Random {
   fn in_range(max: number): number;
 }
 
-/// Leveled diagnostic logging.
-pub ability Log {
+/// Leveled diagnostic logging. Its output is emitted through
+/// `platform::Stdio`, so a handler for `Stdio` also captures log lines.
+pub ability Log with platform::Stdio {
   fn debug(message: string): ();
   fn info(message: string): ();
   fn warn(message: string): ();

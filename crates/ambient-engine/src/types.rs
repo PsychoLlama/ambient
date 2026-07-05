@@ -108,7 +108,7 @@ pub enum AbilitySet {
     },
 
     /// Ability names from source annotations that have not been resolved to
-    /// IDs yet (e.g. `(T) -> U with Console`). Produced by lowering, which
+    /// IDs yet (e.g. `(T) -> U with Stdio`). Produced by lowering, which
     /// has no ability resolver; eliminated by `Infer::resolve_holes` before
     /// any unification. Must never survive type checking.
     Unresolved(Vec<Arc<str>>),

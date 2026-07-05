@@ -9,15 +9,15 @@
 
 use self::stats;
 
-pub fn run(): () with platform::Console {
+pub fn run(): () with platform::Stdio {
     let numbers = core::List::range(1, 11);
 
     let squares = numbers.map((x: number) => x * x);
     let evens = squares.filter((x: number) => is_even(x));
     let total = evens.fold(0, (acc: number, x: number) => acc + x);
 
-    platform::Console::print!(core::string::from_number(total));
-    platform::Console::print!(core::string::from_number(stats::mean(squares)));
+    platform::Stdio::out!(core::string::from_number(total));
+    platform::Stdio::out!(core::string::from_number(stats::mean(squares)));
 }
 
 fn is_even(x: number): bool {

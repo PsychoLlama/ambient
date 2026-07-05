@@ -88,20 +88,20 @@ fn point_str(p: Point): string {
 // Entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn run(): () with platform::Console {
+pub fn run(): () with platform::Stdio {
     // Build a value straight from its default.
     let settings = Settings::default();
-    platform::Console::println!(describe(settings));
+    platform::Stdio::out!(describe(settings));
 
     // Override a field on top of the default (records are immutable, so this
     // produces a fresh value).
     let loud = Settings { volume: 100, muted: settings.muted, theme: settings.theme };
-    platform::Console::println!(describe(loud));
+    platform::Stdio::out!(describe(loud));
 
     // Associated calls are ordinary expressions: they nest and compose.
     let origin = Point::default();
-    platform::Console::println!(core::string::concat("origin = ", point_str(origin)));
+    platform::Stdio::out!(core::string::concat("origin = ", point_str(origin)));
 
     let shifted = Point::default() + Point { x: 3, y: 4 };
-    platform::Console::println!(core::string::concat("shifted = ", point_str(shifted)));
+    platform::Stdio::out!(core::string::concat("shifted = ", point_str(shifted)));
 }

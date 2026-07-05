@@ -149,7 +149,7 @@ impl CompletionService {
         let mut items = get_completions(&ctx, module, None, &self.resolver);
 
         // Add external symbols, but only when not in a specific module context.
-        // Skip when completing core::List::*, core::*, Console::*, etc. since those
+        // Skip when completing core::List::*, core::*, Stdio::*, etc. since those
         // have their own specific completions.
         let in_specific_context = ctx.after_core_submodule_dot.is_some()
             || ctx.after_core_dot
@@ -299,18 +299,18 @@ mod tests {
         let service = CompletionService::new();
 
         // Platform abilities complete under their namespace.
-        let completions = service.get_completions("platform::Con", 13);
+        let completions = service.get_completions("platform::St", 12);
         assert!(
-            completions.iter().any(|c| c.label == "Console"),
-            "Should complete Console after platform::, got: {:?}",
+            completions.iter().any(|c| c.label == "Stdio"),
+            "Should complete Stdio after platform::, got: {:?}",
             completions.iter().map(|c| &c.label).collect::<Vec<_>>()
         );
 
         // A bare prefix offers the qualified spelling.
         let completions = service.get_completions("plat", 4);
         assert!(
-            completions.iter().any(|c| c.label == "platform::Console"),
-            "Should complete platform::Console, got: {:?}",
+            completions.iter().any(|c| c.label == "platform::Stdio"),
+            "Should complete platform::Stdio, got: {:?}",
             completions.iter().map(|c| &c.label).collect::<Vec<_>>()
         );
     }
@@ -339,12 +339,12 @@ mod tests {
     #[test]
     fn test_completion_service_after_ability_scope() {
         let service = CompletionService::new();
-        let completions = service.get_completions("Console::", 9);
+        let completions = service.get_completions("Stdio::", 7);
 
-        // Should show Console methods
+        // Should show Stdio methods
         assert!(
-            completions.iter().any(|c| c.label == "print!"),
-            "Should show print! method, got: {:?}",
+            completions.iter().any(|c| c.label == "out!"),
+            "Should show out! method, got: {:?}",
             completions.iter().map(|c| &c.label).collect::<Vec<_>>()
         );
     }
@@ -434,10 +434,10 @@ mod tests {
     #[test]
     fn test_repl_completions_strip_snippets() {
         let service = CompletionService::new();
-        let completions = service.get_completions("Console::", 9);
+        let completions = service.get_completions("Stdio::", 7);
 
         // Find a method completion
-        let print_completion = completions.iter().find(|c| c.label == "print!");
+        let print_completion = completions.iter().find(|c| c.label == "out!");
 
         if let Some(print) = print_completion {
             // Should not contain snippet syntax

@@ -442,8 +442,8 @@ impl Infer {
 
     /// Apply ability substitution to an ability set.
     ///
-    /// Resolves substitution chains fully (`a → b → {Console}` yields
-    /// `{Console}`, not `b`) — enforcement and effect propagation depend on
+    /// Resolves substitution chains fully (`a → b → {Stdio}` yields
+    /// `{Stdio}`, not `b`) — enforcement and effect propagation depend on
     /// reaching the concrete set at the end of a chain. Cycles (from
     /// recursive bindings) stop resolving and return the set as-is.
     #[must_use]

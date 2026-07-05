@@ -44,7 +44,7 @@ pub fn functions_from_module(compiled: &CompiledModule) -> Functions {
 }
 
 /// Builds a base VM for a process: platform host handlers registered
-/// (Console, Network, ...), no code loaded. The runtime layers the code
+/// (Stdio, Network, ...), no code loaded. The runtime layers the code
 /// generation and the Process ability on top.
 pub type VmFactory = Arc<dyn Fn() -> Vm + Send + Sync>;
 

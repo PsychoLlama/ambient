@@ -4,13 +4,13 @@
 //! an Exception handler, then cleans up.
 
 /// Entry point demonstrating filesystem operations.
-pub fn run(): () with platform::FileSystem, platform::Console {
+pub fn run(): () with platform::FileSystem, platform::Stdio {
     let path = "/tmp/ambient_file_io_example.txt";
 
     // Write a file, then read it back.
     platform::FileSystem::write!(path, "Hello from the FileSystem ability!");
     let content = platform::FileSystem::read!(path);
-    platform::Console::println!(content);
+    platform::Stdio::out!(content);
 
     // Reading a missing file raises a catchable exception.
     let fallback = handle {
@@ -18,7 +18,7 @@ pub fn run(): () with platform::FileSystem, platform::Console {
     } {
         Exception::throw(msg) => "missing file, using a fallback"
     };
-    platform::Console::println!(fallback);
+    platform::Stdio::out!(fallback);
 
     // Clean up.
     platform::FileSystem::remove!(path);

@@ -33,7 +33,7 @@ pub struct ExecuteConfig {
     pub store: Arc<Mutex<Store>>,
 
     /// Host policy for what executed code may do: called on every fresh
-    /// isolated VM to register granted host handlers (e.g. Console). With
+    /// isolated VM to register granted host handlers (e.g. Stdio). With
     /// no grants, remote code runs pure — any perform that reaches the
     /// host is an unhandled-ability error. The remote must provide all
     /// ability handlers; nothing proxies back to the caller.

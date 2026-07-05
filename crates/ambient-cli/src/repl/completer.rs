@@ -192,12 +192,12 @@ mod tests {
 
         // Platform abilities complete under their namespace; the prefix is
         // already typed, so the replacement is the bare segment.
-        let result = completer.complete("platform::Con", 13, &ctx);
+        let result = completer.complete("platform::St", 12, &ctx);
         assert!(result.is_ok());
         let (_, pairs) = result.unwrap();
         assert!(
-            pairs.iter().any(|p| p.replacement == "Console"),
-            "Should complete Console, got: {:?}",
+            pairs.iter().any(|p| p.replacement == "Stdio"),
+            "Should complete Stdio, got: {:?}",
             pairs.iter().map(|p| &p.replacement).collect::<Vec<_>>()
         );
 
@@ -207,8 +207,8 @@ mod tests {
         assert!(result.is_ok());
         let (_, pairs) = result.unwrap();
         assert!(
-            pairs.iter().any(|p| p.replacement == "platform::Console"),
-            "Should complete platform::Console, got: {:?}",
+            pairs.iter().any(|p| p.replacement == "platform::Stdio"),
+            "Should complete platform::Stdio, got: {:?}",
             pairs.iter().map(|p| &p.replacement).collect::<Vec<_>>()
         );
     }
@@ -219,15 +219,15 @@ mod tests {
         let history = rustyline::history::DefaultHistory::new();
         let ctx = rustyline::Context::new(&history);
 
-        let result = completer.complete("Console::", 9, &ctx);
+        let result = completer.complete("Stdio::", 7, &ctx);
         assert!(result.is_ok());
         let (_, pairs) = result.unwrap();
 
-        // Should show Console methods
+        // Should show Stdio methods
         let methods: Vec<_> = pairs.iter().map(|p| p.replacement.as_str()).collect();
         assert!(
-            methods.iter().any(|m| m.contains("print")),
-            "Should show print method, got: {:?}",
+            methods.iter().any(|m| m.contains("out")),
+            "Should show out method, got: {:?}",
             methods
         );
 
@@ -286,16 +286,16 @@ mod tests {
         let history = rustyline::history::DefaultHistory::new();
         let ctx = rustyline::Context::new(&history);
 
-        // Hint for "platform::Con" should suggest "sole" (completing to
-        // platform::Console).
-        let hint = completer.hint("platform::Con", 13, &ctx);
-        assert!(hint.is_some(), "Should provide hint for platform::Con");
+        // Hint for "platform::St" should suggest "dio" (completing to
+        // platform::Stdio).
+        let hint = completer.hint("platform::St", 12, &ctx);
+        assert!(hint.is_some(), "Should provide hint for platform::St");
 
-        // The hint should contain "sole" (the suffix to complete Console)
+        // The hint should contain "dio" (the suffix to complete Stdio (St -> Stdio))
         let hint_text = hint.unwrap();
         assert!(
-            hint_text.contains("sole"),
-            "Hint should be 'sole', got: {}",
+            hint_text.contains("dio"),
+            "Hint should be 'dio', got: {}",
             hint_text
         );
     }
@@ -339,7 +339,7 @@ mod tests {
         let ctx = rustyline::Context::new(&history);
 
         // No hint when cursor is not at end
-        let hint = completer.hint("Console", 3, &ctx);
+        let hint = completer.hint("Stdio", 3, &ctx);
         assert!(hint.is_none());
     }
 }

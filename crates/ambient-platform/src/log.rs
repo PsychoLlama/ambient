@@ -7,32 +7,39 @@ use ambient_engine::ability_resolver::AbilityInterface;
 use ambient_engine::vm::Vm;
 
 use crate::require;
+use crate::stdio::StdioSink;
 
 /// Configuration for the Log ability.
 #[derive(Default)]
 pub struct LogConfig {
     /// Minimum log level to output (0 = debug, 1 = info, 2 = warn, 3 = error)
     pub min_level: u8,
-    /// Custom log handler. If None, uses default formatting to stdout.
+    /// Custom log handler. If None, formatted lines are written through the
+    /// `Stdio` sink (see [`register_log`]).
     pub handler: Option<Box<dyn Fn(&str, &str) + Send + Sync>>,
 }
 
 /// Register the Log ability handlers on a VM.
 ///
 /// Provides structured logging with debug, info, warn, and error levels.
+/// Unless `config.handler` overrides it, each line is emitted through
+/// `sink` — the same stdout channel as `platform::Stdio` — realizing the
+/// `ability Log with platform::Stdio` dependency at the host boundary.
 ///
 /// # Panics
 ///
 /// Panics if the resolved interface is missing an expected method — the
 /// bindings interface and this handler set have drifted.
-pub fn register_log(vm: &mut Vm, ability: &AbilityInterface, config: LogConfig) {
+pub fn register_log(vm: &mut Vm, ability: &AbilityInterface, config: LogConfig, sink: StdioSink) {
     let min_level = config.min_level;
     let handler = std::sync::Arc::new(config.handler);
+    let sink = std::sync::Arc::new(sink);
 
     // Helper to create log handlers
     macro_rules! log_handler {
         ($level:expr_2021, $prefix:expr_2021) => {{
             let handler = handler.clone();
+            let sink = sink.clone();
             Box::new(move |ability: &SuspendedAbility| {
                 if $level >= min_level {
                     let message =
@@ -40,13 +47,7 @@ pub fn register_log(vm: &mut Vm, ability: &AbilityInterface, config: LogConfig) 
                     if let Some(ref h) = *handler {
                         h($prefix, &message);
                     } else {
-                        #[cfg(not(test))]
-                        {
-                            #[allow(clippy::print_stdout)]
-                            {
-                                println!("[{}] {}", $prefix, message);
-                            }
-                        }
+                        sink.write_out(&format!("[{}] {}", $prefix, message));
                     }
                 }
                 Ok(Value::Unit)
@@ -117,7 +118,7 @@ mod tests {
 
         let mut vm = Vm::new();
         vm.load_function(func);
-        register_log(&mut vm, &ability, config);
+        register_log(&mut vm, &ability, config, StdioSink::default());
 
         let result = vm.call(&hash, vec![]);
         assert_eq!(result, Ok(Value::Unit));
@@ -161,7 +162,7 @@ mod tests {
 
         let mut vm = Vm::new();
         vm.load_function(func);
-        register_log(&mut vm, &ability, config);
+        register_log(&mut vm, &ability, config, StdioSink::default());
 
         let result = vm.call(&hash, vec![]);
         assert_eq!(result, Ok(Value::Unit));

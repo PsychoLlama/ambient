@@ -524,7 +524,7 @@ pub struct CstImplMethod {
     pub params: Vec<CstTraitParam>,
     /// Return type.
     pub ret_ty: Option<CstTypeExpr>,
-    /// Declared abilities (`with Console, Log`).
+    /// Declared abilities (`with Stdio, Log`).
     pub abilities: Vec<CstQualifiedName>,
     /// Method body.
     pub body: CstExpr,
@@ -675,7 +675,7 @@ pub enum CstExprKind {
     // ─────────────────────────────────────────────────────────────────────────
     // Abilities
     // ─────────────────────────────────────────────────────────────────────────
-    /// Ability call with perform: `Console.print!("hello")`.
+    /// Ability call with perform: `Stdio.out!("hello")`.
     Perform {
         ability: CstQualifiedName,
         method: CstIdent,

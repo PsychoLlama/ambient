@@ -1,7 +1,7 @@
 //! Value formatting utilities for display.
 //!
 //! Provides formatting for runtime values in different contexts:
-//! - `format_value`: Plain text, strings shown without quotes (for Console.print!)
+//! - `format_value`: Plain text, strings shown without quotes (for Stdio.out!)
 //! - `format_value_display`: Plain text, strings with quotes (for REPL result display)
 //! - `format_value_colored`: Syntax highlighted with ANSI colors (for terminal output)
 
@@ -23,7 +23,7 @@ mod colors {
 /// Formatting mode for values.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FormatMode {
-    /// Plain text, strings without quotes (for Console.print!).
+    /// Plain text, strings without quotes (for Stdio.out!).
     Plain,
     /// Display mode, strings with quotes (for REPL display).
     Display,
@@ -33,7 +33,7 @@ enum FormatMode {
 
 /// Format a value as plain text (strings without quotes).
 ///
-/// This is used for Console.print! where we want to display the string
+/// This is used for Stdio.out! where we want to display the string
 /// content directly without quoting.
 #[must_use]
 pub fn format_value(value: &Value) -> String {

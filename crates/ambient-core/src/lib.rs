@@ -4,7 +4,7 @@
 //! such as `Exception`. These abilities are always available and cannot be
 //! disabled, as the language semantics depend on them.
 //!
-//! Host-provided capabilities like Console, Time, and File operations are
+//! Host-provided capabilities like Stdio, Time, and File operations are
 //! defined in `ambient-platform` instead, as they are environment-specific.
 
 mod canonical;

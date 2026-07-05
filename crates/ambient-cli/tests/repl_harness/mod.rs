@@ -25,7 +25,7 @@
 //!         .wait_ready()
 //!         .type_text("Con")
 //!         .tab()
-//!         .expect_line("Console")
+//!         .expect_line("Stdio")
 //!         .shutdown();
 //! }
 //!

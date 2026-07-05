@@ -290,7 +290,7 @@ pub enum ExprKind {
     // ─────────────────────────────────────────────────────────────────────────
     // Abilities
     // ─────────────────────────────────────────────────────────────────────────
-    /// Ability method call with explicit perform: `Console.print!("hello")`.
+    /// Ability method call with explicit perform: `Stdio.out!("hello")`.
     Perform(AbilityCall),
 
     /// Handle expression: `handle expr { handlers }`.
@@ -969,7 +969,7 @@ pub struct ImplMethod {
     pub params: Vec<Param>,
     /// Return type.
     pub ret_ty: Option<Type>,
-    /// Declared abilities (`with Console, Log`). Enforced for inherent
+    /// Declared abilities (`with Stdio, Log`). Enforced for inherent
     /// methods, which behave like public functions: no clause means pure.
     pub abilities: Vec<QualifiedName>,
     /// Method body.

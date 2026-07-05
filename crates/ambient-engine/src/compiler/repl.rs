@@ -173,15 +173,15 @@ impl ReplContext {
 
     /// Register standard abilities as modules for introspection.
     pub fn register_ability_modules(&mut self) {
-        // Console ability
+        // Stdio ability
         self.register_module(
-            "Console",
+            "Stdio",
             ModuleValue::new(
-                "Console",
+                "Stdio",
                 vec![
-                    ModuleExport::new("print!", ModuleExportKind::Function),
-                    ModuleExport::new("println!", ModuleExportKind::Function),
-                    ModuleExport::new("input!", ModuleExportKind::Function),
+                    ModuleExport::new("out!", ModuleExportKind::Function),
+                    ModuleExport::new("err!", ModuleExportKind::Function),
+                    ModuleExport::new("read!", ModuleExportKind::Function),
                 ],
             ),
         );

@@ -495,7 +495,7 @@ fn test_handler_value_basic() {
 
         fn test_handler_value(): number {
             let mock_console = {
-                print(msg) => resume(())
+                out(msg) => resume(())
             };
             handle simple_function() with mock_console {}
         }
@@ -513,7 +513,7 @@ fn test_handler_value_multiple() {
         fn simple_function(): number { 200 }
 
         fn test_multiple_handlers(): number {
-            let handler1 = { print(msg) => resume(()) };
+            let handler1 = { out(msg) => resume(()) };
             let handler2 = { throw(err) => resume(()) };
             handle simple_function() with handler1, handler2 {}
         }
@@ -531,7 +531,7 @@ fn test_handler_value_with_inline() {
         fn simple_function(): number { 300 }
 
         fn test_mixed(): number {
-            let mock_console = { print(msg) => resume(()) };
+            let mock_console = { out(msg) => resume(()) };
             handle simple_function() with mock_console {
                 Exception::throw(err) => {
                     resume(())
@@ -594,7 +594,7 @@ fn test_sandbox_with_allowed_ability() {
         }
 
         fn run(): number {
-            sandbox with platform::Console {
+            sandbox with platform::Stdio {
                 compute()
             }
         }
@@ -614,8 +614,8 @@ fn test_sandbox_with_allowed_ability() {
 fn test_with_clause_requires_platform_namespace() {
     CliTest::new(
         r#"
-        pub fn run(): () with Console {
-            platform::Console::print!("hi")
+        pub fn run(): () with Stdio {
+            platform::Stdio::out!("hi")
         }
         "#,
     )
@@ -626,13 +626,13 @@ fn test_with_clause_requires_platform_namespace() {
 fn test_handler_arm_requires_platform_namespace() {
     CliTest::new(
         r#"
-        fn speak(): () with platform::Console {
-            platform::Console::print!("hi")
+        fn speak(): () with platform::Stdio {
+            platform::Stdio::out!("hi")
         }
 
         pub fn run(): () {
             handle speak() {
-                Console::print(msg) => {
+                Stdio::out(msg) => {
                     resume(())
                 }
             }
@@ -647,7 +647,7 @@ fn test_sandbox_clause_requires_platform_namespace() {
     CliTest::new(
         r#"
         pub fn run(): number {
-            sandbox with Console {
+            sandbox with Stdio {
                 42
             }
         }
@@ -691,21 +691,21 @@ fn test_local_ability_shadows_platform_name() {
     // platform ability stays reachable through its prefix.
     CliTest::new(
         r#"
-        ability Console {
+        ability Stdio {
             fn shout(message: string): string;
         }
 
-        fn noise(): string with Console {
-            Console::shout!("quiet")
+        fn noise(): string with Stdio {
+            Stdio::shout!("quiet")
         }
 
-        pub fn run(): () with platform::Console {
+        pub fn run(): () with platform::Stdio {
             let loud = handle noise() {
-                Console::shout(msg) => {
+                Stdio::shout(msg) => {
                     resume(core::string::concat(msg, "!"))
                 }
             };
-            platform::Console::print!(loud)
+            platform::Stdio::out!(loud)
         }
         "#,
     )
@@ -1357,12 +1357,12 @@ fn test_inherent_method_with_ability() {
         unique(B1B2C3D4-0000-0000-0000-000000000004) type Greeter { name: string }
 
         impl Greeter {
-            fn greet(self): () with platform::Console {
-                platform::Console::print!("hello ${self.name}");
+            fn greet(self): () with platform::Stdio {
+                platform::Stdio::out!("hello ${self.name}");
             }
         }
 
-        pub fn run(): () with platform::Console {
+        pub fn run(): () with platform::Stdio {
             let g = Greeter { name: "world" };
             g.greet();
         }
@@ -1381,7 +1381,7 @@ fn test_inherent_method_undeclared_ability_error() {
 
         impl Greeter {
             fn greet(self): () {
-                platform::Console::print!("hello");
+                platform::Stdio::out!("hello");
             }
         }
 
@@ -1403,8 +1403,8 @@ fn test_inherent_method_ability_required_at_call_site() {
         unique(B1B2C3D4-0000-0000-0000-000000000006) type Greeter { name: string }
 
         impl Greeter {
-            fn greet(self): () with platform::Console {
-                platform::Console::print!("hello");
+            fn greet(self): () with platform::Stdio {
+                platform::Stdio::out!("hello");
             }
         }
 
@@ -2447,20 +2447,20 @@ fn test_private_function_ability_inference() {
     // calls to functions defined later) and propagate to callers.
     CliTest::new(
         r#"
-        pub fn run(): () with platform::Console {
+        pub fn run(): () with platform::Stdio {
             ping(2);
             helper_outer();
         }
 
         fn ping(n: number) {
-            if n > 0 { platform::Console::print!("ping"); pong(n - 1); } else { () }
+            if n > 0 { platform::Stdio::out!("ping"); pong(n - 1); } else { () }
         }
 
         fn pong(n: number) {
-            if n > 0 { platform::Console::print!("pong"); ping(n - 1); } else { () }
+            if n > 0 { platform::Stdio::out!("pong"); ping(n - 1); } else { () }
         }
 
-        fn helper_inner() { platform::Console::print!("inner"); }
+        fn helper_inner() { platform::Stdio::out!("inner"); }
         fn helper_outer() { helper_inner(); }
     "#,
     )
@@ -2471,7 +2471,7 @@ fn test_private_function_ability_inference() {
 fn test_public_function_must_declare_inferred_abilities() {
     // Inferred abilities from private helpers still count against a public
     // function's declarations — declaring pure while transitively performing
-    // Console is an error, even when the helper is defined after the caller.
+    // Stdio is an error, even when the helper is defined after the caller.
     CliTest::new(
         r#"
         pub fn run(): () {
@@ -2479,11 +2479,11 @@ fn test_public_function_must_declare_inferred_abilities() {
         }
 
         fn leaky() {
-            platform::Console::print!("leak");
+            platform::Stdio::out!("leak");
         }
     "#,
     )
-    .expect_error("uses ability `Console` but doesn't declare it");
+    .expect_error("uses ability `Stdio` but doesn't declare it");
 }
 
 #[test]
@@ -2849,9 +2849,9 @@ fn test_method_call_resolves_inside_perform_arguments() {
             fn doubled(self): number { self.x * 2 }
         }
 
-        pub fn run(): () with platform::Console {
+        pub fn run(): () with platform::Stdio {
             let p = Point { x: 21 };
-            platform::Console::print!(core::convert::to_string(p.doubled()));
+            platform::Stdio::out!(core::convert::to_string(p.doubled()));
         }
         "#,
     );
@@ -3296,11 +3296,11 @@ fn test_suspend_form_is_removed() {
 #[test]
 fn test_execute_run_with_granted_ability() {
     // Execute.run runs code in an isolated VM. The host grants output
-    // abilities (Console/Log) to executed code, so an effectful function
+    // abilities (Stdio/Log) to executed code, so an effectful function
     // can be run by hash and its logs land on the executing host.
     CliTest::new(
         r#"
-        fn shout(x: number): number with platform::Log {
+        fn shout(x: number): number with platform::Log, platform::Stdio {
             platform::Log::info!("computing remotely");
             x * 2
         }
@@ -3630,10 +3630,10 @@ fn test_fs_exists_false_then_true() {
     let path = dir.path().join("probe.txt");
     CliTest::new(format!(
         r#"
-        pub fn run(): () with platform::FileSystem, platform::Console {{
-            platform::Console::println!(core::convert::to_string(platform::FileSystem::exists!("{path}")));
+        pub fn run(): () with platform::FileSystem, platform::Stdio {{
+            platform::Stdio::out!(core::convert::to_string(platform::FileSystem::exists!("{path}")));
             platform::FileSystem::write!("{path}", "x");
-            platform::Console::println!(core::convert::to_string(platform::FileSystem::exists!("{path}")));
+            platform::Stdio::out!(core::convert::to_string(platform::FileSystem::exists!("{path}")));
         }}
         "#,
         path = path.display()
@@ -3713,7 +3713,7 @@ fn test_core_time_duration() {
 
 #[test]
 fn test_execute_run_fs_is_not_granted() {
-    // FileSystem is NOT granted to executed code: only Console/Log are. A shipped
+    // FileSystem is NOT granted to executed code: only Stdio/Log are. A shipped
     // function that touches the filesystem is an unhandled-ability error,
     // not a silent escape.
     CliTest::new(

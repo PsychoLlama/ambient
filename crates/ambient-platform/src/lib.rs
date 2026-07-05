@@ -22,7 +22,6 @@
 )]
 #![cfg_attr(not(test), deny(clippy::expect_used))]
 
-pub mod console;
 pub mod execute;
 pub mod fs;
 pub mod log;
@@ -30,6 +29,7 @@ pub mod network;
 pub mod network_state;
 pub mod process;
 pub mod random;
+pub mod stdio;
 pub mod time;
 
 use std::sync::Arc;
@@ -48,7 +48,6 @@ use ambient_engine::vm::Vm;
 /// sibling modules).
 pub const ABILITY_DECLARATIONS: &str = include_str!("platform.ab");
 
-pub use console::{ConsoleConfig, register_console, register_console_with_collector};
 pub use execute::{ExecuteConfig, ExecuteGrants, register_execute};
 pub use fs::register_fs;
 pub use log::{LogConfig, register_log};
@@ -59,6 +58,7 @@ pub use process::{
     VmFactory, functions_from_module,
 };
 pub use random::register_random;
+pub use stdio::{StdioConfig, StdioSink, register_stdio, register_stdio_with_collector};
 pub use time::register_time;
 
 /// Method ID for a named method of the resolved bindings interface.
@@ -71,10 +71,12 @@ pub(crate) fn require(ability: &AbilityInterface, method: &str) -> u16 {
         .unwrap_or_else(|| panic!("platform bindings interface has no method `{method}`"))
 }
 
-/// Register the zero-config native abilities (Console, Time, Random,
+/// Register the zero-config native abilities (`Stdio`, Time, Random,
 /// Log, `FileSystem`) with default settings against the resolved bindings
 /// interface. Network and Execute need external resources; register
 /// them separately.
+///
+/// `Log` shares `Stdio`'s output sink, so both stream to the same stdout.
 ///
 /// # Panics
 ///
@@ -82,13 +84,14 @@ pub(crate) fn require(ability: &AbilityInterface, method: &str) -> u16 {
 /// method its handler set expects (the bindings interface and this
 /// crate have drifted).
 pub fn register_defaults(vm: &mut Vm, prelude: &[Arc<DynAbility>]) {
+    let sink = StdioSink::default();
     for ability in prelude {
         let interface = AbilityInterface::from(&**ability);
         match ability.name.as_ref() {
-            "Console" => register_console(vm, &interface, ConsoleConfig::default()),
+            "Stdio" => register_stdio(vm, &interface, sink.clone(), StdioConfig::default()),
             "Time" => register_time(vm, &interface),
             "Random" => register_random(vm, &interface),
-            "Log" => register_log(vm, &interface, LogConfig::default()),
+            "Log" => register_log(vm, &interface, LogConfig::default(), sink.clone()),
             "FileSystem" => register_fs(vm, &interface),
             _ => {}
         }

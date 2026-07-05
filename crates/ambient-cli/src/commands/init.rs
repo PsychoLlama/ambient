@@ -21,8 +21,8 @@ src = "src"
 }
 
 /// Default content for src/main.ab.
-const MAIN_CONTENT: &str = r#"pub fn run(): () with platform::Console {
-    platform::Console::print!("Hello, world!");
+const MAIN_CONTENT: &str = r#"pub fn run(): () with platform::Stdio {
+    platform::Stdio::out!("Hello, world!");
 }
 "#;
 

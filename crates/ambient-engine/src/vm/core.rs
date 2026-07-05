@@ -60,7 +60,7 @@ pub struct Vm {
     /// Re-installed after each `call`/`call_closure` state reset.
     pub(super) base_handlers: Vec<Arc<ambient_ability::HandlerValue>>,
 
-    /// Host-provided ability handlers (for abilities like Console, Filesystem).
+    /// Host-provided ability handlers (for abilities like Stdio, Filesystem).
     /// Maps `(ability_id, method_id)` to handler functions.
     pub(super) host_handlers: HashMap<(AbilityId, u16), HostHandler>,
 

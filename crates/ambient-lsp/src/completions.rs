@@ -76,7 +76,7 @@ impl<'a> CompletionContext<'a> {
         let after_scope = trimmed_before.ends_with("::");
 
         // The qualified path immediately before a trailing `::`
-        // (e.g. `core`, `core::List`, `platform::Console`).
+        // (e.g. `core`, `core::List`, `platform::Stdio`).
         let scope_path = if after_scope {
             let without_sep = trimmed_before.strip_suffix("::").unwrap_or(trimmed_before);
             let start = without_sep
@@ -102,7 +102,7 @@ impl<'a> CompletionContext<'a> {
             None => (false, None),
         };
 
-        // Ability method completion (`Console::`, `platform::Console::`) and
+        // Ability method completion (`Stdio::`, `platform::Stdio::`) and
         // pkg module member completion (`utils::`).
         let (after_ability_dot, after_pkg_module_dot) = match scope_path {
             Some(path) if !after_core_dot && after_core_submodule_dot.is_none() => {
@@ -289,7 +289,7 @@ fn get_type_completions(prefix: &str) -> Vec<CompletionItem> {
 
 /// Get ability completions from the resolver (builtins plus every
 /// registered platform/user declaration). Namespaced abilities complete
-/// with their required prefix (`platform::Console`) — the only spelling
+/// with their required prefix (`platform::Stdio`) — the only spelling
 /// the checker accepts in `with` clauses and handler arms.
 fn get_ability_completions(resolver: &AbilityResolver, prefix: &str) -> Vec<CompletionItem> {
     resolver
@@ -306,7 +306,7 @@ fn get_ability_completions(resolver: &AbilityResolver, prefix: &str) -> Vec<Comp
 }
 
 /// Get the bare ability names registered under an ability namespace
-/// (`platform::` → `Console`, `FileSystem`, ...). Empty when the path is not
+/// (`platform::` → `Stdio`, `FileSystem`, ...). Empty when the path is not
 /// a namespace, letting pkg-module completion take over.
 fn get_namespace_ability_completions(
     resolver: &AbilityResolver,
@@ -923,12 +923,12 @@ mod tests {
 
     #[test]
     fn test_completion_context_after_scope() {
-        let source = "Console::pr";
-        let ctx = CompletionContext::new(source, 11, &platform_prelude_resolver());
+        let source = "Stdio::o";
+        let ctx = CompletionContext::new(source, 8, &platform_prelude_resolver());
 
-        assert_eq!(ctx.word_prefix, "pr");
+        assert_eq!(ctx.word_prefix, "o");
         assert!(!ctx.after_dot);
-        assert_eq!(ctx.after_ability_dot, Some("Console"));
+        assert_eq!(ctx.after_ability_dot, Some("Stdio"));
         assert!(!ctx.after_core_dot);
     }
 
@@ -970,16 +970,15 @@ mod tests {
 
     #[test]
     fn test_ability_method_completions() {
-        let items = get_ability_method_completions(&platform_prelude_resolver(), "Console", "pr");
-        assert_eq!(items.len(), 2); // print and println
-        assert!(items.iter().any(|i| i.label == "print!"));
-        assert!(items.iter().any(|i| i.label == "println!"));
+        let items = get_ability_method_completions(&platform_prelude_resolver(), "Stdio", "o");
+        assert_eq!(items.len(), 1); // out
+        assert!(items.iter().any(|i| i.label == "out!"));
 
         // Check that insert_text includes the ! and snippet placeholders
-        let print_item = items.iter().find(|i| i.label == "print!").unwrap();
+        let print_item = items.iter().find(|i| i.label == "out!").unwrap();
         assert_eq!(
             print_item.insert_text.as_deref(),
-            Some("print!(${1:message})")
+            Some("out!(${1:message})")
         );
         assert_eq!(
             print_item.insert_text_format,

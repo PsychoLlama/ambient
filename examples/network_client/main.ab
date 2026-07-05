@@ -7,28 +7,28 @@
 //! (Make sure the network_server is running first!)
 
 /// Entry point that connects to a server and sends messages.
-pub fn run(): () with platform::Console, platform::Network {
-    platform::Console::print!("Client: connecting to 127.0.0.1:9000...");
+pub fn run(): () with platform::Stdio, platform::Network {
+    platform::Stdio::out!("Client: connecting to 127.0.0.1:9000...");
     let conn = platform::Network::connect!(("127.0.0.1", 9000));
 
     let local = platform::Network::local_addr!(conn);
-    platform::Console::print!(core::string::concat("Client: connected from ", local));
+    platform::Stdio::out!(core::string::concat("Client: connected from ", local));
 
     // Send a message as Bytes
     let message = string_to_bytes("Hello from Ambient!");
-    platform::Console::print!(core::string::concat("Client: sending ", core::string::concat(core::convert::to_string(core::bytes::length(message)), " bytes...")));
+    platform::Stdio::out!(core::string::concat("Client: sending ", core::string::concat(core::convert::to_string(core::bytes::length(message)), " bytes...")));
     platform::Network::send!(conn, message);
 
     // Receive the echo
     let response = platform::Network::receive!(conn);
-    platform::Console::print!(core::string::concat("Client: received ", core::string::concat(core::convert::to_string(core::bytes::length(response)), " bytes back")));
+    platform::Stdio::out!(core::string::concat("Client: received ", core::string::concat(core::convert::to_string(core::bytes::length(response)), " bytes back")));
 
     // Send empty message to signal quit
-    platform::Console::print!("Client: sending empty message to quit...");
+    platform::Stdio::out!("Client: sending empty message to quit...");
     platform::Network::send!(conn, core::bytes::from([]));
 
     platform::Network::close!(conn);
-    platform::Console::print!("Client: done")
+    platform::Stdio::out!("Client: done")
 }
 
 /// Convert a string to Bytes (ASCII).

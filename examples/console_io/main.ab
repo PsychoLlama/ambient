@@ -1,20 +1,20 @@
-//! Console I/O example with effects.
+//! Stdio I/O example with effects.
 //!
 //! Demonstrates how effect handlers can intercept and transform
 //! ability calls. The handler only affects code within its block.
 
 /// Entry point demonstrating effect handler interception.
-pub fn run(): () with platform::Console {
-    // Handler intercepts platform::Console::print and adds a prefix
+pub fn run(): () with platform::Stdio {
+    // Handler intercepts platform::Stdio::out and adds a prefix
     handle {
-        platform::Console::print!("Hello from inside the handler!");
+        platform::Stdio::out!("Hello from inside the handler!");
     } {
-        platform::Console::print(msg) => {
-            platform::Console::print!(core::string::concat("[LOG] ", msg));
+        platform::Stdio::out(msg) => {
+            platform::Stdio::out!(core::string::concat("[LOG] ", msg));
             resume(())
         }
     };
 
     // Outside the handler - prints directly without interception
-    platform::Console::print!("Hello from outside");
+    platform::Stdio::out!("Hello from outside");
 }

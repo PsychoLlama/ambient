@@ -146,7 +146,7 @@ impl ReplLspBridge {
             }
 
             // `core::` is handled by LSP
-            // Ability methods (Console::, etc.) are handled by LSP
+            // Ability methods (Stdio::, etc.) are handled by LSP
         }
 
         None
@@ -290,7 +290,7 @@ mod tests {
 
         // Standard completions should return None (use LSP)
         assert!(bridge.get_repl_specific_completions("Con").is_none());
-        assert!(bridge.get_repl_specific_completions("Console::").is_none());
+        assert!(bridge.get_repl_specific_completions("Stdio::").is_none());
         assert!(bridge.get_repl_specific_completions("core::").is_none());
     }
 }

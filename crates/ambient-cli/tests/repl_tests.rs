@@ -73,14 +73,14 @@ fn test_define_constant() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn test_tab_completion_console() {
+fn test_tab_completion_stdio() {
     // Platform abilities complete under their namespace: tab after
     // `platform::Con` fills in the bare segment.
     ReplTest::new()
         .wait_ready()
-        .type_text("platform::Con")
+        .type_text("platform::St")
         .tab()
-        .expect_line("platform::Console")
+        .expect_line("platform::Stdio")
         .shutdown();
 }
 
@@ -162,14 +162,14 @@ fn test_ctrl_c_interrupt() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn test_console_dot_completion_preserves_prefix() {
-    // Bug: Console.<tab> was replacing the entire line instead of completing after the dot
+fn test_stdio_dot_completion_preserves_prefix() {
+    // Bug: Stdio.<tab> was replacing the entire line instead of completing after the dot
     ReplTest::new()
         .wait_ready()
-        .type_text("Console.")
+        .type_text("Stdio.")
         .tab()
         .current_line()
-        .starts_with("Console.") // Should still have the Console. prefix
+        .starts_with("Stdio.") // Should still have the Stdio. prefix
         .not_contains("${") // Should not have snippet placeholders
         .done()
         .shutdown();
@@ -178,7 +178,7 @@ fn test_console_dot_completion_preserves_prefix() {
 #[test]
 fn test_completion_no_snippet_syntax() {
     // Bug: Completions were including LSP snippet syntax like ${1:message}
-    let test = ReplTest::new().wait_ready().type_text("Console.").tab();
+    let test = ReplTest::new().wait_ready().type_text("Stdio.").tab();
 
     // Small delay to let completion happen
     std::thread::sleep(std::time::Duration::from_millis(100));

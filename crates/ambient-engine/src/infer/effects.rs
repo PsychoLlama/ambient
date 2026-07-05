@@ -168,7 +168,7 @@ impl Infer {
     ) -> InferResult<AbilityId> {
         let handler_span = (handler.span.start, handler.span.end);
         // Same namespace policy as performs: platform abilities must be
-        // handled as `platform::Console::print(...)`, locals and the
+        // handled as `platform::Stdio::out(...)`, locals and the
         // builtin Exception bare.
         let ability_id = self.resolve_ability_ref(&handler.ability, handler_span)?;
 

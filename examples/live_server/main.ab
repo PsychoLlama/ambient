@@ -27,17 +27,17 @@ pub fn run(): () with platform::Process {
 
 fn stats_init(): number { 0 }
 
-fn on_hit(total: number, n: number): number with platform::Console {
+fn on_hit(total: number, n: number): number with platform::Stdio {
   let next = total + n;
-  platform::Console::print!("served ${core::convert::to_string(next)} messages");
+  platform::Stdio::out!("served ${core::convert::to_string(next)} messages");
   next
 }
 
 // ─── acceptor: one reduction per accepted connection ────────────────────
 
-fn acceptor_init(): number with platform::Network, platform::Console, platform::Process {
+fn acceptor_init(): number with platform::Network, platform::Stdio, platform::Process {
   let listener = platform::Network::listen!(("127.0.0.1", 7777));
-  platform::Console::print!("live_server listening on 127.0.0.1:7777");
+  platform::Stdio::out!("live_server listening on 127.0.0.1:7777");
   platform::Process::send!(platform::Process::self_pid!(), "accept");
   listener
 }

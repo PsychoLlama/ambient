@@ -10,7 +10,7 @@ fn simple_function(): number {
 /// Tests using a handler value with handle expression.
 fn test_handler_value(): number {
   let mock_console = {
-    print(msg) => resume(())
+    out(msg) => resume(())
   };
 
   handle simple_function() with mock_console {}

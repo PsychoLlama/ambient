@@ -16,18 +16,18 @@
 ///
 /// It is effectful: the Log perform runs on the *server*, dispatched to
 /// the Log handler the server's host granted to executed code.
-fn double(x: number): number with platform::Log {
+fn double(x: number): number with platform::Log, platform::Stdio {
     platform::Log::info!("doubling remotely");
     x * 2
 }
 
 /// Entry point that connects to server and executes a function remotely.
-pub fn run(): () with platform::Console, platform::Network, platform::Execute {
-    platform::Console::print!("Client: connecting to 127.0.0.1:8080...");
+pub fn run(): () with platform::Stdio, platform::Network, platform::Execute {
+    platform::Stdio::out!("Client: connecting to 127.0.0.1:8080...");
     let conn = platform::Network::connect!(("127.0.0.1", 8080));
 
     let local = platform::Network::local_addr!(conn);
-    platform::Console::print!(core::string::concat("Client: connected from ", local));
+    platform::Stdio::out!(core::string::concat("Client: connected from ", local));
 
     // The value we want to double remotely
     let value = 21;
@@ -35,15 +35,15 @@ pub fn run(): () with platform::Console, platform::Network, platform::Execute {
     // Create a function that takes an argument (not a capture) for remote execution
     let thunk = (x) => double(x);
 
-    platform::Console::print!(core::string::concat("Client: sending double(", core::string::concat(core::convert::to_string(value), ") for remote execution...")));
+    platform::Stdio::out!(core::string::concat("Client: sending double(", core::string::concat(core::convert::to_string(value), ") for remote execution...")));
 
     // Send the Execute message
     let result = send_and_receive(conn, value, thunk);
 
-    platform::Console::print!(core::string::concat("Client: got result = ", core::convert::to_string(result)));
+    platform::Stdio::out!(core::string::concat("Client: got result = ", core::convert::to_string(result)));
 
     platform::Network::close!(conn);
-    platform::Console::print!("Client: done")
+    platform::Stdio::out!("Client: done")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -51,11 +51,11 @@ pub fn run(): () with platform::Console, platform::Network, platform::Execute {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Send a function for remote execution and receive the result.
-fn send_and_receive<A>(conn: number, arg: A, thunk: (A) -> number with platform::Log): number with platform::Console, platform::Network, platform::Execute {
+fn send_and_receive<A>(conn: number, arg: A, thunk: (A) -> number with platform::Log, platform::Stdio): number with platform::Stdio, platform::Network, platform::Execute {
     let hash = core::protocol::closure_hash(thunk);
     let captures = core::protocol::serialize_value(arg);
 
-    platform::Console::print!(core::string::concat("Client: closure hash = ", hash));
+    platform::Stdio::out!(core::string::concat("Client: closure hash = ", hash));
 
     // Build Execute message: [msg_type, hash_len, hash_bytes, captures]
     let hash_bytes = core::protocol::serialize_value(hash);
@@ -71,11 +71,11 @@ fn send_and_receive<A>(conn: number, arg: A, thunk: (A) -> number with platform:
 }
 
 /// Handle server response.
-fn handle_response<A>(conn: number, thunk: (A) -> number with platform::Log): number with platform::Console, platform::Network, platform::Execute {
+fn handle_response<A>(conn: number, thunk: (A) -> number with platform::Log, platform::Stdio): number with platform::Stdio, platform::Network, platform::Execute {
     let response = platform::Network::receive!(conn);
 
     if core::bytes::length(response) == 0 {
-        platform::Console::print!("Client: connection closed");
+        platform::Stdio::out!("Client: connection closed");
         0
     } else {
         let msg_type = core::bytes::get(response, 0).unwrap_or(0);
@@ -88,7 +88,7 @@ fn handle_response<A>(conn: number, thunk: (A) -> number with platform::Log): nu
         } else {
             if msg_type == 2 {
                 // NeedDeps message
-                platform::Console::print!("Client: server needs function bytecode");
+                platform::Stdio::out!("Client: server needs function bytecode");
                 let payload = core::bytes::slice(response, 1, core::bytes::length(response));
                 let hashes_opt = core::protocol::deserialize_value(payload);
                 let hashes: List<string> = hashes_opt.unwrap_or([]);
@@ -98,12 +98,12 @@ fn handle_response<A>(conn: number, thunk: (A) -> number with platform::Log): nu
                 let provide_msg = core::bytes::concat(core::bytes::from([3]), data);
                 platform::Network::send!(conn, provide_msg);
 
-                platform::Console::print!("Client: sent function bytecode");
+                platform::Stdio::out!("Client: sent function bytecode");
 
                 // Continue waiting for result
                 handle_response(conn, thunk)
             } else {
-                platform::Console::print!("Client: unexpected message type");
+                platform::Stdio::out!("Client: unexpected message type");
                 0
             }
         }

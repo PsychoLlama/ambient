@@ -172,7 +172,7 @@ pub struct AbilityResolver {
     /// These come from ability preludes (declaration modules an embedder
     /// registers, e.g. the `platform` module). Unlike local dynamics they
     /// must be named with their namespace prefix everywhere they appear
-    /// in source: performs (`platform::Console::print!`), `with` clauses,
+    /// in source: performs (`platform::Stdio::out!`), `with` clauses,
     /// effect-row annotations, handler arms, and sandbox clauses (see
     /// [`AbilityResolver::resolve_ref`]).
     namespaced_by_name: HashMap<Arc<str>, (Arc<str>, Arc<DynAbility>)>,
@@ -287,8 +287,8 @@ impl AbilityResolver {
     /// - A bare name resolves to a local (module-declared) dynamic first,
     ///   then to a builtin descriptor (`Exception`). A bare name that
     ///   belongs to a namespaced dynamic is an error: namespaced abilities
-    ///   must be written with their prefix (`platform::Console`).
-    /// - A qualified name (`platform::Console`) resolves only to the
+    ///   must be written with their prefix (`platform::Stdio`).
+    /// - A qualified name (`platform::Stdio`) resolves only to the
     ///   dynamic registered under exactly that namespace. Locals and
     ///   builtins may not be spelled with a namespace.
     /// - A local dynamic that shadows a namespaced name keeps working
@@ -438,7 +438,7 @@ impl AbilityResolver {
 
     /// Every ability name spelled the way source must reference it:
     /// local dynamics and builtin descriptors bare, namespaced dynamics
-    /// with their prefix (`platform::Console`). Sorted and deduplicated.
+    /// with their prefix (`platform::Stdio`). Sorted and deduplicated.
     /// Suitable for completions in `with` clauses and handler arms.
     #[must_use]
     pub fn ability_names(&self) -> Vec<Arc<str>> {
@@ -747,7 +747,7 @@ impl TypeFactory<Type> for EngineTypeFactory {
 /// (Exception).
 ///
 /// This is the engine's only builtin ability set. Platform abilities
-/// (Console, `FileSystem`, Network, ...) are not engine builtins: embedders
+/// (Stdio, `FileSystem`, Network, ...) are not engine builtins: embedders
 /// resolve their declaration modules with
 /// [`crate::infer::resolve_ability_declarations`] and register the
 /// results as namespaced dynamics.
@@ -772,7 +772,7 @@ mod tests {
         assert!(resolver.get_by_name("Exception").is_some());
 
         // Platform abilities are not engine builtins.
-        assert!(resolver.get_by_name("Console").is_none());
+        assert!(resolver.get_by_name("Stdio").is_none());
         assert!(resolver.get_by_name("FileSystem").is_none());
     }
 

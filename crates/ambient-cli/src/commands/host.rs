@@ -19,8 +19,8 @@ use ambient_platform::process::{
     DeployOutcome, EventSink, ProcessRuntime, ProcessRuntimeConfig, functions_from_module,
 };
 use ambient_platform::{
-    ConsoleConfig, ExecuteConfig, LogConfig, NetworkState, register_console, register_execute,
-    register_fs, register_log, register_network_shared, register_random, register_time,
+    ExecuteConfig, LogConfig, NetworkState, StdioConfig, StdioSink, register_execute, register_fs,
+    register_log, register_network_shared, register_random, register_stdio, register_time,
 };
 
 use super::{platform_prelude, prelude_interface};
@@ -42,7 +42,7 @@ impl RuntimeHost {
         let tokio = tokio::runtime::Runtime::new().context("failed to create async runtime")?;
         let prelude = platform_prelude()?;
 
-        let console = prelude_interface(&prelude, "Console")?;
+        let stdio = prelude_interface(&prelude, "Stdio")?;
         let time = prelude_interface(&prelude, "Time")?;
         let random = prelude_interface(&prelude, "Random")?;
         let log = prelude_interface(&prelude, "Log")?;
@@ -54,15 +54,20 @@ impl RuntimeHost {
         let network_state = Arc::new(NetworkState::new(tokio.handle().clone()));
         let store = Arc::new(std::sync::Mutex::new(Store::new()));
 
+        // Log shares Stdio's output sink, so both stream to the same
+        // stdout for every VM this host builds.
+        let sink = StdioSink::default();
+
         // Every process VM gets the full platform set. Executed-by-hash
-        // code (Execute ability) stays restricted to Console + Log, as
+        // code (Execute ability) stays restricted to Stdio + Log, as
         // before.
         let exec_grants = {
-            let console = console.clone();
+            let stdio = stdio.clone();
             let log = log.clone();
+            let sink = sink.clone();
             Arc::new(move |exec_vm: &mut Vm| {
-                register_console(exec_vm, &console, ConsoleConfig::default());
-                register_log(exec_vm, &log, LogConfig::default());
+                register_stdio(exec_vm, &stdio, sink.clone(), StdioConfig::default());
+                register_log(exec_vm, &log, LogConfig::default(), sink.clone());
             })
         };
 
@@ -71,10 +76,10 @@ impl RuntimeHost {
             let network_state = Arc::clone(&network_state);
             Arc::new(move || {
                 let mut vm = Vm::new();
-                register_console(&mut vm, &console, ConsoleConfig::default());
+                register_stdio(&mut vm, &stdio, sink.clone(), StdioConfig::default());
                 register_time(&mut vm, &time);
                 register_random(&mut vm, &random);
-                register_log(&mut vm, &log, LogConfig::default());
+                register_log(&mut vm, &log, LogConfig::default(), sink.clone());
                 register_fs(&mut vm, &fs);
                 register_network_shared(&mut vm, &network, Arc::clone(&network_state));
                 register_execute(
