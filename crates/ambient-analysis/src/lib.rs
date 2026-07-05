@@ -76,6 +76,51 @@ pub struct Diagnostic {
     pub severity: Severity,
 }
 
+impl Diagnostic {
+    /// An error-severity diagnostic from raw parts. The single place a
+    /// `Diagnostic` is constructed, so every frontend renders the same shape.
+    #[must_use]
+    pub fn error(span: Span, message: String, note: Option<String>) -> Self {
+        Self {
+            span,
+            message,
+            note,
+            severity: Severity::Error,
+        }
+    }
+
+    /// Convert a parse error to its rendered diagnostic.
+    #[must_use]
+    pub fn from_parse_error(error: &ParseError) -> Self {
+        Self::error(error.span, error.kind.to_string(), error.context.clone())
+    }
+
+    /// Convert a type error to its rendered diagnostic.
+    #[must_use]
+    pub fn from_type_error(error: &BoxedTypeError) -> Self {
+        Self::error(
+            Span::new(error.span.0, error.span.1),
+            error.kind.to_string(),
+            error.context.clone(),
+        )
+    }
+}
+
+/// Render a set of type errors as diagnostics, in `ambient check` order.
+///
+/// The build pipeline (`ambient run`/`compile`/`dev`) type-checks with the
+/// same engine entry point as analysis but reports through the engine's
+/// `BuildError`. This is the one conversion both it and
+/// [`AnalysisResult::diagnostics`] use, so a type error renders identically
+/// no matter which command surfaced it — the parity invariant, extended to
+/// the compiling commands.
+#[must_use]
+pub fn type_error_diagnostics(errors: &[BoxedTypeError]) -> Vec<Diagnostic> {
+    let mut out: Vec<Diagnostic> = errors.iter().map(Diagnostic::from_type_error).collect();
+    out.sort_by_key(|d| (d.span.start, d.span.end));
+    out
+}
+
 /// The result of analyzing one module's source.
 #[derive(Debug)]
 pub struct AnalysisResult {
@@ -107,21 +152,11 @@ impl AnalysisResult {
         let mut out: Vec<Diagnostic> = self
             .parse_errors
             .iter()
-            .map(|e| Diagnostic {
-                span: e.span,
-                message: e.kind.to_string(),
-                note: e.context.clone(),
-                severity: Severity::Error,
-            })
+            .map(Diagnostic::from_parse_error)
             .collect();
 
         if out.is_empty() {
-            out.extend(self.type_errors.iter().map(|e| Diagnostic {
-                span: Span::new(e.span.0, e.span.1),
-                message: e.kind.to_string(),
-                note: e.context.clone(),
-                severity: Severity::Error,
-            }));
+            out.extend(self.type_errors.iter().map(Diagnostic::from_type_error));
         }
 
         out.sort_by_key(|d| (d.span.start, d.span.end));

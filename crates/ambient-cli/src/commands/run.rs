@@ -245,12 +245,15 @@ fn compile_loaded_module_with_registry(
     );
 
     if !check_result.is_ok() {
-        for error in &check_result.errors {
-            print_diagnostic(&loaded.source, file_path, error);
+        // Route type errors through the shared conversion so `run`/`dev`
+        // render exactly what `ambient check` does.
+        let diagnostics = ambient_analysis::type_error_diagnostics(&check_result.errors);
+        for diagnostic in &diagnostics {
+            print_diagnostic(&loaded.source, file_path, diagnostic);
         }
         bail!(
             "Found {} type error(s) in {}",
-            check_result.errors.len(),
+            diagnostics.len(),
             file_path.display()
         );
     }

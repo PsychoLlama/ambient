@@ -39,7 +39,7 @@ use ambient_analysis::queries::{
     find_qname_module_at_offset, find_use_module_at_offset, resolve_qualified_name,
 };
 use ambient_engine::ast::{ItemKind, Module};
-use ambient_engine::build::build_package;
+use ambient_engine::build::{ParseFailure, build_package};
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::{ExportKind, ModuleRegistry};
 use ambient_engine::symbol_db::SymbolDb;
@@ -809,8 +809,12 @@ fn handle_workspace_symbol(
 }
 
 /// Parse source code into an AST (wrapper for `ambient_parser::parse`).
-fn parse_source(source: &str) -> Result<Module, String> {
-    ambient_parser::parse(source).map_err(|e| e.to_string())
+fn parse_source(source: &str) -> Result<Module, ParseFailure> {
+    ambient_parser::parse(source).map_err(|e| ParseFailure {
+        message: e.kind.to_string(),
+        span: (e.span.start, e.span.end),
+        context: e.context,
+    })
 }
 
 /// Populate the symbol database by compiling the package.

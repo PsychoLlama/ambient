@@ -5,14 +5,10 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use ambient_engine::build::{BuildError, build_package};
+use ambient_engine::build::build_package;
 
-use super::{compile_source, read_source};
-
-/// Parse source code into an AST (wrapper for ambient_parser::parse).
-fn parse_source(source: &str) -> Result<ambient_engine::ast::Module, String> {
-    ambient_parser::parse(source).map_err(|e| e.to_string())
-}
+use super::{compile_source, parse_source, read_source};
+use crate::diagnostic::report_build_error;
 
 /// Compile an Ambient source file or package.
 ///
@@ -61,16 +57,7 @@ fn compile_package_cmd(path: &Path) -> Result<()> {
         ambient_platform::ABILITY_DECLARATIONS,
         Some(&progress_cb),
     )
-    .map_err(|e| match e {
-        BuildError::PackageOpen(msg) => anyhow::anyhow!("failed to open package: {msg}"),
-        BuildError::Parse { module, error } => anyhow::anyhow!("parse error in {module}: {error}"),
-        BuildError::TypeCheck { module, errors } => {
-            anyhow::anyhow!("type errors in {module}: {}", errors.join(", "))
-        }
-        BuildError::Compile { module, error } => {
-            anyhow::anyhow!("compile error in {module}: {error}")
-        }
-    })?;
+    .map_err(report_build_error)?;
 
     eprintln!(
         "Compiled {} ({} modules)",

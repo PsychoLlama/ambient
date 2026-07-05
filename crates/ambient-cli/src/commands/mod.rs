@@ -25,11 +25,27 @@ use std::sync::Arc;
 use anyhow::{Context, Result, bail};
 
 use ambient_engine::ability_resolver::{AbilityInterface, DynAbility};
+use ambient_engine::ast::Module;
+use ambient_engine::build::ParseFailure;
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
 
 use crate::diagnostic::print_diagnostic;
+
+/// Parse source into an AST, converting a parse error into the engine's
+/// renderable [`ParseFailure`].
+///
+/// This is the one bridge from `ambient_parser::ParseError` to the build
+/// pipeline's parse-error currency, shared by every `build_package` caller
+/// in the CLI so parse diagnostics render identically.
+pub fn parse_source(source: &str) -> Result<Module, ParseFailure> {
+    ambient_parser::parse(source).map_err(|e| ParseFailure {
+        message: e.kind.to_string(),
+        span: (e.span.start, e.span.end),
+        context: e.context,
+    })
+}
 
 /// The `platform` ability prelude: the bindings interface shipped by
 /// `ambient-platform`, resolved to content-addressed identities.
@@ -137,13 +153,15 @@ pub fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
     let check_result =
         ambient_engine::infer::check_module_with_registry(module, &main_path, &core.registry);
     if !check_result.is_ok() {
-        // Print type errors
-        for error in &check_result.errors {
-            print_diagnostic(source, file, error);
+        // Route type errors through the shared conversion so single-file
+        // compile renders exactly what `ambient check` does.
+        let diagnostics = ambient_analysis::type_error_diagnostics(&check_result.errors);
+        for diagnostic in &diagnostics {
+            print_diagnostic(source, file, diagnostic);
         }
         bail!(
             "Found {} type error(s) in {}",
-            check_result.errors.len(),
+            diagnostics.len(),
             file.display()
         );
     }

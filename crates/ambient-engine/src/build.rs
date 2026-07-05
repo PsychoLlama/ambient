@@ -5,11 +5,12 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::ast::{ItemKind, Module, UseKind, UsePrefix};
 use crate::compiler::CompiledModule;
+use crate::infer::BoxedTypeError;
 use crate::module_path::{ImportPrefix, ModulePath};
 use crate::module_registry::{ModuleRegistry, ResolvedImport};
 use crate::package::{LoadedModule, Package};
@@ -20,8 +21,25 @@ use crate::symbol_db::SymbolDb;
 /// Called with (module name, current, total) for each module.
 pub type ProgressCallback<'a> = &'a dyn Fn(&str, usize, usize);
 
+/// A parse failure the build can render with source context: message, byte
+/// span, and optional note.
+///
+/// Engine-local so `ambient-engine` needn't depend on the parser (the
+/// dependency runs the other way). The caller's parse function fills this
+/// from `ambient_parser::ParseError`, and the CLI converts it back to a
+/// rendered diagnostic — the same spanned rendering `ambient check` gives.
+#[derive(Debug, Clone)]
+pub struct ParseFailure {
+    /// The primary message.
+    pub message: String,
+    /// Byte offset range in the module source.
+    pub span: (u32, u32),
+    /// Optional context/note.
+    pub context: Option<String>,
+}
+
 /// Parse function type for parsing source code into an AST.
-pub type ParseFn = fn(&str) -> Result<Module, String>;
+pub type ParseFn = fn(&str) -> Result<Module, ParseFailure>;
 
 /// Result of building a package.
 pub struct BuildResult {
@@ -34,15 +52,34 @@ pub struct BuildResult {
 }
 
 /// Error during package building.
+///
+/// The `Parse` and `TypeCheck` variants carry the offending module's source
+/// and file path alongside structured (spanned) errors, so a frontend can
+/// render them with source context — byte-identically to `ambient check`.
+/// Message-only failures (opening the package, codegen, embedded
+/// core/platform modules) have no user source to point at and carry just a
+/// message.
 #[derive(Debug)]
 pub enum BuildError {
     /// Failed to open the package.
     PackageOpen(String),
-    /// Failed to parse a module.
-    Parse { module: String, error: String },
-    /// Type checking failed.
-    TypeCheck { module: String, errors: Vec<String> },
-    /// Compilation failed.
+    /// A user module failed to parse. The failure is boxed to keep the
+    /// `Result`'s error variant small.
+    Parse {
+        module: String,
+        path: PathBuf,
+        source: String,
+        error: Box<ParseFailure>,
+    },
+    /// A user module failed to type-check.
+    TypeCheck {
+        module: String,
+        path: PathBuf,
+        source: String,
+        errors: Vec<BoxedTypeError>,
+    },
+    /// Codegen failed, or an embedded core/platform module failed to build.
+    /// Compiler-internal: no user source to render against.
     Compile { module: String, error: String },
 }
 
@@ -50,9 +87,16 @@ impl std::fmt::Display for BuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PackageOpen(msg) => write!(f, "failed to open package: {msg}"),
-            Self::Parse { module, error } => write!(f, "parse error in {module}: {error}"),
-            Self::TypeCheck { module, errors } => {
-                write!(f, "type errors in {module}: {}", errors.join(", "))
+            Self::Parse { module, error, .. } => {
+                write!(f, "parse error in {module}: {}", error.message)
+            }
+            Self::TypeCheck { module, errors, .. } => {
+                let joined = errors
+                    .iter()
+                    .map(|e| e.kind.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "type errors in {module}: {joined}")
             }
             Self::Compile { module, error } => write!(f, "compile error in {module}: {error}"),
         }
@@ -117,8 +161,12 @@ pub fn build_package(
         HashMap::new();
 
     // Core modules compile first: they are ordinary Ambient modules and
-    // every user module may reference them.
-    let core_compiled = compile_core_modules(&mut registry, &mut module_function_hashes, parse)?;
+    // every user module may reference them. Core registration only needs a
+    // string on failure (a parse error there is a compiler bug, not user
+    // error), so adapt the richer `ParseFn`.
+    let parse_str = |s: &str| parse(s).map_err(|e| e.message);
+    let core_compiled =
+        compile_core_modules(&mut registry, &mut module_function_hashes, parse_str)?;
     all_compiled.merge(&core_compiled);
 
     // Register the embedder-supplied `platform` declaration module so its
@@ -129,9 +177,9 @@ pub fn build_package(
         &mut registry,
         &["platform"],
         platform_source,
-        parse,
+        parse_str,
     )
-    .map_err(|(module, error)| BuildError::Parse { module, error })?;
+    .map_err(|(module, error)| BuildError::Compile { module, error })?;
 
     for (idx, module_path) in module_order.iter().enumerate() {
         let module = pkg
@@ -403,7 +451,7 @@ pub fn compile_core_modules(
     parse: impl Fn(&str) -> Result<Module, String>,
 ) -> Result<CompiledModule, BuildError> {
     let core_paths = crate::core_library::register_core_modules(registry, parse).map_err(
-        |(module, error)| BuildError::Parse {
+        |(module, error)| BuildError::Compile {
             module: format!("core.{module}"),
             error,
         },
@@ -419,13 +467,17 @@ pub fn compile_core_modules(
         let check_result =
             crate::infer::check_module_with_registry((*ast).clone(), &core_path, registry);
         if !check_result.is_ok() {
-            return Err(BuildError::TypeCheck {
+            // A core module failing to type-check is a compiler bug, not user
+            // error, so there is no user source to render against.
+            let joined = check_result
+                .errors
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(BuildError::Compile {
                 module: core_path.to_string(),
-                errors: check_result
-                    .errors
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect(),
+                error: joined,
             });
         }
 
@@ -576,14 +628,17 @@ fn load_module(
 ) -> Result<LoadedModule, BuildError> {
     let source = pkg
         .read_module_source(path)
-        .map_err(|e| BuildError::Parse {
+        .map_err(|e| BuildError::Compile {
             module: path.to_string(),
-            error: e.to_string(),
+            error: format!("failed to read source: {e}"),
         })?;
 
-    let ast = parse(&source).map_err(|e| BuildError::Parse {
+    let file_path = pkg.module_file_path(path);
+    let ast = parse(&source).map_err(|error| BuildError::Parse {
         module: path.to_string(),
-        error: e,
+        path: file_path,
+        source: source.clone(),
+        error: Box::new(error),
     })?;
 
     Ok(LoadedModule {
@@ -605,14 +660,11 @@ fn compile_loaded_module_with_registry(
         crate::infer::check_module_with_registry(loaded.ast.clone(), module_path, registry);
 
     if !check_result.is_ok() {
-        let errors: Vec<String> = check_result
-            .errors
-            .iter()
-            .map(ToString::to_string)
-            .collect();
         return Err(BuildError::TypeCheck {
             module: module_path.to_string(),
-            errors,
+            path: file_path.to_path_buf(),
+            source: loaded.source.clone(),
+            errors: check_result.errors,
         });
     }
 

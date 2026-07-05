@@ -5,6 +5,8 @@
 
 use std::path::Path;
 
+use ambient_engine::build::BuildError;
+
 /// A diagnostic that can be formatted with source context.
 pub trait Diagnostic {
     /// The error message to display.
@@ -24,34 +26,6 @@ impl Diagnostic for ambient_parser::ParseError {
 
     fn span(&self) -> (u32, u32) {
         (self.span.start, self.span.end)
-    }
-
-    fn context(&self) -> Option<&str> {
-        self.context.as_deref()
-    }
-}
-
-impl Diagnostic for ambient_engine::infer::TypeError {
-    fn message(&self) -> String {
-        self.kind.to_string()
-    }
-
-    fn span(&self) -> (u32, u32) {
-        self.span
-    }
-
-    fn context(&self) -> Option<&str> {
-        self.context.as_deref()
-    }
-}
-
-impl Diagnostic for Box<ambient_engine::infer::TypeError> {
-    fn message(&self) -> String {
-        self.kind.to_string()
-    }
-
-    fn span(&self) -> (u32, u32) {
-        self.span
     }
 
     fn context(&self) -> Option<&str> {
@@ -149,6 +123,55 @@ pub fn print_diagnostic<D: Diagnostic>(source: &str, file: &Path, error: &D) {
     }
 
     eprintln!();
+}
+
+/// Render a package [`BuildError`] and return a short summary error to
+/// bail with.
+///
+/// Type and parse errors print byte-identically to `ambient check`: both
+/// convert to `ambient_analysis::Diagnostic` — the one conversion the check
+/// pipeline uses — and render through [`print_diagnostic`] against the
+/// module's real source. Message-only failures (package open, codegen,
+/// embedded modules) have no source to point at and surface as a plain
+/// error.
+pub fn report_build_error(error: BuildError) -> anyhow::Error {
+    match error {
+        BuildError::TypeCheck {
+            path,
+            source,
+            errors,
+            ..
+        } => {
+            let diagnostics = ambient_analysis::type_error_diagnostics(&errors);
+            for diagnostic in &diagnostics {
+                print_diagnostic(&source, &path, diagnostic);
+            }
+            anyhow::anyhow!(
+                "Found {} type error(s) in {}",
+                diagnostics.len(),
+                path.display()
+            )
+        }
+        BuildError::Parse {
+            path,
+            source,
+            error,
+            ..
+        } => {
+            let error = *error;
+            let diagnostic = ambient_analysis::Diagnostic::error(
+                ambient_engine::ast::Span::new(error.span.0, error.span.1),
+                error.message,
+                error.context,
+            );
+            print_diagnostic(&source, &path, &diagnostic);
+            anyhow::anyhow!("parse error in {}", path.display())
+        }
+        BuildError::PackageOpen(msg) => anyhow::anyhow!("failed to open package: {msg}"),
+        BuildError::Compile { module, error } => {
+            anyhow::anyhow!("compile error in {module}: {error}")
+        }
+    }
 }
 
 /// Find line number, column, and line bounds for a byte offset.
