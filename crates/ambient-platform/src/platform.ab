@@ -13,6 +13,10 @@
 //! return `Result`: handlers raise catchable `Exception`s through the
 //! effect system. Engine faults remain fatal.
 
+// `Time::wait` takes a span of time as a `core::time::Duration` rather than
+// a bare millisecond count.
+use core::time::Duration;
+
 // Abilities are `pub` because `platform` is an ordinary importable module:
 // the registry only lets you `use` a public export (`lookup_symbol` rejects
 // a non-`pub` symbol), so `use platform::Network;` needs `pub ability
@@ -35,8 +39,8 @@ pub ability Console {
 pub ability Time {
   /// Milliseconds since the Unix epoch.
   fn now(): number;
-  /// Block for the given number of milliseconds.
-  fn wait(duration: number): ();
+  /// Block for the given duration.
+  fn wait(duration: Duration): ();
 }
 
 /// Non-deterministic random numbers.

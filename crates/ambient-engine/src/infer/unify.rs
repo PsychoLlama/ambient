@@ -170,6 +170,34 @@ impl Infer {
                 self.unify(&n1.inner, &n2.inner, span)
             }
 
+            // A bare reference to a `type` alias can meet the alias's expanded
+            // form: a `unique type` resolves to a `Type::Nominal`, a plain
+            // alias to its target. `resolve_holes` expands aliases everywhere
+            // it has the alias table, so the two spellings normally never meet
+            // — but an ability method signature is resolved *before* the table
+            // is populated (see `resolve_ability_def`), so its `Duration`
+            // parameter stays an unexpanded `Named` and reaches here against a
+            // caller's resolved `Nominal`. Expand and retry. The earlier
+            // (Named, Named) arm already consumed name-vs-name, so the other
+            // side here is never itself a `Named`; the guard skips enums (which
+            // resolve to a uuid-carrying `Named`, not an alias) and generics.
+            (Type::Named(n), _)
+                if n.args.is_empty()
+                    && n.uuid.is_none()
+                    && self.type_aliases.contains_key(&n.name) =>
+            {
+                let expanded = self.type_aliases[&n.name].clone();
+                self.unify(&expanded, &t2, span)
+            }
+            (_, Type::Named(n))
+                if n.args.is_empty()
+                    && n.uuid.is_none()
+                    && self.type_aliases.contains_key(&n.name) =>
+            {
+                let expanded = self.type_aliases[&n.name].clone();
+                self.unify(&t1, &expanded, span)
+            }
+
             // Mismatch
             _ => Err(type_error(
                 TypeErrorKind::TypeMismatch {
@@ -566,6 +594,8 @@ impl MaskedSubst<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::infer::Scheme;
     use crate::infer::env::TypeEnv;
@@ -629,6 +659,42 @@ mod tests {
                 .unify(&foreign, &Type::option(Type::Number), span())
                 .is_err()
         );
+    }
+
+    #[test]
+    fn test_unify_named_alias_bridges_to_nominal() {
+        // A `unique type` alias resolves to a `Type::Nominal`, but an ability
+        // method signature's reference to it stays an unexpanded `Named` (it
+        // is resolved before the alias table exists). The two must still
+        // unify, in either order.
+        let mut infer = Infer::new();
+        let duration = Type::nominal(
+            Uuid::from_u128(0x0003),
+            Type::record([("secs", Type::Number), ("nanos", Type::Number)]),
+            Some("Duration"),
+        );
+        infer.register_type_alias(Arc::from("Duration"), duration.clone());
+
+        let unexpanded = Type::named("Duration", vec![]);
+        assert!(infer.unify(&unexpanded, &duration, span()).is_ok());
+        assert!(infer.unify(&duration, &unexpanded, span()).is_ok());
+    }
+
+    #[test]
+    fn test_unify_named_alias_still_rejects_wrong_type() {
+        // The bridge only unifies the alias against its true expansion; a
+        // mismatching argument (a bare `number` where a `Duration` is wanted)
+        // is still an error.
+        let mut infer = Infer::new();
+        let duration = Type::nominal(
+            Uuid::from_u128(0x0003),
+            Type::record([("secs", Type::Number), ("nanos", Type::Number)]),
+            Some("Duration"),
+        );
+        infer.register_type_alias(Arc::from("Duration"), duration);
+
+        let unexpanded = Type::named("Duration", vec![]);
+        assert!(infer.unify(&unexpanded, &Type::Number, span()).is_err());
     }
 
     #[test]

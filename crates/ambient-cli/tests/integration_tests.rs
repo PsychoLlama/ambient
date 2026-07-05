@@ -713,6 +713,41 @@ fn test_local_ability_shadows_platform_name() {
 }
 
 #[test]
+fn test_time_wait_accepts_duration() {
+    // `platform::Time::wait` takes a `core::time::Duration`. This exercises
+    // the whole path: the ability signature references a core nominal type,
+    // the checker unifies the caller's `Duration` against the signature's
+    // (unexpanded) reference, and the host handler decodes the record and
+    // sleeps. A successful numeric result proves compile *and* dispatch.
+    CliTest::new(
+        r#"
+        use core::time::Duration;
+
+        pub fn run(): number with platform::Time {
+            platform::Time::wait!(Duration::from_millis(1));
+            7
+        }
+        "#,
+    )
+    .expect_output("7");
+}
+
+#[test]
+fn test_time_wait_rejects_raw_number() {
+    // A bare millisecond count is no longer accepted: the Named/Nominal
+    // bridge only unifies the signature's `Duration` against a real
+    // `Duration`, not against `number`.
+    CliTest::new(
+        r#"
+        pub fn run(): () with platform::Time {
+            platform::Time::wait!(20);
+        }
+        "#,
+    )
+    .expect_error("type mismatch");
+}
+
+#[test]
 fn test_sandbox_nested_pure() {
     CliTest::new(
         r#"
