@@ -87,9 +87,9 @@ impl Infer {
             PatternKind::Literal(lit) => {
                 let lit_ty = match lit {
                     crate::ast::Literal::Unit => Type::Unit,
-                    crate::ast::Literal::Bool(_) => Type::Bool,
-                    crate::ast::Literal::Number(_) => Type::Number,
-                    crate::ast::Literal::String(_) => Type::String,
+                    crate::ast::Literal::Bool(_) => Type::bool(),
+                    crate::ast::Literal::Number(_) => Type::number(),
+                    crate::ast::Literal::String(_) => Type::string(),
                 };
                 self.unify(expected, &lit_ty, span)?;
             }

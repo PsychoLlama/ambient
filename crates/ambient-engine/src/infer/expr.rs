@@ -34,9 +34,9 @@ impl Infer {
         let span = (expr.span.start, expr.span.end);
         let ty = match &mut expr.kind {
             ExprKind::Unit => Type::Unit,
-            ExprKind::Bool(_) => Type::Bool,
-            ExprKind::Number(_) => Type::Number,
-            ExprKind::String(_) => Type::String,
+            ExprKind::Bool(_) => Type::bool(),
+            ExprKind::Number(_) => Type::number(),
+            ExprKind::String(_) => Type::string(),
 
             ExprKind::Local(id) => {
                 let scheme = env
@@ -239,19 +239,19 @@ impl Infer {
                 let operand_ty = self.infer_expr(env, operand)?;
                 match op {
                     UnaryOp::Neg => {
-                        self.unify(&operand_ty, &Type::Number, span)?;
-                        Type::Number
+                        self.unify(&operand_ty, &Type::number(), span)?;
+                        Type::number()
                     }
                     UnaryOp::Not => {
-                        self.unify(&operand_ty, &Type::Bool, span)?;
-                        Type::Bool
+                        self.unify(&operand_ty, &Type::bool(), span)?;
+                        Type::bool()
                     }
                 }
             }
 
             ExprKind::If(cond, then_branch, else_branch) => {
                 let cond_ty = self.infer_expr(env, cond)?;
-                self.unify(&cond_ty, &Type::Bool, span)?;
+                self.unify(&cond_ty, &Type::bool(), span)?;
 
                 let then_ty = self.infer_expr(env, then_branch)?;
 
@@ -685,33 +685,33 @@ impl Infer {
             // Arithmetic operators: Number -> Number -> Number
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod => {
                 // Special case: Add also works for String concatenation
-                if op == BinaryOp::Add && left_ty == Type::String {
-                    self.unify(&right_ty, &Type::String, span)?;
-                    return Ok(Type::String);
+                if op == BinaryOp::Add && left_ty == Type::string() {
+                    self.unify(&right_ty, &Type::string(), span)?;
+                    return Ok(Type::string());
                 }
-                self.unify(&left_ty, &Type::Number, span)?;
-                self.unify(&right_ty, &Type::Number, span)?;
-                Ok(Type::Number)
+                self.unify(&left_ty, &Type::number(), span)?;
+                self.unify(&right_ty, &Type::number(), span)?;
+                Ok(Type::number())
             }
 
             // Comparison operators: a -> a -> Bool
             BinaryOp::Eq | BinaryOp::Ne => {
                 self.unify(&left_ty, &right_ty, span)?;
-                Ok(Type::Bool)
+                Ok(Type::bool())
             }
 
             // Ordering operators: Number -> Number -> Bool
             BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
-                self.unify(&left_ty, &Type::Number, span)?;
-                self.unify(&right_ty, &Type::Number, span)?;
-                Ok(Type::Bool)
+                self.unify(&left_ty, &Type::number(), span)?;
+                self.unify(&right_ty, &Type::number(), span)?;
+                Ok(Type::bool())
             }
 
             // Logical operators: Bool -> Bool -> Bool
             BinaryOp::And | BinaryOp::Or => {
-                self.unify(&left_ty, &Type::Bool, span)?;
-                self.unify(&right_ty, &Type::Bool, span)?;
-                Ok(Type::Bool)
+                self.unify(&left_ty, &Type::bool(), span)?;
+                self.unify(&right_ty, &Type::bool(), span)?;
+                Ok(Type::bool())
             }
         }
     }
@@ -1054,10 +1054,10 @@ fn operator_return_type(op: BinaryOp, operand_ty: &Type) -> Type {
         }
         // Comparison operators return Bool
         BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
-            Type::Bool
+            Type::bool()
         }
         // Logical operators (not overloadable, but included for completeness)
-        BinaryOp::And | BinaryOp::Or => Type::Bool,
+        BinaryOp::And | BinaryOp::Or => Type::bool(),
     }
 }
 
@@ -1074,15 +1074,15 @@ mod tests {
 
         let mut expr = Expr::number(42.0);
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
-        assert_eq!(ty, Type::Number);
+        assert_eq!(ty, Type::number());
 
         let mut expr = Expr::string("hello");
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
-        assert_eq!(ty, Type::String);
+        assert_eq!(ty, Type::string());
 
         let mut expr = Expr::bool(true);
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
-        assert_eq!(ty, Type::Bool);
+        assert_eq!(ty, Type::bool());
     }
 
     #[test]
@@ -1092,7 +1092,7 @@ mod tests {
 
         let mut expr = Expr::binary(BinaryOp::Add, Expr::number(1.0), Expr::number(2.0));
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
-        assert_eq!(ty, Type::Number);
+        assert_eq!(ty, Type::number());
     }
 
     #[test]
@@ -1102,7 +1102,7 @@ mod tests {
 
         let mut expr = Expr::binary(BinaryOp::Lt, Expr::number(1.0), Expr::number(2.0));
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
-        assert_eq!(ty, Type::Bool);
+        assert_eq!(ty, Type::bool());
     }
 
     #[test]
@@ -1113,7 +1113,7 @@ mod tests {
         let mut expr =
             Expr::if_then_else(Expr::bool(true), Expr::number(1.0), Some(Expr::number(2.0)));
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
-        assert_eq!(ty, Type::Number);
+        assert_eq!(ty, Type::number());
     }
 
     #[test]
@@ -1136,7 +1136,7 @@ mod tests {
 
         let mut expr = Expr::tuple(vec![Expr::number(1.0), Expr::string("hello")]);
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
-        assert_eq!(ty, Type::Tuple(vec![Type::Number, Type::String]));
+        assert_eq!(ty, Type::Tuple(vec![Type::number(), Type::string()]));
     }
 
     #[test]
@@ -1146,7 +1146,10 @@ mod tests {
 
         let mut expr = Expr::record([("x", Expr::number(1.0)), ("y", Expr::number(2.0))]);
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
-        assert_eq!(ty, Type::record([("x", Type::Number), ("y", Type::Number)]));
+        assert_eq!(
+            ty,
+            Type::record([("x", Type::number()), ("y", Type::number())])
+        );
     }
 
     #[test]
@@ -1161,7 +1164,7 @@ mod tests {
         );
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
         let ty = infer.apply(&ty);
-        assert_eq!(ty, Type::function(vec![Type::Number], Type::Number));
+        assert_eq!(ty, Type::function(vec![Type::number()], Type::number()));
     }
 
     #[test]
@@ -1176,7 +1179,7 @@ mod tests {
         );
         let mut expr = Expr::call(lambda, vec![Expr::number(42.0)]);
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
-        assert_eq!(ty, Type::Number);
+        assert_eq!(ty, Type::number());
     }
 
     #[test]
@@ -1194,12 +1197,12 @@ mod tests {
         // id(42) should be number
         let mut expr = Expr::call(Expr::local(0), vec![Expr::number(42.0)]);
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
-        assert_eq!(ty, Type::Number);
+        assert_eq!(ty, Type::number());
 
         // id("hello") should be string
         let mut expr = Expr::call(Expr::local(0), vec![Expr::string("hello")]);
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
-        assert_eq!(ty, Type::String);
+        assert_eq!(ty, Type::string());
     }
 
     #[test]
@@ -1260,13 +1263,13 @@ mod tests {
         let mut infer = Infer::new();
 
         // Mix of concrete types and holes
-        let tuple = Type::Tuple(vec![Type::Number, Type::Hole, Type::String]);
+        let tuple = Type::Tuple(vec![Type::number(), Type::Hole, Type::string()]);
         let resolved = infer.resolve_holes(&tuple);
 
         if let Type::Tuple(elems) = resolved {
-            assert_eq!(elems[0], Type::Number);
+            assert_eq!(elems[0], Type::number());
             assert!(matches!(elems[1], Type::Var(_)));
-            assert_eq!(elems[2], Type::String);
+            assert_eq!(elems[2], Type::string());
         } else {
             panic!("Expected tuple type");
         }
@@ -1292,7 +1295,7 @@ mod tests {
                     id: 0,
                     name: "go".into(),
                     param_names: vec![],
-                    params: vec![Type::String],
+                    params: vec![Type::string()],
                     ret: Type::Unit,
                     quantified: vec![],
                 }],
@@ -1310,14 +1313,14 @@ mod tests {
                         name: "now".into(),
                         param_names: vec![],
                         params: vec![],
-                        ret: Type::Number,
+                        ret: Type::number(),
                         quantified: vec![],
                     },
                     DynMethod {
                         id: 1,
                         name: "wait".into(),
                         param_names: vec![],
-                        params: vec![Type::Number],
+                        params: vec![Type::number()],
                         ret: Type::Unit,
                         quantified: vec![],
                     },
@@ -1625,11 +1628,10 @@ mod tests {
         if let Err(err) = result {
             assert!(
                 matches!(
-                    err.kind,
-                    TypeErrorKind::TypeMismatch {
-                        expected: Type::Number,
-                        actual: Type::String
-                    }
+                    &err.kind,
+                    TypeErrorKind::TypeMismatch { expected, actual }
+                        if expected.as_primitive() == Some(crate::types::Primitive::Number)
+                            && actual.as_primitive() == Some(crate::types::Primitive::String)
                 ),
                 "Expected TypeMismatch between Number and String, got {:?}",
                 err.kind

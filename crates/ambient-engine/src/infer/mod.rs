@@ -560,15 +560,15 @@ mod tests {
     fn test_type_error_display() {
         let err = TypeError::new(
             TypeErrorKind::TypeMismatch {
-                expected: Type::Number,
-                actual: Type::String,
+                expected: Type::number(),
+                actual: Type::string(),
             },
             (0, 10),
         );
         let msg = format!("{err}");
         assert!(msg.contains("type mismatch"));
-        assert!(msg.contains("number"));
-        assert!(msg.contains("string"));
+        assert!(msg.contains("Number"));
+        assert!(msg.contains("String"));
     }
 
     #[test]
@@ -597,7 +597,7 @@ mod tests {
         let err = TypeError::new(
             TypeErrorKind::FieldNotFound {
                 field: "missing".into(),
-                record_ty: Type::record([("x", Type::Number)]),
+                record_ty: Type::record([("x", Type::number())]),
             },
             (0, 10),
         );
@@ -610,7 +610,7 @@ mod tests {
         let err = TypeError::new(
             TypeErrorKind::TupleIndexOutOfBounds {
                 index: 5,
-                tuple_ty: Type::Tuple(vec![Type::Number, Type::String]),
+                tuple_ty: Type::Tuple(vec![Type::number(), Type::string()]),
             },
             (0, 10),
         );
@@ -620,19 +620,19 @@ mod tests {
 
     #[test]
     fn test_error_display_not_a_function() {
-        let err = TypeError::new(TypeErrorKind::NotAFunction { ty: Type::Number }, (0, 10));
+        let err = TypeError::new(TypeErrorKind::NotAFunction { ty: Type::number() }, (0, 10));
         let msg = format!("{err}");
-        assert!(msg.contains("not a function") || msg.contains("number"));
+        assert!(msg.contains("not a function") || msg.contains("Number"));
     }
 
     #[test]
     fn test_error_display_non_boolean_condition() {
         let err = TypeError::new(
-            TypeErrorKind::NonBooleanCondition { ty: Type::Number },
+            TypeErrorKind::NonBooleanCondition { ty: Type::number() },
             (0, 10),
         );
         let msg = format!("{err}");
-        assert!(msg.contains("condition") || msg.contains("bool"));
+        assert!(msg.contains("condition") || msg.contains("Bool"));
     }
 
     #[test]
@@ -652,8 +652,8 @@ mod tests {
     fn test_error_display_match_arm_type_mismatch() {
         let err = TypeError::new(
             TypeErrorKind::MatchArmTypeMismatch {
-                first: Type::Number,
-                arm: Type::String,
+                first: Type::number(),
+                arm: Type::string(),
             },
             (0, 10),
         );

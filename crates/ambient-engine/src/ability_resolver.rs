@@ -620,12 +620,21 @@ impl CanonicalTypeRenderer {
 
     /// Render a type into its canonical string form.
     pub fn render(&mut self, ty: &Type) -> String {
+        // Primitives are `Named` carrying a reserved uuid, but the canonical
+        // interface grammar renders them as bare lowercase words (`string`,
+        // `number`, ...) to match `TypeFactory` (see `ambient-core::canonical`),
+        // keeping ability interface identities byte-stable across the upgrade.
+        if let Some(prim) = ty.as_primitive() {
+            return match prim {
+                crate::types::Primitive::Bool => "bool",
+                crate::types::Primitive::Number => "number",
+                crate::types::Primitive::String => "string",
+                crate::types::Primitive::Bytes => "bytes",
+            }
+            .to_string();
+        }
         match ty {
             Type::Unit => "unit".to_string(),
-            Type::Bool => "bool".to_string(),
-            Type::Number => "number".to_string(),
-            Type::String => "string".to_string(),
-            Type::Bytes => "bytes".to_string(),
             Type::Never => "never".to_string(),
             // Each hole is an independent unknown, matching the factory's
             // per-call freshness.
@@ -730,19 +739,19 @@ impl TypeFactory<Type> for EngineTypeFactory {
     }
 
     fn bool(&self) -> Type {
-        Type::Bool
+        Type::bool()
     }
 
     fn number(&self) -> Type {
-        Type::Number
+        Type::number()
     }
 
     fn string(&self) -> Type {
-        Type::String
+        Type::string()
     }
 
     fn bytes(&self) -> Type {
-        Type::Bytes
+        Type::bytes()
     }
 
     fn never(&self) -> Type {
@@ -818,7 +827,7 @@ mod tests {
                 id: 0,
                 name: Arc::from("go"),
                 param_names: vec![],
-                params: vec![Type::String],
+                params: vec![Type::string()],
                 ret: Type::Unit,
                 quantified: vec![],
             }],

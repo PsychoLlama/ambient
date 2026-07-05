@@ -7,7 +7,7 @@ fn test_hover_on_number_literal() {
     LspTest::new()
         .with_source("fn foo() { 42/*h*/ }")
         .hover_at("h")
-        .expect_type("number")
+        .expect_type("Number")
         .shutdown();
 }
 
@@ -16,7 +16,7 @@ fn test_hover_on_string_literal() {
     LspTest::new()
         .with_source(r#"fn foo() { "hello"/*h*/ }"#)
         .hover_at("h")
-        .expect_type("string")
+        .expect_type("String")
         .shutdown();
 }
 
@@ -25,7 +25,7 @@ fn test_hover_on_bool_literal() {
     LspTest::new()
         .with_source("fn foo() { true/*h*/ }")
         .hover_at("h")
-        .expect_type("bool")
+        .expect_type("Bool")
         .shutdown();
 }
 
@@ -34,7 +34,7 @@ fn test_hover_on_local_variable() {
     LspTest::new()
         .with_source("fn foo() { let x/*h*/ = 42; x }")
         .hover_at("h")
-        .expect_type("number")
+        .expect_type("Number")
         .shutdown();
 }
 
@@ -43,7 +43,7 @@ fn test_hover_on_variable_usage() {
     LspTest::new()
         .with_source("fn foo() { let x = 42; x/*h*/ }")
         .hover_at("h")
-        .expect_type("number")
+        .expect_type("Number")
         .shutdown();
 }
 
@@ -52,7 +52,7 @@ fn test_hover_on_function_name() {
     LspTest::new()
         .with_source("fn add/*h*/(a: number, b: number): number { a + b }")
         .hover_at("h")
-        .expect_contains("fn add(a: number, b: number): number")
+        .expect_contains("fn add(a: Number, b: Number): Number")
         .shutdown();
 }
 
@@ -71,7 +71,7 @@ fn test_hover_on_binary_expression() {
     LspTest::new()
         .with_source("fn foo() { 1 + 2/*h*/ }")
         .hover_at("h")
-        .expect_type("number")
+        .expect_type("Number")
         .shutdown();
 }
 
@@ -85,7 +85,7 @@ fn test() { add(1, 2)/*h*/ }
 "#,
         )
         .hover_at("h")
-        .expect_type("number")
+        .expect_type("Number")
         .shutdown();
 }
 
@@ -94,7 +94,7 @@ fn test_hover_on_tuple() {
     LspTest::new()
         .with_source("fn foo() { (1, true)/*h*/ }")
         .hover_at("h")
-        .expect_contains("(number, bool)")
+        .expect_contains("(Number, Bool)")
         .shutdown();
 }
 
@@ -112,7 +112,7 @@ fn test_hover_on_if_expression() {
     LspTest::new()
         .with_source("fn foo() { if true { 42 } else { 0 }/*h*/ }")
         .hover_at("h")
-        .expect_type("number")
+        .expect_type("Number")
         .shutdown();
 }
 

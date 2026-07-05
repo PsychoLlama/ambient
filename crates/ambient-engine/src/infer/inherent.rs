@@ -79,14 +79,14 @@ pub fn impl_key_for(ty: &Type) -> Option<ImplKey> {
         // enum in another package can never claim them. Structural
         // constructors (built-in containers, prelude `Option`/`Result`)
         // key on their reserved head name.
+        // Primitives are `Named` carrying a reserved uuid, so they key as
+        // `ImplKey::Nominal(<uuid>)` through this same arm — their inherent
+        // methods (`impl String { ... }`) get uuid-based dispatch symbols,
+        // uniform with declared nominal types and prelude enums.
         Type::Named(n) => Some(match n.uuid {
             Some(uuid) => ImplKey::Nominal(uuid),
             None => ImplKey::Named(Arc::clone(&n.name)),
         }),
-        Type::Number => Some(ImplKey::Named("number".into())),
-        Type::String => Some(ImplKey::Named("string".into())),
-        Type::Bool => Some(ImplKey::Named("bool".into())),
-        Type::Bytes => Some(ImplKey::Named("Bytes".into())),
         _ => None,
     }
 }

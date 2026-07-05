@@ -833,12 +833,15 @@ fn register_inherent_impls(
 
         let target = inherent_impl_target(infer, impl_def);
         // Beyond being keyable, a named target must actually exist: a
-        // declared enum or one of the built-in containers. (Nominal types
-        // were already resolved through their alias; primitives map to
-        // reserved lowercase heads no user type can claim.)
+        // built-in primitive (`String`, `Number`, ...), a declared enum, or
+        // one of the built-in containers. (Nominal types were already
+        // resolved through their alias.)
         let target = target.filter(|(_, for_type)| match for_type {
             Type::Named(n) => {
-                infer.enum_registry.get(&n.name).is_some()
+                n.uuid
+                    .and_then(crate::types::Primitive::from_uuid)
+                    .is_some()
+                    || infer.enum_registry.get(&n.name).is_some()
                     || matches!(n.name.as_ref(), "List" | "Map" | "Set")
             }
             _ => true,
@@ -1996,9 +1999,9 @@ mod tests {
         let mut module = ability_module(
             "Console",
             vec![
-                method("print", &[], &[("message", Type::String)], Type::Unit),
-                method("eprint", &[], &[("message", Type::String)], Type::Unit),
-                method("println", &[], &[("message", Type::String)], Type::Unit),
+                method("print", &[], &[("message", Type::string())], Type::Unit),
+                method("eprint", &[], &[("message", Type::string())], Type::Unit),
+                method("println", &[], &[("message", Type::string())], Type::Unit),
             ],
         );
 
@@ -2036,40 +2039,45 @@ mod tests {
     fn generic_declaration_hashing_matches_descriptor_hashing() {
         use ambient_core::{MethodDescriptor, hash_interface};
 
-        let list_of_string = Type::named("List", vec![Type::String]);
+        let list_of_string = Type::named("List", vec![Type::string()]);
         let mut module = ability_module(
             "Execute",
             vec![
-                method("has_function", &[], &[("hash", Type::String)], Type::Bool),
+                method(
+                    "has_function",
+                    &[],
+                    &[("hash", Type::string())],
+                    Type::bool(),
+                ),
                 method(
                     "get_dependencies",
                     &[],
-                    &[("hash", Type::String)],
+                    &[("hash", Type::string())],
                     list_of_string.clone(),
                 ),
                 method(
                     "load_functions",
                     &[],
-                    &[("bundle", Type::Bytes)],
+                    &[("bundle", Type::bytes())],
                     Type::Unit,
                 ),
                 method(
                     "run",
                     &["T", "R"],
-                    &[("hash", Type::String), ("args", ty_param("T"))],
+                    &[("hash", Type::string()), ("args", ty_param("T"))],
                     ty_param("R"),
                 ),
                 method(
                     "get_functions",
                     &[],
                     &[("hashes", list_of_string)],
-                    Type::Bytes,
+                    Type::bytes(),
                 ),
                 method(
                     "run_with",
                     &["T", "U", "R"],
                     &[
-                        ("hash", Type::String),
+                        ("hash", Type::string()),
                         ("args", ty_param("T")),
                         ("handler", ty_param("U")),
                     ],
@@ -2160,7 +2168,7 @@ mod tests {
                         name: Arc::from("NANOS_PER_SEC"),
                         name_span: span(),
                         is_public: false,
-                        ty: Type::Number,
+                        ty: Type::number(),
                         value: Expr::number(1_000_000_000.0),
                     }),
                     span(),

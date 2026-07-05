@@ -265,7 +265,7 @@ mod tests {
                 id: 0,
                 name: Arc::from("go"),
                 param_names: vec![],
-                params: vec![Type::String],
+                params: vec![Type::string()],
                 ret: Type::Unit,
                 quantified: vec![],
             }],
@@ -284,20 +284,20 @@ mod tests {
 
         let qualified = QualifiedName::qualified(vec!["platform"], "Printer");
         let (id, ret, _) = infer
-            .lookup_ability_method(&qualified, "go", &[Type::String], span())
+            .lookup_ability_method(&qualified, "go", &[Type::string()], span())
             .expect("qualified perform should resolve");
         assert_eq!(id, aid(7));
         assert_eq!(ret, Type::Unit);
 
         // Declared signatures are enforced: wrong argument type fails.
-        let err = infer.lookup_ability_method(&qualified, "go", &[Type::Number], span());
+        let err = infer.lookup_ability_method(&qualified, "go", &[Type::number()], span());
         assert!(err.is_err(), "argument type mismatch should be rejected");
 
         // The wrong namespace does not resolve.
         let wrong = QualifiedName::qualified(vec!["other"], "Printer");
         assert!(
             infer
-                .lookup_ability_method(&wrong, "go", &[Type::String], span())
+                .lookup_ability_method(&wrong, "go", &[Type::string()], span())
                 .is_err()
         );
     }
@@ -434,7 +434,7 @@ mod tests {
 
         // A namespaced prelude ability performed bare should fail.
         let bare = QualifiedName::simple("Printer");
-        let result = infer.lookup_ability_method(&bare, "go", &[Type::String], span());
+        let result = infer.lookup_ability_method(&bare, "go", &[Type::string()], span());
         assert!(
             result.is_err(),
             "Printer without platform. prefix should fail"
@@ -442,7 +442,7 @@ mod tests {
 
         // The same perform with the namespace succeeds.
         let qualified = platform_ability("Printer");
-        let result = infer.lookup_ability_method(&qualified, "go", &[Type::String], span());
+        let result = infer.lookup_ability_method(&qualified, "go", &[Type::string()], span());
         assert!(result.is_ok(), "platform::Printer::go should succeed");
     }
 }

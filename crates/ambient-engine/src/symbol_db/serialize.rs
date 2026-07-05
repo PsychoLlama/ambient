@@ -29,12 +29,9 @@ pub fn serialize_type(ty: &Type) -> String {
 #[must_use]
 pub fn serialize_type_value(ty: &Type) -> Value {
     match ty {
-        // Primitives
+        // Primitives (Bool/Number/String/Bytes) are `Named` carrying a
+        // reserved uuid; they serialize through the `Named` arm below.
         Type::Unit => json!({"t": "unit"}),
-        Type::Bool => json!({"t": "bool"}),
-        Type::Number => json!({"t": "number"}),
-        Type::String => json!({"t": "string"}),
-        Type::Bytes => json!({"t": "bytes"}),
         Type::Never => json!({"t": "never"}),
         Type::Error => json!({"t": "error"}),
         Type::Hole => json!({"t": "hole"}),
@@ -165,11 +162,9 @@ pub fn deserialize_type_value(value: &Value) -> Result<Type, DeserializeError> {
         .ok_or_else(|| DeserializeError::InvalidFormat("missing 't' field".to_string()))?;
 
     match tag {
-        // Primitives
+        // Primitives (Bool/Number/String/Bytes) round-trip through the
+        // `named` arm below, carrying their reserved uuid.
         "unit" => Ok(Type::Unit),
-        "bool" => Ok(Type::Bool),
-        "number" => Ok(Type::Number),
-        "string" => Ok(Type::String),
         "never" => Ok(Type::Never),
         "error" => Ok(Type::Error),
         "hole" => Ok(Type::Hole),
@@ -419,9 +414,9 @@ mod tests {
     fn test_primitive_round_trip() {
         let types = vec![
             Type::Unit,
-            Type::Bool,
-            Type::Number,
-            Type::String,
+            Type::bool(),
+            Type::number(),
+            Type::string(),
             Type::Never,
         ];
         for ty in types {
@@ -433,7 +428,7 @@ mod tests {
 
     #[test]
     fn test_tuple_round_trip() {
-        let ty = Type::Tuple(vec![Type::Number, Type::String]);
+        let ty = Type::Tuple(vec![Type::number(), Type::string()]);
         let json = serialize_type(&ty);
         let result = deserialize_type(&json).expect("deserialize failed");
         assert_eq!(ty, result);
@@ -441,7 +436,7 @@ mod tests {
 
     #[test]
     fn test_record_round_trip() {
-        let ty = Type::record([("x", Type::Number), ("y", Type::String)]);
+        let ty = Type::record([("x", Type::number()), ("y", Type::string())]);
         let json = serialize_type(&ty);
         let result = deserialize_type(&json).expect("deserialize failed");
         assert_eq!(ty, result);
@@ -450,8 +445,8 @@ mod tests {
     #[test]
     fn test_function_round_trip() {
         let ty = Type::function_with_abilities(
-            vec![Type::Number, Type::String],
-            Type::Bool,
+            vec![Type::number(), Type::string()],
+            Type::bool(),
             AbilitySet::from_abilities([aid(1), aid(2)]),
         );
         let json = serialize_type(&ty);
@@ -461,7 +456,7 @@ mod tests {
 
     #[test]
     fn test_named_type_round_trip() {
-        let ty = Type::named("List", vec![Type::Number]);
+        let ty = Type::named("List", vec![Type::number()]);
         let json = serialize_type(&ty);
         let result = deserialize_type(&json).expect("deserialize failed");
         assert_eq!(ty, result);
@@ -500,7 +495,7 @@ mod tests {
     #[test]
     fn test_nominal_round_trip() {
         let uuid = uuid::Uuid::new_v4();
-        let ty = Type::nominal(uuid, Type::String, Some("UserId"));
+        let ty = Type::nominal(uuid, Type::string(), Some("UserId"));
         let json = serialize_type(&ty);
         let result = deserialize_type(&json).expect("deserialize failed");
         assert_eq!(ty, result);
@@ -516,7 +511,7 @@ mod tests {
 
     #[test]
     fn test_ability_value_round_trip() {
-        let ty = Type::ability_value(Type::String, AbilitySet::from_abilities([aid(1), aid(2)]));
+        let ty = Type::ability_value(Type::string(), AbilitySet::from_abilities([aid(1), aid(2)]));
         let json = serialize_type(&ty);
         let result = deserialize_type(&json).expect("deserialize failed");
         assert_eq!(ty, result);

@@ -621,8 +621,8 @@ impl TraitRegistry {
         binary(&mut registry, "Mul", "mul", self_ty());
         binary(&mut registry, "Div", "div", self_ty());
         binary(&mut registry, "Mod", "rem", self_ty());
-        binary(&mut registry, "Eq", "eq", Type::Bool);
-        binary(&mut registry, "Ord", "cmp", Type::Number);
+        binary(&mut registry, "Eq", "eq", Type::bool());
+        binary(&mut registry, "Ord", "cmp", Type::number());
 
         // `Default` is an associated (no-`self`) trait: `default(): Self`
         // produces a canonical value for the type, called as `Type::default()`.
@@ -761,17 +761,10 @@ pub enum Type {
     /// Unit type `()`, represents absence of a meaningful value.
     Unit,
 
-    /// Boolean type `bool`.
-    Bool,
-
-    /// 64-bit floating point number (the only numeric type).
-    Number,
-
-    /// UTF-8 string type.
-    String,
-
-    /// Byte sequence type for binary data.
-    Bytes,
+    // The primitives `Bool`/`Number`/`String`/`Bytes` are not variants here:
+    // they are nominal `Named` types carrying reserved uuids (see
+    // `Type::bool`/`number`/`string`/`bytes` and `BOOL_UUID` etc.), uniform
+    // with how `Option`/`Result` work. Match them with `Type::as_primitive`.
 
     // ─────────────────────────────────────────────────────────────────────────
     // Composite types
@@ -999,6 +992,86 @@ pub const OPTION_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ff
 /// Canonical nominal identity of the built-in `Result` enum. See [`OPTION_UUID`].
 pub const RESULT_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0002);
 
+/// Canonical nominal identity of the built-in `Bool` type. Like
+/// `Option`/`Result`, the primitives are reserved-name prelude types homed in
+/// `core` that cannot spell their identity in source, so they take fixed
+/// reserved uuids in the same `0xffff…` namespace. See [`OPTION_UUID`].
+pub const BOOL_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0003);
+
+/// Canonical nominal identity of the built-in `Number` type. See [`BOOL_UUID`].
+pub const NUMBER_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0004);
+
+/// Canonical nominal identity of the built-in `String` type. See [`BOOL_UUID`].
+pub const STRING_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0005);
+
+/// Canonical nominal identity of the built-in `Bytes` type. See [`BOOL_UUID`].
+pub const BYTES_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0006);
+
+/// A built-in primitive type. Primitives are ordinary [`Type::Named`] values
+/// carrying a reserved uuid ([`BOOL_UUID`] etc.); this enum is the ergonomic
+/// way to match on one, mirroring [`Type::as_option`]/[`Type::as_result`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Primitive {
+    /// `Bool`
+    Bool,
+    /// `Number`
+    Number,
+    /// `String`
+    String,
+    /// `Bytes`
+    Bytes,
+}
+
+impl Primitive {
+    /// The reserved nominal uuid for this primitive.
+    #[must_use]
+    pub const fn uuid(self) -> Uuid {
+        match self {
+            Self::Bool => BOOL_UUID,
+            Self::Number => NUMBER_UUID,
+            Self::String => STRING_UUID,
+            Self::Bytes => BYTES_UUID,
+        }
+    }
+
+    /// The primitive matching a reserved uuid, if any.
+    #[must_use]
+    pub fn from_uuid(uuid: Uuid) -> Option<Self> {
+        match uuid {
+            BOOL_UUID => Some(Self::Bool),
+            NUMBER_UUID => Some(Self::Number),
+            STRING_UUID => Some(Self::String),
+            BYTES_UUID => Some(Self::Bytes),
+            _ => None,
+        }
+    }
+
+    /// The bare type name (e.g. `"String"`), as it renders and is spelled in
+    /// source.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Bool => "Bool",
+            Self::Number => "Number",
+            Self::String => "String",
+            Self::Bytes => "Bytes",
+        }
+    }
+
+    /// The module-qualified identity (e.g. `"core::String"`) surfaced by hover.
+    /// Primitives are homed in `core`; the bare [`name`](Self::name) alone
+    /// doesn't carry the module.
+    #[must_use]
+    pub const fn fqn(self) -> &'static str {
+        match self {
+            Self::Bool => "core::Bool",
+            Self::Number => "core::Number",
+            Self::String => "core::String",
+            Self::Bytes => "core::Bytes",
+        }
+    }
+}
+
 /// A named type constructor (like `List<T>` or `Option<T>`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedType {
@@ -1146,6 +1219,48 @@ impl Type {
     #[must_use]
     pub fn named_simple(name: impl Into<Arc<str>>) -> Self {
         Self::Named(NamedType::simple(name))
+    }
+
+    /// The `Bool` primitive, a nominal type carrying its reserved identity.
+    #[must_use]
+    pub fn bool() -> Self {
+        Self::Named(NamedType::with_identity("Bool", vec![], Some(BOOL_UUID)))
+    }
+
+    /// The `Number` primitive, a nominal type carrying its reserved identity.
+    #[must_use]
+    pub fn number() -> Self {
+        Self::Named(NamedType::with_identity(
+            "Number",
+            vec![],
+            Some(NUMBER_UUID),
+        ))
+    }
+
+    /// The `String` primitive, a nominal type carrying its reserved identity.
+    #[must_use]
+    pub fn string() -> Self {
+        Self::Named(NamedType::with_identity(
+            "String",
+            vec![],
+            Some(STRING_UUID),
+        ))
+    }
+
+    /// The `Bytes` primitive, a nominal type carrying its reserved identity.
+    #[must_use]
+    pub fn bytes() -> Self {
+        Self::Named(NamedType::with_identity("Bytes", vec![], Some(BYTES_UUID)))
+    }
+
+    /// If this type is a primitive (a `Named` carrying a reserved primitive
+    /// uuid), return which one. Mirrors [`as_option`](Self::as_option).
+    #[must_use]
+    pub fn as_primitive(&self) -> Option<Primitive> {
+        match self {
+            Self::Named(n) => n.uuid.and_then(Primitive::from_uuid),
+            _ => None,
+        }
     }
 
     /// Create an `Option<T>` type carrying its canonical nominal identity.
@@ -1453,10 +1568,6 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Unit => write!(f, "()"),
-            Self::Bool => write!(f, "bool"),
-            Self::Number => write!(f, "number"),
-            Self::String => write!(f, "string"),
-            Self::Bytes => write!(f, "Bytes"),
             Self::Never => write!(f, "!"),
             Self::Error => write!(f, "<error>"),
             Self::Hole => write!(f, "_"),
@@ -1563,37 +1674,37 @@ mod tests {
     #[test]
     fn test_primitive_types_display() {
         assert_eq!(Type::Unit.to_string(), "()");
-        assert_eq!(Type::Bool.to_string(), "bool");
-        assert_eq!(Type::Number.to_string(), "number");
-        assert_eq!(Type::String.to_string(), "string");
+        assert_eq!(Type::bool().to_string(), "Bool");
+        assert_eq!(Type::number().to_string(), "Number");
+        assert_eq!(Type::string().to_string(), "String");
         assert_eq!(Type::Never.to_string(), "!");
     }
 
     #[test]
     fn test_tuple_type_display() {
-        let tuple = Type::tuple(vec![Type::Number, Type::String]);
-        assert_eq!(tuple.to_string(), "(number, string)");
+        let tuple = Type::tuple(vec![Type::number(), Type::string()]);
+        assert_eq!(tuple.to_string(), "(Number, String)");
     }
 
     #[test]
     fn test_record_type_display() {
-        let record = Type::record([("x", Type::Number), ("y", Type::Number)]);
-        assert_eq!(record.to_string(), "{ x: number, y: number }");
+        let record = Type::record([("x", Type::number()), ("y", Type::number())]);
+        assert_eq!(record.to_string(), "{ x: Number, y: Number }");
     }
 
     #[test]
     fn test_function_type_display() {
-        let func = Type::function(vec![Type::Number, Type::Number], Type::Number);
-        assert_eq!(func.to_string(), "(number, number) -> number");
+        let func = Type::function(vec![Type::number(), Type::number()], Type::number());
+        assert_eq!(func.to_string(), "(Number, Number) -> Number");
     }
 
     #[test]
     fn test_named_type_display() {
-        let list = Type::named("List", vec![Type::Number]);
-        assert_eq!(list.to_string(), "List<number>");
+        let list = Type::named("List", vec![Type::number()]);
+        assert_eq!(list.to_string(), "List<Number>");
 
-        let map = Type::named("Map", vec![Type::String, Type::Number]);
-        assert_eq!(map.to_string(), "Map<string, number>");
+        let map = Type::named("Map", vec![Type::string(), Type::number()]);
+        assert_eq!(map.to_string(), "Map<String, Number>");
     }
 
     #[test]
@@ -1622,15 +1733,16 @@ mod tests {
 
     #[test]
     fn test_record_field_access() {
-        let record =
-            if let Type::Record(rec) = Type::record([("x", Type::Number), ("y", Type::String)]) {
-                rec
-            } else {
-                panic!("Expected record type");
-            };
+        let record = if let Type::Record(rec) =
+            Type::record([("x", Type::number()), ("y", Type::string())])
+        {
+            rec
+        } else {
+            panic!("Expected record type");
+        };
 
-        assert_eq!(record.get_field("x"), Some(&Type::Number));
-        assert_eq!(record.get_field("y"), Some(&Type::String));
+        assert_eq!(record.get_field("x"), Some(&Type::number()));
+        assert_eq!(record.get_field("y"), Some(&Type::string()));
         assert_eq!(record.get_field("z"), None);
     }
 
@@ -1653,19 +1765,19 @@ mod tests {
     fn test_substitute() {
         let t = Type::function(vec![Type::var(0)], Type::var(1));
         let mut subst = HashMap::new();
-        subst.insert(0, Type::Number);
-        subst.insert(1, Type::String);
+        subst.insert(0, Type::number());
+        subst.insert(1, Type::string());
 
         let result = t.substitute(&subst);
-        assert_eq!(result, Type::function(vec![Type::Number], Type::String));
+        assert_eq!(result, Type::function(vec![Type::number()], Type::string()));
     }
 
     #[test]
     fn test_is_concrete() {
-        assert!(Type::Number.is_concrete());
-        assert!(Type::function(vec![Type::Number], Type::String).is_concrete());
+        assert!(Type::number().is_concrete());
+        assert!(Type::function(vec![Type::number()], Type::string()).is_concrete());
         assert!(!Type::var(0).is_concrete());
-        assert!(!Type::function(vec![Type::var(0)], Type::Number).is_concrete());
+        assert!(!Type::function(vec![Type::var(0)], Type::number()).is_concrete());
     }
 
     #[test]
@@ -1673,8 +1785,8 @@ mod tests {
         let uuid1 = Uuid::new_v4();
         let uuid2 = Uuid::new_v4();
 
-        let nominal1 = Type::nominal(uuid1, Type::String, Some("UserId"));
-        let nominal2 = Type::nominal(uuid2, Type::String, Some("OrderId"));
+        let nominal1 = Type::nominal(uuid1, Type::string(), Some("UserId"));
+        let nominal2 = Type::nominal(uuid2, Type::string(), Some("OrderId"));
 
         // Same structure, different UUIDs -> different types
         assert_ne!(nominal1, nominal2);
@@ -1684,8 +1796,8 @@ mod tests {
     fn test_nominal_type_equality() {
         let uuid = Uuid::new_v4();
 
-        let nominal1 = Type::nominal(uuid, Type::String, Some("UserId"));
-        let nominal2 = Type::nominal(uuid, Type::String, Some("UserId"));
+        let nominal1 = Type::nominal(uuid, Type::string(), Some("UserId"));
+        let nominal2 = Type::nominal(uuid, Type::string(), Some("UserId"));
 
         // Same UUID -> same type
         assert_eq!(nominal1, nominal2);
@@ -1791,11 +1903,11 @@ mod tests {
 
     #[test]
     fn test_ability_value_type() {
-        let av = Type::ability_value(Type::String, AbilitySet::single(aid(1)));
-        assert_eq!(av.to_string(), format!("Ability<string, {{#{}}}>", aid(1)));
+        let av = Type::ability_value(Type::string(), AbilitySet::single(aid(1)));
+        assert_eq!(av.to_string(), format!("Ability<String, {{#{}}}>", aid(1)));
 
         if let Type::AbilityValue(avt) = av {
-            assert_eq!(*avt.result, Type::String);
+            assert_eq!(*avt.result, Type::string());
             assert!(avt.ability.contains(aid(1)));
         } else {
             panic!("Expected AbilityValue type");
@@ -1805,14 +1917,14 @@ mod tests {
     #[test]
     fn test_function_with_abilities() {
         let func = Type::function_with_abilities(
-            vec![Type::String],
+            vec![Type::string()],
             Type::Unit,
             AbilitySet::from_abilities([aid(1), aid(2)]),
         );
 
         assert_eq!(
             func.to_string(),
-            format!("(string) -> () with {{#{}, #{}}}", aid(1), aid(2))
+            format!("(String) -> () with {{#{}, #{}}}", aid(1), aid(2))
         );
 
         if let Type::Function(ft) = func {
@@ -1826,7 +1938,7 @@ mod tests {
 
     #[test]
     fn test_pure_function() {
-        let func = Type::function(vec![Type::Number], Type::Number);
+        let func = Type::function(vec![Type::number()], Type::number());
 
         if let Type::Function(ft) = func {
             assert!(ft.is_pure());
@@ -1859,30 +1971,33 @@ mod tests {
 
     #[test]
     fn test_ability_value_is_not_concrete() {
-        let av = Type::ability_value(Type::String, AbilitySet::var(0));
+        let av = Type::ability_value(Type::string(), AbilitySet::var(0));
         assert!(!av.is_concrete());
 
-        let av_concrete = Type::ability_value(Type::String, AbilitySet::single(aid(1)));
+        let av_concrete = Type::ability_value(Type::string(), AbilitySet::single(aid(1)));
         assert!(av_concrete.is_concrete());
     }
 
     #[test]
     fn test_function_with_ability_var_is_not_concrete() {
         let func =
-            Type::function_with_abilities(vec![Type::Number], Type::Number, AbilitySet::var(0));
+            Type::function_with_abilities(vec![Type::number()], Type::number(), AbilitySet::var(0));
         assert!(!func.is_concrete());
     }
 
     #[test]
     fn test_free_ability_vars_in_function() {
-        let func =
-            Type::function_with_abilities(vec![Type::Number], Type::Number, AbilitySet::var(42));
+        let func = Type::function_with_abilities(
+            vec![Type::number()],
+            Type::number(),
+            AbilitySet::var(42),
+        );
         assert_eq!(func.free_ability_vars(), vec![42]);
     }
 
     #[test]
     fn test_free_ability_vars_in_ability_value() {
-        let av = Type::ability_value(Type::String, AbilitySet::var(10));
+        let av = Type::ability_value(Type::string(), AbilitySet::var(10));
         assert_eq!(av.free_ability_vars(), vec![10]);
     }
 
@@ -1891,15 +2006,15 @@ mod tests {
         let func =
             Type::function_with_abilities(vec![Type::var(0)], Type::var(0), AbilitySet::var(1));
 
-        let type_subst: HashMap<TypeVarId, Type> = [(0, Type::Number)].into_iter().collect();
+        let type_subst: HashMap<TypeVarId, Type> = [(0, Type::number())].into_iter().collect();
         let ability_subst: HashMap<AbilityVarId, AbilitySet> =
             [(1, AbilitySet::single(aid(99)))].into_iter().collect();
 
         let result = func.substitute_all(&type_subst, &ability_subst);
 
         if let Type::Function(ft) = result {
-            assert_eq!(ft.params, vec![Type::Number]);
-            assert_eq!(*ft.ret, Type::Number);
+            assert_eq!(ft.params, vec![Type::number()]);
+            assert_eq!(*ft.ret, Type::number());
             assert_eq!(ft.abilities, AbilitySet::single(aid(99)));
         } else {
             panic!("Expected function type");
@@ -1915,15 +2030,16 @@ mod tests {
     fn test_type_hole_is_not_concrete() {
         assert!(!Type::Hole.is_concrete());
         // Hole in nested type
-        assert!(!Type::function(vec![Type::Hole], Type::Number).is_concrete());
-        assert!(!Type::Tuple(vec![Type::Number, Type::Hole]).is_concrete());
+        assert!(!Type::function(vec![Type::Hole], Type::number()).is_concrete());
+        assert!(!Type::Tuple(vec![Type::number(), Type::Hole]).is_concrete());
     }
 
     #[test]
     fn test_ability_registry_basic() {
         let mut registry = AbilityRegistry::new();
 
-        let info = AbilityInfo::new("Console").with_method("print", vec![Type::String], Type::Unit);
+        let info =
+            AbilityInfo::new("Console").with_method("print", vec![Type::string()], Type::Unit);
 
         registry.register(aid(1), info);
 
@@ -1995,51 +2111,51 @@ mod tests {
 
     #[test]
     fn test_option_type() {
-        let opt_num = Type::option(Type::Number);
-        assert_eq!(opt_num.to_string(), "Option<number>");
+        let opt_num = Type::option(Type::number());
+        assert_eq!(opt_num.to_string(), "Option<Number>");
 
         // Check as_option works
-        assert_eq!(opt_num.as_option(), Some(&Type::Number));
+        assert_eq!(opt_num.as_option(), Some(&Type::number()));
 
         // Non-option types return None
-        assert_eq!(Type::Number.as_option(), None);
-        assert_eq!(Type::named("List", vec![Type::Number]).as_option(), None);
+        assert_eq!(Type::number().as_option(), None);
+        assert_eq!(Type::named("List", vec![Type::number()]).as_option(), None);
     }
 
     #[test]
     fn test_result_type() {
-        let res = Type::result(Type::String, Type::Number);
-        assert_eq!(res.to_string(), "Result<string, number>");
+        let res = Type::result(Type::string(), Type::number());
+        assert_eq!(res.to_string(), "Result<String, Number>");
 
         // Check as_result works
-        assert_eq!(res.as_result(), Some((&Type::String, &Type::Number)));
+        assert_eq!(res.as_result(), Some((&Type::string(), &Type::number())));
 
         // Non-result types return None
-        assert_eq!(Type::Number.as_result(), None);
-        assert_eq!(Type::option(Type::Number).as_result(), None);
+        assert_eq!(Type::number().as_result(), None);
+        assert_eq!(Type::option(Type::number()).as_result(), None);
     }
 
     #[test]
     fn test_as_list() {
-        let list = Type::named("List", vec![Type::Number]);
-        assert_eq!(list.as_list(), Some(&Type::Number));
+        let list = Type::named("List", vec![Type::number()]);
+        assert_eq!(list.as_list(), Some(&Type::number()));
 
         // Non-list types return None
-        assert_eq!(Type::Number.as_list(), None);
-        assert_eq!(Type::option(Type::Number).as_list(), None);
+        assert_eq!(Type::number().as_list(), None);
+        assert_eq!(Type::option(Type::number()).as_list(), None);
     }
 
     #[test]
     fn test_nested_option_result() {
         // Option<Result<number, string>>
-        let nested = Type::option(Type::result(Type::Number, Type::String));
-        assert_eq!(nested.to_string(), "Option<Result<number, string>>");
+        let nested = Type::option(Type::result(Type::number(), Type::string()));
+        assert_eq!(nested.to_string(), "Option<Result<Number, String>>");
 
         // Check we can extract inner types
         if let Some(inner) = nested.as_option() {
             if let Some((ok, err)) = inner.as_result() {
-                assert_eq!(ok, &Type::Number);
-                assert_eq!(err, &Type::String);
+                assert_eq!(ok, &Type::number());
+                assert_eq!(err, &Type::string());
             } else {
                 panic!("Expected Result inside Option");
             }

@@ -28,13 +28,11 @@ impl Infer {
         let t2 = self.apply(t2);
 
         match (&t1, &t2) {
-            // Same primitive types
-            // Primitive types and error types
+            // Reflexive atoms and error types. The primitives
+            // (`Bool`/`Number`/`String`/`Bytes`) are `Named` carrying a
+            // reserved uuid, so they unify through the `(Named, Named)` arm
+            // below via `resolve_named_identity`, not here.
             (Type::Unit, Type::Unit)
-            | (Type::Bool, Type::Bool)
-            | (Type::Number, Type::Number)
-            | (Type::String, Type::String)
-            | (Type::Bytes, Type::Bytes)
             | (Type::Never, Type::Never)
             | (Type::Error, _)
             | (_, Type::Error) => Ok(()),
@@ -613,17 +611,29 @@ mod tests {
     #[test]
     fn test_unify_primitives() {
         let mut infer = Infer::new();
-        assert!(infer.unify(&Type::Number, &Type::Number, span()).is_ok());
-        assert!(infer.unify(&Type::String, &Type::String, span()).is_ok());
-        assert!(infer.unify(&Type::Bool, &Type::Bool, span()).is_ok());
+        assert!(
+            infer
+                .unify(&Type::number(), &Type::number(), span())
+                .is_ok()
+        );
+        assert!(
+            infer
+                .unify(&Type::string(), &Type::string(), span())
+                .is_ok()
+        );
+        assert!(infer.unify(&Type::bool(), &Type::bool(), span()).is_ok());
         assert!(infer.unify(&Type::Unit, &Type::Unit, span()).is_ok());
     }
 
     #[test]
     fn test_unify_mismatch() {
         let mut infer = Infer::new();
-        assert!(infer.unify(&Type::Number, &Type::String, span()).is_err());
-        assert!(infer.unify(&Type::Bool, &Type::Number, span()).is_err());
+        assert!(
+            infer
+                .unify(&Type::number(), &Type::string(), span())
+                .is_err()
+        );
+        assert!(infer.unify(&Type::bool(), &Type::number(), span()).is_err());
     }
 
     #[test]
@@ -632,12 +642,12 @@ mod tests {
         // unresolved annotation) still unifies with the resolved, uuid-carrying
         // form — the registry fallback resolves the `None` to `OPTION_UUID`.
         let mut infer = Infer::new();
-        let unresolved = Type::named("Option", vec![Type::Number]);
+        let unresolved = Type::named("Option", vec![Type::number()]);
         assert!(unresolved.as_option().is_some());
         assert!(matches!(&unresolved, Type::Named(n) if n.uuid.is_none()));
         assert!(
             infer
-                .unify(&unresolved, &Type::option(Type::Number), span())
+                .unify(&unresolved, &Type::option(Type::number()), span())
                 .is_ok()
         );
     }
@@ -651,12 +661,12 @@ mod tests {
         let mut infer = Infer::new();
         let foreign = Type::Named(NamedType::with_identity(
             "Option",
-            vec![Type::Number],
+            vec![Type::number()],
             Some(Uuid::from_u128(0x1234)),
         ));
         assert!(
             infer
-                .unify(&foreign, &Type::option(Type::Number), span())
+                .unify(&foreign, &Type::option(Type::number()), span())
                 .is_err()
         );
     }
@@ -670,7 +680,7 @@ mod tests {
         let mut infer = Infer::new();
         let duration = Type::nominal(
             Uuid::from_u128(0x0003),
-            Type::record([("secs", Type::Number), ("nanos", Type::Number)]),
+            Type::record([("secs", Type::number()), ("nanos", Type::number())]),
             Some("Duration"),
         );
         infer.register_type_alias(Arc::from("Duration"), duration.clone());
@@ -688,52 +698,52 @@ mod tests {
         let mut infer = Infer::new();
         let duration = Type::nominal(
             Uuid::from_u128(0x0003),
-            Type::record([("secs", Type::Number), ("nanos", Type::Number)]),
+            Type::record([("secs", Type::number()), ("nanos", Type::number())]),
             Some("Duration"),
         );
         infer.register_type_alias(Arc::from("Duration"), duration);
 
         let unexpanded = Type::named("Duration", vec![]);
-        assert!(infer.unify(&unexpanded, &Type::Number, span()).is_err());
+        assert!(infer.unify(&unexpanded, &Type::number(), span()).is_err());
     }
 
     #[test]
     fn test_unify_type_variable() {
         let mut infer = Infer::new();
         let var = infer.fresh();
-        assert!(infer.unify(&var, &Type::Number, span()).is_ok());
-        assert_eq!(infer.apply(&var), Type::Number);
+        assert!(infer.unify(&var, &Type::number(), span()).is_ok());
+        assert_eq!(infer.apply(&var), Type::number());
     }
 
     #[test]
     fn test_unify_tuples() {
         let mut infer = Infer::new();
-        let t1 = Type::Tuple(vec![Type::Number, Type::String]);
-        let t2 = Type::Tuple(vec![Type::Number, Type::String]);
+        let t1 = Type::Tuple(vec![Type::number(), Type::string()]);
+        let t2 = Type::Tuple(vec![Type::number(), Type::string()]);
         assert!(infer.unify(&t1, &t2, span()).is_ok());
     }
 
     #[test]
     fn test_unify_tuples_mismatch() {
         let mut infer = Infer::new();
-        let t1 = Type::Tuple(vec![Type::Number, Type::String]);
-        let t2 = Type::Tuple(vec![Type::Number, Type::Bool]);
+        let t1 = Type::Tuple(vec![Type::number(), Type::string()]);
+        let t2 = Type::Tuple(vec![Type::number(), Type::bool()]);
         assert!(infer.unify(&t1, &t2, span()).is_err());
     }
 
     #[test]
     fn test_unify_records() {
         let mut infer = Infer::new();
-        let r1 = Type::record([("x", Type::Number), ("y", Type::String)]);
-        let r2 = Type::record([("x", Type::Number), ("y", Type::String)]);
+        let r1 = Type::record([("x", Type::number()), ("y", Type::string())]);
+        let r2 = Type::record([("x", Type::number()), ("y", Type::string())]);
         assert!(infer.unify(&r1, &r2, span()).is_ok());
     }
 
     #[test]
     fn test_unify_functions() {
         let mut infer = Infer::new();
-        let f1 = Type::function(vec![Type::Number], Type::String);
-        let f2 = Type::function(vec![Type::Number], Type::String);
+        let f1 = Type::function(vec![Type::number()], Type::string());
+        let f2 = Type::function(vec![Type::number()], Type::string());
         assert!(infer.unify(&f1, &f2, span()).is_ok());
     }
 
@@ -855,14 +865,14 @@ mod tests {
         let mut infer = Infer::new();
 
         let f1 = Type::function_with_abilities(
-            vec![Type::Number],
-            Type::String,
+            vec![Type::number()],
+            Type::string(),
             AbilitySet::from_abilities([aid(1)]),
         );
 
         let f2 = Type::function_with_abilities(
-            vec![Type::Number],
-            Type::String,
+            vec![Type::number()],
+            Type::string(),
             AbilitySet::from_abilities([aid(1)]),
         );
 
@@ -875,14 +885,14 @@ mod tests {
         let mut infer = Infer::new();
 
         let f1 = Type::function_with_abilities(
-            vec![Type::Number],
-            Type::String,
+            vec![Type::number()],
+            Type::string(),
             AbilitySet::from_abilities([aid(1)]),
         );
 
         let f2 = Type::function_with_abilities(
-            vec![Type::Number],
-            Type::String,
+            vec![Type::number()],
+            Type::string(),
             AbilitySet::from_abilities([aid(2)]),
         );
 
@@ -894,8 +904,8 @@ mod tests {
     fn test_unify_ability_values() {
         let mut infer = Infer::new();
 
-        let av1 = Type::ability_value(Type::String, AbilitySet::single(aid(1)));
-        let av2 = Type::ability_value(Type::String, AbilitySet::single(aid(1)));
+        let av1 = Type::ability_value(Type::string(), AbilitySet::single(aid(1)));
+        let av2 = Type::ability_value(Type::string(), AbilitySet::single(aid(1)));
 
         let result = infer.unify(&av1, &av2, span());
         assert!(result.is_ok());
@@ -905,8 +915,8 @@ mod tests {
     fn test_unify_ability_values_different_result_fails() {
         let mut infer = Infer::new();
 
-        let av1 = Type::ability_value(Type::String, AbilitySet::single(aid(1)));
-        let av2 = Type::ability_value(Type::Number, AbilitySet::single(aid(1)));
+        let av1 = Type::ability_value(Type::string(), AbilitySet::single(aid(1)));
+        let av2 = Type::ability_value(Type::number(), AbilitySet::single(aid(1)));
 
         let result = infer.unify(&av1, &av2, span());
         assert!(result.is_err());

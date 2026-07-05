@@ -895,7 +895,7 @@ mod tests {
                 name: Arc::from(name),
                 name_span: Span::default(),
                 is_public,
-                ty: Type::Number,
+                ty: Type::number(),
                 value: Expr::number(value),
             }),
             Span::default(),

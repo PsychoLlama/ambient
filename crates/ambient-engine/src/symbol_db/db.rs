@@ -917,7 +917,7 @@ mod tests {
     fn test_type_registry() {
         let mut db = SymbolDb::open_in_memory().expect("open failed");
         let type_hash = blake3::hash(b"type definition");
-        let signature = Type::function(vec![Type::Number], Type::String);
+        let signature = Type::function(vec![Type::number()], Type::string());
 
         db.register_type(
             "mylib::models::User",

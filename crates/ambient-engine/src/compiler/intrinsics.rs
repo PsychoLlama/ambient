@@ -159,16 +159,16 @@ const fn intrinsic(
 
 // Shared signature shapes.
 fn num1(_: &mut SigVars) -> Signature {
-    sig(vec![Type::Number], Type::Number)
+    sig(vec![Type::number()], Type::number())
 }
 fn num2(_: &mut SigVars) -> Signature {
-    sig(vec![Type::Number, Type::Number], Type::Number)
+    sig(vec![Type::number(), Type::number()], Type::number())
 }
 fn str_to_str(_: &mut SigVars) -> Signature {
-    sig(vec![Type::String], Type::String)
+    sig(vec![Type::string()], Type::string())
 }
 fn str2_to_bool(_: &mut SigVars) -> Signature {
-    sig(vec![Type::String, Type::String], Type::Bool)
+    sig(vec![Type::string(), Type::string()], Type::bool())
 }
 fn list_to_list(v: &mut SigVars) -> Signature {
     sig(vec![list(v.var(0))], list(v.var(0)))
@@ -333,14 +333,14 @@ static INTRINSICS: &[Intrinsic] = &[
         "length",
         1,
         EmitStrategy::Opcode(Opcode::ListLength),
-        |v| sig(vec![list(v.var(0))], Type::Number),
+        |v| sig(vec![list(v.var(0))], Type::number()),
     ),
     intrinsic(
         &["core", "List"],
         "get",
         2,
         EmitStrategy::Helper(Helper::ListGet),
-        |v| sig(vec![list(v.var(0)), Type::Number], Type::option(v.var(0))),
+        |v| sig(vec![list(v.var(0)), Type::number()], Type::option(v.var(0))),
     ),
     intrinsic(
         &["core", "List"],
@@ -375,7 +375,7 @@ static INTRINSICS: &[Intrinsic] = &[
         "is_empty",
         1,
         EmitStrategy::Opcode(Opcode::ListIsEmpty),
-        |v| sig(vec![list(v.var(0))], Type::Bool),
+        |v| sig(vec![list(v.var(0))], Type::bool()),
     ),
     intrinsic(
         &["core", "List"],
@@ -412,7 +412,7 @@ static INTRINSICS: &[Intrinsic] = &[
         EmitStrategy::Opcode(Opcode::ListSlice),
         |v| {
             sig(
-                vec![list(v.var(0)), Type::Number, Type::Number],
+                vec![list(v.var(0)), Type::number(), Type::number()],
                 list(v.var(0)),
             )
         },
@@ -425,14 +425,14 @@ static INTRINSICS: &[Intrinsic] = &[
         "length",
         1,
         EmitStrategy::Helper(Helper::StringLength),
-        |_| sig(vec![Type::String], Type::Number),
+        |_| sig(vec![Type::string()], Type::number()),
     ),
     intrinsic(
         &["core", "string"],
         "concat",
         2,
         EmitStrategy::Helper(Helper::StringConcat),
-        |_| sig(vec![Type::String, Type::String], Type::String),
+        |_| sig(vec![Type::string(), Type::string()], Type::string()),
     ),
     intrinsic(
         &["core", "string"],
@@ -446,14 +446,14 @@ static INTRINSICS: &[Intrinsic] = &[
         "split",
         2,
         EmitStrategy::Helper(Helper::StringSplit),
-        |_| sig(vec![Type::String, Type::String], list(Type::String)),
+        |_| sig(vec![Type::string(), Type::string()], list(Type::string())),
     ),
     intrinsic(
         &["core", "string"],
         "join",
         2,
         EmitStrategy::Helper(Helper::StringJoin),
-        |_| sig(vec![list(Type::String), Type::String], Type::String),
+        |_| sig(vec![list(Type::string()), Type::string()], Type::string()),
     ),
     intrinsic(
         &["core", "string"],
@@ -467,21 +467,31 @@ static INTRINSICS: &[Intrinsic] = &[
         "slice",
         3,
         EmitStrategy::Opcode(Opcode::StringSlice),
-        |_| sig(vec![Type::String, Type::Number, Type::Number], Type::String),
+        |_| {
+            sig(
+                vec![Type::string(), Type::number(), Type::number()],
+                Type::string(),
+            )
+        },
     ),
     intrinsic(
         &["core", "string"],
         "chars",
         1,
         EmitStrategy::Opcode(Opcode::StringChars),
-        |_| sig(vec![Type::String], list(Type::String)),
+        |_| sig(vec![Type::string()], list(Type::string())),
     ),
     intrinsic(
         &["core", "string"],
         "replace",
         3,
         EmitStrategy::Opcode(Opcode::StringReplace),
-        |_| sig(vec![Type::String, Type::String, Type::String], Type::String),
+        |_| {
+            sig(
+                vec![Type::string(), Type::string(), Type::string()],
+                Type::string(),
+            )
+        },
     ),
     intrinsic(
         &["core", "string"],
@@ -516,14 +526,19 @@ static INTRINSICS: &[Intrinsic] = &[
         "index_of",
         2,
         EmitStrategy::Opcode(Opcode::StringIndexOf),
-        |_| sig(vec![Type::String, Type::String], Type::option(Type::Number)),
+        |_| {
+            sig(
+                vec![Type::string(), Type::string()],
+                Type::option(Type::number()),
+            )
+        },
     ),
     intrinsic(
         &["core", "string"],
         "repeat",
         2,
         EmitStrategy::Opcode(Opcode::StringRepeat),
-        |_| sig(vec![Type::String, Type::Number], Type::String),
+        |_| sig(vec![Type::string(), Type::number()], Type::string()),
     ),
     intrinsic(
         &["core", "string"],
@@ -540,21 +555,21 @@ static INTRINSICS: &[Intrinsic] = &[
         "to_string",
         1,
         EmitStrategy::Helper(Helper::ToString),
-        |v| sig(vec![v.var(0)], Type::String),
+        |v| sig(vec![v.var(0)], Type::string()),
     ),
     intrinsic(
         &["core", "convert"],
         "parse_number",
         1,
         EmitStrategy::Helper(Helper::ParseNumber),
-        |_| sig(vec![Type::String], Type::option(Type::Number)),
+        |_| sig(vec![Type::string()], Type::option(Type::number())),
     ),
     intrinsic(
         &["core", "convert"],
         "parse_bool",
         1,
         EmitStrategy::Helper(Helper::ParseBool),
-        |_| sig(vec![Type::String], Type::option(Type::Bool)),
+        |_| sig(vec![Type::string()], Type::option(Type::bool())),
     ),
     // ─────────────────────────────────────────────────────────────────────
     // core::map
@@ -607,14 +622,14 @@ static INTRINSICS: &[Intrinsic] = &[
         "contains",
         2,
         EmitStrategy::Opcode(Opcode::MapContains),
-        |v| sig(vec![map(v.var(0), v.var(1)), v.var(0)], Type::Bool),
+        |v| sig(vec![map(v.var(0), v.var(1)), v.var(0)], Type::bool()),
     ),
     intrinsic(
         &["core", "map"],
         "length",
         1,
         EmitStrategy::Opcode(Opcode::MapLength),
-        |v| sig(vec![map(v.var(0), v.var(1))], Type::Number),
+        |v| sig(vec![map(v.var(0), v.var(1))], Type::number()),
     ),
     intrinsic(
         &["core", "map"],
@@ -659,14 +674,14 @@ static INTRINSICS: &[Intrinsic] = &[
         "contains",
         2,
         EmitStrategy::Helper(Helper::SetContains),
-        |v| sig(vec![set(v.var(0)), v.var(0)], Type::Bool),
+        |v| sig(vec![set(v.var(0)), v.var(0)], Type::bool()),
     ),
     intrinsic(
         &["core", "set"],
         "length",
         1,
         EmitStrategy::Helper(Helper::SetLength),
-        |v| sig(vec![set(v.var(0))], Type::Number),
+        |v| sig(vec![set(v.var(0))], Type::number()),
     ),
     intrinsic(
         &["core", "set"],
@@ -704,7 +719,7 @@ static INTRINSICS: &[Intrinsic] = &[
         "tag",
         1,
         EmitStrategy::Helper(Helper::EnumTag),
-        |v| sig(vec![v.var(0)], Type::Number),
+        |v| sig(vec![v.var(0)], Type::number()),
     ),
     // NOTE: `payload` materializes an arbitrary type from an enum value —
     // an unchecked escape hatch (the result unifies with anything).
@@ -723,49 +738,49 @@ static INTRINSICS: &[Intrinsic] = &[
         "serialize_value",
         1,
         EmitStrategy::Opcode(Opcode::SerializeValue),
-        |v| sig(vec![v.var(0)], Type::Bytes),
+        |v| sig(vec![v.var(0)], Type::bytes()),
     ),
     intrinsic(
         &["core", "protocol"],
         "deserialize_value",
         1,
         EmitStrategy::Opcode(Opcode::DeserializeValue),
-        |v| sig(vec![Type::Bytes], Type::option(v.var(0))),
+        |v| sig(vec![Type::bytes()], Type::option(v.var(0))),
     ),
     intrinsic(
         &["core", "protocol"],
         "closure_hash",
         1,
         EmitStrategy::Opcode(Opcode::ClosureHash),
-        |v| sig(vec![v.var(0)], Type::String),
+        |v| sig(vec![v.var(0)], Type::string()),
     ),
     intrinsic(
         &["core", "protocol"],
         "closure_captures",
         1,
         EmitStrategy::Opcode(Opcode::ClosureCaptures),
-        |v| sig(vec![v.var(0)], Type::Bytes),
+        |v| sig(vec![v.var(0)], Type::bytes()),
     ),
     intrinsic(
         &["core", "protocol"],
         "handler_methods",
         1,
         EmitStrategy::Opcode(Opcode::HandlerMethods),
-        |v| sig(vec![v.var(0)], list(Type::String)),
+        |v| sig(vec![v.var(0)], list(Type::string())),
     ),
     intrinsic(
         &["core", "protocol"],
         "hex_to_bytes",
         1,
         EmitStrategy::Opcode(Opcode::HexToBytes),
-        |_| sig(vec![Type::String], Type::option(Type::Bytes)),
+        |_| sig(vec![Type::string()], Type::option(Type::bytes())),
     ),
     intrinsic(
         &["core", "protocol"],
         "bytes_to_hex",
         1,
         EmitStrategy::Opcode(Opcode::BytesToHex),
-        |_| sig(vec![Type::Bytes], Type::String),
+        |_| sig(vec![Type::bytes()], Type::string()),
     ),
     // ─────────────────────────────────────────────────────────────────────
     // core::bytes
@@ -775,42 +790,52 @@ static INTRINSICS: &[Intrinsic] = &[
         "from",
         1,
         EmitStrategy::Opcode(Opcode::BytesFrom),
-        |_| sig(vec![list(Type::Number)], Type::Bytes),
+        |_| sig(vec![list(Type::number())], Type::bytes()),
     ),
     intrinsic(
         &["core", "bytes"],
         "to_list",
         1,
         EmitStrategy::Opcode(Opcode::BytesToList),
-        |_| sig(vec![Type::Bytes], list(Type::Number)),
+        |_| sig(vec![Type::bytes()], list(Type::number())),
     ),
     intrinsic(
         &["core", "bytes"],
         "length",
         1,
         EmitStrategy::Opcode(Opcode::BytesLength),
-        |_| sig(vec![Type::Bytes], Type::Number),
+        |_| sig(vec![Type::bytes()], Type::number()),
     ),
     intrinsic(
         &["core", "bytes"],
         "get",
         2,
         EmitStrategy::Opcode(Opcode::BytesGet),
-        |_| sig(vec![Type::Bytes, Type::Number], Type::option(Type::Number)),
+        |_| {
+            sig(
+                vec![Type::bytes(), Type::number()],
+                Type::option(Type::number()),
+            )
+        },
     ),
     intrinsic(
         &["core", "bytes"],
         "slice",
         3,
         EmitStrategy::Opcode(Opcode::BytesSlice),
-        |_| sig(vec![Type::Bytes, Type::Number, Type::Number], Type::Bytes),
+        |_| {
+            sig(
+                vec![Type::bytes(), Type::number(), Type::number()],
+                Type::bytes(),
+            )
+        },
     ),
     intrinsic(
         &["core", "bytes"],
         "concat",
         2,
         EmitStrategy::Opcode(Opcode::BytesConcat),
-        |_| sig(vec![Type::Bytes, Type::Bytes], Type::Bytes),
+        |_| sig(vec![Type::bytes(), Type::bytes()], Type::bytes()),
     ),
 ];
 
