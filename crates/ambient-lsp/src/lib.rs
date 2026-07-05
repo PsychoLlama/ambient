@@ -53,11 +53,9 @@ mod completion_service;
 mod completions;
 mod convert;
 mod documents;
-mod package;
 mod semantic_tokens;
 mod server;
 mod util;
-mod workspace;
 
 // Test harness module - exposed publicly so integration tests can use it.
 // The module contains testing utilities for the LSP server.
@@ -86,4 +84,3 @@ pub use completion_service::{
 };
 pub use completions::{CompletionContext, get_completions};
 pub use documents::Document;
-pub use workspace::WorkspaceIndex;

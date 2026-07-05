@@ -144,8 +144,9 @@ pub struct ReExport {
 /// Registry of all loaded modules.
 ///
 /// The registry maintains a map from module paths to their exports,
-/// enabling cross-module name resolution.
-#[derive(Debug, Default)]
+/// enabling cross-module name resolution. Cloning is cheap relative to
+/// building: module ASTs are shared through `Arc`.
+#[derive(Debug, Default, Clone)]
 pub struct ModuleRegistry {
     /// Map from module path string to module info.
     modules: HashMap<String, ModuleInfo>,

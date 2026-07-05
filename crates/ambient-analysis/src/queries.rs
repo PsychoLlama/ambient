@@ -292,6 +292,59 @@ fn resolve_symbol_through_imports(
     None
 }
 
+/// Find the module referenced at `offset` inside a `use` item's path.
+///
+/// Hovering `utils` in `use pkg::utils::helper;` resolves the partial
+/// path `pkg::utils` through the registry — the same resolution imports
+/// go through — and returns it when it names a registered module.
+#[must_use]
+pub fn find_use_module_at_offset(
+    module: &Module,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+    offset: u32,
+) -> Option<ModulePath> {
+    for item in &module.items {
+        let ItemKind::Use(use_def) = &item.kind else {
+            continue;
+        };
+        for (index, (_, span)) in use_def.path.iter().enumerate() {
+            if offset >= span.start && offset < span.end {
+                let names: Vec<_> = use_def.path[..=index]
+                    .iter()
+                    .map(|(name, _)| name.clone())
+                    .collect();
+                let target = registry
+                    .resolve_use_path(module_path, &use_def.prefix, &names)
+                    .ok()?;
+                return registry.contains(&target).then_some(target);
+            }
+        }
+    }
+    None
+}
+
+/// Find the module referenced at `offset` inside a qualified name's path
+/// (`utils` in `utils::helper(...)`), resolved through the registry.
+#[must_use]
+pub fn find_qname_module_at_offset(
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+    qname: &QualifiedName,
+    offset: u32,
+) -> Option<ModulePath> {
+    if qname.path_spans.len() != qname.path.len() {
+        return None;
+    }
+    for (index, span) in qname.path_spans.iter().enumerate() {
+        if offset >= span.start && offset < span.end {
+            let target = resolve_module_reference(module_path, registry, &qname.path[..=index])?;
+            return registry.contains(&target).then_some(target);
+        }
+    }
+    None
+}
+
 /// Resolve a module reference in expression position (`alias::rest…`),
 /// where `alias` was bound by a `use` (or names a core/platform module
 /// qualified from the root).

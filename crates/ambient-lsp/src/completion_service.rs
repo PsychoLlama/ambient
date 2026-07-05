@@ -143,7 +143,7 @@ impl CompletionService {
     #[must_use]
     pub fn get_completions_lsp(&self, source: &str, offset: usize) -> Vec<CompletionItem> {
         let ctx = CompletionContext::new(source, offset, &self.resolver);
-        let module = self.analysis.as_ref().and_then(|a| a.module.as_ref());
+        let module = self.analysis.as_ref().map(|a| &a.module);
 
         // SymbolDb not available in REPL context
         let mut items = get_completions(&ctx, module, None, &self.resolver);
@@ -207,7 +207,7 @@ impl CompletionService {
     #[must_use]
     pub fn get_type_hint(&self, _source: &str, offset: usize) -> Option<String> {
         let analysis = self.analysis.as_ref()?;
-        let module = analysis.module.as_ref()?;
+        let module = &analysis.module;
 
         #[allow(clippy::cast_possible_truncation)]
         let expr = crate::analysis::find_expr_at_offset(module, offset as u32)?;

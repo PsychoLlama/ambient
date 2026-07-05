@@ -5,6 +5,7 @@ edition = "2024"
 description = "Language Server Protocol implementation for the Ambient programming language"
 
 [dependencies]
+ambient-analysis = { path = "../ambient-analysis" }
 ambient-engine = { path = "../ambient-engine" }
 ambient-parser = { path = "../ambient-parser" }
 ambient-platform = { path = "../ambient-platform" }

@@ -86,6 +86,7 @@ dependencies = [
 name = "ambient-lsp"
 version = "0.1.0"
 dependencies = [
+ "ambient-analysis",
  "ambient-engine",
  "ambient-parser",
  "ambient-platform",

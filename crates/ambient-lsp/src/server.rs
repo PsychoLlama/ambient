@@ -1,4 +1,10 @@
 //! LSP server implementation for the Ambient language.
+//!
+//! The server is a renderer over `ambient-analysis`: every diagnostic,
+//! definition, and symbol comes from the same pipeline `ambient check`
+//! runs, with the engine's `ModuleRegistry` as the single source of
+//! cross-module truth. There is deliberately no LSP-private index of
+//! modules or exports.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -28,24 +34,50 @@ use lsp_types::{
 };
 use serde_json::Value;
 
+use ambient_analysis::package::AnalysisPackage;
+use ambient_analysis::queries::{
+    find_qname_module_at_offset, find_use_module_at_offset, resolve_qualified_name,
+};
 use ambient_engine::ast::{ItemKind, Module};
 use ambient_engine::build::build_package;
+use ambient_engine::module_path::ModulePath;
+use ambient_engine::module_registry::{ExportKind, ModuleRegistry};
 use ambient_engine::symbol_db::SymbolDb;
 
-use crate::analysis::{
-    analyze_with_registry, find_definition_cross_file, find_expr_at_offset, find_item_at_offset,
-    format_type,
-};
+use crate::analysis::{find_definition, find_expr_at_offset, find_item_at_offset, format_type};
 use crate::completions::{CompletionContext, get_completions};
-use crate::convert::{
-    offset_range_to_lsp_range, parse_error_to_diagnostic, type_error_to_diagnostic,
-};
+use crate::convert::{diagnostic_to_lsp, offset_range_to_lsp_range};
 use crate::documents::DocumentStore;
-use crate::package::PackageInfo;
 use crate::semantic_tokens::{create_legend, extract_semantic_tokens};
-use crate::util::uri_to_path;
-use crate::workspace::SymbolKind;
-use crate::workspace::WorkspaceIndex;
+use crate::util::{path_to_uri, uri_to_path};
+
+/// The analysis of one open document, plus the context needed to resolve
+/// names from it: its module path and the registry it was checked
+/// against. Handlers never resolve through anything else.
+struct DocumentAnalysis {
+    result: ambient_analysis::AnalysisResult,
+    module_path: ModulePath,
+    registry: Arc<ModuleRegistry>,
+}
+
+/// Server-wide state.
+struct ServerState {
+    documents: DocumentStore,
+    /// Per-document analyses, keyed by URI string (Uri has interior
+    /// mutability, so it can't be a map key).
+    analyses: HashMap<String, DocumentAnalysis>,
+    /// The package containing the open documents, if any.
+    package: Option<AnalysisPackage>,
+    /// The registry for the whole package (shared by all open documents
+    /// when a package is loaded). Rebuilt on every edit.
+    package_registry: Option<Arc<ModuleRegistry>>,
+    /// Symbol database for find-references (populated by a full package
+    /// compile at first open; see `populate_symbol_db_from_package`).
+    symbol_db: Option<SymbolDb>,
+    /// Ability resolver for completions/hover: the platform prelude plus
+    /// builtins, the same interfaces analysis checks against.
+    ability_resolver: ambient_engine::ability_resolver::AbilityResolver,
+}
 
 /// Run the LSP server over stdio.
 ///
@@ -116,18 +148,14 @@ pub fn run_server_with_connection(connection: Connection) -> anyhow::Result<()> 
 
 /// The main server loop.
 fn main_loop(connection: &Connection) -> anyhow::Result<()> {
-    let mut documents = DocumentStore::new();
-    // Use String keys instead of Uri to avoid mutable_key_type warning (Uri has interior mutability).
-    let mut analysis_cache: HashMap<String, crate::analysis::AnalysisResult> = HashMap::new();
-    // Workspace index for cross-file navigation
-    let mut workspace_index = WorkspaceIndex::new();
-    // Package info for cross-module type checking
-    let mut package_info: Option<PackageInfo> = None;
-    // Symbol database for fast lookups (initialized when package is discovered)
-    let mut symbol_db: Option<SymbolDb> = None;
-    // Ability resolver for completions/hover: the platform prelude plus
-    // builtins, the same interfaces analysis checks against.
-    let ability_resolver = crate::analysis::platform_prelude_resolver();
+    let mut state = ServerState {
+        documents: DocumentStore::new(),
+        analyses: HashMap::new(),
+        package: None,
+        package_registry: None,
+        symbol_db: None,
+        ability_resolver: crate::analysis::platform_prelude_resolver(),
+    };
 
     for msg in &connection.receiver {
         match msg {
@@ -136,26 +164,11 @@ fn main_loop(connection: &Connection) -> anyhow::Result<()> {
                     return Ok(());
                 }
 
-                let response = handle_request(
-                    &req,
-                    &documents,
-                    &analysis_cache,
-                    &workspace_index,
-                    symbol_db.as_ref(),
-                    &ability_resolver,
-                );
+                let response = handle_request(&req, &state);
                 connection.sender.send(Message::Response(response))?;
             }
             Message::Notification(notif) => {
-                handle_notification(
-                    &notif,
-                    &mut documents,
-                    &mut analysis_cache,
-                    &mut workspace_index,
-                    &mut package_info,
-                    &mut symbol_db,
-                    connection,
-                )?;
+                handle_notification(&notif, &mut state, connection)?;
             }
             Message::Response(_) => {
                 // We don't send requests, so we don't expect responses.
@@ -176,122 +189,86 @@ fn parse_params<P: serde::de::DeserializeOwned>(
 }
 
 /// Handle an incoming request.
-fn handle_request(
-    req: &Request,
-    documents: &DocumentStore,
-    analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
-    workspace_index: &WorkspaceIndex,
-    symbol_db: Option<&SymbolDb>,
-    ability_resolver: &ambient_engine::ability_resolver::AbilityResolver,
-) -> Response {
+fn handle_request(req: &Request, state: &ServerState) -> Response {
     let id = req.id.clone();
 
     match req.method.as_str() {
-        HoverRequest::METHOD => {
-            let params = match parse_params(&req.params, &id) {
-                Ok(p) => p,
-                Err(e) => return e,
-            };
-            handle_hover(
-                id,
-                &params,
-                documents,
-                analysis_cache,
-                workspace_index,
-                symbol_db,
-            )
-        }
-        GotoDefinition::METHOD => {
-            let params = match parse_params(&req.params, &id) {
-                Ok(p) => p,
-                Err(e) => return e,
-            };
-            handle_goto_definition(
-                id,
-                &params,
-                documents,
-                analysis_cache,
-                workspace_index,
-                symbol_db,
-            )
-        }
-        Completion::METHOD => {
-            let params = match parse_params(&req.params, &id) {
-                Ok(p) => p,
-                Err(e) => return e,
-            };
-            handle_completion(
-                id,
-                &params,
-                documents,
-                analysis_cache,
-                symbol_db,
-                ability_resolver,
-            )
-        }
-        DocumentSymbolRequest::METHOD => {
-            let params = match parse_params(&req.params, &id) {
-                Ok(p) => p,
-                Err(e) => return e,
-            };
-            handle_document_symbol(id, &params, documents, analysis_cache)
-        }
-        WorkspaceSymbolRequest::METHOD => {
-            let params = match parse_params(&req.params, &id) {
-                Ok(p) => p,
-                Err(e) => return e,
-            };
-            handle_workspace_symbol(id, &params, workspace_index, documents, symbol_db)
-        }
-        SemanticTokensFullRequest::METHOD => {
-            let params = match parse_params(&req.params, &id) {
-                Ok(p) => p,
-                Err(e) => return e,
-            };
-            handle_semantic_tokens(id, &params, documents, analysis_cache)
-        }
-        References::METHOD => {
-            let params = match parse_params(&req.params, &id) {
-                Ok(p) => p,
-                Err(e) => return e,
-            };
-            handle_references(
-                id,
-                &params,
-                documents,
-                analysis_cache,
-                workspace_index,
-                symbol_db,
-            )
-        }
+        HoverRequest::METHOD => match parse_params(&req.params, &id) {
+            Ok(params) => handle_hover(id, &params, state),
+            Err(e) => e,
+        },
+        GotoDefinition::METHOD => match parse_params(&req.params, &id) {
+            Ok(params) => handle_goto_definition(id, &params, state),
+            Err(e) => e,
+        },
+        Completion::METHOD => match parse_params(&req.params, &id) {
+            Ok(params) => handle_completion(id, &params, state),
+            Err(e) => e,
+        },
+        DocumentSymbolRequest::METHOD => match parse_params(&req.params, &id) {
+            Ok(params) => handle_document_symbol(id, &params, state),
+            Err(e) => e,
+        },
+        WorkspaceSymbolRequest::METHOD => match parse_params(&req.params, &id) {
+            Ok(params) => handle_workspace_symbol(id, &params, state),
+            Err(e) => e,
+        },
+        SemanticTokensFullRequest::METHOD => match parse_params(&req.params, &id) {
+            Ok(params) => handle_semantic_tokens(id, &params, state),
+            Err(e) => e,
+        },
+        References::METHOD => match parse_params(&req.params, &id) {
+            Ok(params) => handle_references(id, &params, state),
+            Err(e) => e,
+        },
         _ => Response::new_err(id, -32601, format!("Unknown method: {}", req.method)),
     }
 }
 
-/// Handle hover request.
-fn handle_hover(
-    id: RequestId,
-    params: &HoverParams,
+/// The URI for a module of the current package.
+fn module_uri(package: Option<&AnalysisPackage>, module_path: &ModulePath) -> Option<Uri> {
+    let package = package?;
+    // Only package modules have files; core/platform modules are embedded.
+    package
+        .modules
+        .contains_key(&module_path.to_string())
+        .then(|| path_to_uri(&package.file_for_module(module_path)))?
+}
+
+/// Compute an LSP range in a possibly-unopened file: use the open
+/// document when available, otherwise read the file from disk.
+fn range_in_file(
     documents: &DocumentStore,
-    analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
-    workspace_index: &WorkspaceIndex,
-    symbol_db: Option<&SymbolDb>,
-) -> Response {
+    uri: &Uri,
+    start: usize,
+    end: usize,
+) -> lsp_types::Range {
+    if let Some(doc) = documents.get(uri) {
+        return offset_range_to_lsp_range(doc, start, end);
+    }
+    if let Some(file_path) = uri_to_path(uri)
+        && let Ok(content) = std::fs::read_to_string(&file_path)
+    {
+        let temp_doc = crate::documents::Document::new(uri.clone(), 0, content);
+        return offset_range_to_lsp_range(&temp_doc, start, end);
+    }
+    lsp_types::Range::default()
+}
+
+/// Handle hover request.
+fn handle_hover(id: RequestId, params: &HoverParams, state: &ServerState) -> Response {
     let uri = &params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
 
-    let Some(doc) = documents.get(uri) else {
+    let Some(doc) = state.documents.get(uri) else {
         return Response::new_ok(id, Value::Null);
     };
 
-    let uri_str = uri.as_str();
-    let Some(analysis) = analysis_cache.get(uri_str) else {
+    let Some(analysis) = state.analyses.get(uri.as_str()) else {
         return Response::new_ok(id, Value::Null);
     };
-
-    let Some(module) = &analysis.module else {
-        return Response::new_ok(id, Value::Null);
-    };
+    let module = &analysis.result.module;
+    let registry = &analysis.registry;
 
     let offset = doc.position_to_offset(position.line, position.character);
 
@@ -299,14 +276,15 @@ fn handle_hover(
     let offset = offset as u32;
 
     // First, check if hovering over a module path in a use statement.
-    if let Some(module_info) = workspace_index.find_use_module_at_offset(uri, offset) {
-        let content = format_module_hover(module_info);
+    if let Some(target) = find_use_module_at_offset(module, &analysis.module_path, registry, offset)
+    {
+        let content = format_module_hover(&target, registry);
         let hover = Hover {
             contents: HoverContents::Markup(MarkupContent {
                 kind: MarkupKind::Markdown,
                 value: content,
             }),
-            range: None, // TODO: compute range from path segment span
+            range: None,
         };
         return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
     }
@@ -335,9 +313,10 @@ fn handle_hover(
 
     // Check if hovering over a path segment in a qualified name expression.
     if let ambient_engine::ast::ExprKind::Name(qname) = &expr.kind
-        && let Some(module_info) = find_qname_module_at_offset(qname, offset, uri, workspace_index)
+        && let Some(target) =
+            find_qname_module_at_offset(&analysis.module_path, registry, qname, offset)
     {
-        let content = format_module_hover(module_info);
+        let content = format_module_hover(&target, registry);
         let hover = Hover {
             contents: HoverContents::Markup(MarkupContent {
                 kind: MarkupKind::Markdown,
@@ -349,7 +328,7 @@ fn handle_hover(
     }
 
     // Build hover content based on expression kind.
-    let content = format_expr_hover(expr, symbol_db);
+    let content = format_expr_hover(expr);
 
     let hover = Hover {
         contents: HoverContents::Scalar(MarkedString::String(content)),
@@ -470,18 +449,19 @@ fn format_type_params(type_params: &[ambient_engine::ast::TypeParam], content: &
     }
 }
 
-/// Format hover content for a module.
-fn format_module_hover(module_info: &crate::workspace::ModuleInfo) -> String {
+/// Format hover content for a module, reading path and docs from the
+/// registry — the same module info the checker resolves imports against.
+fn format_module_hover(module_path: &ModulePath, registry: &ModuleRegistry) -> String {
     let mut content = String::new();
 
-    // Show module path
     content.push_str("```ambient\n");
     content.push_str("module ");
-    content.push_str(&module_info.module_path.join("."));
+    content.push_str(&module_path.to_string());
     content.push_str("\n```");
 
-    // Add documentation if present
-    if let Some(doc) = &module_info.doc {
+    if let Some(info) = registry.get(module_path)
+        && let Some(doc) = &info.module.doc
+    {
         content.push_str("\n\n---\n\n");
         content.push_str(doc);
     }
@@ -489,47 +469,18 @@ fn format_module_hover(module_info: &crate::workspace::ModuleInfo) -> String {
     content
 }
 
-/// Find the module referenced at a cursor position in a qualified name's path.
-fn find_qname_module_at_offset<'a>(
-    qname: &ambient_engine::ast::QualifiedName,
-    offset: u32,
-    _current_uri: &Uri,
-    workspace_index: &'a WorkspaceIndex,
-) -> Option<&'a crate::workspace::ModuleInfo> {
-    // Check if we have path spans and if cursor is within any of them
-    if qname.path_spans.len() != qname.path.len() {
-        return None; // No span information available
-    }
-
-    for (idx, span) in qname.path_spans.iter().enumerate() {
-        if offset >= span.start && offset < span.end {
-            // Cursor is within this path segment - resolve the partial path
-            let partial_path: Vec<_> = qname.path[..=idx].to_vec();
-
-            // Try to resolve to a module
-            // The path in a qualified name is relative to pkg root
-            return workspace_index.find_module(&partial_path);
-        }
-    }
-
-    None
-}
-
 /// Format hover content for an expression.
-fn format_expr_hover(expr: &ambient_engine::ast::Expr, symbol_db: Option<&SymbolDb>) -> String {
+fn format_expr_hover(expr: &ambient_engine::ast::Expr) -> String {
     match &expr.kind {
         ambient_engine::ast::ExprKind::Local(local_id) => {
             let type_info = expr.ty.as_ref().map_or("unknown".to_string(), format_type);
             format!("```ambient\nlocal_{local_id}: {type_info}\n```")
         }
         ambient_engine::ast::ExprKind::Name(qname) => {
-            // Try to look up type from SymbolDb, otherwise fall back to expression type
-            let type_info = lookup_qname_type(qname, symbol_db)
+            let type_info = expr
+                .ty
                 .as_ref()
-                .map(format_type)
-                .or_else(|| expr.ty.as_ref().map(format_type))
-                .unwrap_or_else(|| "unknown".to_string());
-
+                .map_or_else(|| "unknown".to_string(), format_type);
             format!("```ambient\n{}: {type_info}\n```", qname.name)
         }
         ambient_engine::ast::ExprKind::Bool(b) => {
@@ -559,74 +510,49 @@ fn format_expr_hover(expr: &ambient_engine::ast::Expr, symbol_db: Option<&Symbol
 fn handle_goto_definition(
     id: RequestId,
     params: &GotoDefinitionParams,
-    documents: &DocumentStore,
-    analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
-    workspace_index: &WorkspaceIndex,
-    symbol_db: Option<&SymbolDb>,
+    state: &ServerState,
 ) -> Response {
     let uri = &params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
 
-    let Some(doc) = documents.get(uri) else {
+    let Some(doc) = state.documents.get(uri) else {
         return Response::new_ok(id, Value::Null);
     };
 
-    let uri_str = uri.as_str();
-    let Some(analysis) = analysis_cache.get(uri_str) else {
-        return Response::new_ok(id, Value::Null);
-    };
-
-    let Some(module) = &analysis.module else {
+    let Some(analysis) = state.analyses.get(uri.as_str()) else {
         return Response::new_ok(id, Value::Null);
     };
 
     let offset = doc.position_to_offset(position.line, position.character);
 
     #[allow(clippy::cast_possible_truncation)]
-    let Some(def_result) =
-        find_definition_cross_file(module, offset as u32, uri, workspace_index, symbol_db)
-    else {
+    let Some(definition) = find_definition(
+        &analysis.result.module,
+        &analysis.module_path,
+        &analysis.registry,
+        offset as u32,
+    ) else {
         return Response::new_ok(id, Value::Null);
     };
 
-    // Determine target URI and document
-    let (target_uri, target_doc) = if let Some(ref def_uri) = def_result.uri {
-        // Cross-file definition - try to get the target document
-        if let Some(target_doc) = documents.get(def_uri) {
-            (def_uri.clone(), Some(target_doc))
-        } else {
-            // Document not open, still return location with zero range for now
-            (def_uri.clone(), None)
+    // A definition in another module needs a file to point at; core and
+    // platform modules are embedded in the binary and have none.
+    let target_uri = match &definition.module {
+        Some(module_path) if *module_path != analysis.module_path => {
+            match module_uri(state.package.as_ref(), module_path) {
+                Some(target) => target,
+                None => return Response::new_ok(id, Value::Null),
+            }
         }
-    } else {
-        // Local definition
-        (uri.clone(), Some(doc))
+        _ => uri.clone(),
     };
 
-    let range = if let Some(target_doc) = target_doc {
-        offset_range_to_lsp_range(
-            target_doc,
-            def_result.span.start as usize,
-            def_result.span.end as usize,
-        )
-    } else {
-        // Document not open - try to read the file to compute proper range
-        if let Some(file_path) = uri_to_path(&target_uri) {
-            if let Ok(content) = std::fs::read_to_string(&file_path) {
-                let temp_doc = crate::documents::Document::new(target_uri.clone(), 0, content);
-                offset_range_to_lsp_range(
-                    &temp_doc,
-                    def_result.span.start as usize,
-                    def_result.span.end as usize,
-                )
-            } else {
-                // Can't read file, fall back to zero range
-                lsp_types::Range::default()
-            }
-        } else {
-            lsp_types::Range::default()
-        }
-    };
+    let range = range_in_file(
+        &state.documents,
+        &target_uri,
+        definition.span.start as usize,
+        definition.span.end as usize,
+    );
 
     let location = Location {
         uri: target_uri,
@@ -638,32 +564,21 @@ fn handle_goto_definition(
 }
 
 /// Handle find references request.
-fn handle_references(
-    id: RequestId,
-    params: &ReferenceParams,
-    documents: &DocumentStore,
-    analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
-    workspace_index: &WorkspaceIndex,
-    symbol_db: Option<&SymbolDb>,
-) -> Response {
+fn handle_references(id: RequestId, params: &ReferenceParams, state: &ServerState) -> Response {
     // Helper for returning empty references list
     let empty_response = || Response::new_ok(id.clone(), Value::Array(vec![]));
 
     let uri = &params.text_document_position.text_document.uri;
     let position = params.text_document_position.position;
 
-    let Some(doc) = documents.get(uri) else {
+    let Some(doc) = state.documents.get(uri) else {
         return empty_response();
     };
 
-    let uri_str = uri.as_str();
-    let Some(analysis) = analysis_cache.get(uri_str) else {
+    let Some(analysis) = state.analyses.get(uri.as_str()) else {
         return empty_response();
     };
-
-    let Some(module) = &analysis.module else {
-        return empty_response();
-    };
+    let module = &analysis.result.module;
 
     let offset = doc.position_to_offset(position.line, position.character);
 
@@ -673,12 +588,12 @@ fn handle_references(
         return empty_response();
     };
 
-    // Extract the symbol name from the expression
-    let symbol_name = match &expr.kind {
-        ambient_engine::ast::ExprKind::Name(qname) => qname.name.clone(),
+    // Extract the qualified name from the expression
+    let qname = match &expr.kind {
+        ambient_engine::ast::ExprKind::Name(qname) => qname,
         ambient_engine::ast::ExprKind::Call(callee, _) => {
             if let ambient_engine::ast::ExprKind::Name(qname) = &callee.kind {
-                qname.name.clone()
+                qname
             } else {
                 return empty_response();
             }
@@ -688,40 +603,27 @@ fn handle_references(
         }
     };
 
-    // Find the target symbol's definition to get its module path
-    let target_info = workspace_index
-        .resolve_name(uri, &[], &symbol_name)
-        .or_else(|| {
-            // Try to find in the current module's exports
-            let current_module = workspace_index.get_module(uri)?;
-            let export = current_module
-                .exports
-                .iter()
-                .find(|e| e.name.as_ref() == symbol_name.as_ref())?;
-            Some((current_module, export))
-        });
-
-    let Some((target_module, _target_export)) = target_info else {
-        return empty_response();
-    };
+    // Resolve to the defining module through the registry.
+    let defining_module =
+        resolve_qualified_name(module, &analysis.module_path, &analysis.registry, qname)
+            .and_then(|d| d.module)
+            .unwrap_or_else(|| analysis.module_path.clone());
 
     // Get the symbol's hash from the database
-    let Some(db) = symbol_db else {
+    let Some(db) = state.symbol_db.as_ref() else {
         return empty_response();
     };
 
-    // Search for the symbol in the database by name
-    let target_module_path = target_module.module_path.join(".");
-    let Ok(symbols) = db.search_symbols(&symbol_name) else {
+    let target_module_path = defining_module.to_string();
+    let Ok(symbols) = db.search_symbols(&qname.name) else {
         return empty_response();
     };
 
-    // Find the matching symbol by module path
+    // Find the matching symbol by module path. The root module records
+    // an empty module path in the database.
     let target_entry = symbols.iter().find(|entry| {
-        // The symbol path is package.module.name, module_path is just module
-        // Match if the module_path in the database matches our target
         entry.module_path == target_module_path
-            || (entry.module_path.is_empty() && target_module_path.is_empty())
+            || (entry.module_path.is_empty() && defining_module == ModulePath::root())
     });
 
     let Some(target_entry) = target_entry else {
@@ -738,8 +640,7 @@ fn handle_references(
 
     // Optionally include the definition itself
     if params.context.include_declaration
-        && let Some(loc) =
-            resolve_symbol_to_location(&target_entry.path, workspace_index, documents)
+        && let Some(loc) = resolve_symbol_to_location(&target_entry.path, state)
     {
         locations.push(loc);
     }
@@ -750,7 +651,7 @@ fn handle_references(
             continue;
         };
         for path in dep_paths {
-            if let Some(loc) = resolve_symbol_to_location(&path, workspace_index, documents) {
+            if let Some(loc) = resolve_symbol_to_location(&path, state) {
                 locations.push(loc);
             }
         }
@@ -759,95 +660,64 @@ fn handle_references(
     Response::new_ok(id, serde_json::to_value(locations).unwrap_or(Value::Null))
 }
 
-/// Resolve a symbol path (e.g., "pkg.module.name") to an LSP Location.
-fn resolve_symbol_to_location(
-    symbol_path: &str,
-    workspace_index: &WorkspaceIndex,
-    documents: &DocumentStore,
-) -> Option<Location> {
-    // Parse symbol path: "package.module.name" -> extract name and module parts
+/// Resolve a symbol path (e.g., "pkg.module.name") to an LSP Location,
+/// using the package registry's span-carrying exports.
+fn resolve_symbol_to_location(symbol_path: &str, state: &ServerState) -> Option<Location> {
+    let registry = state.package_registry.as_ref()?;
+
+    // Parse symbol path: "package.module1.module2.name".
     let parts: Vec<&str> = symbol_path.split('.').collect();
-    if parts.is_empty() {
-        return None;
-    }
-
-    let name = parts.last()?;
-
-    // Module path is everything between package and name
-    // Symbol path format: package.module1.module2.name
-    // We need to find by module path (module1.module2) and name
-    let module_path: Vec<Arc<str>> = if parts.len() > 2 {
-        parts[1..parts.len() - 1]
-            .iter()
-            .map(|s| Arc::from(*s))
-            .collect()
-    } else {
-        Vec::new()
+    let (name, module_segments) = match parts.as_slice() {
+        [] | [_] => return None,
+        [_package, name] => (*name, Vec::new()),
+        [_package, segments @ .., name] => (*name, segments.to_vec()),
     };
 
-    // Find the module in the workspace index
-    let module_info = workspace_index.find_module(&module_path)?;
-
-    // Find the symbol in the module's exports
-    let export = module_info
-        .exports
-        .iter()
-        .find(|e| e.name.as_ref() == *name)?;
-
-    // Convert offset to LSP range
-    let range = if let Some(doc) = documents.get(&module_info.uri) {
-        offset_range_to_lsp_range(doc, export.offset as usize, export.end_offset as usize)
+    let module_path = if module_segments.is_empty() {
+        ModulePath::root()
     } else {
-        // Try to read the file
-        if let Some(file_path) = uri_to_path(&module_info.uri) {
-            if let Ok(content) = std::fs::read_to_string(&file_path) {
-                let temp_doc = crate::documents::Document::new(module_info.uri.clone(), 0, content);
-                offset_range_to_lsp_range(
-                    &temp_doc,
-                    export.offset as usize,
-                    export.end_offset as usize,
-                )
-            } else {
-                lsp_types::Range::default()
-            }
-        } else {
-            lsp_types::Range::default()
-        }
+        ModulePath::from_str_segments(&module_segments)?
     };
 
-    Some(Location {
-        uri: module_info.uri.clone(),
-        range,
-    })
+    let info = registry.get(&module_path)?;
+    let export = info.exports.get(name)?;
+
+    let uri = module_uri(state.package.as_ref(), &module_path)?;
+    let range = range_in_file(
+        &state.documents,
+        &uri,
+        export.name_span.start as usize,
+        export.name_span.end as usize,
+    );
+
+    Some(Location { uri, range })
 }
 
 /// Handle completion request.
-fn handle_completion(
-    id: RequestId,
-    params: &CompletionParams,
-    documents: &DocumentStore,
-    analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
-    symbol_db: Option<&SymbolDb>,
-    resolver: &ambient_engine::ability_resolver::AbilityResolver,
-) -> Response {
+fn handle_completion(id: RequestId, params: &CompletionParams, state: &ServerState) -> Response {
     let uri = &params.text_document_position.text_document.uri;
     let position = params.text_document_position.position;
 
-    let Some(doc) = documents.get(uri) else {
+    let Some(doc) = state.documents.get(uri) else {
         return Response::new_ok(id, Value::Null);
     };
 
     let offset = doc.position_to_offset(position.line, position.character);
 
     // Get the module from the analysis cache (if available).
-    let uri_str = uri.as_str();
-    let module = analysis_cache
-        .get(uri_str)
-        .and_then(|analysis| analysis.module.as_ref());
+    let module = state
+        .analyses
+        .get(uri.as_str())
+        .map(|analysis| &analysis.result.module);
 
     // Create completion context and get completions.
-    let ctx = CompletionContext::new(&doc.text, offset, resolver);
-    let items = get_completions(&ctx, module, symbol_db, resolver);
+    let ctx = CompletionContext::new(&doc.text, offset, &state.ability_resolver);
+    let items = get_completions(
+        &ctx,
+        module,
+        state.symbol_db.as_ref(),
+        &state.ability_resolver,
+    );
 
     let response = CompletionResponse::Array(items);
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
@@ -857,88 +727,79 @@ fn handle_completion(
 fn handle_document_symbol(
     id: RequestId,
     params: &DocumentSymbolParams,
-    documents: &DocumentStore,
-    analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
+    state: &ServerState,
 ) -> Response {
     let uri = &params.text_document.uri;
 
-    let Some(doc) = documents.get(uri) else {
+    let Some(doc) = state.documents.get(uri) else {
         return Response::new_ok(id, Value::Null);
     };
 
-    let uri_str = uri.as_str();
-    let Some(analysis) = analysis_cache.get(uri_str) else {
+    let Some(analysis) = state.analyses.get(uri.as_str()) else {
         return Response::new_ok(id, Value::Null);
     };
 
-    let Some(module) = &analysis.module else {
-        return Response::new_ok(id, Value::Null);
-    };
-
-    let symbols = extract_document_symbols(module, doc);
+    let symbols = extract_document_symbols(&analysis.result.module, doc);
     let response = DocumentSymbolResponse::Nested(symbols);
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
 }
 
 /// Handle workspace symbol request.
+///
+/// Symbols come from the registry's export tables (the same ones import
+/// resolution reads), filtered to the package's own modules.
 fn handle_workspace_symbol(
     id: RequestId,
     params: &WorkspaceSymbolParams,
-    workspace_index: &WorkspaceIndex,
-    documents: &DocumentStore,
-    symbol_db: Option<&SymbolDb>,
+    state: &ServerState,
 ) -> Response {
     let query = params.query.to_lowercase();
     let mut symbols: Vec<SymbolInformation> = Vec::new();
 
-    // Symbol database search is not used - it doesn't store span information.
-    // Use workspace index instead which has all the info we need.
-    let _ = symbol_db;
+    if let (Some(package), Some(registry)) =
+        (state.package.as_ref(), state.package_registry.as_ref())
+    {
+        let mut module_keys: Vec<_> = package.modules.keys().collect();
+        module_keys.sort();
 
-    // Use workspace index for symbol search
-    for module_info in workspace_index.all_modules() {
-        // Get the document for range calculation
-        let doc = documents.get(&module_info.uri);
-
-        for export in &module_info.exports {
-            // Filter by query (case-insensitive substring match)
-            if !query.is_empty() && !export.name.to_lowercase().contains(&query) {
+        for key in module_keys {
+            let module = &package.modules[key];
+            let Some(info) = registry.get(&module.path) else {
                 continue;
-            }
-
-            let range = if let Some(doc) = doc {
-                offset_range_to_lsp_range(doc, export.offset as usize, export.end_offset as usize)
-            } else {
-                // Try to read the file to compute proper range
-                if let Some(file_path) = uri_to_path(&module_info.uri) {
-                    if let Ok(content) = std::fs::read_to_string(&file_path) {
-                        let temp_doc =
-                            crate::documents::Document::new(module_info.uri.clone(), 0, content);
-                        offset_range_to_lsp_range(
-                            &temp_doc,
-                            export.offset as usize,
-                            export.end_offset as usize,
-                        )
-                    } else {
-                        lsp_types::Range::default()
-                    }
-                } else {
-                    lsp_types::Range::default()
-                }
+            };
+            let Some(uri) = module_uri(Some(package), &module.path) else {
+                continue;
             };
 
-            #[allow(deprecated)] // SymbolInformation::deprecated field is deprecated
-            symbols.push(SymbolInformation {
-                name: export.name.to_string(),
-                kind: symbol_kind_to_lsp(export.kind),
-                tags: None,
-                deprecated: None,
-                location: Location {
-                    uri: module_info.uri.clone(),
-                    range,
-                },
-                container_name: Some(module_info.module_path.join(".")),
-            });
+            let mut exports: Vec<_> = info.exports.values().collect();
+            exports.sort_by_key(|e| e.name_span.start);
+
+            for export in exports {
+                // Filter by query (case-insensitive substring match)
+                if !query.is_empty() && !export.name.to_lowercase().contains(&query) {
+                    continue;
+                }
+
+                let range = range_in_file(
+                    &state.documents,
+                    &uri,
+                    export.name_span.start as usize,
+                    export.name_span.end as usize,
+                );
+
+                #[allow(deprecated)] // SymbolInformation::deprecated field is deprecated
+                symbols.push(SymbolInformation {
+                    name: export.name.to_string(),
+                    kind: export_kind_to_lsp(export.kind),
+                    tags: None,
+                    deprecated: None,
+                    location: Location {
+                        uri: uri.clone(),
+                        range,
+                    },
+                    container_name: Some(module.path.to_string()),
+                });
+            }
         }
     }
 
@@ -955,7 +816,11 @@ fn parse_source(source: &str) -> Result<Module, String> {
 ///
 /// This compiles all modules and populates the symbol database with
 /// function definitions and their dependencies.
-fn populate_symbol_db_from_package(db: &mut SymbolDb, pkg: &PackageInfo, connection: &Connection) {
+fn populate_symbol_db_from_package(
+    db: &mut SymbolDb,
+    package: &AnalysisPackage,
+    connection: &Connection,
+) {
     let token = NumberOrString::String("indexing".to_string());
 
     // Send progress begin
@@ -989,7 +854,7 @@ fn populate_symbol_db_from_package(db: &mut SymbolDb, pkg: &PackageInfo, connect
     };
 
     let result = build_package(
-        &pkg.root,
+        &package.root,
         parse_source,
         ambient_platform::ABILITY_DECLARATIONS,
         Some(&progress_cb),
@@ -1019,7 +884,7 @@ fn populate_symbol_db_from_package(db: &mut SymbolDb, pkg: &PackageInfo, connect
             );
             // The build_package function already populates the symbol database
             // We need to reload it since build_package creates its own instance
-            let db_path = pkg.root.join("build").join("symbols.db");
+            let db_path = package.root.join("build").join("symbols.db");
             if let Ok(new_db) = SymbolDb::open(&db_path) {
                 *db = new_db;
             }
@@ -1037,42 +902,23 @@ fn send_progress(connection: &Connection, params: ProgressParams) -> anyhow::Res
     Ok(())
 }
 
-/// Look up type information from `SymbolDb` for a qualified name.
-///
-/// Currently returns None - type information comes from the typed AST instead.
-/// TODO: Integrate with new symbol database API for cross-file type lookups.
-fn lookup_qname_type(
-    _qname: &ambient_engine::ast::QualifiedName,
-    _symbol_db: Option<&SymbolDb>,
-) -> Option<ambient_engine::types::Type> {
-    // TODO: Implement using new symbol database API.
-    // For now, hover uses the expression type from the typed AST.
-    None
-}
-
 /// Handle semantic tokens request.
 fn handle_semantic_tokens(
     id: RequestId,
     params: &SemanticTokensParams,
-    documents: &DocumentStore,
-    analysis_cache: &HashMap<String, crate::analysis::AnalysisResult>,
+    state: &ServerState,
 ) -> Response {
     let uri = &params.text_document.uri;
 
-    let Some(doc) = documents.get(uri) else {
+    let Some(doc) = state.documents.get(uri) else {
         return Response::new_ok(id, Value::Null);
     };
 
-    let uri_str = uri.as_str();
-    let Some(analysis) = analysis_cache.get(uri_str) else {
+    let Some(analysis) = state.analyses.get(uri.as_str()) else {
         return Response::new_ok(id, Value::Null);
     };
 
-    let Some(module) = &analysis.module else {
-        return Response::new_ok(id, Value::Null);
-    };
-
-    let tokens = extract_semantic_tokens(module, doc);
+    let tokens = extract_semantic_tokens(&analysis.result.module, doc);
     let result = SemanticTokensResult::Tokens(SemanticTokens {
         result_id: None,
         data: tokens,
@@ -1291,14 +1137,15 @@ fn extract_ability_methods(
     }
 }
 
-/// Convert our `SymbolKind` to LSP `SymbolKind`.
-fn symbol_kind_to_lsp(kind: SymbolKind) -> LspSymbolKind {
+/// Convert the engine's `ExportKind` to LSP `SymbolKind`.
+fn export_kind_to_lsp(kind: ExportKind) -> LspSymbolKind {
     match kind {
-        SymbolKind::Function => LspSymbolKind::FUNCTION,
-        SymbolKind::Const => LspSymbolKind::CONSTANT,
-        SymbolKind::TypeAlias => LspSymbolKind::TYPE_PARAMETER,
-        SymbolKind::Enum => LspSymbolKind::ENUM,
-        SymbolKind::Ability => LspSymbolKind::INTERFACE,
+        ExportKind::Function => LspSymbolKind::FUNCTION,
+        ExportKind::Const => LspSymbolKind::CONSTANT,
+        ExportKind::TypeAlias => LspSymbolKind::TYPE_PARAMETER,
+        ExportKind::Enum => LspSymbolKind::ENUM,
+        ExportKind::EnumVariant => LspSymbolKind::ENUM_MEMBER,
+        ExportKind::Ability | ExportKind::Trait => LspSymbolKind::INTERFACE,
     }
 }
 
@@ -1335,11 +1182,7 @@ fn format_ability_method_signature(m: &ambient_engine::ast::AbilityMethod) -> St
 /// Handle an incoming notification.
 fn handle_notification(
     notif: &Notification,
-    documents: &mut DocumentStore,
-    analysis_cache: &mut HashMap<String, crate::analysis::AnalysisResult>,
-    workspace_index: &mut WorkspaceIndex,
-    package_info: &mut Option<PackageInfo>,
-    symbol_db: &mut Option<SymbolDb>,
+    state: &mut ServerState,
     connection: &Connection,
 ) -> anyhow::Result<()> {
     match notif.method.as_str() {
@@ -1349,39 +1192,30 @@ fn handle_notification(
             let version = params.text_document.version;
             let text = params.text_document.text.clone();
 
-            documents.open(uri.clone(), version, text.clone());
+            state.documents.open(uri.clone(), version, text);
 
             // Discover package if not already discovered
-            if package_info.is_none()
-                && let Some(mut pkg) = PackageInfo::discover(&uri)
+            if state.package.is_none()
+                && let Some(file_path) = uri_to_path(&uri)
+                && let Some(mut package) = AnalysisPackage::discover(&file_path)
             {
-                pkg.discover_modules();
-                // Populate workspace index with all discovered modules
-                // This enables go-to-definition for imports
-                pkg.populate_workspace_index(workspace_index);
+                package.load_modules();
 
                 // Initialize the symbol database
-                let db_path = pkg.root.join("build").join("symbols.db");
+                let db_path = package.root.join("build").join("symbols.db");
                 if let Some(parent) = db_path.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
                 if let Ok(mut db) = SymbolDb::open(&db_path) {
                     // Compile package and populate database
-                    populate_symbol_db_from_package(&mut db, &pkg, connection);
-                    *symbol_db = Some(db);
+                    populate_symbol_db_from_package(&mut db, &package, connection);
+                    state.symbol_db = Some(db);
                 }
 
-                *package_info = Some(pkg);
+                state.package = Some(package);
             }
 
-            reanalyze_document(
-                &uri,
-                documents,
-                analysis_cache,
-                workspace_index,
-                package_info,
-                connection,
-            )?;
+            reanalyze_all(&uri, state, connection)?;
         }
         DidChangeTextDocument::METHOD => {
             let params: DidChangeTextDocumentParams = serde_json::from_value(notif.params.clone())?;
@@ -1390,42 +1224,16 @@ fn handle_notification(
 
             // We use full sync, so there's exactly one change with the full text.
             if let Some(change) = params.content_changes.into_iter().next() {
-                documents.update(&uri, version, change.text.clone());
-
-                // Re-analyze the changed file first so the module registry
-                // sees its new AST, then every other open document: a
-                // signature change here must surface (or clear) type
-                // errors in files that import it, which previously stayed
-                // stale until they were edited themselves.
-                reanalyze_document(
-                    &uri,
-                    documents,
-                    analysis_cache,
-                    workspace_index,
-                    package_info,
-                    connection,
-                )?;
-                let dependents: Vec<Uri> =
-                    documents.uris().filter(|u| **u != uri).cloned().collect();
-                for dependent in dependents {
-                    reanalyze_document(
-                        &dependent,
-                        documents,
-                        analysis_cache,
-                        workspace_index,
-                        package_info,
-                        connection,
-                    )?;
-                }
+                state.documents.update(&uri, version, change.text);
+                reanalyze_all(&uri, state, connection)?;
             }
         }
         DidCloseTextDocument::METHOD => {
             let params: DidCloseTextDocumentParams = serde_json::from_value(notif.params.clone())?;
             let uri = params.text_document.uri;
 
-            documents.close(&uri);
-            analysis_cache.remove(uri.as_str());
-            workspace_index.remove(&uri);
+            state.documents.close(&uri);
+            state.analyses.remove(uri.as_str());
 
             // Clear diagnostics.
             publish_diagnostics(connection, uri, Vec::new(), 0)?;
@@ -1438,26 +1246,21 @@ fn handle_notification(
     Ok(())
 }
 
-/// Collect diagnostics from an analysis result.
+/// Collect diagnostics from an analysis result — the shared reporting
+/// policy from `ambient-analysis`, rendered for LSP.
 fn collect_diagnostics(
     doc: Option<&crate::documents::Document>,
-    result: &crate::analysis::AnalysisResult,
+    result: &ambient_analysis::AnalysisResult,
 ) -> Vec<Diagnostic> {
     let Some(doc) = doc else {
         return Vec::new();
     };
 
-    let mut diagnostics = Vec::new();
-
-    if let Some(parse_error) = &result.parse_error {
-        diagnostics.push(parse_error_to_diagnostic(doc, parse_error));
-    }
-
-    for type_error in &result.type_errors {
-        diagnostics.push(type_error_to_diagnostic(doc, type_error));
-    }
-
-    diagnostics
+    result
+        .diagnostics()
+        .iter()
+        .map(|d| diagnostic_to_lsp(doc, d))
+        .collect()
 }
 
 /// Publish diagnostics to the client.
@@ -1484,44 +1287,83 @@ fn publish_diagnostics(
     Ok(())
 }
 
-/// Re-analyze one open document: publish fresh diagnostics and refresh
-/// the caches that hang off its AST (analysis cache, workspace index,
-/// package module registry).
+/// Re-analyze after a document change: update the package's view of the
+/// changed file, rebuild the registry once, then re-analyze every open
+/// document against it. A signature change in one file must surface (or
+/// clear) type errors in files that import it.
 ///
 /// Note the symbol database is *not* refreshed here — it is populated
-/// once from a full package compile at first open. Cross-file features
-/// backed by it (find-references, pkg completions) go stale after edits;
-/// making it incrementally updatable is an engine-level gap.
-fn reanalyze_document(
-    uri: &Uri,
-    documents: &DocumentStore,
-    analysis_cache: &mut HashMap<String, crate::analysis::AnalysisResult>,
-    workspace_index: &mut WorkspaceIndex,
-    package_info: &mut Option<PackageInfo>,
+/// once from a full package compile at first open. Find-references can
+/// go stale after edits; making it incrementally updatable is an
+/// engine-level gap.
+fn reanalyze_all(
+    changed_uri: &Uri,
+    state: &mut ServerState,
     connection: &Connection,
 ) -> anyhow::Result<()> {
-    let Some(doc) = documents.get(uri) else {
+    // Update the package's copy of the changed document.
+    if let Some(package) = state.package.as_mut()
+        && let Some(file_path) = uri_to_path(changed_uri)
+        && let Some(module_path) = package.module_path_for(&file_path)
+        && let Some(doc) = state.documents.get(changed_uri)
+    {
+        package.insert_module(module_path, doc.text.clone());
+    }
+
+    // Rebuild the shared registry once per change.
+    state.package_registry = state
+        .package
+        .as_ref()
+        .map(|package| Arc::new(package.build_registry()));
+
+    let uris: Vec<Uri> = state.documents.uris().cloned().collect();
+    for uri in uris {
+        reanalyze_document(&uri, state, connection)?;
+    }
+    Ok(())
+}
+
+/// Re-analyze one open document against the current registry and publish
+/// fresh diagnostics.
+fn reanalyze_document(
+    uri: &Uri,
+    state: &mut ServerState,
+    connection: &Connection,
+) -> anyhow::Result<()> {
+    let Some(doc) = state.documents.get(uri) else {
         return Ok(());
     };
 
-    let result = if let Some(pkg) = package_info.as_ref() {
-        let module_path = pkg.uri_to_module_path(uri);
-        let registry = pkg.build_registry();
-        analyze_with_registry(&doc.text, module_path.as_ref(), Some(&registry))
+    let package_context = state.package.as_ref().zip(state.package_registry.as_ref());
+    let (module_path, registry) = if let Some((package, registry)) = package_context
+        && let Some(file_path) = uri_to_path(uri)
+        && let Some(module_path) = package.module_path_for(&file_path)
+    {
+        (module_path, Arc::clone(registry))
     } else {
-        analyze_with_registry(&doc.text, None, None)
+        // No package: the document checks as a stand-alone package root
+        // against the core+platform registry, same as `ambient check` on
+        // a bare file.
+        let module_path = ModulePath::root();
+        let mut registry = ambient_analysis::core_platform_registry();
+        let recovered = ambient_parser::parse_recovering(&doc.text);
+        registry.register(&module_path, Arc::new(recovered.module));
+        (module_path, Arc::new(registry))
     };
+
+    let result =
+        ambient_analysis::analyze_with_registry(&doc.text, Some(&module_path), Some(&registry));
 
     let diagnostics = collect_diagnostics(Some(doc), &result);
     publish_diagnostics(connection, uri.clone(), diagnostics, doc.version)?;
 
-    if let Some(ref module) = result.module {
-        workspace_index.update(uri.clone(), module);
-        if let Some(pkg) = package_info.as_mut() {
-            pkg.update_module(uri, &doc.text, module.clone());
-        }
-    }
-
-    analysis_cache.insert(uri.as_str().to_string(), result);
+    state.analyses.insert(
+        uri.as_str().to_string(),
+        DocumentAnalysis {
+            result,
+            module_path,
+            registry,
+        },
+    );
     Ok(())
 }

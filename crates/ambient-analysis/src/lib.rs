@@ -140,8 +140,20 @@ pub fn analyze(source: &str) -> AnalysisResult {
 
 /// A registry seeded with the core library and the `platform` declaration
 /// module — the context every Ambient module is checked in, package or not.
+///
+/// Built once per thread and cloned out (module ASTs are `Arc`-shared, so
+/// the clone is cheap). This sits on hot paths — the REPL re-analyzes on
+/// every keystroke — so re-parsing the core library each call is not an
+/// option.
 #[must_use]
 pub fn core_platform_registry() -> ModuleRegistry {
+    thread_local! {
+        static CACHE: std::cell::OnceCell<ModuleRegistry> = const { std::cell::OnceCell::new() };
+    }
+    CACHE.with(|cache| cache.get_or_init(build_core_platform_registry).clone())
+}
+
+fn build_core_platform_registry() -> ModuleRegistry {
     let mut registry = ModuleRegistry::new();
 
     let _ = ambient_engine::core_library::register_core_modules(&mut registry, |source| {

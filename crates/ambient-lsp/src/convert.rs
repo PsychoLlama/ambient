@@ -1,82 +1,38 @@
-//! Conversion utilities between Ambient types and LSP types.
+//! Conversion between shared analysis diagnostics and LSP types.
+//!
+//! The *content* of every diagnostic (span, message, note, and the policy
+//! of what gets reported) comes from `ambient-analysis`, shared with
+//! `ambient check`. This module only translates byte offsets to LSP
+//! positions.
 
 use lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
 
 use crate::documents::Document;
 
-/// Convert an Ambient parse error to an LSP diagnostic.
-pub fn parse_error_to_diagnostic(doc: &Document, error: &ambient_parser::ParseError) -> Diagnostic {
-    let start = doc.offset_to_position(error.span.start as usize);
-    let end = doc.offset_to_position(error.span.end as usize);
-
-    let range = Range {
-        start: Position {
-            line: start.0,
-            character: start.1,
-        },
-        end: Position {
-            line: end.0,
-            character: end.1,
-        },
+/// Convert a shared analysis diagnostic to an LSP diagnostic.
+#[must_use]
+pub fn diagnostic_to_lsp(doc: &Document, diagnostic: &ambient_analysis::Diagnostic) -> Diagnostic {
+    let severity = match diagnostic.severity {
+        ambient_analysis::Severity::Error => DiagnosticSeverity::ERROR,
+        ambient_analysis::Severity::Warning => DiagnosticSeverity::WARNING,
     };
 
-    let message = error.kind.to_string();
-    let related_info = error.context.as_ref().map(|ctx| format!("note: {ctx}"));
-
-    Diagnostic {
-        range,
-        severity: Some(DiagnosticSeverity::ERROR),
-        code: None,
-        code_description: None,
-        source: Some("ambient".to_string()),
-        message: if let Some(info) = related_info {
-            format!("{message}\n{info}")
-        } else {
-            message
-        },
-        related_information: None,
-        tags: None,
-        data: None,
+    let mut message = diagnostic.message.clone();
+    if let Some(note) = &diagnostic.note {
+        message.push_str("\nnote: ");
+        message.push_str(note);
     }
-}
-
-/// Convert an Ambient type error to an LSP diagnostic.
-pub fn type_error_to_diagnostic(
-    doc: &Document,
-    error: &ambient_engine::infer::TypeError,
-) -> Diagnostic {
-    let (start_offset, end_offset) = error.span;
-    let start = doc.offset_to_position(start_offset as usize);
-    let end = doc.offset_to_position(end_offset as usize);
-
-    let range = Range {
-        start: Position {
-            line: start.0,
-            character: start.1,
-        },
-        end: Position {
-            line: end.0,
-            character: end.1,
-        },
-    };
-
-    let message = error.kind.to_string();
-    let related_info = error.context.as_ref().map(|ctx| format!("note: {ctx}"));
 
     Diagnostic {
-        range,
-        severity: Some(DiagnosticSeverity::ERROR),
-        code: None,
-        code_description: None,
+        range: offset_range_to_lsp_range(
+            doc,
+            diagnostic.span.start as usize,
+            diagnostic.span.end as usize,
+        ),
+        severity: Some(severity),
         source: Some("ambient".to_string()),
-        message: if let Some(info) = related_info {
-            format!("{message}\n{info}")
-        } else {
-            message
-        },
-        related_information: None,
-        tags: None,
-        data: None,
+        message,
+        ..Default::default()
     }
 }
 
@@ -99,10 +55,6 @@ pub fn offset_range_to_lsp_range(doc: &Document, start: usize, end: usize) -> Ra
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ambient_engine::ast::Span;
-    use ambient_engine::infer::{TypeError, TypeErrorKind};
-    use ambient_engine::types::Type;
-    use ambient_parser::{ParseError, ParseErrorKind};
     use lsp_types::Uri;
 
     fn test_doc(content: &str) -> Document {
@@ -144,98 +96,44 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_error_to_diagnostic() {
-        let doc = test_doc("fn foo( {");
-        let error = ParseError::new(
-            ParseErrorKind::Expected {
-                expected: ")".into(),
-                found: "{".into(),
-            },
-            Span::new(8, 9),
-        );
+    fn diagnostics_carry_shared_message_text() {
+        let source = "fn bad(): string { 42 }";
+        let doc = test_doc(source);
+        let result = ambient_analysis::analyze(source);
+        let diagnostics = result.diagnostics();
+        assert!(!diagnostics.is_empty());
 
-        let diag = parse_error_to_diagnostic(&doc, &error);
-
-        assert_eq!(diag.severity, Some(DiagnosticSeverity::ERROR));
-        assert_eq!(diag.source, Some("ambient".to_string()));
-        assert_eq!(diag.range.start.line, 0);
-        assert_eq!(diag.range.start.character, 8);
-        assert!(diag.message.contains(")") || diag.message.contains("{"));
+        let lsp = diagnostic_to_lsp(&doc, &diagnostics[0]);
+        // Identical text to what `ambient check` prints.
+        assert!(lsp.message.starts_with(&diagnostics[0].message));
+        assert_eq!(lsp.severity, Some(DiagnosticSeverity::ERROR));
+        assert_eq!(lsp.source.as_deref(), Some("ambient"));
     }
 
     #[test]
-    fn test_parse_error_unexpected_eof() {
-        let doc = test_doc("fn foo(");
-        let error = ParseError::new(ParseErrorKind::UnexpectedEof, Span::new(7, 7));
+    fn parse_error_diagnostic_has_position() {
+        let source = "fn foo(): number { 1 }\nfn broken(\n";
+        let doc = test_doc(source);
+        let result = ambient_analysis::analyze(source);
+        let diagnostics = result.diagnostics();
+        assert_eq!(diagnostics.len(), 1);
 
-        let diag = parse_error_to_diagnostic(&doc, &error);
-
-        assert_eq!(diag.severity, Some(DiagnosticSeverity::ERROR));
-        assert!(diag.message.contains("EOF") || diag.message.contains("end"));
+        let lsp = diagnostic_to_lsp(&doc, &diagnostics[0]);
+        assert_eq!(lsp.severity, Some(DiagnosticSeverity::ERROR));
+        assert!(lsp.range.start.line >= 1);
     }
 
     #[test]
-    fn test_parse_error_with_context() {
-        let doc = test_doc("fn foo() { let }");
-        let mut error = ParseError::new(
-            ParseErrorKind::Expected {
-                expected: "identifier".into(),
-                found: "}".into(),
-            },
-            Span::new(15, 16),
-        );
-        error.context = Some("in let binding".into());
-
-        let diag = parse_error_to_diagnostic(&doc, &error);
-
-        assert!(diag.message.contains("let binding"));
-    }
-
-    #[test]
-    fn test_type_error_to_diagnostic() {
-        let doc = test_doc("fn foo(): string { 42 }");
-        let error = TypeError::new(
-            TypeErrorKind::TypeMismatch {
-                expected: Type::String,
-                actual: Type::Number,
-            },
-            (19, 21),
-        );
-
-        let diag = type_error_to_diagnostic(&doc, &error);
-
-        assert_eq!(diag.severity, Some(DiagnosticSeverity::ERROR));
-        assert_eq!(diag.source, Some("ambient".to_string()));
-        assert_eq!(diag.range.start.line, 0);
-        assert_eq!(diag.range.start.character, 19);
-        assert!(diag.message.contains("mismatch") || diag.message.contains("type"));
-    }
-
-    #[test]
-    fn test_type_error_with_context() {
-        let doc = test_doc("fn foo() { 1 + true }");
-        let mut error = TypeError::new(
-            TypeErrorKind::TypeMismatch {
-                expected: Type::Number,
-                actual: Type::Bool,
-            },
-            (15, 19),
-        );
-        error.context = Some("in binary operation".into());
-
-        let diag = type_error_to_diagnostic(&doc, &error);
-
-        assert!(diag.message.contains("binary operation"));
-    }
-
-    #[test]
-    fn test_parse_error_unterminated_string() {
-        let doc = test_doc("let s = \"hello");
-        let error = ParseError::new(ParseErrorKind::UnterminatedString, Span::new(8, 14));
-
-        let diag = parse_error_to_diagnostic(&doc, &error);
-
-        assert_eq!(diag.severity, Some(DiagnosticSeverity::ERROR));
-        assert!(diag.message.contains("string") || diag.message.contains("unterminated"));
+    fn note_is_appended_to_message() {
+        let doc = test_doc("fn f() { 1 }");
+        let diagnostic = ambient_analysis::Diagnostic {
+            span: ambient_engine::ast::Span::new(0, 2),
+            message: "boom".to_string(),
+            note: Some("extra context".to_string()),
+            severity: ambient_analysis::Severity::Error,
+        };
+        let lsp = diagnostic_to_lsp(&doc, &diagnostic);
+        assert!(lsp.message.contains("boom"));
+        assert!(lsp.message.contains("note: extra context"));
     }
 }
