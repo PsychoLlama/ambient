@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::ast::{ItemKind, Module, UseKind, UsePrefix};
+use crate::ast::{ItemKind, Module, Span, UseKind, UsePrefix};
 use crate::module_path::{ImportPrefix, ModulePath, ResolutionError};
 
 /// Error that can occur during module registry operations.
@@ -98,6 +98,11 @@ pub struct ExportInfo {
     pub is_public: bool,
     /// If this is a re-export, the original module path.
     pub re_export_from: Option<ModulePath>,
+    /// The span of the defining name in the defining module's source.
+    /// Serves go-to-definition; enum variants use their variant span.
+    pub name_span: Span,
+    /// The item's doc comment, if any (enum variants inherit none).
+    pub doc: Option<Arc<str>>,
 }
 
 /// The kind of exported symbol.
@@ -451,18 +456,24 @@ fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> {
                 kind: ExportKind::Function,
                 is_public: f.is_public,
                 re_export_from: None,
+                name_span: f.name_span,
+                doc: item.doc.clone(),
             }),
             ItemKind::Const(c) => Some(ExportInfo {
                 name: c.name.clone(),
                 kind: ExportKind::Const,
                 is_public: c.is_public,
                 re_export_from: None,
+                name_span: c.name_span,
+                doc: item.doc.clone(),
             }),
             ItemKind::TypeAlias(t) => Some(ExportInfo {
                 name: t.name.clone(),
                 kind: ExportKind::TypeAlias,
                 is_public: t.is_public,
                 re_export_from: None,
+                name_span: t.name_span,
+                doc: item.doc.clone(),
             }),
             ItemKind::Enum(e) => {
                 // Add the enum itself
@@ -473,6 +484,8 @@ fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> {
                         kind: ExportKind::Enum,
                         is_public: e.is_public,
                         re_export_from: None,
+                        name_span: e.name_span,
+                        doc: item.doc.clone(),
                     },
                 );
 
@@ -485,6 +498,8 @@ fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> {
                             kind: ExportKind::EnumVariant,
                             is_public: e.is_public,
                             re_export_from: None,
+                            name_span: variant.span,
+                            doc: None,
                         },
                     );
                 }
@@ -495,12 +510,16 @@ fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> {
                 kind: ExportKind::Ability,
                 is_public: a.is_public,
                 re_export_from: None,
+                name_span: a.name_span,
+                doc: item.doc.clone(),
             }),
             ItemKind::Trait(t) => Some(ExportInfo {
                 name: t.name.clone(),
                 kind: ExportKind::Trait,
                 is_public: t.is_public,
                 re_export_from: None,
+                name_span: t.name_span,
+                doc: item.doc.clone(),
             }),
             ItemKind::Use(_) | ItemKind::Impl(_) => None, // Use statements and impls are not exports
         };
