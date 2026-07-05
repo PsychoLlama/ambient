@@ -13,12 +13,12 @@ Tree-sitter grammar for the [Ambient](../) programming language.
 
 ### Prerequisites
 
-- Node.js (for npm)
+- Node.js and pnpm
 - tree-sitter CLI
 
 ```bash
-npm install
-npm run build
+pnpm install
+pnpm run build
 ```
 
 ### Usage with Neovim
@@ -51,19 +51,19 @@ Copy the grammar and queries to your Helix runtime directory.
 Generate the parser:
 
 ```bash
-npm run build
+pnpm run build
 ```
 
 Run tests:
 
 ```bash
-npm test
+pnpm test
 ```
 
 Parse a file:
 
 ```bash
-npm run parse -- path/to/file.ab
+pnpm run parse -- path/to/file.ab
 ```
 
 ## License

@@ -91,6 +91,7 @@
             nativeBuildInputs = [
               pkgs.tree-sitter
               pkgs.nodejs
+              pkgs.pnpm
             ];
 
             buildPhase = ''
@@ -152,6 +153,7 @@
               pkgs.just
               pkgs.nixfmt
               pkgs.nodejs
+              pkgs.pnpm
               pkgs.stylua
               pkgs.tree-sitter
               pkgs.treefmt
