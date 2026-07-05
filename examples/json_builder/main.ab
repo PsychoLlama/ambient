@@ -3,16 +3,19 @@
 //! Builds JSON strings from Ambient data structures.
 //! Demonstrates string manipulation and recursive data processing.
 
+use core::string;
+use core::List;
+
 /// Escapes special characters in a JSON string.
 fn escape_string(s: string): string {
     // Replace backslashes first (before adding more), then quotes
-    let s1 = core::string::replace(s, "\\", "\\\\");
-    core::string::replace(s1, "\"", "\\\"")
+    let s1 = string::replace(s, "\\", "\\\\");
+    string::replace(s1, "\"", "\\\"")
 }
 
 /// Formats a string as a JSON string (with quotes).
 fn json_string(s: string): string {
-    core::string::concat("\"", core::string::concat(escape_string(s), "\""))
+    string::concat("\"", string::concat(escape_string(s), "\""))
 }
 
 /// Formats a number as JSON.
@@ -27,13 +30,13 @@ fn json_bool(b: bool): string {
 
 /// Builds a JSON array from a list of pre-formatted JSON values.
 fn json_array(items: List<string>): string {
-    core::string::concat("[", core::string::concat(core::string::join(items, ", "), "]"))
+    string::concat("[", string::concat(string::join(items, ", "), "]"))
 }
 
 /// Builds a JSON object from key-value pairs (values pre-formatted).
 fn json_object(pairs: List<(string, string)>): string {
     let formatted = format_pairs(pairs, []);
-    core::string::concat("{", core::string::concat(core::string::join(formatted, ", "), "}"))
+    string::concat("{", string::concat(string::join(formatted, ", "), "}"))
 }
 
 fn format_pairs(pairs: List<(string, string)>, acc: List<string>): List<string> {
@@ -41,8 +44,8 @@ fn format_pairs(pairs: List<(string, string)>, acc: List<string>): List<string> 
         Some(pair) => {
             let key = json_string(pair.0);
             let value = pair.1;
-            let formatted = core::string::concat(key, core::string::concat(": ", value));
-            format_pairs(core::List::tail(pairs), acc.append(formatted))
+            let formatted = string::concat(key, string::concat(": ", value));
+            format_pairs(List::tail(pairs), acc.append(formatted))
         }
         None => acc,
     }

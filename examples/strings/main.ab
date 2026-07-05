@@ -2,15 +2,18 @@
 //!
 //! Demonstrates string manipulation using stdlib intrinsics.
 
+use core::string;
+use core::List;
+
 /// Checks if a string is a palindrome.
 fn is_palindrome(s: string): bool {
-    let cleaned = core::string::to_lower(s);
-    cleaned == core::string::reverse(cleaned)
+    let cleaned = string::to_lower(s);
+    cleaned == string::reverse(cleaned)
 }
 
 /// Counts occurrences of a character in a string.
 fn count_char(s: string, ch: string): number {
-    let chars = core::string::chars(s);
+    let chars = string::chars(s);
     count_char_helper(chars, ch, 0)
 }
 
@@ -18,7 +21,7 @@ fn count_char_helper(chars: List<string>, target: string, acc: number): number {
     match chars.head() {
         Some(c) => {
             let increment = if c == target { 1 } else { 0 };
-            count_char_helper(core::List::tail(chars), target, acc + increment)
+            count_char_helper(List::tail(chars), target, acc + increment)
         }
         None => acc,
     }
@@ -31,87 +34,87 @@ fn repeat_with_sep(s: string, n: number, sep: string): string {
     } else if n == 1 {
         s
     } else {
-        core::string::concat(core::string::concat(s, sep), repeat_with_sep(s, n - 1, sep))
+        string::concat(string::concat(s, sep), repeat_with_sep(s, n - 1, sep))
     }
 }
 
 /// Truncates a string to max length with ellipsis.
 fn truncate(s: string, max_len: number): string {
-    if core::string::length(s) <= max_len {
+    if string::length(s) <= max_len {
         s
     } else {
-        core::string::concat(core::string::slice(s, 0, max_len - 3), "...")
+        string::concat(string::slice(s, 0, max_len - 3), "...")
     }
 }
 
 /// Centers a string in a field of given width.
 fn center(s: string, width: number): string {
-    let len = core::string::length(s);
+    let len = string::length(s);
     if len >= width {
         s
     } else {
         let total_pad = width - len;
         let left_pad = total_pad / 2;
         let right_pad = total_pad - left_pad;
-        let left = core::string::repeat(" ", left_pad);
-        let right = core::string::repeat(" ", right_pad);
-        core::string::concat(core::string::concat(left, s), right)
+        let left = string::repeat(" ", left_pad);
+        let right = string::repeat(" ", right_pad);
+        string::concat(string::concat(left, s), right)
     }
 }
 
 /// Counts words in a string.
 fn word_count(s: string): number {
-    let trimmed = core::string::trim(s);
-    if core::string::length(trimmed) == 0 {
+    let trimmed = string::trim(s);
+    if string::length(trimmed) == 0 {
         0
     } else {
-        let words = core::string::split(trimmed, " ");
+        let words = string::split(trimmed, " ");
         words.length()
     }
 }
 
 /// Capitalizes first letter of each word.
 fn title_case(s: string): string {
-    let words = core::string::split(s, " ");
+    let words = string::split(s, " ");
     let capitalized = title_case_words(words);
-    core::string::join(capitalized, " ")
+    string::join(capitalized, " ")
 }
 
 fn title_case_words(words: List<string>): List<string> {
     match words.head() {
         Some(word) => {
             let cap_word = capitalize_word(word);
-            [cap_word].concat(title_case_words(core::List::tail(words)))
+            [cap_word].concat(title_case_words(List::tail(words)))
         }
         None => [],
     }
 }
 
 fn capitalize_word(s: string): string {
-    if core::string::length(s) == 0 {
+    if string::length(s) == 0 {
         ""
     } else {
-        let first = core::string::to_upper(core::string::slice(s, 0, 1));
-        let rest = core::string::slice(s, 1, core::string::length(s));
-        core::string::concat(first, rest)
+        let first = string::to_upper(string::slice(s, 0, 1));
+        let rest = string::slice(s, 1, string::length(s));
+        string::concat(first, rest)
     }
 }
 
 /// Extracts initials from a name.
 fn initials(name: string): string {
-    let words = core::string::split(core::string::trim(name), " ");
+    let words = string::split(string::trim(name), " ");
     initials_helper(words, "")
 }
 
 fn initials_helper(words: List<string>, acc: string): string {
     match words.head() {
         Some(word) => {
-            let initial = if core::string::length(word) > 0 {
-                core::string::to_upper(core::string::slice(word, 0, 1))
+            let initial = if string::length(word) > 0 {
+                string::to_upper(string::slice(word, 0, 1))
             } else {
                 ""
             };
-            initials_helper(core::List::tail(words), core::string::concat(acc, initial))
+            initials_helper(List::tail(words), string::concat(acc, initial))
         }
         None => acc,
     }
@@ -128,23 +131,23 @@ pub fn run(): number {
     let c2 = count_char("hello", "l");        // 2
 
     // Test string operations
-    let upper = core::string::to_upper("hello");
+    let upper = string::to_upper("hello");
     let is_upper = if upper == "HELLO" { 1 } else { 0 };  // 1
 
-    let lower = core::string::to_lower("WORLD");
+    let lower = string::to_lower("WORLD");
     let is_lower = if lower == "world" { 1 } else { 0 };  // 1
 
     // Test slice
-    let sliced = core::string::slice("hello world", 0, 5);
+    let sliced = string::slice("hello world", 0, 5);
     let is_hello = if sliced == "hello" { 1 } else { 0 };  // 1
 
     // Test replace
-    let replaced = core::string::replace("hello world", "world", "ambient");
+    let replaced = string::replace("hello world", "world", "ambient");
     let is_replaced = if replaced == "hello ambient" { 1 } else { 0 };  // 1
 
     // Test starts_with / ends_with
-    let sw = if core::string::starts_with("hello world", "hello") { 1 } else { 0 };  // 1
-    let ew = if core::string::ends_with("hello world", "world") { 1 } else { 0 };    // 1
+    let sw = if string::starts_with("hello world", "hello") { 1 } else { 0 };  // 1
+    let ew = if string::ends_with("hello world", "world") { 1 } else { 0 };    // 1
 
     // Test word_count
     let wc = word_count("the quick brown fox");  // 4
@@ -158,7 +161,7 @@ pub fn run(): number {
     let is_jfk = if init == "JFK" { 1 } else { 0 };  // 1
 
     // Test index_of: found gives Some(index), missing gives None.
-    let idx = core::string::index_of("hello world", "wor").unwrap_or(0 - 1);  // 6
+    let idx = string::index_of("hello world", "wor").unwrap_or(0 - 1);  // 6
 
     // Sum all results: 1+0+1+4+2+1+1+1+1+1+1+4+1+1+6 = 26
     p1 + p2 + p3 + c1 + c2 + is_upper + is_lower + is_hello + is_replaced + sw + ew + wc + is_titled + is_jfk + idx

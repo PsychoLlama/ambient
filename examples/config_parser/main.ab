@@ -3,27 +3,30 @@
 //! Parses a simple key=value config format and extracts values.
 //! Demonstrates string manipulation and list operations.
 
+use core::string;
+use core::List;
+
 /// Parses a single line into a key-value pair.
 ///
 /// Returns an empty list on failure.
 fn parse_line(line: string): List<(string, string)> {
-    let trimmed = core::string::trim(line);
+    let trimmed = string::trim(line);
 
     // Skip empty lines and comments
-    if core::string::length(trimmed) == 0 {
+    if string::length(trimmed) == 0 {
         []
-    } else if core::string::starts_with(trimmed, "#") {
+    } else if string::starts_with(trimmed, "#") {
         []
     } else {
         // Find the = separator
-        let parts = core::string::split(trimmed, "=");
+        let parts = string::split(trimmed, "=");
         match parts.head() {
             Some(raw_key) => {
                 if parts.length() >= 2 {
-                    let key = core::string::trim(raw_key);
+                    let key = string::trim(raw_key);
                     // Join remaining parts in case value contains =
-                    let value_parts = core::List::tail(parts);
-                    let value = core::string::trim(core::string::join(value_parts, "="));
+                    let value_parts = List::tail(parts);
+                    let value = string::trim(string::join(value_parts, "="));
                     [(key, value)]
                 } else {
                     []
@@ -36,14 +39,14 @@ fn parse_line(line: string): List<(string, string)> {
 
 /// Parses multiple lines of config into key-value pairs.
 fn parse_config(text: string): List<(string, string)> {
-    let lines = core::string::split(text, "\n");
+    let lines = string::split(text, "\n");
     parse_lines(lines, [])
 }
 
 fn parse_lines(lines: List<string>, acc: List<(string, string)>): List<(string, string)> {
     match lines.head() {
         Some(line) => {
-            let rest = core::List::tail(lines);
+            let rest = List::tail(lines);
             let parsed = parse_line(line);
             if parsed.is_empty() {
                 parse_lines(rest, acc)
@@ -62,7 +65,7 @@ fn get_config(config: List<(string, string)>, key: string, default: string): str
             if entry.0 == key {
                 entry.1
             } else {
-                get_config(core::List::tail(config), key, default)
+                get_config(List::tail(config), key, default)
             }
         }
         None => default,
@@ -93,8 +96,8 @@ debug=true
     let missing = get_config(config, "nonexistent", "default_value");
 
     // Build a connection string
-    let conn = core::string::concat(host, core::string::concat(":", port));
+    let conn = string::concat(host, string::concat(":", port));
 
     // Return summary
-    core::string::concat("Connection: ", core::string::concat(conn, core::string::concat(", debug=", debug)))
+    string::concat("Connection: ", string::concat(conn, string::concat(", debug=", debug)))
 }

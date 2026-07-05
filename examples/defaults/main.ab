@@ -7,6 +7,8 @@
 //! receiver, so it is invoked as `Type::default()` rather than through
 //! dot-notation on a value.
 
+use core::string;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // A settings record with sensible defaults
 // ─────────────────────────────────────────────────────────────────────────────
@@ -53,17 +55,17 @@ impl Add for Point {
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn describe(s: Settings): string {
-    core::string::concat(
+    string::concat(
         "Settings { volume: ",
-        core::string::concat(
+        string::concat(
             core::convert::to_string(s.volume),
-            core::string::concat(
+            string::concat(
                 ", muted: ",
-                core::string::concat(
+                string::concat(
                     core::convert::to_string(s.muted),
-                    core::string::concat(
+                    string::concat(
                         ", theme: ",
-                        core::string::concat(s.theme, " }"),
+                        string::concat(s.theme, " }"),
                     ),
                 ),
             ),
@@ -72,13 +74,13 @@ fn describe(s: Settings): string {
 }
 
 fn point_str(p: Point): string {
-    core::string::concat(
+    string::concat(
         "(",
-        core::string::concat(
+        string::concat(
             core::convert::to_string(p.x),
-            core::string::concat(
+            string::concat(
                 ", ",
-                core::string::concat(core::convert::to_string(p.y), ")"),
+                string::concat(core::convert::to_string(p.y), ")"),
             ),
         ),
     )
@@ -100,8 +102,8 @@ pub fn run(): () with platform::Stdio {
 
     // Associated calls are ordinary expressions: they nest and compose.
     let origin = Point::default();
-    platform::Stdio::out!(core::string::concat("origin = ", point_str(origin)));
+    platform::Stdio::out!(string::concat("origin = ", point_str(origin)));
 
     let shifted = Point::default() + Point { x: 3, y: 4 };
-    platform::Stdio::out!(core::string::concat("shifted = ", point_str(shifted)));
+    platform::Stdio::out!(string::concat("shifted = ", point_str(shifted)));
 }

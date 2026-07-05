@@ -2,6 +2,8 @@
 //!
 //! Demonstrates math intrinsics: trig, exponential, logarithmic functions.
 
+use core::math;
+
 /// The constant pi (π).
 fn pi(): number { 3.141592653589793 }
 /// Euler's number (e).
@@ -24,12 +26,12 @@ fn to_degrees(rad: number): number {
 fn distance(x1: number, y1: number, x2: number, y2: number): number {
     let dx = x2 - x1;
     let dy = y2 - y1;
-    core::math::sqrt(dx * dx + dy * dy)
+    math::sqrt(dx * dx + dy * dy)
 }
 
 /// Calculates the hypotenuse of a right triangle.
 fn hypotenuse(a: number, b: number): number {
-    core::math::sqrt(a * a + b * b)
+    math::sqrt(a * a + b * b)
 }
 
 /// Newton's method for square root (for comparison with native sqrt).
@@ -59,33 +61,33 @@ fn quadratic_discriminant(a: number, b: number, c: number): number {
 
 /// Calculates compound interest.
 fn compound_interest(principal: number, rate: number, times: number, years: number): number {
-    principal * core::math::pow(1 + rate / times, times * years)
+    principal * math::pow(1 + rate / times, times * years)
 }
 
 /// Sigmoid function (logistic function).
 fn sigmoid(x: number): number {
-    1 / (1 + core::math::exp(0 - x))
+    1 / (1 + math::exp(0 - x))
 }
 
 /// Hyperbolic sine.
 fn sinh(x: number): number {
-    (core::math::exp(x) - core::math::exp(0 - x)) / 2
+    (math::exp(x) - math::exp(0 - x)) / 2
 }
 
 /// Hyperbolic cosine.
 fn cosh(x: number): number {
-    (core::math::exp(x) + core::math::exp(0 - x)) / 2
+    (math::exp(x) + math::exp(0 - x)) / 2
 }
 
 /// Checks if two numbers are approximately equal (within epsilon).
 fn approx_eq(a: number, b: number): bool {
-    core::math::abs(a - b) < 0.0001
+    math::abs(a - b) < 0.0001
 }
 
 /// Greatest common divisor (Euclidean algorithm).
 fn gcd(a: number, b: number): number {
-    let a_abs = core::math::abs(a);
-    let b_abs = core::math::abs(b);
+    let a_abs = math::abs(a);
+    let b_abs = math::abs(b);
     gcd_helper(a_abs, b_abs)
 }
 
@@ -99,7 +101,7 @@ fn gcd_helper(a: number, b: number): number {
 
 /// Least common multiple.
 fn lcm(a: number, b: number): number {
-    core::math::abs(a * b) / gcd(a, b)
+    math::abs(a * b) / gcd(a, b)
 }
 
 /// Checks if a number is prime.
@@ -123,32 +125,32 @@ fn is_prime_helper(n: number, divisor: number): bool {
 
 pub fn run(): number {
     // Test basic math intrinsics
-    let sq = core::math::sqrt(16);  // 4
-    let ab = core::math::abs(0 - 5);  // 5
-    let fl = core::math::floor(3.7);  // 3
-    let ce = core::math::ceil(3.2);   // 4
-    let ro = core::math::round(3.5);  // 4
-    let tr = core::math::trunc(0 - 3.7);  // -3
+    let sq = math::sqrt(16);  // 4
+    let ab = math::abs(0 - 5);  // 5
+    let fl = math::floor(3.7);  // 3
+    let ce = math::ceil(3.2);   // 4
+    let ro = math::round(3.5);  // 4
+    let tr = math::trunc(0 - 3.7);  // -3
 
     // Test trigonometry (using radians)
     let angle = to_radians(30);  // pi/6
-    let s = core::math::sin(angle);  // ~0.5
-    let c = core::math::cos(angle);  // ~0.866
+    let s = math::sin(angle);  // ~0.5
+    let c = math::cos(angle);  // ~0.866
     // Verify sin^2 + cos^2 = 1
     let trig_identity = if approx_eq(s * s + c * c, 1) { 1 } else { 0 };  // 1
 
     // Test exponential and logarithmic
-    let e_val = core::math::exp(1);  // ~2.718
-    let ln_e = core::math::ln(e());   // ~1
-    let log_100 = core::math::log10(100);  // 2
-    let log_8 = core::math::log2(8);  // 3
+    let e_val = math::exp(1);  // ~2.718
+    let ln_e = math::ln(e());   // ~1
+    let log_100 = math::log10(100);  // 2
+    let log_8 = math::log2(8);  // 3
 
     // Test power
-    let pow_val = core::math::pow(2, 10);  // 1024
+    let pow_val = math::pow(2, 10);  // 1024
 
     // Test min/max
-    let mn = core::math::min(5, 3);  // 3
-    let mx = core::math::max(5, 3);  // 5
+    let mn = math::min(5, 3);  // 3
+    let mx = math::max(5, 3);  // 5
 
     // Test distance calculation
     let dist = distance(0, 0, 3, 4);  // 5 (3-4-5 triangle)
