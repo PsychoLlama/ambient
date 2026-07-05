@@ -76,11 +76,24 @@ pub use cst::{
 };
 pub use error::{ParseError, ParseErrorKind};
 pub use lexer::{Lexer, Token, TokenKind};
-pub use lower::lower_module;
+pub use lower::{lower_module, lower_module_recovering};
 pub use parser::Parser;
 pub use resolve::{DefId, Resolver};
 
 use ambient_engine::ast::{Expr, Item, Module};
+
+/// The outcome of parsing with error recovery: the partial module plus every
+/// error encountered.
+///
+/// The module contains every item that parsed and lowered cleanly. When
+/// `errors` is empty the module is identical to what [`parse`] returns.
+#[derive(Debug, Clone)]
+pub struct RecoveredParse {
+    /// The partial (or complete) module.
+    pub module: Module,
+    /// All parse and lowering errors, in source order.
+    pub errors: Vec<ParseError>,
+}
 
 /// REPL input after lowering from CST to AST.
 #[derive(Debug, Clone)]
@@ -101,6 +114,37 @@ pub enum ReplInput {
 pub fn parse(source: &str) -> Result<Module, ParseError> {
     let cst = parse_to_cst(source)?;
     lower_module(&cst)
+}
+
+/// Parse source code with error recovery, returning a partial module plus
+/// every error encountered.
+///
+/// Unlike [`parse`], this never fails outright on a syntax error: items that
+/// fail to parse or lower are skipped, and analysis can proceed on the rest.
+/// This is the entry point for IDE tooling, which routinely sees files
+/// mid-edit. A lexer error (unterminated string, invalid escape) still
+/// abandons the whole file — the token stream is unusable — yielding an
+/// empty module plus that single error.
+#[must_use]
+pub fn parse_recovering(source: &str) -> RecoveredParse {
+    let mut parser = match Parser::new(source) {
+        Ok(parser) => parser,
+        Err(e) => {
+            return RecoveredParse {
+                module: Module {
+                    name: "".into(),
+                    doc: None,
+                    items: Vec::new(),
+                },
+                errors: vec![e],
+            };
+        }
+    };
+    let (cst, mut errors) = parser.parse_module_recovering();
+    let (module, lowering_errors) = lower_module_recovering(&cst);
+    errors.extend(lowering_errors);
+    errors.sort_by_key(|e| (e.span.start, e.span.end));
+    RecoveredParse { module, errors }
 }
 
 /// Parse source code into a CST module.

@@ -69,6 +69,37 @@ pub fn lower_module(cst: &CstModule) -> Result<Module, ParseError> {
     })
 }
 
+/// Lower a CST module to an AST module, skipping items that fail to lower.
+///
+/// Companion to `Parser::parse_module_recovering`: each item that cannot be
+/// lowered (invalid UUID, missing `unique` on an enum, ...) is dropped and its
+/// error collected, so tooling can work with the rest of the module.
+pub fn lower_module_recovering(cst: &CstModule) -> (Module, Vec<ParseError>) {
+    let mut ctx = LoweringContext::new();
+
+    // Extract module-level documentation from inner doc comments (`//!`)
+    let doc = cst
+        .leading_trivia
+        .extract_inner_doc_comments()
+        .map(Arc::from);
+
+    let mut items = Vec::new();
+    let mut errors = Vec::new();
+    for cst_item in &cst.items {
+        match lower_item_impl(&mut ctx, cst_item) {
+            Ok(item) => items.push(item),
+            Err(e) => errors.push(e),
+        }
+    }
+
+    let module = Module {
+        name: cst.name.clone(),
+        doc,
+        items,
+    };
+    (module, errors)
+}
+
 /// Lower a single expression.
 pub fn lower_expr(cst: &CstExpr) -> Result<Expr, ParseError> {
     let mut ctx = LoweringContext::new();

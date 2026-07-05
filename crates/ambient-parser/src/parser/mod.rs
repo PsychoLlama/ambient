@@ -178,9 +178,15 @@ impl<'src> Parser<'src> {
 
     /// Synchronize after an error by skipping to a recovery point.
     fn synchronize(&mut self) {
-        while !self.at_end() {
+        loop {
+            // Trivia must be skipped before matching: `advance()` in the
+            // fallback arm consumes the first non-trivia token, so matching
+            // on raw trivia here would swallow recovery points that follow
+            // whitespace.
+            self.skip_trivia();
             match self.current_kind() {
-                TokenKind::Fn
+                TokenKind::Eof
+                | TokenKind::Fn
                 | TokenKind::Pub
                 | TokenKind::Const
                 | TokenKind::Type
@@ -210,6 +216,21 @@ impl<'src> Parser<'src> {
     ///
     /// Returns a `ParseError` if the source contains syntax errors.
     pub fn parse_module(&mut self) -> Result<CstModule, ParseError> {
+        let (module, mut errors) = self.parse_module_recovering();
+        if errors.is_empty() {
+            Ok(module)
+        } else {
+            Err(errors.remove(0))
+        }
+    }
+
+    /// Parse a complete module, recovering from item-level errors.
+    ///
+    /// An item that fails to parse is skipped — the parser resynchronizes at
+    /// the next item boundary — and its error collected. The returned CST
+    /// contains every item that parsed cleanly, so callers (IDE tooling in
+    /// particular) can analyze the rest of the file alongside the errors.
+    pub fn parse_module_recovering(&mut self) -> (CstModule, Vec<ParseError>) {
         let start = self.current().span.start;
         // Only consume module-level trivia (whitespace, regular comments, inner doc comments).
         // Leave outer doc comments (`///`) for items to consume.
@@ -233,18 +254,14 @@ impl<'src> Parser<'src> {
         let trailing_trivia = self.skip_trivia();
         let end = self.current().span.end;
 
-        // Return first error if any
-        if let Some(e) = self.errors.first() {
-            return Err(e.clone());
-        }
-
-        Ok(CstModule {
+        let module = CstModule {
             name: "".into(), // Set by caller based on file path
             leading_trivia,
             items,
             trailing_trivia,
             span: Span::new(start, end),
-        })
+        };
+        (module, std::mem::take(&mut self.errors))
     }
 
     /// Parse a top-level item.
