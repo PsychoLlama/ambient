@@ -106,8 +106,8 @@ impl LspTest {
 name = "test"
 version = "0.1.0"
 
-[source]
-path = "src"
+[build]
+src = "src"
 "#;
             fs::write(root.join("ambient.toml"), manifest).expect("Failed to write ambient.toml");
         }
