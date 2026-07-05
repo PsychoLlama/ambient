@@ -49,10 +49,10 @@ pub enum Command {
         entry: String,
     },
 
-    /// Check an Ambient source file for errors without compiling.
+    /// Check an Ambient source file or package for errors without compiling.
     Check {
-        /// The source file to check (.ab).
-        #[arg(value_name = "FILE")]
+        /// The source file (.ab) or package directory to check.
+        #[arg(value_name = "PATH")]
         file: PathBuf,
     },
 

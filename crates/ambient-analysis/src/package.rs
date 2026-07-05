@@ -132,23 +132,10 @@ impl AnalysisPackage {
     /// build pipeline checks against.
     #[must_use]
     pub fn build_registry(&self) -> ModuleRegistry {
-        let mut registry = ModuleRegistry::new();
-
-        let _ = ambient_engine::core_library::register_core_modules(&mut registry, |source| {
-            ambient_parser::parse(source).map_err(|e| e.to_string())
-        });
-
-        let _ = ambient_engine::core_library::register_declaration_module(
-            &mut registry,
-            &["platform"],
-            ambient_platform::ABILITY_DECLARATIONS,
-            |source| ambient_parser::parse(source).map_err(|e| e.to_string()),
-        );
-
+        let mut registry = crate::core_platform_registry();
         for module in self.modules.values() {
             registry.register(&module.path, Arc::new(module.ast.clone()));
         }
-
         registry
     }
 

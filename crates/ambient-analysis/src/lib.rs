@@ -46,7 +46,6 @@ use ambient_engine::ability_resolver::AbilityResolver;
 use ambient_engine::ast::{Module, Span};
 use ambient_engine::infer::{
     BoxedTypeError, check_module_with_registry, check_module_with_registry_and_resolver,
-    check_module_with_resolver,
 };
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
@@ -130,13 +129,33 @@ impl AnalysisResult {
     }
 }
 
-/// Analyze a single module without cross-module context.
+/// Analyze a single module without package context.
 ///
-/// Platform abilities resolve through the prelude resolver, mirroring how
-/// the CLI checks bare files.
+/// The module is checked as a package root against the core and platform
+/// declaration modules, exactly like `ambient check` on a bare file.
 #[must_use]
 pub fn analyze(source: &str) -> AnalysisResult {
     analyze_with_registry(source, None, None)
+}
+
+/// A registry seeded with the core library and the `platform` declaration
+/// module — the context every Ambient module is checked in, package or not.
+#[must_use]
+pub fn core_platform_registry() -> ModuleRegistry {
+    let mut registry = ModuleRegistry::new();
+
+    let _ = ambient_engine::core_library::register_core_modules(&mut registry, |source| {
+        ambient_parser::parse(source).map_err(|e| e.to_string())
+    });
+
+    let _ = ambient_engine::core_library::register_declaration_module(
+        &mut registry,
+        &["platform"],
+        ambient_platform::ABILITY_DECLARATIONS,
+        |source| ambient_parser::parse(source).map_err(|e| e.to_string()),
+    );
+
+    registry
 }
 
 /// Analyze a module with cross-module support.
@@ -167,19 +186,28 @@ pub fn analyze_with_registry_and_resolver(
     let parse_errors = recovered.errors;
     let module = recovered.module;
 
-    // Type check the (possibly partial) module. When a registry is present
-    // it carries the `platform` declaration module, so `platform::…`
-    // abilities resolve through engine registry seeding — no embedder
-    // resolver needed. Only the registry-less single-file path leans on
-    // the platform prelude resolver.
-    let check_result = match (module_path, registry, resolver) {
-        (Some(path), Some(reg), Some(res)) => {
-            check_module_with_registry_and_resolver(module, path, reg, res)
-        }
-        (Some(path), Some(reg), None) => check_module_with_registry(module, path, reg),
-        (_, _, res) => {
-            check_module_with_resolver(module, res.unwrap_or_else(platform_prelude_resolver))
-        }
+    // Type check the (possibly partial) module. The registry carries the
+    // `platform` declaration module, so `platform::…` abilities resolve
+    // through engine registry seeding — no embedder resolver needed. When
+    // no package registry is supplied, the module checks as a package
+    // root against a core+platform registry, so single-file analysis sees
+    // the same world a package build does.
+    let fallback_path;
+    let fallback_registry;
+    let (path, reg) = if let (Some(path), Some(reg)) = (module_path, registry) {
+        (path, reg)
+    } else {
+        fallback_path = ModulePath::root();
+        fallback_registry = {
+            let mut registry = core_platform_registry();
+            registry.register(&fallback_path, std::sync::Arc::new(module.clone()));
+            registry
+        };
+        (&fallback_path, &fallback_registry)
+    };
+    let check_result = match resolver {
+        Some(res) => check_module_with_registry_and_resolver(module, path, reg, res),
+        None => check_module_with_registry(module, path, reg),
     };
 
     AnalysisResult {

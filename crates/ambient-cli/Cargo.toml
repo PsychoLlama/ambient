@@ -8,6 +8,7 @@ name = "ambient"
 path = "src/main.rs"
 
 [dependencies]
+ambient-analysis = { path = "../ambient-analysis" }
 ambient-engine = { path = "../ambient-engine" }
 ambient-parser = { path = "../ambient-parser" }
 ambient-lsp = { path = "../ambient-lsp" }

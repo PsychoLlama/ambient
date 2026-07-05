@@ -1,50 +1,86 @@
 //! Check command implementation.
+//!
+//! Runs the shared analysis pipeline (`ambient-analysis`) — the same
+//! computation the language server reports from — so `ambient check` and
+//! the editor can never disagree about what is an error.
 
 use std::path::Path;
-use std::sync::Arc;
 
 use anyhow::{Result, bail};
 
-use ambient_engine::module_path::ModulePath;
+use ambient_analysis::package::AnalysisPackage;
 
-use super::{core_context, read_source};
 use crate::diagnostic::print_diagnostic;
 
-/// Check an Ambient source file for errors.
-pub fn cmd_check(file: &Path) -> Result<()> {
-    let source = read_source(file)?;
+/// Check an Ambient source file or package for errors.
+///
+/// - A directory checks the whole package rooted there.
+/// - A file inside a package checks the whole package (imports need the
+///   package context anyway) and reports every module's diagnostics.
+/// - A bare file outside any package checks stand-alone against the core
+///   and platform preludes.
+pub fn cmd_check(path: &Path) -> Result<()> {
+    if path.is_dir() {
+        return check_package_at(path);
+    }
 
-    // Parse.
-    let module = match ambient_parser::parse(&source) {
-        Ok(m) => m,
-        Err(e) => {
-            print_diagnostic(&source, file, &e);
-            bail!("parse error in {}", file.display());
+    if let Some(package) = AnalysisPackage::discover(path) {
+        return check_package_at(&package.root.clone());
+    }
+
+    check_single_file(path)
+}
+
+/// Check every module of the package rooted at `root`.
+fn check_package_at(root: &Path) -> Result<()> {
+    let package = AnalysisPackage::open(root).map_err(|e| anyhow::anyhow!(e))?;
+    if package.modules.is_empty() {
+        bail!("no .ab files found under {}", package.src_dir.display());
+    }
+
+    let results = package.analyze_all();
+
+    // Report in deterministic module-path order.
+    let mut module_keys: Vec<_> = results.keys().collect();
+    module_keys.sort();
+
+    let mut error_count = 0;
+    for key in module_keys {
+        let result = &results[key];
+        let diagnostics = result.diagnostics();
+        if diagnostics.is_empty() {
+            continue;
         }
-    };
 
-    // Type check with the core and platform modules visible. The platform
-    // module is registered in `core_context`, so its namespaced abilities
-    // (`platform::Network`) resolve through registry seeding — no embedder
-    // resolver needed.
-    let mut core = core_context()?;
-    let main_path = ModulePath::root();
-    core.registry.register(&main_path, Arc::new(module.clone()));
-    let result =
-        ambient_engine::infer::check_module_with_registry(module, &main_path, &core.registry);
+        let module = &package.modules[key];
+        let file = package.file_for_module(&module.path);
+        for diagnostic in &diagnostics {
+            print_diagnostic(&module.source, &file, diagnostic);
+        }
+        error_count += diagnostics.len();
+    }
 
-    if result.is_ok() {
+    if error_count == 0 {
+        eprintln!("No errors found in {}", root.display());
+        Ok(())
+    } else {
+        bail!("Found {error_count} error(s) in {}", root.display())
+    }
+}
+
+/// Check a stand-alone file with no package context.
+fn check_single_file(file: &Path) -> Result<()> {
+    let source = super::read_source(file)?;
+    let result = ambient_analysis::analyze(&source);
+    let diagnostics = result.diagnostics();
+
+    if diagnostics.is_empty() {
         eprintln!("No errors found in {}", file.display());
         Ok(())
     } else {
-        // Format and print errors
-        for error in &result.errors {
-            print_diagnostic(&source, file, error);
+        for diagnostic in &diagnostics {
+            print_diagnostic(&source, file, diagnostic);
         }
-        bail!(
-            "Found {} type error(s) in {}",
-            result.errors.len(),
-            file.display()
-        );
+        bail!("Found {} error(s) in {}", diagnostics.len(), file.display())
     }
 }

@@ -59,6 +59,20 @@ impl Diagnostic for Box<ambient_engine::infer::TypeError> {
     }
 }
 
+impl Diagnostic for ambient_analysis::Diagnostic {
+    fn message(&self) -> String {
+        self.message.clone()
+    }
+
+    fn span(&self) -> (u32, u32) {
+        (self.span.start, self.span.end)
+    }
+
+    fn context(&self) -> Option<&str> {
+        self.note.as_deref()
+    }
+}
+
 /// ANSI color codes for error formatting.
 mod colors {
     pub const RED_BOLD: &str = "\x1b[1;31m";
