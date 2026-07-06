@@ -771,10 +771,10 @@ impl Value {
     pub fn type_name(&self) -> &'static str {
         match self {
             Self::Unit => "unit",
-            Self::Bool(_) => "bool",
-            Self::Number(_) => "number",
-            Self::String(_) => "string",
-            Self::Bytes(_) => "bytes",
+            Self::Bool(_) => "Bool",
+            Self::Number(_) => "Number",
+            Self::String(_) => "String",
+            Self::Bytes(_) => "Bytes",
             Self::Tuple(_) => "tuple",
             Self::Record(_) => "record",
             Self::FunctionRef(_) => "function",
@@ -1007,7 +1007,7 @@ mod tests {
 
     #[test]
     fn test_value_bool() {
-        assert_eq!(Value::Bool(true).type_name(), "bool");
+        assert_eq!(Value::Bool(true).type_name(), "Bool");
         assert_eq!(Value::Bool(true).as_bool(), Some(true));
         assert_eq!(Value::Bool(false).as_bool(), Some(false));
         assert!(Value::Bool(true) != Value::Bool(false));
@@ -1015,7 +1015,7 @@ mod tests {
 
     #[test]
     fn test_value_number() {
-        assert_eq!(Value::Number(42.0).type_name(), "number");
+        assert_eq!(Value::Number(42.0).type_name(), "Number");
         assert_eq!(Value::Number(42.0).as_number(), Some(42.0));
         assert_eq!(Value::Number(1.5), Value::Number(1.5));
     }
@@ -1030,7 +1030,7 @@ mod tests {
     #[test]
     fn test_value_string() {
         let v = Value::string("hello");
-        assert_eq!(v.type_name(), "string");
+        assert_eq!(v.type_name(), "String");
         if let Value::String(s) = &v {
             assert_eq!(&**s, "hello");
         } else {

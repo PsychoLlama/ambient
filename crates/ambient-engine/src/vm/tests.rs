@@ -165,7 +165,7 @@ fn test_type_error_add() {
         .add()
         .expect_error(VmError::TypeError {
             expected: "two numbers or two strings",
-            got: "number",
+            got: "Number",
             operation: "add",
         });
 }
@@ -699,7 +699,7 @@ fn test_perform_expected_type_error() {
     VmTest::new()
         .push(42.0)
         .perform()
-        .expect_error(VmError::ExpectedSuspendedAbility { got: "number" });
+        .expect_error(VmError::ExpectedSuspendedAbility { got: "Number" });
 }
 
 #[test]

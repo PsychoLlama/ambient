@@ -330,13 +330,13 @@ mod tests {
     #[test]
     fn test_vm_error_display_type_error() {
         let err = VmError::TypeError {
-            expected: "number",
-            got: "string",
+            expected: "Number",
+            got: "String",
             operation: "add",
         };
         assert_eq!(
             format!("{err}"),
-            "type error in add: expected number, got string"
+            "type error in add: expected Number, got String"
         );
     }
 
@@ -344,9 +344,9 @@ mod tests {
     fn test_vm_error_display_type_error_owned() {
         let err = VmError::TypeErrorOwned {
             expected: "list".to_string(),
-            got: "number".to_string(),
+            got: "Number".to_string(),
         };
-        assert_eq!(format!("{err}"), "type error: expected list, got number");
+        assert_eq!(format!("{err}"), "type error: expected list, got Number");
     }
 
     #[test]

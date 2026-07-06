@@ -104,7 +104,7 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                 Some(v) => extract_bytes(v)?,
                 None => {
                     return Err(VmError::TypeErrorOwned {
-                        expected: "bytes".to_string(),
+                        expected: "Bytes".to_string(),
                         got: "no argument".to_string(),
                     });
                 }
@@ -141,7 +141,7 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                 Value::String(s) => s.to_string(),
                 other => {
                     return Err(VmError::TypeErrorOwned {
-                        expected: "string".to_string(),
+                        expected: "String".to_string(),
                         got: other.type_name().to_string(),
                     });
                 }
@@ -201,7 +201,7 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                 Value::String(s) => s.to_string(),
                 other => {
                     return Err(VmError::TypeErrorOwned {
-                        expected: "string".to_string(),
+                        expected: "String".to_string(),
                         got: other.type_name().to_string(),
                     });
                 }
@@ -275,7 +275,7 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                     Value::String(s) => s,
                     other => {
                         return Err(VmError::TypeErrorOwned {
-                            expected: "string".to_string(),
+                            expected: "String".to_string(),
                             got: other.type_name().to_string(),
                         });
                     }

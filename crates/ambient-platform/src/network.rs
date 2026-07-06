@@ -187,7 +187,7 @@ pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: A
                 Value::Number(n) => *n as u64,
                 other => {
                     return Err(VmError::TypeErrorOwned {
-                        expected: "number".to_string(),
+                        expected: "Number".to_string(),
                         got: other.type_name().to_string(),
                     });
                 }

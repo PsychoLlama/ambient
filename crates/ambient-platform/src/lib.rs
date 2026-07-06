@@ -107,11 +107,11 @@ pub(crate) fn extract_string(args: &[Value]) -> Result<String, VmError> {
     match args.first() {
         Some(Value::String(s)) => Ok(s.to_string()),
         Some(other) => Err(VmError::TypeErrorOwned {
-            expected: "string".to_string(),
+            expected: "String".to_string(),
             got: other.type_name().to_string(),
         }),
         None => Err(VmError::TypeErrorOwned {
-            expected: "string".to_string(),
+            expected: "String".to_string(),
             got: "no argument".to_string(),
         }),
     }
@@ -122,11 +122,11 @@ pub(crate) fn extract_number(args: &[Value]) -> Result<f64, VmError> {
     match args.first() {
         Some(Value::Number(n)) => Ok(*n),
         Some(other) => Err(VmError::TypeErrorOwned {
-            expected: "number".to_string(),
+            expected: "Number".to_string(),
             got: other.type_name().to_string(),
         }),
         None => Err(VmError::TypeErrorOwned {
-            expected: "number".to_string(),
+            expected: "Number".to_string(),
             got: "no argument".to_string(),
         }),
     }
@@ -194,7 +194,7 @@ pub(crate) fn extract_bytes(value: &Value) -> Result<Vec<u8>, VmError> {
     match value {
         Value::Bytes(bytes) => Ok(bytes.as_ref().clone()),
         other => Err(VmError::TypeErrorOwned {
-            expected: "bytes".to_string(),
+            expected: "Bytes".to_string(),
             got: other.type_name().to_string(),
         }),
     }

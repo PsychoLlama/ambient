@@ -38,7 +38,7 @@ fn arg_string(args: &[Value], index: usize) -> Result<String, VmError> {
     match args.get(index) {
         Some(Value::String(s)) => Ok(s.as_ref().clone()),
         other => Err(VmError::TypeErrorOwned {
-            expected: "string".to_string(),
+            expected: "String".to_string(),
             got: other
                 .map_or("missing argument", Value::type_name)
                 .to_string(),
@@ -51,7 +51,7 @@ fn arg_bytes(args: &[Value], index: usize) -> Result<Vec<u8>, VmError> {
     match args.get(index) {
         Some(Value::Bytes(b)) => Ok(b.as_ref().clone()),
         other => Err(VmError::TypeErrorOwned {
-            expected: "bytes".to_string(),
+            expected: "Bytes".to_string(),
             got: other
                 .map_or("missing argument", Value::type_name)
                 .to_string(),

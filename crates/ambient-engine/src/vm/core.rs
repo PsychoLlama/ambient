@@ -376,17 +376,17 @@ impl Vm {
 
     /// Pop a number from the stack or return a type error.
     pub(super) fn pop_number(&mut self, operation: &'static str) -> Result<f64, VmError> {
-        self.pop_typed("number", |v| v.as_number(), operation)
+        self.pop_typed("Number", |v| v.as_number(), operation)
     }
 
     /// Pop a bool from the stack or return a type error.
     pub(super) fn pop_bool(&mut self, operation: &'static str) -> Result<bool, VmError> {
-        self.pop_typed("bool", |v| v.as_bool(), operation)
+        self.pop_typed("Bool", |v| v.as_bool(), operation)
     }
 
     /// Pop a string from the stack or return a type error.
     pub(super) fn pop_string(&mut self, operation: &'static str) -> Result<Arc<String>, VmError> {
-        self.pop_typed("string", Value::into_string, operation)
+        self.pop_typed("String", Value::into_string, operation)
     }
 
     /// Execute a unary operation on a number.

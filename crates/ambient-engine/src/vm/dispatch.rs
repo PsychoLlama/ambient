@@ -240,7 +240,7 @@ impl Vm {
                             Value::String(s) => Arc::from(s.as_str()),
                             other => {
                                 return Err(VmError::TypeError {
-                                    expected: "string",
+                                    expected: "String",
                                     got: other.type_name(),
                                     operation: "make_record",
                                 });
@@ -258,7 +258,7 @@ impl Vm {
                         Value::String(s) => s,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "string",
+                                expected: "String",
                                 got: other.type_name(),
                                 operation: "record_get",
                             });
@@ -1166,7 +1166,7 @@ impl Vm {
                         Value::String(s) => (*s).clone(),
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "string",
+                                expected: "String",
                                 got: other.type_name(),
                                 operation: "make_enum type_name",
                             });
@@ -1178,7 +1178,7 @@ impl Vm {
                         Value::String(s) => (*s).clone(),
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "string",
+                                expected: "String",
                                 got: other.type_name(),
                                 operation: "make_enum variant_name",
                             });
@@ -1269,7 +1269,7 @@ impl Vm {
                         Value::Bytes(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "bytes",
+                                expected: "Bytes",
                                 got: other.type_name(),
                                 operation: "deserialize_value",
                             });
@@ -1356,7 +1356,7 @@ impl Vm {
                         Value::Bytes(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "bytes",
+                                expected: "Bytes",
                                 got: other.type_name(),
                                 operation: "bytes_to_hex",
                             });
@@ -1384,7 +1384,7 @@ impl Vm {
                         .map(|v| match v {
                             Value::Number(n) => Ok(*n as u8),
                             other => Err(VmError::TypeError {
-                                expected: "number",
+                                expected: "Number",
                                 got: other.type_name(),
                                 operation: "bytes_from",
                             }),
@@ -1398,7 +1398,7 @@ impl Vm {
                         Value::Bytes(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "bytes",
+                                expected: "Bytes",
                                 got: other.type_name(),
                                 operation: "bytes_to_list",
                             });
@@ -1414,7 +1414,7 @@ impl Vm {
                         Value::Bytes(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "bytes",
+                                expected: "Bytes",
                                 got: other.type_name(),
                                 operation: "bytes_length",
                             });
@@ -1430,7 +1430,7 @@ impl Vm {
                         Value::Bytes(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "bytes",
+                                expected: "Bytes",
                                 got: other.type_name(),
                                 operation: "bytes_get",
                             });
@@ -1451,7 +1451,7 @@ impl Vm {
                         Value::Bytes(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "bytes",
+                                expected: "Bytes",
                                 got: other.type_name(),
                                 operation: "bytes_slice",
                             });
@@ -1473,7 +1473,7 @@ impl Vm {
                         Value::Bytes(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "bytes",
+                                expected: "Bytes",
                                 got: other.type_name(),
                                 operation: "bytes_concat",
                             });
@@ -1483,7 +1483,7 @@ impl Vm {
                         Value::Bytes(a) => a,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "bytes",
+                                expected: "Bytes",
                                 got: other.type_name(),
                                 operation: "bytes_concat",
                             });
