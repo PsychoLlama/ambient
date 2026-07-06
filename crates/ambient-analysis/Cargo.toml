@@ -1,13 +1,13 @@
 [package]
 name = "ambient-analysis"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 description = "Shared analysis layer for the Ambient language: one parse/check/diagnose pipeline consumed by the CLI and the LSP"
 
 [dependencies]
-ambient-engine = { path = "../ambient-engine" }
-ambient-parser = { path = "../ambient-parser" }
-ambient-platform = { path = "../ambient-platform" }
+ambient-engine.workspace = true
+ambient-parser.workspace = true
+ambient-platform.workspace = true
 
 [dev-dependencies]
-tempfile = "3.14"
+tempfile.workspace = true

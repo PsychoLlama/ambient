@@ -1,9 +1,9 @@
 [package]
 name = "ambient-core"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 description = "Core abilities and types for the Ambient language"
 
 [dependencies]
-blake3 = { version = "1.5.5", features = ["serde"] }
-serde = { version = "1.0", features = ["derive"] }
+blake3.workspace = true
+serde.workspace = true

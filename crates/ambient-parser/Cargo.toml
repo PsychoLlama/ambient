@@ -1,14 +1,14 @@
 [package]
 name = "ambient-parser"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 description = "Parser for the Ambient programming language"
 
 [dependencies]
-ambient-engine = { path = "../ambient-engine" }
-thiserror = "2.0"
-uuid = { version = "1.11", features = ["v4"] }
+ambient-engine.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
-blake3 = "1.5.5"
+blake3.workspace = true
 proptest = "1.5"

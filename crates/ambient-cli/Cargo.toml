@@ -1,29 +1,29 @@
 [package]
 name = "ambient-cli"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [[bin]]
 name = "ambient"
 path = "src/main.rs"
 
 [dependencies]
-ambient-analysis = { path = "../ambient-analysis" }
-ambient-engine = { path = "../ambient-engine" }
-ambient-parser = { path = "../ambient-parser" }
-ambient-lsp = { path = "../ambient-lsp" }
-ambient-platform = { path = "../ambient-platform" }
-anyhow = "1.0.100"
-blake3 = "1.5.4"
+ambient-analysis.workspace = true
+ambient-engine.workspace = true
+ambient-parser.workspace = true
+ambient-lsp.workspace = true
+ambient-platform.workspace = true
+anyhow.workspace = true
+blake3.workspace = true
 clap = { version = "4.5.53", features = ["cargo", "derive", "string", "env"] }
 notify = "6.1"
 rustyline = { version = "14.0", features = ["with-file-history"] }
 dirs = "5.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tokio = { version = "1", features = ["rt-multi-thread"] }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [dev-dependencies]
-tempfile = "3.14"
+tempfile.workspace = true
 portable-pty = "0.8"
 strip-ansi-escapes = "0.2"

@@ -1,10 +1,10 @@
 [package]
 name = "ambient-ability"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 description = "Core types for authoring Ambient abilities"
 
 [dependencies]
-ambient-core = { path = "../ambient-core" }
-blake3 = { version = "1.5.5", features = ["serde"] }
-serde = { version = "1.0", features = ["derive", "rc"] }
+ambient-core.workspace = true
+blake3.workspace = true
+serde = { workspace = true, features = ["rc"] }

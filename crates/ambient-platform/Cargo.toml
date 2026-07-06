@@ -1,16 +1,16 @@
 [package]
 name = "ambient-platform"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 description = "Host-provided platform abilities for the Ambient language"
 
 [dependencies]
-ambient-ability = { path = "../ambient-ability" }
-ambient-core = { path = "../ambient-core" }
-ambient-engine = { path = "../ambient-engine" }
-blake3 = { version = "1.5.5", features = ["serde"] }
-hex = "0.4"
-tokio = { version = "1.42", features = ["net", "io-util", "rt-multi-thread", "macros", "sync"] }
+ambient-ability.workspace = true
+ambient-core.workspace = true
+ambient-engine.workspace = true
+blake3.workspace = true
+hex.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "rt-multi-thread", "macros", "sync"] }
 
 [dev-dependencies]
-ambient-parser = { path = "../ambient-parser" }
+ambient-parser.workspace = true
