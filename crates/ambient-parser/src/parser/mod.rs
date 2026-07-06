@@ -549,8 +549,9 @@ impl<'src> Parser<'src> {
         }
     }
 
-    /// Parse a `struct Foo { fields }` record definition. The body is always a
-    /// record type — there is no `= Type` alias form (that is `parse_type_alias`).
+    /// Parse a `struct Foo { fields }` record definition, or the unit form
+    /// `struct Foo;` (a fieldless nominal type). There is no `= Type` alias form
+    /// (that is `parse_type_alias`).
     fn parse_struct_def(
         &mut self,
         is_public: bool,
@@ -565,7 +566,13 @@ impl<'src> Parser<'src> {
             Vec::new()
         };
 
-        let ty = self.parse_record_type()?;
+        // A trailing `;` marks a unit struct (no body); otherwise the body is a
+        // record type. Lowering enforces the `unique(...)` and non-empty rules.
+        let ty = if self.consume(TokenKind::Semi).is_some() {
+            None
+        } else {
+            Some(self.parse_record_type()?)
+        };
 
         Ok(CstStructDef {
             is_public,
@@ -1280,6 +1287,12 @@ mod tests {
         let item = parser.parse_item().expect("unique struct should parse");
         assert!(matches!(item.kind, CstItemKind::Struct(_)));
 
+        // `unique(...) struct Foo;` defines a nominal unit struct (no body).
+        let mut parser =
+            Parser::new("unique(F6A7B8C9-D0E1-2345-FABC-456789012345) struct Marker;").unwrap();
+        let item = parser.parse_item().expect("unit struct should parse");
+        assert!(matches!(item.kind, CstItemKind::Struct(_)));
+
         // `type X = Y` remains a plain alias.
         let mut parser = Parser::new("type Meters = Number;").unwrap();
         let item = parser.parse_item().expect("type alias should parse");
@@ -1288,6 +1301,37 @@ mod tests {
         // The old record-via-`type` form is now a parse error (requires `=`).
         let mut parser = Parser::new("type Point { x: Number }").unwrap();
         assert!(parser.parse_item().is_err(), "`type Name {{ }}` must error");
+    }
+
+    #[test]
+    fn test_unit_struct_lowering_rules() {
+        use crate::error::ParseErrorKind;
+        use crate::lower_module;
+
+        // A bare unit struct (no `unique`) is rejected at lowering.
+        let mut parser = Parser::new("struct Foo;").unwrap();
+        let module = parser.parse_module().expect("unit struct should parse");
+        let err = lower_module(&module).expect_err("bare unit struct must fail lowering");
+        assert!(matches!(err.kind, ParseErrorKind::UnitStructRequiresUnique));
+
+        // An empty brace body is rejected, pointing at the unit form.
+        let mut parser = Parser::new("struct Foo {}").unwrap();
+        let module = parser.parse_module().expect("empty struct should parse");
+        let err = lower_module(&module).expect_err("empty-brace struct must fail lowering");
+        assert!(matches!(err.kind, ParseErrorKind::EmptyStructBody));
+
+        // Even with `unique`, an empty brace body is rejected.
+        let mut parser =
+            Parser::new("unique(F6A7B8C9-D0E1-2345-FABC-456789012345) struct Foo {}").unwrap();
+        let module = parser.parse_module().expect("empty struct should parse");
+        let err = lower_module(&module).expect_err("empty-brace struct must fail lowering");
+        assert!(matches!(err.kind, ParseErrorKind::EmptyStructBody));
+
+        // A `unique` unit struct lowers successfully.
+        let mut parser =
+            Parser::new("unique(F6A7B8C9-D0E1-2345-FABC-456789012345) struct Marker;").unwrap();
+        let module = parser.parse_module().expect("unit struct should parse");
+        lower_module(&module).expect("unique unit struct must lower");
     }
 
     #[test]

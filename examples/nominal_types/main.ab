@@ -31,6 +31,10 @@ unique(D4E5F6A7-B8C9-0123-DEFA-234567890123) struct USD { cents: Number }
 /// Same structure as USD, but cannot be mixed.
 unique(E5F6A7B8-C9D0-1234-EFAB-345678901234) struct EUR { cents: Number }
 
+/// A zero-field nominal marker type (unit struct).
+/// Unit structs carry a nominal identity but hold no fields.
+unique(F6A7B8C9-D0E1-2345-FABC-456789012345) struct Origin;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Why Nominal Types Matter
 // ─────────────────────────────────────────────────────────────────────────────

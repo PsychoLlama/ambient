@@ -113,7 +113,9 @@ module.exports = grammar({
         "struct",
         field("name", $.identifier),
         optional($.type_parameters),
-        $.record_type_body
+        // A record body `{ ... }`, or `;` for a unit struct. The compiler's
+        // lowering pass enforces the `unique(...)`-required and non-empty rules.
+        choice($.record_type_body, ";")
       ),
 
     unique_modifier: ($) => seq("unique", "(", $.uuid, ")"),
