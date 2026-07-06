@@ -106,7 +106,7 @@ fn check_module_core(
         None => TypeEnv::new(),
     };
 
-    register_type_aliases(&mut infer, &module);
+    register_named_types(&mut infer, &module);
     register_traits(&mut infer, &module);
     register_enums(&mut infer, &module, &mut env, &mut errors);
     // ORDERING (load-bearing): `build_import_env` (above) already registered
@@ -402,18 +402,25 @@ fn enforce_ability_subset(
     }
 }
 
+/// The `(name, type, is_public)` view shared by the two named-type items:
+/// `struct` definitions and `type` aliases. Both register the same way — a name
+/// resolving to a type in the inferencer's substitution table. For a non-`unique`
+/// struct that type is a bare record, so it substitutes structurally exactly
+/// like an alias; `unique` structs carry a `Type::Nominal` identity instead.
+fn named_type_def(item: &crate::ast::Item) -> Option<(&Arc<str>, &Type, bool)> {
+    match &item.kind {
+        crate::ast::ItemKind::Struct(s) => Some((&s.name, &s.ty, s.is_public)),
+        crate::ast::ItemKind::TypeAlias(t) => Some((&t.name, &t.ty, t.is_public)),
+        _ => None,
+    }
+}
+
 /// Register all struct definitions and type aliases from a module into the
 /// inferencer so their names resolve as types while checking.
-fn register_type_aliases(infer: &mut Infer, module: &crate::ast::Module) {
+fn register_named_types(infer: &mut Infer, module: &crate::ast::Module) {
     for item in &module.items {
-        match &item.kind {
-            crate::ast::ItemKind::Struct(s) => {
-                infer.register_type_alias(Arc::clone(&s.name), s.ty.clone());
-            }
-            crate::ast::ItemKind::TypeAlias(type_alias) => {
-                infer.register_type_alias(Arc::clone(&type_alias.name), type_alias.ty.clone());
-            }
-            _ => {}
+        if let Some((name, ty, _)) = named_type_def(item) {
+            infer.register_type_alias(Arc::clone(name), ty.clone());
         }
     }
 }
@@ -573,24 +580,16 @@ fn register_package_items(
 
     // Types and traits first: impl registration needs both resolvable.
     for info in &foreign_modules {
-        register_type_aliases(infer, &info.module);
+        register_named_types(infer, &info.module);
         register_traits(infer, &info.module);
-        // Public type aliases also register under their canonical
-        // qualified key (`shapes.Money`): the resolve pass rewrites
-        // qualified type constructors (`pkg::shapes::Money { … }`) to that
-        // key, and canonical keys are never retracted (they can't leak as
-        // bare names).
+        // Public named types also register under their canonical qualified key
+        // (`shapes.Money`): the resolve pass rewrites qualified type
+        // constructors (`pkg::shapes::Money { … }`) to that key, and canonical
+        // keys are never retracted (they can't leak as bare names).
         for item in &info.module.items {
-            match &item.kind {
-                crate::ast::ItemKind::Struct(s) if s.is_public => {
-                    let key: Arc<str> = format!("{}::{}", info.path, s.name).into();
-                    infer.register_type_alias(key, s.ty.clone());
-                }
-                crate::ast::ItemKind::TypeAlias(alias) if alias.is_public => {
-                    let key: Arc<str> = format!("{}::{}", info.path, alias.name).into();
-                    infer.register_type_alias(key, alias.ty.clone());
-                }
-                _ => {}
+            if let Some((name, ty, true)) = named_type_def(item) {
+                let key: Arc<str> = format!("{}::{}", info.path, name).into();
+                infer.register_type_alias(key, ty.clone());
             }
         }
     }
