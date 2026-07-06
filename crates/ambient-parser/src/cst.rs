@@ -332,6 +332,9 @@ pub struct CstStructDef {
     pub ty: Option<CstTypeExpr>,
     /// Optional unique UUID for a nominal identity (`unique(<uuid>)`).
     pub unique_id: Option<Arc<str>>,
+    /// Whether this struct is `extern`: an engine-provided type that user code
+    /// may name and read from but not construct. Requires `unique(...)`.
+    pub is_extern: bool,
 }
 
 /// A type alias definition: `type Foo = Bar`.

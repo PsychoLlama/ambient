@@ -194,6 +194,7 @@ impl<'src> Parser<'src> {
                 | TokenKind::Enum
                 | TokenKind::Ability
                 | TokenKind::Use
+                | TokenKind::Extern
                 | TokenKind::Trait
                 | TokenKind::Impl => return,
                 TokenKind::Semi | TokenKind::RBrace => {
@@ -279,9 +280,12 @@ impl<'src> Parser<'src> {
                     TokenKind::Use => CstItemKind::Use(self.parse_use(true)?),
                     TokenKind::Const => CstItemKind::Const(self.parse_const(true)?),
                     TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(true)?),
-                    TokenKind::Struct => CstItemKind::Struct(self.parse_struct_def(true, None)?),
+                    TokenKind::Struct => {
+                        CstItemKind::Struct(self.parse_struct_def(true, None, false)?)
+                    }
                     TokenKind::Enum => CstItemKind::Enum(self.parse_enum(true, None)?),
-                    TokenKind::Unique => self.parse_unique_item(true)?,
+                    TokenKind::Unique => self.parse_unique_item(true, false)?,
+                    TokenKind::Extern => self.parse_extern_item(true)?,
                     TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(true)?),
                     TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def(true)?),
                     _ => {
@@ -298,9 +302,10 @@ impl<'src> Parser<'src> {
             TokenKind::Fn => CstItemKind::Function(self.parse_function(false)?),
             TokenKind::Const => CstItemKind::Const(self.parse_const(false)?),
             TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(false)?),
-            TokenKind::Struct => CstItemKind::Struct(self.parse_struct_def(false, None)?),
+            TokenKind::Struct => CstItemKind::Struct(self.parse_struct_def(false, None, false)?),
             TokenKind::Enum => CstItemKind::Enum(self.parse_enum(false, None)?),
-            TokenKind::Unique => self.parse_unique_item(false)?,
+            TokenKind::Unique => self.parse_unique_item(false, false)?,
+            TokenKind::Extern => self.parse_extern_item(false)?,
             TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(false)?),
             TokenKind::Use => CstItemKind::Use(self.parse_use(false)?),
             TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def(false)?),
@@ -531,12 +536,25 @@ impl<'src> Parser<'src> {
     /// Parse a `unique(<uuid>)`-prefixed item: a nominal `struct` definition or
     /// a nominal `enum`. The `unique(...)` syntax is shared, so the prefix is
     /// parsed once here and the following keyword decides the item.
-    fn parse_unique_item(&mut self, is_public: bool) -> Result<CstItemKind, ParseError> {
+    fn parse_unique_item(
+        &mut self,
+        is_public: bool,
+        is_extern: bool,
+    ) -> Result<CstItemKind, ParseError> {
         let unique_id = self.parse_unique_prefix()?;
         self.skip_trivia();
         match self.current_kind() {
             TokenKind::Struct => Ok(CstItemKind::Struct(
-                self.parse_struct_def(is_public, unique_id)?,
+                self.parse_struct_def(is_public, unique_id, is_extern)?,
+            )),
+            TokenKind::Enum if is_extern => Err(ParseError::new(
+                ParseErrorKind::Expected {
+                    expected:
+                        "`struct` after `extern unique(...)` (`extern` applies to `struct` only)"
+                            .into(),
+                    found: "enum".into(),
+                },
+                self.current().span,
             )),
             TokenKind::Enum => Ok(CstItemKind::Enum(self.parse_enum(is_public, unique_id)?)),
             other => Err(ParseError::new(
@@ -549,6 +567,26 @@ impl<'src> Parser<'src> {
         }
     }
 
+    /// Parse an `extern`-prefixed item: `extern unique(<uuid>) struct T ...`.
+    /// `extern` marks a nominal type as engine-provided — user code may name it
+    /// and read its fields, but not construct it. It requires `unique(...)` (the
+    /// engine needs a stable identity to refer to the type by) and applies to
+    /// `struct` only. The requirement is re-checked in lowering.
+    fn parse_extern_item(&mut self, is_public: bool) -> Result<CstItemKind, ParseError> {
+        self.expect(TokenKind::Extern)?;
+        self.skip_trivia();
+        if !self.check(TokenKind::Unique) {
+            return Err(ParseError::new(
+                ParseErrorKind::Expected {
+                    expected: "`unique(<uuid>)` after `extern`".into(),
+                    found: format!("{:?}", self.current_kind()),
+                },
+                self.current().span,
+            ));
+        }
+        self.parse_unique_item(is_public, true)
+    }
+
     /// Parse a `struct Foo { fields }` record definition, or the unit form
     /// `struct Foo;` (a fieldless nominal type). There is no `= Type` alias form
     /// (that is `parse_type_alias`).
@@ -556,6 +594,7 @@ impl<'src> Parser<'src> {
         &mut self,
         is_public: bool,
         unique_id: Option<Arc<str>>,
+        is_extern: bool,
     ) -> Result<CstStructDef, ParseError> {
         self.expect(TokenKind::Struct)?;
         let name = self.parse_ident()?;
@@ -580,6 +619,7 @@ impl<'src> Parser<'src> {
             type_params,
             ty,
             unique_id,
+            is_extern,
         })
     }
 

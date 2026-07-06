@@ -847,16 +847,20 @@ pub struct StructDef {
     /// Optional UUID for a nominal identity. If set, makes this type
     /// incompatible with structurally identical types.
     pub unique_id: Option<Uuid>,
+    /// Whether this struct is `extern`: an engine-provided type. User code may
+    /// name it in type positions and read its fields, but may not construct it
+    /// (neither `T { .. }` nor a bare unit-form `T`). `extern` requires
+    /// `unique(...)`, so `unique_id` is always `Some` when this is set.
+    pub is_extern: bool,
 }
 
 impl StructDef {
-    /// Whether this is a *unit* struct: a `unique` struct with an empty
+    /// Whether this is a *unit* struct by shape: a `unique` struct with an empty
     /// body (`unique(<uuid>) struct Origin;`). Post-parser such a type is
-    /// exactly a `Type::Nominal` wrapping a zero-field `Type::Record`, and
-    /// it denotes a single value constructed by its bare name — the same
-    /// dual type/value identity a nullary enum variant carries. This is the
-    /// single source of truth every site keys off to bind, resolve, and
-    /// compile that value.
+    /// exactly a `Type::Nominal` wrapping a zero-field `Type::Record`. This is
+    /// the pure *shape* predicate; use [`Self::is_unit_value`] to decide whether
+    /// the bare name denotes a value (an `extern` unit struct is a type but not
+    /// a constructable value).
     #[must_use]
     pub fn is_unit(&self) -> bool {
         matches!(
@@ -864,6 +868,17 @@ impl StructDef {
             Type::Nominal(n)
                 if matches!(&*n.inner, Type::Record(r) if r.fields.is_empty())
         )
+    }
+
+    /// Whether this unit struct's bare name denotes a *value* — a single value
+    /// constructed by its bare name, the same dual type/value identity a nullary
+    /// enum variant carries. This is the single source of truth every site keys
+    /// off to bind, resolve, and compile that value. An `extern` unit struct has
+    /// the unit *shape* but is engine-provided, so it is a type only, never a
+    /// constructable value.
+    #[must_use]
+    pub fn is_unit_value(&self) -> bool {
+        self.is_unit() && !self.is_extern
     }
 }
 

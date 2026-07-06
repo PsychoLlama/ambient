@@ -131,6 +131,11 @@ pub enum ParseErrorKind {
     /// unit form `unique(<uuid>) struct Foo;`.
     EmptyStructBody,
 
+    /// An `extern` struct was declared without the mandatory `unique(<uuid>)`
+    /// prefix. An engine-provided type needs a stable nominal identity for the
+    /// engine to refer to it by.
+    ExternStructRequiresUnique,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Name resolution errors
     // ─────────────────────────────────────────────────────────────────────────
@@ -187,6 +192,11 @@ impl fmt::Display for ParseErrorKind {
                 "a struct with braces must declare at least one field; \
                  write a fieldless type as a unit struct \
                  (e.g. `unique(A1B2C3D4-0000-0000-0000-000000000001) struct Foo;`)"
+            ),
+            Self::ExternStructRequiresUnique => write!(
+                f,
+                "`extern` structs require a `unique(<uuid>)` prefix \
+                 (e.g. `extern unique(A1B2C3D4-0000-0000-0000-000000000001) struct Foo;`)"
             ),
 
             Self::UndefinedName(name) => write!(f, "undefined name '{name}'"),

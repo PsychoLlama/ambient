@@ -84,6 +84,8 @@ pub enum TokenKind {
     Sandbox,
     /// `unique`
     Unique,
+    /// `extern`
+    Extern,
     /// `trait`
     Trait,
     /// `impl`
@@ -274,6 +276,7 @@ impl TokenKind {
             "resume" => Some(Self::Resume),
             "sandbox" => Some(Self::Sandbox),
             "unique" => Some(Self::Unique),
+            "extern" => Some(Self::Extern),
             "trait" => Some(Self::Trait),
             "impl" => Some(Self::Impl),
             "for" => Some(Self::For),
@@ -309,6 +312,7 @@ impl TokenKind {
             Self::Resume => Some("resume"),
             Self::Sandbox => Some("sandbox"),
             Self::Unique => Some("unique"),
+            Self::Extern => Some("extern"),
             Self::Trait => Some("trait"),
             Self::Impl => Some("impl"),
             Self::For => Some("for"),
@@ -326,8 +330,8 @@ impl TokenKind {
     pub const fn all_keywords() -> &'static [&'static str] {
         &[
             "fn", "pub", "let", "const", "if", "else", "match", "true", "false", "enum", "type",
-            "struct", "ability", "use", "with", "handle", "resume", "sandbox", "unique", "trait",
-            "impl", "for", "where", "pkg", "core", "self", "super",
+            "struct", "ability", "use", "with", "handle", "resume", "sandbox", "unique", "extern",
+            "trait", "impl", "for", "where", "pkg", "core", "self", "super",
         ]
     }
 

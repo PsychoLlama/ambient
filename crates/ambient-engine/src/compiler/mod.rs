@@ -756,7 +756,7 @@ impl ModuleContext {
     fn register_unit_structs(&mut self, module: &Module) {
         for item in &module.items {
             if let ItemKind::Struct(s) = &item.kind
-                && s.is_unit()
+                && s.is_unit_value()
             {
                 self.unit_structs.insert(Arc::clone(&s.name));
             }

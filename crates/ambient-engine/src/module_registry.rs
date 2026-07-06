@@ -410,15 +410,27 @@ impl ModuleRegistry {
         self.modules.get(&path.to_string())
     }
 
-    /// Whether `name` in `module` is a unit struct (see
-    /// [`crate::ast::StructDef::is_unit`]). This answers the cross-module /
-    /// imported detection question: a unit struct is a value constructor
-    /// reachable by its bare name, so value references must resolve to it.
+    /// Whether `name` in `module` is a unit struct that denotes a *value* (see
+    /// [`crate::ast::StructDef::is_unit_value`]). This answers the cross-module
+    /// / imported detection question: a unit struct's bare name is a value
+    /// constructor, so value references must resolve to it. An `extern` unit
+    /// struct is a type only, so it is excluded.
     #[must_use]
     pub fn is_unit_struct(&self, module: &ModulePath, name: &str) -> bool {
         self.get(module).is_some_and(|info| {
             info.module.items.iter().any(|item| {
-                matches!(&item.kind, ItemKind::Struct(s) if s.name.as_ref() == name && s.is_unit())
+                matches!(&item.kind, ItemKind::Struct(s) if s.name.as_ref() == name && s.is_unit_value())
+            })
+        })
+    }
+
+    /// Whether `name` in `module` is an `extern` struct — an engine-provided
+    /// nominal type that user code may name and read from but not construct.
+    #[must_use]
+    pub fn is_extern_struct(&self, module: &ModulePath, name: &str) -> bool {
+        self.get(module).is_some_and(|info| {
+            info.module.items.iter().any(|item| {
+                matches!(&item.kind, ItemKind::Struct(s) if s.name.as_ref() == name && s.is_extern)
             })
         })
     }
