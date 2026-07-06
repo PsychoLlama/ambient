@@ -41,8 +41,8 @@ fn declarations_expose_the_expected_interfaces() {
             &[
                 "read",
                 "write",
-                "read_bytes",
-                "write_bytes",
+                "read_binary",
+                "write_binary",
                 "exists",
                 "list",
                 "remove",

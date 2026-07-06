@@ -662,48 +662,48 @@ pub enum Opcode {
     ///
     /// Stack: `[string] -> [option<list<number>>]`
     /// Returns Some(bytes) on valid hex, None on invalid.
-    HexToBytes = 0x5F,
+    HexToBinary = 0x5F,
 
     /// Convert bytes to hex string.
     ///
     /// Stack: `[list<number>] -> [string]`
-    BytesToHex = 0x62,
+    BinaryToHex = 0x62,
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Bytes operations
+    // Binary operations
     // ─────────────────────────────────────────────────────────────────────────
-    /// Create Bytes from a list of numbers.
+    /// Create Binary from a list of numbers.
     ///
     /// Stack: `[list<number>] -> [bytes]`
     /// Each number is truncated to a byte (0-255).
-    BytesFrom = 0x63,
+    BinaryFrom = 0x63,
 
-    /// Convert Bytes to a list of numbers.
+    /// Convert Binary to a list of numbers.
     ///
     /// Stack: `[bytes] -> [list<number>]`
-    BytesToList = 0x64,
+    BinaryToList = 0x64,
 
-    /// Get the length of Bytes.
+    /// Get the length of Binary.
     ///
     /// Stack: `[bytes] -> [number]`
-    BytesLength = 0x65,
+    BinaryLength = 0x65,
 
     /// Get a single byte at index.
     ///
     /// Stack: `[bytes, index] -> [number]`
     /// Returns 0 if index is out of bounds.
-    BytesGet = 0x66,
+    BinaryGet = 0x66,
 
-    /// Get a slice of Bytes.
+    /// Get a slice of Binary.
     ///
     /// Stack: `[bytes, start, end] -> [bytes]`
     /// Indices are clamped to valid bounds.
-    BytesSlice = 0x67,
+    BinarySlice = 0x67,
 
-    /// Concatenate two Bytes values.
+    /// Concatenate two Binary values.
     ///
     /// Stack: `[bytes, bytes] -> [bytes]`
-    BytesConcat = 0x68,
+    BinaryConcat = 0x68,
 
     /// Get a handler value's method function hashes.
     ///
@@ -854,15 +854,15 @@ impl Opcode {
             0x5C => Some(Self::DeserializeValue),
             0x5D => Some(Self::ClosureHash),
             0x5E => Some(Self::ClosureCaptures),
-            0x5F => Some(Self::HexToBytes),
-            0x62 => Some(Self::BytesToHex),
-            // Bytes operations
-            0x63 => Some(Self::BytesFrom),
-            0x64 => Some(Self::BytesToList),
-            0x65 => Some(Self::BytesLength),
-            0x66 => Some(Self::BytesGet),
-            0x67 => Some(Self::BytesSlice),
-            0x68 => Some(Self::BytesConcat),
+            0x5F => Some(Self::HexToBinary),
+            0x62 => Some(Self::BinaryToHex),
+            // Binary operations
+            0x63 => Some(Self::BinaryFrom),
+            0x64 => Some(Self::BinaryToList),
+            0x65 => Some(Self::BinaryLength),
+            0x66 => Some(Self::BinaryGet),
+            0x67 => Some(Self::BinarySlice),
+            0x68 => Some(Self::BinaryConcat),
             0x69 => Some(Self::HandlerMethods),
             0xFF => Some(Self::Halt),
             _ => None,

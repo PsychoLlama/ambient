@@ -1023,15 +1023,15 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
             let name = type_name_from_segments(qn);
             match &*name {
                 // The old lowercase spellings are gone; point at the fix.
-                // Primitives themselves (`Number`/`String`/`Bool`/`Bytes`) are
+                // Primitives themselves (`Number`/`String`/`Bool`/`Binary`) are
                 // no longer intercepted here — they fall through to the generic
                 // `Named { uuid: None }` arm and resolve via the prelude alias,
                 // like any other declared type.
-                "number" | "string" | "bool" | "bytes" => {
+                "number" | "string" | "bool" | "binary" => {
                     let suggestion = match &*name {
                         "number" => "Number",
                         "string" => "String",
-                        "bytes" => "Bytes",
+                        "binary" => "Binary",
                         _ => "Bool",
                     };
                     Err(ParseError::new(

@@ -214,7 +214,7 @@ pub fn validate_reserved_declaration(def: &crate::ast::EnumDef) -> Result<(), St
 
 /// Validate a struct declaration against the reserved primitive specs.
 ///
-/// The canonical `Bool`/`Number`/`String`/`Bytes` declarations live in Ambient
+/// The canonical `Bool`/`Number`/`String`/`Binary` declarations live in Ambient
 /// source (`core_lib/bool.ab`, ...) as `extern` unit structs, while the
 /// compiler anchors their identity on the reserved uuids in `types.rs`
 /// ([`crate::types::Primitive`]). This check pins the two together: a
@@ -612,7 +612,7 @@ mod tests {
             Primitive::Bool,
             Primitive::Number,
             Primitive::String,
-            Primitive::Bytes,
+            Primitive::Binary,
         ] {
             let def = struct_def(prim.name(), Some(prim.uuid()), true, &[], &[]);
             assert!(

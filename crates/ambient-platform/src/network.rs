@@ -16,8 +16,8 @@
 //! - `close(conn: ConnectionId) -> ()` - Close connection
 //!
 //! ## Message I/O (length-prefixed)
-//! - `send(conn: ConnectionId, data: Bytes) -> ()` - Send message
-//! - `receive(conn: ConnectionId) -> Bytes` - Receive message
+//! - `send(conn: ConnectionId, data: Binary) -> ()` - Send message
+//! - `receive(conn: ConnectionId) -> Binary` - Receive message
 //!
 //! ## Connection Info
 //! - `local_addr(conn: ConnectionId) -> string` - Get local address
@@ -169,7 +169,7 @@ pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: A
         }),
     );
 
-    // Network.send(conn: number, data: Bytes) -> ()
+    // Network.send(conn: number, data: Binary) -> ()
     let state_clone = Arc::clone(&state);
     vm.register_host_handler(
         ability.id,
@@ -202,7 +202,7 @@ pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: A
         }),
     );
 
-    // Network.receive(conn: number) -> Bytes
+    // Network.receive(conn: number) -> Binary
     let state_clone = Arc::clone(&state);
     vm.register_host_handler(
         ability.id,
@@ -215,7 +215,7 @@ pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: A
                 .receive(conn_id)
                 .map_err(|e| VmError::exception(format!("Network.receive: {e}")))?;
 
-            Ok(Value::bytes(data))
+            Ok(Value::binary(data))
         }),
     );
 

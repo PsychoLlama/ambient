@@ -738,14 +738,14 @@ static INTRINSICS: &[Intrinsic] = &[
         "serialize_value",
         1,
         EmitStrategy::Opcode(Opcode::SerializeValue),
-        |v| sig(vec![v.var(0)], Type::bytes()),
+        |v| sig(vec![v.var(0)], Type::binary()),
     ),
     intrinsic(
         &["core", "protocol"],
         "deserialize_value",
         1,
         EmitStrategy::Opcode(Opcode::DeserializeValue),
-        |v| sig(vec![Type::bytes()], Type::option(v.var(0))),
+        |v| sig(vec![Type::binary()], Type::option(v.var(0))),
     ),
     intrinsic(
         &["core", "protocol"],
@@ -759,7 +759,7 @@ static INTRINSICS: &[Intrinsic] = &[
         "closure_captures",
         1,
         EmitStrategy::Opcode(Opcode::ClosureCaptures),
-        |v| sig(vec![v.var(0)], Type::bytes()),
+        |v| sig(vec![v.var(0)], Type::binary()),
     ),
     intrinsic(
         &["core", "protocol"],
@@ -770,72 +770,72 @@ static INTRINSICS: &[Intrinsic] = &[
     ),
     intrinsic(
         &["core", "protocol"],
-        "hex_to_bytes",
+        "hex_to_binary",
         1,
-        EmitStrategy::Opcode(Opcode::HexToBytes),
-        |_| sig(vec![Type::string()], Type::option(Type::bytes())),
+        EmitStrategy::Opcode(Opcode::HexToBinary),
+        |_| sig(vec![Type::string()], Type::option(Type::binary())),
     ),
     intrinsic(
         &["core", "protocol"],
-        "bytes_to_hex",
+        "binary_to_hex",
         1,
-        EmitStrategy::Opcode(Opcode::BytesToHex),
-        |_| sig(vec![Type::bytes()], Type::string()),
+        EmitStrategy::Opcode(Opcode::BinaryToHex),
+        |_| sig(vec![Type::binary()], Type::string()),
     ),
     // ─────────────────────────────────────────────────────────────────────
-    // core::Bytes
+    // core::Binary
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
-        &["core", "Bytes"],
+        &["core", "Binary"],
         "from",
         1,
-        EmitStrategy::Opcode(Opcode::BytesFrom),
-        |_| sig(vec![list(Type::number())], Type::bytes()),
+        EmitStrategy::Opcode(Opcode::BinaryFrom),
+        |_| sig(vec![list(Type::number())], Type::binary()),
     ),
     intrinsic(
-        &["core", "Bytes"],
+        &["core", "Binary"],
         "to_list",
         1,
-        EmitStrategy::Opcode(Opcode::BytesToList),
-        |_| sig(vec![Type::bytes()], list(Type::number())),
+        EmitStrategy::Opcode(Opcode::BinaryToList),
+        |_| sig(vec![Type::binary()], list(Type::number())),
     ),
     intrinsic(
-        &["core", "Bytes"],
+        &["core", "Binary"],
         "length",
         1,
-        EmitStrategy::Opcode(Opcode::BytesLength),
-        |_| sig(vec![Type::bytes()], Type::number()),
+        EmitStrategy::Opcode(Opcode::BinaryLength),
+        |_| sig(vec![Type::binary()], Type::number()),
     ),
     intrinsic(
-        &["core", "Bytes"],
+        &["core", "Binary"],
         "get",
         2,
-        EmitStrategy::Opcode(Opcode::BytesGet),
+        EmitStrategy::Opcode(Opcode::BinaryGet),
         |_| {
             sig(
-                vec![Type::bytes(), Type::number()],
+                vec![Type::binary(), Type::number()],
                 Type::option(Type::number()),
             )
         },
     ),
     intrinsic(
-        &["core", "Bytes"],
+        &["core", "Binary"],
         "slice",
         3,
-        EmitStrategy::Opcode(Opcode::BytesSlice),
+        EmitStrategy::Opcode(Opcode::BinarySlice),
         |_| {
             sig(
-                vec![Type::bytes(), Type::number(), Type::number()],
-                Type::bytes(),
+                vec![Type::binary(), Type::number(), Type::number()],
+                Type::binary(),
             )
         },
     ),
     intrinsic(
-        &["core", "Bytes"],
+        &["core", "Binary"],
         "concat",
         2,
-        EmitStrategy::Opcode(Opcode::BytesConcat),
-        |_| sig(vec![Type::bytes(), Type::bytes()], Type::bytes()),
+        EmitStrategy::Opcode(Opcode::BinaryConcat),
+        |_| sig(vec![Type::binary(), Type::binary()], Type::binary()),
     ),
 ];
 

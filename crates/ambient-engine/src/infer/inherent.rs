@@ -29,7 +29,7 @@ pub enum ImplKey {
     /// A named type constructor identified by head name: built-in
     /// containers (`Option`, `Result`, `List`, `Map`, `Set`), declared
     /// enums, and the primitives under their type names (`number`,
-    /// `string`, `bool`, `Bytes`).
+    /// `string`, `bool`, `Binary`).
     Named(Arc<str>),
 }
 

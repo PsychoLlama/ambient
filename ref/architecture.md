@@ -925,8 +925,8 @@ ability Log with platform::Stdio {
 ability FileSystem {
   fn read(path: string): string;              // UTF-8 text
   fn write(path: string, content: string): ();  // create/truncate
-  fn read_bytes(path: string): Bytes;
-  fn write_bytes(path: string, data: Bytes): ();
+  fn read_binary(path: string): Binary;
+  fn write_binary(path: string, data: Binary): ();
   fn exists(path: string): bool;              // infallible
   fn list(path: string): List<string>;        // sorted entry names
   fn remove(path: string): ();                // file or empty directory

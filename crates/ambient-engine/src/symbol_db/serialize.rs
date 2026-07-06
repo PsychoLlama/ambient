@@ -29,7 +29,7 @@ pub fn serialize_type(ty: &Type) -> String {
 #[must_use]
 pub fn serialize_type_value(ty: &Type) -> Value {
     match ty {
-        // Primitives (Bool/Number/String/Bytes) are `Named` carrying a
+        // Primitives (Bool/Number/String/Binary) are `Named` carrying a
         // reserved uuid; they serialize through the `Named` arm below.
         Type::Unit => json!({"t": "unit"}),
         Type::Never => json!({"t": "never"}),
@@ -163,7 +163,7 @@ pub fn deserialize_type_value(value: &Value) -> Result<Type, DeserializeError> {
         .ok_or_else(|| DeserializeError::InvalidFormat("missing 't' field".to_string()))?;
 
     match tag {
-        // Primitives (Bool/Number/String/Bytes) round-trip through the
+        // Primitives (Bool/Number/String/Binary) round-trip through the
         // `named` arm below, carrying their reserved uuid.
         "unit" => Ok(Type::Unit),
         "never" => Ok(Type::Never),

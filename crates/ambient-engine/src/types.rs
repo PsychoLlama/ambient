@@ -761,7 +761,7 @@ pub enum Type {
     /// Unit type `()`, represents absence of a meaningful value.
     Unit,
 
-    // The primitives `Bool`/`Number`/`String`/`Bytes` are not variants here:
+    // The primitives `Bool`/`Number`/`String`/`Binary` are not variants here:
     // they are nominal `Named` types carrying reserved uuids (see
     // `Type::bool`/`number`/`string`/`bytes` and `BOOL_UUID` etc.), uniform
     // with how `Option`/`Result` work. Match them with `Type::as_primitive`.
@@ -1014,8 +1014,8 @@ pub const NUMBER_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ff
 /// Canonical nominal identity of the built-in `String` type. See [`BOOL_UUID`].
 pub const STRING_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ff03);
 
-/// Canonical nominal identity of the built-in `Bytes` type. See [`BOOL_UUID`].
-pub const BYTES_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ff04);
+/// Canonical nominal identity of the built-in `Binary` type. See [`BOOL_UUID`].
+pub const BINARY_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ff04);
 
 /// A built-in primitive type. Primitives are ordinary [`Type::Named`] values
 /// carrying a reserved uuid ([`BOOL_UUID`] etc.); this enum is the ergonomic
@@ -1028,8 +1028,8 @@ pub enum Primitive {
     Number,
     /// `String`
     String,
-    /// `Bytes`
-    Bytes,
+    /// `Binary`
+    Binary,
 }
 
 impl Primitive {
@@ -1040,7 +1040,7 @@ impl Primitive {
             Self::Bool => BOOL_UUID,
             Self::Number => NUMBER_UUID,
             Self::String => STRING_UUID,
-            Self::Bytes => BYTES_UUID,
+            Self::Binary => BINARY_UUID,
         }
     }
 
@@ -1051,7 +1051,7 @@ impl Primitive {
             BOOL_UUID => Some(Self::Bool),
             NUMBER_UUID => Some(Self::Number),
             STRING_UUID => Some(Self::String),
-            BYTES_UUID => Some(Self::Bytes),
+            BINARY_UUID => Some(Self::Binary),
             _ => None,
         }
     }
@@ -1064,7 +1064,7 @@ impl Primitive {
             Self::Bool => "Bool",
             Self::Number => "Number",
             Self::String => "String",
-            Self::Bytes => "Bytes",
+            Self::Binary => "Binary",
         }
     }
 
@@ -1077,7 +1077,7 @@ impl Primitive {
             "Bool" => Some(Self::Bool),
             "Number" => Some(Self::Number),
             "String" => Some(Self::String),
-            "Bytes" => Some(Self::Bytes),
+            "Binary" => Some(Self::Binary),
             _ => None,
         }
     }
@@ -1091,7 +1091,7 @@ impl Primitive {
             Self::Bool => "core::Bool",
             Self::Number => "core::Number",
             Self::String => "core::String",
-            Self::Bytes => "core::Bytes",
+            Self::Binary => "core::Binary",
         }
     }
 }
@@ -1292,10 +1292,10 @@ impl Type {
         Self::primitive_nominal(STRING_UUID, "String")
     }
 
-    /// The `Bytes` primitive, a nominal type carrying its reserved identity.
+    /// The `Binary` primitive, a nominal type carrying its reserved identity.
     #[must_use]
-    pub fn bytes() -> Self {
-        Self::primitive_nominal(BYTES_UUID, "Bytes")
+    pub fn binary() -> Self {
+        Self::primitive_nominal(BINARY_UUID, "Binary")
     }
 
     /// Build the canonical `extern` [`Type::Nominal`] for a primitive. This is

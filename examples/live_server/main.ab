@@ -64,9 +64,9 @@ fn serve_conn(
   with Network, Process
 {
   let data = handle Network::receive!(state.conn) {
-    Exception::throw(e) => core::Bytes::from([])
+    Exception::throw(e) => core::Binary::from([])
   };
-  if core::Bytes::length(data) == 0 {
+  if core::Binary::length(data) == 0 {
     handle Network::close!(state.conn) {
       Exception::throw(e) => ()
     };

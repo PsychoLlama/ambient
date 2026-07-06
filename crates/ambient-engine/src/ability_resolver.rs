@@ -630,7 +630,7 @@ impl CanonicalTypeRenderer {
                 crate::types::Primitive::Bool => "bool",
                 crate::types::Primitive::Number => "number",
                 crate::types::Primitive::String => "string",
-                crate::types::Primitive::Bytes => "bytes",
+                crate::types::Primitive::Binary => "binary",
             }
             .to_string();
         }
@@ -751,8 +751,8 @@ impl TypeFactory<Type> for EngineTypeFactory {
         Type::string()
     }
 
-    fn bytes(&self) -> Type {
-        Type::bytes()
+    fn binary(&self) -> Type {
+        Type::binary()
     }
 
     fn never(&self) -> Type {

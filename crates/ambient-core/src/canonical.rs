@@ -62,8 +62,8 @@ impl TypeFactory<CanonicalType> for CanonicalTypeFactory {
         CanonicalType("string".to_string())
     }
 
-    fn bytes(&self) -> CanonicalType {
-        CanonicalType("bytes".to_string())
+    fn binary(&self) -> CanonicalType {
+        CanonicalType("binary".to_string())
     }
 
     fn never(&self) -> CanonicalType {

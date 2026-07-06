@@ -1261,15 +1261,15 @@ impl Vm {
                             got: format!("{kind} (cannot cross the wire)"),
                         }
                     })?;
-                    self.stack.push(Value::bytes(bytes));
+                    self.stack.push(Value::binary(bytes));
                 }
 
                 Opcode::DeserializeValue => {
                     let bytes = match self.pop()? {
-                        Value::Bytes(b) => b,
+                        Value::Binary(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "Bytes",
+                                expected: "Binary",
                                 got: other.type_name(),
                                 operation: "deserialize_value",
                             });
@@ -1336,14 +1336,14 @@ impl Vm {
                                 got: format!("{kind} (cannot cross the wire)"),
                             }
                         })?;
-                    self.stack.push(Value::bytes(bytes));
+                    self.stack.push(Value::binary(bytes));
                 }
 
-                Opcode::HexToBytes => {
-                    let hex_str = self.pop_string("hex_to_bytes")?;
+                Opcode::HexToBinary => {
+                    let hex_str = self.pop_string("hex_to_binary")?;
                     match hex::decode(&*hex_str) {
                         Ok(bytes) => {
-                            self.stack.push(Value::some(Value::bytes(bytes)));
+                            self.stack.push(Value::some(Value::binary(bytes)));
                         }
                         Err(_) => {
                             self.stack.push(Value::none());
@@ -1351,14 +1351,14 @@ impl Vm {
                     }
                 }
 
-                Opcode::BytesToHex => {
+                Opcode::BinaryToHex => {
                     let bytes = match self.pop()? {
-                        Value::Bytes(b) => b,
+                        Value::Binary(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "Bytes",
+                                expected: "Binary",
                                 got: other.type_name(),
-                                operation: "bytes_to_hex",
+                                operation: "binary_to_hex",
                             });
                         }
                     };
@@ -1366,9 +1366,9 @@ impl Vm {
                 }
 
                 // ─────────────────────────────────────────────────────────────
-                // Bytes operations
+                // Binary operations
                 // ─────────────────────────────────────────────────────────────
-                Opcode::BytesFrom => {
+                Opcode::BinaryFrom => {
                     let list = match self.pop()? {
                         Value::List(elements) => elements,
                         other => {
@@ -1390,15 +1390,15 @@ impl Vm {
                             }),
                         })
                         .collect::<Result<Vec<u8>, VmError>>()?;
-                    self.stack.push(Value::bytes(bytes));
+                    self.stack.push(Value::binary(bytes));
                 }
 
-                Opcode::BytesToList => {
+                Opcode::BinaryToList => {
                     let bytes = match self.pop()? {
-                        Value::Bytes(b) => b,
+                        Value::Binary(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "Bytes",
+                                expected: "Binary",
                                 got: other.type_name(),
                                 operation: "bytes_to_list",
                             });
@@ -1409,12 +1409,12 @@ impl Vm {
                     self.stack.push(Value::list(list));
                 }
 
-                Opcode::BytesLength => {
+                Opcode::BinaryLength => {
                     let bytes = match self.pop()? {
-                        Value::Bytes(b) => b,
+                        Value::Binary(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "Bytes",
+                                expected: "Binary",
                                 got: other.type_name(),
                                 operation: "bytes_length",
                             });
@@ -1424,13 +1424,13 @@ impl Vm {
                     self.stack.push(Value::Number(bytes.len() as f64));
                 }
 
-                Opcode::BytesGet => {
+                Opcode::BinaryGet => {
                     let index = self.pop_number("bytes_get")?;
                     let bytes = match self.pop()? {
-                        Value::Bytes(b) => b,
+                        Value::Binary(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "Bytes",
+                                expected: "Binary",
                                 got: other.type_name(),
                                 operation: "bytes_get",
                             });
@@ -1444,14 +1444,14 @@ impl Vm {
                     self.stack.push(value);
                 }
 
-                Opcode::BytesSlice => {
+                Opcode::BinarySlice => {
                     let end = self.pop_number("bytes_slice")?;
                     let start = self.pop_number("bytes_slice")?;
                     let bytes = match self.pop()? {
-                        Value::Bytes(b) => b,
+                        Value::Binary(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "Bytes",
+                                expected: "Binary",
                                 got: other.type_name(),
                                 operation: "bytes_slice",
                             });
@@ -1465,25 +1465,25 @@ impl Vm {
                     } else {
                         Vec::new()
                     };
-                    self.stack.push(Value::bytes(slice));
+                    self.stack.push(Value::binary(slice));
                 }
 
-                Opcode::BytesConcat => {
+                Opcode::BinaryConcat => {
                     let b = match self.pop()? {
-                        Value::Bytes(b) => b,
+                        Value::Binary(b) => b,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "Bytes",
+                                expected: "Binary",
                                 got: other.type_name(),
                                 operation: "bytes_concat",
                             });
                         }
                     };
                     let a = match self.pop()? {
-                        Value::Bytes(a) => a,
+                        Value::Binary(a) => a,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "Bytes",
+                                expected: "Binary",
                                 got: other.type_name(),
                                 operation: "bytes_concat",
                             });
@@ -1492,7 +1492,7 @@ impl Vm {
                     let mut result = Vec::with_capacity(a.len() + b.len());
                     result.extend_from_slice(&a);
                     result.extend_from_slice(&b);
-                    self.stack.push(Value::bytes(result));
+                    self.stack.push(Value::binary(result));
                 }
             }
         }

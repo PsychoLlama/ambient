@@ -242,8 +242,8 @@ impl ReplContext {
                 vec![
                     ModuleExport::new("read!", ModuleExportKind::Function),
                     ModuleExport::new("write!", ModuleExportKind::Function),
-                    ModuleExport::new("read_bytes!", ModuleExportKind::Function),
-                    ModuleExport::new("write_bytes!", ModuleExportKind::Function),
+                    ModuleExport::new("read_binary!", ModuleExportKind::Function),
+                    ModuleExport::new("write_binary!", ModuleExportKind::Function),
                     ModuleExport::new("exists!", ModuleExportKind::Function),
                     ModuleExport::new("list!", ModuleExportKind::Function),
                     ModuleExport::new("remove!", ModuleExportKind::Function),

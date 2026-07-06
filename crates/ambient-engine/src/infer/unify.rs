@@ -29,7 +29,7 @@ impl Infer {
 
         match (&t1, &t2) {
             // Reflexive atoms and error types. The primitives
-            // (`Bool`/`Number`/`String`/`Bytes`) are `extern` `Nominal` types
+            // (`Bool`/`Number`/`String`/`Binary`) are `extern` `Nominal` types
             // carrying a reserved uuid, so they unify through the
             // `(Nominal, Nominal)` arm below (uuid + structure), not here.
             (Type::Unit, Type::Unit)

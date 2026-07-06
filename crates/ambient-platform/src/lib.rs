@@ -189,12 +189,12 @@ pub(crate) fn extract_host_port(args: &[Value]) -> Result<(String, u16), VmError
     Ok((host, port))
 }
 
-/// Extract bytes from a Bytes value.
+/// Extract bytes from a Binary value.
 pub(crate) fn extract_bytes(value: &Value) -> Result<Vec<u8>, VmError> {
     match value {
-        Value::Bytes(bytes) => Ok(bytes.as_ref().clone()),
+        Value::Binary(bytes) => Ok(bytes.as_ref().clone()),
         other => Err(VmError::TypeErrorOwned {
-            expected: "Bytes".to_string(),
+            expected: "Binary".to_string(),
             got: other.type_name().to_string(),
         }),
     }

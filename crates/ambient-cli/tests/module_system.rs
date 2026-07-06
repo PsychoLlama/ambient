@@ -548,7 +548,7 @@ pub fn describe(h: Handle): Number { h.id }
     check_passes(dir.path());
 }
 
-/// The built-in primitives (`String`/`Number`/`Bool`/`Bytes`) are `extern`
+/// The built-in primitives (`String`/`Number`/`Bool`/`Binary`) are `extern`
 /// declarations in `core`, so their bare unit form is not a value: `let x:
 /// String = String;` fails. This is the footgun that made a *constructible*
 /// primitive declaration inexpressible before `extern` landed.

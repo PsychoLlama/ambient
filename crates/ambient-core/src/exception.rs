@@ -107,7 +107,7 @@ mod tests {
         Bool,
         Number,
         String,
-        Bytes,
+        Binary,
         Never,
         Var(u32),
         List(Box<TestType>),
@@ -138,8 +138,8 @@ mod tests {
         fn string(&self) -> TestType {
             TestType::String
         }
-        fn bytes(&self) -> TestType {
-            TestType::Bytes
+        fn binary(&self) -> TestType {
+            TestType::Binary
         }
         fn never(&self) -> TestType {
             TestType::Never

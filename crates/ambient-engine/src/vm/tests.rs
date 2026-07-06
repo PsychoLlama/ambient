@@ -1093,9 +1093,9 @@ fn test_bytes_get_negative_index_is_none() {
     // Same saturation hazard as list_get: `-1.0 as usize` becomes 0, which
     // would wrongly return the first byte instead of None.
     let mut builder = BytecodeBuilder::new();
-    builder.emit_const(Value::bytes(vec![10, 20]));
+    builder.emit_const(Value::binary(vec![10, 20]));
     builder.emit_const(Value::Number(-1.0)); // index
-    builder.emit(Opcode::BytesGet);
+    builder.emit(Opcode::BinaryGet);
     builder.emit(Opcode::Return);
 
     let func = builder.build(0, 0);

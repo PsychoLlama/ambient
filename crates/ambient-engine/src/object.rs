@@ -110,7 +110,7 @@ pub enum ObjectConstant {
     Bool(bool),
     Number(f64),
     String(String),
-    Bytes(Vec<u8>),
+    Binary(Vec<u8>),
     Ref(ObjectRef),
     /// The content-addressed identity of an ability interface.
     Ability(ambient_core::AbilityId),
@@ -158,7 +158,7 @@ pub enum ObjectError {
     BadVersion(u8),
     /// Unknown kind/ref/constant tag.
     BadTag(u8),
-    /// Bytes remained after a complete object was decoded.
+    /// Binary remained after a complete object was decoded.
     TrailingBytes,
     /// A string constant or member name was not valid UTF-8.
     InvalidUtf8,
@@ -405,7 +405,7 @@ pub fn constant_from_value(
         Value::Bool(b) => ObjectConstant::Bool(*b),
         Value::Number(n) => ObjectConstant::Number(*n),
         Value::String(s) => ObjectConstant::String((**s).clone()),
-        Value::Bytes(b) => ObjectConstant::Bytes((**b).clone()),
+        Value::Binary(b) => ObjectConstant::Binary((**b).clone()),
         Value::FunctionRef(h) => ObjectConstant::Ref(resolve(h)),
         Value::AbilityRef(id) => ObjectConstant::Ability(*id),
         Value::Tuple(_) => return Err(ObjectError::UnsupportedConstant("tuple")),
@@ -475,7 +475,7 @@ fn to_compiled(
                 ObjectConstant::Bool(b) => Value::Bool(*b),
                 ObjectConstant::Number(n) => Value::Number(*n),
                 ObjectConstant::String(s) => Value::String(Arc::new(s.clone())),
-                ObjectConstant::Bytes(b) => Value::bytes(b.clone()),
+                ObjectConstant::Binary(b) => Value::binary(b.clone()),
                 ObjectConstant::Ref(r) => Value::FunctionRef(resolve(r)?),
                 ObjectConstant::Ability(id) => Value::AbilityRef(*id),
             })
@@ -562,7 +562,7 @@ fn encode_constant(out: &mut Vec<u8>, constant: &ObjectConstant) {
             out.extend_from_slice(&(s.len() as u32).to_le_bytes());
             out.extend_from_slice(s.as_bytes());
         }
-        ObjectConstant::Bytes(b) => {
+        ObjectConstant::Binary(b) => {
             out.push(CONST_BYTES);
             out.extend_from_slice(&(b.len() as u32).to_le_bytes());
             out.extend_from_slice(b);
@@ -673,7 +673,7 @@ fn decode_constant(r: &mut Reader<'_>) -> Result<ObjectConstant, ObjectError> {
         }
         CONST_BYTES => {
             let len = r.u32()? as usize;
-            ObjectConstant::Bytes(r.take(len)?.to_vec())
+            ObjectConstant::Binary(r.take(len)?.to_vec())
         }
         CONST_REF => ObjectConstant::Ref(decode_ref(r)?),
         CONST_ABILITY => {
@@ -709,7 +709,7 @@ mod tests {
                 ObjectConstant::Bool(true),
                 ObjectConstant::Number(42.5),
                 ObjectConstant::String("hello".to_string()),
-                ObjectConstant::Bytes(vec![0xde, 0xad]),
+                ObjectConstant::Binary(vec![0xde, 0xad]),
                 ObjectConstant::Ref(ObjectRef::External(blake3::hash(b"dep"))),
                 ObjectConstant::Ability(ambient_core::AbilityId::from_bytes([0xab; 32])),
             ],

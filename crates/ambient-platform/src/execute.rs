@@ -7,9 +7,9 @@
 //!
 //! - `has_function(hash: string) -> bool` - Check if function exists
 //! - `get_dependencies(hash: string) -> List<string>` - Get function dependencies
-//! - `load_functions(data: Bytes) -> ()` - Load portable functions
+//! - `load_functions(data: Binary) -> ()` - Load portable functions
 //! - `run<T, R>(hash: string, args: T) -> R` - Execute function by hash
-//! - `get_functions(hashes: List<string>) -> Bytes` - Ship functions with dependencies
+//! - `get_functions(hashes: List<string>) -> Binary` - Ship functions with dependencies
 //! - `run_with<T, U, R>(hash: string, args: T, handler: U) -> R` - Execute with a
 //!   handler value installed at the base of the isolated VM
 
@@ -94,7 +94,7 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
         }),
     );
 
-    // Execute.load_functions(data: Bytes) -> ()
+    // Execute.load_functions(data: Binary) -> ()
     let store_clone = Arc::clone(&store);
     vm.register_host_handler(
         ability.id,
@@ -104,7 +104,7 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                 Some(v) => extract_bytes(v)?,
                 None => {
                     return Err(VmError::TypeErrorOwned {
-                        expected: "Bytes".to_string(),
+                        expected: "Binary".to_string(),
                         got: "no argument".to_string(),
                     });
                 }
@@ -242,7 +242,7 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
         }),
     );
 
-    // Execute.get_functions(hashes: List<string>) -> Bytes
+    // Execute.get_functions(hashes: List<string>) -> Binary
     let store_clone = Arc::clone(&store);
     vm.register_host_handler(
         ability.id,
@@ -292,7 +292,7 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                 .serialize()
                 .map_err(|e| VmError::IoError(format!("serialize error: {e}")))?;
 
-            Ok(Value::bytes(bytes))
+            Ok(Value::binary(bytes))
         }),
     );
 }

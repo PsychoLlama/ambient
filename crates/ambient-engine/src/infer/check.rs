@@ -582,7 +582,7 @@ fn retain_imported_type_aliases(
     // Canonical qualified keys (`shapes.Money`) always stay: they can't
     // collide with bare names, and qualified references are visibility-
     // checked by the resolve pass. The four primitive aliases
-    // (`String`/`Number`/`Bool`/`Bytes`) are prelude — resolvable in every
+    // (`String`/`Number`/`Bool`/`Binary`) are prelude — resolvable in every
     // module without an import — so they survive the retract too.
     infer.retain_type_aliases(|name| {
         name.contains("::") || imported.contains(name) || Primitive::from_name(name).is_some()
@@ -1669,7 +1669,7 @@ pub fn resolve_registry_abilities(
 
 /// Validate every struct declaration against the reserved primitive specs.
 ///
-/// The `Bool`/`Number`/`String`/`Bytes` primitives are ordinary in-language
+/// The `Bool`/`Number`/`String`/`Binary` primitives are ordinary in-language
 /// `extern` declarations in `core_lib`, but their identity is anchored by the
 /// reserved uuids in `types.rs`. This pins the two together: a declaration that
 /// claims a reserved uuid — or a reserved primitive *name* — must be the
@@ -2137,7 +2137,7 @@ mod tests {
                 method(
                     "load_functions",
                     &[],
-                    &[("bundle", Type::bytes())],
+                    &[("bundle", Type::binary())],
                     Type::Unit,
                 ),
                 method(
@@ -2150,7 +2150,7 @@ mod tests {
                     "get_functions",
                     &[],
                     &[("hashes", list_of_string)],
-                    Type::bytes(),
+                    Type::binary(),
                 ),
                 method(
                     "run_with",
@@ -2179,7 +2179,7 @@ mod tests {
                     |f| vec![f.string()],
                     |f| f.list(f.string()),
                 ),
-                MethodDescriptor::new(2, "load_functions", 1, |f| vec![f.bytes()], |f| f.unit()),
+                MethodDescriptor::new(2, "load_functions", 1, |f| vec![f.binary()], |f| f.unit()),
                 MethodDescriptor::new(
                     3,
                     "run",
@@ -2192,7 +2192,7 @@ mod tests {
                     "get_functions",
                     1,
                     |f| vec![f.list(f.string())],
-                    |f| f.bytes(),
+                    |f| f.binary(),
                 ),
                 MethodDescriptor::new(
                     5,

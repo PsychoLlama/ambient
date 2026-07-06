@@ -30,7 +30,7 @@ pub fn run(): () with Stdio, Network {
 /// Echo messages back to the client until an empty message is received.
 fn echo_loop(conn: Number): () with Stdio, Network {
     let msg = Network::receive!(conn);
-    let len = core::Bytes::length(msg);
+    let len = core::Binary::length(msg);
 
     if len > 0 {
         Stdio::out!("Server: received ".concat(core::convert::to_string(len).concat(" bytes, echoing back...")));

@@ -8,8 +8,8 @@
 //!
 //! - `read(path: string) -> string` - Read file as UTF-8 text
 //! - `write(path: string, content: string) -> ()` - Create/truncate a file
-//! - `read_bytes(path: string) -> Bytes` - Read file as raw bytes
-//! - `write_bytes(path: string, data: Bytes) -> ()` - Create/truncate a file
+//! - `read_binary(path: string) -> Binary` - Read file as raw bytes
+//! - `write_binary(path: string, data: Binary) -> ()` - Create/truncate a file
 //! - `exists(path: string) -> bool` - Check whether a path exists
 //! - `list(path: string) -> List<string>` - Sorted directory entry names
 //! - `remove(path: string) -> ()` - Remove a file or empty directory
@@ -49,9 +49,9 @@ fn arg_string(args: &[Value], index: usize) -> Result<String, VmError> {
 /// Extract a bytes argument by index; a mismatch is a programmer error.
 fn arg_bytes(args: &[Value], index: usize) -> Result<Vec<u8>, VmError> {
     match args.get(index) {
-        Some(Value::Bytes(b)) => Ok(b.as_ref().clone()),
+        Some(Value::Binary(b)) => Ok(b.as_ref().clone()),
         other => Err(VmError::TypeErrorOwned {
-            expected: "Bytes".to_string(),
+            expected: "Binary".to_string(),
             got: other
                 .map_or("missing argument", Value::type_name)
                 .to_string(),
@@ -80,20 +80,20 @@ fn write(ability: &SuspendedAbility) -> Result<Value, VmError> {
     Ok(Value::Unit)
 }
 
-/// `FileSystem.read_bytes(path: string) -> Bytes`
-fn read_bytes(ability: &SuspendedAbility) -> Result<Value, VmError> {
+/// `FileSystem.read_binary(path: string) -> Binary`
+fn read_binary(ability: &SuspendedAbility) -> Result<Value, VmError> {
     let path = arg_string(&ability.args, 0)?;
     let data = std::fs::read(&path)
-        .map_err(|e| VmError::exception(format!("FileSystem.read_bytes: {e}")))?;
-    Ok(Value::bytes(data))
+        .map_err(|e| VmError::exception(format!("FileSystem.read_binary: {e}")))?;
+    Ok(Value::binary(data))
 }
 
-/// `FileSystem.write_bytes(path: string, data: Bytes) -> ()`
-fn write_bytes(ability: &SuspendedAbility) -> Result<Value, VmError> {
+/// `FileSystem.write_binary(path: string, data: Binary) -> ()`
+fn write_binary(ability: &SuspendedAbility) -> Result<Value, VmError> {
     let path = arg_string(&ability.args, 0)?;
     let data = arg_bytes(&ability.args, 1)?;
     std::fs::write(&path, data)
-        .map_err(|e| VmError::exception(format!("FileSystem.write_bytes: {e}")))?;
+        .map_err(|e| VmError::exception(format!("FileSystem.write_binary: {e}")))?;
     Ok(Value::Unit)
 }
 
@@ -147,13 +147,13 @@ pub fn register_fs(vm: &mut Vm, ability: &AbilityInterface) {
     vm.register_host_handler(ability.id, require(ability, "write"), Box::new(write));
     vm.register_host_handler(
         ability.id,
-        require(ability, "read_bytes"),
-        Box::new(read_bytes),
+        require(ability, "read_binary"),
+        Box::new(read_binary),
     );
     vm.register_host_handler(
         ability.id,
-        require(ability, "write_bytes"),
-        Box::new(write_bytes),
+        require(ability, "write_binary"),
+        Box::new(write_binary),
     );
     vm.register_host_handler(ability.id, require(ability, "exists"), Box::new(exists));
     vm.register_host_handler(ability.id, require(ability, "list"), Box::new(list));

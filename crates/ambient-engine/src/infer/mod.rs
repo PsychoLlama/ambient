@@ -94,7 +94,7 @@ fn primitive_type_aliases() -> HashMap<Arc<str>, Type> {
         (Primitive::Bool, Type::bool()),
         (Primitive::Number, Type::number()),
         (Primitive::String, Type::string()),
-        (Primitive::Bytes, Type::bytes()),
+        (Primitive::Binary, Type::binary()),
     ]
     .into_iter()
     .map(|(p, ty)| (Arc::from(p.name()), ty))

@@ -16,27 +16,27 @@ pub fn run(): () with Stdio, Network {
     let local = Network::local_addr!(conn);
     Stdio::out!("Client: connected from ".concat(local));
 
-    // Send a message as Bytes
-    let message = string_to_bytes("Hello from Ambient!");
-    Stdio::out!("Client: sending ".concat(core::convert::to_string(core::Bytes::length(message)).concat(" bytes...")));
+    // Send a message as Binary
+    let message = string_to_binary("Hello from Ambient!");
+    Stdio::out!("Client: sending ".concat(core::convert::to_string(core::Binary::length(message)).concat(" bytes...")));
     Network::send!(conn, message);
 
     // Receive the echo
     let response = Network::receive!(conn);
-    Stdio::out!("Client: received ".concat(core::convert::to_string(core::Bytes::length(response)).concat(" bytes back")));
+    Stdio::out!("Client: received ".concat(core::convert::to_string(core::Binary::length(response)).concat(" bytes back")));
 
     // Send empty message to signal quit
     Stdio::out!("Client: sending empty message to quit...");
-    Network::send!(conn, core::Bytes::from([]));
+    Network::send!(conn, core::Binary::from([]));
 
     Network::close!(conn);
     Stdio::out!("Client: done")
 }
 
-/// Convert a string to Bytes (ASCII).
-fn string_to_bytes(s: String): Bytes {
+/// Convert a string to Binary (ASCII).
+fn string_to_binary(s: String): Binary {
     // For now, just create a simple test payload
     // In a real implementation, we'd use core::String::bytes or similar
     // "Hello from Ambient!" in ASCII
-    core::Bytes::from([72, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 65, 109, 98, 105, 101, 110, 116, 33])
+    core::Binary::from([72, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 65, 109, 98, 105, 101, 110, 116, 33])
 }
