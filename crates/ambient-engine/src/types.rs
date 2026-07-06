@@ -996,16 +996,26 @@ pub const RESULT_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ff
 /// `Option`/`Result`, the primitives are reserved-name prelude types homed in
 /// `core` that cannot spell their identity in source, so they take fixed
 /// reserved uuids in the same `0xffff…` namespace. See [`OPTION_UUID`].
-pub const BOOL_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0003);
+///
+/// Two authorities allocate discriminators in this namespace: these Rust
+/// consts, and source-declared `unique(...)` types that pick an `0xffff…`
+/// uuid by hand (e.g. `core::time::Duration` = `…0003`). To keep the ranges
+/// disjoint, the compiler-owned primitives take the *high* end of the
+/// discriminator (`0xff00…`); hand-written source uuids stay at the low end.
+/// A collision here would be silent: identity unifies on uuid + structure (so
+/// structureless `Bool` would not merge with `Duration`), but inherent/ability
+/// impl slots key on the uuid *alone*, so `impl Bool` and `Duration`'s methods
+/// would land in the same slot.
+pub const BOOL_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ff01);
 
 /// Canonical nominal identity of the built-in `Number` type. See [`BOOL_UUID`].
-pub const NUMBER_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0004);
+pub const NUMBER_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ff02);
 
 /// Canonical nominal identity of the built-in `String` type. See [`BOOL_UUID`].
-pub const STRING_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0005);
+pub const STRING_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ff03);
 
 /// Canonical nominal identity of the built-in `Bytes` type. See [`BOOL_UUID`].
-pub const BYTES_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0006);
+pub const BYTES_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ff04);
 
 /// A built-in primitive type. Primitives are ordinary [`Type::Named`] values
 /// carrying a reserved uuid ([`BOOL_UUID`] etc.); this enum is the ergonomic
