@@ -215,7 +215,31 @@ fn lower_struct_def(s: &CstStructDef) -> Result<StructDef, ParseError> {
         })
         .transpose()?;
 
-    let inner_ty = lower_type(&s.ty)?;
+    // Determine the record body. A unit struct (`struct Foo;`) has no body and
+    // must be nominal — a fieldless structural type carries no identity and no
+    // fields, mirroring the `EnumRequiresUnique` rule. A brace body must declare
+    // at least one field; an empty `struct Foo {}` is rejected in favor of the
+    // unit form.
+    let inner_ty = match &s.ty {
+        None => {
+            if unique_id.is_none() {
+                return Err(ParseError::new(
+                    ParseErrorKind::UnitStructRequiresUnique,
+                    s.name.span,
+                ));
+            }
+            Type::Record(ambient_engine::types::RecordType { fields: vec![] })
+        }
+        Some(ty) => {
+            if matches!(&ty.kind, CstTypeExprKind::Record(fields) if fields.is_empty()) {
+                return Err(ParseError::new(
+                    ParseErrorKind::EmptyStructBody,
+                    s.name.span,
+                ));
+            }
+            lower_type(ty)?
+        }
+    };
 
     // Wrap in a Nominal type when the struct carries a unique identity.
     let ty = if let Some(uuid) = unique_id {

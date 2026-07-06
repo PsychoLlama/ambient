@@ -410,6 +410,19 @@ impl ModuleRegistry {
         self.modules.get(&path.to_string())
     }
 
+    /// Whether `name` in `module` is a unit struct (see
+    /// [`crate::ast::StructDef::is_unit`]). This answers the cross-module /
+    /// imported detection question: a unit struct is a value constructor
+    /// reachable by its bare name, so value references must resolve to it.
+    #[must_use]
+    pub fn is_unit_struct(&self, module: &ModulePath, name: &str) -> bool {
+        self.get(module).is_some_and(|info| {
+            info.module.items.iter().any(|item| {
+                matches!(&item.kind, ItemKind::Struct(s) if s.name.as_ref() == name && s.is_unit())
+            })
+        })
+    }
+
     /// Look up a symbol in a module.
     ///
     /// This handles re-exports by following the re-export chain. On

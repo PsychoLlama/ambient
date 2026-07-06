@@ -365,6 +365,37 @@ pub fn run(): Number { area(Circle(3)) }
     assert_eq!(run(dir.path()), "9");
 }
 
+#[test]
+fn unit_struct_constructs_across_modules_both_spellings() {
+    // A unit struct is a value reachable by bare name. It must construct from
+    // another module both ways the access invariant requires: through
+    // `use m::{Origin}` and fully-qualified `m::Origin`. Both spellings
+    // canonicalize to `<module>::Origin`, so both flow into `accepts`.
+    let dir = package(&[
+        (
+            "markers.ab",
+            r"
+pub unique(D098767B-4093-4D5C-BA37-AD92AA7B5D03) struct Origin;
+
+pub fn accepts(_o: Origin): Number { 5 }
+",
+        ),
+        (
+            "main.ab",
+            r"
+use pkg::markers::{Origin, accepts};
+
+pub fn run(): Number {
+  let imported = Origin;
+  let qualified = pkg::markers::Origin;
+  accepts(imported) + accepts(qualified)
+}
+",
+        ),
+    ]);
+    assert_eq!(run(dir.path()), "10");
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Re-exports
 // ─────────────────────────────────────────────────────────────────────────

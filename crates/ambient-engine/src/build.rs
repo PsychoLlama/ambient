@@ -480,6 +480,36 @@ pub fn build_foreign_constants(
     constants
 }
 
+/// Collect every foreign unit struct in the build, as canonical
+/// `<module>::Origin` keys. A unit struct is a value (constructed by its bare
+/// name) as well as a type; the compiler inlines each reference to an empty
+/// record value rather than linking by hash, so it only needs the key — a
+/// separate channel from the linking table, mirroring
+/// [`build_foreign_constants`]. All public unit structs are provided (not
+/// just imported ones) because inline `pkg::shapes::Origin` references need
+/// no import.
+#[must_use]
+pub fn build_foreign_unit_structs(
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> Vec<Arc<str>> {
+    let mut keys = Vec::new();
+    for info in registry.all_modules() {
+        if &info.path == module_path {
+            continue;
+        }
+        for item in &info.module.items {
+            if let ItemKind::Struct(def) = &item.kind
+                && def.is_public
+                && def.is_unit()
+            {
+                keys.push(format!("{}::{}", info.path, def.name).into());
+            }
+        }
+    }
+    keys
+}
+
 /// Register and compile the embedded core library modules.
 ///
 /// Core modules are registered in the registry under their reserved
@@ -629,6 +659,7 @@ fn compile_loaded_module_with_registry(
             source_file: Some(&source_file),
             imported_hashes: Some(imported_hashes),
             imported_enums: build_imported_enums(module_path, registry),
+            imported_unit_structs: build_foreign_unit_structs(module_path, registry),
             imported_constants: build_foreign_constants(module_path, registry),
             prelude_abilities,
             foreign_abilities: crate::infer::resolve_registry_abilities(registry),

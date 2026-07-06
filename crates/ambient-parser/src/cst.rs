@@ -317,8 +317,9 @@ pub struct CstConstDef {
 }
 
 /// A struct (record) definition: `struct Foo { fields }`, optionally prefixed
-/// with `unique(<uuid>)` for a nominal identity. The body is always a record
-/// type — there is no `= Type` form (that is a [`CstTypeAliasDef`]).
+/// with `unique(<uuid>)` for a nominal identity. There is no `= Type` form
+/// (that is a [`CstTypeAliasDef`]). The body is a record type, or `None` for the
+/// unit form `struct Foo;` — a fieldless nominal type.
 #[derive(Debug, Clone)]
 pub struct CstStructDef {
     /// Whether public (`pub struct`).
@@ -327,8 +328,8 @@ pub struct CstStructDef {
     pub name: CstIdent,
     /// Type parameters.
     pub type_params: Vec<CstTypeParam>,
-    /// The record body.
-    pub ty: CstTypeExpr,
+    /// The record body, or `None` for a unit struct (`struct Foo;`).
+    pub ty: Option<CstTypeExpr>,
     /// Optional unique UUID for a nominal identity (`unique(<uuid>)`).
     pub unique_id: Option<Arc<str>>,
 }

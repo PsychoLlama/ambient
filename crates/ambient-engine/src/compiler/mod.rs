@@ -45,7 +45,7 @@ pub use repl::{
 use expr::compile_expr;
 use hash::{compute_temporary_hash, finalize_module_hashes};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::ast::{BindingId, FunctionDef, ImplDef, ImplMethod, ItemKind, Module};
@@ -481,6 +481,11 @@ struct ModuleContext {
     /// Seeded with the prelude (Option/Result); local enum declarations
     /// shadow prelude variants of the same name.
     enums: HashMap<Arc<str>, VariantInfo>,
+    /// Unit-struct constructors in scope, keyed by resolution key: local
+    /// declarations by bare name (`Origin`), foreign ones canonically
+    /// (`shapes::Origin`). A bare-name reference whose key is here compiles
+    /// to an empty record value, mirroring a nullary enum variant.
+    unit_structs: HashSet<Arc<str>>,
     /// Module-level constants: name → the literal value it denotes. A
     /// reference to one compiles to a direct push of this value (the value is
     /// baked in when the module is built), so a constant is genuinely a
@@ -550,6 +555,7 @@ impl ModuleContext {
             lambda_counter: 0,
             current_function: None,
             enums,
+            unit_structs: HashSet::new(),
             constants: HashMap::new(),
             abilities: HashMap::new(),
             prelude_abilities: HashMap::new(),
@@ -745,6 +751,27 @@ impl ModuleContext {
         }
     }
 
+    /// Register the local module's unit structs under their bare names —
+    /// their resolution key when referenced from within the module.
+    fn register_unit_structs(&mut self, module: &Module) {
+        for item in &module.items {
+            if let ItemKind::Struct(s) = &item.kind
+                && s.is_unit()
+            {
+                self.unit_structs.insert(Arc::clone(&s.name));
+            }
+        }
+    }
+
+    /// Register foreign unit structs under their canonical `<module>::Origin`
+    /// keys — the key an imported or fully-qualified value reference resolves
+    /// to (see `build::build_foreign_unit_structs`).
+    fn register_imported_unit_structs(&mut self, keys: &[Arc<str>]) {
+        for key in keys {
+            self.unit_structs.insert(Arc::clone(key));
+        }
+    }
+
     /// Set the current function being compiled.
     fn set_current_function(&mut self, name: Arc<str>) {
         self.current_function = Some(name);
@@ -792,6 +819,12 @@ pub struct CompileOptions<'a> {
     /// inline by tag rather than linking by hash, so the compiler needs
     /// the definitions themselves, not name→hash entries.
     pub imported_enums: Vec<crate::ast::EnumDef>,
+    /// Foreign unit structs, as canonical `<module>::Origin` keys. A unit
+    /// struct compiles to an empty record value, so only its key is needed
+    /// (not the definition), keyed like foreign constants. The resolve pass
+    /// rewrites every cross-module unit-struct value reference to its
+    /// canonical key, which is looked up here.
+    pub imported_unit_structs: Vec<Arc<str>>,
     /// Foreign constant definitions, keyed by canonical qualified name
     /// (`utils.MAX`). Constants inline their literal value at each
     /// reference rather than linking by hash, so the compiler needs the
@@ -931,6 +964,7 @@ fn compile_module_impl(
         source_file,
         imported_hashes,
         imported_enums,
+        imported_unit_structs,
         imported_constants,
         prelude_abilities,
         foreign_abilities,
@@ -999,6 +1033,8 @@ fn compile_module_impl(
     let mut ctx = ModuleContext::new();
     ctx.register_imported_enums(&imported_enums);
     ctx.register_enums(module);
+    ctx.register_imported_unit_structs(&imported_unit_structs);
+    ctx.register_unit_structs(module);
     ctx.register_imported_constants(&imported_constants);
     ctx.register_constants(module);
     ctx.register_prelude_abilities(prelude_abilities);

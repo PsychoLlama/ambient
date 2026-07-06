@@ -121,6 +121,16 @@ pub enum ParseErrorKind {
     /// Every enum is nominal, so it must carry an identity.
     EnumRequiresUnique,
 
+    /// A unit struct (`struct Foo;`) was declared without the mandatory
+    /// `unique(<uuid>)` prefix. A fieldless type has no structure to identify it
+    /// by, so it must carry a nominal identity.
+    UnitStructRequiresUnique,
+
+    /// A struct was declared with an empty brace body (`struct Foo {}`). A struct
+    /// with braces must declare at least one field; a fieldless type must use the
+    /// unit form `unique(<uuid>) struct Foo;`.
+    EmptyStructBody,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Name resolution errors
     // ─────────────────────────────────────────────────────────────────────────
@@ -166,6 +176,17 @@ impl fmt::Display for ParseErrorKind {
                 f,
                 "enum declarations require a `unique(<uuid>)` prefix \
                  (e.g. `unique(A1B2C3D4-0000-0000-0000-000000000001) enum Color {{ ... }}`)"
+            ),
+            Self::UnitStructRequiresUnique => write!(
+                f,
+                "unit structs require a `unique(<uuid>)` prefix \
+                 (e.g. `unique(A1B2C3D4-0000-0000-0000-000000000001) struct Marker;`)"
+            ),
+            Self::EmptyStructBody => write!(
+                f,
+                "a struct with braces must declare at least one field; \
+                 write a fieldless type as a unit struct \
+                 (e.g. `unique(A1B2C3D4-0000-0000-0000-000000000001) struct Foo;`)"
             ),
 
             Self::UndefinedName(name) => write!(f, "undefined name '{name}'"),

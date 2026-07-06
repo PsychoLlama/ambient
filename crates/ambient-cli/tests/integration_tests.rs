@@ -1348,6 +1348,46 @@ fn test_inherent_impl_generic_method_on_user_enum() {
 }
 
 #[test]
+fn test_unit_struct_constructed_by_bare_name() {
+    // A unit struct (`unique(...) struct Origin;`) is constructed by its bare
+    // name — `Origin` *is* the sole value of its type, like a nullary enum
+    // variant. It flows through a parameter of its own nominal type, proving
+    // parse → resolve → check → compile → run.
+    CliTest::new(
+        r#"
+        unique(C1B2C3D4-0000-0000-0000-000000000030) struct Origin;
+
+        fn accept(_o: Origin): Number { 7 }
+
+        fn run(): Number {
+            let o = Origin;
+            accept(o)
+        }
+    "#,
+    )
+    .expect_output("7");
+}
+
+#[test]
+fn test_field_bearing_struct_used_bare_is_undefined() {
+    // Only *unit* structs gain a value binding. A field-bearing struct named
+    // in value position is not a value — it still fails as an undefined
+    // variable, guarding against over-eager binding.
+    CliTest::new(
+        r#"
+        unique(C1B2C3D4-0000-0000-0000-000000000031) struct Point { x: Number }
+
+        fn run(): Number {
+            let p = Point;
+            0
+        }
+    "#,
+    )
+    .check()
+    .expect_error("undefined variable: `Point`");
+}
+
+#[test]
 fn test_inherent_method_with_ability() {
     // Inherent methods declare effects like public functions: a `with`
     // clause on the method, enforced on the body and required at call
