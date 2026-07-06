@@ -528,11 +528,7 @@ impl MaskedSubst<'_> {
             Type::Named(n) => {
                 Type::Named(n.map_args(n.args.iter().map(|a| self.apply(a, seen)).collect()))
             }
-            Type::Nominal(n) => Type::Nominal(crate::types::NominalType::new(
-                n.uuid,
-                self.apply(&n.inner, seen),
-                n.name.clone(),
-            )),
+            Type::Nominal(n) => Type::Nominal(n.map_inner(self.apply(&n.inner, seen))),
             Type::AbilityValue(av) => Type::AbilityValue(crate::types::AbilityValueType::new(
                 self.apply(&av.result, seen),
                 self.apply_abilities(&av.ability, &mut Vec::new()),

@@ -75,7 +75,8 @@ pub fn serialize_type_value(ty: &Type) -> Value {
             "t": "nominal",
             "uuid": nom.uuid.to_string(),
             "inner": serialize_type_value(&nom.inner),
-            "name": nom.name.as_ref().map(|n| n.as_ref())
+            "name": nom.name.as_ref().map(|n| n.as_ref()),
+            "is_extern": nom.is_extern
         }),
 
         // Forall (polymorphic)
@@ -269,11 +270,13 @@ pub fn deserialize_type_value(value: &Value) -> Result<Type, DeserializeError> {
                 DeserializeError::InvalidFormat("missing 'inner' for nominal type".to_string())
             })?;
             let name = value.get("name").and_then(Value::as_str).map(Arc::from);
-            Ok(Type::Nominal(NominalType::new(
-                uuid,
-                deserialize_type_value(inner)?,
-                name,
-            )))
+            let is_extern = value
+                .get("is_extern")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            Ok(Type::Nominal(
+                NominalType::new(uuid, deserialize_type_value(inner)?, name).with_extern(is_extern),
+            ))
         }
 
         // Forall
@@ -499,6 +502,20 @@ mod tests {
         let json = serialize_type(&ty);
         let result = deserialize_type(&json).expect("deserialize failed");
         assert_eq!(ty, result);
+    }
+
+    #[test]
+    fn test_extern_nominal_round_trip() {
+        let uuid = uuid::Uuid::new_v4();
+        let ty =
+            Type::Nominal(NominalType::new(uuid, Type::number(), Some("Handle")).with_extern(true));
+        let json = serialize_type(&ty);
+        let result = deserialize_type(&json).expect("deserialize failed");
+        assert_eq!(ty, result);
+        let Type::Nominal(nom) = result else {
+            panic!("expected nominal")
+        };
+        assert!(nom.is_extern, "extern flag must survive serialization");
     }
 
     #[test]

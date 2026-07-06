@@ -125,8 +125,10 @@ impl<'r> Resolver<'r> {
                     module_types.insert(Arc::clone(&s.name));
                     // A unit struct is a value too — its bare name constructs
                     // it — so it stays bare (unresolved) like an enum variant,
-                    // and the checker's bare-name value binding covers it.
-                    if s.is_unit() {
+                    // and the checker's bare-name value binding covers it. An
+                    // `extern` unit struct is a type only (engine-provided), so
+                    // it does not bind a value.
+                    if s.is_unit_value() {
                         module_values.insert(Arc::clone(&s.name));
                     }
                 }

@@ -80,7 +80,7 @@ use std::sync::Arc;
 use crate::ability_resolver::AbilityResolver;
 use crate::types::{
     AbilityId, AbilityRegistry, AbilitySet, AbilityValueType, AbilityVarId, ForallType, NamedType,
-    NominalType, RecordType, TraitRegistry, Type, TypeVarGen, TypeVarId,
+    RecordType, TraitRegistry, Type, TypeVarGen, TypeVarId,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -408,11 +408,7 @@ impl Infer {
                 // Otherwise keep as named type, preserving any existing identity.
                 Type::Named(n.map_args(args))
             }
-            Type::Nominal(n) => Type::Nominal(NominalType::new(
-                n.uuid,
-                self.resolve_holes(&n.inner),
-                n.name.clone(),
-            )),
+            Type::Nominal(n) => Type::Nominal(n.map_inner(self.resolve_holes(&n.inner))),
             Type::AbilityValue(av) => Type::AbilityValue(AbilityValueType::new(
                 self.resolve_holes(&av.result),
                 self.resolve_ability_annotation(&av.ability),

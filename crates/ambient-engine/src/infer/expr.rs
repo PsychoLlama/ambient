@@ -135,6 +135,21 @@ impl Infer {
                     })?;
                 let full_type = type_alias.clone();
 
+                // An `extern` struct is engine-provided: user code may name it
+                // and read its fields, but not construct it. The `is_extern`
+                // flag rides on the nominal identity itself, so it fires the
+                // same for a local, imported, or fully-qualified reference.
+                if let Type::Nominal(nom) = &full_type
+                    && nom.is_extern
+                {
+                    return Err(type_error(
+                        TypeErrorKind::CannotConstructExtern {
+                            name: nom.name.clone().unwrap_or_else(|| type_name.joined()),
+                        },
+                        span,
+                    ));
+                }
+
                 // Get the expected record type (unwrap Nominal if present)
                 let expected_record = match &full_type {
                     Type::Nominal(nom) => match nom.inner.as_ref() {

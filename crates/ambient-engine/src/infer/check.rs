@@ -442,7 +442,7 @@ fn register_unit_struct_values(module: &crate::ast::Module, env: &mut TypeEnv) {
     let mut next_binding_id: BindingId = 5_000_000;
     for item in &module.items {
         if let crate::ast::ItemKind::Struct(s) = &item.kind
-            && s.is_unit()
+            && s.is_unit_value()
         {
             env.insert(
                 next_binding_id,
@@ -1971,7 +1971,7 @@ fn get_symbol_scheme(
             // caller keys off this) so imported/qualified value references
             // type-check. `s.ty` is the `Type::Nominal`, carrying identity.
             (crate::ast::ItemKind::Struct(s), ExportKind::Struct)
-                if s.name.as_ref() == name && s.is_unit() =>
+                if s.name.as_ref() == name && s.is_unit_value() =>
             {
                 return Some(Scheme::mono(s.ty.clone()));
             }

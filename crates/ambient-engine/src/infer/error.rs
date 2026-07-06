@@ -194,6 +194,11 @@ pub enum TypeErrorKind {
     /// Type is not constructable as a record.
     NotARecordType { ty: Type },
 
+    /// An `extern` (engine-provided) struct was constructed in Ambient code.
+    /// Such a type may be named and read from, but only the engine may build
+    /// its values.
+    CannotConstructExtern { name: Arc<str> },
+
     // ─────────────────────────────────────────────────────────────────────────
     // Trait errors
     // ─────────────────────────────────────────────────────────────────────────
@@ -420,6 +425,12 @@ impl std::fmt::Display for TypeErrorKind {
                 write!(
                     f,
                     "type `{ty}` is not a record type and cannot be constructed with {{ field: value }} syntax"
+                )
+            }
+            Self::CannotConstructExtern { name } => {
+                write!(
+                    f,
+                    "type `{name}` is provided by the engine and cannot be constructed by Ambient code"
                 )
             }
             Self::UnknownTrait { name } => {

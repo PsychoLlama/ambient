@@ -194,6 +194,7 @@ impl<'src> Parser<'src> {
                 | TokenKind::Enum
                 | TokenKind::Ability
                 | TokenKind::Use
+                | TokenKind::Extern
                 | TokenKind::Trait
                 | TokenKind::Impl => return,
                 TokenKind::Semi | TokenKind::RBrace => {
@@ -279,9 +280,12 @@ impl<'src> Parser<'src> {
                     TokenKind::Use => CstItemKind::Use(self.parse_use(true)?),
                     TokenKind::Const => CstItemKind::Const(self.parse_const(true)?),
                     TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(true)?),
-                    TokenKind::Struct => CstItemKind::Struct(self.parse_struct_def(true, None)?),
+                    TokenKind::Struct => {
+                        CstItemKind::Struct(self.parse_struct_def(true, None, false)?)
+                    }
                     TokenKind::Enum => CstItemKind::Enum(self.parse_enum(true, None)?),
-                    TokenKind::Unique => self.parse_unique_item(true)?,
+                    TokenKind::Unique => self.parse_unique_item(true, false)?,
+                    TokenKind::Extern => self.parse_extern_item(true)?,
                     TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(true)?),
                     TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def(true)?),
                     _ => {
@@ -298,9 +302,10 @@ impl<'src> Parser<'src> {
             TokenKind::Fn => CstItemKind::Function(self.parse_function(false)?),
             TokenKind::Const => CstItemKind::Const(self.parse_const(false)?),
             TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(false)?),
-            TokenKind::Struct => CstItemKind::Struct(self.parse_struct_def(false, None)?),
+            TokenKind::Struct => CstItemKind::Struct(self.parse_struct_def(false, None, false)?),
             TokenKind::Enum => CstItemKind::Enum(self.parse_enum(false, None)?),
-            TokenKind::Unique => self.parse_unique_item(false)?,
+            TokenKind::Unique => self.parse_unique_item(false, false)?,
+            TokenKind::Extern => self.parse_extern_item(false)?,
             TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(false)?),
             TokenKind::Use => CstItemKind::Use(self.parse_use(false)?),
             TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def(false)?),
@@ -531,12 +536,25 @@ impl<'src> Parser<'src> {
     /// Parse a `unique(<uuid>)`-prefixed item: a nominal `struct` definition or
     /// a nominal `enum`. The `unique(...)` syntax is shared, so the prefix is
     /// parsed once here and the following keyword decides the item.
-    fn parse_unique_item(&mut self, is_public: bool) -> Result<CstItemKind, ParseError> {
+    fn parse_unique_item(
+        &mut self,
+        is_public: bool,
+        is_extern: bool,
+    ) -> Result<CstItemKind, ParseError> {
         let unique_id = self.parse_unique_prefix()?;
         self.skip_trivia();
         match self.current_kind() {
             TokenKind::Struct => Ok(CstItemKind::Struct(
-                self.parse_struct_def(is_public, unique_id)?,
+                self.parse_struct_def(is_public, unique_id, is_extern)?,
+            )),
+            TokenKind::Enum if is_extern => Err(ParseError::new(
+                ParseErrorKind::Expected {
+                    expected:
+                        "`struct` after `extern unique(...)` (`extern` applies to `struct` only)"
+                            .into(),
+                    found: "enum".into(),
+                },
+                self.current().span,
             )),
             TokenKind::Enum => Ok(CstItemKind::Enum(self.parse_enum(is_public, unique_id)?)),
             other => Err(ParseError::new(
@@ -549,6 +567,26 @@ impl<'src> Parser<'src> {
         }
     }
 
+    /// Parse an `extern`-prefixed item: `extern unique(<uuid>) struct T ...`.
+    /// `extern` marks a nominal type as engine-provided — user code may name it
+    /// and read its fields, but not construct it. It requires `unique(...)` (the
+    /// engine needs a stable identity to refer to the type by) and applies to
+    /// `struct` only. The requirement is re-checked in lowering.
+    fn parse_extern_item(&mut self, is_public: bool) -> Result<CstItemKind, ParseError> {
+        self.expect(TokenKind::Extern)?;
+        self.skip_trivia();
+        if !self.check(TokenKind::Unique) {
+            return Err(ParseError::new(
+                ParseErrorKind::Expected {
+                    expected: "`unique(<uuid>)` after `extern`".into(),
+                    found: format!("{:?}", self.current_kind()),
+                },
+                self.current().span,
+            ));
+        }
+        self.parse_unique_item(is_public, true)
+    }
+
     /// Parse a `struct Foo { fields }` record definition, or the unit form
     /// `struct Foo;` (a fieldless nominal type). There is no `= Type` alias form
     /// (that is `parse_type_alias`).
@@ -556,6 +594,7 @@ impl<'src> Parser<'src> {
         &mut self,
         is_public: bool,
         unique_id: Option<Arc<str>>,
+        is_extern: bool,
     ) -> Result<CstStructDef, ParseError> {
         self.expect(TokenKind::Struct)?;
         let name = self.parse_ident()?;
@@ -580,6 +619,7 @@ impl<'src> Parser<'src> {
             type_params,
             ty,
             unique_id,
+            is_extern,
         })
     }
 
@@ -1332,6 +1372,84 @@ mod tests {
             Parser::new("unique(F6A7B8C9-D0E1-2345-FABC-456789012345) struct Marker;").unwrap();
         let module = parser.parse_module().expect("unit struct should parse");
         lower_module(&module).expect("unique unit struct must lower");
+    }
+
+    #[test]
+    fn test_extern_struct_parsing_and_lowering() {
+        use crate::error::ParseErrorKind;
+        use crate::lower_module;
+
+        // `extern unique(...) struct T;` parses and lowers.
+        let mut parser =
+            Parser::new("extern unique(F6A7B8C9-D0E1-2345-FABC-456789012345) struct Token;")
+                .unwrap();
+        let item = parser
+            .parse_item()
+            .expect("extern unit struct should parse");
+        match item.kind {
+            CstItemKind::Struct(ref s) => assert!(s.is_extern, "struct should be extern"),
+            _ => panic!("expected a struct item"),
+        }
+        let mut parser =
+            Parser::new("extern unique(F6A7B8C9-D0E1-2345-FABC-456789012345) struct Token;")
+                .unwrap();
+        let module = parser.parse_module().expect("extern struct should parse");
+        lower_module(&module).expect("extern unit struct must lower");
+
+        // A field-bearing extern struct is also legal.
+        let mut parser = Parser::new(
+            "extern unique(F6A7B8C9-D0E1-2345-FABC-456789012345) struct Handle { id: Number }",
+        )
+        .unwrap();
+        let module = parser.parse_module().expect("extern struct should parse");
+        lower_module(&module).expect("field-bearing extern struct must lower");
+
+        // `pub extern unique(...) struct T;` parses.
+        let mut parser =
+            Parser::new("pub extern unique(F6A7B8C9-D0E1-2345-FABC-456789012345) struct Token;")
+                .unwrap();
+        let item = parser.parse_item().expect("pub extern struct should parse");
+        assert!(matches!(item.kind, CstItemKind::Struct(_)));
+
+        // `extern struct T` without `unique(...)` is rejected. The parser
+        // rejects it (no `unique` after `extern`) before lowering can run.
+        let mut parser = Parser::new("extern struct Token;").unwrap();
+        assert!(
+            parser.parse_item().is_err(),
+            "`extern` without `unique` must error"
+        );
+
+        // A recovered/hand-built extern struct without `unique` is rejected at
+        // lowering with `ExternStructRequiresUnique`. Build the CST directly
+        // since the parser refuses the `unique`-less form.
+        let cst = CstStructDef {
+            is_public: false,
+            name: CstIdent {
+                name: "Token".into(),
+                span: Span::new(0, 0),
+                trailing_trivia: crate::cst::Trivia::default(),
+            },
+            type_params: Vec::new(),
+            ty: None,
+            unique_id: None,
+            is_extern: true,
+        };
+        let err = crate::lower::lower_struct_def(&cst)
+            .expect_err("extern struct without unique must fail lowering");
+        assert!(matches!(
+            err.kind,
+            ParseErrorKind::ExternStructRequiresUnique
+        ));
+
+        // `extern unique(...) enum E` is rejected — `extern` applies to structs.
+        let mut parser = Parser::new(
+            "extern unique(F6A7B8C9-D0E1-2345-FABC-456789012345) enum Color { Red, Blue }",
+        )
+        .unwrap();
+        assert!(
+            parser.parse_item().is_err(),
+            "`extern` on an enum must error"
+        );
     }
 
     #[test]

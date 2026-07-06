@@ -194,7 +194,7 @@ fn lower_const(ctx: &mut LoweringContext, c: &CstConstDef) -> Result<ConstDef, P
     })
 }
 
-fn lower_struct_def(s: &CstStructDef) -> Result<StructDef, ParseError> {
+pub(crate) fn lower_struct_def(s: &CstStructDef) -> Result<StructDef, ParseError> {
     let type_params = s
         .type_params
         .iter()
@@ -214,6 +214,18 @@ fn lower_struct_def(s: &CstStructDef) -> Result<StructDef, ParseError> {
             })
         })
         .transpose()?;
+
+    // An `extern` struct is engine-provided; the engine needs a stable nominal
+    // identity to refer to it by, so `unique(...)` is mandatory (mirroring the
+    // unit-struct rule). The parser also checks this, but a hand-built CST or a
+    // recovered parse can still reach lowering without it. Checked before the
+    // unit-struct rule so `extern struct T;` reports the extern-specific error.
+    if s.is_extern && unique_id.is_none() {
+        return Err(ParseError::new(
+            ParseErrorKind::ExternStructRequiresUnique,
+            s.name.span,
+        ));
+    }
 
     // Determine the record body. A unit struct (`struct Foo;`) has no body and
     // must be nominal — a fieldless structural type carries no identity and no
@@ -243,7 +255,9 @@ fn lower_struct_def(s: &CstStructDef) -> Result<StructDef, ParseError> {
 
     // Wrap in a Nominal type when the struct carries a unique identity.
     let ty = if let Some(uuid) = unique_id {
-        Type::Nominal(NominalType::new(uuid, inner_ty, Some(s.name.name.clone())))
+        Type::Nominal(
+            NominalType::new(uuid, inner_ty, Some(s.name.name.clone())).with_extern(s.is_extern),
+        )
     } else {
         inner_ty
     };
@@ -255,6 +269,7 @@ fn lower_struct_def(s: &CstStructDef) -> Result<StructDef, ParseError> {
         type_params,
         ty,
         unique_id,
+        is_extern: s.is_extern,
     })
 }
 
