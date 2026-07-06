@@ -547,3 +547,51 @@ pub fn describe(h: Handle): Number { h.id }
     ]);
     check_passes(dir.path());
 }
+
+/// The built-in primitives (`String`/`Number`/`Bool`/`Bytes`) are `extern`
+/// declarations in `core`, so their bare unit form is not a value: `let x:
+/// String = String;` fails. This is the footgun that made a *constructible*
+/// primitive declaration inexpressible before `extern` landed.
+#[test]
+fn primitive_bare_name_is_not_a_value() {
+    let dir = package(&[(
+        "main.ab",
+        "pub fn run(): String {\n  let x: String = String;\n  x\n}\n",
+    )]);
+    let output = check_fails(dir.path());
+    assert!(
+        output.contains("undefined variable"),
+        "expected `String` to have no value binding, got:\n{output}"
+    );
+}
+
+/// A primitive cannot be constructed with the record form either — the same
+/// `extern` construction ban that guards user `extern` structs.
+#[test]
+fn primitive_cannot_be_constructed() {
+    let dir = package(&[(
+        "main.ab",
+        "pub fn run(): Number {\n  let x = String { value: 1 };\n  2\n}\n",
+    )]);
+    let output = check_fails(dir.path());
+    assert!(
+        output.contains("provided by the engine"),
+        "expected an extern-construction error, got:\n{output}"
+    );
+}
+
+/// Bare `String`/`Number`/`Bool` resolve in every module without a `use` — they
+/// are prelude, like `Option`/`Result`. A module that never imports `core`
+/// still type-checks annotations and literals against them.
+#[test]
+fn primitives_resolve_without_import() {
+    let dir = package(&[(
+        "main.ab",
+        r#"
+pub fn run(n: Number, b: Bool): String {
+  if b { "yes" } else { "no" }
+}
+"#,
+    )]);
+    check_passes(dir.path());
+}

@@ -1,0 +1,7 @@
+// Core library: the Bytes primitive.
+//
+// `Bytes` is an engine-provided primitive: user code may name it and pattern on
+// its literals, but the value has no source constructor. The `unique(...)` uuid
+// must equal `BYTES_UUID` in `types.rs`, and the compiler's literal anchor
+// (`Type::bytes()`) lowers to this exact declaration.
+pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF04) struct Bytes;

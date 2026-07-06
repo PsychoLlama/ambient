@@ -1,0 +1,7 @@
+// Core library: the Bool primitive.
+//
+// `Bool` is an engine-provided primitive: user code may name it and pattern on
+// its literals, but the value has no source constructor. The `unique(...)` uuid
+// must equal `BOOL_UUID` in `types.rs`, and the compiler's literal anchor
+// (`Type::bool()`) lowers to this exact declaration.
+pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF01) struct Bool;

@@ -80,8 +80,26 @@ use std::sync::Arc;
 use crate::ability_resolver::AbilityResolver;
 use crate::types::{
     AbilityId, AbilityRegistry, AbilitySet, AbilityValueType, AbilityVarId, ForallType, NamedType,
-    RecordType, TraitRegistry, Type, TypeVarGen, TypeVarId,
+    Primitive, RecordType, TraitRegistry, Type, TypeVarGen, TypeVarId,
 };
+
+/// The four primitive type aliases (`String → Type::string()`, ...), seeded
+/// into every `Infer`'s `type_aliases` so a bare `String` resolves in *every*
+/// module — not only those that `use core::String`. Mirrors the enum prelude
+/// (`Option`/`Result`). The core module's own `register_named_types` overwrites
+/// these with value-identical entries (pinned by `validate_reserved_structs`),
+/// and `retain_imported_type_aliases` keeps them across the per-module retract.
+fn primitive_type_aliases() -> HashMap<Arc<str>, Type> {
+    [
+        (Primitive::Bool, Type::bool()),
+        (Primitive::Number, Type::number()),
+        (Primitive::String, Type::string()),
+        (Primitive::Bytes, Type::bytes()),
+    ]
+    .into_iter()
+    .map(|(p, ty)| (Arc::from(p.name()), ty))
+    .collect()
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Type Inference
@@ -190,7 +208,7 @@ impl Infer {
             current_abilities: AbilitySet::Empty,
             ability_registry: registry,
             ability_resolver: resolver,
-            type_aliases: HashMap::new(),
+            type_aliases: primitive_type_aliases(),
             trait_registry: TraitRegistry::with_prelude(),
             inherent_registry: inherent::InherentRegistry::default(),
             enum_registry: enums::EnumRegistry::with_prelude(),

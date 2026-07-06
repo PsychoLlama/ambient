@@ -7,7 +7,7 @@ use crate::ability_resolver::AbilityResolver;
 use crate::ast::BindingId;
 use crate::module_path::ModulePath;
 use crate::module_registry::{ExportKind, ModuleRegistry, ResolvedImport};
-use crate::types::{AbilityId, AbilitySet, TraitDef, TraitMethodDef, Type, TypeVarId};
+use crate::types::{AbilityId, AbilitySet, Primitive, TraitDef, TraitMethodDef, Type, TypeVarId};
 
 use super::Infer;
 use super::env::{Scheme, TypeEnv};
@@ -107,6 +107,10 @@ fn check_module_core(
     };
 
     register_named_types(&mut infer, &module);
+    // A struct claiming a reserved primitive identity must *be* the canonical
+    // `extern` declaration (checked local-module only: foreign modules were
+    // validated in their own check pass).
+    validate_reserved_structs(&module, &mut errors);
     // Unit structs are values as well as types: each denotes a single value
     // constructed by its bare name (like a nullary enum variant). Bind that
     // value into the env so `let o = Origin` type-checks.
@@ -577,8 +581,12 @@ fn retain_imported_type_aliases(
         .unwrap_or_default();
     // Canonical qualified keys (`shapes.Money`) always stay: they can't
     // collide with bare names, and qualified references are visibility-
-    // checked by the resolve pass.
-    infer.retain_type_aliases(|name| name.contains("::") || imported.contains(name));
+    // checked by the resolve pass. The four primitive aliases
+    // (`String`/`Number`/`Bool`/`Bytes`) are prelude — resolvable in every
+    // module without an import — so they survive the retract too.
+    infer.retain_type_aliases(|name| {
+        name.contains("::") || imported.contains(name) || Primitive::from_name(name).is_some()
+    });
 }
 
 /// Register the types, traits, and impls declared in the *other* modules of
@@ -1659,6 +1667,29 @@ pub fn resolve_registry_abilities(
         }
     }
     out
+}
+
+/// Validate every struct declaration against the reserved primitive specs.
+///
+/// The `Bool`/`Number`/`String`/`Bytes` primitives are ordinary in-language
+/// `extern` declarations in `core_lib`, but their identity is anchored by the
+/// reserved uuids in `types.rs`. This pins the two together: a declaration that
+/// claims a reserved uuid — or a reserved primitive *name* — must be the
+/// canonical `extern` unit struct, so the core sources can never drift from the
+/// anchors (they fail the build if they try) and no module can hijack a
+/// primitive identity. Runs local-module only (the same drift the enum guard
+/// catches for `Option`/`Result`).
+fn validate_reserved_structs(module: &crate::ast::Module, errors: &mut Vec<BoxedTypeError>) {
+    for item in &module.items {
+        if let crate::ast::ItemKind::Struct(struct_def) = &item.kind
+            && let Err(message) = super::enums::validate_reserved_struct(struct_def)
+        {
+            errors.push(Box::new(TypeError::new(
+                TypeErrorKind::InvalidDeclaration { message },
+                (struct_def.name_span.start, struct_def.name_span.end),
+            )));
+        }
+    }
 }
 
 /// Register the module's enum declarations and bring every visible

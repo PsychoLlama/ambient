@@ -11,6 +11,13 @@
 // another type, and `join` takes a `List<String>`. They stay free functions,
 // like `range` in list.ab.
 
+// `String` is an engine-provided primitive: user code may name it and pattern
+// on its literals, but the value has no source constructor (`String {}` is
+// rejected). The `unique(...)` uuid must equal `STRING_UUID` in `types.rs`, and
+// the compiler's literal anchor (`Type::string()`) lowers to this exact
+// declaration.
+pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF03) struct String;
+
 pub fn from_number(n: Number): String {
     core::convert::to_string(n)
 }

@@ -212,6 +212,74 @@ pub fn validate_reserved_declaration(def: &crate::ast::EnumDef) -> Result<(), St
     Ok(())
 }
 
+/// Validate a struct declaration against the reserved primitive specs.
+///
+/// The canonical `Bool`/`Number`/`String`/`Bytes` declarations live in Ambient
+/// source (`core_lib/bool.ab`, ...) as `extern` unit structs, while the
+/// compiler anchors their identity on the reserved uuids in `types.rs`
+/// ([`crate::types::Primitive`]). This check pins the two together: a
+/// declaration that claims a reserved uuid must *be* the canonical declaration
+/// — same name, `extern`, unit shape, and no type parameters — and a
+/// declaration claiming a reserved *name* must carry the matching uuid. The
+/// core sources can therefore never drift from the anchors, and no other module
+/// can hijack a primitive identity.
+///
+/// # Errors
+///
+/// Returns a description of the mismatch if `def` reuses a reserved primitive
+/// uuid without matching its spec, or claims a reserved primitive name without
+/// the matching uuid. A declaration touching neither always passes.
+pub fn validate_reserved_struct(def: &crate::ast::StructDef) -> Result<(), String> {
+    use crate::types::Primitive;
+
+    let by_uuid = def.unique_id.and_then(Primitive::from_uuid);
+    let by_name = Primitive::from_name(&def.name);
+
+    let Some(prim) = by_uuid else {
+        // A struct claiming a reserved primitive *name* without the reserved
+        // uuid is an attempted identity hijack.
+        if let Some(prim) = by_name {
+            return Err(format!(
+                "`{}` is the reserved built-in primitive; a struct named `{}` must use its \
+                 reserved identity `extern unique({}) struct {};`",
+                prim.name(),
+                prim.name(),
+                crate::types::uuid_to_source(&prim.uuid()),
+                prim.name(),
+            ));
+        }
+        return Ok(());
+    };
+
+    let mismatch = |what: &str| {
+        Err(format!(
+            "`unique({})` is the reserved identity of the built-in primitive `{}`; a \
+             declaration using it must be `extern unique(...) struct {};` ({what})",
+            crate::types::uuid_to_source(&prim.uuid()),
+            prim.name(),
+            prim.name(),
+        ))
+    };
+
+    if def.name.as_ref() != prim.name() {
+        return mismatch(&format!(
+            "expected name `{}`, found `{}`",
+            prim.name(),
+            def.name
+        ));
+    }
+    if !def.is_extern {
+        return mismatch("must be declared `extern`");
+    }
+    if !def.is_unit() {
+        return mismatch("must be a unit struct carrying no fields");
+    }
+    if !def.type_params.is_empty() {
+        return mismatch("must have no type parameters");
+    }
+    Ok(())
+}
+
 /// Registry of enums visible to the module being checked.
 #[derive(Debug, Default, Clone)]
 pub struct EnumRegistry {
@@ -375,6 +443,7 @@ impl EnumInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{Primitive, STRING_UUID};
 
     #[test]
     fn prelude_option_result_are_nominal() {
@@ -497,5 +566,93 @@ mod tests {
             &[("Some", Some("T")), ("None", None)],
         );
         assert!(validate_reserved_declaration(&user).is_ok());
+    }
+
+    /// Build a `StructDef` the way the parser lowers a `struct` declaration:
+    /// `unique(uuid)` wraps the (possibly empty) record body in `Type::Nominal`.
+    fn struct_def(
+        name: &str,
+        uuid: Option<Uuid>,
+        is_extern: bool,
+        type_params: &[&str],
+        fields: &[(&str, Type)],
+    ) -> crate::ast::StructDef {
+        let record = Type::Record(crate::types::RecordType {
+            fields: fields
+                .iter()
+                .map(|(n, t)| (Arc::from(*n), t.clone()))
+                .collect(),
+        });
+        let ty = match uuid {
+            Some(uuid) => Type::Nominal(
+                crate::types::NominalType::new(uuid, record, Some(name)).with_extern(is_extern),
+            ),
+            None => record,
+        };
+        crate::ast::StructDef {
+            name: Arc::from(name),
+            name_span: crate::ast::Span::default(),
+            is_public: true,
+            type_params: type_params
+                .iter()
+                .map(|p| crate::ast::TypeParam {
+                    name: Arc::from(*p),
+                    span: crate::ast::Span::default(),
+                })
+                .collect(),
+            ty,
+            unique_id: uuid,
+            is_extern,
+        }
+    }
+
+    #[test]
+    fn reserved_struct_accepts_the_canonical_extern_declaration() {
+        for prim in [
+            Primitive::Bool,
+            Primitive::Number,
+            Primitive::String,
+            Primitive::Bytes,
+        ] {
+            let def = struct_def(prim.name(), Some(prim.uuid()), true, &[], &[]);
+            assert!(
+                validate_reserved_struct(&def).is_ok(),
+                "canonical `{}` must validate",
+                prim.name()
+            );
+        }
+    }
+
+    #[test]
+    fn reserved_struct_rejects_drift_and_hijacks() {
+        // Reserved uuid but not `extern`: a constructable primitive is a footgun.
+        let not_extern = struct_def("String", Some(STRING_UUID), false, &[], &[]);
+        assert!(validate_reserved_struct(&not_extern).is_err());
+
+        // Reserved uuid, wrong name.
+        let wrong_name = struct_def("Str", Some(STRING_UUID), true, &[], &[]);
+        assert!(validate_reserved_struct(&wrong_name).is_err());
+
+        // Reserved uuid, carries fields (not a unit struct).
+        let with_fields = struct_def(
+            "String",
+            Some(STRING_UUID),
+            true,
+            &[],
+            &[("v", Type::number())],
+        );
+        assert!(validate_reserved_struct(&with_fields).is_err());
+
+        // Reserved uuid, spurious type parameter.
+        let generic = struct_def("String", Some(STRING_UUID), true, &["T"], &[]);
+        assert!(validate_reserved_struct(&generic).is_err());
+
+        // Reserved *name* without the reserved uuid: an identity hijack.
+        let hijack = struct_def("String", Some(Uuid::from_u128(0x1234)), true, &[], &[]);
+        assert!(validate_reserved_struct(&hijack).is_err());
+
+        // A struct touching neither a reserved name nor uuid is free.
+        let user = struct_def("Widget", Some(Uuid::from_u128(0x1234)), false, &[], &[]);
+        assert!(validate_reserved_struct(&user).is_ok());
     }
 }
