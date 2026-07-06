@@ -487,3 +487,48 @@ fn generalization_respects_substituted_env_vars() {
         "type mismatch",
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `extern` structs — engine-provided types, unconstructable by user code
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A field-bearing `extern` struct may be named and read, but constructing it
+/// with `{ field: value }` is a type error — only the engine builds its values.
+#[test]
+fn extern_struct_field_construction_is_rejected() {
+    assert_err_containing(
+        r"
+        extern unique(A1B2C3D4-0000-0000-0000-000000000001) struct Handle { id: Number }
+        fn make(): Handle { Handle { id: 1 } }
+        ",
+        "provided by the engine",
+    );
+}
+
+/// Naming an `extern` struct in a type position and reading a field off a value
+/// of that type must still work — the ban is on construction only.
+#[test]
+fn extern_struct_field_read_is_accepted() {
+    assert_ok(
+        r"
+        extern unique(A1B2C3D4-0000-0000-0000-000000000001) struct Handle { id: Number }
+        fn describe(h: Handle): Number { h.id }
+        ",
+    );
+}
+
+/// A bare `extern` unit struct is a type but not a value: using its name in
+/// value position is an undefined value, not a construction.
+#[test]
+fn extern_unit_struct_bare_value_is_rejected() {
+    let errors = check(
+        r"
+        extern unique(A1B2C3D4-0000-0000-0000-000000000002) struct Token;
+        fn get(): Token { Token }
+        ",
+    );
+    assert!(
+        !errors.is_empty(),
+        "expected an error for bare extern unit struct in value position"
+    );
+}

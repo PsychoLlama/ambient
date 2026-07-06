@@ -18,6 +18,7 @@
   "handle"
   "sandbox"
   "unique"
+  "extern"
 ] @keyword
 
 (visibility) @keyword

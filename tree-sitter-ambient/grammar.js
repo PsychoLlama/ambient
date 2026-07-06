@@ -109,6 +109,10 @@ module.exports = grammar({
     struct_definition: ($) =>
       seq(
         optional($.visibility),
+        // `extern` marks an engine-provided type: nameable and readable, but
+        // not constructable by user code. It requires `unique(...)`; the
+        // lowering pass enforces that.
+        optional("extern"),
         optional($.unique_modifier),
         "struct",
         field("name", $.identifier),

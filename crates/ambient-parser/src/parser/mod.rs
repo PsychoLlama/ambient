@@ -1375,6 +1375,84 @@ mod tests {
     }
 
     #[test]
+    fn test_extern_struct_parsing_and_lowering() {
+        use crate::error::ParseErrorKind;
+        use crate::lower_module;
+
+        // `extern unique(...) struct T;` parses and lowers.
+        let mut parser =
+            Parser::new("extern unique(F6A7B8C9-D0E1-2345-FABC-456789012345) struct Token;")
+                .unwrap();
+        let item = parser
+            .parse_item()
+            .expect("extern unit struct should parse");
+        match item.kind {
+            CstItemKind::Struct(ref s) => assert!(s.is_extern, "struct should be extern"),
+            _ => panic!("expected a struct item"),
+        }
+        let mut parser =
+            Parser::new("extern unique(F6A7B8C9-D0E1-2345-FABC-456789012345) struct Token;")
+                .unwrap();
+        let module = parser.parse_module().expect("extern struct should parse");
+        lower_module(&module).expect("extern unit struct must lower");
+
+        // A field-bearing extern struct is also legal.
+        let mut parser = Parser::new(
+            "extern unique(F6A7B8C9-D0E1-2345-FABC-456789012345) struct Handle { id: Number }",
+        )
+        .unwrap();
+        let module = parser.parse_module().expect("extern struct should parse");
+        lower_module(&module).expect("field-bearing extern struct must lower");
+
+        // `pub extern unique(...) struct T;` parses.
+        let mut parser =
+            Parser::new("pub extern unique(F6A7B8C9-D0E1-2345-FABC-456789012345) struct Token;")
+                .unwrap();
+        let item = parser.parse_item().expect("pub extern struct should parse");
+        assert!(matches!(item.kind, CstItemKind::Struct(_)));
+
+        // `extern struct T` without `unique(...)` is rejected. The parser
+        // rejects it (no `unique` after `extern`) before lowering can run.
+        let mut parser = Parser::new("extern struct Token;").unwrap();
+        assert!(
+            parser.parse_item().is_err(),
+            "`extern` without `unique` must error"
+        );
+
+        // A recovered/hand-built extern struct without `unique` is rejected at
+        // lowering with `ExternStructRequiresUnique`. Build the CST directly
+        // since the parser refuses the `unique`-less form.
+        let cst = CstStructDef {
+            is_public: false,
+            name: CstIdent {
+                name: "Token".into(),
+                span: Span::new(0, 0),
+                trailing_trivia: crate::cst::Trivia::default(),
+            },
+            type_params: Vec::new(),
+            ty: None,
+            unique_id: None,
+            is_extern: true,
+        };
+        let err = crate::lower::lower_struct_def(&cst)
+            .expect_err("extern struct without unique must fail lowering");
+        assert!(matches!(
+            err.kind,
+            ParseErrorKind::ExternStructRequiresUnique
+        ));
+
+        // `extern unique(...) enum E` is rejected — `extern` applies to structs.
+        let mut parser = Parser::new(
+            "extern unique(F6A7B8C9-D0E1-2345-FABC-456789012345) enum Color { Red, Blue }",
+        )
+        .unwrap();
+        assert!(
+            parser.parse_item().is_err(),
+            "`extern` on an enum must error"
+        );
+    }
+
+    #[test]
     fn test_parse_if_expr() {
         let mut parser = Parser::new("if x { 1 } else { 2 }").unwrap();
         let expr = parser.parse_expression().expect("parse error");

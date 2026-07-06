@@ -213,6 +213,27 @@ unique(F6A7B8C9-D0E1-2345-FABC-456789012345) struct Marker;
     name: (identifier)))
 
 ================================================================================
+Extern struct
+================================================================================
+
+extern unique(F6A7B8C9-D0E1-2345-FABC-456789012345) struct Handle {
+  id: int,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (struct_definition
+    (unique_modifier
+      (uuid))
+    name: (identifier)
+    (record_type_body
+      (record_type_fields
+        (record_type_field
+          name: (identifier)
+          type: (identifier))))))
+
+================================================================================
 Struct definition
 ================================================================================
 

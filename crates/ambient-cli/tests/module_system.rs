@@ -491,3 +491,59 @@ pub fn run(): Number {
     check_passes(dir.path());
     assert_eq!(run(dir.path()), "14");
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// `extern` structs: engine-provided, unconstructable across module boundaries
+// ─────────────────────────────────────────────────────────────────────────
+
+/// An `extern` struct exported by one module cannot be constructed by another.
+/// The ban keys off the type's canonical nominal identity (its UUID), not the
+/// local spelling — so importing it and writing `T { .. }` is rejected, proving
+/// enforcement is not a local-only, definition-site concern.
+#[test]
+fn extern_struct_cannot_be_constructed_across_modules() {
+    let dir = package(&[
+        (
+            "handles.ab",
+            "pub extern unique(A1B2C3D4-0000-0000-0000-0000000000AB) struct Handle { id: Number }\n",
+        ),
+        (
+            "main.ab",
+            r"
+use pkg::handles::Handle;
+
+pub fn run(): Number {
+  let h: Handle = Handle { id: 1 };
+  h.id
+}
+",
+        ),
+    ]);
+    let output = check_fails(dir.path());
+    assert!(
+        output.contains("provided by the engine"),
+        "expected an extern-construction error, got:\n{output}"
+    );
+}
+
+/// The same extern struct may be named in a signature and have its fields read
+/// across modules — only construction is banned. A function taking a `Handle`
+/// and reading `h.id` checks clean.
+#[test]
+fn extern_struct_can_be_named_and_read_across_modules() {
+    let dir = package(&[
+        (
+            "handles.ab",
+            "pub extern unique(A1B2C3D4-0000-0000-0000-0000000000AC) struct Handle { id: Number }\n",
+        ),
+        (
+            "main.ab",
+            r"
+use pkg::handles::Handle;
+
+pub fn describe(h: Handle): Number { h.id }
+",
+        ),
+    ]);
+    check_passes(dir.path());
+}
