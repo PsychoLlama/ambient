@@ -783,31 +783,31 @@ static INTRINSICS: &[Intrinsic] = &[
         |_| sig(vec![Type::bytes()], Type::string()),
     ),
     // ─────────────────────────────────────────────────────────────────────
-    // core::bytes
+    // core::Bytes
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
-        &["core", "bytes"],
+        &["core", "Bytes"],
         "from",
         1,
         EmitStrategy::Opcode(Opcode::BytesFrom),
         |_| sig(vec![list(Type::number())], Type::bytes()),
     ),
     intrinsic(
-        &["core", "bytes"],
+        &["core", "Bytes"],
         "to_list",
         1,
         EmitStrategy::Opcode(Opcode::BytesToList),
         |_| sig(vec![Type::bytes()], list(Type::number())),
     ),
     intrinsic(
-        &["core", "bytes"],
+        &["core", "Bytes"],
         "length",
         1,
         EmitStrategy::Opcode(Opcode::BytesLength),
         |_| sig(vec![Type::bytes()], Type::number()),
     ),
     intrinsic(
-        &["core", "bytes"],
+        &["core", "Bytes"],
         "get",
         2,
         EmitStrategy::Opcode(Opcode::BytesGet),
@@ -819,7 +819,7 @@ static INTRINSICS: &[Intrinsic] = &[
         },
     ),
     intrinsic(
-        &["core", "bytes"],
+        &["core", "Bytes"],
         "slice",
         3,
         EmitStrategy::Opcode(Opcode::BytesSlice),
@@ -831,7 +831,7 @@ static INTRINSICS: &[Intrinsic] = &[
         },
     ),
     intrinsic(
-        &["core", "bytes"],
+        &["core", "Bytes"],
         "concat",
         2,
         EmitStrategy::Opcode(Opcode::BytesConcat),

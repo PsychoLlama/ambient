@@ -40,14 +40,14 @@ pub fn run(): () with Stdio, Network, Execute {
 fn serve_request(conn: Number): () with Stdio, Network, Execute {
     let bytes = Network::receive!(conn);
 
-    if core::bytes::length(bytes) == 0 {
+    if core::Bytes::length(bytes) == 0 {
         Stdio::out!("Server: connection closed")
     } else {
-        let msg_type = core::bytes::get(bytes, 0).unwrap_or(0);
+        let msg_type = core::Bytes::get(bytes, 0).unwrap_or(0);
 
         if msg_type == 1 {
             // Execute message
-            let payload = core::bytes::slice(bytes, 1, core::bytes::length(bytes));
+            let payload = core::Bytes::slice(bytes, 1, core::Bytes::length(bytes));
             handle_execute(conn, payload)
         } else {
             Stdio::out!("Server: unknown message type")
@@ -58,10 +58,10 @@ fn serve_request(conn: Number): () with Stdio, Network, Execute {
 /// Handle an Execute request.
 fn handle_execute(conn: Number, payload: Bytes): () with Stdio, Network, Execute {
     // Parse hash length and hash
-    let hash_len = core::bytes::get(payload, 0).unwrap_or(0);
-    let rest = core::bytes::slice(payload, 1, core::bytes::length(payload));
-    let hash_bytes = core::bytes::slice(rest, 0, hash_len);
-    let captures = core::bytes::slice(rest, hash_len, core::bytes::length(rest));
+    let hash_len = core::Bytes::get(payload, 0).unwrap_or(0);
+    let rest = core::Bytes::slice(payload, 1, core::Bytes::length(payload));
+    let hash_bytes = core::Bytes::slice(rest, 0, hash_len);
+    let captures = core::Bytes::slice(rest, hash_len, core::Bytes::length(rest));
 
     // Deserialize hash string
     let hash_opt = core::protocol::deserialize_value(hash_bytes);
@@ -85,15 +85,15 @@ fn handle_execute(conn: Number, payload: Bytes): () with Stdio, Network, Execute
 fn request_function(conn: Number, hash: String): () with Stdio, Network, Execute {
     // Send NeedDeps message with the hash
     let serialized = core::protocol::serialize_value([hash]);
-    let msg = core::bytes::concat(core::bytes::from([2]), serialized);
+    let msg = core::Bytes::concat(core::Bytes::from([2]), serialized);
     Network::send!(conn, msg);
 
     // Receive Provide message
     let response = Network::receive!(conn);
-    let msg_type = core::bytes::get(response, 0).unwrap_or(0);
+    let msg_type = core::Bytes::get(response, 0).unwrap_or(0);
 
     if msg_type == 3 {
-        let payload = core::bytes::slice(response, 1, core::bytes::length(response));
+        let payload = core::Bytes::slice(response, 1, core::Bytes::length(response));
         Execute::load_functions!(payload);
         Stdio::out!("Server: loaded function from client")
     } else {
@@ -116,7 +116,7 @@ fn execute_function(conn: Number, hash: String, captures: Bytes): () with Stdio,
 
     // Send Result message
     let result_bytes = core::protocol::serialize_value(result);
-    let msg = core::bytes::concat(core::bytes::from([4]), result_bytes);
+    let msg = core::Bytes::concat(core::Bytes::from([4]), result_bytes);
     Network::send!(conn, msg);
 
     Stdio::out!("Server: sent result to client")
