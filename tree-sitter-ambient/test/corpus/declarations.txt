@@ -178,7 +178,7 @@ use some_library::mod::{a, b};
           (identifier))))))
 
 ================================================================================
-Type definition with unique
+Struct definition with unique
 ================================================================================
 
 unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct UserId {
@@ -197,6 +197,42 @@ unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct UserId {
         (record_type_field
           name: (identifier)
           type: (identifier))))))
+
+================================================================================
+Struct definition
+================================================================================
+
+struct Point {
+  x: int,
+  y: int,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (struct_definition
+    name: (identifier)
+    (record_type_body
+      (record_type_fields
+        (record_type_field
+          name: (identifier)
+          type: (identifier))
+        (record_type_field
+          name: (identifier)
+          type: (identifier))))))
+
+================================================================================
+Type alias
+================================================================================
+
+type Celsius = float;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_definition
+    name: (identifier)
+    type: (identifier)))
 
 ================================================================================
 Never type
