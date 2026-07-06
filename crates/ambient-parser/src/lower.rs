@@ -1022,18 +1022,16 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
         CstTypeExprKind::Name(qn) => {
             let name = type_name_from_segments(qn);
             match &*name {
-                // Primitives are nominal types spelled in PascalCase; the parser
-                // stamps their reserved uuid so an annotation `s: String` and an
-                // inferred literal type agree by construction.
-                "Number" => Ok(Type::number()),
-                "String" => Ok(Type::string()),
-                "Bool" => Ok(Type::bool()),
-                "Bytes" => Ok(Type::bytes()),
                 // The old lowercase spellings are gone; point at the fix.
-                "number" | "string" | "bool" => {
+                // Primitives themselves (`Number`/`String`/`Bool`/`Bytes`) are
+                // no longer intercepted here — they fall through to the generic
+                // `Named { uuid: None }` arm and resolve via the prelude alias,
+                // like any other declared type.
+                "number" | "string" | "bool" | "bytes" => {
                     let suggestion = match &*name {
                         "number" => "Number",
                         "string" => "String",
+                        "bytes" => "Bytes",
                         _ => "Bool",
                     };
                     Err(ParseError::new(
