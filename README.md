@@ -86,7 +86,7 @@ Effect handlers are delimited continuations. Mock any capability in tests, sandb
 
 ```ambient
 fn roll_dice(): number {
-  math::abs(platform::Random::in_range!(6))
+  platform::Random::in_range!(6).abs()
 }
 
 fn run(): () with platform::Random, platform::Log {

@@ -59,8 +59,8 @@ chainable), `core` (standard library), `platform` (host bindings).
 ```ambient
 use pkg::utils::helper;                 // Item import: `helper` as a bare name
 use pkg::utils::{a, deep::{b, c}};      // Brace groups, nested arbitrarily
-use core::math::sqrt as root2;          // `as` renames the local binding
-use {core::math, platform::Stdio};      // Root-level groups
+use core::Number::sqrt as root2;        // `as` renames the local binding
+use {core::Number, platform::Stdio};    // Root-level groups
 use self::utils;                        // Whole-module import: utils::helper(...)
 use pkg::net::http;                     // Directory namespaces import too:
 use http::client::get;                  //   ...and a module alias can root
@@ -84,7 +84,7 @@ nothing.
 
 ```ambient
 pub fn hyp(a: number, b: number): number {
-  use core::math::sqrt;
+  use core::Number::sqrt;
   sqrt(a * a + b * b)
 }
 ```
@@ -110,31 +110,32 @@ Re-export paths must be rooted (`pkg`/`core`/`platform`/`self`/`super`),
 not alias-relative, so downstream modules can resolve them without this
 module's scope.
 
-Core modules (`core::List`, `core::math`, `core::String`) are ordinary
+Core modules (`core::List`, `core::Number`, `core::String`) are ordinary
 Ambient modules — compiled, content-addressed, and stored exactly like
 user code (see `crates/ambient-engine/src/core_lib/`). Beneath them sits
-a fixed set of _intrinsics_ (`core::math::sqrt`, `core::List::length`,
+a fixed set of _intrinsics_ (`core::Number::sqrt`, `core::List::length`,
 `core::String::concat`, ...) that compile to dedicated opcodes; an
 intrinsic is an ordinary item of its module — importable, aliasable,
-reachable through `use core::math;` + `math::sqrt(x)` — and takes
+reachable through `use core::Number;` + `Number::sqrt(x)` — and takes
 precedence over a compiled function at the same path. `core` is a keyword
 and `platform` a contextual keyword, and a user module may not take
 either name (the build rejects `src/core.ab` / `src/platform.ab`), so the
 reserved namespaces can never be shadowed.
 
 A core module that backs a type takes that type's PascalCase name: `List`,
-`Option`, and `Result` are the companion modules of the `List<T>`, `Option<T>`,
-and `Result<T, E>` types, so `List::range` reads as an associated function of
-`List`. Plain namespaces stay lowercase (`math` backs no type; `string` is a
-primitive whose `string`→`String` alignment is future work). Types, values, and
-modules occupy separate namespaces resolved by syntactic position, so the type
-`List` and the module `core::List` coexist without ambiguity.
+`Option`, `Result`, and `Number` are the companion modules of the `List<T>`,
+`Option<T>`, `Result<T, E>`, and `Number` types, so `List::range` reads as an
+associated function of `List` and `Number::sqrt` as one of `Number`. Plain
+namespaces stay lowercase (`time` groups the `Duration` helpers but names no
+single type). Types, values, and modules occupy separate namespaces resolved by
+syntactic position, so the type `List` and the module `core::List` coexist
+without ambiguity.
 
 Known gaps (deliberate, minor): qualified references to *generic* type
 aliases and generic `unique` types are unresolved (parameter substitution
 is checker work); ability names inside function *type* annotations
 (`(T) -> U with E`) accept only bare or `platform::` spellings; intrinsics
-are not first-class values (`let f = core::math::sqrt;` is an error —
+are not first-class values (`let f = core::Number::sqrt;` is an error —
 call them directly).
 
 A local binding shadows a module alias: after `let utils = ...;`,

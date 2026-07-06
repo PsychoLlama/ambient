@@ -6,7 +6,7 @@
 //!
 //! - a bare imported name (`double` after `use pkg::util::double;`),
 //! - a module-alias path (`util::double`, `nested::leaf::leaf_fn`),
-//! - an inline rooted path (`pkg::util::double`, `core::math::sqrt`,
+//! - an inline rooted path (`pkg::util::double`, `core::Number::sqrt`,
 //!   `self::sibling::helper`, `platform::Stdio`).
 //!
 //! The canonical identity is recorded in [`QualifiedName::resolved`]

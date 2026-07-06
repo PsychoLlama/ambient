@@ -81,7 +81,7 @@ pub type BindingId = u32;
 /// the module was checked without a registry).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resolved {
-    /// Qualified path of the defining module (`core::math`, `utils::format`).
+    /// Qualified path of the defining module (`core::Number`, `utils::format`).
     pub module: Arc<str>,
     /// The item's name in the defining module (aliases unfolded: a
     /// reference through `use pkg::m::f as g;` resolves to name `f`).
@@ -975,7 +975,7 @@ pub struct AbilityMethod {
 /// Examples (each line is one `UseDef` after flattening):
 /// - `use pkg::utils;` — whole-module import
 /// - `use pkg::utils::helper;` — item import
-/// - `use core::math::sqrt as root2;` — aliased import
+/// - `use core::Number::sqrt as root2;` — aliased import
 /// - `use utils::inner;` — `Local` root: `utils` is a module alias from
 ///   an earlier `use`
 /// - `pub use pkg::other::Thing;` — re-export

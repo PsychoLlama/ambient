@@ -413,7 +413,7 @@ impl EnumValue {
 /// path and list of exports (functions, constants, types, etc.).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModuleValue {
-    /// The module path (e.g., `pkg::utils` or `core::math`).
+    /// The module path (e.g., `pkg::utils` or `core::Number`).
     pub path: Arc<str>,
 
     /// Exported symbols from this module.
