@@ -1068,6 +1068,20 @@ impl Primitive {
         }
     }
 
+    /// The primitive matching a bare type name (e.g. `"String"`), if any. The
+    /// name-keyed dual of [`from_uuid`](Self::from_uuid); used by the prelude to
+    /// keep the four primitive aliases resolvable in every module.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "Bool" => Some(Self::Bool),
+            "Number" => Some(Self::Number),
+            "String" => Some(Self::String),
+            "Bytes" => Some(Self::Bytes),
+            _ => None,
+        }
+    }
+
     /// The module-qualified identity (e.g. `"core::String"`) surfaced by hover.
     /// Primitives are homed in `core`; the bare [`name`](Self::name) alone
     /// doesn't carry the module.
@@ -1263,41 +1277,52 @@ impl Type {
     /// The `Bool` primitive, a nominal type carrying its reserved identity.
     #[must_use]
     pub fn bool() -> Self {
-        Self::Named(NamedType::with_identity("Bool", vec![], Some(BOOL_UUID)))
+        Self::primitive_nominal(BOOL_UUID, "Bool")
     }
 
     /// The `Number` primitive, a nominal type carrying its reserved identity.
     #[must_use]
     pub fn number() -> Self {
-        Self::Named(NamedType::with_identity(
-            "Number",
-            vec![],
-            Some(NUMBER_UUID),
-        ))
+        Self::primitive_nominal(NUMBER_UUID, "Number")
     }
 
     /// The `String` primitive, a nominal type carrying its reserved identity.
     #[must_use]
     pub fn string() -> Self {
-        Self::Named(NamedType::with_identity(
-            "String",
-            vec![],
-            Some(STRING_UUID),
-        ))
+        Self::primitive_nominal(STRING_UUID, "String")
     }
 
     /// The `Bytes` primitive, a nominal type carrying its reserved identity.
     #[must_use]
     pub fn bytes() -> Self {
-        Self::Named(NamedType::with_identity("Bytes", vec![], Some(BYTES_UUID)))
+        Self::primitive_nominal(BYTES_UUID, "Bytes")
     }
 
-    /// If this type is a primitive (a `Named` carrying a reserved primitive
+    /// Build the canonical `extern` [`Type::Nominal`] for a primitive. This is
+    /// value-identical to what a unit `extern` struct lowers to (a fieldless
+    /// record wrapped in a nominal identity, marked `extern`), so the anchor and
+    /// the source declaration in `core_lib` unify trivially. Primitives are the
+    /// only `extern` types whose value is withheld yet whose literals still exist
+    /// (via the compile-time anchors below).
+    #[must_use]
+    fn primitive_nominal(uuid: Uuid, name: &'static str) -> Self {
+        Self::Nominal(
+            NominalType::new(
+                uuid,
+                Type::Record(RecordType { fields: vec![] }),
+                Some(name),
+            )
+            .with_extern(true),
+        )
+    }
+
+    /// If this type is a primitive (a nominal type carrying a reserved primitive
     /// uuid), return which one. Mirrors [`as_option`](Self::as_option).
     #[must_use]
     pub fn as_primitive(&self) -> Option<Primitive> {
         match self {
             Self::Named(n) => n.uuid.and_then(Primitive::from_uuid),
+            Self::Nominal(n) => Primitive::from_uuid(n.uuid),
             _ => None,
         }
     }
