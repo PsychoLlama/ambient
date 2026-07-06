@@ -24,7 +24,7 @@ impl Duration {
     /// nanoseconds (>= one second) carry into the seconds field so the
     /// stored value is always normalized.
     fn new(secs: Number, nanos: Number): Duration {
-        let carry = core::math::floor(nanos / NANOS_PER_SEC);
+        let carry = (nanos / NANOS_PER_SEC).floor();
         Duration { secs: secs + carry, nanos: nanos - carry * NANOS_PER_SEC }
     }
 
@@ -60,12 +60,12 @@ impl Duration {
 
     /// The subsecond component, in whole milliseconds.
     fn subsec_millis(self): Number {
-        core::math::floor(self.nanos / NANOS_PER_MILLI)
+        (self.nanos / NANOS_PER_MILLI).floor()
     }
 
     /// The subsecond component, in whole microseconds.
     fn subsec_micros(self): Number {
-        core::math::floor(self.nanos / NANOS_PER_MICRO)
+        (self.nanos / NANOS_PER_MICRO).floor()
     }
 
     /// The total duration in whole milliseconds.

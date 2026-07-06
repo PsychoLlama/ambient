@@ -94,7 +94,7 @@ impl CoreLibrary {
 /// the hardcoded prelude in `TraitRegistry::with_prelude`, and registering
 /// a second copy would collide with it.
 pub const REGISTERED_CORE_MODULES: &[&str] = &[
-    "math", "Bool", "Number", "String", "Bytes", "List", "Option", "Result", "time",
+    "Bool", "Number", "String", "Bytes", "List", "Option", "Result", "time",
 ];
 
 /// Parse every registered core module and register it in a module
@@ -129,9 +129,9 @@ pub fn register_core_modules(
 
         // Intrinsics are items of their core module even though they have
         // no AST declaration (they compile to dedicated opcodes), so they
-        // export like any compiled function: `use core::math::sqrt;` and
-        // `use core::math;` + `math::sqrt(…)` resolve the same way
-        // `core::math::sqrt(…)` does.
+        // export like any compiled function: `use core::Number::sqrt;` and
+        // `use core::Number;` + `Number::sqrt(…)` resolve the same way
+        // `core::Number::sqrt(…)` does.
         let segments: Vec<&str> = path.segments().iter().map(AsRef::as_ref).collect();
         let intrinsic_exports = intrinsics_for_module(&segments)
             .into_iter()
@@ -203,7 +203,6 @@ fn get_core_modules() -> HashMap<&'static str, &'static str> {
     modules.insert("Number", include_str!("core_lib/number.ab"));
     modules.insert("String", include_str!("core_lib/string.ab"));
     modules.insert("Bytes", include_str!("core_lib/bytes.ab"));
-    modules.insert("math", include_str!("core_lib/math.ab"));
     modules.insert("time", include_str!("core_lib/time.ab"));
     modules.insert("traits", include_str!("core_lib/traits.ab"));
     modules
@@ -216,7 +215,7 @@ mod tests {
     #[test]
     fn test_has_module() {
         assert!(CoreLibrary::has_module(&[Arc::from("List")]));
-        assert!(CoreLibrary::has_module(&[Arc::from("math")]));
+        assert!(CoreLibrary::has_module(&[Arc::from("Number")]));
         assert!(!CoreLibrary::has_module(&[Arc::from("nonexistent")]));
     }
 
@@ -231,7 +230,7 @@ mod tests {
     fn test_available_modules() {
         let modules = CoreLibrary::available_modules();
         assert!(modules.contains(&"List"));
-        assert!(modules.contains(&"math"));
+        assert!(modules.contains(&"Number"));
         assert!(modules.contains(&"String"));
     }
 

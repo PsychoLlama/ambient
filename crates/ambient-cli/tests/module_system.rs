@@ -173,7 +173,7 @@ fn use_trees_flatten_to_plain_imports() {
             "main.ab",
             r"
 use {pkg::util::double, pkg::deep::{nested::leaf::leaf_fn as leaf7}};
-use core::math::sqrt as root;
+use core::Number::sqrt as root;
 
 pub fn run(): Number {
   double(leaf7()) + root(4)
@@ -231,12 +231,12 @@ fn intrinsics_import_and_alias_like_functions() {
     let dir = package(&[(
         "main.ab",
         r"
-use core::math::sqrt;
-use core::math;
+use core::Number::sqrt;
+use core::Number;
 use core::List;
 
 pub fn run(): Number {
-  sqrt(16) + math::sqrt(16) + core::math::sqrt(16) + List::length(List::range(1, 4))
+  sqrt(16) + Number::sqrt(16) + core::Number::sqrt(16) + List::length(List::range(1, 4))
 }
 ",
     )]);

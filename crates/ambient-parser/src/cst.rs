@@ -412,8 +412,8 @@ pub struct CstAbilityMethod {
 /// - `use pkg::utils;`
 /// - `use pkg::utils::helper;`
 /// - `use pkg::utils::{helper, deep::{a, b}};`
-/// - `use core::math::sqrt as root2;`
-/// - `use {core::math, platform::Stdio};`
+/// - `use core::Number::sqrt as root2;`
+/// - `use {core::Number, platform::Stdio};`
 /// - `use self::sibling;` / `use super::parent;`
 /// - `use utils::inner;` (rooted at a module alias from another `use`)
 /// - `pub use pkg::other::Thing;`

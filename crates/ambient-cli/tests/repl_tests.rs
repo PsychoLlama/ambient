@@ -189,12 +189,12 @@ fn test_core_list_first_inspects_as_function() {
 
 #[test]
 fn test_dotted_module_path_is_rejected() {
-    // Namespaces are addressed with `::`. A dotted path like `core.math.sign`
+    // Namespaces are addressed with `::`. A dotted path like `core.Number.sign`
     // is value/field access, not a namespace, so it must NOT resolve as a module
     // member — it parses as field access on the (undefined) value `core`.
     ReplTest::new()
         .wait_ready()
-        .type_line("core.math.sign")
+        .type_line("core.Number.sign")
         .expect_error("undefined")
         .shutdown();
 }

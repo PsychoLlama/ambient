@@ -8,7 +8,7 @@
 // are called the same qualified way.
 
 use self::stats;
-use core::{String, math};
+use core::String;
 use platform::Stdio;
 
 pub fn run(): () with Stdio {
@@ -23,5 +23,5 @@ pub fn run(): () with Stdio {
 }
 
 fn is_even(x: Number): Bool {
-    x - math::floor(x / 2) * 2 == 0
+    x - (x / 2).floor() * 2 == 0
 }

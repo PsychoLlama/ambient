@@ -8,8 +8,6 @@
 //! - Method calls using dot notation
 //! - Using nominal types with traits
 
-use core::math;
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Custom Traits
 // ─────────────────────────────────────────────────────────────────────────────
@@ -64,7 +62,7 @@ impl Eq for Vec2 {
 
 impl Magnitude for Vec2 {
     fn magnitude(self): Number {
-        math::sqrt(self.x * self.x + self.y * self.y)
+        (self.x * self.x + self.y * self.y).sqrt()
     }
 }
 
@@ -112,7 +110,7 @@ impl Eq for Vec3 {
 
 impl Magnitude for Vec3 {
     fn magnitude(self): Number {
-        math::sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
+        (self.x * self.x + self.y * self.y + self.z * self.z).sqrt()
     }
 }
 
@@ -152,7 +150,7 @@ fn lerp2(a: Vec2, b: Vec2, t: Number): Vec2 {
 
 /// Checks if a number is approximately zero.
 fn approx_zero(n: Number): Bool {
-    math::abs(n) < 0.0001
+    n.abs() < 0.0001
 }
 
 /// Checks if two numbers are approximately equal.
