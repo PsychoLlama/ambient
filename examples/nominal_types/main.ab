@@ -72,6 +72,10 @@ fn format_usd(amount: USD): Number {
     amount.cents
 }
 
+/// Accepts the origin marker. Its nominal type means only the real `Origin`
+/// value type-checks here — never a bare record or another marker.
+fn describe_origin(_marker: Origin): String { "origin" }
+
 /// Entry point - demonstrates nominal type construction and field access.
 pub fn run(): Number {
     // Construct nominal types using TypeName { field: value } syntax
@@ -89,6 +93,11 @@ pub fn run(): Number {
     // Use the helper functions with correct types
     let name = get_user_name(user);
     let formatted = format_usd(price);
+
+    // A unit struct is constructed by its bare name: `Origin` *is* the sole
+    // value of its type, like a Rust unit struct or a nullary enum variant.
+    let start = Origin;
+    let _origin_label = describe_origin(start);
 
     // Return the sum of cents to verify everything works
     price_cents + eu_cents

@@ -123,6 +123,12 @@ impl<'r> Resolver<'r> {
                 }
                 ItemKind::Struct(s) => {
                     module_types.insert(Arc::clone(&s.name));
+                    // A unit struct is a value too — its bare name constructs
+                    // it — so it stays bare (unresolved) like an enum variant,
+                    // and the checker's bare-name value binding covers it.
+                    if s.is_unit() {
+                        module_values.insert(Arc::clone(&s.name));
+                    }
                 }
                 ItemKind::TypeAlias(t) => {
                     module_types.insert(Arc::clone(&t.name));
@@ -313,6 +319,18 @@ impl<'r> Resolver<'r> {
             }
             if let Some(import) = self.scope_item(&name.name, Namespace::Value)
                 && matches!(import.kind, ExportKind::Function | ExportKind::Const)
+            {
+                name.resolved = Some(self.canonical(&import.module.clone(), &import.name.clone()));
+                return;
+            }
+            // A bare `Origin` imported via `use m::{Origin}` lives in the
+            // type namespace (structs are types), but a unit struct is also a
+            // value. Canonicalize it to `<module>::Origin` — the key the
+            // checker bound its constructor scheme under — mirroring the
+            // Function/Const canonicalization above.
+            if let Some(import) = self.scope_item(&name.name, Namespace::Type)
+                && import.kind == ExportKind::Struct
+                && self.registry.is_unit_struct(&import.module, &import.name)
             {
                 name.resolved = Some(self.canonical(&import.module.clone(), &import.name.clone()));
             }

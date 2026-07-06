@@ -146,6 +146,12 @@ pub(super) fn compile_expr(
                 }
                 fc.builder
                     .emit_make_enum(&variant.enum_name, variant.tag, var_name, false);
+            } else if ctx.unit_structs.contains(&key) {
+                // Unit struct constructed by its bare name: `Origin`. It is an
+                // empty record value — a unit struct carries no runtime
+                // nominal tag, exactly like every nominal record (identity is
+                // compile-time only). Parallel to the nullary-variant branch.
+                fc.builder.emit_u8(Opcode::MakeRecord, 0);
             } else {
                 return Err(CompileError::new(
                     CompileErrorKind::UndefinedFunction {

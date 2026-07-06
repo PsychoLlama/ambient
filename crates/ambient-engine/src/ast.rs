@@ -849,6 +849,24 @@ pub struct StructDef {
     pub unique_id: Option<Uuid>,
 }
 
+impl StructDef {
+    /// Whether this is a *unit* struct: a `unique` struct with an empty
+    /// body (`unique(<uuid>) struct Origin;`). Post-parser such a type is
+    /// exactly a `Type::Nominal` wrapping a zero-field `Type::Record`, and
+    /// it denotes a single value constructed by its bare name — the same
+    /// dual type/value identity a nullary enum variant carries. This is the
+    /// single source of truth every site keys off to bind, resolve, and
+    /// compile that value.
+    #[must_use]
+    pub fn is_unit(&self) -> bool {
+        matches!(
+            &self.ty,
+            Type::Nominal(n)
+                if matches!(&*n.inner, Type::Record(r) if r.fields.is_empty())
+        )
+    }
+}
+
 /// A type alias definition: `type Foo = Bar`.
 #[derive(Debug, Clone)]
 pub struct TypeAliasDef {

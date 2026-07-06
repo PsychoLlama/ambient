@@ -107,6 +107,10 @@ fn check_module_core(
     };
 
     register_named_types(&mut infer, &module);
+    // Unit structs are values as well as types: each denotes a single value
+    // constructed by its bare name (like a nullary enum variant). Bind that
+    // value into the env so `let o = Origin` type-checks.
+    register_unit_struct_values(&module, &mut env);
     register_traits(&mut infer, &module);
     register_enums(&mut infer, &module, &mut env, &mut errors);
     // ORDERING (load-bearing): `build_import_env` (above) already registered
@@ -421,6 +425,31 @@ fn register_named_types(infer: &mut Infer, module: &crate::ast::Module) {
     for item in &module.items {
         if let Some((name, ty, _)) = named_type_def(item) {
             infer.register_type_alias(Arc::clone(name), ty.clone());
+        }
+    }
+}
+
+/// Bind each local unit struct as a value in the type env, mirroring
+/// `register_enums`' nullary-variant binding: a unit struct is both a type
+/// and its unique value, so a bare `Origin` in value position type-checks
+/// to the struct's nominal type. `struct.ty` is already the `Type::Nominal`,
+/// so nominal identity rides along exactly like a nullary variant
+/// constructor's scheme. Only unit structs get the value binding; a
+/// field-bearing struct used bare still fails as an undefined value.
+fn register_unit_struct_values(module: &crate::ast::Module, env: &mut TypeEnv) {
+    // Synthetic binding ids distinct from imports (2_000_000+) and enum
+    // variant constructors (4_000_000+).
+    let mut next_binding_id: BindingId = 5_000_000;
+    for item in &module.items {
+        if let crate::ast::ItemKind::Struct(s) = &item.kind
+            && s.is_unit()
+        {
+            env.insert(
+                next_binding_id,
+                Arc::clone(&s.name),
+                Scheme::mono(s.ty.clone()),
+            );
+            next_binding_id += 1;
         }
     }
 }
@@ -1936,6 +1965,15 @@ fn get_symbol_scheme(
                 if const_def.name.as_ref() == name =>
             {
                 return Some(Scheme::mono(const_def.ty.clone()));
+            }
+            // A foreign unit struct is a value too: bind its bare-name
+            // constructor under the canonical `<module>::Origin` key (the
+            // caller keys off this) so imported/qualified value references
+            // type-check. `s.ty` is the `Type::Nominal`, carrying identity.
+            (crate::ast::ItemKind::Struct(s), ExportKind::Struct)
+                if s.name.as_ref() == name && s.is_unit() =>
+            {
+                return Some(Scheme::mono(s.ty.clone()));
             }
             _ => {}
         }
