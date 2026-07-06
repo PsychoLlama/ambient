@@ -5,7 +5,6 @@
 mod completer;
 mod editor;
 mod highlighter;
-mod lsp_bridge;
 
 use std::fs;
 use std::io::{self, Write};
@@ -29,7 +28,7 @@ use ambient_engine::value::{ModuleExport, ModuleExportKind, ModuleValue};
 use ambient_engine::vm::Vm;
 use ambient_parser::ReplInput;
 
-use completer::ReplCompleter;
+use completer::ReplHelper;
 
 /// Run the interactive REPL.
 pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
@@ -41,8 +40,8 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
         None => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     };
 
-    // Create shared REPL context for completions, with the platform
-    // prelude registered so ability calls compile.
+    // Create shared REPL context for evaluation and module introspection,
+    // with the platform prelude registered so ability calls compile.
     let prelude = crate::commands::platform_prelude()?;
     let repl_ctx = Arc::new(Mutex::new(ReplContext::with_prelude(prelude.clone())));
 
@@ -65,8 +64,8 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
     // Register project modules for introspection.
     register_project_modules(&project_dir, &repl_ctx);
 
-    // Create the completer with project context.
-    let completer = ReplCompleter::new(project_dir.clone(), Arc::clone(&repl_ctx));
+    // Create the REPL helper (syntax highlighting).
+    let completer = ReplHelper::new();
 
     // Configure rustyline with our helper.
     let config = RustylineConfig::builder()
@@ -75,7 +74,7 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
         .expect("valid history size")
         .build();
 
-    let mut rl: Editor<ReplCompleter, DefaultHistory> =
+    let mut rl: Editor<ReplHelper, DefaultHistory> =
         Editor::with_config(config).context("failed to initialize readline")?;
     rl.set_helper(Some(completer));
 

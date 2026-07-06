@@ -49,7 +49,6 @@
 #![allow(clippy::module_name_repetitions)]
 
 mod analysis;
-mod completion_service;
 mod completions;
 mod convert;
 mod documents;
@@ -79,8 +78,5 @@ pub use server::{run_server, run_server_with_connection};
 
 // Re-export key types for library use (REPL, testing)
 pub use analysis::{AnalysisResult, analyze, analyze_with_registry, format_type};
-pub use completion_service::{
-    CompletionService, ExternalSymbol, ExternalSymbolKind, ReplCompletion,
-};
 pub use completions::{CompletionContext, get_completions};
 pub use documents::Document;
