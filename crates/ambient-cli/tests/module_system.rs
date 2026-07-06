@@ -324,7 +324,7 @@ pub fn run(): Number {
 // ─────────────────────────────────────────────────────────────────────────
 
 const SHAPES: &str = r"
-pub unique(D098767B-4093-4D5C-BA37-AD92AA7B5D01) type Money { cents: Number }
+pub unique(D098767B-4093-4D5C-BA37-AD92AA7B5D01) struct Money { cents: Number }
 pub unique(D098767B-4093-4D5C-BA37-AD92AA7B5D02) enum Shape { Circle(Number), Dot }
 ";
 

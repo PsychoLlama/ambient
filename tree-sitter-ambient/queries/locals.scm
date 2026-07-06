@@ -44,6 +44,8 @@
 ; Type definitions
 (type_definition
   name: (identifier) @local.definition.type)
+(struct_definition
+  name: (identifier) @local.definition.type)
 
 ; Enum definitions
 (enum_definition

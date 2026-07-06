@@ -1482,7 +1482,7 @@ mod tests {
 
     #[test]
     fn test_lower_nominal_type() {
-        let source = "unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) type UserId { value: String }";
+        let source = "unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct UserId { value: String }";
         let module = parse(source).expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
@@ -1505,7 +1505,8 @@ mod tests {
         // (here `2EB9553C`) once crashed the lexer, which mistook `2E...` for a
         // malformed scientific-notation literal. It is now lexed as a single
         // `Uuid` token and must validate as a real UUID like any other.
-        let source = "unique(2EB9553C-1FDF-46FB-A8B1-F2C5A1CFCA94) type Example { value: String }";
+        let source =
+            "unique(2EB9553C-1FDF-46FB-A8B1-F2C5A1CFCA94) struct Example { value: String }";
         let module = parse(source).expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
@@ -1521,7 +1522,7 @@ mod tests {
 
     #[test]
     fn test_lower_regular_type_alias() {
-        let source = "type Point { x: Number, y: Number }";
+        let source = "struct Point { x: Number, y: Number }";
         let module = parse(source).expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
@@ -1540,7 +1541,7 @@ mod tests {
         // Non-UUID content in `unique(...)` is now rejected at parse time (the
         // lexer only produces a `Uuid` token for canonical uppercase UUIDs),
         // so the error is `ExpectedUuid` rather than a lowering `InvalidUuid`.
-        let source = "unique(not-a-valid-uuid) type BadId { value: String }";
+        let source = "unique(not-a-valid-uuid) struct BadId { value: String }";
         let result = parse(source);
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -1551,7 +1552,7 @@ mod tests {
     fn test_lower_lowercase_uuid_rejected() {
         // A lowercase UUID is not a UUID literal in Ambient; it must be
         // rejected rather than silently accepted as a non-nominal type.
-        let source = "unique(2eb9553c-1fdf-46fb-a8b1-f2c5a1cfca94) type BadId { value: String }";
+        let source = "unique(2eb9553c-1fdf-46fb-a8b1-f2c5a1cfca94) struct BadId { value: String }";
         let result = parse(source);
         assert!(result.is_err());
         assert!(matches!(

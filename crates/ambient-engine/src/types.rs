@@ -800,7 +800,7 @@ pub enum Type {
 
     /// A nominal type distinguished by UUID, incompatible with structurally
     /// identical types.
-    /// `unique(uuid) type UserId { value: string }`
+    /// `unique(uuid) struct UserId { value: string }`
     Nominal(NominalType),
 
     // ─────────────────────────────────────────────────────────────────────────

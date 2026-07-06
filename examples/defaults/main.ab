@@ -15,7 +15,7 @@ use platform::Stdio;
 
 /// Application settings. The unique UUID makes this a nominal type, so it
 /// can implement traits.
-unique(2BDD99C5-E152-4B60-BB32-336A24415381) type Settings {
+unique(2BDD99C5-E152-4B60-BB32-336A24415381) struct Settings {
     volume: Number,
     muted: Bool,
     theme: String,
@@ -33,7 +33,7 @@ impl Default for Settings {
 
 /// A 2D point. Defaults to the origin, and supports `+` so that a default
 /// value composes with operators.
-unique(E28C3B09-A04F-4BFA-82C4-8F6972FB0480) type Point {
+unique(E28C3B09-A04F-4BFA-82C4-8F6972FB0480) struct Point {
     x: Number,
     y: Number,
 }

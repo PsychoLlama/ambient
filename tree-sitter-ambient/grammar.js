@@ -59,6 +59,7 @@ module.exports = grammar({
         $.function_definition,
         $.const_definition,
         $.type_definition,
+        $.struct_definition,
         $.enum_definition,
         $.ability_definition,
         $.trait_definition,
@@ -97,13 +98,22 @@ module.exports = grammar({
     type_definition: ($) =>
       seq(
         optional($.visibility),
-        optional($.unique_modifier),
         "type",
         field("name", $.identifier),
         optional($.type_parameters),
-        optional(seq("=", field("type", $._type))),
-        optional($.record_type_body),
-        optional(";")
+        "=",
+        field("type", $._type),
+        ";"
+      ),
+
+    struct_definition: ($) =>
+      seq(
+        optional($.visibility),
+        optional($.unique_modifier),
+        "struct",
+        field("name", $.identifier),
+        optional($.type_parameters),
+        $.record_type_body
       ),
 
     unique_modifier: ($) => seq("unique", "(", $.uuid, ")"),

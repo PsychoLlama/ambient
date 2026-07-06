@@ -38,7 +38,7 @@ trait Normalize {
 
 /// A 2D vector with x and y components.
 /// The unique UUID makes this a nominal type - distinct from bare { x, y } records.
-unique(B3C4D5E6-F7A8-9012-BCDE-F12345678902) type Vec2 { x: Number, y: Number }
+unique(B3C4D5E6-F7A8-9012-BCDE-F12345678902) struct Vec2 { x: Number, y: Number }
 
 // Implement operator traits
 
@@ -90,7 +90,7 @@ impl Normalize for Vec2 {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A 3D vector with x, y, and z components.
-unique(C4D5E6F7-A8B9-0123-CDEF-234567890123) type Vec3 { x: Number, y: Number, z: Number }
+unique(C4D5E6F7-A8B9-0123-CDEF-234567890123) struct Vec3 { x: Number, y: Number, z: Number }
 
 impl Add for Vec3 {
     fn add(self, other: Vec3): Vec3 {

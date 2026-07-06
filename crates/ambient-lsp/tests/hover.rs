@@ -156,3 +156,32 @@ fn test_hover_on_function_with_multiline_doc() {
         .expect_contains("First line.")
         .shutdown();
 }
+
+#[test]
+fn test_hover_on_struct_definition() {
+    LspTest::new()
+        .with_source("struct Point/*h*/ { x: Number, y: Number }")
+        .hover_at("h")
+        .expect_contains("struct Point { x: Number, y: Number }")
+        .shutdown();
+}
+
+#[test]
+fn test_hover_on_unique_struct_definition() {
+    LspTest::new()
+        .with_source(
+            "unique(A1B2C3D4-0000-0000-0000-000000000001) struct Money/*h*/ { cents: Number }",
+        )
+        .hover_at("h")
+        .expect_contains("struct Money { cents: Number }")
+        .shutdown();
+}
+
+#[test]
+fn test_hover_on_type_alias_stays_type() {
+    LspTest::new()
+        .with_source("type Meters/*h*/ = Number;")
+        .hover_at("h")
+        .expect_contains("type Meters = Number")
+        .shutdown();
+}

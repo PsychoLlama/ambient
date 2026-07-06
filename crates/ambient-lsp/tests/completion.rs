@@ -226,7 +226,7 @@ fn test_time_ability_methods() {
 #[test]
 fn test_unique_uuid_completion() {
     let (test, items) = LspTest::new()
-        .with_source("unique(/*|*/) type UserId { value: String }")
+        .with_source("unique(/*|*/) struct UserId { value: String }")
         .complete_at("0")
         .raw();
 
@@ -276,7 +276,7 @@ fn test_unique_uuid_completion() {
 fn test_unique_uuid_completion_partial() {
     // Even with partial UUID already typed, should still offer completion
     let (test, items) = LspTest::new()
-        .with_source("unique(abc/*|*/) type UserId { value: String }")
+        .with_source("unique(abc/*|*/) struct UserId { value: String }")
         .complete_at("0")
         .raw();
 

@@ -190,6 +190,7 @@ impl<'src> Parser<'src> {
                 | TokenKind::Pub
                 | TokenKind::Const
                 | TokenKind::Type
+                | TokenKind::Struct
                 | TokenKind::Enum
                 | TokenKind::Ability
                 | TokenKind::Use
@@ -277,7 +278,8 @@ impl<'src> Parser<'src> {
                     TokenKind::Fn => CstItemKind::Function(self.parse_function(true)?),
                     TokenKind::Use => CstItemKind::Use(self.parse_use(true)?),
                     TokenKind::Const => CstItemKind::Const(self.parse_const(true)?),
-                    TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(true, None)?),
+                    TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(true)?),
+                    TokenKind::Struct => CstItemKind::TypeAlias(self.parse_struct_def(true, None)?),
                     TokenKind::Enum => CstItemKind::Enum(self.parse_enum(true, None)?),
                     TokenKind::Unique => self.parse_unique_item(true)?,
                     TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(true)?),
@@ -295,7 +297,8 @@ impl<'src> Parser<'src> {
             }
             TokenKind::Fn => CstItemKind::Function(self.parse_function(false)?),
             TokenKind::Const => CstItemKind::Const(self.parse_const(false)?),
-            TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(false, None)?),
+            TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(false)?),
+            TokenKind::Struct => CstItemKind::TypeAlias(self.parse_struct_def(false, None)?),
             TokenKind::Enum => CstItemKind::Enum(self.parse_enum(false, None)?),
             TokenKind::Unique => self.parse_unique_item(false)?,
             TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(false)?),
@@ -335,6 +338,7 @@ impl<'src> Parser<'src> {
                 | TokenKind::Pub
                 | TokenKind::Const
                 | TokenKind::Type
+                | TokenKind::Struct
                 | TokenKind::Unique
                 | TokenKind::Enum
                 | TokenKind::Ability
@@ -524,20 +528,20 @@ impl<'src> Parser<'src> {
         Ok(id)
     }
 
-    /// Parse a `unique(<uuid>)`-prefixed item: a nominal `type` alias or a
-    /// nominal `enum`. The `unique(...)` syntax is shared, so the prefix is
+    /// Parse a `unique(<uuid>)`-prefixed item: a nominal `struct` definition or
+    /// a nominal `enum`. The `unique(...)` syntax is shared, so the prefix is
     /// parsed once here and the following keyword decides the item.
     fn parse_unique_item(&mut self, is_public: bool) -> Result<CstItemKind, ParseError> {
         let unique_id = self.parse_unique_prefix()?;
         self.skip_trivia();
         match self.current_kind() {
-            TokenKind::Type => Ok(CstItemKind::TypeAlias(
-                self.parse_type_alias(is_public, unique_id)?,
+            TokenKind::Struct => Ok(CstItemKind::TypeAlias(
+                self.parse_struct_def(is_public, unique_id)?,
             )),
             TokenKind::Enum => Ok(CstItemKind::Enum(self.parse_enum(is_public, unique_id)?)),
             other => Err(ParseError::new(
                 ParseErrorKind::Expected {
-                    expected: "`type` or `enum` after `unique(...)`".into(),
+                    expected: "`struct` or `enum` after `unique(...)`".into(),
                     found: format!("{other:?}"),
                 },
                 self.current().span,
@@ -545,11 +549,35 @@ impl<'src> Parser<'src> {
         }
     }
 
-    fn parse_type_alias(
+    /// Parse a `struct Foo { fields }` record definition. Structs share the
+    /// `CstTypeAliasDef` node (their body is a `Type::Record`), but require the
+    /// record body — there is no `= Type` alias form.
+    fn parse_struct_def(
         &mut self,
         is_public: bool,
         unique_id: Option<Arc<str>>,
     ) -> Result<CstTypeAliasDef, ParseError> {
+        self.expect(TokenKind::Struct)?;
+        let name = self.parse_ident()?;
+
+        let type_params = if self.check(TokenKind::Lt) {
+            self.parse_type_params()?
+        } else {
+            Vec::new()
+        };
+
+        let ty = self.parse_record_type()?;
+
+        Ok(CstTypeAliasDef {
+            is_public,
+            name,
+            type_params,
+            ty,
+            unique_id,
+        })
+    }
+
+    fn parse_type_alias(&mut self, is_public: bool) -> Result<CstTypeAliasDef, ParseError> {
         self.expect(TokenKind::Type)?;
         let name = self.parse_ident()?;
 
@@ -559,22 +587,17 @@ impl<'src> Parser<'src> {
             Vec::new()
         };
 
-        // Could be `type Foo = Bar` or `type Foo { fields }`
-        let ty = if self.consume(TokenKind::Eq).is_some() {
-            let ty = self.parse_type()?;
-            self.expect(TokenKind::Semi)?;
-            ty
-        } else {
-            // Record type definition
-            self.parse_record_type()?
-        };
+        // Aliases require `= Type`; the record form now uses `struct`.
+        self.expect(TokenKind::Eq)?;
+        let ty = self.parse_type()?;
+        self.expect(TokenKind::Semi)?;
 
         Ok(CstTypeAliasDef {
             is_public,
             name,
             type_params,
             ty,
-            unique_id,
+            unique_id: None,
         })
     }
 
@@ -1243,6 +1266,30 @@ mod tests {
             }
             _ => panic!("Expected unary expression"),
         }
+    }
+
+    #[test]
+    fn test_struct_and_type_alias_split() {
+        // `struct` defines a record.
+        let mut parser = Parser::new("struct Point { x: Number, y: Number }").unwrap();
+        let item = parser.parse_item().expect("struct should parse");
+        assert!(matches!(item.kind, CstItemKind::TypeAlias(_)));
+
+        // `unique(...) struct` defines a nominal record.
+        let mut parser =
+            Parser::new("unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct Id { value: Number }")
+                .unwrap();
+        let item = parser.parse_item().expect("unique struct should parse");
+        assert!(matches!(item.kind, CstItemKind::TypeAlias(_)));
+
+        // `type X = Y` remains a plain alias.
+        let mut parser = Parser::new("type Meters = Number;").unwrap();
+        let item = parser.parse_item().expect("type alias should parse");
+        assert!(matches!(item.kind, CstItemKind::TypeAlias(_)));
+
+        // The old record-via-`type` form is now a parse error (requires `=`).
+        let mut parser = Parser::new("type Point { x: Number }").unwrap();
+        assert!(parser.parse_item().is_err(), "`type Name {{ }}` must error");
     }
 
     #[test]

@@ -68,6 +68,8 @@ pub enum TokenKind {
     Enum,
     /// `type`
     Type,
+    /// `struct`
+    Struct,
     /// `ability`
     Ability,
     /// `use`
@@ -264,6 +266,7 @@ impl TokenKind {
             "false" => Some(Self::False),
             "enum" => Some(Self::Enum),
             "type" => Some(Self::Type),
+            "struct" => Some(Self::Struct),
             "ability" => Some(Self::Ability),
             "use" => Some(Self::Use),
             "with" => Some(Self::With),
@@ -298,6 +301,7 @@ impl TokenKind {
             Self::False => Some("false"),
             Self::Enum => Some("enum"),
             Self::Type => Some("type"),
+            Self::Struct => Some("struct"),
             Self::Ability => Some("ability"),
             Self::Use => Some("use"),
             Self::With => Some("with"),
@@ -322,8 +326,8 @@ impl TokenKind {
     pub const fn all_keywords() -> &'static [&'static str] {
         &[
             "fn", "pub", "let", "const", "if", "else", "match", "true", "false", "enum", "type",
-            "ability", "use", "with", "handle", "resume", "sandbox", "unique", "trait", "impl",
-            "for", "where", "pkg", "core", "self", "super",
+            "struct", "ability", "use", "with", "handle", "resume", "sandbox", "unique", "trait",
+            "impl", "for", "where", "pkg", "core", "self", "super",
         ]
     }
 
@@ -956,6 +960,7 @@ mod tests {
         assert_eq!(lex("false"), vec![TokenKind::False, TokenKind::Eof]);
         assert_eq!(lex("enum"), vec![TokenKind::Enum, TokenKind::Eof]);
         assert_eq!(lex("type"), vec![TokenKind::Type, TokenKind::Eof]);
+        assert_eq!(lex("struct"), vec![TokenKind::Struct, TokenKind::Eof]);
         assert_eq!(lex("ability"), vec![TokenKind::Ability, TokenKind::Eof]);
         assert_eq!(lex("use"), vec![TokenKind::Use, TokenKind::Eof]);
         assert_eq!(lex("with"), vec![TokenKind::With, TokenKind::Eof]);

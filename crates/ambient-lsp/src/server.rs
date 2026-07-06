@@ -396,11 +396,30 @@ fn format_item_signature(kind: &ItemKind, content: &mut String) {
             content.push_str(&format_type(&c.ty));
         }
         ItemKind::TypeAlias(t) => {
-            content.push_str("type ");
-            content.push_str(&t.name);
-            format_type_params(&t.type_params, content);
-            content.push_str(" = ");
-            content.push_str(&format_type(&t.ty));
+            use ambient_engine::types::Type;
+            // A struct's body is a record — bare (`struct Foo`) or wrapped in a
+            // nominal type (`unique(...) struct Foo`). Render those as `struct`;
+            // every other alias stays `type Name = ...`.
+            let record_body = match &t.ty {
+                Type::Record(_) => Some(&t.ty),
+                Type::Nominal(nom) if matches!(&*nom.inner, Type::Record(_)) => {
+                    Some(nom.inner.as_ref())
+                }
+                _ => None,
+            };
+            if let Some(body) = record_body {
+                content.push_str("struct ");
+                content.push_str(&t.name);
+                format_type_params(&t.type_params, content);
+                content.push(' ');
+                content.push_str(&format_type(body));
+            } else {
+                content.push_str("type ");
+                content.push_str(&t.name);
+                format_type_params(&t.type_params, content);
+                content.push_str(" = ");
+                content.push_str(&format_type(&t.ty));
+            }
         }
         ItemKind::Enum(e) => {
             content.push_str("enum ");

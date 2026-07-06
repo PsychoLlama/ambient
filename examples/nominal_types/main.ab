@@ -6,7 +6,7 @@
 //! accidentally mixing values that have the same shape but different meanings,
 //! like user IDs vs order IDs, or dollars vs euros.
 //!
-//! Syntax: unique(<uuid>) type <Name> { <fields> }
+//! Syntax: unique(<uuid>) struct <Name> { <fields> }
 //!
 //! The UUID ensures the type is globally unique - two types with the same
 //! structure but different UUIDs are incompatible.
@@ -17,19 +17,19 @@
 
 /// A unique user identifier.
 /// The UUID makes this type distinct from any other type with the same structure.
-unique(A1B2C3D4-E5F6-7890-ABCD-EF1234567890) type UserId { value: String }
+unique(A1B2C3D4-E5F6-7890-ABCD-EF1234567890) struct UserId { value: String }
 
 /// A unique order identifier.
 /// Structurally identical to UserId (both wrap a string),
 /// but completely incompatible at the type level.
-unique(B2C3D4E5-F6A7-8901-BCDE-F12345678901) type OrderId { value: String }
+unique(B2C3D4E5-F6A7-8901-BCDE-F12345678901) struct OrderId { value: String }
 
 /// US Dollars stored as cents.
-unique(D4E5F6A7-B8C9-0123-DEFA-234567890123) type USD { cents: Number }
+unique(D4E5F6A7-B8C9-0123-DEFA-234567890123) struct USD { cents: Number }
 
 /// Euros stored as cents.
 /// Same structure as USD, but cannot be mixed.
-unique(E5F6A7B8-C9D0-1234-EFAB-345678901234) type EUR { cents: Number }
+unique(E5F6A7B8-C9D0-1234-EFAB-345678901234) struct EUR { cents: Number }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Why Nominal Types Matter

@@ -826,7 +826,7 @@ pub struct ConstDef {
 /// A type alias definition.
 ///
 /// If `unique_id` is `Some`, this is a nominal type that is incompatible
-/// with structurally identical types (e.g., `unique(uuid) type UserId { value: string }`).
+/// with structurally identical types (e.g., `unique(uuid) struct UserId { value: string }`).
 #[derive(Debug, Clone)]
 pub struct TypeAliasDef {
     /// Type name.

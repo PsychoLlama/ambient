@@ -8,6 +8,7 @@
 
 ; Type definitions
 (type_definition) @fold
+(struct_definition) @fold
 
 ; Enum definitions
 (enum_definition) @fold

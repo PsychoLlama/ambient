@@ -56,7 +56,7 @@ const MONEY_MODULE: &str = r#"
         fn scale(self, factor: Number): Self;
     }
 
-    unique(11111111-1111-1111-1111-111111111111) type Money { cents: Number }
+    unique(11111111-1111-1111-1111-111111111111) struct Money { cents: Number }
 
     fn tax_rate(): Number { 1.08 }
 
@@ -100,7 +100,7 @@ fn trait_declaration_order_does_not_affect_hashes() {
             fn show(self): Number;
         }
 
-        unique(11111111-1111-1111-1111-111111111111) type Money { cents: Number }
+        unique(11111111-1111-1111-1111-111111111111) struct Money { cents: Number }
 
         fn tax_rate(): Number { 1.08 }
 
@@ -138,7 +138,7 @@ fn unrelated_declarations_do_not_affect_method_hashes() {
             fn noop(self): Number;
         }}
 
-        unique(22222222-2222-2222-2222-222222222222) type Other {{ x: Number }}
+        unique(22222222-2222-2222-2222-222222222222) struct Other {{ x: Number }}
 
         impl Unrelated for Other {{
             fn noop(self): Number {{ self.x }}
@@ -472,7 +472,7 @@ fn disassembler_decodes_all_compiled_instructions() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const WALLET_MODULE: &str = r#"
-    unique(33333333-3333-3333-3333-333333333333) type Wallet { cents: Number }
+    unique(33333333-3333-3333-3333-333333333333) struct Wallet { cents: Number }
 
     fn fee(): Number { 3 }
 
@@ -580,7 +580,7 @@ fn inherent_impl_block_order_does_not_affect_hashes() {
     // Splitting methods across impl blocks and reordering them (and the
     // impl blocks themselves) must not change any hash.
     let reordered = r#"
-        unique(33333333-3333-3333-3333-333333333333) type Wallet { cents: Number }
+        unique(33333333-3333-3333-3333-333333333333) struct Wallet { cents: Number }
 
         impl<T> Option<T> {
             fn or_default(self, fallback: T): T {

@@ -24,7 +24,7 @@
 (impl_definition) @indent.begin
 
 ; Type definitions with record body
-(type_definition
+(struct_definition
   (record_type_body) @indent.begin)
 
 ; If expressions

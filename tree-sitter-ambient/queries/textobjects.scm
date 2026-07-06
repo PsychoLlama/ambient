@@ -44,7 +44,7 @@
   (function_definition)* @class.inner) @class.outer
 
 ; Type definitions with record body
-(type_definition
+(struct_definition
   (record_type_body) @class.inner) @class.outer
 
 ; -----------------------------------------------------------------------------

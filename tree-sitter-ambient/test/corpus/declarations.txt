@@ -181,14 +181,14 @@ use some_library::mod::{a, b};
 Type definition with unique
 ================================================================================
 
-unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) type UserId {
+unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct UserId {
   value: string,
 }
 
 --------------------------------------------------------------------------------
 
 (source_file
-  (type_definition
+  (struct_definition
     (unique_modifier
       (uuid))
     name: (identifier)

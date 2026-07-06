@@ -249,7 +249,7 @@ mod tests {
         assert!(REGISTERED_CORE_MODULES.contains(&"time"));
 
         let source = CoreLibrary::get_source(&[Arc::from("time")]).expect("time source");
-        assert!(source.contains("type Duration"));
+        assert!(source.contains("struct Duration"));
 
         let path = CoreLibrary::to_module_path(&[Arc::from("time")]);
         assert_eq!(path.to_string(), "core::time");

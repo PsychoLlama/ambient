@@ -69,7 +69,7 @@ fn greet(name: string) {
 
 ```ambient
 // Nominal types + traits. Operator traits (Add, Eq, Ord, ...) are prelude.
-unique(B3C4D5E6-F7A8-9012-BCDE-F12345678902) type Vec2 { x: number, y: number }
+unique(B3C4D5E6-F7A8-9012-BCDE-F12345678902) struct Vec2 { x: number, y: number }
 
 impl Add for Vec2 {
   fn add(self, other: Vec2): Vec2 {

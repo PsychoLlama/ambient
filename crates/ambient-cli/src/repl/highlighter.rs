@@ -18,8 +18,8 @@ mod colors {
 
 /// Keywords in the Ambient language.
 const KEYWORDS: &[&str] = &[
-    "fn", "pub", "let", "const", "if", "else", "match", "enum", "type", "ability", "use", "with",
-    "handle", "resume", "sandbox", "unique",
+    "fn", "pub", "let", "const", "if", "else", "match", "enum", "type", "struct", "ability", "use",
+    "with", "handle", "resume", "sandbox", "unique",
 ];
 
 /// Built-in type names and abilities.

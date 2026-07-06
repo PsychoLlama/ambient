@@ -272,7 +272,7 @@ fn prepare_rename_allows_a_function_and_rejects_a_literal() {
 fn prepare_rename_rejects_a_type() {
     // Types aren't fully indexed yet, so rename is gated off for them.
     let main = "\
-unique(A1B2C3D4-0000-0000-0000-000000000001) type Money { cents: Number }
+unique(A1B2C3D4-0000-0000-0000-000000000001) struct Money { cents: Number }
 fn run(): Money { Money { cents: 1 } }
 ";
     let mut fx = Fixture::new(&[("src/main.ab", main)], "src/main.ab");

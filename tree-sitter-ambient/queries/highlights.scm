@@ -8,6 +8,7 @@
   "match"
   "enum"
   "type"
+  "struct"
   "ability"
   "trait"
   "impl"
@@ -97,6 +98,8 @@
 
 ; Type definitions
 (type_definition
+  name: (identifier) @type)
+(struct_definition
   name: (identifier) @type)
 
 ; Record construction: the `TypeName` in `TypeName { ... }`

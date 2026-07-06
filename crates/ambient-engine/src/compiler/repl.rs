@@ -326,7 +326,13 @@ pub fn parse_module_exports(source: &str) -> Vec<ModuleExport> {
                 }
             }
         }
-        // Match type declarations (bare or `unique(...) type`)
+        // Match struct declarations (bare or `unique(...) struct`)
+        else if let Some(rest) = decl.strip_prefix("struct ") {
+            if let Some(name) = extract_identifier(rest) {
+                exports.push(ModuleExport::new(name, ModuleExportKind::Type));
+            }
+        }
+        // Match type alias declarations
         else if let Some(rest) = decl.strip_prefix("type ") {
             if let Some(name) = extract_identifier(rest) {
                 exports.push(ModuleExport::new(name, ModuleExportKind::Type));

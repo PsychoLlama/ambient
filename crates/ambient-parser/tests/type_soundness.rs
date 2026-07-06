@@ -50,7 +50,7 @@ fn trait_impl_method_performing_ability_is_rejected() {
           fn show(self): String;
         }
 
-        unique(11111111-1111-1111-1111-111111111111) type Money { cents: Number }
+        unique(11111111-1111-1111-1111-111111111111) struct Money { cents: Number }
 
         impl Show for Money {
           fn show(self): String {
@@ -78,7 +78,7 @@ fn pure_trait_impl_method_is_accepted() {
           fn show(self): String;
         }
 
-        unique(11111111-1111-1111-1111-111111111111) type Money { cents: Number }
+        unique(11111111-1111-1111-1111-111111111111) struct Money { cents: Number }
 
         impl Show for Money {
           fn show(self): String { 'money' }
