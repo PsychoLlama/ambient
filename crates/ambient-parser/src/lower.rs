@@ -255,7 +255,9 @@ pub(crate) fn lower_struct_def(s: &CstStructDef) -> Result<StructDef, ParseError
 
     // Wrap in a Nominal type when the struct carries a unique identity.
     let ty = if let Some(uuid) = unique_id {
-        Type::Nominal(NominalType::new(uuid, inner_ty, Some(s.name.name.clone())))
+        Type::Nominal(
+            NominalType::new(uuid, inner_ty, Some(s.name.name.clone())).with_extern(s.is_extern),
+        )
     } else {
         inner_ty
     };

@@ -74,15 +74,13 @@ pub use error::{BoxedTypeError, BoxedTypeErrorExt, InferResult, TypeError, TypeE
 
 use error::type_error;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
-
-use uuid::Uuid;
 
 use crate::ability_resolver::AbilityResolver;
 use crate::types::{
     AbilityId, AbilityRegistry, AbilitySet, AbilityValueType, AbilityVarId, ForallType, NamedType,
-    NominalType, RecordType, TraitRegistry, Type, TypeVarGen, TypeVarId,
+    RecordType, TraitRegistry, Type, TypeVarGen, TypeVarId,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -114,12 +112,6 @@ pub struct Infer {
 
     /// Enums visible to the module being checked (prelude + locals).
     pub(crate) enum_registry: enums::EnumRegistry,
-    /// UUIDs of `extern` structs visible to the module being checked (locals +
-    /// imports). An `extern` struct is engine-provided: user code may name it
-    /// and read its fields, but constructing it (`T { .. }` or a bare unit-form
-    /// `T`) is a type error. Keyed by UUID so it respects the nominal-identity
-    /// invariant — the ban keys off canonical identity, not local spelling.
-    pub(crate) extern_structs: HashSet<Uuid>,
     /// Errors recorded outside the normal `InferResult` flow (e.g. unknown
     /// ability names found while resolving annotations). Drained by the
     /// module-level check functions.
@@ -202,7 +194,6 @@ impl Infer {
             trait_registry: TraitRegistry::with_prelude(),
             inherent_registry: inherent::InherentRegistry::default(),
             enum_registry: enums::EnumRegistry::with_prelude(),
-            extern_structs: HashSet::new(),
             pending_errors: Vec::new(),
             resume_contexts: Vec::new(),
             pending_discharges: Vec::new(),
@@ -417,11 +408,7 @@ impl Infer {
                 // Otherwise keep as named type, preserving any existing identity.
                 Type::Named(n.map_args(args))
             }
-            Type::Nominal(n) => Type::Nominal(NominalType::new(
-                n.uuid,
-                self.resolve_holes(&n.inner),
-                n.name.clone(),
-            )),
+            Type::Nominal(n) => Type::Nominal(n.map_inner(self.resolve_holes(&n.inner))),
             Type::AbilityValue(av) => Type::AbilityValue(AbilityValueType::new(
                 self.resolve_holes(&av.result),
                 self.resolve_ability_annotation(&av.ability),

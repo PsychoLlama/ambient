@@ -136,11 +136,11 @@ impl Infer {
                 let full_type = type_alias.clone();
 
                 // An `extern` struct is engine-provided: user code may name it
-                // and read its fields, but not construct it. The ban keys off
-                // the nominal UUID (never the local spelling), so it fires the
+                // and read its fields, but not construct it. The `is_extern`
+                // flag rides on the nominal identity itself, so it fires the
                 // same for a local, imported, or fully-qualified reference.
                 if let Type::Nominal(nom) = &full_type
-                    && self.extern_structs.contains(&nom.uuid)
+                    && nom.is_extern
                 {
                     return Err(type_error(
                         TypeErrorKind::CannotConstructExtern {

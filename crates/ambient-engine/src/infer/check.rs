@@ -111,9 +111,6 @@ fn check_module_core(
     // constructed by its bare name (like a nullary enum variant). Bind that
     // value into the env so `let o = Origin` type-checks.
     register_unit_struct_values(&module, &mut env);
-    // Record local extern structs so construction of them is banned. Imported
-    // extern structs are registered by `register_cross_module` (phase 1a).
-    register_extern_structs(&mut infer, &module);
     register_traits(&mut infer, &module);
     register_enums(&mut infer, &module, &mut env, &mut errors);
     // ORDERING (load-bearing): `build_import_env` (above) already registered
@@ -241,12 +238,6 @@ fn register_cross_module(
     // must resolve an imported enum target to its uuid, or the impl's
     // dispatch key won't match the call sites'.
     register_imported_enums(infer, module_path, registry);
-    // Record every extern struct in the package by UUID so construction of a
-    // foreign extern struct (via `use` or a fully-qualified path) is banned.
-    // The ban keys off canonical identity, so registering the whole package's
-    // extern structs — not just the imported spellings — is both correct and
-    // simplest; unreachable ones simply never match a construction site.
-    register_imported_extern_structs(infer, registry);
     // Make the rest of the package's types, traits, and impls visible
     // (signatures only). Runs before local registration and import
     // resolution so imported signatures resolve foreign nominal types.
@@ -459,40 +450,6 @@ fn register_unit_struct_values(module: &crate::ast::Module, env: &mut TypeEnv) {
                 Scheme::mono(s.ty.clone()),
             );
             next_binding_id += 1;
-        }
-    }
-}
-
-/// Record the UUIDs of the module's local `extern` structs in the inferencer.
-/// An `extern` struct is engine-provided: user code may name it and read its
-/// fields, but constructing it is a type error. The ban keys off the nominal
-/// UUID (never local spelling), so imported extern structs are registered too
-/// (see [`register_cross_module`]). Mirrors `register_unit_struct_values`.
-fn register_extern_structs(infer: &mut Infer, module: &crate::ast::Module) {
-    for item in &module.items {
-        if let crate::ast::ItemKind::Struct(s) = &item.kind
-            && s.is_extern
-            && let Some(uuid) = s.unique_id
-        {
-            infer.extern_structs.insert(uuid);
-        }
-    }
-}
-
-/// Record the UUIDs of every extern struct across the package registry, so a
-/// foreign extern struct is unconstructable from any module regardless of how
-/// it is named (imported or fully-qualified). Keyed by UUID, matching the
-/// nominal-identity invariant. Complements the local pass
-/// [`register_extern_structs`].
-fn register_imported_extern_structs(infer: &mut Infer, registry: &ModuleRegistry) {
-    for module_info in registry.all_modules() {
-        for item in &module_info.module.items {
-            if let crate::ast::ItemKind::Struct(s) = &item.kind
-                && s.is_extern
-                && let Some(uuid) = s.unique_id
-            {
-                infer.extern_structs.insert(uuid);
-            }
         }
     }
 }

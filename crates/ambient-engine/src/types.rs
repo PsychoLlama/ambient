@@ -1163,16 +1163,45 @@ pub struct NominalType {
 
     /// Optional human-readable name for error messages.
     pub name: Option<Arc<str>>,
+
+    /// Whether this type is `extern`: engine-provided, so Ambient code may name
+    /// it and read its fields but may not construct it. A property of the nominal
+    /// identity, so it travels with the type through substitution, unification,
+    /// and cross-module resolution.
+    pub is_extern: bool,
 }
 
 impl NominalType {
-    /// Create a new nominal type.
+    /// Create a new nominal type. Non-`extern` by default; use
+    /// [`with_extern`](Self::with_extern) to mark it engine-provided.
     #[must_use]
     pub fn new(uuid: Uuid, inner: Type, name: Option<impl Into<Arc<str>>>) -> Self {
         Self {
             uuid,
             inner: Box::new(inner),
             name: name.map(Into::into),
+            is_extern: false,
+        }
+    }
+
+    /// Mark this nominal type as `extern` (or not), preserving everything else.
+    #[must_use]
+    pub fn with_extern(mut self, is_extern: bool) -> Self {
+        self.is_extern = is_extern;
+        self
+    }
+
+    /// Rebuild this nominal type with a new inner type, preserving its identity
+    /// (`uuid`, `name`, and `is_extern`). Used at every site that maps a
+    /// transformation over the inner type (substitution, hole resolution,
+    /// unification) so the nominal identity survives.
+    #[must_use]
+    pub fn map_inner(&self, inner: Type) -> Self {
+        Self {
+            uuid: self.uuid,
+            inner: Box::new(inner),
+            name: self.name.clone(),
+            is_extern: self.is_extern,
         }
     }
 }
@@ -1513,11 +1542,9 @@ impl Type {
                         .collect(),
                 ),
             ),
-            Self::Nominal(n) => Self::Nominal(NominalType::new(
-                n.uuid,
-                n.inner.substitute_all(type_subst, ability_subst),
-                n.name.clone(),
-            )),
+            Self::Nominal(n) => {
+                Self::Nominal(n.map_inner(n.inner.substitute_all(type_subst, ability_subst)))
+            }
             Self::AbilityValue(av) => {
                 let new_ability = substitute_ability_set(&av.ability, ability_subst);
                 Self::AbilityValue(AbilityValueType::new(

@@ -424,17 +424,6 @@ impl ModuleRegistry {
         })
     }
 
-    /// Whether `name` in `module` is an `extern` struct — an engine-provided
-    /// nominal type that user code may name and read from but not construct.
-    #[must_use]
-    pub fn is_extern_struct(&self, module: &ModulePath, name: &str) -> bool {
-        self.get(module).is_some_and(|info| {
-            info.module.items.iter().any(|item| {
-                matches!(&item.kind, ItemKind::Struct(s) if s.name.as_ref() == name && s.is_extern)
-            })
-        })
-    }
-
     /// Look up a symbol in a module.
     ///
     /// This handles re-exports by following the re-export chain. On
