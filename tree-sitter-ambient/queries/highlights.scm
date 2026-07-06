@@ -25,7 +25,11 @@
 ; Literals
 (boolean) @boolean
 (number) @number
-(uuid) @constant
+
+; Collapse UUIDs to a single glyph inline; the real text is revealed when the
+; cursor sits on the line (see `concealcursor` in ftplugin/ambient.lua).
+((uuid) @constant
+  (#set! conceal "…"))
 (string) @string
 (string_content) @string
 (escape_sequence) @string.escape
