@@ -1,8 +1,7 @@
 //! Mathematical operations example.
 //!
-//! Demonstrates math intrinsics: trig, exponential, logarithmic functions.
-
-use core::math;
+//! Demonstrates the `Number` math methods: trig, exponential, logarithmic
+//! functions.
 
 /// The constant pi (π).
 fn pi(): Number { 3.141592653589793 }
@@ -26,12 +25,12 @@ fn to_degrees(rad: Number): Number {
 fn distance(x1: Number, y1: Number, x2: Number, y2: Number): Number {
     let dx = x2 - x1;
     let dy = y2 - y1;
-    math::sqrt(dx * dx + dy * dy)
+    (dx * dx + dy * dy).sqrt()
 }
 
 /// Calculates the hypotenuse of a right triangle.
 fn hypotenuse(a: Number, b: Number): Number {
-    math::sqrt(a * a + b * b)
+    (a * a + b * b).sqrt()
 }
 
 /// Newton's method for square root (for comparison with native sqrt).
@@ -61,33 +60,33 @@ fn quadratic_discriminant(a: Number, b: Number, c: Number): Number {
 
 /// Calculates compound interest.
 fn compound_interest(principal: Number, rate: Number, times: Number, years: Number): Number {
-    principal * math::pow(1 + rate / times, times * years)
+    principal * (1 + rate / times).pow(times * years)
 }
 
 /// Sigmoid function (logistic function).
 fn sigmoid(x: Number): Number {
-    1 / (1 + math::exp(0 - x))
+    1 / (1 + (0 - x).exp())
 }
 
 /// Hyperbolic sine.
 fn sinh(x: Number): Number {
-    (math::exp(x) - math::exp(0 - x)) / 2
+    (x.exp() - (0 - x).exp()) / 2
 }
 
 /// Hyperbolic cosine.
 fn cosh(x: Number): Number {
-    (math::exp(x) + math::exp(0 - x)) / 2
+    (x.exp() + (0 - x).exp()) / 2
 }
 
 /// Checks if two numbers are approximately equal (within epsilon).
 fn approx_eq(a: Number, b: Number): Bool {
-    math::abs(a - b) < 0.0001
+    (a - b).abs() < 0.0001
 }
 
 /// Greatest common divisor (Euclidean algorithm).
 fn gcd(a: Number, b: Number): Number {
-    let a_abs = math::abs(a);
-    let b_abs = math::abs(b);
+    let a_abs = a.abs();
+    let b_abs = b.abs();
     gcd_helper(a_abs, b_abs)
 }
 
@@ -101,7 +100,7 @@ fn gcd_helper(a: Number, b: Number): Number {
 
 /// Least common multiple.
 fn lcm(a: Number, b: Number): Number {
-    math::abs(a * b) / gcd(a, b)
+    (a * b).abs() / gcd(a, b)
 }
 
 /// Checks if a number is prime.
@@ -124,33 +123,33 @@ fn is_prime_helper(n: Number, divisor: Number): Bool {
 }
 
 pub fn run(): Number {
-    // Test basic math intrinsics
-    let sq = math::sqrt(16);  // 4
-    let ab = math::abs(0 - 5);  // 5
-    let fl = math::floor(3.7);  // 3
-    let ce = math::ceil(3.2);   // 4
-    let ro = math::round(3.5);  // 4
-    let tr = math::trunc(0 - 3.7);  // -3
+    // Test basic math methods
+    let sq = (16).sqrt();  // 4
+    let ab = (0 - 5).abs();  // 5
+    let fl = (3.7).floor();  // 3
+    let ce = (3.2).ceil();   // 4
+    let ro = (3.5).round();  // 4
+    let tr = (0 - 3.7).trunc();  // -3
 
     // Test trigonometry (using radians)
     let angle = to_radians(30);  // pi/6
-    let s = math::sin(angle);  // ~0.5
-    let c = math::cos(angle);  // ~0.866
+    let s = angle.sin();  // ~0.5
+    let c = angle.cos();  // ~0.866
     // Verify sin^2 + cos^2 = 1
     let trig_identity = if approx_eq(s * s + c * c, 1) { 1 } else { 0 };  // 1
 
     // Test exponential and logarithmic
-    let e_val = math::exp(1);  // ~2.718
-    let ln_e = math::ln(e());   // ~1
-    let log_100 = math::log10(100);  // 2
-    let log_8 = math::log2(8);  // 3
+    let e_val = (1).exp();  // ~2.718
+    let ln_e = e().ln();   // ~1
+    let log_100 = (100).log10();  // 2
+    let log_8 = (8).log2();  // 3
 
     // Test power
-    let pow_val = math::pow(2, 10);  // 1024
+    let pow_val = (2).pow(10);  // 1024
 
     // Test min/max
-    let mn = math::min(5, 3);  // 3
-    let mx = math::max(5, 3);  // 5
+    let mn = (5).min(3);  // 3
+    let mx = (5).max(3);  // 5
 
     // Test distance calculation
     let dist = distance(0, 0, 3, 4);  // 5 (3-4-5 triangle)

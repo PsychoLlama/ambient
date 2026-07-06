@@ -9,7 +9,7 @@
 //! but never type-checked).
 //!
 //! Intrinsics must be called with their full qualified path
-//! (`core::math::sqrt`, `core::List::head`, ...). Signatures may be generic:
+//! (`core::Number::sqrt`, `core::List::head`, ...). Signatures may be generic:
 //! the signature builder receives a variable supply, and `vars.var(0)`
 //! names the same fresh inference variable at every use within one call
 //! site.
@@ -96,7 +96,7 @@ type SigFn = fn(&mut SigVars) -> Signature;
 
 /// An intrinsic function descriptor.
 pub(crate) struct Intrinsic {
-    /// Module path segments (e.g., `["core", "math"]`).
+    /// Module path segments (e.g., `["core", "Number"]`).
     path: &'static [&'static str],
     /// Function name (e.g., `sqrt`).
     name: &'static str,
@@ -183,143 +183,143 @@ fn set2_to_set(v: &mut SigVars) -> Signature {
 /// Table of all intrinsic functions.
 static INTRINSICS: &[Intrinsic] = &[
     // ─────────────────────────────────────────────────────────────────────
-    // core::math
+    // core::Number
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "sqrt",
         1,
         EmitStrategy::Opcode(Opcode::Sqrt),
         num1,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "abs",
         1,
         EmitStrategy::Opcode(Opcode::Abs),
         num1,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "floor",
         1,
         EmitStrategy::Opcode(Opcode::Floor),
         num1,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "ceil",
         1,
         EmitStrategy::Opcode(Opcode::Ceil),
         num1,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "round",
         1,
         EmitStrategy::Opcode(Opcode::Round),
         num1,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "trunc",
         1,
         EmitStrategy::Opcode(Opcode::Trunc),
         num1,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "sin",
         1,
         EmitStrategy::Opcode(Opcode::Sin),
         num1,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "cos",
         1,
         EmitStrategy::Opcode(Opcode::Cos),
         num1,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "tan",
         1,
         EmitStrategy::Opcode(Opcode::Tan),
         num1,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "ln",
         1,
         EmitStrategy::Opcode(Opcode::Ln),
         num1,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "exp",
         1,
         EmitStrategy::Opcode(Opcode::Exp),
         num1,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "pow",
         2,
         EmitStrategy::Opcode(Opcode::Pow),
         num2,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "min",
         2,
         EmitStrategy::Opcode(Opcode::Min),
         num2,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "max",
         2,
         EmitStrategy::Opcode(Opcode::Max),
         num2,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "asin",
         1,
         EmitStrategy::Opcode(Opcode::Asin),
         num1,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "acos",
         1,
         EmitStrategy::Opcode(Opcode::Acos),
         num1,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "atan",
         1,
         EmitStrategy::Opcode(Opcode::Atan),
         num1,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "atan2",
         2,
         EmitStrategy::Opcode(Opcode::Atan2),
         num2,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "log10",
         1,
         EmitStrategy::Opcode(Opcode::Log10),
         num1,
     ),
     intrinsic(
-        &["core", "math"],
+        &["core", "Number"],
         "log2",
         1,
         EmitStrategy::Opcode(Opcode::Log2),

@@ -185,10 +185,10 @@ fn test_no_completion_for_unknown_prefix() {
 #[test]
 fn test_core_module_completion() {
     LspTest::new()
-        .with_source("use core::ma/*|*/")
+        .with_source("use core::Num/*|*/")
         .complete_at("0")
-        .expect_item("math")
-        .expect_item_kind("math", CompletionItemKind::MODULE)
+        .expect_item("Number")
+        .expect_item_kind("Number", CompletionItemKind::MODULE)
         .done()
         .shutdown();
 }

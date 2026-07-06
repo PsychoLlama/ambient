@@ -5,3 +5,117 @@
 // uuid must equal `NUMBER_UUID` in `types.rs`, and the compiler's literal
 // anchor (`Type::number()`) lowers to this exact declaration.
 pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF02) struct Number;
+
+// The public math API is exposed as inherent methods on `Number`
+// (`x.sqrt()`, `x.clamp(low, high)`, ...), the canonical core surface. Each
+// method either implements a small helper directly or delegates to a
+// low-level math intrinsic (`core::Number::sqrt`, `core::Number::min`, ...),
+// which remains the private implementation. This mirrors the `impl<T> List<T>`
+// pattern in list.ab.
+impl Number {
+    // Clamp a value into [low, high].
+    fn clamp(self, low: Number, high: Number): Number {
+        core::Number::min(core::Number::max(self, low), high)
+    }
+    // -1, 0, or 1 depending on the sign of the number.
+    fn sign(self): Number {
+        if self > 0 { 1 } else if self < 0 { 0 - 1 } else { 0 }
+    }
+    // True if the number is less than zero.
+    fn is_negative(self): Bool {
+        self < 0
+    }
+    // True if the number is greater than zero.
+    fn is_positive(self): Bool {
+        self > 0
+    }
+    // True if the number is exactly zero.
+    fn is_zero(self): Bool {
+        self == 0
+    }
+    // Linear interpolation towards `other` by `t` in [0, 1].
+    fn lerp(self, other: Number, t: Number): Number {
+        self + (other - self) * t
+    }
+    // Absolute value.
+    fn abs(self): Number {
+        core::Number::abs(self)
+    }
+    // Square root.
+    fn sqrt(self): Number {
+        core::Number::sqrt(self)
+    }
+    // Largest integer not greater than the number.
+    fn floor(self): Number {
+        core::Number::floor(self)
+    }
+    // Smallest integer not less than the number.
+    fn ceil(self): Number {
+        core::Number::ceil(self)
+    }
+    // Round to the nearest integer.
+    fn round(self): Number {
+        core::Number::round(self)
+    }
+    // Truncate towards zero, discarding the fractional part.
+    fn trunc(self): Number {
+        core::Number::trunc(self)
+    }
+    // Raise the number to the `exp` power.
+    fn pow(self, exp: Number): Number {
+        core::Number::pow(self, exp)
+    }
+    // The smaller of the two numbers.
+    fn min(self, other: Number): Number {
+        core::Number::min(self, other)
+    }
+    // The larger of the two numbers.
+    fn max(self, other: Number): Number {
+        core::Number::max(self, other)
+    }
+    // Sine (argument in radians).
+    fn sin(self): Number {
+        core::Number::sin(self)
+    }
+    // Cosine (argument in radians).
+    fn cos(self): Number {
+        core::Number::cos(self)
+    }
+    // Tangent (argument in radians).
+    fn tan(self): Number {
+        core::Number::tan(self)
+    }
+    // Arcsine, in radians.
+    fn asin(self): Number {
+        core::Number::asin(self)
+    }
+    // Arccosine, in radians.
+    fn acos(self): Number {
+        core::Number::acos(self)
+    }
+    // Arctangent, in radians.
+    fn atan(self): Number {
+        core::Number::atan(self)
+    }
+    // Arctangent of `self / other`, using the signs of both to pick the
+    // quadrant. Result in radians.
+    fn atan2(self, other: Number): Number {
+        core::Number::atan2(self, other)
+    }
+    // Natural logarithm (base e).
+    fn ln(self): Number {
+        core::Number::ln(self)
+    }
+    // e raised to the power of the number.
+    fn exp(self): Number {
+        core::Number::exp(self)
+    }
+    // Base-10 logarithm.
+    fn log10(self): Number {
+        core::Number::log10(self)
+    }
+    // Base-2 logarithm.
+    fn log2(self): Number {
+        core::Number::log2(self)
+    }
+}

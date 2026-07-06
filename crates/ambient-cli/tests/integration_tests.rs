@@ -2381,7 +2381,7 @@ fn test_inherent_impl_on_primitives() {
 
         impl Number {
             fn clamped(self, lo: Number, hi: Number): Number {
-                core::math::min(core::math::max(self, lo), hi)
+                core::Number::min(core::Number::max(self, lo), hi)
             }
         }
 

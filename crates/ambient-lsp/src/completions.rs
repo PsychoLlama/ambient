@@ -1004,19 +1004,19 @@ mod tests {
 
     #[test]
     fn test_core_module_completions() {
-        let items = get_core_module_completions("ma");
+        let items = get_core_module_completions("Num");
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].label, "math");
+        assert_eq!(items[0].label, "Number");
         assert_eq!(items[0].kind, Some(CompletionItemKind::MODULE));
     }
 
     #[test]
     fn test_core_module_completions_all() {
         let items = get_core_module_completions("");
-        assert!(items.len() >= 3); // List, String, math (+ traits)
+        assert!(items.len() >= 3); // List, String, Number (+ traits)
         assert!(items.iter().any(|i| i.label == "List"));
         assert!(items.iter().any(|i| i.label == "String"));
-        assert!(items.iter().any(|i| i.label == "math"));
+        assert!(items.iter().any(|i| i.label == "Number"));
     }
 
     #[test]
