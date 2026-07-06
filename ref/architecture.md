@@ -198,7 +198,7 @@ let sum = "Sum: ${to_string(a + b)}";
 
 ## Nominal Types
 
-A `unique(<uuid>) type` declaration gives a type its own identity, distinct
+A `unique(<uuid>) struct` declaration gives a type its own identity, distinct
 from any structurally identical type. That identity *is* the UUID:
 
 ```ambient
@@ -236,7 +236,7 @@ its variant constructors and patterns are in scope in the declaring module,
 and it carries inherent methods (`impl Shape { ... }`,
 `impl<T> Tree<T> { ... }`). Because the identity is the UUID, an enum's
 inherent methods get uuid-based dispatch symbols (`<uuid>::method`) exactly
-like a nominal `type`'s — see [Dispatch, Coherence, and
+like a nominal `struct`'s — see [Dispatch, Coherence, and
 Content-Addressing](#dispatch-coherence-and-content-addressing) — so a
 same-named enum elsewhere can never claim them.
 
@@ -393,7 +393,7 @@ impl Money {
 }
 ```
 
-Inherent impls are not limited to `unique type` declarations. Declared
+Inherent impls are not limited to `unique struct` declarations. Declared
 enums (nominal, keyed by UUID), the reserved-name prelude enums (`Option`,
 `Result`), the built-in containers (`List`, `Map`, `Set`), and the
 primitives can all carry methods, and impls may be generic over the
@@ -482,7 +482,7 @@ Method calls dispatch statically: the receiver's concrete type is known
 during type checking, which resolves the call to a canonical method symbol
 — `<type-uuid>::<Trait>::<method>` for trait methods, or the two-segment
 `<type-identity>::<method>` for inherent methods, where the identity is the
-UUID for any nominal type — a `unique type`, a declared enum, or the
+UUID for any nominal type — a `unique struct`, a declared enum, or the
 reserved-name prelude enums `Option`/`Result` (which carry fixed UUIDs) —
 and the head name for the built-in containers, which have no UUID
 (`List::fold`, `Map::get`). The segment counts differ, so the two families

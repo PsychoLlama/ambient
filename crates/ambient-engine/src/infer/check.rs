@@ -402,11 +402,18 @@ fn enforce_ability_subset(
     }
 }
 
-/// Register all type aliases from a module into the inferencer.
+/// Register all struct definitions and type aliases from a module into the
+/// inferencer so their names resolve as types while checking.
 fn register_type_aliases(infer: &mut Infer, module: &crate::ast::Module) {
     for item in &module.items {
-        if let crate::ast::ItemKind::TypeAlias(type_alias) = &item.kind {
-            infer.register_type_alias(Arc::clone(&type_alias.name), type_alias.ty.clone());
+        match &item.kind {
+            crate::ast::ItemKind::Struct(s) => {
+                infer.register_type_alias(Arc::clone(&s.name), s.ty.clone());
+            }
+            crate::ast::ItemKind::TypeAlias(type_alias) => {
+                infer.register_type_alias(Arc::clone(&type_alias.name), type_alias.ty.clone());
+            }
+            _ => {}
         }
     }
 }
@@ -522,7 +529,7 @@ fn retain_imported_type_aliases(
                             matches!(
                                 import,
                                 ResolvedImport::Symbol {
-                                    export_kind: ExportKind::TypeAlias,
+                                    export_kind: ExportKind::Struct | ExportKind::TypeAlias,
                                     ..
                                 }
                             )
@@ -574,11 +581,16 @@ fn register_package_items(
         // key, and canonical keys are never retracted (they can't leak as
         // bare names).
         for item in &info.module.items {
-            if let crate::ast::ItemKind::TypeAlias(alias) = &item.kind
-                && alias.is_public
-            {
-                let key: Arc<str> = format!("{}::{}", info.path, alias.name).into();
-                infer.register_type_alias(key, alias.ty.clone());
+            match &item.kind {
+                crate::ast::ItemKind::Struct(s) if s.is_public => {
+                    let key: Arc<str> = format!("{}::{}", info.path, s.name).into();
+                    infer.register_type_alias(key, s.ty.clone());
+                }
+                crate::ast::ItemKind::TypeAlias(alias) if alias.is_public => {
+                    let key: Arc<str> = format!("{}::{}", info.path, alias.name).into();
+                    infer.register_type_alias(key, alias.ty.clone());
+                }
+                _ => {}
             }
         }
     }
@@ -1824,6 +1836,7 @@ fn build_import_env(
                         ExportKind::Enum
                         | ExportKind::Function
                         | ExportKind::Const
+                        | ExportKind::Struct
                         | ExportKind::TypeAlias
                         | ExportKind::Trait,
                     ..

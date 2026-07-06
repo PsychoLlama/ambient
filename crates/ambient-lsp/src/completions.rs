@@ -245,7 +245,7 @@ pub fn get_completions(
     items
 }
 
-/// Generate a completion item with a fresh UUID for nominal type definitions.
+/// Generate a completion item with a fresh UUID for nominal struct definitions.
 fn get_uuid_completion() -> CompletionItem {
     // Ambient requires UUID literals to be uppercase; `Uuid`'s Display is
     // lowercase, so uppercase the generated value before inserting it.
@@ -396,7 +396,8 @@ fn get_core_submodule_member_completions(submodule: &str, prefix: &str) -> Vec<C
             let (item_kind, detail) = match export.kind {
                 ExportKind::Function => (CompletionItemKind::FUNCTION, "function"),
                 ExportKind::Const => (CompletionItemKind::CONSTANT, "constant"),
-                ExportKind::TypeAlias => (CompletionItemKind::STRUCT, "type"),
+                ExportKind::Struct => (CompletionItemKind::STRUCT, "struct"),
+                ExportKind::TypeAlias => (CompletionItemKind::TYPE_PARAMETER, "type"),
                 ExportKind::Enum => (CompletionItemKind::ENUM, "enum"),
                 ExportKind::Trait => (CompletionItemKind::INTERFACE, "trait"),
                 ExportKind::Ability => (CompletionItemKind::INTERFACE, "ability"),
@@ -459,7 +460,8 @@ fn get_pkg_module_completions(
             let item_kind = match export.kind {
                 ExportKind::Function => CompletionItemKind::FUNCTION,
                 ExportKind::Const => CompletionItemKind::CONSTANT,
-                ExportKind::TypeAlias => CompletionItemKind::STRUCT,
+                ExportKind::Struct => CompletionItemKind::STRUCT,
+                ExportKind::TypeAlias => CompletionItemKind::TYPE_PARAMETER,
                 ExportKind::Enum => CompletionItemKind::ENUM,
                 ExportKind::EnumVariant => CompletionItemKind::ENUM_MEMBER,
                 ExportKind::Ability | ExportKind::Trait => CompletionItemKind::INTERFACE,

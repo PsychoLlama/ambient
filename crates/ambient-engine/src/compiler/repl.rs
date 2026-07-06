@@ -622,14 +622,15 @@ pub fn compile_repl_item(
                 kind: ReplItemKind::Constant,
             })
         }
-        ItemKind::TypeAlias(_)
+        ItemKind::Struct(_)
+        | ItemKind::TypeAlias(_)
         | ItemKind::Enum(_)
         | ItemKind::Ability(_)
         | ItemKind::Use(_)
         | ItemKind::Trait(_)
         | ItemKind::Impl(_) => Err(CompileError::new(
             CompileErrorKind::Internal {
-                message: "type aliases, enums, abilities, traits, impls, and use statements are not yet supported in the REPL",
+                message: "structs, type aliases, enums, abilities, traits, impls, and use statements are not yet supported in the REPL",
             },
             (item.span.start, item.span.end),
         )),

@@ -395,31 +395,27 @@ fn format_item_signature(kind: &ItemKind, content: &mut String) {
             content.push_str(": ");
             content.push_str(&format_type(&c.ty));
         }
-        ItemKind::TypeAlias(t) => {
+        ItemKind::Struct(s) => {
             use ambient_engine::types::Type;
             // A struct's body is a record — bare (`struct Foo`) or wrapped in a
-            // nominal type (`unique(...) struct Foo`). Render those as `struct`;
-            // every other alias stays `type Name = ...`.
-            let record_body = match &t.ty {
-                Type::Record(_) => Some(&t.ty),
-                Type::Nominal(nom) if matches!(&*nom.inner, Type::Record(_)) => {
-                    Some(nom.inner.as_ref())
-                }
-                _ => None,
+            // nominal type (`unique(...) struct Foo`, which `format_type` would
+            // print as just the name). Unwrap the nominal to show the fields.
+            let body = match &s.ty {
+                Type::Nominal(nom) => nom.inner.as_ref(),
+                other => other,
             };
-            if let Some(body) = record_body {
-                content.push_str("struct ");
-                content.push_str(&t.name);
-                format_type_params(&t.type_params, content);
-                content.push(' ');
-                content.push_str(&format_type(body));
-            } else {
-                content.push_str("type ");
-                content.push_str(&t.name);
-                format_type_params(&t.type_params, content);
-                content.push_str(" = ");
-                content.push_str(&format_type(&t.ty));
-            }
+            content.push_str("struct ");
+            content.push_str(&s.name);
+            format_type_params(&s.type_params, content);
+            content.push(' ');
+            content.push_str(&format_type(body));
+        }
+        ItemKind::TypeAlias(t) => {
+            content.push_str("type ");
+            content.push_str(&t.name);
+            format_type_params(&t.type_params, content);
+            content.push_str(" = ");
+            content.push_str(&format_type(&t.ty));
         }
         ItemKind::Enum(e) => {
             content.push_str("enum ");
@@ -1091,6 +1087,14 @@ fn item_to_document_symbol(
             offset_range_to_lsp_range(doc, c.name_span.start as usize, c.name_span.end as usize),
             None,
         )),
+        ItemKind::Struct(s) => Some(make_symbol(
+            s.name.to_string(),
+            None,
+            LspSymbolKind::STRUCT,
+            range,
+            offset_range_to_lsp_range(doc, s.name_span.start as usize, s.name_span.end as usize),
+            None,
+        )),
         ItemKind::TypeAlias(t) => Some(make_symbol(
             t.name.to_string(),
             None,
@@ -1271,6 +1275,7 @@ fn export_kind_to_lsp(kind: ExportKind) -> LspSymbolKind {
     match kind {
         ExportKind::Function => LspSymbolKind::FUNCTION,
         ExportKind::Const => LspSymbolKind::CONSTANT,
+        ExportKind::Struct => LspSymbolKind::STRUCT,
         ExportKind::TypeAlias => LspSymbolKind::TYPE_PARAMETER,
         ExportKind::Enum => LspSymbolKind::ENUM,
         ExportKind::EnumVariant => LspSymbolKind::ENUM_MEMBER,

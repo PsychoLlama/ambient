@@ -109,7 +109,7 @@ pub enum TokenKind {
     /// Number literal
     Number,
     /// Canonical uppercase UUID literal (`8-4-4-4-12` hex), used in
-    /// `unique(...)` nominal type declarations.
+    /// `unique(...)` nominal struct and enum declarations.
     Uuid,
     /// String literal (complete, no interpolation)
     String,

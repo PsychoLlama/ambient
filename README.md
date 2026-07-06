@@ -130,4 +130,4 @@ So why create a new language?
 - **Target Environment:** I desperately wanted to try their ideas in web apps and embedded in web servers through FFI. Unison doesn't support it.
 - **Scratch Files:** Unison takes a radical stance by doing away with the file system. You edit the codebase by loading and unloading code from a scratch file. It's an expensive gamble. I wanted to prove it was possible to keep the features _and_ the file system.
 
-This is why `unique(...) type` requires a literal UUID. Unison can create nominal types under the hood, but ambient files have to be self contained. It needs a way to uniquely identify the type across moves and remote functions.
+This is why `unique(...) struct` requires a literal UUID. Unison can create nominal types under the hood, but ambient files have to be self contained. It needs a way to uniquely identify the type across moves and remote functions.

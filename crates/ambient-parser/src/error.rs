@@ -110,7 +110,7 @@ pub enum ParseErrorKind {
     /// Error during CST to AST lowering.
     LoweringError(String),
 
-    /// Invalid UUID in unique type declaration.
+    /// Invalid UUID in a `unique(...)` struct or enum declaration.
     InvalidUuid(String),
 
     /// The `unique(...)` parentheses did not contain a canonical uppercase

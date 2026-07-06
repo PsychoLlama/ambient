@@ -123,6 +123,7 @@ pub struct ExportInfo {
 pub enum ExportKind {
     Function,
     Const,
+    Struct,
     TypeAlias,
     Enum,
     EnumVariant,
@@ -243,7 +244,7 @@ impl ExportKind {
     pub fn namespace(self) -> Namespace {
         match self {
             Self::Function | Self::Const | Self::EnumVariant => Namespace::Value,
-            Self::TypeAlias | Self::Enum => Namespace::Type,
+            Self::Struct | Self::TypeAlias | Self::Enum => Namespace::Type,
             Self::Ability => Namespace::Ability,
             Self::Trait => Namespace::Trait,
         }
@@ -781,6 +782,14 @@ fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> {
                 is_public: c.is_public,
                 re_export_from: None,
                 name_span: c.name_span,
+                doc: item.doc.clone(),
+            }),
+            ItemKind::Struct(s) => Some(ExportInfo {
+                name: s.name.clone(),
+                kind: ExportKind::Struct,
+                is_public: s.is_public,
+                re_export_from: None,
+                name_span: s.name_span,
                 doc: item.doc.clone(),
             }),
             ItemKind::TypeAlias(t) => Some(ExportInfo {

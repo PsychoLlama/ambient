@@ -37,6 +37,7 @@ pub fn item_name_span(item: &Item) -> Option<Span> {
     match &item.kind {
         ItemKind::Function(f) => Some(f.name_span),
         ItemKind::Const(c) => Some(c.name_span),
+        ItemKind::Struct(s) => Some(s.name_span),
         ItemKind::TypeAlias(t) => Some(t.name_span),
         ItemKind::Enum(e) => Some(e.name_span),
         ItemKind::Ability(a) => Some(a.name_span),
@@ -51,6 +52,7 @@ pub fn item_name(item: &Item) -> Option<&std::sync::Arc<str>> {
     match &item.kind {
         ItemKind::Function(f) => Some(&f.name),
         ItemKind::Const(c) => Some(&c.name),
+        ItemKind::Struct(s) => Some(&s.name),
         ItemKind::TypeAlias(t) => Some(&t.name),
         ItemKind::Enum(e) => Some(&e.name),
         ItemKind::Ability(a) => Some(&a.name),

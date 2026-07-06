@@ -305,6 +305,7 @@ impl Collector<'_> {
                 self.expr(&c.value);
                 self.pop_scope();
             }
+            ItemKind::Struct(s) => self.item_def(&s.name, s.name_span),
             ItemKind::TypeAlias(t) => self.item_def(&t.name, t.name_span),
             ItemKind::Enum(e) => self.item_def(&e.name, e.name_span),
             ItemKind::Ability(a) => self.item_def(&a.name, a.name_span),

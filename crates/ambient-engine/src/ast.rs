@@ -759,6 +759,9 @@ pub enum ItemKind {
     /// A constant definition.
     Const(ConstDef),
 
+    /// A struct (record) definition.
+    Struct(StructDef),
+
     /// A type alias.
     TypeAlias(TypeAliasDef),
 
@@ -823,10 +826,30 @@ pub struct ConstDef {
     pub value: Expr,
 }
 
-/// A type alias definition.
+/// A struct (record) definition: `struct Foo { fields }`.
 ///
-/// If `unique_id` is `Some`, this is a nominal type that is incompatible
-/// with structurally identical types (e.g., `unique(uuid) struct UserId { value: string }`).
+/// The body (`ty`) is always a record type. If `unique_id` is `Some`, this is a
+/// nominal type that is incompatible with structurally identical types (e.g.,
+/// `unique(uuid) struct UserId { value: string }`), and `ty` is wrapped in
+/// `Type::Nominal`.
+#[derive(Debug, Clone)]
+pub struct StructDef {
+    /// Struct name.
+    pub name: Arc<str>,
+    /// Span of the struct name (for go-to-definition).
+    pub name_span: Span,
+    /// Whether this struct is public.
+    pub is_public: bool,
+    /// Type parameters (generics).
+    pub type_params: Vec<TypeParam>,
+    /// The record body (wrapped in `Type::Nominal` if `unique_id` is set).
+    pub ty: Type,
+    /// Optional UUID for a nominal identity. If set, makes this type
+    /// incompatible with structurally identical types.
+    pub unique_id: Option<Uuid>,
+}
+
+/// A type alias definition: `type Foo = Bar`.
 #[derive(Debug, Clone)]
 pub struct TypeAliasDef {
     /// Type name.
@@ -837,11 +860,8 @@ pub struct TypeAliasDef {
     pub is_public: bool,
     /// Type parameters (generics).
     pub type_params: Vec<TypeParam>,
-    /// The aliased type (wrapped in `Type::Nominal` if `unique_id` is set).
+    /// The aliased type.
     pub ty: Type,
-    /// Optional UUID for nominal types. If set, makes this type incompatible
-    /// with structurally identical types.
-    pub unique_id: Option<Uuid>,
 }
 
 /// An enum definition.

@@ -162,6 +162,8 @@ pub enum CstItemKind {
     Function(CstFunctionDef),
     /// Constant definition.
     Const(CstConstDef),
+    /// Struct (record) definition.
+    Struct(CstStructDef),
     /// Type alias.
     TypeAlias(CstTypeAliasDef),
     /// Enum definition.
@@ -314,7 +316,24 @@ pub struct CstConstDef {
     pub value: CstExpr,
 }
 
-/// A type alias definition.
+/// A struct (record) definition: `struct Foo { fields }`, optionally prefixed
+/// with `unique(<uuid>)` for a nominal identity. The body is always a record
+/// type — there is no `= Type` form (that is a [`CstTypeAliasDef`]).
+#[derive(Debug, Clone)]
+pub struct CstStructDef {
+    /// Whether public (`pub struct`).
+    pub is_public: bool,
+    /// Struct name.
+    pub name: CstIdent,
+    /// Type parameters.
+    pub type_params: Vec<CstTypeParam>,
+    /// The record body.
+    pub ty: CstTypeExpr,
+    /// Optional unique UUID for a nominal identity (`unique(<uuid>)`).
+    pub unique_id: Option<Arc<str>>,
+}
+
+/// A type alias definition: `type Foo = Bar`.
 #[derive(Debug, Clone)]
 pub struct CstTypeAliasDef {
     /// Whether public (`pub type`).
@@ -325,8 +344,6 @@ pub struct CstTypeAliasDef {
     pub type_params: Vec<CstTypeParam>,
     /// The aliased type.
     pub ty: CstTypeExpr,
-    /// Optional unique UUID for nominal types.
-    pub unique_id: Option<Arc<str>>,
 }
 
 /// An enum definition.

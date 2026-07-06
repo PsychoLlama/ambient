@@ -12,8 +12,8 @@ use ambient_engine::ast::{
     AbilityCall, AbilityDef, AbilityMethod, BinaryOp, BindingId, ConstDef, EnumDef, EnumVariant,
     Expr, ExprKind, FunctionDef, HandleExpr, Handler, HandlerLiteralExpr, HandlerLiteralMethod,
     ImplDef, ImplMethod, Item, ItemKind, Lambda, LetBinding, Literal, MatchArm, Module, Param,
-    Pattern, PatternKind, QualifiedName, SandboxExpr, Span, Stmt, StmtKind, TraitDef, TraitMethod,
-    TypeAliasDef, TypeParam, UnaryOp, UseDef, UsePrefix, WhereClause,
+    Pattern, PatternKind, QualifiedName, SandboxExpr, Span, Stmt, StmtKind, StructDef, TraitDef,
+    TraitMethod, TypeAliasDef, TypeParam, UnaryOp, UseDef, UsePrefix, WhereClause,
 };
 use ambient_engine::types::{NominalType, Type};
 
@@ -21,8 +21,8 @@ use crate::cst::{
     CstAbilityDef, CstBinaryOp, CstConstDef, CstEnumDef, CstExpr, CstExprKind, CstFunctionDef,
     CstImplDef, CstItem, CstItemKind, CstLambda, CstLiteral, CstMatchArm, CstModule, CstParam,
     CstPattern, CstPatternKind, CstQualifiedName, CstRecordPatternField, CstStmt, CstStmtKind,
-    CstTraitDef, CstTraitParamKind, CstTypeAliasDef, CstTypeExpr, CstTypeExprKind, CstUnaryOp,
-    CstUseDef, CstUseTree, CstUseTreeKind, StringPart,
+    CstStructDef, CstTraitDef, CstTraitParamKind, CstTypeAliasDef, CstTypeExpr, CstTypeExprKind,
+    CstUnaryOp, CstUseDef, CstUseTree, CstUseTreeKind, StringPart,
 };
 use crate::error::{ParseError, ParseErrorKind};
 
@@ -120,6 +120,7 @@ fn lower_item_impl(ctx: &mut LoweringContext, item: &CstItem) -> Result<Vec<Item
     let kind = match &item.kind {
         CstItemKind::Function(f) => ItemKind::Function(lower_function(ctx, f)?),
         CstItemKind::Const(c) => ItemKind::Const(lower_const(ctx, c)?),
+        CstItemKind::Struct(s) => ItemKind::Struct(lower_struct_def(s)?),
         CstItemKind::TypeAlias(t) => ItemKind::TypeAlias(lower_type_alias(t)?),
         CstItemKind::Enum(e) => ItemKind::Enum(lower_enum(e)?),
         CstItemKind::Ability(a) => ItemKind::Ability(lower_ability_def(a)?),
@@ -193,6 +194,46 @@ fn lower_const(ctx: &mut LoweringContext, c: &CstConstDef) -> Result<ConstDef, P
     })
 }
 
+fn lower_struct_def(s: &CstStructDef) -> Result<StructDef, ParseError> {
+    let type_params = s
+        .type_params
+        .iter()
+        .map(|tp| TypeParam {
+            name: tp.name.name.clone(),
+            span: tp.span,
+        })
+        .collect();
+
+    // Parse the UUID if this is a nominal (`unique(...)`) struct.
+    let unique_id = s
+        .unique_id
+        .as_ref()
+        .map(|s_uuid| {
+            Uuid::parse_str(s_uuid).map_err(|e| {
+                ParseError::new(ParseErrorKind::InvalidUuid(e.to_string()), s.name.span)
+            })
+        })
+        .transpose()?;
+
+    let inner_ty = lower_type(&s.ty)?;
+
+    // Wrap in a Nominal type when the struct carries a unique identity.
+    let ty = if let Some(uuid) = unique_id {
+        Type::Nominal(NominalType::new(uuid, inner_ty, Some(s.name.name.clone())))
+    } else {
+        inner_ty
+    };
+
+    Ok(StructDef {
+        name: s.name.name.clone(),
+        name_span: s.name.span,
+        is_public: s.is_public,
+        type_params,
+        ty,
+        unique_id,
+    })
+}
+
 fn lower_type_alias(t: &CstTypeAliasDef) -> Result<TypeAliasDef, ParseError> {
     let type_params = t
         .type_params
@@ -203,25 +244,7 @@ fn lower_type_alias(t: &CstTypeAliasDef) -> Result<TypeAliasDef, ParseError> {
         })
         .collect();
 
-    // Parse UUID if this is a nominal type
-    let unique_id = t
-        .unique_id
-        .as_ref()
-        .map(|s| {
-            Uuid::parse_str(s).map_err(|e| {
-                ParseError::new(ParseErrorKind::InvalidUuid(e.to_string()), t.name.span)
-            })
-        })
-        .transpose()?;
-
-    let inner_ty = lower_type(&t.ty)?;
-
-    // Wrap in Nominal type if unique_id is present
-    let ty = if let Some(uuid) = unique_id {
-        Type::Nominal(NominalType::new(uuid, inner_ty, Some(t.name.name.clone())))
-    } else {
-        inner_ty
-    };
+    let ty = lower_type(&t.ty)?;
 
     Ok(TypeAliasDef {
         name: t.name.name.clone(),
@@ -229,7 +252,6 @@ fn lower_type_alias(t: &CstTypeAliasDef) -> Result<TypeAliasDef, ParseError> {
         is_public: t.is_public,
         type_params,
         ty,
-        unique_id,
     })
 }
 
@@ -1486,16 +1508,16 @@ mod tests {
         let module = parse(source).expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
-            ItemKind::TypeAlias(t) => {
-                assert_eq!(&*t.name, "UserId");
-                assert!(t.unique_id.is_some());
-                let uuid = t.unique_id.unwrap();
+            ItemKind::Struct(s) => {
+                assert_eq!(&*s.name, "UserId");
+                assert!(s.unique_id.is_some());
+                let uuid = s.unique_id.unwrap();
                 // Source syntax is uppercase; the canonical value is lowercase.
                 assert_eq!(uuid.to_string(), "d098767b-4093-4d5c-ba37-ad92aa7b5d98");
                 // The type should be wrapped in Nominal
-                assert!(matches!(t.ty, Type::Nominal(_)));
+                assert!(matches!(s.ty, Type::Nominal(_)));
             }
-            _ => panic!("Expected type alias"),
+            _ => panic!("Expected struct"),
         }
     }
 
@@ -1510,29 +1532,29 @@ mod tests {
         let module = parse(source).expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
-            ItemKind::TypeAlias(t) => {
-                assert_eq!(&*t.name, "Example");
-                let uuid = t.unique_id.expect("expected nominal type");
+            ItemKind::Struct(s) => {
+                assert_eq!(&*s.name, "Example");
+                let uuid = s.unique_id.expect("expected nominal type");
                 assert_eq!(uuid.to_string(), "2eb9553c-1fdf-46fb-a8b1-f2c5a1cfca94");
-                assert!(matches!(t.ty, Type::Nominal(_)));
+                assert!(matches!(s.ty, Type::Nominal(_)));
             }
-            _ => panic!("Expected type alias"),
+            _ => panic!("Expected struct"),
         }
     }
 
     #[test]
-    fn test_lower_regular_type_alias() {
+    fn test_lower_regular_struct() {
         let source = "struct Point { x: Number, y: Number }";
         let module = parse(source).expect("parse error");
         assert_eq!(module.items.len(), 1);
         match &module.items[0].kind {
-            ItemKind::TypeAlias(t) => {
-                assert_eq!(&*t.name, "Point");
-                assert!(t.unique_id.is_none());
-                // The type should NOT be wrapped in Nominal
-                assert!(matches!(t.ty, Type::Record(_)));
+            ItemKind::Struct(s) => {
+                assert_eq!(&*s.name, "Point");
+                assert!(s.unique_id.is_none());
+                // A non-unique struct is a bare record, NOT wrapped in Nominal.
+                assert!(matches!(s.ty, Type::Record(_)));
             }
-            _ => panic!("Expected type alias"),
+            _ => panic!("Expected struct"),
         }
     }
 

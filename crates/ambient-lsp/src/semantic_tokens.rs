@@ -8,7 +8,7 @@ use lsp_types::{SemanticToken, SemanticTokenModifier, SemanticTokenType, Semanti
 
 use ambient_engine::ast::{
     AbilityCall, Expr, ExprKind, HandlerLiteralExpr, Item, ItemKind, Lambda, MatchArm, Module,
-    Pattern, PatternKind, SandboxExpr, Stmt, StmtKind,
+    Pattern, PatternKind, SandboxExpr, Span, Stmt, StmtKind,
 };
 
 use crate::documents::Document;
@@ -170,6 +170,17 @@ impl<'a> TokenCollector<'a> {
         }
     }
 
+    /// Emit a `TYPE` declaration token for a type-like definition name (a
+    /// `struct` or a `type` alias).
+    fn add_type_decl_token(&mut self, name_span: Span) {
+        self.add_token(
+            name_span.start,
+            name_span.end,
+            token_type::TYPE,
+            token_modifier::DECLARATION,
+        );
+    }
+
     fn visit_module(&mut self, module: &Module) {
         for item in &module.items {
             self.visit_item(item);
@@ -211,15 +222,9 @@ impl<'a> TokenCollector<'a> {
                 // Value
                 self.visit_expr(&c.value);
             }
-            ItemKind::TypeAlias(t) => {
-                // Type name at definition
-                self.add_token(
-                    t.name_span.start,
-                    t.name_span.end,
-                    token_type::TYPE,
-                    token_modifier::DECLARATION,
-                );
-            }
+            // A struct or type-alias name both highlight as a type declaration.
+            ItemKind::Struct(s) => self.add_type_decl_token(s.name_span),
+            ItemKind::TypeAlias(t) => self.add_type_decl_token(t.name_span),
             ItemKind::Enum(e) => {
                 // Enum name at definition
                 self.add_token(

@@ -29,9 +29,9 @@ use ambient_engine::ast::Span;
 use crate::cst::{
     CstAbilityDef, CstAbilityMethod, CstConstDef, CstEnumDef, CstEnumVariant, CstFunctionDef,
     CstIdent, CstImplDef, CstImplMethod, CstItem, CstItemKind, CstModule, CstParam,
-    CstQualifiedName, CstReplInput, CstTraitDef, CstTraitMethod, CstTraitParam, CstTraitParamKind,
-    CstTypeAliasDef, CstTypeParam, CstUseDef, CstUseTree, CstUseTreeKind, CstWhereClause, Trivia,
-    TriviaItem, TriviaKind,
+    CstQualifiedName, CstReplInput, CstStructDef, CstTraitDef, CstTraitMethod, CstTraitParam,
+    CstTraitParamKind, CstTypeAliasDef, CstTypeParam, CstUseDef, CstUseTree, CstUseTreeKind,
+    CstWhereClause, Trivia, TriviaItem, TriviaKind,
 };
 use crate::error::{ParseError, ParseErrorKind};
 use crate::lexer::{Lexer, Token, TokenKind};
@@ -279,7 +279,7 @@ impl<'src> Parser<'src> {
                     TokenKind::Use => CstItemKind::Use(self.parse_use(true)?),
                     TokenKind::Const => CstItemKind::Const(self.parse_const(true)?),
                     TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(true)?),
-                    TokenKind::Struct => CstItemKind::TypeAlias(self.parse_struct_def(true, None)?),
+                    TokenKind::Struct => CstItemKind::Struct(self.parse_struct_def(true, None)?),
                     TokenKind::Enum => CstItemKind::Enum(self.parse_enum(true, None)?),
                     TokenKind::Unique => self.parse_unique_item(true)?,
                     TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(true)?),
@@ -298,7 +298,7 @@ impl<'src> Parser<'src> {
             TokenKind::Fn => CstItemKind::Function(self.parse_function(false)?),
             TokenKind::Const => CstItemKind::Const(self.parse_const(false)?),
             TokenKind::Type => CstItemKind::TypeAlias(self.parse_type_alias(false)?),
-            TokenKind::Struct => CstItemKind::TypeAlias(self.parse_struct_def(false, None)?),
+            TokenKind::Struct => CstItemKind::Struct(self.parse_struct_def(false, None)?),
             TokenKind::Enum => CstItemKind::Enum(self.parse_enum(false, None)?),
             TokenKind::Unique => self.parse_unique_item(false)?,
             TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(false)?),
@@ -535,7 +535,7 @@ impl<'src> Parser<'src> {
         let unique_id = self.parse_unique_prefix()?;
         self.skip_trivia();
         match self.current_kind() {
-            TokenKind::Struct => Ok(CstItemKind::TypeAlias(
+            TokenKind::Struct => Ok(CstItemKind::Struct(
                 self.parse_struct_def(is_public, unique_id)?,
             )),
             TokenKind::Enum => Ok(CstItemKind::Enum(self.parse_enum(is_public, unique_id)?)),
@@ -549,14 +549,13 @@ impl<'src> Parser<'src> {
         }
     }
 
-    /// Parse a `struct Foo { fields }` record definition. Structs share the
-    /// `CstTypeAliasDef` node (their body is a `Type::Record`), but require the
-    /// record body — there is no `= Type` alias form.
+    /// Parse a `struct Foo { fields }` record definition. The body is always a
+    /// record type — there is no `= Type` alias form (that is `parse_type_alias`).
     fn parse_struct_def(
         &mut self,
         is_public: bool,
         unique_id: Option<Arc<str>>,
-    ) -> Result<CstTypeAliasDef, ParseError> {
+    ) -> Result<CstStructDef, ParseError> {
         self.expect(TokenKind::Struct)?;
         let name = self.parse_ident()?;
 
@@ -568,7 +567,7 @@ impl<'src> Parser<'src> {
 
         let ty = self.parse_record_type()?;
 
-        Ok(CstTypeAliasDef {
+        Ok(CstStructDef {
             is_public,
             name,
             type_params,
@@ -597,7 +596,6 @@ impl<'src> Parser<'src> {
             name,
             type_params,
             ty,
-            unique_id: None,
         })
     }
 
@@ -1273,14 +1271,14 @@ mod tests {
         // `struct` defines a record.
         let mut parser = Parser::new("struct Point { x: Number, y: Number }").unwrap();
         let item = parser.parse_item().expect("struct should parse");
-        assert!(matches!(item.kind, CstItemKind::TypeAlias(_)));
+        assert!(matches!(item.kind, CstItemKind::Struct(_)));
 
         // `unique(...) struct` defines a nominal record.
         let mut parser =
             Parser::new("unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct Id { value: Number }")
                 .unwrap();
         let item = parser.parse_item().expect("unique struct should parse");
-        assert!(matches!(item.kind, CstItemKind::TypeAlias(_)));
+        assert!(matches!(item.kind, CstItemKind::Struct(_)));
 
         // `type X = Y` remains a plain alias.
         let mut parser = Parser::new("type Meters = Number;").unwrap();

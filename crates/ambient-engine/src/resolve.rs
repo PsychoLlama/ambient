@@ -121,6 +121,9 @@ impl<'r> Resolver<'r> {
                 ItemKind::Const(c) => {
                     module_values.insert(Arc::clone(&c.name));
                 }
+                ItemKind::Struct(s) => {
+                    module_types.insert(Arc::clone(&s.name));
+                }
                 ItemKind::TypeAlias(t) => {
                     module_types.insert(Arc::clone(&t.name));
                 }
@@ -209,6 +212,7 @@ impl<'r> Resolver<'r> {
                         self.pop_scope();
                     }
                 }
+                ItemKind::Struct(s) => self.resolve_type(&mut s.ty),
                 ItemKind::TypeAlias(t) => self.resolve_type(&mut t.ty),
                 ItemKind::Enum(e) => {
                     for variant in &mut e.variants {
@@ -426,6 +430,12 @@ impl<'r> Resolver<'r> {
                                 args: std::mem::take(&mut n.args),
                                 uuid: Some(def.uuid),
                             });
+                            return;
+                        }
+                        ItemKind::Struct(def)
+                            if def.name == *item && def.type_params.is_empty() =>
+                        {
+                            *ty = def.ty.clone();
                             return;
                         }
                         ItemKind::TypeAlias(def)
