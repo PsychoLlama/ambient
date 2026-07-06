@@ -29,9 +29,9 @@ impl Infer {
 
         match (&t1, &t2) {
             // Reflexive atoms and error types. The primitives
-            // (`Bool`/`Number`/`String`/`Bytes`) are `Named` carrying a
-            // reserved uuid, so they unify through the `(Named, Named)` arm
-            // below via `resolve_named_identity`, not here.
+            // (`Bool`/`Number`/`String`/`Bytes`) are `extern` `Nominal` types
+            // carrying a reserved uuid, so they unify through the
+            // `(Nominal, Nominal)` arm below (uuid + structure), not here.
             (Type::Unit, Type::Unit)
             | (Type::Never, Type::Never)
             | (Type::Error, _)

@@ -620,10 +620,11 @@ impl CanonicalTypeRenderer {
 
     /// Render a type into its canonical string form.
     pub fn render(&mut self, ty: &Type) -> String {
-        // Primitives are `Named` carrying a reserved uuid, but the canonical
-        // interface grammar renders them as bare lowercase words (`string`,
-        // `number`, ...) to match `TypeFactory` (see `ambient-core::canonical`),
-        // keeping ability interface identities byte-stable across the upgrade.
+        // Primitives are `extern` `Nominal` types carrying a reserved uuid, but
+        // the canonical interface grammar renders them as bare lowercase words
+        // (`string`, `number`, ...) to match `TypeFactory` (see
+        // `ambient-core::canonical`), keeping ability interface identities
+        // byte-stable across the upgrade.
         if let Some(prim) = ty.as_primitive() {
             return match prim {
                 crate::types::Primitive::Bool => "bool",

@@ -880,16 +880,14 @@ fn register_inherent_impls(
         let span = (item.span.start, item.span.end);
 
         let target = inherent_impl_target(infer, impl_def);
-        // Beyond being keyable, a named target must actually exist: a
-        // built-in primitive (`String`, `Number`, ...), a declared enum, or
-        // one of the built-in containers. (Nominal types were already
-        // resolved through their alias.)
+        // Beyond being keyable, a `Named` target must actually exist: a declared
+        // enum or one of the built-in containers. Nominal targets — declared
+        // structs, `extern` types, and the primitives (`String`, `Number`, ...),
+        // which now resolve to their `extern` `Nominal` through the prelude
+        // alias — are always real, taking the `_ => true` branch.
         let target = target.filter(|(_, for_type)| match for_type {
             Type::Named(n) => {
-                n.uuid
-                    .and_then(crate::types::Primitive::from_uuid)
-                    .is_some()
-                    || infer.enum_registry.get(&n.name).is_some()
+                infer.enum_registry.get(&n.name).is_some()
                     || matches!(n.name.as_ref(), "List" | "Map" | "Set")
             }
             _ => true,

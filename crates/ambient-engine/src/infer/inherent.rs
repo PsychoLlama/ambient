@@ -73,16 +73,16 @@ pub fn inherent_method_symbol(key: &ImplKey, method: &str) -> Arc<str> {
 #[must_use]
 pub fn impl_key_for(ty: &Type) -> Option<ImplKey> {
     match ty {
+        // Declared structs, `extern` types, and the primitives
+        // (`String`/`Number`/...) all arrive as `Nominal` and key on their
+        // uuid, so `impl String { ... }` gets uuid-based dispatch symbols,
+        // uniform with every other nominal type.
         Type::Nominal(n) => Some(ImplKey::Nominal(n.uuid)),
         // A declared enum keys on its uuid — its methods get uuid-based
         // dispatch symbols exactly like a nominal type's, so a same-named
         // enum in another package can never claim them. Structural
         // constructors (built-in containers, prelude `Option`/`Result`)
         // key on their reserved head name.
-        // Primitives are `Named` carrying a reserved uuid, so they key as
-        // `ImplKey::Nominal(<uuid>)` through this same arm — their inherent
-        // methods (`impl String { ... }`) get uuid-based dispatch symbols,
-        // uniform with declared nominal types and prelude enums.
         Type::Named(n) => Some(match n.uuid {
             Some(uuid) => ImplKey::Nominal(uuid),
             None => ImplKey::Named(Arc::clone(&n.name)),
