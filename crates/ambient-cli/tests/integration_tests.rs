@@ -192,6 +192,25 @@ fn test_run_simple_return() {
     CliTest::new("fn run(): Number { 42 }").expect_output("42");
 }
 
+/// Single-file `run` (no synthesized package) must link core-library inherent
+/// methods. `.length()` lowers to the dispatch symbol `List::length`, which is
+/// globally unique and already qualified, so the link table must bind it
+/// unprefixed. Regression for the drifted duplicate of `build::linking_table`
+/// that double-qualified it (`core::List::List::length`). The `CliTest` harness
+/// package-wraps every `run`, so this bypasses it to exercise the bare-file path.
+#[test]
+fn single_file_run_links_core_inherent_methods() {
+    let (_dir, path) = temp_source("fn run(): Number { [1, 2, 3].length() }");
+    let out = ambient_cmd().arg("run").arg(&path).output().expect("run");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains('3'), "expected '3' in output: {stdout}");
+}
+
 #[test]
 fn test_run_arithmetic() {
     CliTest::new("fn run(): Number { 2 + 3 * 4 }").expect_output("14");

@@ -103,12 +103,7 @@ pub fn core_context() -> Result<CoreContext> {
     )
     .map_err(|(module, e)| anyhow::anyhow!("platform module `{module}` failed to build: {e}"))?;
 
-    let mut hashes = HashMap::new();
-    for (path, module_hashes) in &module_function_hashes {
-        for (name, hash) in module_hashes {
-            hashes.insert(format!("{path}::{name}").into(), *hash);
-        }
-    }
+    let hashes = ambient_engine::build::linking_table(&module_function_hashes);
 
     Ok(CoreContext {
         registry,
