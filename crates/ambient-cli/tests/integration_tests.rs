@@ -702,7 +702,7 @@ fn test_local_ability_shadows_platform_name() {
         pub fn run(): () with platform::Stdio {
             let loud = handle noise() {
                 Stdio::shout(msg) => {
-                    resume(core::string::concat(msg, "!"))
+                    resume(core::String::concat(msg, "!"))
                 }
             };
             platform::Stdio::out!(loud)
@@ -2335,7 +2335,7 @@ fn test_inherent_impl_on_primitives() {
         r#"
         impl String {
             fn shout(self): String {
-                core::string::to_upper(self)
+                core::String::to_upper(self)
             }
         }
 
@@ -2653,8 +2653,8 @@ fn test_string_index_of_returns_option() {
     let (dir, pkg) = temp_package(
         r#"
         pub fn run(): String {
-            let found = core::string::index_of("hello world", "wor").unwrap_or(0 - 1);
-            let missing = core::string::index_of("hello", "xyz").is_none();
+            let found = core::String::index_of("hello world", "wor").unwrap_or(0 - 1);
+            let missing = core::String::index_of("hello", "xyz").is_none();
             core::convert::to_string(found) + " " + core::convert::to_string(missing)
         }
         "#,
@@ -3043,7 +3043,7 @@ fn test_result_constructors_and_chaining() {
             let ok = parse(5).map((x: Number) => x * 10);
             let err = parse(0 - 3);
             match ok.and_then((x: Number) => parse(x)) {
-                Ok(v) => core::string::from_number(v),
+                Ok(v) => core::String::from_number(v),
                 Err(e) => e,
             }
         }
@@ -3167,7 +3167,7 @@ fn test_user_ability_inline_handler() {
         pub fn run(): String {
             handle hello() {
                 Greeter::greet(name) => {
-                    resume(core::string::concat("hi ", name))
+                    resume(core::String::concat("hi ", name))
                 }
             }
         }

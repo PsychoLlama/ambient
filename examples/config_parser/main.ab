@@ -3,7 +3,7 @@
 //! Parses a simple key=value config format and extracts values.
 //! Demonstrates string manipulation and list operations.
 
-use core::string;
+use core::String;
 use core::List;
 
 /// Parses a single line into a key-value pair.
@@ -26,7 +26,7 @@ fn parse_line(line: String): List<(String, String)> {
                     let key = raw_key.trim();
                     // Join remaining parts in case value contains =
                     let value_parts = List::tail(parts);
-                    let value = string::join(value_parts, "=").trim();
+                    let value = String::join(value_parts, "=").trim();
                     [(key, value)]
                 } else {
                     []

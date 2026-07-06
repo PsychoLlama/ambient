@@ -2,7 +2,7 @@
 //!
 //! Provides auto-completion for:
 //! - Keywords (fn, let, if, etc.)
-//! - Built-in types (number, string, bool)
+//! - Built-in types (Number, String, Bool)
 //! - Function names from the current module
 //! - Local variables in scope
 //! - Ability names and methods
@@ -1011,9 +1011,9 @@ mod tests {
     #[test]
     fn test_core_module_completions_all() {
         let items = get_core_module_completions("");
-        assert!(items.len() >= 3); // List, string, math (+ traits)
+        assert!(items.len() >= 3); // List, String, math (+ traits)
         assert!(items.iter().any(|i| i.label == "List"));
-        assert!(items.iter().any(|i| i.label == "string"));
+        assert!(items.iter().any(|i| i.label == "String"));
         assert!(items.iter().any(|i| i.label == "math"));
     }
 

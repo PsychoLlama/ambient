@@ -94,7 +94,7 @@ impl CoreLibrary {
 /// the hardcoded prelude in `TraitRegistry::with_prelude`, and registering
 /// a second copy would collide with it.
 pub const REGISTERED_CORE_MODULES: &[&str] =
-    &["math", "string", "List", "Option", "Result", "time"];
+    &["math", "String", "List", "Option", "Result", "time"];
 
 /// Parse every registered core module and register it in a module
 /// registry under its reserved `core.*` path.
@@ -198,7 +198,7 @@ fn get_core_modules() -> HashMap<&'static str, &'static str> {
     modules.insert("List", include_str!("core_lib/list.ab"));
     modules.insert("Option", include_str!("core_lib/option.ab"));
     modules.insert("Result", include_str!("core_lib/result.ab"));
-    modules.insert("string", include_str!("core_lib/string.ab"));
+    modules.insert("String", include_str!("core_lib/string.ab"));
     modules.insert("math", include_str!("core_lib/math.ab"));
     modules.insert("time", include_str!("core_lib/time.ab"));
     modules.insert("traits", include_str!("core_lib/traits.ab"));
@@ -228,7 +228,7 @@ mod tests {
         let modules = CoreLibrary::available_modules();
         assert!(modules.contains(&"List"));
         assert!(modules.contains(&"math"));
-        assert!(modules.contains(&"string"));
+        assert!(modules.contains(&"String"));
     }
 
     #[test]

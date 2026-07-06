@@ -470,7 +470,7 @@ Implement the `core` standard library.
 - Modify: `crates/ambient-engine/src/infer/mod.rs` - Preload core types
 
 **Deliverables:**
-- Core modules: `core::List`, `core::Option`, `core::Result`, `core::string`
+- Core modules: `core::List`, `core::Option`, `core::Result`, `core::String`
 - Implicit prelude (Option, Result always available)
 - Core abilities: `core::console`, `core::time`, `core::random`
 

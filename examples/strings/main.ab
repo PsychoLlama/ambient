@@ -2,7 +2,7 @@
 //!
 //! Demonstrates string manipulation using stdlib intrinsics.
 
-use core::string;
+use core::String;
 use core::List;
 
 /// Checks if a string is a palindrome.
@@ -77,7 +77,7 @@ fn word_count(s: String): Number {
 fn title_case(s: String): String {
     let words = s.split(" ");
     let capitalized = title_case_words(words);
-    string::join(capitalized, " ")
+    String::join(capitalized, " ")
 }
 
 fn title_case_words(words: List<String>): List<String> {

@@ -8,7 +8,7 @@
 // are called the same qualified way.
 
 use self::stats;
-use core::{string, math};
+use core::{String, math};
 use platform::Stdio;
 
 pub fn run(): () with Stdio {
@@ -18,8 +18,8 @@ pub fn run(): () with Stdio {
     let evens = squares.filter((x: Number) => is_even(x));
     let total = evens.fold(0, (acc: Number, x: Number) => acc + x);
 
-    Stdio::out!(string::from_number(total));
-    Stdio::out!(string::from_number(stats::mean(squares)));
+    Stdio::out!(String::from_number(total));
+    Stdio::out!(String::from_number(stats::mean(squares)));
 }
 
 fn is_even(x: Number): Bool {

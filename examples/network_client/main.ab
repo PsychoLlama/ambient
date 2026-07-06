@@ -36,7 +36,7 @@ pub fn run(): () with Stdio, Network {
 /// Convert a string to Bytes (ASCII).
 fn string_to_bytes(s: String): Bytes {
     // For now, just create a simple test payload
-    // In a real implementation, we'd use core::string::bytes or similar
+    // In a real implementation, we'd use core::String::bytes or similar
     // "Hello from Ambient!" in ASCII
     core::bytes::from([72, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 65, 109, 98, 105, 101, 110, 116, 33])
 }

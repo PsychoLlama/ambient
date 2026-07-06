@@ -110,11 +110,11 @@ Re-export paths must be rooted (`pkg`/`core`/`platform`/`self`/`super`),
 not alias-relative, so downstream modules can resolve them without this
 module's scope.
 
-Core modules (`core::List`, `core::math`, `core::string`) are ordinary
+Core modules (`core::List`, `core::math`, `core::String`) are ordinary
 Ambient modules — compiled, content-addressed, and stored exactly like
 user code (see `crates/ambient-engine/src/core_lib/`). Beneath them sits
 a fixed set of _intrinsics_ (`core::math::sqrt`, `core::List::length`,
-`core::string::concat`, ...) that compile to dedicated opcodes; an
+`core::String::concat`, ...) that compile to dedicated opcodes; an
 intrinsic is an ordinary item of its module — importable, aliasable,
 reachable through `use core::math;` + `math::sqrt(x)` — and takes
 precedence over a compiled function at the same path. `core` is a keyword
