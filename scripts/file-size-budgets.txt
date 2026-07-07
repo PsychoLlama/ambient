@@ -6,7 +6,6 @@
 # accommodate new growth; split the file instead.
 crates/ambient-cli/tests/integration_tests.rs 3981
 crates/ambient-engine/src/infer/check.rs 2988
-crates/ambient-engine/src/types.rs 2207
 crates/ambient-engine/src/vm/tests.rs 2030
 crates/ambient-parser/src/parser/mod.rs 1967
 crates/ambient-engine/src/module_registry.rs 1904
