@@ -156,6 +156,7 @@ fn test_symbol_not_found() {
 }
 
 #[test]
+#[allow(clippy::approx_constant)] // 3.14159 is arbitrary const-value test data, not π
 fn test_get_public_exports() {
     let mut registry = ModuleRegistry::new();
 

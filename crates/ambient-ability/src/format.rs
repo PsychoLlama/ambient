@@ -419,6 +419,7 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is literal formatting input, not π
     fn test_format_plain_primitives() {
         assert_eq!(format_value(&Value::Unit), "()");
         assert_eq!(format_value(&Value::Bool(true)), "true");
