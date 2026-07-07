@@ -6,44 +6,44 @@
 /// Entry point demonstrating error handling with handlers.
 pub fn run(): Number {
     // Test 1: Success case - no exception thrown
-    let success_result = handle {
-        // No error here, just return a value
-        42
-    } {
+    let success_result = with {
         Exception::throw(msg) => {
             // On error, return -1
             0 - 1
         }
+    } handle {
+        // No error here, just return a value
+        42
     };
     // Expected: 42 (success path)
 
     // Test 2: Sequential operations without error
-    let seq_result = handle {
+    let seq_result = with {
+        Exception::throw(msg) => {
+            0 - 1
+        }
+    } handle {
         let step1 = 10;
         let step2 = step1 * 2;  // 20
         let step3 = step2 + 5;  // 25
         step3
-    } {
-        Exception::throw(msg) => {
-            0 - 1
-        }
     };
     // Expected: 25 (no errors)
 
     // Test 3: Nested handle expressions
-    let nested_result = handle {
-        let inner = handle {
-            100
-        } {
-            Exception::throw(msg) => {
-                0 - 50
-            }
-        };
-        inner + 23  // 123
-    } {
+    let nested_result = with {
         Exception::throw(msg) => {
             0 - 999
         }
+    } handle {
+        let inner = with {
+            Exception::throw(msg) => {
+                0 - 50
+            }
+        } handle {
+            100
+        };
+        inner + 23  // 123
     };
     // Expected: 123 (no errors in either layer)
 

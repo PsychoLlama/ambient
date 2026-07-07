@@ -15,10 +15,10 @@ pub fn run(): () with FileSystem, Stdio {
     Stdio::out!(content);
 
     // Reading a missing file raises a catchable exception.
-    let fallback = handle {
-        FileSystem::read!("/tmp/ambient_file_io_missing.txt")
-    } {
+    let fallback = with {
         Exception::throw(msg) => "missing file, using a fallback"
+    } handle {
+        FileSystem::read!("/tmp/ambient_file_io_missing.txt")
     };
     Stdio::out!(fallback);
 

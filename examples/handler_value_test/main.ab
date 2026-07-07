@@ -10,10 +10,10 @@ fn simple_function(): Number {
 /// Tests using a handler value with handle expression.
 fn test_handler_value(): Number {
   let mock_console = {
-    out(msg) => resume(())
+    core::system::Stdio::out(msg) => resume(())
   };
 
-  handle simple_function() with mock_console {}
+  with mock_console handle simple_function()
 }
 
 pub fn run(): Number {

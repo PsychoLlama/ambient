@@ -632,7 +632,7 @@ ability Log with Stdio {
 
 The platform abilities (Stdio, FileSystem, Network, ...) are themselves plain
 `ability` declarations — see "The `core::system` module" below. User abilities
-are handled in-language (`handle` blocks or handler values); a performed
+are handled in-language (`with ... handle` expressions or handler values); a performed
 ability with no handler in scope — in-language or host — is a runtime
 error. Abilities import across modules like any other item: `use
 pkg::b::SomeAbility;` (and `use core::system::Network;`) brings the ability into
@@ -701,14 +701,21 @@ pub fn transform(x: Input): Output
 
 ```ambient
 fn run(): () {
-  handle read_config("config.toml") {
+  with {
     FileSystem::read(path) => {
       let content = "contents from anywhere";
       resume(content)
     }
-  }
+  } handle read_config("config.toml")
 }
 ```
+
+A handle expression reads as English — `with H1, ..., Hn handle BODY
+[else E]` — "with these handlers, handle this body". The `with` list is
+one or more handlers (inline brace groups of arms and/or handler values,
+see "Handlers as Values"), `BODY` is the handled expression, and the
+optional trailing `else (result) => E` transforms the body's value on
+normal completion (see "Error handling without exceptions").
 
 Handler arms are fully typed against the ability's declared interface:
 
@@ -729,19 +736,35 @@ Handler arms are fully typed against the ability's declared interface:
 
 ```ambient
 let mock_fs: Handler<FileSystem> = {
-  read(path) => resume("mock content"),
-  write(path, content) => resume(()),
-  exists(path) => resume(true),
+  FileSystem::read(path) => resume("mock content"),
+  FileSystem::write(path, content) => resume(()),
+  FileSystem::exists(path) => resume(true),
 };
 
 // Use handler values
-handle unit_test() with mock_fs, mock_network {}
+with mock_fs, mock_network handle unit_test()
 
 // Override specific methods
-handle unit_test() with mock_fs {
-  FileSystem::read(path) => resume("intercepted")
-}
+with mock_fs, { FileSystem::read(path) => resume("intercepted") } handle unit_test()
 ```
+
+A handler value binds a brace group of arms to a name. Its type is
+`Handler<A, R>`: `A` is the single ability it covers, and `R` is the
+*answer type* — the type an arm yields when it returns *without*
+resuming, which is also the result type of any `handle` expression it is
+installed on. `Handler<A>` is shorthand for "`R` inferred". Because a
+handler value covers exactly one ability, its arm names must be
+**qualified** (`FileSystem::read`, not `read`) — the ability is no longer
+guessed from method names. A brace group mixing multiple abilities is
+allowed only *directly inline* in a `with` list, never as a `let`-bound
+handler value.
+
+Handlers in a `with` list install **left-to-right**, so a later handler
+wins over an earlier one for the same method ("last wins"). Above,
+`with mock_fs, { FileSystem::read(path) => resume("intercepted") }`
+installs `mock_fs` first and the inline override second, so
+`FileSystem::read` resolves to the override while `write`/`exists` still
+fall through to `mock_fs`.
 
 ### Sandboxing
 
@@ -844,10 +867,11 @@ their next message boundary, keeping their state.
 ## Error Handling
 
 Errors are abilities. `Exception::throw!` raises; the nearest enclosing
-`handle` block for Exception catches. A handler arm's value becomes the
+`with ... handle` for Exception catches. A handler arm's value becomes the
 handle expression's value, and execution continues after the handle
-expression (catch-and-continue). The optional `else` clause transforms
-the body's value on _normal_ completion only; arms bypass it.
+expression (catch-and-continue). The optional trailing `else (result) =>
+E` clause transforms the body's value on _normal_ completion only; arms
+bypass it.
 
 ```ambient
 ability Exception {
@@ -863,10 +887,7 @@ fn parse_int(s: string): number with Exception {
 
 // Handling exceptions
 fn safe_parse(s: string): Option<number> {
-  handle parse_int(s) {
-    Exception::throw(e) => None
-    else { (result) => Some(result) }
-  }
+  with { Exception::throw(e) => None } handle parse_int(s) else (result) => Some(result)
 }
 ```
 
@@ -885,9 +906,8 @@ succeeded:
 
 ```ambient
 fn fetch_or_default(): number with core::system::Network {
-  handle core::system::Network::connect!(("10.0.0.1", 9)) {
-    Exception::throw(msg) => resume(0 - 1)  // substitute connection id
-  }
+  with { Exception::throw(msg) => resume(0 - 1) }  // substitute connection id
+    handle core::system::Network::connect!(("10.0.0.1", 9))
 }
 ```
 
@@ -1009,7 +1029,7 @@ supervision, and reconciliation-based live upgrade under `ambient dev`.
 
 FileSystem failures (missing files, permission errors, invalid UTF-8) raise
 catchable `Exception`s, recoverable with
-`handle ... { Exception.throw(msg) => ... }`. Only `exists` is
+`with { Exception::throw(msg) => ... } handle ...`. Only `exists` is
 infallible: it returns `false` when the path can't be inspected.
 
 `Env` reads (and mutates) the process environment. `var`/`vars`/`cwd`/`pid`
@@ -1317,13 +1337,13 @@ fn run(): bool {
 
 ```ambient
 let mock_fs: Handler<FileSystem> = {
-  read(path) => resume("mock content"),
-  write(path, content) => resume(()),
-  exists(path) => resume(true),
+  FileSystem::read(path) => resume("mock content"),
+  FileSystem::write(path, content) => resume(()),
+  FileSystem::exists(path) => resume(true),
 };
 
 fn test_my_function(): () {
-  handle my_function() with mock_fs {}
+  with mock_fs handle my_function()
 }
 ```
 

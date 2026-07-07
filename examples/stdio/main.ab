@@ -17,13 +17,13 @@ pub fn run(): () with Stdio {
 
     // The handler intercepts `core::system::Stdio::out` within its block and
     // prefixes each line. `out!` calls made *inside* the arm print directly.
-    handle {
-        Stdio::out!("Hello, ".concat(name));
-    } {
+    with {
         Stdio::out(msg) => {
             Stdio::out!("[greeting] ".concat(msg));
             resume(())
         }
+    } handle {
+        Stdio::out!("Hello, ".concat(name));
     };
 
     // `err` writes to stderr, kept separate from the greeting on stdout.

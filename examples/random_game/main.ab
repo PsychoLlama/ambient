@@ -13,19 +13,19 @@ use core::system::Random;
 pub fn run(): Number {
     // The handler intercepts core::system::Random::seed!() calls
     // We can verify the handler is invoked by the program completing
-    let result = handle {
+    let result = with {
+        Random::seed() => {
+            // Handler is invoked for each core::system::Random::seed!() call
+            // resume continues execution after the call point
+            resume(0)
+        }
+    } handle {
         // Make some Random calls - handlers will be invoked
         Random::seed!();
         Random::seed!();
         Random::seed!();
         // Return a known value after the effects complete
         42
-    } {
-        Random::seed() => {
-            // Handler is invoked for each core::system::Random::seed!() call
-            // resume continues execution after the call point
-            resume(0)
-        }
     };
 
     // Verify handlers worked by checking we got our expected value

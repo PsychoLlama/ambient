@@ -11,23 +11,23 @@ fn simple_function(): Number {
 
 /// Tests a simple handle with no ability use.
 fn test_simple_handle(): Number {
-  handle simple_function() {
+  with {
     Stdio::out(msg) => {
       resume(())
     }
-  }
+  } handle simple_function()
 }
 
 /// Tests handle expression with multiple handlers.
 fn test_multiple_handlers(): Number {
-  handle simple_function() {
+  with {
     Stdio::out(msg) => {
       resume(())
     },
     Exception::throw(e) => {
       resume(())
     }
-  }
+  } handle simple_function()
 }
 
 pub fn run(): Number {

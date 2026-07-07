@@ -63,13 +63,13 @@ fn serve_conn(
 ): { conn: Number, hits: Number }
   with Network, Process
 {
-  let data = handle Network::receive!(state.conn) {
+  let data = with {
     Exception::throw(e) => core::primitives::Binary::from([])
-  };
+  } handle Network::receive!(state.conn);
   if core::primitives::Binary::length(data) == 0 {
-    handle Network::close!(state.conn) {
+    with {
       Exception::throw(e) => ()
-    };
+    } handle Network::close!(state.conn);
     Process::exit!();
     state
   } else {
