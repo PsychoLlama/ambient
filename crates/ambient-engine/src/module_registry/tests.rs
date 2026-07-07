@@ -403,7 +403,7 @@ fn prelude_binds_at_lowest_precedence_and_imports_shadow_it() {
     );
     let scope = registry.build_module_scope(&consumer);
     assert!(
-        scope.items.get("gift").is_none(),
+        !scope.items.contains_key("gift"),
         "prelude names must not live in `items`"
     );
     let bound = scope
