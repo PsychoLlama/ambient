@@ -1421,9 +1421,20 @@ fn collect_const_signatures(
 
 /// Whether `name` denotes a type that exists in the module's world: a rigid
 /// parameter in scope (`extra_known`), the `Self` placeholder, a built-in
-/// structural container, a registered type alias/struct, a registered enum,
-/// or a builtin primitive. The predicate a written type annotation must
-/// satisfy to not be "undefined".
+/// structural container, a registered type alias/struct, or a registered enum.
+/// The predicate a written type annotation must satisfy to not be "undefined".
+///
+/// The four primitives are **not** a special case here: they are ordinary
+/// prelude imports registered as type aliases (`String`, `Number`, …), so a
+/// registry-backed module finds them via `get_type_alias`. Deliberately *not*
+/// falling back to `Primitive::from_name` keeps this predicate in lockstep with
+/// [`Infer::expand_named_alias`], which no longer resolves primitives by name
+/// without a registry. A stale primitive branch here would declare a bare
+/// `String` "known" while resolution left it an opaque, uuid-less `Named` —
+/// leaking past resolve-or-error into unification and signature hashes instead
+/// of being sanitized to `Type::Error`. Registry-less checks (which never seed
+/// the primitive aliases) therefore correctly report a bare `String`
+/// annotation as `UndefinedTypeName`.
 ///
 /// `Type::Param` (a resolved rigid parameter) never reaches the checks that
 /// call this — it isn't a `Named` — so a body's own type parameters are never
@@ -1439,7 +1450,6 @@ fn is_known_type_name(
         || matches!(name, "List" | "Map" | "Set")
         || infer.get_type_alias(name).is_some()
         || infer.enum_registry.get(name).is_some()
-        || crate::types::Primitive::from_name(name).is_some()
 }
 
 /// Report `UndefinedTypeName` for every unknown nominal head name in a
