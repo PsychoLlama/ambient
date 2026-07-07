@@ -109,3 +109,65 @@ fn declarations_expose_the_expected_interfaces() {
         }
     }
 }
+
+/// Ability IDs are load-bearing at runtime: host handlers bind by id, so a
+/// change to how the resolver seeds types (e.g. the primitive nominals it
+/// hashes against) must not shift a single id. Pin the content hash of every
+/// platform ability. If one of these changes, ability dispatch silently
+/// breaks against pre-existing hosts — treat it as a compatibility break, not
+/// a test to update. These are byte-identical before and after fully
+/// modularizing the primitives (Phase 3).
+#[test]
+fn ability_ids_are_byte_stable() {
+    let prelude = resolved_prelude();
+
+    let golden: [(&str, &str); 9] = [
+        (
+            "Env",
+            "1a40c537d00e9b63a4d9bb213f559b3c57310cd323c54f7c4e70b1039386feee",
+        ),
+        (
+            "Execute",
+            "b020b1a50fc352cb302d4484597de11765b8c0a47b50fa8b9fcfcc8de90192ad",
+        ),
+        (
+            "FileSystem",
+            "952de97b2d7cf66db1d0b0bfc07982e9da1732fd8ea2b05734ac051dc1af8dfc",
+        ),
+        (
+            "Log",
+            "9480648104346749133ec2a4a001a2cedf4ebc7c1ae9862ad4fbc9c951047d43",
+        ),
+        (
+            "Network",
+            "94c2e2eedb09e198c7e00be9c95eb850e54580c034f9734a20e4e2a2a1ba9d76",
+        ),
+        (
+            "Process",
+            "2c55c28bc25d83f66d415ca01b9811c95912830da92506a78ddb043d73f558ed",
+        ),
+        (
+            "Random",
+            "dc771566d8d699804bb1f37b07e76c9300aa43688bea2374f791c7841202b793",
+        ),
+        (
+            "Stdio",
+            "7b0924e9cfd5da0b1b7370f3362a7d0af588b39286fca79c1e77fd74e7539ac1",
+        ),
+        (
+            "Time",
+            "9716bd900489a788940d3a76c41a30fca3162384bfdf34156649122d5a4b734c",
+        ),
+    ];
+
+    for (name, expected_hex) in golden {
+        let ability = prelude
+            .get(name)
+            .unwrap_or_else(|| panic!("platform.ab must declare {name}"));
+        assert_eq!(
+            ability.id.to_hex(),
+            expected_hex,
+            "{name}'s ability id must be byte-stable"
+        );
+    }
+}
