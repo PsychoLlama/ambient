@@ -310,6 +310,13 @@ impl Infer {
                 for stmt in stmts {
                     match &mut stmt.kind {
                         StmtKind::Let(binding) => {
+                            // A `let` annotation isn't yet constrained against
+                            // `init` (out of scope), but an undefined type name
+                            // in it is still reported (and rewritten away).
+                            if let Some(ty) = binding.ty.clone() {
+                                let span = (binding.name_span.start, binding.name_span.end);
+                                let _ = super::check::resolve_body_annotation(self, &ty, span);
+                            }
                             let init_ty = self.infer_expr(&block_env, &mut binding.init)?;
                             let scheme = self.generalize(&block_env, &init_ty);
                             block_env.insert(binding.id, binding.name.clone(), scheme);
@@ -336,9 +343,15 @@ impl Infer {
                 let mut param_tys = Vec::with_capacity(lambda.params.len());
 
                 for param in &lambda.params {
-                    // Resolve holes in type annotations (e.g., `_` becomes a fresh variable)
+                    // Resolve holes in type annotations (e.g., `_` becomes a
+                    // fresh variable); an undefined type name is reported and
+                    // becomes `Type::Error`.
                     let param_ty = match &param.ty {
-                        Some(ty) => self.resolve_holes(ty),
+                        Some(ty) => super::check::resolve_body_annotation(
+                            self,
+                            ty,
+                            (param.span.start, param.span.end),
+                        ),
                         None => self.fresh(),
                     };
                     param_tys.push(param_ty.clone());

@@ -37,6 +37,15 @@ impl Infer {
             | (Type::Error, _)
             | (_, Type::Error) => Ok(()),
 
+            // Rigid type parameters: an atom that unifies only with the
+            // identically-named parameter. A `Param` meeting a concrete type,
+            // an inference var (handled by the var arm below), or a *different*
+            // parameter is a genuine mismatch, so everything else falls
+            // through to the mismatch arm. `Param` never carries `args`, so it
+            // never reaches the alias-expansion arms further down (which guard
+            // on `Type::Named`).
+            (Type::Param(a), Type::Param(b)) if a == b => Ok(()),
+
             // Type variables
             (Type::Var(id1), Type::Var(id2)) if id1 == id2 => Ok(()),
             (Type::Var(id), ty) | (ty, Type::Var(id)) => {

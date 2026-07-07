@@ -74,7 +74,7 @@ pub use error::{BoxedTypeError, BoxedTypeErrorExt, InferResult, TypeError, TypeE
 
 use error::type_error;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::ability_resolver::AbilityResolver;
@@ -133,6 +133,16 @@ pub struct Infer {
     /// [`ModuleId`](crate::fqn::ModuleId)s the checker mints match the
     /// registry's. Empty when checking without a registry.
     pub(crate) workspace_name: Arc<str>,
+
+    /// Type-parameter names rigid in the body currently being checked
+    /// (`T` in `fn f<T>(...)`, plus an impl block's own params). While a
+    /// name is in this set, [`resolve_holes`](Self::resolve_holes) rewrites a
+    /// bare `Type::Named` of that name to [`Type::Param`] instead of leaving
+    /// it as an unresolved nominal reference — the sole point rigid params
+    /// are minted. Set by [`with_rigid_params`](Self::with_rigid_params)
+    /// around body checking and empty everywhere else (signature-scheme
+    /// paths substitute to `Var` instead), so it never affects hashing.
+    pub(crate) rigid_params: HashSet<Arc<str>>,
 }
 
 /// A deferred "the sandbox body may only use these abilities" check.
@@ -211,6 +221,7 @@ impl Infer {
             pending_discharges: Vec::new(),
             pending_sandbox_checks: Vec::new(),
             workspace_name: Arc::from(""),
+            rigid_params: HashSet::new(),
         }
     }
 
@@ -423,6 +434,25 @@ impl Infer {
         self.current_abilities = AbilitySet::Empty;
     }
 
+    /// Run `f` with `params` marked rigid, restoring the previous set after.
+    ///
+    /// Everything checked inside the closure — a function/method body and all
+    /// its nested lambdas and `let`s — sees these names resolve to
+    /// [`Type::Param`] through [`resolve_holes`](Self::resolve_holes). Nesting
+    /// composes: an inner impl-method scope adds to (and then restores) the
+    /// outer set. Only body checking calls this; signatures never do.
+    pub(crate) fn with_rigid_params<T>(
+        &mut self,
+        params: impl IntoIterator<Item = Arc<str>>,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let saved = self.rigid_params.clone();
+        self.rigid_params.extend(params);
+        let result = f(self);
+        self.rigid_params = saved;
+        result
+    }
+
     /// Resolve type holes (`_`) in a type annotation by replacing them with fresh
     /// type variables. This enables partial annotation where users can specify
     /// some parts of a type and let inference determine the rest.
@@ -463,6 +493,14 @@ impl Infer {
                     return Type::handler(ability_id, answer);
                 }
 
+                // A bare name rigid in the current body is a type parameter,
+                // not a nominal reference — mint a `Param`. Checked first so a
+                // parameter named like a primitive/alias still stays rigid, and
+                // so a leftover `Named` unambiguously means "unresolved
+                // nominal" (what Phase 2's resolve-or-error keys on).
+                if n.args.is_empty() && self.rigid_params.contains(&n.name) {
+                    return Type::Param(Arc::clone(&n.name));
+                }
                 // A bare name that denotes a registered type alias or a
                 // builtin primitive resolves to that type (see
                 // `expand_named_alias`).

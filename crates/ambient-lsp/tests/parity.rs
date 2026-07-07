@@ -154,6 +154,15 @@ fn type_errors_match() {
 }
 
 #[test]
+fn undefined_type_annotation_errors_match() {
+    // An undefined type in an annotation is now a first-class diagnostic
+    // (`undefined type: Strng`). Both frontends render it from the shared
+    // layer, so the LSP must show exactly the same message and span as
+    // `ambient check` — including no secondary cascade.
+    assert_parity(&[("main.ab", "pub fn run(x: Strng): Number { 1 }\n")]);
+}
+
+#[test]
 fn parse_errors_match_and_suppress_type_errors() {
     // `bad` carries a type error, `broken` a parse error. Both frontends
     // must report only the parse error (and both must report it — the

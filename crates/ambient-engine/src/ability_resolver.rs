@@ -650,6 +650,16 @@ impl CanonicalTypeRenderer {
                 let abilities = self.render_ability_set(&av.ability);
                 format!("ability<{result}, {{{abilities}}}>")
             }
+            // A rigid type parameter renders byte-identically to the
+            // unresolved `Named{args:[]}` it replaced (`named:T`), so ability
+            // interface hashes are invariant even if a `Param` were to reach a
+            // renderer. It shouldn't: signature schemes substitute type
+            // parameters to `Var` before rendering (see `resolve_ability_def`),
+            // so this arm is a defensive tripwire, not a live path.
+            Type::Param(name) => {
+                debug_assert!(false, "Type::Param reached CanonicalTypeRenderer: {name}");
+                format!("named:{name}")
+            }
             Type::Handler(handler) => format!("handler<{}>", handler.ability.to_hex()),
         }
     }

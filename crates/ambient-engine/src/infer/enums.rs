@@ -205,6 +205,11 @@ pub fn validate_reserved_declaration(def: &crate::ast::EnumDef) -> Result<(), St
             (Some(Type::Named(named)), Some(param)) => {
                 named.name.as_ref() == param && named.args.is_empty()
             }
+            // A reserved enum's payload is a raw AST `Named`, never a rigid
+            // `Param` (validation runs at registration, outside any body
+            // scope); this arm keeps the comparison correct if that ever
+            // changes.
+            (Some(Type::Param(name)), Some(param)) => name.as_ref() == param,
             _ => false,
         };
         if !payload_matches {

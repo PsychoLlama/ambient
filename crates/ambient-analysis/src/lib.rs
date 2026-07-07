@@ -352,4 +352,146 @@ mod tests {
         assert_eq!(diagnostics.len(), 2);
         assert!(diagnostics[0].span.start < diagnostics[1].span.start);
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Rigid type parameters (`Type::Param`)
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn generic_identity_function_is_clean() {
+        // `T` is rigid in the body: `x: T` and the return `T` are the same
+        // `Type::Param`, so they unify and nothing is flagged as undefined.
+        let result = analyze("fn id<T>(x: T): T { x }");
+        assert!(!result.has_errors(), "{:?}", result.diagnostics());
+    }
+
+    #[test]
+    fn nested_lambda_reuses_type_param() {
+        // A lambda nested in the body inherits the rigid scope, so its `y: T`
+        // annotation is the same rigid parameter the argument carries.
+        let result = analyze("fn f<T>(x: T): T { let g = (y: T) => y; g(x) }");
+        assert!(!result.has_errors(), "{:?}", result.diagnostics());
+    }
+
+    #[test]
+    fn type_param_return_mismatch_names_the_param() {
+        // Returning a `Number` where `T` is declared is a real mismatch, and
+        // the diagnostic still names `T` — proving the rigid parameter's
+        // source name survives the `Named`→`Param` representation change.
+        let result = analyze("fn bad<T>(x: T): T { 1 }");
+        assert!(result.has_errors());
+        let messages: String = result
+            .diagnostics()
+            .iter()
+            .map(|d| d.message.clone())
+            .collect();
+        assert!(
+            messages.contains('T'),
+            "expected the message to name `T`: {messages}"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Resolve-or-error for type annotations (Phase 2)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// UUID prefix for the declared enums/structs these tests need.
+    const U: &str = "A1B2C3D4-0000-0000-0000-0000000000";
+
+    #[test]
+    fn undefined_type_annotation_is_reported_once_without_cascade() {
+        // A bare typo in a parameter type is a first-class diagnostic: exactly
+        // one `undefined type`, and no secondary "type mismatch" cascade (the
+        // annotation is rewritten to `Type::Error`, which unifies away).
+        let result = analyze("fn f(x: Strng) { x }");
+        let diagnostics = result.diagnostics();
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert!(diagnostics[0].message.contains("undefined type"));
+        assert!(diagnostics[0].message.contains("Strng"));
+    }
+
+    #[test]
+    fn undefined_return_type_reports_without_mismatch() {
+        // A typo in return position is reported once; the body value does not
+        // also trip a return-type mismatch.
+        let result = analyze("fn f(): Strng { 1 }");
+        let diagnostics = result.diagnostics();
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert!(diagnostics[0].message.contains("Strng"));
+        assert!(!diagnostics[0].message.contains("mismatch"));
+    }
+
+    #[test]
+    fn primitive_and_local_type_annotations_are_clean() {
+        // A primitive works registry-backed (guards the registry-primitives
+        // path); a locally declared struct used as an annotation is not a
+        // false positive.
+        assert!(!analyze("fn f(x: String): String { x }").has_errors());
+        let src =
+            format!("unique({U}01) struct Point {{ x: Number }}\nfn f(p: Point): Number {{ p.x }}");
+        let result = analyze(&src);
+        assert!(!result.has_errors(), "{:?}", result.diagnostics());
+    }
+
+    #[test]
+    fn known_generic_type_is_clean_but_unknown_head_errors() {
+        // A known generic head (`Option`) with a valid argument is clean;
+        // checking the *head* name still catches an unknown constructor.
+        assert!(!analyze("fn f(x: Option<Number>): Option<Number> { x }").has_errors());
+        let result = analyze("fn f(x: Nope<Number>) { x }");
+        let messages: String = result
+            .diagnostics()
+            .iter()
+            .map(|d| d.message.clone())
+            .collect();
+        assert!(messages.contains("Nope"), "{messages}");
+    }
+
+    #[test]
+    fn recursive_enum_annotation_is_clean() {
+        // A self-referential enum resolves: the payload `IntList` already
+        // carries its uuid by the time the declared-types sweep runs.
+        let src = format!(
+            "unique({U}02) enum IntList {{ Cons((Number, IntList)), Nil }}\n\
+             fn f(l: IntList): IntList {{ l }}"
+        );
+        let result = analyze(&src);
+        assert!(!result.has_errors(), "{:?}", result.diagnostics());
+    }
+
+    #[test]
+    fn undefined_type_in_struct_field_is_reported() {
+        let src = format!("unique({U}03) struct S {{ x: Strng }}");
+        let result = analyze(&src);
+        let messages: String = result
+            .diagnostics()
+            .iter()
+            .map(|d| d.message.clone())
+            .collect();
+        assert!(messages.contains("undefined type"), "{messages}");
+        assert!(messages.contains("Strng"), "{messages}");
+    }
+
+    #[test]
+    fn generic_enum_type_param_payload_is_not_flagged() {
+        // A generic enum's own parameter used as a payload must not be
+        // mistaken for an undefined type.
+        let src = format!(
+            "unique({U}04) enum Box<T> {{ Wrap(T), Empty }}\n\
+             fn f(b: Box<Number>): Box<Number> {{ b }}"
+        );
+        let result = analyze(&src);
+        assert!(!result.has_errors(), "{:?}", result.diagnostics());
+    }
+
+    #[test]
+    fn undefined_type_in_let_annotation_is_reported() {
+        let result = analyze("fn f() { let x: Strng = 1; x }");
+        let messages: String = result
+            .diagnostics()
+            .iter()
+            .map(|d| d.message.clone())
+            .collect();
+        assert!(messages.contains("Strng"), "{messages}");
+    }
 }

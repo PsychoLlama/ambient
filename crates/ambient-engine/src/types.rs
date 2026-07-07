@@ -787,6 +787,21 @@ pub enum Type {
     /// A type variable used during inference.
     Var(TypeVarId),
 
+    /// A rigid type parameter, named by the source identifier it was
+    /// introduced under (`T` in `fn f<T>(x: T)`). Distinct from
+    /// [`Type::Var`] (a *flexible* inference variable) and from an
+    /// unresolved [`Type::Named`] (a *nominal reference*): a `Param` is an
+    /// atom that unifies only with the identically-named `Param`, so
+    /// rigidity is structural — `generalize` never quantifies it (it holds
+    /// no free inference vars) and it survives into a function/method body
+    /// for diagnostics.
+    ///
+    /// Only body checking converts a written `T` annotation into a `Param`
+    /// (see `Infer::resolve_holes`, gated by `Infer::rigid_params`);
+    /// signature-scheme paths substitute type parameters to fresh `Var`
+    /// before quantifying, so a `Param` never reaches a signature hash.
+    Param(Arc<str>),
+
     /// A quantified (forall) type scheme.
     /// `forall a b. (a -> b) -> List<a> -> List<b>`
     Forall(ForallType),
@@ -1655,6 +1670,10 @@ impl fmt::Display for Type {
             Self::Hole => write!(f, "_"),
 
             Self::Var(id) => write!(f, "'{id}"),
+
+            // A rigid type parameter prints as its bare source name, so a
+            // diagnostic about `T` reads `T` — not `'3` or `named:T`.
+            Self::Param(name) => write!(f, "{name}"),
 
             Self::Tuple(elems) => {
                 write!(f, "(")?;

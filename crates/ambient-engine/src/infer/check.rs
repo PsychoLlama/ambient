@@ -143,38 +143,15 @@ fn check_module_core(
 
     for (idx, item) in module.items.iter_mut().enumerate() {
         if let crate::ast::ItemKind::Function(func) = &mut item.kind {
-            infer.reset_abilities();
-
-            let mut func_env = env.extend();
-            let expected_ret_ty = func.ret_ty.clone().map(|ty| infer.resolve_holes(&ty));
-
-            for param in &func.params {
-                let param_ty = match &param.ty {
-                    Some(ty) => infer.resolve_holes(ty),
-                    None => infer.fresh(),
-                };
-                func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
-            }
-
-            match infer.infer_expr(&func_env, &mut func.body) {
-                Ok(body_ty) => {
-                    if let Some(ref expected) = expected_ret_ty {
-                        let span = (func.body.span.start, func.body.span.end);
-                        if let Err(e) = infer.unify(expected, &body_ty, span) {
-                            errors.push(e.with_context(format!(
-                                "in function `{}`: return type mismatch",
-                                func.name
-                            )));
-                        }
-                    }
-
-                    bind_inferred_abilities(&mut infer, &env, func, current_module_id.as_ref());
-                    inferred_abilities.push((idx, infer.current_abilities().clone()));
-                }
-                Err(e) => {
-                    errors.push(e.with_context(format!("in function `{}`", func.name)));
-                }
-            }
+            check_function_body(
+                &mut infer,
+                func,
+                idx,
+                &env,
+                current_module_id.as_ref(),
+                &mut errors,
+                &mut inferred_abilities,
+            );
         }
 
         if let crate::ast::ItemKind::Const(const_def) = &mut item.kind {
@@ -249,6 +226,10 @@ fn register_local_declarations(
     // Inherent method signatures register before any body is checked too, so
     // methods are callable from every function and impl body.
     register_inherent_impls(infer, module, errors);
+    // Every local type is now registered, so a written annotation naming an
+    // unknown type is unambiguously undefined: report it once, module-wide.
+    // Runs last so self- and mutually-recursive type names already resolve.
+    check_declared_types(infer, module, errors);
 }
 
 /// Register the cross-module context for a package build: platform dynamics,
@@ -912,13 +893,20 @@ fn inherent_impl_target(
 ) -> Option<(inherent::ImplKey, Type)> {
     let for_type = infer.resolve_holes(&impl_def.for_type);
 
-    // `impl<T> T` — a blanket impl over every type — is not a thing.
-    if let Type::Named(n) = &for_type
-        && n.args.is_empty()
+    // `impl<T> T` — a blanket impl over every type — is not a thing. The
+    // target resolves at registration (no rigid scope), so a bare parameter
+    // is a `Named`; a `Param` is matched too in case a rigid scope is ever
+    // live here.
+    let blanket = match &for_type {
+        Type::Named(n) if n.args.is_empty() => Some(n.name.as_ref()),
+        Type::Param(name) => Some(name.as_ref()),
+        _ => None,
+    };
+    if let Some(name) = blanket
         && impl_def
             .type_params
             .iter()
-            .any(|tp| tp.name.as_ref() == n.name.as_ref())
+            .any(|tp| tp.name.as_ref() == name)
     {
         return None;
     }
@@ -1067,7 +1055,7 @@ fn resolve_signature_type(
 ) -> Type {
     let ty = substitute_self(ty, for_type);
     let ty = substitute_type_params(&ty, type_var_map);
-    infer.resolve_holes(&ty)
+    resolve_erroring(infer, &ty)
 }
 
 /// Resolve a `with` clause to a concrete ability set.
@@ -1094,10 +1082,12 @@ fn resolve_declared_abilities(
 
 /// Type-check the bodies of an inherent impl block.
 ///
-/// Type parameters stay opaque (`Named("T")`) inside bodies — rigid, like
-/// generic function bodies. Each body's inferred abilities are recorded for
-/// deferred enforcement against the method's `with` clause (no clause means
-/// pure, like a public function).
+/// Type parameters stay rigid (`Type::Param`) inside bodies, like generic
+/// function bodies — the impl's own parameters plus each method's. The impl
+/// target is resolved under the same rigid scope, so `self` and the method's
+/// annotations agree on `Param` (not one `Named`, one `Param`). Each body's
+/// inferred abilities are recorded for deferred enforcement against the
+/// method's `with` clause (no clause means pure, like a public function).
 fn check_inherent_impl_bodies(
     infer: &mut Infer,
     impl_def: &mut crate::ast::ImplDef,
@@ -1105,7 +1095,15 @@ fn check_inherent_impl_bodies(
     errors: &mut Vec<BoxedTypeError>,
     deferred: &mut Vec<DeferredAbilityCheck>,
 ) {
-    let for_type = infer.resolve_holes(&impl_def.for_type);
+    // Cloned so the per-method closure can resolve the target without holding
+    // an immutable borrow of `impl_def` while `method` borrows it mutably.
+    let for_type_ast = impl_def.for_type.clone();
+    let impl_params: Vec<Arc<str>> = impl_def
+        .type_params
+        .iter()
+        .map(|tp| Arc::clone(&tp.name))
+        .collect();
+
     for method in &mut impl_def.methods {
         if method.resolved_symbol.is_none() {
             // Registration rejected the whole impl (invalid target); the
@@ -1114,47 +1112,57 @@ fn check_inherent_impl_bodies(
         }
 
         infer.reset_abilities();
-        let mut func_env = env.extend();
 
-        if method.has_self {
-            func_env.insert_mono(method.self_id, Arc::from("self"), for_type.clone());
-        }
-        for param in &method.params {
-            let param_ty = match &param.ty {
-                Some(ty) => {
-                    let ty = substitute_self(ty, &for_type);
-                    infer.resolve_holes(&ty)
-                }
-                None => infer.fresh(),
-            };
-            func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
-        }
+        let rigid: Vec<Arc<str>> = impl_params
+            .iter()
+            .cloned()
+            .chain(method.type_params.iter().map(|tp| Arc::clone(&tp.name)))
+            .collect();
+        infer.with_rigid_params(rigid, |infer| {
+            let for_type = infer.resolve_holes(&for_type_ast);
+            let mut func_env = env.extend();
 
-        let expected_ret = method.ret_ty.as_ref().map(|ty| {
-            let ty = substitute_self(ty, &for_type);
-            infer.resolve_holes(&ty)
-        });
-
-        match infer.infer_expr(&func_env, &mut method.body) {
-            Ok(body_ty) => {
-                if let Some(expected) = &expected_ret {
-                    let method_span = (method.span.start, method.span.end);
-                    if let Err(e) = infer.unify(expected, &body_ty, method_span) {
-                        errors
-                            .push(e.with_context(format!("in inherent method `{}`", method.name)));
+            if method.has_self {
+                func_env.insert_mono(method.self_id, Arc::from("self"), for_type.clone());
+            }
+            for param in &method.params {
+                let param_ty = match &param.ty {
+                    Some(ty) => {
+                        let ty = substitute_self(ty, &for_type);
+                        resolve_erroring(infer, &ty)
                     }
+                    None => infer.fresh(),
+                };
+                func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
+            }
+
+            let expected_ret = method.ret_ty.as_ref().map(|ty| {
+                let ty = substitute_self(ty, &for_type);
+                resolve_erroring(infer, &ty)
+            });
+
+            match infer.infer_expr(&func_env, &mut method.body) {
+                Ok(body_ty) => {
+                    if let Some(expected) = &expected_ret {
+                        let method_span = (method.span.start, method.span.end);
+                        if let Err(e) = infer.unify(expected, &body_ty, method_span) {
+                            errors.push(
+                                e.with_context(format!("in inherent method `{}`", method.name)),
+                            );
+                        }
+                    }
+                    deferred.push(DeferredAbilityCheck {
+                        context: format!("inherent method `{}`", method.name),
+                        declared: method.abilities.clone(),
+                        inferred: infer.current_abilities().clone(),
+                        span: method.span,
+                    });
                 }
-                deferred.push(DeferredAbilityCheck {
-                    context: format!("inherent method `{}`", method.name),
-                    declared: method.abilities.clone(),
-                    inferred: infer.current_abilities().clone(),
-                    span: method.span,
-                });
+                Err(e) => {
+                    errors.push(e.with_context(format!("in inherent method `{}`", method.name)));
+                }
             }
-            Err(e) => {
-                errors.push(e.with_context(format!("in inherent method `{}`", method.name)));
-            }
-        }
+        });
     }
 }
 
@@ -1216,7 +1224,7 @@ fn check_impl_methods(
             let expected_ty_substituted = substitute_self(expected_ty, for_type);
             let param_ty = param.ty.as_ref().map_or_else(
                 || expected_ty_substituted.clone(),
-                |ty| infer.resolve_holes(ty),
+                |ty| resolve_erroring(infer, ty),
             );
             func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
         }
@@ -1341,7 +1349,7 @@ fn collect_const_signatures(
         if let crate::ast::ItemKind::Const(const_def) = &item.kind {
             let binding_id = next_binding_id;
             next_binding_id += 1;
-            let ty = infer.resolve_holes(&const_def.ty);
+            let ty = resolve_erroring(infer, &const_def.ty);
             bind_own_item(
                 env,
                 module_id,
@@ -1351,6 +1359,355 @@ fn collect_const_signatures(
             );
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Resolve-or-error for type annotations
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Whether `name` denotes a type that exists in the module's world: a rigid
+/// parameter in scope (`extra_known`), the `Self` placeholder, a built-in
+/// structural container, a registered type alias/struct, a registered enum,
+/// or a builtin primitive. The predicate a written type annotation must
+/// satisfy to not be "undefined".
+///
+/// `Type::Param` (a resolved rigid parameter) never reaches the checks that
+/// call this — it isn't a `Named` — so a body's own type parameters are never
+/// flagged even without appearing in `extra_known`; the set only carries the
+/// *unresolved* parameter names a raw-AST sweep sees.
+fn is_known_type_name(
+    infer: &Infer,
+    name: &str,
+    extra_known: &std::collections::HashSet<Arc<str>>,
+) -> bool {
+    extra_known.contains(name)
+        || name == "Self"
+        || matches!(name, "List" | "Map" | "Set")
+        || infer.get_type_alias(name).is_some()
+        || infer.enum_registry.get(name).is_some()
+        || crate::types::Primitive::from_name(name).is_some()
+}
+
+/// Report `UndefinedTypeName` for every unknown nominal head name in a
+/// *written* (unresolved, raw-AST) type annotation, recursing into composite
+/// children and type arguments.
+///
+/// Checks the **head** name, so a generic user type (`Pair<A, B>`) stays
+/// valid while `Nope<A>` is flagged — an undefined head makes its arguments
+/// moot. Reporting-only (does not rewrite): the declared-types sweep uses it
+/// on raw AST types, which sidesteps `resolve_holes` (and its alias
+/// expansion, which would loop on a self-referential struct).
+fn report_undefined_types(
+    infer: &Infer,
+    ty: &Type,
+    span: (u32, u32),
+    extra_known: &std::collections::HashSet<Arc<str>>,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    match ty {
+        // `Handler<A>` / `Handler<A, R>`: the head is a builtin type
+        // constructor (`resolve_holes` lowers it to `Type::Handler`), and its
+        // first argument is an *ability* name resolved through the ability
+        // namespace — not a type, so it must not be flagged here. Only the
+        // optional answer type (`R`) is a real type annotation to check.
+        Type::Named(n) if n.name.as_ref() == "Handler" && matches!(n.args.len(), 1 | 2) => {
+            if let Some(answer) = n.args.get(1) {
+                report_undefined_types(infer, answer, span, extra_known, errors);
+            }
+        }
+        Type::Named(n) => {
+            if !is_known_type_name(infer, &n.name, extra_known) {
+                errors.push(Box::new(TypeError::new(
+                    TypeErrorKind::UndefinedTypeName {
+                        name: Arc::clone(&n.name),
+                    },
+                    span,
+                )));
+                return;
+            }
+            for arg in &n.args {
+                report_undefined_types(infer, arg, span, extra_known, errors);
+            }
+        }
+        Type::Tuple(elems) => {
+            for e in elems {
+                report_undefined_types(infer, e, span, extra_known, errors);
+            }
+        }
+        Type::Record(rec) => {
+            for (_, t) in &rec.fields {
+                report_undefined_types(infer, t, span, extra_known, errors);
+            }
+        }
+        Type::Function(f) => {
+            for p in &f.params {
+                report_undefined_types(infer, p, span, extra_known, errors);
+            }
+            report_undefined_types(infer, &f.ret, span, extra_known, errors);
+        }
+        Type::AbilityValue(av) => {
+            report_undefined_types(infer, &av.result, span, extra_known, errors);
+        }
+        Type::Forall(fa) => report_undefined_types(infer, &fa.body, span, extra_known, errors),
+        // Leaves, and already-resolved forms (`Nominal`, `Param`, `Var`,
+        // primitives, `Unit`, ...): nothing to flag. `Nominal` inners belong
+        // to some *other* declaration, already checked at its own site.
+        _ => {}
+    }
+}
+
+/// The rigid-parameter name set for a declaration's own type parameters.
+fn type_param_set(params: &[crate::ast::TypeParam]) -> std::collections::HashSet<Arc<str>> {
+    params.iter().map(|tp| Arc::clone(&tp.name)).collect()
+}
+
+/// Rewrite every unresolved nominal reference in a *resolved* type to
+/// `Type::Error`, so an undefined type never leaks into unification or a
+/// signature hash as an opaque `Named`. Non-reporting: the declared-types
+/// sweep already reports these (see [`report_undefined_types`]); this just
+/// keeps the checked/hashed type clean so no cascade or leak follows.
+/// `Type::Error` unifies away, so downstream uses see no secondary error.
+fn error_undefined_types(infer: &Infer, ty: &Type) -> Type {
+    let empty = std::collections::HashSet::new();
+    match ty {
+        Type::Named(n) if n.uuid.is_none() && !is_known_type_name(infer, &n.name, &empty) => {
+            Type::Error
+        }
+        Type::Named(n) => Type::Named(
+            n.map_args(
+                n.args
+                    .iter()
+                    .map(|a| error_undefined_types(infer, a))
+                    .collect(),
+            ),
+        ),
+        Type::Tuple(elems) => Type::Tuple(
+            elems
+                .iter()
+                .map(|e| error_undefined_types(infer, e))
+                .collect(),
+        ),
+        Type::Record(rec) => Type::Record(crate::types::RecordType::new(
+            rec.fields
+                .iter()
+                .map(|(n, t)| (Arc::clone(n), error_undefined_types(infer, t)))
+                .collect(),
+        )),
+        Type::Function(f) => Type::function_with_abilities(
+            f.params
+                .iter()
+                .map(|p| error_undefined_types(infer, p))
+                .collect(),
+            error_undefined_types(infer, &f.ret),
+            f.abilities.clone(),
+        ),
+        Type::AbilityValue(av) => {
+            Type::ability_value(error_undefined_types(infer, &av.result), av.ability.clone())
+        }
+        Type::Forall(fa) => Type::Forall(crate::types::ForallType::with_abilities(
+            fa.vars.clone(),
+            fa.ability_vars.clone(),
+            error_undefined_types(infer, &fa.body),
+        )),
+        // `Nominal` inner is another declaration's already-resolved body;
+        // leave it (and every leaf) untouched.
+        _ => ty.clone(),
+    }
+}
+
+/// Resolve holes/aliases in a written annotation and rewrite any leftover
+/// undefined nominal reference to `Type::Error`. The value-side counterpart
+/// to reporting: every signature and body annotation runs through this so the
+/// *checked* type never carries an opaque `Named`. Reporting is done once, by
+/// the declared-types sweep, keeping diagnostics free of duplicates.
+fn resolve_erroring(infer: &mut Infer, ty: &Type) -> Type {
+    let resolved = infer.resolve_holes(ty);
+    error_undefined_types(infer, &resolved)
+}
+
+/// Resolve a *body-local* annotation — a `let` binding or a lambda parameter
+/// type — reporting any undefined type name and rewriting it to
+/// `Type::Error`. These annotations are the one kind the declared-types sweep
+/// can't reach (they live inside expression bodies), so this both reports (to
+/// `pending_errors`, drained module-wide) and rewrites, at their sole
+/// resolution site in [`infer::expr`](super::expr). Rigid type parameters in
+/// scope resolve to `Type::Param` first, so a body's own `T` is never flagged.
+pub(super) fn resolve_body_annotation(infer: &mut Infer, ty: &Type, span: (u32, u32)) -> Type {
+    let resolved = infer.resolve_holes(ty);
+    let no_extra = std::collections::HashSet::new();
+    let mut reported = Vec::new();
+    report_undefined_types(infer, &resolved, span, &no_extra, &mut reported);
+    infer.pending_errors.extend(reported);
+    error_undefined_types(infer, &resolved)
+}
+
+/// Report undefined type names across every local declaration's written type
+/// annotations (Phase 1, after all local types are registered so self- and
+/// mutually-recursive names already resolve).
+///
+/// The single reporting authority for undefined types in declared
+/// signatures: it walks raw AST types (foreign items untouched — only the
+/// current module's `items`), so the scheme builders and body checkers can
+/// rewrite to `Type::Error` without also reporting, keeping each undefined
+/// type exactly one diagnostic. In-body `let`/lambda annotations are the one
+/// exception — reported inline in `infer::expr`, as they never reach here.
+fn check_declared_types(
+    infer: &Infer,
+    module: &crate::ast::Module,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    let empty = std::collections::HashSet::new();
+    for item in &module.items {
+        let span = (item.span.start, item.span.end);
+        match &item.kind {
+            crate::ast::ItemKind::Function(func) => {
+                let known = type_param_set(&func.type_params);
+                for p in &func.params {
+                    if let Some(ty) = &p.ty {
+                        let s = (p.span.start, p.span.end);
+                        report_undefined_types(infer, ty, s, &known, errors);
+                    }
+                }
+                if let Some(ret) = &func.ret_ty {
+                    report_undefined_types(infer, ret, span, &known, errors);
+                }
+            }
+            crate::ast::ItemKind::Const(c) => {
+                report_undefined_types(infer, &c.ty, span, &empty, errors);
+            }
+            crate::ast::ItemKind::Struct(s) => {
+                let known = type_param_set(&s.type_params);
+                let s_span = (s.name_span.start, s.name_span.end);
+                for field_ty in struct_field_types(&s.ty) {
+                    report_undefined_types(infer, field_ty, s_span, &known, errors);
+                }
+            }
+            crate::ast::ItemKind::Enum(e) => {
+                let known = type_param_set(&e.type_params);
+                for v in &e.variants {
+                    if let Some(payload) = &v.payload {
+                        let s = (v.span.start, v.span.end);
+                        report_undefined_types(infer, payload, s, &known, errors);
+                    }
+                }
+            }
+            crate::ast::ItemKind::Trait(t) => {
+                for m in &t.methods {
+                    let known = type_param_set(&m.type_params);
+                    let s = (m.span.start, m.span.end);
+                    for (_, pty) in &m.params {
+                        report_undefined_types(infer, pty, s, &known, errors);
+                    }
+                    report_undefined_types(infer, &m.ret_ty, s, &known, errors);
+                }
+            }
+            crate::ast::ItemKind::Ability(a) => {
+                for m in &a.methods {
+                    let known = type_param_set(&m.type_params);
+                    let s = (m.span.start, m.span.end);
+                    for (_, pty) in &m.params {
+                        report_undefined_types(infer, pty, s, &known, errors);
+                    }
+                    report_undefined_types(infer, &m.ret_ty, s, &known, errors);
+                }
+            }
+            crate::ast::ItemKind::Impl(imp) => {
+                // The impl target (`impl Strng`) is validated elsewhere
+                // (invalid-target / structural-type errors); only the method
+                // signatures are swept here.
+                let impl_known = type_param_set(&imp.type_params);
+                for m in &imp.methods {
+                    let method_known: std::collections::HashSet<Arc<str>> = impl_known
+                        .iter()
+                        .cloned()
+                        .chain(m.type_params.iter().map(|tp| Arc::clone(&tp.name)))
+                        .collect();
+                    for p in &m.params {
+                        if let Some(ty) = &p.ty {
+                            let s = (p.span.start, p.span.end);
+                            report_undefined_types(infer, ty, s, &method_known, errors);
+                        }
+                    }
+                    if let Some(ret) = &m.ret_ty {
+                        let s = (m.span.start, m.span.end);
+                        report_undefined_types(infer, ret, s, &method_known, errors);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The field types of a struct declaration's stored type. A declared struct
+/// is a `Type::Nominal` wrapping a `Record` (a non-`unique` struct is the
+/// bare `Record`); either way its fields are the written annotations.
+fn struct_field_types(ty: &Type) -> Vec<&Type> {
+    let record = match ty {
+        Type::Nominal(n) => &*n.inner,
+        other => other,
+    };
+    match record {
+        Type::Record(rec) => rec.fields.iter().map(|(_, t)| t).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Type-check one function body (Phase 3).
+///
+/// The function's type parameters are rigid inside its body (and every
+/// lambda/`let` nested in it): a written `T` annotation resolves to
+/// `Type::Param("T")`, not an unresolved nominal reference. On success the
+/// body's inferred abilities are recorded (by item index) for deferred
+/// enforcement in Phase 4.
+fn check_function_body(
+    infer: &mut Infer,
+    func: &mut crate::ast::FunctionDef,
+    idx: usize,
+    env: &TypeEnv,
+    current_module_id: Option<&ModuleId>,
+    errors: &mut Vec<BoxedTypeError>,
+    inferred_abilities: &mut Vec<(usize, AbilitySet)>,
+) {
+    infer.reset_abilities();
+
+    let rigid: Vec<Arc<str>> = func
+        .type_params
+        .iter()
+        .map(|tp| Arc::clone(&tp.name))
+        .collect();
+    infer.with_rigid_params(rigid, |infer| {
+        let mut func_env = env.extend();
+        let expected_ret_ty = func.ret_ty.clone().map(|ty| resolve_erroring(infer, &ty));
+
+        for param in &func.params {
+            let param_ty = match &param.ty {
+                Some(ty) => resolve_erroring(infer, ty),
+                None => infer.fresh(),
+            };
+            func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
+        }
+
+        match infer.infer_expr(&func_env, &mut func.body) {
+            Ok(body_ty) => {
+                if let Some(ref expected) = expected_ret_ty {
+                    let span = (func.body.span.start, func.body.span.end);
+                    if let Err(e) = infer.unify(expected, &body_ty, span) {
+                        errors.push(e.with_context(format!(
+                            "in function `{}`: return type mismatch",
+                            func.name
+                        )));
+                    }
+                }
+
+                bind_inferred_abilities(infer, env, func, current_module_id);
+                inferred_abilities.push((idx, infer.current_abilities().clone()));
+            }
+            Err(e) => {
+                errors.push(e.with_context(format!("in function `{}`", func.name)));
+            }
+        }
+    });
 }
 
 /// Check one `const` body: enforce that the initializer is a literal and
@@ -1376,7 +1733,7 @@ fn check_const_body(
         )));
     }
 
-    let expected_ty = infer.resolve_holes(&const_def.ty);
+    let expected_ty = resolve_erroring(infer, &const_def.ty);
 
     match infer.infer_expr(env, &mut const_def.value) {
         Ok(actual_ty) => {
@@ -1417,14 +1774,16 @@ fn build_function_scheme(
         quantified_vars.push(var_id);
     }
 
-    // Build parameter types, resolving type aliases
+    // Build parameter types, resolving type aliases. An undefined type name
+    // becomes `Type::Error` (reported once by the declared-types sweep) so the
+    // scheme callers instantiate never carries an opaque `Named`.
     let param_types: Vec<Type> = func
         .params
         .iter()
         .map(|p| match &p.ty {
             Some(ty) => {
                 let substituted = substitute_type_params(ty, &type_var_map);
-                infer.resolve_holes(&substituted)
+                resolve_erroring(infer, &substituted)
             }
             None => infer.fresh(),
         })
@@ -1434,7 +1793,7 @@ fn build_function_scheme(
     let ret_ty = match &func.ret_ty {
         Some(ty) => {
             let substituted = substitute_type_params(ty, &type_var_map);
-            infer.resolve_holes(&substituted)
+            resolve_erroring(infer, &substituted)
         }
         None => infer.fresh(),
     };
@@ -1648,6 +2007,14 @@ fn resolve_ability_def(
         // canonical interface renders `number`/`string`/... rather than the
         // `named:Number` an unresolved name would produce — keeping ability
         // identities byte-stable regardless of the prelude/imports in scope.
+        // Plain `resolve_holes` (not `resolve_erroring`) here: an ability
+        // signature is resolved *before* the module's type-alias table is
+        // populated, so a cross-module nominal (`Duration`) legitimately
+        // stays an unresolved `Named` — bridged to the real type at use
+        // sites and rendered as `named:Duration` for hashing. Rewriting it to
+        // `Type::Error` would break both the bridge and hash stability. Typos
+        // in a *local* ability's signature are still reported by the
+        // declared-types sweep (which runs with the alias table populated).
         let params: Vec<Type> = method
             .params
             .iter()
