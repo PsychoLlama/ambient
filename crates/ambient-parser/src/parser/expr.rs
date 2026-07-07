@@ -4,9 +4,9 @@ use ambient_engine::ast::Span;
 
 use super::Parser;
 use crate::cst::{
-    CstBinaryOp, CstExpr, CstExprKind, CstHandleExpr, CstHandler, CstHandlerLiteralExpr,
-    CstHandlerLiteralMethod, CstIdent, CstLambda, CstLetBinding, CstMatchArm, CstQualifiedName,
-    CstSandboxExpr, CstStmt, CstStmtKind, CstUnaryOp, StringPart,
+    CstBinaryOp, CstExpr, CstExprKind, CstHandlerLiteralExpr, CstHandlerLiteralMethod, CstIdent,
+    CstLambda, CstLetBinding, CstMatchArm, CstQualifiedName, CstSandboxExpr, CstStmt, CstStmtKind,
+    CstUnaryOp, CstWithHandleExpr, StringPart,
 };
 use crate::error::{ParseError, ParseErrorKind};
 use crate::lexer::TokenKind;
@@ -426,9 +426,11 @@ impl Parser<'_> {
             return self.parse_match_expr();
         }
 
-        // Handle expression
-        if self.check(TokenKind::Handle) {
-            return self.parse_handle_expr();
+        // Handle expression: `with H₁, …, Hₙ handle BODY [else E]`.
+        // `with` only ever appears postfix elsewhere (ability clauses,
+        // sandbox), so a `with`-led prefix is unambiguous here.
+        if self.check(TokenKind::With) {
+            return self.parse_with_handle_expr();
         }
 
         // Resume expression: resume(value)
@@ -834,8 +836,15 @@ impl Parser<'_> {
             });
         }
 
-        // Check if this is a record literal (starts with ident:) or
-        // a handler literal (starts with ident()
+        // A handler literal is `{ Ability::method( … ) => …, … }`: a
+        // qualified name leading to a parameter list and a `=>`. This is
+        // distinguished from a block whose first statement is a qualified
+        // call (`{ Stdio::foo(x) }`) by the trailing `=>`.
+        if self.is_handler_literal_start() {
+            return self.parse_handler_literal(start);
+        }
+
+        // Record literal: `{ ident: … }`.
         if self.check(TokenKind::Ident) {
             let saved = self.pos;
             self.skip_trivia();
@@ -843,15 +852,8 @@ impl Parser<'_> {
             self.skip_trivia();
 
             if self.check(TokenKind::Colon) {
-                // It's a record
                 self.pos = saved;
                 return self.parse_record_literal(start);
-            }
-
-            if self.check(TokenKind::LParen) {
-                // It's a handler literal: { method(params) => body, ... }
-                self.pos = saved;
-                return self.parse_handler_literal(start);
             }
 
             // It's a block, restore position
@@ -860,6 +862,70 @@ impl Parser<'_> {
 
         // Parse as block
         self.parse_block_contents(start)
+    }
+
+    /// Lookahead: does the position after `{` begin a handler-literal arm
+    /// (`Ability::method( … ) =>`)? Restores the cursor before returning.
+    fn is_handler_literal_start(&mut self) -> bool {
+        let saved = self.pos;
+        let result = self.scan_handler_literal_arm();
+        self.pos = saved;
+        result
+    }
+
+    /// Scan (destructively) one `Ability::method( … ) =>` arm head, returning
+    /// whether it matched. Callers restore the cursor.
+    fn scan_handler_literal_arm(&mut self) -> bool {
+        // Head segment: an identifier or a module-prefix keyword.
+        self.skip_trivia();
+        if !matches!(
+            self.current_kind(),
+            TokenKind::Ident
+                | TokenKind::Core
+                | TokenKind::Pkg
+                | TokenKind::Super
+                | TokenKind::Self_
+        ) {
+            return false;
+        }
+        self.advance();
+
+        // Require at least one `::segment` (arms are always qualified).
+        let mut qualified = false;
+        while self.check(TokenKind::ColonColon) {
+            self.advance();
+            if !self.check(TokenKind::Ident) {
+                return false;
+            }
+            self.advance();
+            qualified = true;
+        }
+        if !qualified || !self.check(TokenKind::LParen) {
+            return false;
+        }
+
+        // Skip the balanced parameter list, then look for `=>`.
+        let mut depth = 0usize;
+        loop {
+            self.skip_trivia();
+            match self.current_kind() {
+                TokenKind::LParen => {
+                    depth += 1;
+                    self.pos += 1;
+                }
+                TokenKind::RParen => {
+                    depth -= 1;
+                    self.pos += 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                TokenKind::Eof => return false,
+                _ => self.pos += 1,
+            }
+        }
+
+        self.check(TokenKind::FatArrow)
     }
 
     fn parse_record_literal(&mut self, start: u32) -> Result<CstExpr, ParseError> {
@@ -949,7 +1015,7 @@ impl Parser<'_> {
         })
     }
 
-    /// Parse a handler literal: `{ method(params) => body, ... }`
+    /// Parse a handler literal: `{ Ability::method(params) => body, ... }`
     fn parse_handler_literal(&mut self, start: u32) -> Result<CstExpr, ParseError> {
         let mut methods = Vec::new();
 
@@ -959,7 +1025,10 @@ impl Parser<'_> {
             }
 
             let method_start = self.current().span.start;
-            let method = self.parse_ident()?;
+
+            // Parse the qualified `Ability::method` prefix, then split off
+            // the final segment as the method name.
+            let (ability, method) = self.parse_handler_arm_head()?;
 
             // Parse parameters
             self.expect(TokenKind::LParen)?;
@@ -974,6 +1043,7 @@ impl Parser<'_> {
             let method_end = body.span.end;
 
             methods.push(CstHandlerLiteralMethod {
+                ability,
                 method,
                 params,
                 body,
@@ -1153,116 +1223,78 @@ impl Parser<'_> {
         })
     }
 
-    fn parse_handle_expr(&mut self) -> Result<CstExpr, ParseError> {
+    /// Parse a handle expression: `with H₁, …, Hₙ handle BODY [else E]`.
+    ///
+    /// Each `Hᵢ` is an ordinary expression (a handler literal or a
+    /// `Handler<A, R>` value). The `handle` keyword terminates the list: it
+    /// cannot continue an expression, so the comma-separated list ends
+    /// deterministically.
+    fn parse_with_handle_expr(&mut self) -> Result<CstExpr, ParseError> {
         let start = self.current().span.start;
-        self.expect(TokenKind::Handle)?;
+        self.expect(TokenKind::With)?;
 
+        // Comma-separated handler expressions until `handle`.
+        let mut handlers = Vec::new();
+        loop {
+            let handler = self.parse_expression()?;
+            handlers.push(handler);
+            if self.consume(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+
+        self.expect(TokenKind::Handle)?;
         let body = self.parse_expression()?;
 
-        // Parse optional `with` clause for handler values
-        let mut handler_values = Vec::new();
-        if self.consume(TokenKind::With).is_some() {
-            // Parse comma-separated handler expressions until we see `{`
-            loop {
-                let handler_expr = self.parse_primary_expr()?;
-                handler_values.push(handler_expr);
+        // Optional `else EXPR` transform, applied to the body's result on
+        // normal completion.
+        let else_clause = if self.consume(TokenKind::Else).is_some() {
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
 
-                if self.consume(TokenKind::Comma).is_none() {
-                    break;
-                }
-            }
-        }
-
-        self.expect(TokenKind::LBrace)?;
-
-        let mut handlers = Vec::new();
-        let mut else_clause = None;
-
-        loop {
-            if self.check(TokenKind::RBrace) {
-                break;
-            }
-
-            // Check for else clause
-            if self.consume(TokenKind::Else).is_some() {
-                self.expect(TokenKind::LBrace)?;
-                // The else clause binds the result value
-                // Syntax: else { (result) => expr }
-                let else_body = self.parse_expression()?;
-                self.expect(TokenKind::RBrace)?;
-                else_clause = Some(else_body);
-                break;
-            }
-
-            // Parse handler: Ability.method(params) => body
-            // parse_qualified_name consumes all segments, so we need to split off the method
-            let mut full_name = self.parse_qualified_name()?;
-
-            // The last segment is the method name
-            if full_name.segments.len() < 2 {
-                return Err(ParseError::new(
-                    ParseErrorKind::InvalidAbilitySyntax(
-                        "handler must specify Ability.method".into(),
-                    ),
-                    full_name.span,
-                ));
-            }
-
-            let method = full_name.segments.pop().expect("checked length above");
-            let ability = CstQualifiedName {
-                span: if full_name.segments.len() == 1 {
-                    full_name.segments[0].span
-                } else {
-                    Span::new(
-                        full_name.segments[0].span.start,
-                        full_name
-                            .segments
-                            .last()
-                            .expect("segments not empty")
-                            .span
-                            .end,
-                    )
-                },
-                segments: full_name.segments,
-            };
-
-            self.expect(TokenKind::LParen)?;
-            let params = self.parse_params()?;
-            self.expect(TokenKind::RParen)?;
-            self.expect(TokenKind::FatArrow)?;
-
-            let handler_body = if self.check(TokenKind::LBrace) {
-                self.parse_block_expr()?
-            } else {
-                self.parse_expression()?
-            };
-
-            let end = handler_body.span.end;
-
-            handlers.push(CstHandler {
-                ability,
-                method,
-                params,
-                body: handler_body,
-                span: Span::new(start, end),
-            });
-
-            // Optional comma/newline between handlers
-            self.consume(TokenKind::Comma);
-        }
-
-        let end = self.expect(TokenKind::RBrace)?.span.end;
+        let end = else_clause.as_ref().map_or(body.span.end, |e| e.span.end);
 
         Ok(CstExpr {
-            kind: CstExprKind::Handle(Box::new(CstHandleExpr {
-                body,
-                handler_values,
+            kind: CstExprKind::Handle(Box::new(CstWithHandleExpr {
                 handlers,
+                body,
                 else_clause,
                 span: Span::new(start, end),
             })),
             span: Span::new(start, end),
         })
+    }
+
+    /// Parse a handler-arm head `Ability::method`, returning the ability's
+    /// qualified name and the trailing method segment.
+    fn parse_handler_arm_head(&mut self) -> Result<(CstQualifiedName, CstIdent), ParseError> {
+        let mut full_name = self.parse_qualified_name()?;
+
+        if full_name.segments.len() < 2 {
+            return Err(ParseError::new(
+                ParseErrorKind::InvalidAbilitySyntax(
+                    "handler arm must specify Ability::method".into(),
+                ),
+                full_name.span,
+            ));
+        }
+
+        let method = full_name.segments.pop().expect("checked length above");
+        let ability = CstQualifiedName {
+            span: Span::new(
+                full_name.segments[0].span.start,
+                full_name
+                    .segments
+                    .last()
+                    .expect("segments not empty")
+                    .span
+                    .end,
+            ),
+            segments: full_name.segments,
+        };
+        Ok((ability, method))
     }
 
     fn parse_resume_expr(&mut self) -> Result<CstExpr, ParseError> {

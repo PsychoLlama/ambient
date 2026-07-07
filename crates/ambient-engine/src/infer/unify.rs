@@ -122,6 +122,23 @@ impl Infer {
                 self.unify_abilities(&av1.ability, &av2.ability, span)
             }
 
+            // Handler types (Milestone 13): the ability must match, then the
+            // answer types unify. Two handlers for different abilities are
+            // distinct types; same ability with a free answer var absorbs the
+            // other's answer.
+            (Type::Handler(h1), Type::Handler(h2)) => {
+                if h1.ability != h2.ability {
+                    return Err(type_error(
+                        TypeErrorKind::TypeMismatch {
+                            expected: t1.clone(),
+                            actual: t2.clone(),
+                        },
+                        span,
+                    ));
+                }
+                self.unify(&h1.answer, &h2.answer, span)
+            }
+
             // Named types. The head name and arity must match, and nominal
             // identities (every enum's uuid) must agree. A `None` uuid on a
             // *registered* enum name is resolved to that enum's canonical uuid
@@ -237,6 +254,7 @@ impl Infer {
             Type::Named(n) => n.args.iter().any(|a| self.occurs(var, a)),
             Type::Nominal(n) => self.occurs(var, &n.inner),
             Type::AbilityValue(av) => self.occurs(var, &av.result),
+            Type::Handler(h) => self.occurs(var, &h.answer),
             _ => false,
         }
     }
@@ -536,6 +554,10 @@ impl MaskedSubst<'_> {
             Type::AbilityValue(av) => Type::AbilityValue(crate::types::AbilityValueType::new(
                 self.apply(&av.result, seen),
                 self.apply_abilities(&av.ability, &mut Vec::new()),
+            )),
+            Type::Handler(h) => Type::Handler(crate::types::HandlerType::new(
+                h.ability,
+                self.apply(&h.answer, seen),
             )),
             Type::Forall(f) => {
                 // A nested binder masks its own variables in addition.

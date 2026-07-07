@@ -572,36 +572,21 @@ pub struct AbilityCall {
     pub span: Span,
 }
 
-/// A handle expression.
+/// A handle expression: `with H₁, …, Hₙ handle BODY [else TRANSFORM]`.
 #[derive(Debug, Clone)]
 pub struct HandleExpr {
+    /// The handlers installed over the body, in source order. Each is an
+    /// ordinary expression: a [`HandlerLiteralExpr`] (which may span
+    /// abilities when written inline here) or an expression of type
+    /// `Handler<A, R>`.
+    pub handlers: Vec<Expr>,
     /// The expression being handled.
     pub body: Box<Expr>,
-    /// Handler values specified with `with` clause.
-    /// These are expressions that evaluate to Handler<A> values.
-    pub handler_values: Vec<Expr>,
-    /// Inline handlers for each ability method.
-    pub handlers: Vec<Handler>,
     /// Optional else clause for the normal return value.
     pub else_clause: Option<Box<Expr>>,
 }
 
-/// A handler for an ability method.
-#[derive(Debug, Clone)]
-pub struct Handler {
-    /// The ability being handled.
-    pub ability: QualifiedName,
-    /// The method being handled.
-    pub method: Arc<str>,
-    /// Parameter bindings for the ability arguments.
-    pub params: Vec<Param>,
-    /// The handler body.
-    pub body: Expr,
-    /// Source location.
-    pub span: Span,
-}
-
-/// A handler literal expression: `{ method(params) => body, ... }`.
+/// A handler literal expression: `{ Ability::method(params) => body, ... }`.
 /// Creates a first-class handler value that can be stored, passed, and composed.
 #[derive(Debug, Clone)]
 pub struct HandlerLiteralExpr {
@@ -611,16 +596,20 @@ pub struct HandlerLiteralExpr {
     pub span: Span,
 }
 
-/// A method in a handler literal.
+/// A method in a handler literal: `Ability::method(params) => body`.
 #[derive(Debug, Clone)]
 pub struct HandlerLiteralMethod {
+    /// The ability the method belongs to, written as a qualified prefix.
+    pub ability: QualifiedName,
     /// The method name.
     pub method: Arc<str>,
+    /// Span of the method name (for IDE features).
+    pub method_span: Span,
     /// Parameter bindings for the ability arguments.
     pub params: Vec<Param>,
     /// The handler body.
     pub body: Expr,
-    /// Source location.
+    /// Source location (covers the whole arm).
     pub span: Span,
 }
 
@@ -1284,11 +1273,18 @@ impl Expr {
 }
 
 impl HandlerLiteralMethod {
-    /// Create a new handler literal method.
+    /// Create a new handler literal method for the given ability.
     #[must_use]
-    pub fn new(method: impl Into<Arc<str>>, params: Vec<Param>, body: Expr) -> Self {
+    pub fn new(
+        ability: impl Into<Arc<str>>,
+        method: impl Into<Arc<str>>,
+        params: Vec<Param>,
+        body: Expr,
+    ) -> Self {
         Self {
+            ability: QualifiedName::simple(ability),
             method: method.into(),
+            method_span: Span::default(),
             params,
             body,
             span: Span::default(),

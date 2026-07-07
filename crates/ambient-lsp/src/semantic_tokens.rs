@@ -488,13 +488,12 @@ impl<'a> TokenCollector<'a> {
     }
 
     fn visit_handle_expr(&mut self, handle: &ambient_engine::ast::HandleExpr) {
-        self.visit_expr(&handle.body);
-        for handler_val in &handle.handler_values {
-            self.visit_expr(handler_val);
-        }
+        // Each handler is an ordinary expression (a literal or a value);
+        // visiting it recurses into HandlerLiteral below.
         for handler in &handle.handlers {
-            self.visit_expr(&handler.body);
+            self.visit_expr(handler);
         }
+        self.visit_expr(&handle.body);
         if let Some(else_clause) = &handle.else_clause {
             self.visit_expr(else_clause);
         }
@@ -502,9 +501,14 @@ impl<'a> TokenCollector<'a> {
 
     fn visit_handler_literal(&mut self, handler: &HandlerLiteralExpr) {
         for method in &handler.methods {
+            // Highlight the qualified `Ability::method` head: the ability as a
+            // type, the method as an ability method.
+            if let Some(ability_span) = method.ability.name_span {
+                self.add_token(ability_span.start, ability_span.end, token_type::TYPE, 0);
+            }
             self.add_token(
-                method.span.start,
-                method.span.start + str_len_u32(&method.method),
+                method.method_span.start,
+                method.method_span.end,
                 token_type::METHOD,
                 0,
             );

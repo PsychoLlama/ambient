@@ -17,7 +17,7 @@ use std::sync::Arc;
 use super::error::BoxedTypeErrorExt;
 use super::{Infer, InferResult, TypeEnv, TypeError, TypeErrorKind, type_error};
 use crate::ast::{BinaryOp, Expr, ExprKind, StmtKind, UnaryOp};
-use crate::types::{AbilitySet, Type};
+use crate::types::{AbilityId, AbilitySet, Type};
 
 impl Infer {
     /// Infer the type of an expression.
@@ -453,7 +453,16 @@ impl Infer {
         Ok(ty)
     }
 
-    /// Infer the type of a handler literal expression.
+    /// Infer the type of a standalone handler literal expression (a
+    /// `Handler<A, R>` value — e.g. `let mock_fs = { … }`).
+    ///
+    /// A handler value covers exactly one ability, derived from its arms'
+    /// qualified prefixes (arms spanning multiple abilities are a type error
+    /// — use the literal inline, or split it). Each arm is checked against
+    /// the ability's declared signature with `result_ty` a fresh answer var
+    /// `R`, so a non-resuming arm's return type constrains `R`. `R` is
+    /// generalizable, so an always-resuming handler stays `∀R. Handler<A, R>`
+    /// and instantiates per use site.
     fn infer_handler_literal(
         &mut self,
         env: &TypeEnv,
@@ -462,103 +471,51 @@ impl Infer {
     ) -> InferResult<Type> {
         use std::sync::Arc;
 
-        // Handler literal type checking (Milestone 13)
-        //
-        // 1. Collect method names from the handler literal
-        // 2. Infer which ability this handler is for (from method names)
-        // 3. Verify each method matches the ability's signature
-        // 4. Type-check each handler body in an appropriate environment
-        // 5. Return Handler<A> type
-
-        // Collect method names
-        let method_names: Vec<Arc<str>> = handler_lit
-            .methods
-            .iter()
-            .map(|m| m.method.clone())
-            .collect();
-
-        // Try to infer the target ability from method names
-        let ability_id = self
-            .infer_ability_from_methods(&method_names)
-            .ok_or_else(|| {
-                TypeError::new(
-                    TypeErrorKind::HandlerAbilityAmbiguous {
-                        method_names: method_names.clone(),
-                    },
-                    span,
-                )
-            })?;
-
-        let ability_name: Arc<str> = self
-            .ability_id_to_name(ability_id)
-            .unwrap_or("unknown")
-            .into();
-
-        // Verify each method in the handler against the ability's declared
-        // signature: parameters take the declared types, and `resume` must
-        // be fed the method's return type (that is what the perform site
-        // receives). The arm body's own value is unconstrained here — it
-        // becomes the handle expression's result only at the handle site,
-        // which is unknown when a handler value is built.
-        for method in &mut handler_lit.methods {
-            let method_span = (method.span.start, method.span.end);
-            let Some((param_tys, ret_ty)) =
-                self.ability_method_signature(ability_id, &method.method)
-            else {
-                return Err(type_error(
-                    TypeErrorKind::HandlerUnknownMethod {
-                        ability: ability_name.clone(),
-                        method: method.method.clone(),
-                    },
-                    method_span,
-                ));
-            };
-
-            if method.params.len() != param_tys.len() {
-                return Err(type_error(
-                    TypeErrorKind::HandlerMethodArityMismatch {
-                        ability: ability_name.clone(),
-                        method: method.method.clone(),
-                        expected: param_tys.len(),
-                        actual: method.params.len(),
-                    },
-                    method_span,
-                ));
-            }
-
-            let mut method_env = env.extend();
-            for (param, declared_ty) in method.params.iter().zip(&param_tys) {
-                let param_ty = match &param.ty {
-                    Some(ty) => {
-                        let annotated = self.resolve_holes(ty);
-                        self.unify(declared_ty, &annotated, method_span)?;
-                        annotated
-                    }
-                    None => declared_ty.clone(),
-                };
-                method_env.insert_mono(param.id, param.name.clone(), param_ty);
-            }
-
-            // A `!`-returning method (Exception::throw) has no statically
-            // knowable resume type: the host can raise it at any perform
-            // site, and resuming substitutes a value for the failing call.
-            let value_ty = match self.apply(&ret_ty) {
-                Type::Never => None,
-                ret => Some(ret),
-            };
-            self.resume_contexts.push(crate::infer::ResumeContext {
-                value_ty,
-                result_ty: None,
-            });
-            let body_result = self.infer_expr(&method_env, &mut method.body);
-            self.resume_contexts.pop();
-            body_result?;
+        if handler_lit.methods.is_empty() {
+            return Err(type_error(TypeErrorKind::HandlerEmpty, span));
         }
 
-        // Handlers don't need to provide all methods - partial handlers are allowed
-        // (they can be composed with other handlers that provide missing methods)
+        // The answer type `R`: what an arm yields when it returns without
+        // resuming. Fresh (and generalizable) so a resuming-only handler
+        // stays polymorphic in `R`.
+        let answer = self.fresh();
 
-        Ok(Type::handler(ability_id))
+        let mut ability_id: Option<AbilityId> = None;
+        let mut ability_names: Vec<Arc<str>> = Vec::new();
+        for method in &mut handler_lit.methods {
+            let arm_ability = self.check_handler_arm(env, method, &answer, span)?;
+            match ability_id {
+                None => {
+                    ability_id = Some(arm_ability);
+                    ability_names.push(Arc::clone(&method.ability.name));
+                }
+                Some(existing) if existing != arm_ability => {
+                    let name = Arc::clone(&method.ability.name);
+                    if !ability_names.contains(&name) {
+                        ability_names.push(name);
+                    }
+                }
+                Some(_) => {}
+            }
+        }
+
+        if ability_names.len() > 1 {
+            return Err(type_error(
+                TypeErrorKind::HandlerValueMultipleAbilities {
+                    abilities: ability_names,
+                },
+                span,
+            ));
+        }
+
+        // `methods` is non-empty (guarded above), so the first arm set the
+        // ability; treat an absent ability as the empty case for safety.
+        let Some(ability_id) = ability_id else {
+            return Err(type_error(TypeErrorKind::HandlerEmpty, span));
+        };
+        // Apply the substitution so a non-resuming arm's constraint on the
+        // answer type is reflected in the returned handler type.
+        Ok(Type::handler(ability_id, self.apply(&answer)))
     }
 
     /// Infer the type of a sandbox expression.
@@ -1346,21 +1303,53 @@ mod tests {
         infer
     }
 
+    /// A `core::system::<name>` ability reference (the namespace test
+    /// prelude abilities are registered under).
+    fn core_ability(name: &str) -> crate::ast::QualifiedName {
+        crate::ast::QualifiedName::qualified(vec!["core", "system"], name)
+    }
+
+    /// Build a handler-literal arm `ability::method(params) => body`.
+    fn arm(
+        ability: crate::ast::QualifiedName,
+        method: &str,
+        params: Vec<Param>,
+        body: Expr,
+    ) -> HandlerLiteralMethod {
+        HandlerLiteralMethod {
+            ability,
+            method: method.into(),
+            method_span: crate::ast::Span::default(),
+            params,
+            body,
+            span: crate::ast::Span::default(),
+        }
+    }
+
+    /// A `resume(value)` expression (its type is the handler's answer type).
+    fn resume(value: Expr) -> Expr {
+        Expr::new(
+            ExprKind::Resume(Box::new(value)),
+            crate::ast::Span::default(),
+        )
+    }
+
     #[test]
     fn test_handler_literal_prelude_ability() {
         let mut infer = infer_with_test_prelude();
         let env = TypeEnv::new();
 
-        // { go(msg) => resume(()) }
-        let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
+        // { core::system::Printer::go(msg) => resume(()) }
+        let mut expr = Expr::handler_literal(vec![arm(
+            core_ability("Printer"),
             "go",
             vec![Param::new(1, "msg")],
-            Expr::unit(), // resume(()) - simplified for test
+            resume(Expr::unit()),
         )]);
 
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
 
-        // Should infer Handler<Printer>
+        // Should infer Handler<Printer, R>
         if let Type::Handler(handler_ty) = ty {
             assert_eq!(
                 handler_ty.ability,
@@ -1376,8 +1365,9 @@ mod tests {
         let mut infer = Infer::new();
         let env = TypeEnv::new();
 
-        // { throw(err) => ... }
-        let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
+        // { Exception::throw(err) => () } — a non-resuming arm pins R to unit.
+        let mut expr = Expr::handler_literal(vec![arm(
+            crate::ast::QualifiedName::simple("Exception"),
             "throw",
             vec![Param::new(1, "err")],
             Expr::unit(),
@@ -1385,9 +1375,10 @@ mod tests {
 
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
 
-        // Should infer Handler<Exception>
+        // Should infer Handler<Exception, ()>
         if let Type::Handler(handler_ty) = ty {
             assert_eq!(handler_ty.ability, ambient_core::exception::ability_id());
+            assert_eq!(*handler_ty.answer, Type::Unit);
         } else {
             panic!("Expected Handler type, got {:?}", ty);
         }
@@ -1398,15 +1389,25 @@ mod tests {
         let mut infer = infer_with_test_prelude();
         let env = TypeEnv::new();
 
-        // { now() => resume(0.0), wait(duration) => resume(()) }
+        // { Clock::now() => resume(0.0), Clock::wait(duration) => resume(()) }
         let mut expr = Expr::handler_literal(vec![
-            HandlerLiteralMethod::new("now", vec![], Expr::number(0.0)),
-            HandlerLiteralMethod::new("wait", vec![Param::new(1, "duration")], Expr::unit()),
+            arm(
+                core_ability("Clock"),
+                "now",
+                vec![],
+                resume(Expr::number(0.0)),
+            ),
+            arm(
+                core_ability("Clock"),
+                "wait",
+                vec![Param::new(1, "duration")],
+                resume(Expr::unit()),
+            ),
         ]);
 
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
 
-        // Should infer Handler<Clock>
+        // Should infer Handler<Clock, R>
         if let Type::Handler(handler_ty) = ty {
             assert_eq!(
                 handler_ty.ability,
@@ -1418,12 +1419,44 @@ mod tests {
     }
 
     #[test]
+    fn test_handler_literal_multiple_abilities_rejected() {
+        let mut infer = infer_with_test_prelude();
+        let env = TypeEnv::new();
+
+        // A handler *value* covering two abilities is a type error.
+        let mut expr = Expr::handler_literal(vec![
+            arm(
+                core_ability("Printer"),
+                "go",
+                vec![Param::new(1, "msg")],
+                resume(Expr::unit()),
+            ),
+            arm(
+                core_ability("Clock"),
+                "now",
+                vec![],
+                resume(Expr::number(0.0)),
+            ),
+        ]);
+
+        let result = infer.infer_expr(&env, &mut expr);
+        assert!(
+            matches!(
+                result,
+                Err(ref e) if matches!(e.kind, TypeErrorKind::HandlerValueMultipleAbilities { .. })
+            ),
+            "a multi-ability handler value should be rejected, got {result:?}"
+        );
+    }
+
+    #[test]
     fn test_handler_literal_unknown_method() {
         let mut infer = Infer::new();
         let env = TypeEnv::new();
 
-        // { unknown_method(x) => ... } - doesn't match any ability
-        let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
+        // { Exception::unknown_method(x) => ... } - no such method.
+        let mut expr = Expr::handler_literal(vec![arm(
+            crate::ast::QualifiedName::simple("Exception"),
             "unknown_method",
             vec![Param::new(1, "x")],
             Expr::unit(),
@@ -1432,7 +1465,7 @@ mod tests {
         let result = infer.infer_expr(&env, &mut expr);
         assert!(
             result.is_err(),
-            "Should fail when methods don't match any ability"
+            "Should fail when a method is not on the ability"
         );
     }
 
@@ -1441,11 +1474,12 @@ mod tests {
         let mut infer = infer_with_test_prelude();
         let env = TypeEnv::new();
 
-        // { go(a, b) => ... } - Printer.go takes 1 arg, not 2
-        let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
+        // { Printer::go(a, b) => ... } - Printer.go takes 1 arg, not 2
+        let mut expr = Expr::handler_literal(vec![arm(
+            core_ability("Printer"),
             "go",
             vec![Param::new(1, "a"), Param::new(2, "b")],
-            Expr::unit(),
+            resume(Expr::unit()),
         )]);
 
         let result = infer.infer_expr(&env, &mut expr);
@@ -1467,12 +1501,13 @@ mod tests {
         let mut infer = infer_with_test_prelude();
         let env = TypeEnv::new();
 
-        // { now() => ... } - only handles now, not wait
+        // { Clock::now() => resume(0.0) } - only handles now, not wait
         // This should be allowed (partial handlers can be composed)
-        let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
+        let mut expr = Expr::handler_literal(vec![arm(
+            core_ability("Clock"),
             "now",
             vec![],
-            Expr::number(0.0),
+            resume(Expr::number(0.0)),
         )]);
 
         let ty = infer.infer_expr(&env, &mut expr).unwrap();
@@ -1487,9 +1522,10 @@ mod tests {
         let mut infer = infer_with_test_prelude();
         let env = TypeEnv::new();
 
-        // { go(msg) => msg + "!" } — Printer.go(message: string), so msg is
-        // a string and string concatenation type-checks.
-        let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
+        // { Printer::go(msg) => msg + "!" } — Printer.go(message: string), so
+        // msg is a string and string concatenation type-checks.
+        let mut expr = Expr::handler_literal(vec![arm(
+            core_ability("Printer"),
             "go",
             vec![Param::new(1, "msg")],
             Expr::binary(BinaryOp::Add, Expr::local(1), Expr::string("!")),
@@ -1500,8 +1536,9 @@ mod tests {
             "handler param should have its declared type in scope: {result:?}"
         );
 
-        // { go(msg) => msg + 1 } — msg is a string, not a number: rejected.
-        let mut expr = Expr::handler_literal(vec![HandlerLiteralMethod::new(
+        // { Printer::go(msg) => msg + 1 } — msg is a string, not a number: rejected.
+        let mut expr = Expr::handler_literal(vec![arm(
+            core_ability("Printer"),
             "go",
             vec![Param::new(1, "msg")],
             Expr::binary(BinaryOp::Add, Expr::local(1), Expr::number(1.0)),

@@ -68,10 +68,10 @@ mod parser;
 
 pub use cst::{
     CstAbilityDef, CstAbilityMethod, CstConstDef, CstEnumDef, CstEnumVariant, CstExpr, CstExprKind,
-    CstFunctionDef, CstHandleExpr, CstHandler, CstItem, CstItemKind, CstLambda, CstLetBinding,
-    CstMatchArm, CstModule, CstParam, CstPattern, CstPatternKind, CstReplInput, CstStmt,
-    CstStmtKind, CstStructDef, CstTypeAliasDef, CstTypeExpr, CstTypeExprKind, CstUseDef,
-    CstUseTree, CstUseTreeKind, Trivia, TriviaKind,
+    CstFunctionDef, CstItem, CstItemKind, CstLambda, CstLetBinding, CstMatchArm, CstModule,
+    CstParam, CstPattern, CstPatternKind, CstReplInput, CstStmt, CstStmtKind, CstStructDef,
+    CstTypeAliasDef, CstTypeExpr, CstTypeExprKind, CstUseDef, CstUseTree, CstUseTreeKind,
+    CstWithHandleExpr, Trivia, TriviaKind,
 };
 pub use error::{ParseError, ParseErrorKind};
 pub use lexer::{Lexer, Token, TokenKind};

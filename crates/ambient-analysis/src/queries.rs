@@ -114,10 +114,18 @@ fn find_expr_in_tree(expr: &Expr, offset: u32) -> Option<&Expr> {
         ExprKind::Lambda(lambda) => find_expr_in_tree(&lambda.body, offset),
         ExprKind::Handle(handle) => find_expr_in_tree(&handle.body, offset)
             .or_else(|| {
-                handle
-                    .handlers
-                    .iter()
-                    .find_map(|h| find_expr_in_tree(&h.body, offset))
+                handle.handlers.iter().find_map(|h| {
+                    // Descend into a handler literal's arm bodies (the literal
+                    // node itself is a hover leaf); other handler expressions
+                    // recurse normally.
+                    if let ExprKind::HandlerLiteral(lit) = &h.kind {
+                        lit.methods
+                            .iter()
+                            .find_map(|m| find_expr_in_tree(&m.body, offset))
+                    } else {
+                        find_expr_in_tree(h, offset)
+                    }
+                })
             })
             .or_else(|| {
                 handle
@@ -484,12 +492,19 @@ fn find_binding_in_expr(expr: &Expr, target_id: BindingId) -> Option<Span> {
             .find_map(|(_, e)| find_binding_in_expr(e, target_id)),
         ExprKind::RecordField(object, _) => find_binding_in_expr(object, target_id),
         ExprKind::TupleIndex(tuple, _) => find_binding_in_expr(tuple, target_id),
-        ExprKind::Handle(handle) => find_binding_in_expr(&handle.body, target_id).or_else(|| {
-            handle
-                .else_clause
-                .as_ref()
-                .and_then(|e| find_binding_in_expr(e, target_id))
-        }),
+        ExprKind::Handle(handle) => find_binding_in_expr(&handle.body, target_id)
+            .or_else(|| {
+                handle
+                    .handlers
+                    .iter()
+                    .find_map(|h| find_binding_in_expr(h, target_id))
+            })
+            .or_else(|| {
+                handle
+                    .else_clause
+                    .as_ref()
+                    .and_then(|e| find_binding_in_expr(e, target_id))
+            }),
         ExprKind::Sandbox(sandbox) => find_binding_in_expr(&sandbox.body, target_id),
         _ => None,
     }

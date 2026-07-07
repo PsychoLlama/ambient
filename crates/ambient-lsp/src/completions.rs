@@ -890,8 +890,16 @@ fn collect_handle_locals(
 ) {
     collect_locals_in_scope(&handle.body, offset, prefix, items);
     for handler in &handle.handlers {
-        collect_params_if_in_scope(&handler.params, handler.body.span, offset, prefix, items);
-        collect_locals_in_scope(&handler.body, offset, prefix, items);
+        // A handler literal's arm params are in scope within their bodies;
+        // other handler expressions just contribute their own locals.
+        if let ambient_engine::ast::ExprKind::HandlerLiteral(lit) = &handler.kind {
+            for method in &lit.methods {
+                collect_params_if_in_scope(&method.params, method.body.span, offset, prefix, items);
+                collect_locals_in_scope(&method.body, offset, prefix, items);
+            }
+        } else {
+            collect_locals_in_scope(handler, offset, prefix, items);
+        }
     }
     if let Some(else_clause) = &handle.else_clause {
         collect_locals_in_scope(else_clause, offset, prefix, items);

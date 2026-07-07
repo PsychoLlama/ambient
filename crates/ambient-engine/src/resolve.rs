@@ -848,22 +848,19 @@ impl<'r> Resolver<'r> {
                 }
             }
             ExprKind::Handle(handle) => {
-                self.resolve_expr(&mut handle.body);
-                for value in &mut handle.handler_values {
-                    self.resolve_expr(value);
-                }
+                // Each handler is an ordinary expression (literal or value);
+                // resolving it recurses into HandlerLiteral below.
                 for handler in &mut handle.handlers {
-                    self.resolve_ability_ref(&mut handler.ability);
-                    self.push_scope(handler.params.iter().map(|p| Arc::clone(&p.name)).collect());
-                    self.resolve_expr(&mut handler.body);
-                    self.pop_scope();
+                    self.resolve_expr(handler);
                 }
+                self.resolve_expr(&mut handle.body);
                 if let Some(els) = &mut handle.else_clause {
                     self.resolve_expr(els);
                 }
             }
             ExprKind::HandlerLiteral(literal) => {
                 for method in &mut literal.methods {
+                    self.resolve_ability_ref(&mut method.ability);
                     self.push_scope(method.params.iter().map(|p| Arc::clone(&p.name)).collect());
                     self.resolve_expr(&mut method.body);
                     self.pop_scope();

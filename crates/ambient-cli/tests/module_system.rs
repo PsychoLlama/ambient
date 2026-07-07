@@ -284,9 +284,9 @@ fn tick(): Number with Counter { Counter::next!() }
 fn tock(): Number with pkg::effects::Counter { pkg::effects::Counter::next!() }
 
 pub fn run(): Number {
-  handle tick() + tock() {
+  with {
     Counter::next() => resume(5)
-  }
+  } handle tick() + tock()
 }
 ",
         ),
@@ -309,9 +309,9 @@ fn qualified_handler_arms_match_imported_performs() {
             "main.ab",
             r"
 pub fn run(): Number {
-  handle pkg::worker::tick() {
+  with {
     pkg::effects::Counter::next() => resume(9)
-  }
+  } handle pkg::worker::tick()
 }
 ",
         ),

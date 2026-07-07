@@ -1632,8 +1632,8 @@ mod tests {
     fn test_parse_handler_literal() {
         let source = r#"
             {
-                read(path) => resume("mock content"),
-                write(path, content) => resume(())
+                FileSystem::read(path) => resume("mock content"),
+                FileSystem::write(path, content) => resume(())
             }
         "#;
         let mut parser = Parser::new(source).unwrap();
@@ -1642,12 +1642,20 @@ mod tests {
             CstExprKind::HandlerLiteral(handler_lit) => {
                 assert_eq!(handler_lit.methods.len(), 2);
 
-                // Check first method
+                // Check first method (qualified `FileSystem::read`)
+                assert_eq!(
+                    &*handler_lit.methods[0].ability.segments[0].name,
+                    "FileSystem"
+                );
                 assert_eq!(&*handler_lit.methods[0].method.name, "read");
                 assert_eq!(handler_lit.methods[0].params.len(), 1);
                 assert_eq!(&*handler_lit.methods[0].params[0].name.name, "path");
 
                 // Check second method
+                assert_eq!(
+                    &*handler_lit.methods[1].ability.segments[0].name,
+                    "FileSystem"
+                );
                 assert_eq!(&*handler_lit.methods[1].method.name, "write");
                 assert_eq!(handler_lit.methods[1].params.len(), 2);
                 assert_eq!(&*handler_lit.methods[1].params[0].name.name, "path");
@@ -1659,12 +1667,13 @@ mod tests {
 
     #[test]
     fn test_parse_handler_literal_single_method() {
-        let source = r#"{ print(msg) => resume(()) }"#;
+        let source = r#"{ Stdio::print(msg) => resume(()) }"#;
         let mut parser = Parser::new(source).unwrap();
         let expr = parser.parse_expression().expect("parse error");
         match expr.kind {
             CstExprKind::HandlerLiteral(handler_lit) => {
                 assert_eq!(handler_lit.methods.len(), 1);
+                assert_eq!(&*handler_lit.methods[0].ability.segments[0].name, "Stdio");
                 assert_eq!(&*handler_lit.methods[0].method.name, "print");
             }
             _ => panic!("Expected handler literal"),
@@ -1672,17 +1681,56 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_handler_literal_empty_params() {
-        let source = r#"{ now() => resume(42) }"#;
+    fn test_parse_handler_literal_qualified_ability() {
+        let source = r#"{ core::system::Clock::now() => resume(42) }"#;
         let mut parser = Parser::new(source).unwrap();
         let expr = parser.parse_expression().expect("parse error");
         match expr.kind {
             CstExprKind::HandlerLiteral(handler_lit) => {
                 assert_eq!(handler_lit.methods.len(), 1);
+                let ability = &handler_lit.methods[0].ability;
+                let path: Vec<&str> = ability.segments.iter().map(|s| s.name.as_ref()).collect();
+                assert_eq!(path, vec!["core", "system", "Clock"]);
                 assert_eq!(&*handler_lit.methods[0].method.name, "now");
                 assert!(handler_lit.methods[0].params.is_empty());
             }
             _ => panic!("Expected handler literal"),
+        }
+    }
+
+    #[test]
+    fn test_parse_with_handle_expr() {
+        // `with { arms } handle BODY else E`
+        let source = r#"with { Exception::throw(e) => 0 } handle risky() else double(r)"#;
+        let mut parser = Parser::new(source).unwrap();
+        let expr = parser.parse_expression().expect("parse error");
+        match expr.kind {
+            CstExprKind::Handle(handle) => {
+                assert_eq!(handle.handlers.len(), 1);
+                assert!(matches!(
+                    handle.handlers[0].kind,
+                    CstExprKind::HandlerLiteral(_)
+                ));
+                assert!(matches!(handle.body.kind, CstExprKind::Call { .. }));
+                assert!(handle.else_clause.is_some());
+            }
+            _ => panic!("Expected handle expression, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_parse_with_handle_multiple_handlers() {
+        // `with v1, v2, { arms } handle BODY`
+        let source =
+            r#"with mock_fs, mock_net, { Exception::throw(e) => resume(e) } handle unit_test()"#;
+        let mut parser = Parser::new(source).unwrap();
+        let expr = parser.parse_expression().expect("parse error");
+        match expr.kind {
+            CstExprKind::Handle(handle) => {
+                assert_eq!(handle.handlers.len(), 3);
+                assert!(handle.else_clause.is_none());
+            }
+            _ => panic!("Expected handle expression, got {:?}", expr.kind),
         }
     }
 

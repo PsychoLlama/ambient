@@ -454,18 +454,12 @@ impl Collector<'_> {
                 }
             }
             ExprKind::Handle(handle) => {
-                self.expr(&handle.body);
-                for value in &handle.handler_values {
-                    self.expr(value);
-                }
+                // Each handler is an ordinary expression (a literal or a
+                // value); walking it recurses into HandlerLiteral below.
                 for handler in &handle.handlers {
-                    self.push_scope();
-                    for param in &handler.params {
-                        self.bind_param(param);
-                    }
-                    self.expr(&handler.body);
-                    self.pop_scope();
+                    self.expr(handler);
                 }
+                self.expr(&handle.body);
                 if let Some(else_clause) = &handle.else_clause {
                     self.expr(else_clause);
                 }

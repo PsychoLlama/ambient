@@ -445,6 +445,23 @@ impl Infer {
                 Type::function_with_abilities(params, ret, abilities)
             }
             Type::Named(n) => {
+                // A `Handler<A>` / `Handler<A, R>` annotation resolves to a
+                // first-class handler type: `A` is an ability name (resolved
+                // to its id), `R` is the answer type (a fresh var when
+                // omitted, so `Handler<A>` means "R inferred").
+                if n.name.as_ref() == "Handler"
+                    && matches!(n.args.len(), 1 | 2)
+                    && let Type::Named(ability) = &n.args[0]
+                    && let Some(ability_id) = self.ability_annotation_id(&ability.name)
+                {
+                    let answer = if n.args.len() == 2 {
+                        self.resolve_holes(&n.args[1])
+                    } else {
+                        self.fresh()
+                    };
+                    return Type::handler(ability_id, answer);
+                }
+
                 // A bare name that denotes a registered type alias or a
                 // builtin primitive resolves to that type (see
                 // `expand_named_alias`).

@@ -705,8 +705,8 @@ pub enum CstExprKind {
         args: Vec<CstExpr>,
     },
 
-    /// Handle expression.
-    Handle(Box<CstHandleExpr>),
+    /// Handle expression: `with H₁, …, Hₙ handle BODY [else E]`.
+    Handle(Box<CstWithHandleExpr>),
 
     /// Resume a continuation with a value: `resume(value)`.
     Resume(Box<CstExpr>),
@@ -786,46 +786,29 @@ pub struct CstMatchArm {
     pub span: Span,
 }
 
-/// A handle expression.
+/// A handle expression: `with H₁, …, Hₙ handle BODY [else E]`.
 #[derive(Debug, Clone)]
-pub struct CstHandleExpr {
+pub struct CstWithHandleExpr {
+    /// The handler expressions in the `with` list, in source order. Each is
+    /// an ordinary expression (a handler literal or a `Handler<A, R>` value).
+    pub handlers: Vec<CstExpr>,
     /// Body being handled.
     pub body: CstExpr,
-    /// Handler values specified with `with` clause.
-    /// These are expressions that evaluate to Handler<A> values.
-    pub handler_values: Vec<CstExpr>,
-    /// Inline handlers.
-    pub handlers: Vec<CstHandler>,
-    /// Else clause for normal return.
+    /// Else clause for normal return: `else EXPR`.
     pub else_clause: Option<CstExpr>,
-    /// Source span.
-    pub span: Span,
-}
-
-/// A handler for an ability method.
-#[derive(Debug, Clone)]
-pub struct CstHandler {
-    /// Ability being handled.
-    pub ability: CstQualifiedName,
-    /// Method being handled.
-    pub method: CstIdent,
-    /// Parameters.
-    pub params: Vec<CstParam>,
-    /// Handler body.
-    pub body: CstExpr,
     /// Source span.
     pub span: Span,
 }
 
 /// A handler literal expression creating a first-class handler value.
 ///
-/// Syntax: `{ method(params) => body, ... }`
+/// Syntax: `{ Ability::method(params) => body, ... }`
 ///
 /// Example:
 /// ```ambient
-/// let mock_fs: Handler<Filesystem> = {
-///   read(path) => resume("mock content"),
-///   write(path, content) => resume(()),
+/// let mock_fs: Handler<FileSystem> = {
+///   FileSystem::read(path) => resume("mock content"),
+///   FileSystem::write(path, content) => resume(()),
 /// };
 /// ```
 #[derive(Debug, Clone)]
@@ -836,9 +819,11 @@ pub struct CstHandlerLiteralExpr {
     pub span: Span,
 }
 
-/// A method in a handler literal.
+/// A method in a handler literal: `Ability::method(params) => body`.
 #[derive(Debug, Clone)]
 pub struct CstHandlerLiteralMethod {
+    /// The ability the method belongs to, written as a qualified prefix.
+    pub ability: CstQualifiedName,
     /// Method name.
     pub method: CstIdent,
     /// Parameters.

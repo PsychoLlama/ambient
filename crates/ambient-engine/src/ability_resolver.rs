@@ -486,52 +486,6 @@ impl AbilityResolver {
         names
     }
 
-    /// Try to infer which ability a handler literal is for based on method names.
-    ///
-    /// Returns the ability ID if all methods belong to exactly one ability.
-    #[must_use]
-    pub fn infer_ability_from_methods(&self, method_names: &[Arc<str>]) -> Option<AbilityId> {
-        if method_names.is_empty() {
-            return None;
-        }
-
-        let mut matching_abilities = Vec::new();
-
-        for ability in self.by_id.values() {
-            let ability_methods: Vec<&str> = ability.methods.iter().map(|m| m.name).collect();
-
-            let all_methods_match = method_names
-                .iter()
-                .all(|m| ability_methods.contains(&m.as_ref()));
-
-            if all_methods_match {
-                matching_abilities.push(ability.id);
-            }
-        }
-
-        for ability in self.dynamic_by_id.values() {
-            let all_methods_match = method_names
-                .iter()
-                .all(|m| ability.method(m.as_ref()).is_some());
-
-            if all_methods_match {
-                matching_abilities.push(ability.id);
-            }
-        }
-
-        // A descriptor and a prelude declaration of the same interface
-        // share an identity; count them once.
-        matching_abilities.sort_unstable();
-        matching_abilities.dedup();
-
-        // Return only if exactly one ability matches
-        if matching_abilities.len() == 1 {
-            Some(matching_abilities[0])
-        } else {
-            None
-        }
-    }
-
     /// Get an iterator over all registered abilities.
     pub fn abilities(&self) -> impl Iterator<Item = &AbilityDescriptor<Type>> {
         self.by_id.values()
@@ -798,22 +752,6 @@ mod tests {
         // Platform abilities are not engine builtins.
         assert!(resolver.get_by_name("Stdio").is_none());
         assert!(resolver.get_by_name("FileSystem").is_none());
-    }
-
-    #[test]
-    fn test_infer_ability_from_methods() {
-        let mut resolver = core_abilities();
-        resolver.register_dynamic_in_namespace(&ModuleId::core_system(), dyn_ability("Printer", 7));
-
-        // Methods that match the namespaced dynamic.
-        let methods = vec![Arc::from("go")];
-        let result = resolver.infer_ability_from_methods(&methods);
-        assert_eq!(result, Some(AbilityId::from_bytes([7; 32])));
-
-        // Methods that match Exception.
-        let methods = vec![Arc::from("throw")];
-        let result = resolver.infer_ability_from_methods(&methods);
-        assert_eq!(result, Some(ambient_core::exception::ability_id()));
     }
 
     fn dyn_ability(name: &str, byte: u8) -> DynAbility {

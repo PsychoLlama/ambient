@@ -150,8 +150,13 @@ pub enum TypeErrorKind {
     // ─────────────────────────────────────────────────────────────────────────
     // Handler literal errors (Milestone 13)
     // ─────────────────────────────────────────────────────────────────────────
-    /// Cannot determine which ability a handler literal is for.
-    HandlerAbilityAmbiguous { method_names: Vec<Arc<str>> },
+    /// A handler *value* (`Handler<A, R>`) tried to cover more than one
+    /// ability. Multi-ability braces are legal only directly in a `with`
+    /// list; used as a value they must be split, one per ability.
+    HandlerValueMultipleAbilities { abilities: Vec<Arc<str>> },
+
+    /// A handler literal has no arms, so its ability can't be determined.
+    HandlerEmpty,
 
     /// Handler method doesn't exist in the target ability.
     HandlerUnknownMethod { ability: Arc<str>, method: Arc<str> },
@@ -346,16 +351,23 @@ impl std::fmt::Display for TypeErrorKind {
             Self::AbilityNotHandled { ability } => {
                 write!(f, "ability #{ability} is not handled")
             }
-            Self::HandlerAbilityAmbiguous { method_names } => {
-                let methods = method_names
+            Self::HandlerValueMultipleAbilities { abilities } => {
+                let abilities = abilities
                     .iter()
                     .map(AsRef::as_ref)
                     .collect::<Vec<_>>()
                     .join(", ");
                 write!(
                     f,
-                    "cannot determine ability for handler with methods: [{methods}]. \
-                     Add a type annotation like `let h: Handler<Ability> = ...`"
+                    "a handler value handles one ability, but this literal covers [{abilities}]. \
+                     Use it directly in a `with` list, or split it into one handler per ability"
+                )
+            }
+            Self::HandlerEmpty => {
+                write!(
+                    f,
+                    "an empty handler literal `{{}}` has no ability; add at least one \
+                     `Ability::method(...) => ...` arm"
                 )
             }
             Self::HandlerUnknownMethod { ability, method } => {

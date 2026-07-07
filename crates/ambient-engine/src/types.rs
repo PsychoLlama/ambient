@@ -921,22 +921,35 @@ impl AbilityValueType {
     }
 }
 
-/// A handler value type: `Handler<A>`
+/// A handler value type: `Handler<A, R>`
 ///
 /// Represents a first-class handler that can handle a specific ability.
 /// Handler values can be passed around, stored, and composed.
+///
+/// `answer` (`R`) is the type an arm yields when it *returns without
+/// resuming* — equivalently, the result type of the handle expression this
+/// handler is installed at. An always-resuming handler leaves `R` a free
+/// variable (generalizable, so it unifies with whatever result each use
+/// site requires); a non-resuming arm (`throw(e) => e * 2`) pins `R` to a
+/// concrete type, which the handle site must then match.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandlerType {
     /// The ability that this handler handles.
     /// This is a single ability ID (not a set), as handlers handle one ability at a time.
     pub ability: AbilityId,
+    /// The answer type `R`: what an arm produces when it returns without
+    /// resuming (== the handle expression's result type).
+    pub answer: Box<Type>,
 }
 
 impl HandlerType {
     /// Create a new handler type.
     #[must_use]
-    pub const fn new(ability: AbilityId) -> Self {
-        Self { ability }
+    pub fn new(ability: AbilityId, answer: Type) -> Self {
+        Self {
+            ability,
+            answer: Box::new(answer),
+        }
     }
 }
 
@@ -1243,10 +1256,10 @@ impl Type {
         Self::AbilityValue(AbilityValueType::new(result, ability))
     }
 
-    /// Create a handler type: `Handler<A>`.
+    /// Create a handler type: `Handler<A, R>`.
     #[must_use]
-    pub fn handler(ability: AbilityId) -> Self {
-        Self::Handler(HandlerType::new(ability))
+    pub fn handler(ability: AbilityId, answer: Type) -> Self {
+        Self::Handler(HandlerType::new(ability, answer))
     }
 
     /// Create a tuple type.
@@ -1414,7 +1427,8 @@ impl Type {
             Self::Nominal(n) => n.inner.is_concrete(),
             Self::Forall(f) => f.body.is_concrete(),
             Self::AbilityValue(av) => av.result.is_concrete() && av.ability.ability_var().is_none(),
-            // Handler types and all other types are concrete by default
+            Self::Handler(h) => h.answer.is_concrete(),
+            // All other types are concrete by default
             _ => true,
         }
     }
@@ -1455,6 +1469,7 @@ impl Type {
             }
             Self::Nominal(n) => n.inner.collect_free_vars(vars),
             Self::AbilityValue(av) => av.result.collect_free_vars(vars),
+            Self::Handler(h) => h.answer.collect_free_vars(vars),
             Self::Forall(f) => {
                 // Bound variables are not free
                 let mut body_vars = Vec::new();
@@ -1508,6 +1523,7 @@ impl Type {
                 av.result.collect_free_ability_vars(vars);
                 vars.extend(av.ability.free_ability_vars());
             }
+            Self::Handler(h) => h.answer.collect_free_ability_vars(vars),
             Self::Forall(f) => {
                 let mut body_vars = Vec::new();
                 f.body.collect_free_ability_vars(&mut body_vars);
@@ -1577,6 +1593,10 @@ impl Type {
                     new_ability,
                 ))
             }
+            Self::Handler(h) => Self::Handler(HandlerType::new(
+                h.ability,
+                h.answer.substitute_all(type_subst, ability_subst),
+            )),
             Self::Forall(f) => {
                 // Don't substitute bound variables
                 let mut new_type_subst = type_subst.clone();
@@ -1701,7 +1721,7 @@ impl fmt::Display for Type {
             }
 
             Self::Handler(handler) => {
-                write!(f, "Handler<#{}>", handler.ability)
+                write!(f, "Handler<#{}, {}>", handler.ability, handler.answer)
             }
 
             Self::Forall(forall) => {

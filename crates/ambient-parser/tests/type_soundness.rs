@@ -109,9 +109,7 @@ fn handler_arm_param_takes_declared_type() {
         }
 
         pub fn run(): Number {
-          handle boom() {
-            Exception::throw(e) => e * 2
-          }
+          with { Exception::throw(e) => e * 2 } handle boom()
         }
         "
         .replace('\'', "\""),
@@ -129,9 +127,7 @@ fn handler_arm_param_usable_at_declared_type() {
         }
 
         pub fn run(): String {
-          handle boom() {
-            Exception::throw(e) => e + '!'
-          }
+          with { Exception::throw(e) => e + '!' } handle boom()
         }
         "
         .replace('\'', "\""),
@@ -157,9 +153,7 @@ fn resume_value_must_match_method_return_type() {
         }
 
         pub fn run(): Number {
-          handle get() {
-            Reader::read() => resume('not a number')
-          }
+          with { Reader::read() => resume('not a number') } handle get()
         }
         "
         .replace('\'', "\""),
@@ -180,9 +174,7 @@ fn resume_with_correct_type_is_accepted() {
         }
 
         pub fn run(): Number {
-          handle get() {
-            Reader::read() => resume(42)
-          }
+          with { Reader::read() => resume(42) } handle get()
         }
         "
         .replace('\'', "\""),
@@ -205,9 +197,7 @@ fn resume_expression_takes_handle_result_type() {
         }
 
         pub fn run(): Number {
-          handle get() {
-            Reader::read() => resume(41)
-          }
+          with { Reader::read() => resume(41) } handle get()
         }
         "
         .replace('\'', "\""),
@@ -251,12 +241,12 @@ fn handler_arm_effects_flow_to_enclosing_function() {
         }
 
         pub fn run(): Number {
-          handle get() {
+          with {
             Reader::read() => {
               Printer::print!('arm effect');
               resume(1)
             }
-          }
+          } handle get()
         }
         "
         .replace('\'', "\""),
@@ -281,9 +271,7 @@ fn handle_discharges_effects_of_functions_declared_later() {
         }
 
         pub fn run(): Number {
-          handle helper() {
-            Reader::read() => resume(7)
-          }
+          with { Reader::read() => resume(7) } handle helper()
         }
 
         fn helper(): Number with Reader {
@@ -308,9 +296,7 @@ fn handle_does_not_discharge_unhandled_abilities() {
         }
 
         pub fn run(): Number {
-          handle helper() {
-            Reader::read() => resume(7)
-          }
+          with { Reader::read() => resume(7) } handle helper()
         }
 
         fn helper(): Number with Reader, Printer {
@@ -320,6 +306,114 @@ fn handle_does_not_discharge_unhandled_abilities() {
         "
         .replace('\'', "\""),
         "Printer",
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Handler values — answer type (`Handler<A, R>`) and single-ability rule
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A named handler value's non-resume arm return type is now checked against
+/// the handle result (the "answer" type `R`). Previously it was unchecked, so
+/// a handler that answered a `String` could be installed at a `Number` handle.
+#[test]
+fn handler_value_non_resume_arm_must_match_handle_result() {
+    assert_err_containing(
+        &r"
+        ability Reader {
+          fn read(): Number;
+        }
+
+        fn get(): Number with Reader {
+          Reader::read!()
+        }
+
+        pub fn run(): Number {
+          let h = { Reader::read() => 'a string' };
+          with h handle get()
+        }
+        "
+        .replace('\'', "\""),
+        "type mismatch",
+    );
+}
+
+/// A resuming-only handler value stays polymorphic in its answer type `R`, so
+/// the same value installs at two handles with different result types.
+#[test]
+fn resuming_handler_value_is_answer_polymorphic() {
+    assert_ok(
+        &r"
+        ability Ask {
+          fn ask(): Number;
+        }
+
+        fn n(): Number with Ask {
+          Ask::ask!()
+        }
+
+        fn s(): String with Ask {
+          Ask::ask!();
+          'text'
+        }
+
+        pub fn run(): () {
+          let h = { Ask::ask() => resume(0) };
+          let a = with h handle n();
+          let b = with h handle s();
+          ()
+        }
+        "
+        .replace('\'', "\""),
+    );
+}
+
+/// A multi-ability brace is legal directly inline in a `with` list: it
+/// desugars into one single-ability install per ability.
+#[test]
+fn multi_ability_inline_brace_is_accepted() {
+    assert_ok(
+        &r"
+        ability Reader {
+          fn read(): Number;
+        }
+        ability Printer {
+          fn print(msg: String): ();
+        }
+
+        fn body(): Number with Reader, Printer {
+          Printer::print!('x');
+          Reader::read!()
+        }
+
+        pub fn run(): Number {
+          with { Reader::read() => resume(7), Printer::print(m) => resume(()) } handle body()
+        }
+        "
+        .replace('\'', "\""),
+    );
+}
+
+/// A multi-ability brace used where a *value* is expected (a `let` binding) is
+/// a type error: a handler value covers one ability.
+#[test]
+fn multi_ability_handler_value_is_rejected() {
+    assert_err_containing(
+        &r"
+        ability Reader {
+          fn read(): Number;
+        }
+        ability Printer {
+          fn print(msg: String): ();
+        }
+
+        pub fn run(): Number {
+          let h = { Reader::read() => resume(7), Printer::print(m) => resume(()) };
+          1
+        }
+        "
+        .replace('\'', "\""),
+        "one ability",
     );
 }
 

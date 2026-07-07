@@ -514,9 +514,9 @@ fn test_handler_value_basic() {
 
         fn test_handler_value(): Number {
             let mock_console = {
-                out(msg) => resume(())
+                core::system::Stdio::out(msg) => resume(())
             };
-            handle simple_function() with mock_console {}
+            with mock_console handle simple_function()
         }
 
         fn run(): Number { test_handler_value() }
@@ -532,9 +532,9 @@ fn test_handler_value_multiple() {
         fn simple_function(): Number { 200 }
 
         fn test_multiple_handlers(): Number {
-            let handler1 = { out(msg) => resume(()) };
-            let handler2 = { throw(err) => resume(()) };
-            handle simple_function() with handler1, handler2 {}
+            let handler1 = { core::system::Stdio::out(msg) => resume(()) };
+            let handler2 = { Exception::throw(err) => resume(()) };
+            with handler1, handler2 handle simple_function()
         }
 
         fn run(): Number { test_multiple_handlers() }
@@ -550,18 +550,44 @@ fn test_handler_value_with_inline() {
         fn simple_function(): Number { 300 }
 
         fn test_mixed(): Number {
-            let mock_console = { out(msg) => resume(()) };
-            handle simple_function() with mock_console {
+            let mock_console = { core::system::Stdio::out(msg) => resume(()) };
+            with mock_console, {
                 Exception::throw(err) => {
                     resume(())
                 }
-            }
+            } handle simple_function()
         }
 
         fn run(): Number { test_mixed() }
     "#,
     )
     .expect_output("300");
+}
+
+/// Composing a handler value with an inline override for the *same* ability
+/// installs left-to-right, so the later handler wins ("last wins"). Here the
+/// inline `resume(2)` shadows the value's `resume(1)`.
+#[test]
+fn test_handler_value_override_last_wins() {
+    CliTest::new(
+        r#"
+        ability Choice {
+          fn pick(): Number;
+        }
+
+        fn body(): Number with Choice {
+          Choice::pick!()
+        }
+
+        fn test(): Number {
+          let first = { Choice::pick() => resume(1) };
+          with first, { Choice::pick() => resume(2) } handle body()
+        }
+
+        fn run(): Number { test() }
+    "#,
+    )
+    .expect_output("2");
 }
 
 #[test]
@@ -650,11 +676,11 @@ fn test_handler_arm_requires_platform_namespace() {
         }
 
         pub fn run(): () {
-            handle speak() {
+            with {
                 Stdio::out(msg) => {
                     resume(())
                 }
-            }
+            } handle speak()
         }
         "#,
     )
@@ -719,11 +745,11 @@ fn test_local_ability_shadows_platform_name() {
         }
 
         pub fn run(): () with core::system::Stdio {
-            let loud = handle noise() {
+            let loud = with {
                 Stdio::shout(msg) => {
                     resume(core::primitives::String::concat(msg, "!"))
                 }
-            };
+            } handle noise();
             core::system::Stdio::out!(loud)
         }
         "#,
@@ -3224,11 +3250,11 @@ fn test_user_ability_inline_handler() {
         }
 
         pub fn run(): String {
-            handle hello() {
+            with {
                 Greeter::greet(name) => {
                     resume(core::primitives::String::concat("hi ", name))
                 }
-            }
+            } handle hello()
         }
         "#,
     )
@@ -3254,11 +3280,11 @@ fn test_user_ability_handler_value_and_generic_method() {
 
         pub fn run(): Number {
             let first = {
-                pick(a, b) => resume(a),
-                label() => resume("first")
+                Picker::pick(a, b) => resume(a),
+                Picker::label() => resume("first")
             };
 
-            handle choose() with first {}
+            with first handle choose()
         }
         "#,
     )
@@ -3413,7 +3439,7 @@ fn test_execute_run_with_shipped_handler() {
         }
 
         pub fn run(): Number with core::system::Execute {
-            let oracle = { answer() => resume(40) };
+            let oracle = { Oracle::answer() => resume(40) };
             let thunk = (x) => consult(x);
             let hash = core::protocol::closure_hash(thunk);
             core::system::Execute::run_with!(hash, 2, oracle)
@@ -3434,7 +3460,7 @@ fn test_handler_methods_intrinsic() {
         }
 
         pub fn run(): Number {
-            let oracle = { answer() => resume(42) };
+            let oracle = { Oracle::answer() => resume(42) };
             core::collections::List::length(core::protocol::handler_methods(oracle))
         }
         ",
@@ -3459,9 +3485,9 @@ fn test_handle_catch_and_continue() {
         }
 
         pub fn run(): Number {
-            let caught = handle risky() {
+            let caught = with {
                 Exception::throw(msg) => 0 - 1
-            };
+            } handle risky();
             caught + 100
         }
         "#,
@@ -3487,9 +3513,9 @@ fn test_resume_restores_locals() {
         }
 
         pub fn run(): Number {
-            handle asker() {
+            with {
                 Oracle::ask(q) => resume(42)
-            }
+            } handle asker()
         }
         "#,
     )
@@ -3516,9 +3542,9 @@ fn test_handle_multi_perform_with_capturing_arm() {
 
         pub fn run(): Number {
             let step = 10;
-            handle count_three() {
+            with {
                 Counter::next() => resume(step)
-            }
+            } handle count_three()
         }
         ",
     )
@@ -3532,10 +3558,9 @@ fn test_handle_else_transforms_normal_completion() {
     CliTest::new(
         r"
         pub fn run(): Number {
-            handle 5 {
+            with {
                 Exception::throw(msg) => 0
-                else { (r) => r * 2 }
-            }
+            } handle 5 else (r) => r * 2
         }
         ",
     )
@@ -3560,19 +3585,19 @@ fn test_exception_unwinds_through_inner_handle() {
         }
 
         fn middle(): Number with Exception {
-            handle inner() {
+            with {
                 Ping::ping() => resume(7)
-            }
+            } handle inner()
         }
 
         pub fn run(): Number {
-            let x = handle middle() {
+            let x = with {
                 Exception::throw(msg) => 50
-            };
-            let y = handle inner() {
-                Ping::ping() => resume(1)
+            } handle middle();
+            let y = with {
+                Ping::ping() => resume(1),
                 Exception::throw(msg) => 2
-            };
+            } handle inner();
             x + y
         }
         "#,
@@ -3612,9 +3637,9 @@ fn test_host_raised_exception_is_catchable() {
         }
 
         pub fn run(): String with core::system::Network {
-            handle try_connect() {
+            with {
                 Exception::throw(msg) => "failed"
-            }
+            } handle try_connect()
         }
         "#,
     )
@@ -3634,9 +3659,9 @@ fn test_host_raised_exception_resume_substitute() {
         }
 
         pub fn run(): Number with core::system::Network {
-            handle try_connect() {
+            with {
                 Exception::throw(msg) => resume(0 - 1)
-            }
+            } handle try_connect()
         }
         "#,
     )
@@ -3674,9 +3699,9 @@ fn test_fs_read_missing_file_is_catchable_exception() {
         }
 
         pub fn run(): String with core::system::FileSystem {
-            handle try_read() {
+            with {
                 Exception::throw(msg) => "caught"
-            }
+            } handle try_read()
         }
         "#,
     )

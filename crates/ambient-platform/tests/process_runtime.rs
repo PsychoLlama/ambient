@@ -390,9 +390,7 @@ fn duplicate_spawn_is_a_catchable_exception() {
         fn init(): Number { 0 }
         fn parent(total: Number, n: Number): Number with core::system::Process, core::system::Stdio {
           spawn_child();
-          handle spawn_child() {
-            Exception::throw(e) => core::system::Stdio::out!("dup caught")
-          };
+          with { Exception::throw(e) => core::system::Stdio::out!("dup caught") } handle spawn_child();
           total
         }
         fn spawn_child(): () with core::system::Process {

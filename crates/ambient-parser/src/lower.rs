@@ -10,9 +10,9 @@ use uuid::Uuid;
 
 use ambient_engine::ast::{
     AbilityCall, AbilityDef, AbilityMethod, BinaryOp, BindingId, ConstDef, EnumDef, EnumVariant,
-    Expr, ExprKind, FunctionDef, HandleExpr, Handler, HandlerLiteralExpr, HandlerLiteralMethod,
-    ImplDef, ImplMethod, Item, ItemKind, Lambda, LetBinding, Literal, MatchArm, Module, Param,
-    Pattern, PatternKind, QualifiedName, SandboxExpr, Span, Stmt, StmtKind, StructDef, TraitDef,
+    Expr, ExprKind, FunctionDef, HandleExpr, HandlerLiteralExpr, HandlerLiteralMethod, ImplDef,
+    ImplMethod, Item, ItemKind, Lambda, LetBinding, Literal, MatchArm, Module, Param, Pattern,
+    PatternKind, QualifiedName, SandboxExpr, Span, Stmt, StmtKind, StructDef, TraitDef,
     TraitMethod, TypeAliasDef, TypeParam, UnaryOp, UseDef, UsePrefix, WhereClause,
 };
 use ambient_engine::types::{NominalType, Type};
@@ -656,35 +656,15 @@ fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, P
         }
 
         CstExprKind::Handle(handle) => {
-            let body = lower_expression(ctx, &handle.body)?;
-
-            // Lower handler values (from `with` clause)
-            let handler_values = handle
-                .handler_values
+            // Lower the flat handler list (literals and value expressions
+            // alike are ordinary expressions now).
+            let handlers = handle
+                .handlers
                 .iter()
                 .map(|e| lower_expression(ctx, e))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let handlers = handle
-                .handlers
-                .iter()
-                .map(|h| {
-                    let params = h
-                        .params
-                        .iter()
-                        .map(|p| lower_param(ctx, p))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let body = lower_expression(ctx, &h.body)?;
-
-                    Ok(Handler {
-                        ability: lower_qualified_name(&h.ability),
-                        method: h.method.name.clone(),
-                        params,
-                        body,
-                        span: h.span,
-                    })
-                })
-                .collect::<Result<Vec<_>, ParseError>>()?;
+            let body = lower_expression(ctx, &handle.body)?;
 
             let else_clause = handle
                 .else_clause
@@ -693,9 +673,8 @@ fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, P
                 .transpose()?;
 
             ExprKind::Handle(HandleExpr {
-                body: Box::new(body),
-                handler_values,
                 handlers,
+                body: Box::new(body),
                 else_clause: else_clause.map(Box::new),
             })
         }
@@ -718,7 +697,9 @@ fn lower_expression(ctx: &mut LoweringContext, expr: &CstExpr) -> Result<Expr, P
                     let body = lower_expression(ctx, &m.body)?;
 
                     Ok(HandlerLiteralMethod {
+                        ability: lower_qualified_name(&m.ability),
                         method: m.method.name.clone(),
+                        method_span: m.method.span,
                         params,
                         body,
                         span: m.span,

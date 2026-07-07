@@ -124,40 +124,46 @@ pub(super) fn compile_handle_expr(
         fc.local_names.clone(),
     );
 
-    // Install handler values from the `with` clause. The expressions are
-    // compiled inside the thunk; free names capture through it.
-    for handler_value in &handle_expr.handler_values {
-        // The type checker guarantees this is a Handler type and records it
-        // on the expression. A missing/mismatched type here means inference
-        // results were lost — installing no handler would silently drop
-        // performs, so fail loudly instead.
-        match &handler_value.ty {
-            Some(crate::types::Type::Handler(_)) => {}
-            other => {
-                return Err(CompileError::new(
-                    CompileErrorKind::Internal {
-                        message: if other.is_some() {
-                            "handle-with expression has a non-handler type"
-                        } else {
-                            "handler value expression missing its inferred type"
-                        },
-                    },
-                    (handler_value.span.start, handler_value.span.end),
-                ));
-            }
-        }
-
-        compile_expr(&mut thunk_fc, handler_value, ctx)?;
-        thunk_fc.builder.emit_handle_with_value();
-    }
-
-    // Compile each inline handler arm as a separate function and install
-    // it. Arms are compiled with the *installer* as parent scope (that is
-    // the environment they close over); their captured values are loaded
-    // in the thunk (capturing through it on demand) and packaged with
-    // MakeClosure so the Handle instruction can install the arm closure.
+    // Install each handler in the flat `with` list, in source order (so a
+    // later handler shadows an earlier one for the same ability — "last
+    // wins"). Two install paths are dispatched per element:
+    //   - a handler-literal node installs each arm as a closure via `Handle`
+    //     (preserving inline-arm capture support and multi-ability installs);
+    //   - any other expression yields a `Handler` value installed via
+    //     `HandleWithValue`.
+    // Everything is compiled inside the thunk; free names capture through it.
+    let mut install_count: usize = 0;
     for handler in &handle_expr.handlers {
-        compile_handler_arm(fc, &mut thunk_fc, handler, ctx)?;
+        if let crate::ast::ExprKind::HandlerLiteral(lit) = &handler.kind {
+            for method in &lit.methods {
+                compile_handler_arm(fc, &mut thunk_fc, method, ctx)?;
+                install_count += 1;
+            }
+        } else {
+            // The type checker guarantees this is a Handler value and records
+            // it on the expression. A missing/mismatched type means inference
+            // results were lost — installing no handler would silently drop
+            // performs, so fail loudly instead.
+            match &handler.ty {
+                Some(crate::types::Type::Handler(_)) => {}
+                other => {
+                    return Err(CompileError::new(
+                        CompileErrorKind::Internal {
+                            message: if other.is_some() {
+                                "handle-with expression has a non-handler type"
+                            } else {
+                                "handler value expression missing its inferred type"
+                            },
+                        },
+                        (handler.span.start, handler.span.end),
+                    ));
+                }
+            }
+
+            compile_expr(&mut thunk_fc, handler, ctx)?;
+            thunk_fc.builder.emit_handle_with_value();
+            install_count += 1;
+        }
     }
 
     // Compile the body expression inside the thunk.
@@ -165,7 +171,7 @@ pub(super) fn compile_handle_expr(
 
     // Pop this handle expression's handlers (normal completion path; a
     // fired handler drains them into the captured continuation instead).
-    for _ in 0..(handle_expr.handlers.len() + handle_expr.handler_values.len()) {
+    for _ in 0..install_count {
         thunk_fc.builder.emit(Opcode::Unhandle);
     }
 
@@ -222,7 +228,7 @@ pub(super) fn compile_handle_expr(
 fn compile_handler_arm(
     fc: &mut FunctionCompiler,
     thunk_fc: &mut FunctionCompiler,
-    handler: &crate::ast::Handler,
+    handler: &crate::ast::HandlerLiteralMethod,
     ctx: &mut ModuleContext,
 ) -> Result<(), CompileError> {
     // Get ability ID for this handler. Locals, foreign, and prelude

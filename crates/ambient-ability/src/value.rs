@@ -556,10 +556,10 @@ impl Closure {
 ///
 /// Handler values are created using handler literal syntax:
 /// ```ambient
-/// let mock_fs: Handler<Filesystem> = {
-///   read(path) => resume("mock content"),
-///   write(path, content) => resume(()),
-///   exists(path) => resume(true),
+/// let mock_fs: Handler<FileSystem> = {
+///   FileSystem::read(path) => resume("mock content"),
+///   FileSystem::write(path, content) => resume(()),
+///   FileSystem::exists(path) => resume(true),
 /// };
 /// ```
 ///
