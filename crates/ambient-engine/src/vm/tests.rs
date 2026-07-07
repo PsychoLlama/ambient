@@ -982,6 +982,7 @@ fn test_make_handler_creates_handler_value() {
 }
 
 #[test]
+#[allow(clippy::similar_names)] // method_a_* / method_b_* are intentionally parallel
 fn test_make_handler_with_multiple_methods() {
     // Create handler method functions.
     let mut method_a_builder = BytecodeBuilder::new();
