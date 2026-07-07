@@ -23,8 +23,8 @@ pub struct LogConfig {
 ///
 /// Provides structured logging with debug, info, warn, and error levels.
 /// Unless `config.handler` overrides it, each line is emitted through
-/// `sink` — the same stdout channel as `platform::Stdio` — realizing the
-/// `ability Log with platform::Stdio` dependency at the host boundary.
+/// `sink` — the same stdout channel as `core::system::Stdio` — realizing the
+/// `ability Log with core::system::Stdio` dependency at the host boundary.
 ///
 /// # Panics
 ///

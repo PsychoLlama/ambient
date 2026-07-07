@@ -5,7 +5,7 @@
 //!
 //! Run with: `ambient run examples/network_server`
 
-use platform::{Stdio, Network};
+use core::system::{Stdio, Network};
 
 /// Entry point that starts a TCP server and echoes messages.
 pub fn run(): () with Stdio, Network {

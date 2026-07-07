@@ -7,11 +7,11 @@
 //! using the result values due to current type system limitations
 //! with ability return types.
 
-use platform::Random;
+use core::system::Random;
 
 /// Entry point demonstrating Random ability handlers.
 pub fn run(): Number {
-    // The handler intercepts platform::Random::seed!() calls
+    // The handler intercepts core::system::Random::seed!() calls
     // We can verify the handler is invoked by the program completing
     let result = handle {
         // Make some Random calls - handlers will be invoked
@@ -22,7 +22,7 @@ pub fn run(): Number {
         42
     } {
         Random::seed() => {
-            // Handler is invoked for each platform::Random::seed!() call
+            // Handler is invoked for each core::system::Random::seed!() call
             // resume continues execution after the call point
             resume(0)
         }

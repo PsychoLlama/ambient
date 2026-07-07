@@ -7,7 +7,7 @@
 //!
 //! Run with: `ambient run examples/remote_server`
 
-use platform::{Stdio, Network, Execute};
+use core::system::{Stdio, Network, Execute};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Entry Point

@@ -75,7 +75,7 @@ pub type BindingId = u32;
 /// Every item in a build has exactly one fully-qualified identity:
 /// `<defining module path>.<item name>`. The resolve pass maps each
 /// spelling of a reference — a bare imported name, a module-alias path,
-/// an inline `pkg::`/`self::`/`super::`/`core::`/`platform::` path — to
+/// an inline `pkg::`/`self::`/`super::`/`core::` path — to
 /// that identity without disturbing the source spelling (whose spans
 /// serve IDE features). `None` means the reference is module-local (or
 /// the module was checked without a registry).

@@ -2,7 +2,7 @@
 //!
 //! Demonstrates handle expressions with ability handlers.
 
-use platform::Stdio;
+use core::system::Stdio;
 
 /// Simple function that returns a value.
 fn simple_function(): Number {

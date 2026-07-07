@@ -15,7 +15,7 @@
 //! connection. That is the whole live-upgrade story — the entry `run`
 //! is a declaration of the process tree, re-reconciled on each deploy.
 
-use platform::{Process, Network, Stdio};
+use core::system::{Process, Network, Stdio};
 
 /// Declare the process tree. Deploy passes re-run this against the
 /// live registry, so keep it declarative: spawn processes here, acquire

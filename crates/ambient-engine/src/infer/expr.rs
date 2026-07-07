@@ -577,7 +577,7 @@ impl Infer {
         span: (u32, u32),
     ) -> InferResult<Type> {
         // Resolve the allowed list; unknown names are errors, and the
-        // namespace policy applies: `sandbox with platform::Log { ... }`.
+        // namespace policy applies: `sandbox with core::system::Log { ... }`.
         let mut allowed_ability_ids = Vec::with_capacity(sandbox_expr.allowed_abilities.len());
         for ability_name in &sandbox_expr.allowed_abilities {
             allowed_ability_ids.push(self.resolve_ability_ref(ability_name, span)?);
@@ -1302,7 +1302,7 @@ mod tests {
 
         let mut infer = Infer::new();
         infer.ability_resolver.register_dynamic_in_namespace(
-            "platform",
+            "core::system",
             DynAbility {
                 id: crate::types::AbilityId::from_bytes([7; 32]),
                 name: "Printer".into(),
@@ -1318,7 +1318,7 @@ mod tests {
             },
         );
         infer.ability_resolver.register_dynamic_in_namespace(
-            "platform",
+            "core::system",
             DynAbility {
                 id: crate::types::AbilityId::from_bytes([8; 32]),
                 name: "Clock".into(),

@@ -613,7 +613,7 @@ fn test_sandbox_with_allowed_ability() {
         }
 
         fn run(): Number {
-            sandbox with platform::Stdio {
+            sandbox with core::system::Stdio {
                 compute()
             }
         }
@@ -624,7 +624,7 @@ fn test_sandbox_with_allowed_ability() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Platform ability namespace policy: platform abilities must be written
-// `platform::X` in every position (with clauses, effect rows, handler
+// `core::system::X` in every position (with clauses, effect rows, handler
 // arms, sandbox clauses, performs); user abilities and Exception stay
 // bare.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -634,19 +634,19 @@ fn test_with_clause_requires_platform_namespace() {
     CliTest::new(
         r#"
         pub fn run(): () with Stdio {
-            platform::Stdio::out!("hi")
+            core::system::Stdio::out!("hi")
         }
         "#,
     )
-    .expect_error("qualify it as `platform::");
+    .expect_error("qualify it as `core::system::");
 }
 
 #[test]
 fn test_handler_arm_requires_platform_namespace() {
     CliTest::new(
         r#"
-        fn speak(): () with platform::Stdio {
-            platform::Stdio::out!("hi")
+        fn speak(): () with core::system::Stdio {
+            core::system::Stdio::out!("hi")
         }
 
         pub fn run(): () {
@@ -658,7 +658,7 @@ fn test_handler_arm_requires_platform_namespace() {
         }
         "#,
     )
-    .expect_error("qualify it as `platform::");
+    .expect_error("qualify it as `core::system::");
 }
 
 #[test]
@@ -672,14 +672,14 @@ fn test_sandbox_clause_requires_platform_namespace() {
         }
         "#,
     )
-    .expect_error("qualify it as `platform::");
+    .expect_error("qualify it as `core::system::");
 }
 
 #[test]
 fn test_effect_row_annotation_requires_platform_namespace() {
     CliTest::new(
         r#"
-        fn call(f: () -> () with Log): () with platform::Log {
+        fn call(f: () -> () with Log): () with core::system::Log {
             f()
         }
 
@@ -688,7 +688,7 @@ fn test_effect_row_annotation_requires_platform_namespace() {
         }
         "#,
     )
-    .expect_error("qualify it as `platform::");
+    .expect_error("qualify it as `core::system::");
 }
 
 #[test]
@@ -696,7 +696,7 @@ fn test_exception_may_not_be_namespaced() {
     // Exception is a language builtin, never platform-qualified.
     CliTest::new(
         r#"
-        pub fn run(): () with platform::Exception {
+        pub fn run(): () with core::system::Exception {
             ()
         }
         "#,
@@ -718,13 +718,13 @@ fn test_local_ability_shadows_platform_name() {
             Stdio::shout!("quiet")
         }
 
-        pub fn run(): () with platform::Stdio {
+        pub fn run(): () with core::system::Stdio {
             let loud = handle noise() {
                 Stdio::shout(msg) => {
                     resume(core::primitives::String::concat(msg, "!"))
                 }
             };
-            platform::Stdio::out!(loud)
+            core::system::Stdio::out!(loud)
         }
         "#,
     )
@@ -733,7 +733,7 @@ fn test_local_ability_shadows_platform_name() {
 
 #[test]
 fn test_time_wait_accepts_duration() {
-    // `platform::Time::wait` takes a `core::time::Duration`. This exercises
+    // `core::system::Time::wait` takes a `core::time::Duration`. This exercises
     // the whole path: the ability signature references a core nominal type,
     // the checker unifies the caller's `Duration` against the signature's
     // (unexpanded) reference, and the host handler decodes the record and
@@ -742,8 +742,8 @@ fn test_time_wait_accepts_duration() {
         r#"
         use core::time::Duration;
 
-        pub fn run(): Number with platform::Time {
-            platform::Time::wait!(Duration::from_millis(1));
+        pub fn run(): Number with core::system::Time {
+            core::system::Time::wait!(Duration::from_millis(1));
             7
         }
         "#,
@@ -758,8 +758,8 @@ fn test_time_wait_rejects_raw_number() {
     // `Duration`, not against `number`.
     CliTest::new(
         r#"
-        pub fn run(): () with platform::Time {
-            platform::Time::wait!(20);
+        pub fn run(): () with core::system::Time {
+            core::system::Time::wait!(20);
         }
         "#,
     )
@@ -1416,12 +1416,12 @@ fn test_inherent_method_with_ability() {
         unique(B1B2C3D4-0000-0000-0000-000000000004) struct Greeter { name: String }
 
         impl Greeter {
-            fn greet(self): () with platform::Stdio {
-                platform::Stdio::out!("hello ${self.name}");
+            fn greet(self): () with core::system::Stdio {
+                core::system::Stdio::out!("hello ${self.name}");
             }
         }
 
-        pub fn run(): () with platform::Stdio {
+        pub fn run(): () with core::system::Stdio {
             let g = Greeter { name: "world" };
             g.greet();
         }
@@ -1440,7 +1440,7 @@ fn test_inherent_method_undeclared_ability_error() {
 
         impl Greeter {
             fn greet(self): () {
-                platform::Stdio::out!("hello");
+                core::system::Stdio::out!("hello");
             }
         }
 
@@ -1462,8 +1462,8 @@ fn test_inherent_method_ability_required_at_call_site() {
         unique(B1B2C3D4-0000-0000-0000-000000000006) struct Greeter { name: String }
 
         impl Greeter {
-            fn greet(self): () with platform::Stdio {
-                platform::Stdio::out!("hello");
+            fn greet(self): () with core::system::Stdio {
+                core::system::Stdio::out!("hello");
             }
         }
 
@@ -2506,20 +2506,20 @@ fn test_private_function_ability_inference() {
     // calls to functions defined later) and propagate to callers.
     CliTest::new(
         r#"
-        pub fn run(): () with platform::Stdio {
+        pub fn run(): () with core::system::Stdio {
             ping(2);
             helper_outer();
         }
 
         fn ping(n: Number) {
-            if n > 0 { platform::Stdio::out!("ping"); pong(n - 1); } else { () }
+            if n > 0 { core::system::Stdio::out!("ping"); pong(n - 1); } else { () }
         }
 
         fn pong(n: Number) {
-            if n > 0 { platform::Stdio::out!("pong"); ping(n - 1); } else { () }
+            if n > 0 { core::system::Stdio::out!("pong"); ping(n - 1); } else { () }
         }
 
-        fn helper_inner() { platform::Stdio::out!("inner"); }
+        fn helper_inner() { core::system::Stdio::out!("inner"); }
         fn helper_outer() { helper_inner(); }
     "#,
     )
@@ -2538,7 +2538,7 @@ fn test_public_function_must_declare_inferred_abilities() {
         }
 
         fn leaky() {
-            platform::Stdio::out!("leak");
+            core::system::Stdio::out!("leak");
         }
     "#,
     )
@@ -2908,9 +2908,9 @@ fn test_method_call_resolves_inside_perform_arguments() {
             fn doubled(self): Number { self.x * 2 }
         }
 
-        pub fn run(): () with platform::Stdio {
+        pub fn run(): () with core::system::Stdio {
             let p = Point { x: 21 };
-            platform::Stdio::out!(core::convert::to_string(p.doubled()));
+            core::system::Stdio::out!(core::convert::to_string(p.doubled()));
         }
         "#,
     );
@@ -3359,15 +3359,15 @@ fn test_execute_run_with_granted_ability() {
     // can be run by hash and its logs land on the executing host.
     CliTest::new(
         r#"
-        fn shout(x: Number): Number with platform::Log, platform::Stdio {
-            platform::Log::info!("computing remotely");
+        fn shout(x: Number): Number with core::system::Log, core::system::Stdio {
+            core::system::Log::info!("computing remotely");
             x * 2
         }
 
-        pub fn run(): Number with platform::Execute {
+        pub fn run(): Number with core::system::Execute {
             let thunk = (x) => shout(x);
             let hash = core::protocol::closure_hash(thunk);
-            platform::Execute::run!(hash, 21)
+            core::system::Execute::run!(hash, 21)
         }
         "#,
     )
@@ -3380,15 +3380,15 @@ fn test_execute_run_ungranted_ability_is_unhandled() {
     // isolated VM is an unhandled-ability error, not a silent escape.
     CliTest::new(
         r#"
-        fn phone_home(x: Number): Number with platform::Network {
-            let conn = platform::Network::connect!(("127.0.0.1", 1));
+        fn phone_home(x: Number): Number with core::system::Network {
+            let conn = core::system::Network::connect!(("127.0.0.1", 1));
             x
         }
 
-        pub fn run(): Number with platform::Execute {
+        pub fn run(): Number with core::system::Execute {
             let thunk = (x) => phone_home(x);
             let hash = core::protocol::closure_hash(thunk);
-            platform::Execute::run!(hash, 1)
+            core::system::Execute::run!(hash, 1)
         }
         "#,
     )
@@ -3412,11 +3412,11 @@ fn test_execute_run_with_shipped_handler() {
             x + Oracle::answer!()
         }
 
-        pub fn run(): Number with platform::Execute {
+        pub fn run(): Number with core::system::Execute {
             let oracle = { answer() => resume(40) };
             let thunk = (x) => consult(x);
             let hash = core::protocol::closure_hash(thunk);
-            platform::Execute::run_with!(hash, 2, oracle)
+            core::system::Execute::run_with!(hash, 2, oracle)
         }
         ",
     )
@@ -3606,12 +3606,12 @@ fn test_host_raised_exception_is_catchable() {
     // a catchable exception instead of aborting the VM.
     CliTest::new(
         r#"
-        fn try_connect(): String with platform::Network {
-            let conn = platform::Network::connect!(("127.0.0.1", 9));
+        fn try_connect(): String with core::system::Network {
+            let conn = core::system::Network::connect!(("127.0.0.1", 9));
             "connected"
         }
 
-        pub fn run(): String with platform::Network {
+        pub fn run(): String with core::system::Network {
             handle try_connect() {
                 Exception::throw(msg) => "failed"
             }
@@ -3628,12 +3628,12 @@ fn test_host_raised_exception_resume_substitute() {
     // continues executing after the failed connect.
     CliTest::new(
         r#"
-        fn try_connect(): Number with platform::Network {
-            let conn = platform::Network::connect!(("127.0.0.1", 9));
+        fn try_connect(): Number with core::system::Network {
+            let conn = core::system::Network::connect!(("127.0.0.1", 9));
             conn + 1000
         }
 
-        pub fn run(): Number with platform::Network {
+        pub fn run(): Number with core::system::Network {
             handle try_connect() {
                 Exception::throw(msg) => resume(0 - 1)
             }
@@ -3653,9 +3653,9 @@ fn test_fs_write_read_roundtrip() {
     let path = dir.path().join("note.txt");
     CliTest::new(format!(
         r#"
-        pub fn run(): String with platform::FileSystem {{
-            platform::FileSystem::write!("{path}", "hello from ambient");
-            platform::FileSystem::read!("{path}")
+        pub fn run(): String with core::system::FileSystem {{
+            core::system::FileSystem::write!("{path}", "hello from ambient");
+            core::system::FileSystem::read!("{path}")
         }}
         "#,
         path = path.display()
@@ -3669,11 +3669,11 @@ fn test_fs_read_missing_file_is_catchable_exception() {
     // of aborting the VM.
     CliTest::new(
         r#"
-        fn try_read(): String with platform::FileSystem {
-            platform::FileSystem::read!("/nonexistent/ambient_fs_test/missing.txt")
+        fn try_read(): String with core::system::FileSystem {
+            core::system::FileSystem::read!("/nonexistent/ambient_fs_test/missing.txt")
         }
 
-        pub fn run(): String with platform::FileSystem {
+        pub fn run(): String with core::system::FileSystem {
             handle try_read() {
                 Exception::throw(msg) => "caught"
             }
@@ -3689,10 +3689,10 @@ fn test_fs_exists_false_then_true() {
     let path = dir.path().join("probe.txt");
     CliTest::new(format!(
         r#"
-        pub fn run(): () with platform::FileSystem, platform::Stdio {{
-            platform::Stdio::out!(core::convert::to_string(platform::FileSystem::exists!("{path}")));
-            platform::FileSystem::write!("{path}", "x");
-            platform::Stdio::out!(core::convert::to_string(platform::FileSystem::exists!("{path}")));
+        pub fn run(): () with core::system::FileSystem, core::system::Stdio {{
+            core::system::Stdio::out!(core::convert::to_string(core::system::FileSystem::exists!("{path}")));
+            core::system::FileSystem::write!("{path}", "x");
+            core::system::Stdio::out!(core::convert::to_string(core::system::FileSystem::exists!("{path}")));
         }}
         "#,
         path = path.display()
@@ -3706,10 +3706,10 @@ fn test_fs_list_returns_written_entries() {
     let base = dir.path().display().to_string();
     CliTest::new(format!(
         r#"
-        pub fn run(): Number with platform::FileSystem {{
-            platform::FileSystem::write!("{base}/a.txt", "1");
-            platform::FileSystem::write!("{base}/b.txt", "2");
-            core::collections::List::length(platform::FileSystem::list!("{base}"))
+        pub fn run(): Number with core::system::FileSystem {{
+            core::system::FileSystem::write!("{base}/a.txt", "1");
+            core::system::FileSystem::write!("{base}/b.txt", "2");
+            core::collections::List::length(core::system::FileSystem::list!("{base}"))
         }}
         "#
     ))
@@ -3722,10 +3722,10 @@ fn test_fs_remove_then_exists_is_false() {
     let path = dir.path().join("ephemeral.txt");
     CliTest::new(format!(
         r#"
-        pub fn run(): Bool with platform::FileSystem {{
-            platform::FileSystem::write!("{path}", "gone soon");
-            platform::FileSystem::remove!("{path}");
-            platform::FileSystem::exists!("{path}")
+        pub fn run(): Bool with core::system::FileSystem {{
+            core::system::FileSystem::write!("{path}", "gone soon");
+            core::system::FileSystem::remove!("{path}");
+            core::system::FileSystem::exists!("{path}")
         }}
         "#,
         path = path.display()
@@ -3777,15 +3777,15 @@ fn test_execute_run_fs_is_not_granted() {
     // not a silent escape.
     CliTest::new(
         r#"
-        fn sneaky(x: Number): Number with platform::FileSystem {
-            let content = platform::FileSystem::read!("/etc/hostname");
+        fn sneaky(x: Number): Number with core::system::FileSystem {
+            let content = core::system::FileSystem::read!("/etc/hostname");
             x
         }
 
-        pub fn run(): Number with platform::Execute {
+        pub fn run(): Number with core::system::Execute {
             let thunk = (x) => sneaky(x);
             let hash = core::protocol::closure_hash(thunk);
-            platform::Execute::run!(hash, 1)
+            core::system::Execute::run!(hash, 1)
         }
         "#,
     )

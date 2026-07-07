@@ -299,7 +299,7 @@ mod tests {
         fs::create_dir_all(&src).expect("create src dir");
         fs::write(
             src.join("main.ab"),
-            "use platform::Stdio;\n\npub fn run(): () with Stdio {\n    Stdio::out!(\"hi\")\n}\n",
+            "use core::system::Stdio;\n\npub fn run(): () with Stdio {\n    Stdio::out!(\"hi\")\n}\n",
         )
         .expect("write main");
         fs::write(src.join("sibling.ab"), "pub fn noop(): Number { 1 }\n").expect("write sibling");

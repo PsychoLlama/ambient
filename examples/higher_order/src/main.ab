@@ -9,7 +9,7 @@
 
 use self::stats;
 use core::primitives::String;
-use platform::Stdio;
+use core::system::Stdio;
 
 pub fn run(): () with Stdio {
     let numbers = core::collections::List::range(1, 11);

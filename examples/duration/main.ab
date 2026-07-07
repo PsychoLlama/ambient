@@ -6,7 +6,7 @@
 //! Rust's API, and the operator traits give it `+`, `-`, and ordering.
 
 use core::time::Duration;
-use platform::Stdio;
+use core::system::Stdio;
 
 fn millis_str(d: Duration): String {
     core::convert::to_string(d.as_millis()).concat("ms")

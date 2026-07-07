@@ -13,7 +13,7 @@ use crate::require;
 /// The output half of stdio: a pair of line sinks for stdout and stderr.
 ///
 /// `Log` writes through this same sink — the concrete realization of the
-/// `ability Log with platform::Stdio` dependency — so redirecting stdout
+/// `ability Log with core::system::Stdio` dependency — so redirecting stdout
 /// (e.g. to a collector) also captures log lines. Cloning shares the
 /// underlying writers.
 #[derive(Clone)]

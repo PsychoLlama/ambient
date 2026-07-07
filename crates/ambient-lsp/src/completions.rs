@@ -77,7 +77,7 @@ impl<'a> CompletionContext<'a> {
         let after_scope = trimmed_before.ends_with("::");
 
         // The qualified path immediately before a trailing `::`
-        // (e.g. `core`, `core::collections::List`, `platform::Stdio`).
+        // (e.g. `core`, `core::collections::List`, `core::system::Stdio`).
         let scope_path = if after_scope {
             let without_sep = trimmed_before.strip_suffix("::").unwrap_or(trimmed_before);
             let start = without_sep
@@ -98,7 +98,7 @@ impl<'a> CompletionContext<'a> {
             None => None,
         };
 
-        // Ability method completion (`Stdio::`, `platform::Stdio::`) and
+        // Ability method completion (`Stdio::`, `core::system::Stdio::`) and
         // pkg module member completion (`utils::`).
         let (after_ability_dot, after_pkg_module_dot) = match scope_path {
             Some(path) if core_scope.is_none() => {
@@ -184,7 +184,7 @@ pub fn get_completions(
 
     // If we're completing pkg module members (after "module_name::")
     if let Some(module_path) = ctx.after_pkg_module_dot {
-        // An ability namespace (`platform::`) completes the bare names of
+        // An ability namespace (`core::system::`) completes the bare names of
         // its abilities — the prefix is already typed.
         items.extend(get_namespace_ability_completions(
             resolver,
@@ -277,7 +277,7 @@ fn get_type_completions(prefix: &str) -> Vec<CompletionItem> {
 
 /// Get ability completions from the resolver (builtins plus every
 /// registered platform/user declaration). Namespaced abilities complete
-/// with their required prefix (`platform::Stdio`) — the only spelling
+/// with their required prefix (`core::system::Stdio`) — the only spelling
 /// the checker accepts in `with` clauses and handler arms.
 fn get_ability_completions(resolver: &AbilityResolver, prefix: &str) -> Vec<CompletionItem> {
     resolver
@@ -294,7 +294,7 @@ fn get_ability_completions(resolver: &AbilityResolver, prefix: &str) -> Vec<Comp
 }
 
 /// Get the bare ability names registered under an ability namespace
-/// (`platform::` → `Stdio`, `FileSystem`, ...). Empty when the path is not
+/// (`core::system::` → `Stdio`, `FileSystem`, ...). Empty when the path is not
 /// a namespace, letting pkg-module completion take over.
 fn get_namespace_ability_completions(
     resolver: &AbilityResolver,

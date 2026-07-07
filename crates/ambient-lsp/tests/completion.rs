@@ -68,23 +68,23 @@ fn test_type_completion_bool() {
 
 #[test]
 fn test_ability_completion_stdio() {
-    // A bare prefix offers the platform::-qualified spelling — the only
+    // A bare prefix offers the core::system::-qualified spelling — the only
     // one the checker accepts.
     LspTest::new()
-        .with_source("fn foo() { plat/*|*/ }")
+        .with_source("fn foo() { core/*|*/ }")
         .complete_at("0")
-        .expect_item("platform::Stdio")
-        .expect_item_kind("platform::Stdio", CompletionItemKind::INTERFACE)
+        .expect_item("core::system::Stdio")
+        .expect_item_kind("core::system::Stdio", CompletionItemKind::INTERFACE)
         .done()
         .shutdown();
 }
 
 #[test]
 fn test_ability_completion_after_namespace() {
-    // After `platform::` the bare ability names complete (the prefix is
+    // After `core::system::` the bare ability names complete (the prefix is
     // already typed).
     LspTest::new()
-        .with_source("fn foo() { platform::Std/*|*/ }")
+        .with_source("fn foo() { core::system::Std/*|*/ }")
         .complete_at("0")
         .expect_item("Stdio")
         .expect_item_kind("Stdio", CompletionItemKind::INTERFACE)

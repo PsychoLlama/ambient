@@ -7,7 +7,7 @@
 //! receiver, so it is invoked as `Type::default()` rather than through
 //! dot-notation on a value.
 
-use platform::Stdio;
+use core::system::Stdio;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // A settings record with sensible defaults

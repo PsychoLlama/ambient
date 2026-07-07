@@ -251,7 +251,7 @@ pub fn analyze_with_registry_and_resolver(
     }
 
     // Type check the (possibly partial) module. The registry carries the
-    // `platform` declaration module, so `platform::…` abilities resolve
+    // `platform` declaration module, so `core::system::…` abilities resolve
     // through engine registry seeding — no embedder resolver needed. When
     // no package registry is supplied, the module checks as a package
     // root against a core+platform registry, so single-file analysis sees

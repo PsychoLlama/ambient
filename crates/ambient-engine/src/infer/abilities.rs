@@ -253,7 +253,7 @@ mod tests {
 
     /// Create a qualified name with the `platform.` prefix.
     fn platform_ability(name: &str) -> QualifiedName {
-        QualifiedName::qualified(vec!["platform"], name)
+        QualifiedName::qualified(vec!["core", "system"], name)
     }
 
     /// A prelude-style test ability: `Printer.go(message: string): ()`.
@@ -280,9 +280,9 @@ mod tests {
         let mut infer = Infer::new();
         infer
             .ability_resolver
-            .register_dynamic_in_namespace("platform", printer_ability(7));
+            .register_dynamic_in_namespace("core::system", printer_ability(7));
 
-        let qualified = QualifiedName::qualified(vec!["platform"], "Printer");
+        let qualified = QualifiedName::qualified(vec!["core", "system"], "Printer");
         let (id, ret, _) = infer
             .lookup_ability_method(&qualified, "go", &[Type::string()], span())
             .expect("qualified perform should resolve");
@@ -338,7 +338,7 @@ mod tests {
         let mut infer = Infer::new();
         infer
             .ability_resolver
-            .register_dynamic_in_namespace("platform", printer_ability(7));
+            .register_dynamic_in_namespace("core::system", printer_ability(7));
 
         // Exception is the only engine builtin; it resolves bare and may
         // not be namespaced.
@@ -412,7 +412,7 @@ mod tests {
         let mut infer = Infer::new();
         infer
             .ability_resolver
-            .register_dynamic_in_namespace("platform", printer_ability(7));
+            .register_dynamic_in_namespace("core::system", printer_ability(7));
 
         // "go" exists only in Printer.
         let methods: Vec<Arc<str>> = vec!["go".into()];
@@ -430,7 +430,7 @@ mod tests {
         let mut infer = Infer::new();
         infer
             .ability_resolver
-            .register_dynamic_in_namespace("platform", printer_ability(7));
+            .register_dynamic_in_namespace("core::system", printer_ability(7));
 
         // A namespaced prelude ability performed bare should fail.
         let bare = QualifiedName::simple("Printer");
@@ -443,6 +443,6 @@ mod tests {
         // The same perform with the namespace succeeds.
         let qualified = platform_ability("Printer");
         let result = infer.lookup_ability_method(&qualified, "go", &[Type::string()], span());
-        assert!(result.is_ok(), "platform::Printer::go should succeed");
+        assert!(result.is_ok(), "core::system::Printer::go should succeed");
     }
 }

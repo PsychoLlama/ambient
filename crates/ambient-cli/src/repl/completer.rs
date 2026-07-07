@@ -90,10 +90,10 @@ mod tests {
         let ctx = rustyline::Context::new(&history);
 
         // Completion is a no-op now.
-        let (_, pairs) = helper.complete("platform::St", 12, &ctx).unwrap();
+        let (_, pairs) = helper.complete("core::system::St", 12, &ctx).unwrap();
         assert!(pairs.is_empty());
 
         // Hinting is a no-op now.
-        assert!(helper.hint("platform::St", 12, &ctx).is_none());
+        assert!(helper.hint("core::system::St", 12, &ctx).is_none());
     }
 }

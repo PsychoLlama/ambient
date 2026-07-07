@@ -6,7 +6,7 @@
 //! Run with: `ambient run examples/network_client`
 //! (Make sure the network_server is running first!)
 
-use platform::{Stdio, Network};
+use core::system::{Stdio, Network};
 
 /// Entry point that connects to a server and sends messages.
 pub fn run(): () with Stdio, Network {

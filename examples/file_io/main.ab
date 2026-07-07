@@ -3,7 +3,7 @@
 //! Writes a file, reads it back, recovers from a missing-file read with
 //! an Exception handler, then cleans up.
 
-use platform::{FileSystem, Stdio};
+use core::system::{FileSystem, Stdio};
 
 /// Entry point demonstrating filesystem operations.
 pub fn run(): () with FileSystem, Stdio {

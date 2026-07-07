@@ -1,10 +1,10 @@
 //! Standard I/O example: read a line, write to stdout and stderr.
 //!
-//! Exercises all three `platform::Stdio` methods — `read`, `out`, and
+//! Exercises all three `core::system::Stdio` methods — `read`, `out`, and
 //! `err` — and shows an effect handler intercepting `out` to prefix every
 //! line it emits. The handler only affects code within its block.
 
-use platform::Stdio;
+use core::system::Stdio;
 
 /// Entry point: greet whoever is at the other end of stdin.
 pub fn run(): () with Stdio {
@@ -15,7 +15,7 @@ pub fn run(): () with Stdio {
     let typed = Stdio::read!();
     let name = if typed.is_empty() { "stranger" } else { typed };
 
-    // The handler intercepts `platform::Stdio::out` within its block and
+    // The handler intercepts `core::system::Stdio::out` within its block and
     // prefixes each line. `out!` calls made *inside* the arm print directly.
     handle {
         Stdio::out!("Hello, ".concat(name));

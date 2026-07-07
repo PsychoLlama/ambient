@@ -45,7 +45,7 @@ fn compile(src: &str) -> CompiledModule {
     let module = ambient_parser::parse(src).expect("test program parses");
     let mut resolver = core_abilities();
     for ability in &prelude {
-        resolver.register_dynamic_in_namespace("platform", (**ability).clone());
+        resolver.register_dynamic_in_namespace("core::system", (**ability).clone());
     }
     let checked = check_module_with_resolver(module, resolver);
     assert!(
@@ -174,15 +174,15 @@ fn spawn_send_and_reduce() {
     let host = TestHost::new();
     host.deploy(
         r#"
-        pub fn run(): () with platform::Process {
-          let pid = platform::Process::spawn!("acc", init, add);
-          platform::Process::send!(pid, 5);
-          platform::Process::send!(pid, 7);
+        pub fn run(): () with core::system::Process {
+          let pid = core::system::Process::spawn!("acc", init, add);
+          core::system::Process::send!(pid, 5);
+          core::system::Process::send!(pid, 7);
         }
         fn init(): Number { 0 }
-        fn add(total: Number, n: Number): Number with platform::Stdio {
+        fn add(total: Number, n: Number): Number with core::system::Stdio {
           let next = total + n;
-          platform::Stdio::out!("total " + core::convert::to_string(next));
+          core::system::Stdio::out!("total " + core::convert::to_string(next));
           next
         }
         "#,
@@ -198,25 +198,25 @@ fn spawn_send_and_reduce() {
 fn upgrade_keeps_state() {
     let host = TestHost::new();
     let v1 = r#"
-        pub fn run(): () with platform::Process {
-          let pid = platform::Process::spawn!("acc", init, step);
+        pub fn run(): () with core::system::Process {
+          let pid = core::system::Process::spawn!("acc", init, step);
         }
         fn init(): Number { 0 }
-        fn step(total: Number, n: Number): Number with platform::Stdio {
+        fn step(total: Number, n: Number): Number with core::system::Stdio {
           let next = total + n;
-          platform::Stdio::out!("v1 " + core::convert::to_string(next));
+          core::system::Stdio::out!("v1 " + core::convert::to_string(next));
           next
         }
         "#;
     // v2 differs only in `step`'s body — the process must keep its count.
     let v2 = r#"
-        pub fn run(): () with platform::Process {
-          let pid = platform::Process::spawn!("acc", init, step);
+        pub fn run(): () with core::system::Process {
+          let pid = core::system::Process::spawn!("acc", init, step);
         }
         fn init(): Number { 0 }
-        fn step(total: Number, n: Number): Number with platform::Stdio {
+        fn step(total: Number, n: Number): Number with core::system::Stdio {
           let next = total + n;
-          platform::Stdio::out!("v2 " + core::convert::to_string(next));
+          core::system::Stdio::out!("v2 " + core::convert::to_string(next));
           next
         }
         "#;
@@ -248,18 +248,18 @@ fn reconcile_stops_removed_and_starts_added() {
         "#;
     let v1 = format!(
         r#"
-        pub fn run(): () with platform::Process {{
-          platform::Process::spawn!("a", init, keep);
-          platform::Process::spawn!("b", init, keep);
+        pub fn run(): () with core::system::Process {{
+          core::system::Process::spawn!("a", init, keep);
+          core::system::Process::spawn!("b", init, keep);
         }}
         {common}
         "#
     );
     let v2 = format!(
         r#"
-        pub fn run(): () with platform::Process {{
-          platform::Process::spawn!("b", init, keep);
-          platform::Process::spawn!("c", init, keep);
+        pub fn run(): () with core::system::Process {{
+          core::system::Process::spawn!("b", init, keep);
+          core::system::Process::spawn!("c", init, keep);
         }}
         {common}
         "#
@@ -285,17 +285,17 @@ fn crash_restarts_with_fresh_state() {
     let host = TestHost::new();
     host.deploy(
         r#"
-        pub fn run(): () with platform::Process {
-          let pid = platform::Process::spawn!("fragile", init, step);
+        pub fn run(): () with core::system::Process {
+          let pid = core::system::Process::spawn!("fragile", init, step);
         }
         fn init(): Number { 0 }
-        fn step(total: Number, n: Number): Number with platform::Stdio, Exception {
+        fn step(total: Number, n: Number): Number with core::system::Stdio, Exception {
           if n < 0 {
             Exception::throw!("boom");
             total
           } else {
             let next = total + n;
-            platform::Stdio::out!("at " + core::convert::to_string(next));
+            core::system::Stdio::out!("at " + core::convert::to_string(next));
             next
           }
         }
@@ -325,32 +325,32 @@ fn crash_restarts_with_fresh_state() {
 fn dynamic_processes_survive_deploys_untouched() {
     let host = TestHost::new();
     let v1 = r#"
-        pub fn run(): () with platform::Process {
-          let pid = platform::Process::spawn!("parent", init, parent);
+        pub fn run(): () with core::system::Process {
+          let pid = core::system::Process::spawn!("parent", init, parent);
         }
         fn init(): Number { 0 }
-        fn parent(total: Number, n: Number): Number with platform::Process {
-          let child = platform::Process::spawn!("child", init, child_step);
+        fn parent(total: Number, n: Number): Number with core::system::Process {
+          let child = core::system::Process::spawn!("child", init, child_step);
           total
         }
-        fn child_step(total: Number, n: Number): Number with platform::Stdio {
-          platform::Stdio::out!("child v1");
+        fn child_step(total: Number, n: Number): Number with core::system::Stdio {
+          core::system::Stdio::out!("child v1");
           total
         }
         "#;
     // v2 removes the child spawn and changes nothing else the child
     // depends on. The dynamic child must survive, running v1 code.
     let v2 = r#"
-        pub fn run(): () with platform::Process {
-          let pid = platform::Process::spawn!("parent", init, parent);
+        pub fn run(): () with core::system::Process {
+          let pid = core::system::Process::spawn!("parent", init, parent);
         }
         fn init(): Number { 0 }
-        fn parent(total: Number, n: Number): Number with platform::Stdio {
-          platform::Stdio::out!("parent v2");
+        fn parent(total: Number, n: Number): Number with core::system::Stdio {
+          core::system::Stdio::out!("parent v2");
           total
         }
-        fn child_step(total: Number, n: Number): Number with platform::Stdio {
-          platform::Stdio::out!("child v2");
+        fn child_step(total: Number, n: Number): Number with core::system::Stdio {
+          core::system::Stdio::out!("child v2");
           total
         }
         "#;
@@ -380,19 +380,19 @@ fn duplicate_spawn_is_a_catchable_exception() {
     let host = TestHost::new();
     host.deploy(
         r#"
-        pub fn run(): () with platform::Process {
-          let pid = platform::Process::spawn!("parent", init, parent);
+        pub fn run(): () with core::system::Process {
+          let pid = core::system::Process::spawn!("parent", init, parent);
         }
         fn init(): Number { 0 }
-        fn parent(total: Number, n: Number): Number with platform::Process, platform::Stdio {
+        fn parent(total: Number, n: Number): Number with core::system::Process, core::system::Stdio {
           spawn_child();
           handle spawn_child() {
-            Exception::throw(e) => platform::Stdio::out!("dup caught")
+            Exception::throw(e) => core::system::Stdio::out!("dup caught")
           };
           total
         }
-        fn spawn_child(): () with platform::Process {
-          let pid = platform::Process::spawn!("child", init, child_step);
+        fn spawn_child(): () with core::system::Process {
+          let pid = core::system::Process::spawn!("child", init, child_step);
         }
         fn child_step(total: Number, n: Number): Number { total }
         "#,
@@ -409,14 +409,14 @@ fn exit_stops_the_process() {
     let host = TestHost::new();
     host.deploy(
         r#"
-        pub fn run(): () with platform::Process {
-          let pid = platform::Process::spawn!("oneshot", init, step);
-          platform::Process::send!(pid, 1);
+        pub fn run(): () with core::system::Process {
+          let pid = core::system::Process::spawn!("oneshot", init, step);
+          core::system::Process::send!(pid, 1);
         }
         fn init(): Number { 0 }
-        fn step(total: Number, n: Number): Number with platform::Process, platform::Stdio {
-          platform::Stdio::out!("handled");
-          platform::Process::exit!();
+        fn step(total: Number, n: Number): Number with core::system::Process, core::system::Stdio {
+          core::system::Stdio::out!("handled");
+          core::system::Process::exit!();
           total
         }
         "#,
