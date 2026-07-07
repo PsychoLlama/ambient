@@ -13,12 +13,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::ast::{ItemKind, Module};
+use crate::ast::Module;
 use crate::compiler::CompiledModule;
-use crate::fqn::{Fqn, NameKey};
+use crate::fqn::NameKey;
 use crate::infer::BoxedTypeError;
+use crate::module_env::ModuleEnv;
 use crate::module_path::ModulePath;
-use crate::module_registry::{ExportKind, ModuleRegistry, ResolvedImport};
+use crate::module_registry::ModuleRegistry;
 use crate::package::{LoadedModule, Package};
 
 /// Progress callback for reporting build progress.
@@ -403,164 +404,6 @@ pub fn linking_table(
     table
 }
 
-/// Collect the enum definitions a module imports — whether by an explicit
-/// `use pkg::m::{SomeEnum}` or through the prelude (`Option`/`Result`).
-///
-/// Enum constructors compile inline by tag rather than linking by hash,
-/// so cross-module enum use hands the compiler the imported definitions
-/// themselves — a separate channel from the linking table.
-///
-/// This mirrors the checker's `register_imported_enums`: both read
-/// `resolve_imports`, which folds in the prelude re-exports, so the compiler
-/// receives exactly the enums the checker registered — Option/Result
-/// included. That is what lets prelude enum *construction* compile without
-/// a hardcoded seed.
-#[must_use]
-pub fn build_imported_enums(
-    module_path: &ModulePath,
-    registry: &ModuleRegistry,
-) -> Vec<crate::ast::EnumDef> {
-    let mut enums = Vec::new();
-    let Ok(resolved) = registry.resolve_imports(module_path) else {
-        return enums;
-    };
-    for (name, bindings) in resolved.imports {
-        for import in bindings {
-            let ResolvedImport::Symbol {
-                from_module,
-                export_kind: ExportKind::Enum,
-                ..
-            } = import
-            else {
-                continue;
-            };
-            if let Some(info) = registry.get(&from_module) {
-                for item in &info.module.items {
-                    if let ItemKind::Enum(def) = &item.kind
-                        && def.name == name
-                    {
-                        enums.push(def.clone());
-                    }
-                }
-            }
-        }
-    }
-    enums
-}
-
-/// Collect every foreign constant's value-object hash, keyed canonically by
-/// `Fqn` (`utils::MAX`). A `const` links by hash exactly like a function: the
-/// consumer emits a `LoadObject` of this hash, and the defining module ships
-/// the value object itself (content-addressed, deduplicated). This is the
-/// const analogue of the [`linking_table`] — a name→hash channel, not an
-/// AST-replication one. All public constants are provided (not just imported
-/// ones) because inline `pkg::utils::MAX` references need no import.
-///
-/// A value object's hash derives only from the const's value, never its name,
-/// so this recomputes exactly the hash the defining module's compile produced.
-#[must_use]
-#[allow(clippy::implicit_hasher)]
-pub fn build_foreign_const_hashes(
-    module_path: &ModulePath,
-    registry: &ModuleRegistry,
-) -> HashMap<NameKey, blake3::Hash> {
-    let mut hashes = HashMap::new();
-    for info in registry.all_modules() {
-        if &info.path == module_path {
-            continue;
-        }
-        for item in &info.module.items {
-            if let ItemKind::Const(def) = &item.kind
-                && def.is_public
-                && let Some(value) = crate::const_eval::literal_value(&def.value)
-                && let Ok(object) = crate::object::value_object(&value)
-            {
-                let key = NameKey::Item(registry.fqn(&info.path, &[Arc::clone(&def.name)]));
-                hashes.insert(key, object.hash());
-            }
-        }
-    }
-    hashes
-}
-
-/// Collect every foreign unit struct in the build, as canonical
-/// `<module>::Origin` keys. A unit struct is a value (constructed by its bare
-/// name) as well as a type; the compiler inlines each reference to an empty
-/// record value rather than linking by hash, so it only needs the key — a
-/// separate channel from the linking table, mirroring
-/// [`build_foreign_const_hashes`]. All public unit structs are provided (not
-/// just imported ones) because inline `pkg::shapes::Origin` references need
-/// no import.
-#[must_use]
-pub fn build_foreign_unit_structs(
-    module_path: &ModulePath,
-    registry: &ModuleRegistry,
-) -> Vec<NameKey> {
-    let mut keys = Vec::new();
-    for info in registry.all_modules() {
-        if &info.path == module_path {
-            continue;
-        }
-        for item in &info.module.items {
-            if let ItemKind::Struct(def) = &item.kind
-                && def.is_public
-                && def.is_unit()
-            {
-                keys.push(NameKey::Item(
-                    registry.fqn(&info.path, &[Arc::clone(&def.name)]),
-                ));
-            }
-        }
-    }
-    keys
-}
-
-/// Collect every foreign enum's variant constructors in the build, keyed by
-/// their canonical two-segment `Fqn(enum_module, [Enum, Variant])`.
-///
-/// Variant construction inlines a `MakeEnum` tag rather than linking by
-/// hash, so — like [`build_imported_enums`] — the compiler needs the
-/// tag/payload layout, not a name→hash entry. This is the *qualified*
-/// channel, distinct from [`build_imported_enums`]'s bare one: a
-/// fully-qualified (`core::Option::Some`) or explicit-enum
-/// (`pkg::shapes::Shape::Circle`) reference resolves to an `Fqn` looked up
-/// here. All public enums are provided (not just imported ones) because
-/// inline qualified references need no import.
-#[must_use]
-pub fn build_foreign_enum_variants(
-    module_path: &ModulePath,
-    registry: &ModuleRegistry,
-) -> Vec<(Fqn, crate::compiler::VariantInfo)> {
-    let mut variants = Vec::new();
-    for info in registry.all_modules() {
-        if &info.path == module_path {
-            continue;
-        }
-        for item in &info.module.items {
-            if let ItemKind::Enum(def) = &item.kind
-                && def.is_public
-            {
-                for (idx, variant) in def.variants.iter().enumerate() {
-                    let fqn = registry.fqn(
-                        &info.path,
-                        &[Arc::clone(&def.name), Arc::clone(&variant.name)],
-                    );
-                    variants.push((
-                        fqn,
-                        crate::compiler::VariantInfo {
-                            enum_name: Arc::clone(&def.name),
-                            #[allow(clippy::cast_possible_truncation)]
-                            tag: idx as u16,
-                            has_payload: variant.payload.is_some(),
-                        },
-                    ));
-                }
-            }
-        }
-    }
-    variants
-}
-
 /// Register and compile the embedded core library modules.
 ///
 /// Core modules are registered in the registry under their reserved
@@ -651,15 +494,13 @@ pub fn compile_core_modules(
         let compiled = crate::compiler::compile_module_with_options(
             &check_result.module,
             crate::compiler::CompileOptions {
-                module_id: Some(registry.module_id(&core_path)),
                 imported_hashes: Some(linking_table(module_function_hashes, registry)),
-                // Core modules construct prelude enums (`collections/List.ab`
-                // builds bare `Some`/`None`), so they need the same enum
-                // channels a user compile gets. With the hardcoded seed gone,
-                // this is the only path that supplies Option/Result to the
-                // core compile — via the prelude, through `resolve_imports`.
-                imported_enums: build_imported_enums(&core_path, registry),
-                foreign_enum_variants: build_foreign_enum_variants(&core_path, registry),
+                // Core modules compile with the same full view of the build
+                // a user module gets. In particular they construct prelude
+                // enums (`collections/List.ab` builds bare `Some`/`None`),
+                // which arrive via the prelude through `resolve_imports` —
+                // there is no hardcoded seed.
+                env: ModuleEnv::new(registry, &core_path),
                 ..crate::compiler::CompileOptions::default()
             },
         )
@@ -743,16 +584,11 @@ fn compile_loaded_module_with_registry(
     let compiled = crate::compiler::compile_module_with_options(
         &check_result.module,
         crate::compiler::CompileOptions {
-            module_id: Some(registry.module_id(module_path)),
             source: Some(&loaded.source),
             source_file: Some(&source_file),
             imported_hashes: Some(imported_hashes),
-            imported_enums: build_imported_enums(module_path, registry),
-            imported_unit_structs: build_foreign_unit_structs(module_path, registry),
-            imported_const_hashes: build_foreign_const_hashes(module_path, registry),
-            foreign_enum_variants: build_foreign_enum_variants(module_path, registry),
             prelude_abilities,
-            foreign_abilities: crate::infer::resolve_registry_abilities(registry),
+            env: ModuleEnv::new(registry, module_path),
         },
     )
     .map_err(|e| BuildError::Compile {
@@ -809,16 +645,11 @@ pub fn compile_session_module(
     let mut compiled = crate::compiler::compile_module_with_options(
         &check_result.module,
         crate::compiler::CompileOptions {
-            module_id: Some(registry.module_id(path)),
             source: Some(source),
             source_file: Some(&source_file),
             imported_hashes: Some(imported_hashes),
-            imported_enums: build_imported_enums(path, registry),
-            imported_unit_structs: build_foreign_unit_structs(path, registry),
-            imported_const_hashes: build_foreign_const_hashes(path, registry),
-            foreign_enum_variants: build_foreign_enum_variants(path, registry),
             prelude_abilities,
-            foreign_abilities: crate::infer::resolve_registry_abilities(registry),
+            env: ModuleEnv::new(registry, path),
         },
     )
     .map_err(|e| BuildError::Compile {

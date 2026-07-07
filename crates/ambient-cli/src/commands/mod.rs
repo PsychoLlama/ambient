@@ -178,25 +178,11 @@ pub fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
     let mut compiled = ambient_engine::compiler::compile_module_with_options(
         &check_result.module,
         ambient_engine::compiler::CompileOptions {
-            module_id: Some(core.registry.module_id(&main_path)),
             source: Some(source),
             source_file: Some(&source_file),
             imported_hashes: Some(core.hashes),
-            imported_enums: ambient_engine::build::build_imported_enums(&main_path, &core.registry),
-            imported_unit_structs: ambient_engine::build::build_foreign_unit_structs(
-                &main_path,
-                &core.registry,
-            ),
-            imported_const_hashes: ambient_engine::build::build_foreign_const_hashes(
-                &main_path,
-                &core.registry,
-            ),
-            foreign_enum_variants: ambient_engine::build::build_foreign_enum_variants(
-                &main_path,
-                &core.registry,
-            ),
             prelude_abilities: &prelude,
-            foreign_abilities: ambient_engine::infer::resolve_registry_abilities(&core.registry),
+            env: ambient_engine::module_env::ModuleEnv::new(&core.registry, &main_path),
         },
     )
     .map_err(|e| anyhow::anyhow!("compile error at {}: {e}", file.display()))?;

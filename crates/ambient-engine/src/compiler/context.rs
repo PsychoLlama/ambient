@@ -286,20 +286,17 @@ impl CompiledAbilityInfo {
     }
 }
 
-/// Compile-time info for one enum variant constructor.
-#[derive(Debug, Clone)]
-pub struct VariantInfo {
-    pub enum_name: Arc<str>,
-    pub tag: u16,
-    pub has_payload: bool,
-}
+/// Compile-time info for one enum variant constructor. Defined with the
+/// rest of the cross-module channels in [`crate::module_env`]; re-exported
+/// here because the compiler is its primary consumer.
+pub use crate::module_env::VariantInfo;
 
 impl ModuleContext {
     pub(super) fn new(module_id: Option<ModuleId>) -> Self {
         // Option/Result carry no hardcoded seed: they arrive through the same
         // `imported_enums` channel as any other enum, folded in from the
-        // prelude by `build_imported_enums`. A registry-less compile (no
-        // prelude) therefore starts with no enums, exactly like the checker.
+        // prelude by `ModuleEnv::new`. A registry-less compile (no prelude)
+        // therefore starts with no enums, exactly like the checker.
         Self {
             lambdas: Vec::new(),
             lambda_counter: 0,

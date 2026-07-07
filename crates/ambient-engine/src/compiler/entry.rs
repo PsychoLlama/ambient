@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::context::{FunctionCompiler, ModuleContext, VariantInfo};
+use super::context::{FunctionCompiler, ModuleContext};
 use super::error::{CompileError, CompileErrorKind};
 use super::expr::compile_expr;
 use super::hash::{compute_temporary_hash, finalize_const_values, finalize_module_hashes};
@@ -12,6 +12,7 @@ use super::module_output::CompiledModule;
 use crate::ast::{FunctionDef, ImplDef, ImplMethod, ItemKind, Module};
 use crate::bytecode::{CompiledFunction, Opcode};
 use crate::fqn::{Fqn, ModuleId, NameKey};
+use crate::module_env::ModuleEnv;
 use crate::value::Value;
 
 /// Helper to convert `Arc<str>` to `Value::String` (which uses `Arc<String>`).
@@ -44,58 +45,29 @@ pub(super) fn span_to_line_col(source: &str, span: crate::ast::Span) -> (u32, u3
 ///
 /// The zero-value default compiles without debug info, imports, or
 /// prelude abilities.
+///
+/// Every cross-module channel lives on [`ModuleEnv`], derived from the
+/// registry in exactly one place ([`ModuleEnv::new`]) — a registry-backed
+/// compile takes the whole env, so it can never see a partial view of the
+/// build. Only per-call concerns (debug source, the link table, embedder
+/// abilities) are separate fields.
 #[derive(Default)]
 pub struct CompileOptions<'a> {
-    /// The current module's identity. When set, the module's own items
-    /// (functions, consts, unit structs, abilities) key on their
-    /// [`Fqn`] — matching the resolve pass, which canonicalizes every
-    /// same-module reference to `Fqn(module_id, [name])`. `None` is the
-    /// registry-less convention (single-file/REPL-less unit compiles): the
-    /// resolve pass never ran, so same-module references stay bare and own
-    /// items key bare to match.
-    pub module_id: Option<ModuleId>,
     /// Original source code, for debug info (line/column mapping).
     pub source: Option<&'a str>,
     /// Source file path, for display in stack traces.
     pub source_file: Option<&'a str>,
     /// Imported function names mapped to their content-addressed hashes.
+    /// Unlike the [`ModuleEnv`] channels this is build-state (hashes of the
+    /// modules compiled so far), not derivable from the registry alone.
     pub imported_hashes: Option<HashMap<NameKey, blake3::Hash>>,
-    /// Imported enum definitions (`use pkg::m::{SomeEnum}`). Constructors
-    /// inline by tag rather than linking by hash, so the compiler needs
-    /// the definitions themselves, not name→hash entries.
-    pub imported_enums: Vec<crate::ast::EnumDef>,
-    /// Foreign unit structs, as canonical `<module>::Origin` keys. A unit
-    /// struct compiles to an empty record value, so only its key is needed
-    /// (not the definition), keyed like foreign constants. The resolve pass
-    /// rewrites every cross-module unit-struct value reference to its
-    /// canonical key, which is looked up here.
-    pub imported_unit_structs: Vec<NameKey>,
-    /// Foreign constant content hashes, keyed by canonical `Fqn`
-    /// ([`NameKey::Item`]). A `const` links by hash exactly like a function:
-    /// the resolve pass rewrites every cross-module constant reference to its
-    /// canonical key, and a reference to a key present here compiles to a
-    /// `LoadObject` of that value object (never an inlined literal). The
-    /// defining module emits the value object itself, so only the hash is
-    /// needed here — a name→hash channel like [`Self::imported_hashes`], not
-    /// an AST-replication one.
-    pub imported_const_hashes: HashMap<NameKey, blake3::Hash>,
-    /// Foreign enum variant constructors, keyed by their canonical
-    /// two-segment [`Fqn`] (`core::Option::Some`,
-    /// `pkg::shapes::Shape::Circle`). Variant construction inlines a
-    /// `MakeEnum` tag rather than linking by hash, so — like
-    /// [`Self::imported_enums`] — the compiler needs the tag/payload layout,
-    /// not a name→hash entry. This is the *qualified* channel:
-    /// [`Self::imported_enums`] covers bare/enum-imported variants;
-    /// fully-qualified references resolve to an `Fqn` looked up here.
-    pub foreign_enum_variants: Vec<(Fqn, VariantInfo)>,
     /// Prelude abilities (embedder-resolved declaration modules, e.g. the
     /// platform bindings interface). Local declarations shadow them.
     pub prelude_abilities: &'a [std::sync::Arc<crate::ability_resolver::DynAbility>],
-    /// Foreign ability identities, keyed by their [`Fqn`]. The resolve pass
-    /// rewrites cross-module ability references to these keys; identities
-    /// come from the checker (the content-addressed interface hash), never
-    /// re-derived here.
-    pub foreign_abilities: Vec<(Fqn, std::sync::Arc<crate::ability_resolver::DynAbility>)>,
+    /// The module's resolved view of the rest of the build: its identity,
+    /// imported enums, and the foreign variant/unit-struct/const/ability
+    /// channels. See [`ModuleEnv`] for what each channel carries.
+    pub env: ModuleEnv,
 }
 
 /// Compile a module to bytecode.
@@ -224,17 +196,20 @@ fn compile_module_impl(
     options: CompileOptions,
 ) -> Result<CompiledModule, CompileError> {
     let CompileOptions {
-        module_id,
         source,
         source_file,
         imported_hashes,
-        imported_enums,
-        imported_unit_structs,
-        imported_const_hashes,
-        foreign_enum_variants,
         prelude_abilities,
-        foreign_abilities,
+        env,
     } = options;
+    let ModuleEnv {
+        module_id,
+        imported_enums,
+        foreign_enum_variants,
+        foreign_unit_structs,
+        foreign_const_hashes,
+        foreign_abilities,
+    } = env;
     // Collect function definitions.
     let functions: Vec<&FunctionDef> = module
         .items
@@ -334,12 +309,12 @@ fn compile_module_impl(
     ctx.register_imported_enums(&imported_enums);
     ctx.register_enums(module);
     ctx.register_foreign_variants(&foreign_enum_variants);
-    ctx.register_imported_unit_structs(&imported_unit_structs);
+    ctx.register_imported_unit_structs(&foreign_unit_structs);
     ctx.register_unit_structs(module);
-    // Both local (pre-pass) and imported const hashes are final and link the
+    // Both local (pre-pass) and foreign const hashes are final and link the
     // same way; a reference to either key emits a `LoadObject`.
     ctx.register_const_hashes(&local_const_hashes);
-    ctx.register_const_hashes(&imported_const_hashes);
+    ctx.register_const_hashes(&foreign_const_hashes);
     ctx.register_prelude_abilities(prelude_abilities);
     ctx.register_foreign_abilities(&foreign_abilities);
     ctx.register_abilities(module)?;

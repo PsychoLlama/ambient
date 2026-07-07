@@ -13,13 +13,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ambient_engine::build::{
-    build_foreign_const_hashes, build_foreign_enum_variants, build_foreign_unit_structs,
-    build_imported_enums, compile_core_modules, linking_table,
-};
+use ambient_engine::build::{compile_core_modules, linking_table};
 use ambient_engine::compiler::{CompileOptions, CompiledModule, compile_module_with_options};
 use ambient_engine::fqn::NameKey;
-use ambient_engine::infer::{check_module_with_registry, resolve_registry_abilities};
+use ambient_engine::infer::check_module_with_registry;
+use ambient_engine::module_env::ModuleEnv;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
 
@@ -61,13 +59,8 @@ pub fn compile(source: &str) -> CompiledModule {
     compile_module_with_options(
         &checked.module,
         CompileOptions {
-            module_id: Some(core.registry.module_id(&path)),
             imported_hashes: Some(core.hashes.clone()),
-            imported_enums: build_imported_enums(&path, &core.registry),
-            imported_unit_structs: build_foreign_unit_structs(&path, &core.registry),
-            imported_const_hashes: build_foreign_const_hashes(&path, &core.registry),
-            foreign_enum_variants: build_foreign_enum_variants(&path, &core.registry),
-            foreign_abilities: resolve_registry_abilities(&core.registry),
+            env: ModuleEnv::new(&core.registry, &path),
             ..CompileOptions::default()
         },
     )

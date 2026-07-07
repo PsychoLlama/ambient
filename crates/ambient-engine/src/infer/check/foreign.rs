@@ -78,37 +78,18 @@ pub(super) fn register_cross_module(
 /// and `register_enums` later binds their variant constructors and patterns
 /// alongside the local ones. Local declarations register afterwards, so
 /// they shadow imported variants — the same precedence the compiler applies.
+///
+/// The walk itself is [`crate::module_env::imported_enum_defs`], shared with
+/// [`crate::module_env::ModuleEnv::new`]: the compiler's imported-enum
+/// channel is the same collection by construction, so the checker and the
+/// compiler cannot disagree about which enums a module imports.
 fn register_imported_enums(
     infer: &mut Infer,
     current_module: &ModulePath,
     registry: &ModuleRegistry,
 ) {
-    let Ok(resolved) = registry.resolve_imports(current_module) else {
-        return;
-    };
-    for (name, bindings) in resolved.imports {
-        for import in bindings {
-            let ResolvedImport::Symbol {
-                from_module,
-                export_kind: ExportKind::Enum,
-                ..
-            } = import
-            else {
-                continue;
-            };
-            if let Some(module_info) = registry.get(&from_module) {
-                let enum_module = registry.module_id(&from_module);
-                for item in &module_info.module.items {
-                    if let crate::ast::ItemKind::Enum(def) = &item.kind
-                        && def.name == name
-                    {
-                        infer
-                            .enum_registry
-                            .register_def(def, Some(enum_module.clone()));
-                    }
-                }
-            }
-        }
+    for (enum_module, def) in crate::module_env::imported_enum_defs(registry, current_module) {
+        infer.enum_registry.register_def(&def, Some(enum_module));
     }
 }
 /// Register the traits a module imports (`use pkg::m::{SomeTrait}`, or the
@@ -119,34 +100,16 @@ fn register_imported_enums(
 /// prelude — is unavailable without `use core::traits::Default`. Impl
 /// coherence stays build-global (`register_package_items`), keying off trait
 /// *name*, so an imported trait's impls are still visible for dispatch.
+///
+/// The walk is [`crate::module_env::imported_trait_defs`] — the shared
+/// import-collection path, like [`register_imported_enums`].
 fn register_imported_traits(
     infer: &mut Infer,
     current_module: &ModulePath,
     registry: &ModuleRegistry,
 ) {
-    let Ok(resolved) = registry.resolve_imports(current_module) else {
-        return;
-    };
-    for (name, bindings) in resolved.imports {
-        for import in bindings {
-            let ResolvedImport::Symbol {
-                from_module,
-                export_kind: ExportKind::Trait,
-                ..
-            } = import
-            else {
-                continue;
-            };
-            if let Some(module_info) = registry.get(&from_module) {
-                for item in &module_info.module.items {
-                    if let crate::ast::ItemKind::Trait(def) = &item.kind
-                        && def.name == name
-                    {
-                        register_trait_def(infer, def);
-                    }
-                }
-            }
-        }
+    for def in crate::module_env::imported_trait_defs(registry, current_module) {
+        register_trait_def(infer, &def);
     }
 }
 /// Register the types, traits, and impls declared in the *other* modules of

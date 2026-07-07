@@ -11,9 +11,7 @@ use std::time::{Duration, Instant};
 
 use ambient_engine::ability_resolver::{AbilityInterface, DynAbility};
 use ambient_engine::compiler::{CompileOptions, CompiledModule, compile_module_with_options};
-use ambient_engine::infer::{
-    check_module_with_registry, resolve_ability_declarations, resolve_registry_abilities,
-};
+use ambient_engine::infer::{check_module_with_registry, resolve_ability_declarations};
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::value::Value;
@@ -88,18 +86,11 @@ fn compile(src: &str) -> CompiledModule {
     compile_module_with_options(
         &checked.module,
         CompileOptions {
-            module_id: Some(registry.module_id(&path)),
             source: Some(src),
             source_file: None,
             imported_hashes: None,
-            imported_enums: ambient_engine::build::build_imported_enums(&path, &registry),
-            imported_unit_structs: Vec::new(),
-            imported_const_hashes: std::collections::HashMap::new(),
-            foreign_enum_variants: ambient_engine::build::build_foreign_enum_variants(
-                &path, &registry,
-            ),
             prelude_abilities: &prelude,
-            foreign_abilities: resolve_registry_abilities(&registry),
+            env: ambient_engine::module_env::ModuleEnv::new(&registry, &path),
         },
     )
     .expect("test program compiles")
