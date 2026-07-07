@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# SessionStart hook: warm the build cache when working inside a git worktree.
+#
+# Worktrees start with a cold `target/`, so the first `cargo` invocation of a
+# session eats a full rebuild. Prime it up front so the agent isn't blocked on
+# it later. In the main checkout this is a no-op — its cache is already warm.
+set -euo pipefail
+
+git_dir=$(git rev-parse --git-dir)
+common_dir=$(git rev-parse --git-common-dir)
+
+# In a linked worktree these differ (.git/worktrees/<name> vs .git); in the
+# primary checkout they're identical.
+if [ "$(realpath "$git_dir")" = "$(realpath "$common_dir")" ]; then
+  exit 0
+fi
+
+cargo build
