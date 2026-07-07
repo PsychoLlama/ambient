@@ -222,7 +222,7 @@ impl TestClient {
     pub fn open_document(&mut self, uri: Uri, text: &str) {
         let params = DidOpenTextDocumentParams {
             text_document: TextDocumentItem {
-                uri,
+                uri: uri.clone(),
                 language_id: "ambient".to_string(),
                 version: 1,
                 text: text.to_string(),
@@ -230,10 +230,20 @@ impl TestClient {
         };
 
         self.send_notification::<DidOpenTextDocument>(params);
+        self.barrier(&uri);
+    }
 
-        // Give the server time to process and send diagnostics
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        self.process_notifications();
+    /// Block until the server has processed everything sent so far.
+    ///
+    /// The server handles connection messages strictly in order, so a
+    /// round-tripped request is a barrier: by the time its response
+    /// arrives, every earlier notification (`didOpen`/`didChange`) has been
+    /// handled, and any diagnostics it published are already ahead of the
+    /// response in our receiver — the request wait loop folds them into the
+    /// diagnostics map on the way. This replaces a fixed sleep, which
+    /// flaked whenever a loaded machine outran its 50ms budget.
+    fn barrier(&mut self, uri: &Uri) {
+        let _ = self.document_symbol(uri);
     }
 
     /// Request hover information at a position.
@@ -303,10 +313,7 @@ impl TestClient {
         };
 
         self.send_notification::<DidChangeTextDocument>(params);
-
-        // Give the server time to re-analyze and send diagnostics.
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        self.process_notifications();
+        self.barrier(uri);
     }
 
     /// Request find-references at a position.
