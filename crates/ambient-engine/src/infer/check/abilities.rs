@@ -28,6 +28,20 @@ pub(super) fn seed_prelude_primitive_aliases(infer: &mut Infer, registry: &Modul
         infer.register_type_alias(name, ty);
     }
 }
+
+/// The inference context every ability-id-computing path starts from: a
+/// fresh `Infer` with the prelude primitives seeded and nothing else.
+///
+/// Ability identity is the hash of the canonically rendered interface, so
+/// every path that computes one must resolve type names identically.
+/// Constructing the context here — instead of each entry point remembering
+/// to seed — makes a fourth path that forgets impossible to write by
+/// copying an existing one.
+fn ability_id_infer(registry: &ModuleRegistry) -> Infer {
+    let mut infer = Infer::new();
+    seed_prelude_primitive_aliases(&mut infer, registry);
+    infer
+}
 /// Register the module's `ability` declarations.
 ///
 /// Each declaration's method signatures are resolved (type parameters
@@ -313,15 +327,11 @@ pub fn resolve_ability_declarations(
     Vec<Arc<crate::ability_resolver::DynAbility>>,
     Vec<BoxedTypeError>,
 ) {
-    let mut infer = Infer::new();
-    // Seed the primitive nominals from the prelude so a primitive named in
-    // an ability signature resolves to its uuid-carrying type. This is the
-    // module-system replacement for the deleted `Primitive::from_name`
-    // shortcut; without it a primitive would render `named:String` and
-    // corrupt the ability hash. Only the four primitives are seeded — the
-    // module's own `use`s and enum registry are deliberately left untouched,
-    // so `Duration`/`Option` stay byte-identical to before.
-    seed_prelude_primitive_aliases(&mut infer, registry);
+    // A primitive named in an ability signature must resolve to its
+    // uuid-carrying type or the rendering (and so the ability hash) drifts;
+    // `ability_id_infer` seeds exactly that and nothing else, so
+    // `Duration`/`Option` stay byte-identical to before.
+    let mut infer = ability_id_infer(registry);
     let mut errors = Vec::new();
 
     // Register each declaration under the `core::system` namespace
@@ -367,11 +377,9 @@ pub fn resolve_ability_declarations(
 pub fn resolve_registry_abilities(
     registry: &ModuleRegistry,
 ) -> Vec<(crate::fqn::Fqn, Arc<crate::ability_resolver::DynAbility>)> {
-    let mut infer = Infer::new();
-    // Seed the primitive nominals from the prelude, exactly as
-    // `resolve_ability_declarations` does, so the two paths compute
-    // identical ability ids. (Nothing else is seeded — see there.)
-    seed_prelude_primitive_aliases(&mut infer, registry);
+    // Same context as `resolve_ability_declarations`, so the two paths
+    // compute identical ability ids.
+    let mut infer = ability_id_infer(registry);
     let mut discarded = Vec::new();
     let mut out = Vec::new();
     let mut modules: Vec<_> = registry
