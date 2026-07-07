@@ -1,0 +1,8 @@
+// Core library: the Set collection.
+//
+// `Set<T>` is an engine-provided persistent set. Its whole surface —
+// `empty`, `insert`, `remove`, `contains`, `length`, `union`,
+// `intersection`, `difference`, `to_list` — is a set of intrinsics that
+// compile to dedicated opcodes; they attach to this module at
+// registration (`intrinsics_for_module`), so it carries no source
+// declarations of its own.

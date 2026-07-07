@@ -1,0 +1,19 @@
+// The core library root.
+//
+// `core` is a directory module: its shape is the `core_lib/` source tree.
+// This file names the top-level namespaces and modules that make up the
+// public core surface, re-exporting each so the hierarchy is defined here
+// rather than by a hand-maintained list in the engine.
+//
+// `traits` is deliberately absent: the operator traits (Add, Eq, Ord, ...)
+// are the hardcoded prelude in `TraitRegistry::with_prelude`, and
+// registering a second copy would collide with it.
+
+pub use self::collections;
+pub use self::primitives;
+pub use self::convert;
+pub use self::protocol;
+pub use self::reflect;
+pub use self::time;
+pub use self::Option;
+pub use self::Result;

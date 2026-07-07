@@ -97,12 +97,12 @@ impl ReplContext {
         self.modules.contains_key(path)
     }
 
-    /// Look up a module member by path (e.g., `core::List::first`).
+    /// Look up a module member by path (e.g., `core::collections::List::first`).
     /// Returns the export kind if found.
     #[must_use]
     pub fn get_module_member(&self, path: &str) -> Option<ModuleExportKind> {
         // Split path into module path and member name
-        // e.g., "core::List::first" -> module="core::List", member="first"
+        // e.g., "core::collections::List::first" -> module="core::collections::List", member="first"
         let sep_pos = path.rfind("::")?;
         let module_path = &path[..sep_pos];
         let member_name = &path[sep_pos + 2..];
@@ -124,24 +124,28 @@ impl ReplContext {
         use crate::core_library::CoreLibrary;
 
         // Register the "core" parent module
-        let core_modules: Vec<&str> = CoreLibrary::available_modules();
+        let core_modules: Vec<String> = CoreLibrary::available_modules();
         let core_exports: Vec<ModuleExport> = core_modules
             .iter()
-            .map(|name| ModuleExport::new(*name, ModuleExportKind::Module))
+            .map(|name| ModuleExport::new(name.clone(), ModuleExportKind::Module))
             .collect();
         self.register_module("core", ModuleValue::new("core", core_exports));
 
         // Register each core submodule
-        for module_name in core_modules {
+        for module_name in &core_modules {
             let mut exports = Vec::new();
 
             // Parse exports from source file
-            if let Ok(source) = CoreLibrary::get_source(&[Arc::from(module_name)]) {
+            if let Ok(source) = CoreLibrary::get_source(&[Arc::from(module_name.as_str())]) {
                 exports = parse_module_exports(source);
             }
 
-            // Add intrinsics for this module
-            let intrinsics = get_intrinsics_for_module(&["core", module_name]);
+            // Add intrinsics for this module. Module names are fully
+            // qualified relative to `core` (`collections::List`), so split
+            // them back into path segments for the intrinsic lookup.
+            let mut segments: Vec<&str> = vec!["core"];
+            segments.extend(module_name.split("::"));
+            let intrinsics = get_intrinsics_for_module(&segments);
             for (name, arity) in intrinsics {
                 // Only add if not already present from source parsing
                 if !exports.iter().any(|e| e.name.as_ref() == name) {
@@ -163,7 +167,7 @@ impl ReplContext {
     /// Register a core library function with its qualified name.
     ///
     /// Called by the REPL initialization code after compiling core library modules.
-    /// E.g., `register_core_function("core::List::last", hash)` makes `core::List::last()`
+    /// E.g., `register_core_function("core::collections::List::last", hash)` makes `core::collections::List::last()`
     /// callable from the REPL.
     pub fn register_core_function(&mut self, qualified_name: Arc<str>, hash: blake3::Hash) {
         self.function_hashes.insert(qualified_name.clone(), hash);

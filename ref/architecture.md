@@ -59,8 +59,8 @@ chainable), `core` (standard library), `platform` (host bindings).
 ```ambient
 use pkg::utils::helper;                 // Item import: `helper` as a bare name
 use pkg::utils::{a, deep::{b, c}};      // Brace groups, nested arbitrarily
-use core::Number::sqrt as root2;        // `as` renames the local binding
-use {core::Number, platform::Stdio};    // Root-level groups
+use core::primitives::Number::sqrt as root2;        // `as` renames the local binding
+use {core::primitives::Number, platform::Stdio};    // Root-level groups
 use self::utils;                        // Whole-module import: utils::helper(...)
 use pkg::net::http;                     // Directory namespaces import too:
 use http::client::get;                  //   ...and a module alias can root
@@ -84,14 +84,14 @@ nothing.
 
 ```ambient
 pub fn hyp(a: number, b: number): number {
-  use core::Number::sqrt;
+  use core::primitives::Number::sqrt;
   sqrt(a * a + b * b)
 }
 ```
 
 Inline fully-qualified paths need no import anywhere a name can appear:
 expressions (`pkg::utils::helper(1)`), type positions
-(`pkg::shapes::Money`, `core::List<number>`), effect rows
+(`pkg::shapes::Money`, `core::collections::List<number>`), effect rows
 (`with platform::Stdio`, `with pkg::effects::Counter`), performs, handler
 arms, and sandbox clauses. Local bindings shadow module-level names,
 which shadow imports, which shadow the prelude.
@@ -110,32 +110,45 @@ Re-export paths must be rooted (`pkg`/`core`/`platform`/`self`/`super`),
 not alias-relative, so downstream modules can resolve them without this
 module's scope.
 
-Core modules (`core::List`, `core::Number`, `core::String`) are ordinary
+Core modules (`core::collections::List`, `core::primitives::Number`, `core::primitives::String`) are ordinary
 Ambient modules — compiled, content-addressed, and stored exactly like
 user code (see `crates/ambient-engine/src/core_lib/`). Beneath them sits
-a fixed set of _intrinsics_ (`core::Number::sqrt`, `core::List::length`,
-`core::String::concat`, ...) that compile to dedicated opcodes; an
+a fixed set of _intrinsics_ (`core::primitives::Number::sqrt`, `core::collections::List::length`,
+`core::primitives::String::concat`, ...) that compile to dedicated opcodes; an
 intrinsic is an ordinary item of its module — importable, aliasable,
-reachable through `use core::Number;` + `Number::sqrt(x)` — and takes
+reachable through `use core::primitives::Number;` + `Number::sqrt(x)` — and takes
 precedence over a compiled function at the same path. `core` is a keyword
 and `platform` a contextual keyword, and a user module may not take
 either name (the build rejects `src/core.ab` / `src/platform.ab`), so the
 reserved namespaces can never be shadowed.
 
+The `core::` hierarchy is defined by the `core_lib/` source tree itself, not
+by a hand-maintained list: `register_core_modules` walks the embedded tree and
+maps every `.ab` file to a module path through the *same* file↔module mapping
+(`ModulePath::from_relative_file_path`) that user packages use, and each
+directory's `main.ab` (a *directory module*) groups its siblings with `pub use
+self::…`. A directory module anchors `self`/`super` at its own path rather than
+its parent, so `core_lib/collections/main.ab` re-exports its neighbours as
+`core::collections::…`. Intrinsic opcodes are the one Rust-side coupling: their
+table (`compiler/intrinsics.rs`) keys off the resolved module path, so it must
+name the same paths the tree registers.
+
 A core module that backs a type takes that type's PascalCase name: `List`,
 `Option`, `Result`, and `Number` are the companion modules of the `List<T>`,
 `Option<T>`, `Result<T, E>`, and `Number` types, so `List::range` reads as an
-associated function of `List` and `Number::sqrt` as one of `Number`. Plain
-namespaces stay lowercase (`time` groups the `Duration` helpers but names no
-single type). Types, values, and modules occupy separate namespaces resolved by
-syntactic position, so the type `List` and the module `core::List` coexist
+associated function of `List` and `Number::sqrt` as one of `Number`. Related
+modules group under lowercase namespace parents — `core::collections` (`List`,
+`map`, `set`), `core::primitives` (`String`, `Number`, `Bool`, `Binary`) — while
+top-level namespaces like `time`, `convert`, and `reflect` name no single type.
+Types, values, and modules occupy separate namespaces resolved by
+syntactic position, so the type `List` and the module `core::collections::List` coexist
 without ambiguity.
 
 Known gaps (deliberate, minor): qualified references to *generic* type
 aliases and generic `unique` types are unresolved (parameter substitution
 is checker work); ability names inside function *type* annotations
 (`(T) -> U with E`) accept only bare or `platform::` spellings; intrinsics
-are not first-class values (`let f = core::Number::sqrt;` is an error —
+are not first-class values (`let f = core::primitives::Number::sqrt;` is an error —
 call them directly).
 
 A local binding shadows a module alias: after `let utils = ...;`,
@@ -979,7 +992,7 @@ Result::{map, map_err, and_then, ok, is_ok, is_err, unwrap_or}
 ```
 
 Two combinators have no method form and stay qualified module functions:
-`core::List::range(start, end)` (no receiver) and `core::Option::flatten(opt)`
+`core::collections::List::range(start, end)` (no receiver) and `core::Option::flatten(opt)`
 (its receiver would be `Option<Option<U>>`, inexpressible in an
 `impl<T> Option<T>` block). Strings and conversions remain module functions:
 

@@ -27,8 +27,8 @@ impl Infer {
         args: &mut [Expr],
         span: (u32, u32),
     ) -> InferResult<Option<Type>> {
-        // Match on the canonical target: `use core::Number; Number::sqrt(x)`,
-        // `use core::Number::sqrt; sqrt(x)`, and a literal `core::Number::sqrt(x)`
+        // Match on the canonical target: `use core::primitives::Number; Number::sqrt(x)`,
+        // `use core::primitives::Number::sqrt; sqrt(x)`, and a literal `core::primitives::Number::sqrt(x)`
         // all resolve to the same intrinsic.
         let path = qualified_name.resolved_module_segments();
         let name = qualified_name.resolved_name();

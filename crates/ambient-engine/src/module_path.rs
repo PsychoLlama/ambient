@@ -139,6 +139,23 @@ impl ModulePath {
         self.parent()
     }
 
+    /// The directory the module's file lives in — the anchor `self::`
+    /// resolves against.
+    ///
+    /// A *directory module* is backed by a `main.ab` (e.g.
+    /// `collections/main.ab` → `collections`); its file sits *inside* its
+    /// own path, so `self` is the module's own path. Every other module is
+    /// backed by a plain `<name>.ab` file whose directory is the parent.
+    /// Returns `None` for the package root's own directory.
+    #[must_use]
+    pub fn file_dir(&self, is_dir_module: bool) -> Option<Self> {
+        if is_dir_module {
+            Some(self.clone())
+        } else {
+            self.parent()
+        }
+    }
+
     /// Append a segment to create a child module path.
     #[must_use]
     pub fn child(&self, name: impl Into<Arc<str>>) -> Self {
@@ -148,6 +165,10 @@ impl ModulePath {
     }
 
     /// Resolve a relative path from this module.
+    ///
+    /// `is_dir_module` says whether this module is backed by a `main.ab`
+    /// (a directory module): it changes where `self`/`super` anchor. See
+    /// [`ModulePath::file_dir`].
     ///
     /// # Errors
     ///
@@ -159,6 +180,7 @@ impl ModulePath {
         &self,
         prefix: &ImportPrefix,
         path: &[Arc<str>],
+        is_dir_module: bool,
     ) -> Result<ModulePath, ResolutionError> {
         if path.is_empty() {
             return Err(ResolutionError::EmptyPath);
@@ -188,28 +210,25 @@ impl ModulePath {
                 Ok(ModulePath { segments })
             }
             ImportPrefix::Self_ => {
-                // Same directory as current module
-                let dir = self.containing_dir();
+                // The module's own directory (its path for a directory
+                // module, else the parent).
+                let dir = self.file_dir(is_dir_module);
                 let mut segments = dir.map_or_else(Vec::new, |d| d.segments);
                 segments.extend(path.iter().cloned());
                 Ok(ModulePath { segments })
             }
             ImportPrefix::Super(count) => {
-                // Go up `count` directories
-                let mut segments = self.segments.clone();
-
-                // Pop this module's name first
-                segments.pop();
-
-                // Then pop `count` more directories
+                // Start from the module's own directory, then step up
+                // `count` further levels.
+                let mut dir = self.file_dir(is_dir_module);
                 for _ in 0..*count {
-                    if segments.is_empty() {
-                        return Err(ResolutionError::EscapedPackageRoot);
+                    match dir {
+                        Some(d) => dir = d.parent(),
+                        None => return Err(ResolutionError::EscapedPackageRoot),
                     }
-                    segments.pop();
                 }
 
-                // Append the path
+                let mut segments = dir.map_or_else(Vec::new, |d| d.segments);
                 segments.extend(path.iter().cloned());
 
                 if segments.is_empty() {
@@ -237,13 +256,27 @@ impl ModulePath {
     /// The inverse of [`ModulePath::to_file_path`]: a module path from a
     /// filesystem path relative to the src directory.
     ///
-    /// `utils/format.ab` → `["utils", "format"]`; `main.ab` (or a bare
-    /// `main` segment at the top level) → the root module. This is the
-    /// single definition of the file↔module mapping — every tool that
-    /// walks source trees must resolve paths through it, so the mapping
-    /// can never fork.
+    /// `utils/format.ab` → `["utils", "format"]`; `main.ab` → the root
+    /// module; a directory's `main.ab` collapses to the directory
+    /// (`collections/main.ab` → `["collections"]`). This is the single
+    /// definition of the file↔module mapping — every tool that walks
+    /// source trees must resolve paths through it, so the mapping can
+    /// never fork.
     #[must_use]
     pub fn from_relative_file_path(relative: &std::path::Path) -> Option<Self> {
+        Self::from_relative_file_path_with_kind(relative).map(|(path, _)| path)
+    }
+
+    /// [`ModulePath::from_relative_file_path`] plus whether the file is a
+    /// directory module's `main.ab`.
+    ///
+    /// A trailing `main` segment collapses so `<dir>/main.ab` is the module
+    /// `<dir>` (a directory module — the returned bool is `true`), at every
+    /// nesting level. The package-root `main.ab` is the root module and is
+    /// *not* a directory module (its siblings live at the root, so `self`
+    /// anchors there, not under `main`).
+    #[must_use]
+    pub fn from_relative_file_path_with_kind(relative: &std::path::Path) -> Option<(Self, bool)> {
         let mut segments: Vec<Arc<str>> = Vec::new();
         for component in relative.components() {
             let std::path::Component::Normal(s) = component else {
@@ -251,16 +284,21 @@ impl ModulePath {
             };
             let name = s.to_str()?;
             let name = name.strip_suffix(".ab").unwrap_or(name);
-            // `main.ab` at the package root is the root module.
-            if name == "main" && segments.is_empty() {
-                continue;
-            }
             segments.push(Arc::from(name));
         }
-        if segments.is_empty() {
-            Some(Self::root())
+        // A trailing `main` names its containing directory (a directory
+        // module). At the package root this leaves no segments — the root
+        // `main.ab`, which is an ordinary (non-directory) module.
+        let is_dir_module = if segments.last().map(AsRef::as_ref) == Some("main") {
+            segments.pop();
+            !segments.is_empty()
         } else {
-            Self::from_segments(segments)
+            false
+        };
+        if segments.is_empty() {
+            Some((Self::root(), false))
+        } else {
+            Some((Self::from_segments(segments)?, is_dir_module))
         }
     }
 }
@@ -332,7 +370,9 @@ mod tests {
         let current = ModulePath::from_str_segments(&["foo", "bar"]).unwrap();
         let path = vec![Arc::from("utils"), Arc::from("helper")];
 
-        let resolved = current.resolve_relative(&ImportPrefix::Pkg, &path).unwrap();
+        let resolved = current
+            .resolve_relative(&ImportPrefix::Pkg, &path, false)
+            .unwrap();
         assert_eq!(resolved.to_string(), "utils::helper");
     }
 
@@ -342,7 +382,7 @@ mod tests {
         let path = vec![Arc::from("sibling")];
 
         let resolved = current
-            .resolve_relative(&ImportPrefix::Self_, &path)
+            .resolve_relative(&ImportPrefix::Self_, &path, false)
             .unwrap();
         assert_eq!(resolved.to_string(), "foo::sibling");
     }
@@ -353,9 +393,35 @@ mod tests {
         let path = vec![Arc::from("sibling")];
 
         let resolved = current
-            .resolve_relative(&ImportPrefix::Self_, &path)
+            .resolve_relative(&ImportPrefix::Self_, &path, false)
             .unwrap();
         assert_eq!(resolved.to_string(), "sibling");
+    }
+
+    /// A directory module (`collections/main.ab` → `collections`) anchors
+    /// `self` at its *own* path, not its parent.
+    #[test]
+    fn test_resolve_self_from_dir_module() {
+        let current = ModulePath::from_str_segments(&["core", "collections"]).unwrap();
+        let path = vec![Arc::from("List")];
+
+        let resolved = current
+            .resolve_relative(&ImportPrefix::Self_, &path, true)
+            .unwrap();
+        assert_eq!(resolved.to_string(), "core::collections::List");
+    }
+
+    /// From a directory module, `super` steps up from the module's own
+    /// path (`core::collections` → `core`).
+    #[test]
+    fn test_resolve_super_from_dir_module() {
+        let current = ModulePath::from_str_segments(&["core", "collections"]).unwrap();
+        let path = vec![Arc::from("time")];
+
+        let resolved = current
+            .resolve_relative(&ImportPrefix::Super(1), &path, true)
+            .unwrap();
+        assert_eq!(resolved.to_string(), "core::time");
     }
 
     #[test]
@@ -364,7 +430,7 @@ mod tests {
         let path = vec![Arc::from("other")];
 
         let resolved = current
-            .resolve_relative(&ImportPrefix::Super(1), &path)
+            .resolve_relative(&ImportPrefix::Super(1), &path, false)
             .unwrap();
         assert_eq!(resolved.to_string(), "a::other");
     }
@@ -375,7 +441,7 @@ mod tests {
         let path = vec![Arc::from("other")];
 
         let resolved = current
-            .resolve_relative(&ImportPrefix::Super(2), &path)
+            .resolve_relative(&ImportPrefix::Super(2), &path, false)
             .unwrap();
         assert_eq!(resolved.to_string(), "other");
     }
@@ -386,7 +452,7 @@ mod tests {
         let path = vec![Arc::from("other")];
 
         let err = current
-            .resolve_relative(&ImportPrefix::Super(2), &path)
+            .resolve_relative(&ImportPrefix::Super(2), &path, false)
             .unwrap_err();
         assert!(matches!(err, ResolutionError::EscapedPackageRoot));
     }
@@ -397,7 +463,7 @@ mod tests {
         let path = vec![Arc::from("List")];
 
         let resolved = current
-            .resolve_relative(&ImportPrefix::Core, &path)
+            .resolve_relative(&ImportPrefix::Core, &path, false)
             .expect("core paths resolve under the reserved `core` root");
         assert_eq!(resolved.to_string(), "core::List");
     }
@@ -408,7 +474,7 @@ mod tests {
         let path = vec![Arc::from("Network")];
 
         let resolved = current
-            .resolve_relative(&ImportPrefix::Platform, &path)
+            .resolve_relative(&ImportPrefix::Platform, &path, false)
             .expect("platform paths resolve under the reserved `platform` root");
         assert_eq!(resolved.to_string(), "platform::Network");
     }
@@ -418,8 +484,33 @@ mod tests {
         let current = ModulePath::root();
 
         let err = current
-            .resolve_relative(&ImportPrefix::Pkg, &[])
+            .resolve_relative(&ImportPrefix::Pkg, &[], false)
             .unwrap_err();
         assert!(matches!(err, ResolutionError::EmptyPath));
+    }
+
+    /// A nested `main.ab` collapses to its directory and is flagged as a
+    /// directory module; the package-root `main.ab` is the root module and
+    /// is not.
+    #[test]
+    fn test_from_relative_file_path_dir_module() {
+        use std::path::Path;
+
+        let (path, is_dir) =
+            ModulePath::from_relative_file_path_with_kind(Path::new("collections/main.ab"))
+                .unwrap();
+        assert_eq!(path.to_string(), "collections");
+        assert!(is_dir);
+
+        let (path, is_dir) =
+            ModulePath::from_relative_file_path_with_kind(Path::new("collections/List.ab"))
+                .unwrap();
+        assert_eq!(path.to_string(), "collections::List");
+        assert!(!is_dir);
+
+        let (path, is_dir) =
+            ModulePath::from_relative_file_path_with_kind(Path::new("main.ab")).unwrap();
+        assert_eq!(path.to_string(), "main");
+        assert!(!is_dir);
     }
 }

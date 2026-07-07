@@ -6,7 +6,7 @@
 //!
 //! - a bare imported name (`double` after `use pkg::util::double;`),
 //! - a module-alias path (`util::double`, `nested::leaf::leaf_fn`),
-//! - an inline rooted path (`pkg::util::double`, `core::Number::sqrt`,
+//! - an inline rooted path (`pkg::util::double`, `core::primitives::Number::sqrt`,
 //!   `self::sibling::helper`, `platform::Stdio`).
 //!
 //! The canonical identity is recorded in [`QualifiedName::resolved`]
@@ -80,6 +80,9 @@ pub struct ResolveOutcome {
 struct Resolver<'r> {
     registry: &'r ModuleRegistry,
     current: &'r ModulePath,
+    /// Whether `current` is a directory module (backed by a `main.ab`),
+    /// which anchors inline `self::`/`super::` at its own path.
+    current_is_dir: bool,
     scope: ModuleScope,
     /// Module-level value names (functions, consts, enum variants):
     /// these shadow imports for bare references.
@@ -147,9 +150,11 @@ impl<'r> Resolver<'r> {
                 ItemKind::Trait(_) | ItemKind::Impl(_) | ItemKind::Use(_) => {}
             }
         }
+        let current_is_dir = registry.get(current).is_some_and(|info| info.is_dir_module);
         Self {
             registry,
             current,
+            current_is_dir,
             scope,
             module_values,
             module_types,
@@ -536,13 +541,13 @@ impl<'r> Resolver<'r> {
             "pkg" => (None, &path[1..]),
             "core" => (ModulePath::from_str_segments(&["core"]), &path[1..]),
             "platform" => (ModulePath::from_str_segments(&["platform"]), &path[1..]),
-            "self" => (self.current.containing_dir(), &path[1..]),
+            "self" => (self.current.file_dir(self.current_is_dir), &path[1..]),
             "super" => {
-                // `self` is the containing directory; each `super` steps one
-                // directory further up. Stepping above the package root
+                // `self` is the module's own directory; each `super` steps
+                // one directory further up. Stepping above the package root
                 // leaves the reference unresolved (the checker diagnoses).
                 let supers = path.iter().take_while(|s| s.as_ref() == "super").count();
-                let mut dir = self.current.containing_dir();
+                let mut dir = self.current.file_dir(self.current_is_dir);
                 for _ in 0..supers {
                     dir = dir?.parent();
                 }

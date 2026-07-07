@@ -1,25 +1,25 @@
 // Core library: list utilities.
 //
-// Higher-order operations built on the list intrinsics (core::List::length,
-// core::List::get, core::List::append). Compiled as ordinary Ambient modules
+// Higher-order operations built on the list intrinsics (core::collections::List::length,
+// core::collections::List::get, core::collections::List::append). Compiled as ordinary Ambient modules
 // and content-addressed like user code.
 //
 // The combinators are exposed as inherent methods (`list.map(f)`), the
 // canonical core API. The sole free function is `range`: it has no receiver
 // (it constructs a list from two numbers), so it stays a qualified module
-// function (`core::List::range(start, end)`).
+// function (`core::collections::List::range(start, end)`).
 
 fn map_from<T, U>(list: List<T>, f: (T) -> U, i: Number, acc: List<U>): List<U> {
-    match core::List::get(list, i) {
-        Some(item) => map_from(list, f, i + 1, core::List::append(acc, f(item))),
+    match core::collections::List::get(list, i) {
+        Some(item) => map_from(list, f, i + 1, core::collections::List::append(acc, f(item))),
         None => acc,
     }
 }
 
 fn filter_from<T>(list: List<T>, pred: (T) -> Bool, i: Number, acc: List<T>): List<T> {
-    match core::List::get(list, i) {
+    match core::collections::List::get(list, i) {
         Some(item) => {
-            let next = if pred(item) { core::List::append(acc, item) } else { acc };
+            let next = if pred(item) { core::collections::List::append(acc, item) } else { acc };
             filter_from(list, pred, i + 1, next)
         }
         None => acc,
@@ -27,21 +27,21 @@ fn filter_from<T>(list: List<T>, pred: (T) -> Bool, i: Number, acc: List<T>): Li
 }
 
 fn fold_from<T, A>(list: List<T>, acc: A, f: (A, T) -> A, i: Number): A {
-    match core::List::get(list, i) {
+    match core::collections::List::get(list, i) {
         Some(item) => fold_from(list, f(acc, item), f, i + 1),
         None => acc,
     }
 }
 
 fn any_from<T>(list: List<T>, pred: (T) -> Bool, i: Number): Bool {
-    match core::List::get(list, i) {
+    match core::collections::List::get(list, i) {
         Some(item) => pred(item) || any_from(list, pred, i + 1),
         None => false,
     }
 }
 
 fn all_from<T>(list: List<T>, pred: (T) -> Bool, i: Number): Bool {
-    match core::List::get(list, i) {
+    match core::collections::List::get(list, i) {
         Some(item) => pred(item) && all_from(list, pred, i + 1),
         None => true,
     }
@@ -53,7 +53,7 @@ pub fn range(start: Number, end: Number): List<Number> {
     if start >= end {
         []
     } else {
-        core::List::concat([start], range(start + 1, end))
+        core::collections::List::concat([start], range(start + 1, end))
     }
 }
 
@@ -82,40 +82,40 @@ impl<T> List<T> {
         all_from(self, pred, 0)
     }
     fn get(self, i: Number): Option<T> {
-        core::List::get(self, i)
+        core::collections::List::get(self, i)
     }
     fn head(self): Option<T> {
-        core::List::head(self)
+        core::collections::List::head(self)
     }
     fn tail(self): List<T> {
-        core::List::tail(self)
+        core::collections::List::tail(self)
     }
     fn first(self): Option<T> {
-        core::List::first(self)
+        core::collections::List::first(self)
     }
     fn last(self): Option<T> {
-        core::List::last(self)
+        core::collections::List::last(self)
     }
     fn length(self): Number {
-        core::List::length(self)
+        core::collections::List::length(self)
     }
     fn is_empty(self): Bool {
-        core::List::is_empty(self)
+        core::collections::List::is_empty(self)
     }
     fn reverse(self): List<T> {
-        core::List::reverse(self)
+        core::collections::List::reverse(self)
     }
     fn sort(self): List<T> {
-        core::List::sort(self)
+        core::collections::List::sort(self)
     }
     fn slice(self, start: Number, end: Number): List<T> {
-        core::List::slice(self, start, end)
+        core::collections::List::slice(self, start, end)
     }
     fn append(self, item: T): List<T> {
-        core::List::append(self, item)
+        core::collections::List::append(self, item)
     }
     fn concat(self, other: List<T>): List<T> {
-        core::List::concat(self, other)
+        core::collections::List::concat(self, other)
     }
 }
 

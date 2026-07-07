@@ -1,0 +1,6 @@
+// Core library: value conversions.
+//
+// Conversions between primitive types — `to_string`, `parse_number`,
+// `parse_bool` — as intrinsics that compile to dedicated opcodes. They
+// attach to this module at registration (`intrinsics_for_module`), so it
+// carries no source declarations of its own.

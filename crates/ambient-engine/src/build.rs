@@ -394,7 +394,7 @@ fn compilation_order(deps: &BTreeMap<String, Vec<String>>) -> Vec<String> {
 /// The linking table for a module about to compile: every already-compiled
 /// function, bound under its canonical name.
 ///
-/// - Ordinary functions bind as `<module path>::<name>` (`core::List::map`,
+/// - Ordinary functions bind as `<module path>::<name>` (`core::collections::List::map`,
 ///   `utils::helper`). The resolve pass rewrites every cross-module
 ///   reference to exactly this key.
 /// - Impl-method dispatch symbols (`<uuid>::Trait::method`) are globally
@@ -537,8 +537,34 @@ pub fn compile_core_modules(
         },
     )?;
 
+    // Compile in dependency order (dependencies first), reusing the same
+    // resolve + topo-sort as package modules rather than a hardcoded list.
+    // Every core module is registered, so resolving each canonicalizes its
+    // cross-module references and yields its dependency set; the ASTs
+    // themselves aren't rewritten here (the checker re-resolves, and
+    // re-registering would drop the injected intrinsic exports).
+    let mut deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut paths_by_key: BTreeMap<String, ModulePath> = BTreeMap::new();
+    for core_path in &core_paths {
+        let mut ast = registry
+            .get(core_path)
+            .map(|info| (*info.module).clone())
+            .ok_or_else(|| BuildError::PackageOpen(format!("core module {core_path} vanished")))?;
+        let outcome = crate::resolve::resolve_module(&mut ast, core_path, registry);
+        deps.insert(
+            core_path.to_string(),
+            outcome.deps.iter().map(ToString::to_string).collect(),
+        );
+        paths_by_key.insert(core_path.to_string(), core_path.clone());
+    }
+    let core_order = compilation_order(&deps);
+
     let mut merged = CompiledModule::new();
-    for core_path in core_paths {
+    for core_key in core_order {
+        let core_path = paths_by_key
+            .get(&core_key)
+            .cloned()
+            .ok_or_else(|| BuildError::PackageOpen(format!("core module {core_key} vanished")))?;
         let ast = registry
             .get(&core_path)
             .map(|info| info.module.clone())
@@ -580,7 +606,7 @@ pub fn compile_core_modules(
         // collide with each other or with user functions. Impl-method
         // dispatch symbols are already globally unique and carry their own
         // `::` (`List::all`), so they pass through unqualified — qualifying
-        // them again would produce a double-qualified `core::List::all`.
+        // them again would produce a double-qualified `core::collections::List::all`.
         let mut compiled = compiled;
         compiled.function_names = compiled
             .function_names

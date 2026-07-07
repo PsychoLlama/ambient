@@ -1,0 +1,8 @@
+// Core library: the binary protocol.
+//
+// Low-level serialization and closure-introspection operations —
+// `serialize_value`, `deserialize_value`, `closure_hash`,
+// `closure_captures`, `handler_methods`, `hex_to_binary`,
+// `binary_to_hex` — as intrinsics that compile to dedicated opcodes. They
+// attach to this module at registration (`intrinsics_for_module`), so it
+// carries no source declarations of its own.

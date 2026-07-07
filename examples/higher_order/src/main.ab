@@ -1,18 +1,18 @@
 // Higher-order functions from the core library.
 //
-// core::List's map/filter/fold are ordinary Ambient functions — compiled,
+// core::collections::List's map/filter/fold are ordinary Ambient functions — compiled,
 // content-addressed, and stored exactly like user code. They are exposed as
 // inherent methods (the canonical core API), so combinator chains read left
-// to right. A core function with no receiver — like core::List::range — has
+// to right. A core function with no receiver — like core::collections::List::range — has
 // no method form and is still called qualified; user modules (self::stats)
 // are called the same qualified way.
 
 use self::stats;
-use core::String;
+use core::primitives::String;
 use platform::Stdio;
 
 pub fn run(): () with Stdio {
-    let numbers = core::List::range(1, 11);
+    let numbers = core::collections::List::range(1, 11);
 
     let squares = numbers.map((x: Number) => x * x);
     let evens = squares.filter((x: Number) => is_even(x));

@@ -148,6 +148,10 @@ pub struct ModuleInfo {
     /// the namespace entry (a `foo.ab` file alongside a `foo/` directory
     /// contributes items *and* children).
     pub is_namespace: bool,
+    /// Whether this module is backed by a `main.ab` (a directory module),
+    /// which anchors `self`/`super` at its own path rather than its
+    /// parent. Namespace entries are directory-like and set this too.
+    pub is_dir_module: bool,
 }
 
 /// A re-export (`pub use`), one flattened leaf.
@@ -299,7 +303,16 @@ impl ModuleRegistry {
     /// directory of the path that has no registered module of its own is
     /// registered as a namespace module, so `src/a/b/c.ab` makes `a` and
     /// `a.b` importable namespaces whose members are their children.
+    ///
+    /// The module is treated as file-backed (not a directory module); use
+    /// [`Self::register_module`] to register a `main.ab` directory module.
     pub fn register(&mut self, path: &ModulePath, module: Arc<Module>) {
+        self.register_module(path, module, false);
+    }
+
+    /// Register a module, stating whether it is a directory module (backed
+    /// by a `main.ab`). See [`ModuleInfo::is_dir_module`].
+    pub fn register_module(&mut self, path: &ModulePath, module: Arc<Module>, is_dir_module: bool) {
         let exports = extract_exports(&module);
         let re_exports = extract_re_exports(&module);
 
@@ -309,10 +322,20 @@ impl ModuleRegistry {
             exports,
             re_exports,
             is_namespace: false,
+            is_dir_module,
         };
 
         self.modules.insert(path.to_string(), info);
         self.register_namespace_ancestors(path);
+    }
+
+    /// Whether `path` names a directory module (backed by a `main.ab`).
+    /// Unregistered paths are treated as file-backed.
+    #[must_use]
+    fn is_dir_module(&self, path: &ModulePath) -> bool {
+        self.modules
+            .get(&path.to_string())
+            .is_some_and(|info| info.is_dir_module)
     }
 
     /// Fill in namespace entries for every unregistered ancestor of `path`.
@@ -335,6 +358,9 @@ impl ModuleRegistry {
                     exports: HashMap::new(),
                     re_exports: Vec::new(),
                     is_namespace: true,
+                    // A namespace is a directory: `self` inside it anchors
+                    // at its own path.
+                    is_dir_module: true,
                 },
             );
             ancestor = dir.parent();
@@ -345,7 +371,7 @@ impl ModuleRegistry {
     ///
     /// Core modules use this to expose their intrinsics: an intrinsic has
     /// no AST item (it compiles to a dedicated opcode), but it is still an
-    /// item of its module — `use core::Number::sqrt;` must resolve exactly
+    /// item of its module — `use core::primitives::Number::sqrt;` must resolve exactly
     /// like a compiled function would.
     pub fn add_exports(&mut self, path: &ModulePath, exports: Vec<ExportInfo>) {
         if let Some(info) = self.modules.get_mut(&path.to_string()) {
@@ -389,7 +415,7 @@ impl ModuleRegistry {
                 continue;
             }
             if let Some(target) =
-                Self::resolve_import_path(&parent_info.path, re_export, &re_export.path)
+                self.resolve_import_path(&parent_info.path, re_export, &re_export.path)
                 && self.modules.contains_key(&target.to_string())
             {
                 return Some(target);
@@ -475,7 +501,7 @@ impl ModuleRegistry {
             if parent.is_empty() {
                 continue;
             }
-            if let Some(parent_path) = Self::resolve_import_path(module_path, re_export, parent)
+            if let Some(parent_path) = self.resolve_import_path(module_path, re_export, parent)
                 && let Ok(resolved) = self.lookup_symbol(&parent_path, original)
             {
                 return Ok(resolved);
@@ -502,6 +528,7 @@ impl ModuleRegistry {
     /// relative to `from`. `path` is passed explicitly because the parent of
     /// a non-brace `pub use a::b::c` is `a::b`, not the whole stored path.
     fn resolve_import_path(
+        &self,
         from: &ModulePath,
         re_export: &ReExport,
         path: &[Arc<str>],
@@ -517,7 +544,8 @@ impl ModuleRegistry {
             UsePrefix::Local => return None,
         };
 
-        from.resolve_relative(&prefix, path).ok()
+        from.resolve_relative(&prefix, path, self.is_dir_module(from))
+            .ok()
     }
 
     /// Get all registered modules.
@@ -556,7 +584,7 @@ impl ModuleRegistry {
             }
         };
 
-        from.resolve_relative(&import_prefix, path)
+        from.resolve_relative(&import_prefix, path, self.is_dir_module(from))
             .map_err(RegistryError::PathResolution)
     }
 

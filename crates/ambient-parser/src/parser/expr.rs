@@ -470,7 +470,7 @@ impl Parser<'_> {
         // head a qualified name, so it is handled uniformly here.
         let ident = self.parse_path_segment()?;
 
-        // A `::` after the head starts a qualified name (`core::Number::abs`,
+        // A `::` after the head starts a qualified name (`core::primitives::Number::abs`,
         // `platform::FileSystem`, `stats::mean`). A plain `.` is left to postfix
         // parsing, where it means field access, method call, or tuple index.
         if self.check(TokenKind::ColonColon) {

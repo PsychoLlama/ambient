@@ -3,8 +3,8 @@
 //! Parses a simple key=value config format and extracts values.
 //! Demonstrates string manipulation and list operations.
 
-use core::String;
-use core::List;
+use core::primitives::String;
+use core::collections::List;
 
 /// Parses a single line into a key-value pair.
 ///

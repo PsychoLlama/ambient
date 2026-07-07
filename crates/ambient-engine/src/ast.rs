@@ -81,7 +81,7 @@ pub type BindingId = u32;
 /// the module was checked without a registry).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resolved {
-    /// Qualified path of the defining module (`core::Number`, `utils::format`).
+    /// Qualified path of the defining module (`core::primitives::Number`, `utils::format`).
     pub module: Arc<str>,
     /// The item's name in the defining module (aliases unfolded: a
     /// reference through `use pkg::m::f as g;` resolves to name `f`).
@@ -136,7 +136,7 @@ impl PartialEq for QualifiedName {
 impl Eq for QualifiedName {}
 
 impl QualifiedName {
-    /// The full qualified form of this name (`core::List::map`), or just
+    /// The full qualified form of this name (`core::collections::List::map`), or just
     /// the name when the path is empty.
     #[must_use]
     pub fn joined(&self) -> Arc<str> {
@@ -975,7 +975,7 @@ pub struct AbilityMethod {
 /// Examples (each line is one `UseDef` after flattening):
 /// - `use pkg::utils;` — whole-module import
 /// - `use pkg::utils::helper;` — item import
-/// - `use core::Number::sqrt as root2;` — aliased import
+/// - `use core::primitives::Number::sqrt as root2;` — aliased import
 /// - `use utils::inner;` — `Local` root: `utils` is a module alias from
 ///   an earlier `use`
 /// - `pub use pkg::other::Thing;` — re-export

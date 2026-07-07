@@ -1,0 +1,7 @@
+// Core library: the Map collection.
+//
+// `Map<K, V>` is an engine-provided persistent map. Its whole surface —
+// `empty`, `get`, `insert`, `remove`, `contains`, `length`, `keys`,
+// `values` — is a set of intrinsics that compile to dedicated opcodes;
+// they attach to this module at registration (`intrinsics_for_module`),
+// so it carries no source declarations of its own.

@@ -31,11 +31,12 @@ pub struct CompletionContext<'a> {
     pub after_dot: bool,
     /// Whether we're after an ability name (for method completion).
     pub after_ability_dot: Option<&'a str>,
-    /// Whether we're after `core::` (for core library module completion).
-    pub after_core_dot: bool,
-    /// Whether we're after `core::<submodule>::` (for core submodule member completion).
-    /// Contains the submodule name (e.g., "List" for `core::List::`).
-    pub after_core_submodule_dot: Option<&'a str>,
+    /// Whether we're after a `core::…::` path (for core library
+    /// completion). Holds the path *relative to* `core` — empty for
+    /// `core::`, `"collections"` for `core::collections::`,
+    /// `"collections::List"` for `core::collections::List::`. Generalizes
+    /// over the arbitrary-depth core hierarchy.
+    pub core_scope: Option<&'a str>,
     /// Whether we're after a pkg module path (for pkg module member completion).
     /// Contains the module path (e.g., "utils" for `utils::` or `utils::format` for `utils::format::`).
     pub after_pkg_module_dot: Option<&'a str>,
@@ -76,7 +77,7 @@ impl<'a> CompletionContext<'a> {
         let after_scope = trimmed_before.ends_with("::");
 
         // The qualified path immediately before a trailing `::`
-        // (e.g. `core`, `core::List`, `platform::Stdio`).
+        // (e.g. `core`, `core::collections::List`, `platform::Stdio`).
         let scope_path = if after_scope {
             let without_sep = trimmed_before.strip_suffix("::").unwrap_or(trimmed_before);
             let start = without_sep
@@ -87,36 +88,31 @@ impl<'a> CompletionContext<'a> {
             None
         };
 
-        // Core library completions: `core::` offers submodules; `core::List::`
-        // offers that submodule's members.
-        let (after_core_dot, after_core_submodule_dot) = match scope_path {
-            Some("core") => (true, None),
-            Some(path) => match path.strip_prefix("core::") {
-                Some(sub)
-                    if !sub.contains("::") && CoreLibrary::available_modules().contains(&sub) =>
-                {
-                    (false, Some(sub))
-                }
-                _ => (false, None),
-            },
-            None => (false, None),
+        // Core library completions: `core::` and any `core::<ns>::` offer
+        // the next path segment; a leaf like `core::collections::List::`
+        // offers that module's members. `core_scope` holds the path
+        // relative to `core` (empty for `core::` itself).
+        let core_scope = match scope_path {
+            Some("core") => Some(""),
+            Some(path) => path.strip_prefix("core::"),
+            None => None,
         };
 
         // Ability method completion (`Stdio::`, `platform::Stdio::`) and
         // pkg module member completion (`utils::`).
         let (after_ability_dot, after_pkg_module_dot) = match scope_path {
-            Some(path) if !after_core_dot && after_core_submodule_dot.is_none() => {
+            Some(path) if core_scope.is_none() => {
                 let last = path.rsplit("::").next().unwrap_or(path);
                 if resolver.name_to_id(last).is_some() {
                     (Some(last), None)
                 } else if path.chars().next().is_some_and(char::is_lowercase)
-                    || CoreLibrary::available_modules().contains(&last)
+                    || core_module_final_segment_matches(last)
                 {
                     // A module path: either a conventional lowercase namespace,
                     // or an alias of a known core module. The latter matters for
                     // the PascalCase type-companion modules (`List`, `Option`,
-                    // `Result`): after `use core::List;`, a bare `List::` would
-                    // otherwise be misread as an ability and lose completions.
+                    // `Result`): after `use core::collections::List;`, a bare `List::`
+                    // would otherwise be misread as an ability and lose completions.
                     (None, Some(path))
                 } else {
                     (None, None)
@@ -140,8 +136,7 @@ impl<'a> CompletionContext<'a> {
             word_prefix,
             after_dot,
             after_ability_dot,
-            after_core_dot,
-            after_core_submodule_dot,
+            core_scope,
             after_pkg_module_dot,
             in_use_statement,
             in_unique_paren,
@@ -169,18 +164,11 @@ pub fn get_completions(
         return items;
     }
 
-    // If we're completing core library modules (after "core.")
-    if ctx.after_core_dot {
-        items.extend(get_core_module_completions(ctx.word_prefix));
-        return items;
-    }
-
-    // If we're completing core submodule members (after "core.<submodule>.")
-    if let Some(submodule) = ctx.after_core_submodule_dot {
-        items.extend(get_core_submodule_member_completions(
-            submodule,
-            ctx.word_prefix,
-        ));
+    // If we're completing a core library path (after `core::…::`), offer
+    // the next segment (for a namespace) or the module's members (for a
+    // leaf), driven entirely by the registry.
+    if let Some(core_scope) = ctx.core_scope {
+        items.extend(get_core_path_completions(core_scope, ctx.word_prefix));
         return items;
     }
 
@@ -326,68 +314,101 @@ fn get_namespace_ability_completions(
         .collect()
 }
 
-/// Get core library module completions.
-fn get_core_module_completions(prefix: &str) -> Vec<CompletionItem> {
+/// The registry path of a core module named by its `core`-relative,
+/// `::`-qualified string (`collections::List` → `core::collections::List`;
+/// `""` → `core`).
+fn core_module_path(relative: &str) -> Option<ambient_engine::module_path::ModulePath> {
+    let mut segments: Vec<&str> = vec!["core"];
+    if !relative.is_empty() {
+        segments.extend(relative.split("::"));
+    }
+    ambient_engine::module_path::ModulePath::from_str_segments(&segments)
+}
+
+/// Whether `name` is the final segment of some registered core module
+/// (`List` matches `collections::List`). Drives the "bare alias of a core
+/// type-companion module" case in [`CompletionContext`].
+fn core_module_final_segment_matches(name: &str) -> bool {
     CoreLibrary::available_modules()
-        .into_iter()
-        .filter(|module| module.starts_with(prefix))
-        .map(|module| CompletionItem {
-            label: module.to_string(),
-            kind: Some(CompletionItemKind::MODULE),
-            detail: Some(format!("core library module: {module}")),
-            documentation: Some(lsp_types::Documentation::String(get_core_module_doc(
-                module,
-            ))),
-            ..Default::default()
-        })
-        .collect()
+        .iter()
+        .any(|module| module.rsplit("::").next() == Some(name))
 }
 
-/// Get documentation for a core library module: its module doc comment,
-/// read from the registry's copy of the module (the same AST the checker
-/// resolves imports against).
-fn get_core_module_doc(module: &str) -> String {
-    core_module_path(module)
-        .and_then(|path| {
-            let registry = ambient_analysis::core_platform_registry();
-            registry
-                .get(&path)
-                .and_then(|info| info.module.doc.as_ref().map(ToString::to_string))
-        })
-        .unwrap_or_else(|| format!("Core library module: {module}"))
-}
+/// Complete a `core::…::` path. `scope` is the path relative to `core`
+/// (empty for `core::` itself).
+///
+/// The core hierarchy is arbitrary-depth and file-defined, so this is
+/// driven entirely by the registry (keeping the "LSP is a renderer"
+/// invariant — no LSP-private model of core):
+///
+/// - the next path segment for every child module and re-exported name
+///   (so a namespace like `core::` or `core::collections::` completes to
+///   its members), and
+/// - the target module's own public exports plus its intrinsics (so a leaf
+///   like `core::collections::List::` completes to its API).
+fn get_core_path_completions(scope: &str, prefix: &str) -> Vec<CompletionItem> {
+    let registry = ambient_analysis::core_platform_registry();
+    let Some(target) = core_module_path(scope) else {
+        return Vec::new();
+    };
+    let target_segments: Vec<&str> = target.segments().iter().map(AsRef::as_ref).collect();
 
-/// The registry path of a core module (`List` → `core::List`).
-fn core_module_path(module: &str) -> Option<ambient_engine::module_path::ModulePath> {
-    ambient_engine::module_path::ModulePath::from_str_segments(&["core", module])
-}
-
-/// Get core submodule member completions: the module's public exports
-/// (straight from the registry, so completion can never drift from what
-/// import resolution sees) plus the intrinsics at the same path.
-fn get_core_submodule_member_completions(submodule: &str, prefix: &str) -> Vec<CompletionItem> {
     let mut items = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
-    // Intrinsics registered under this path (compiled to opcodes; they
-    // take precedence over same-named compiled functions).
-    for (name, _arity) in ambient_engine::core_library::intrinsics_for_module(&["core", submodule])
-    {
-        if name.starts_with(prefix) && seen.insert(name.to_string()) {
+    // Child modules: any registered module one segment deeper than the
+    // target. These are the sub-namespaces and modules (`collections`,
+    // `List`, ...) reached by walking the path further.
+    let mut children: Vec<&str> = registry
+        .all_modules()
+        .filter_map(|info| {
+            let segments = info.path.segments();
+            (segments.len() == target_segments.len() + 1
+                && segments
+                    .iter()
+                    .zip(&target_segments)
+                    .all(|(seg, want)| seg.as_ref() == *want))
+            .then(|| segments.last().map(AsRef::as_ref))
+            .flatten()
+        })
+        .collect();
+    children.sort_unstable();
+    for child in children {
+        if child.starts_with(prefix) && seen.insert(child.to_string()) {
+            let qualified = if scope.is_empty() {
+                format!("core::{child}")
+            } else {
+                format!("core::{scope}::{child}")
+            };
             items.push(CompletionItem {
-                label: name.to_string(),
-                kind: Some(CompletionItemKind::FUNCTION),
-                detail: Some(format!("core::{submodule}::{name} (intrinsic)")),
+                label: child.to_string(),
+                kind: Some(CompletionItemKind::MODULE),
+                detail: Some(format!("core library module: {qualified}")),
+                documentation: registry
+                    .get(&target.child(child))
+                    .and_then(|info| info.module.doc.as_ref())
+                    .map(|doc| lsp_types::Documentation::String(doc.to_string())),
                 ..Default::default()
             });
         }
     }
 
-    // Public exports from the registry's copy of the core module.
-    let registry = ambient_analysis::core_platform_registry();
-    if let Some(path) = core_module_path(submodule)
-        && let Some(info) = registry.get(&path)
-    {
+    // Intrinsics registered at this exact path (compiled to opcodes; they
+    // take precedence over same-named compiled functions).
+    for (name, _arity) in ambient_engine::core_library::intrinsics_for_module(&target_segments) {
+        if name.starts_with(prefix) && seen.insert(name.to_string()) {
+            items.push(CompletionItem {
+                label: name.to_string(),
+                kind: Some(CompletionItemKind::FUNCTION),
+                detail: Some(format!("core::{scope}::{name} (intrinsic)")),
+                ..Default::default()
+            });
+        }
+    }
+
+    // The target module's own public exports (straight from the registry,
+    // so completion can never drift from what import resolution sees).
+    if let Some(info) = registry.get(&target) {
         // Deterministic source order (export tables are hash maps).
         let mut exports: Vec<_> = info.exports.values().filter(|e| e.is_public).collect();
         exports.sort_by_key(|e| e.name_span.start);
@@ -410,7 +431,7 @@ fn get_core_submodule_member_completions(submodule: &str, prefix: &str) -> Vec<C
                 items.push(CompletionItem {
                     label: name.to_string(),
                     kind: Some(item_kind),
-                    detail: Some(format!("core::{submodule}::{name} ({detail})")),
+                    detail: Some(format!("core::{scope}::{name} ({detail})")),
                     documentation: export
                         .doc
                         .as_ref()
@@ -919,7 +940,7 @@ mod tests {
         assert_eq!(ctx.word_prefix, "x");
         assert!(!ctx.after_dot);
         assert!(ctx.after_ability_dot.is_none());
-        assert!(!ctx.after_core_dot);
+        assert!(ctx.core_scope.is_none());
         assert!(!ctx.in_use_statement);
     }
 
@@ -931,7 +952,7 @@ mod tests {
         assert_eq!(ctx.word_prefix, "o");
         assert!(!ctx.after_dot);
         assert_eq!(ctx.after_ability_dot, Some("Stdio"));
-        assert!(!ctx.after_core_dot);
+        assert!(ctx.core_scope.is_none());
     }
 
     #[test]
@@ -942,7 +963,7 @@ mod tests {
         assert_eq!(ctx.word_prefix, "ma");
         assert!(!ctx.after_dot);
         assert!(ctx.after_ability_dot.is_none());
-        assert!(ctx.after_core_dot);
+        assert_eq!(ctx.core_scope, Some(""));
         assert!(ctx.in_use_statement);
     }
 
@@ -1003,20 +1024,50 @@ mod tests {
     }
 
     #[test]
-    fn test_core_module_completions() {
-        let items = get_core_module_completions("Num");
+    fn test_core_root_completions() {
+        // `core::` offers the top-level namespaces and modules, not the
+        // leaf types (which now live under `collections`/`primitives`).
+        let items = get_core_path_completions("", "");
+        for expected in ["collections", "primitives", "Option", "Result", "time"] {
+            assert!(
+                items
+                    .iter()
+                    .any(|i| i.label == expected && i.kind == Some(CompletionItemKind::MODULE)),
+                "expected `{expected}` module at `core::`, got {:?}",
+                items.iter().map(|i| &i.label).collect::<Vec<_>>()
+            );
+        }
+        // The leaf types are one level deeper now.
+        assert!(!items.iter().any(|i| i.label == "List"));
+    }
+
+    #[test]
+    fn test_core_namespace_completions() {
+        // `core::collections::` walks into the namespace's children.
+        let items = get_core_path_completions("collections", "");
+        for expected in ["List", "map", "set"] {
+            assert!(
+                items.iter().any(|i| i.label == expected),
+                "expected `{expected}` under `core::collections::`"
+            );
+        }
+
+        // Prefix filtering: `core::primitives::Num` → `Number`.
+        let items = get_core_path_completions("primitives", "Num");
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].label, "Number");
         assert_eq!(items[0].kind, Some(CompletionItemKind::MODULE));
     }
 
     #[test]
-    fn test_core_module_completions_all() {
-        let items = get_core_module_completions("");
-        assert!(items.len() >= 3); // List, String, Number (+ traits)
-        assert!(items.iter().any(|i| i.label == "List"));
-        assert!(items.iter().any(|i| i.label == "String"));
-        assert!(items.iter().any(|i| i.label == "Number"));
+    fn test_core_leaf_member_completions() {
+        // A leaf module offers its members and intrinsics.
+        let items = get_core_path_completions("collections::List", "");
+        assert!(items.iter().any(|i| i.label == "range")); // pub fn
+        assert!(items.iter().any(|i| i.label == "length")); // intrinsic
+
+        let items = get_core_path_completions("primitives::Number", "sq");
+        assert!(items.iter().any(|i| i.label == "sqrt")); // intrinsic
     }
 
     #[test]

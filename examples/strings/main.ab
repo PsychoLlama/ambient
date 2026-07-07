@@ -2,8 +2,8 @@
 //!
 //! Demonstrates string manipulation using stdlib intrinsics.
 
-use core::String;
-use core::List;
+use core::primitives::String;
+use core::collections::List;
 
 /// Checks if a string is a palindrome.
 fn is_palindrome(s: String): Bool {

@@ -7,7 +7,7 @@ fn test_hover_on_number_literal() {
     LspTest::new()
         .with_source("fn foo() { 42/*h*/ }")
         .hover_at("h")
-        .expect_type("core::Number")
+        .expect_type("core::primitives::Number")
         .shutdown();
 }
 
@@ -16,7 +16,7 @@ fn test_hover_on_string_literal() {
     LspTest::new()
         .with_source(r#"fn foo() { "hello"/*h*/ }"#)
         .hover_at("h")
-        .expect_type("core::String")
+        .expect_type("core::primitives::String")
         .shutdown();
 }
 
@@ -25,7 +25,7 @@ fn test_hover_on_bool_literal() {
     LspTest::new()
         .with_source("fn foo() { true/*h*/ }")
         .hover_at("h")
-        .expect_type("core::Bool")
+        .expect_type("core::primitives::Bool")
         .shutdown();
 }
 
@@ -34,7 +34,7 @@ fn test_hover_on_local_variable() {
     LspTest::new()
         .with_source("fn foo() { let x/*h*/ = 42; x }")
         .hover_at("h")
-        .expect_type("core::Number")
+        .expect_type("core::primitives::Number")
         .shutdown();
 }
 
@@ -43,7 +43,7 @@ fn test_hover_on_variable_usage() {
     LspTest::new()
         .with_source("fn foo() { let x = 42; x/*h*/ }")
         .hover_at("h")
-        .expect_type("core::Number")
+        .expect_type("core::primitives::Number")
         .shutdown();
 }
 
@@ -71,7 +71,7 @@ fn test_hover_on_binary_expression() {
     LspTest::new()
         .with_source("fn foo() { 1 + 2/*h*/ }")
         .hover_at("h")
-        .expect_type("core::Number")
+        .expect_type("core::primitives::Number")
         .shutdown();
 }
 
@@ -85,7 +85,7 @@ fn test() { add(1, 2)/*h*/ }
 "#,
         )
         .hover_at("h")
-        .expect_type("core::Number")
+        .expect_type("core::primitives::Number")
         .shutdown();
 }
 
@@ -112,7 +112,7 @@ fn test_hover_on_if_expression() {
     LspTest::new()
         .with_source("fn foo() { if true { 42 } else { 0 }/*h*/ }")
         .hover_at("h")
-        .expect_type("core::Number")
+        .expect_type("core::primitives::Number")
         .shutdown();
 }
 

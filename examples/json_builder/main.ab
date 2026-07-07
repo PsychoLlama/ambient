@@ -3,8 +3,8 @@
 //! Builds JSON strings from Ambient data structures.
 //! Demonstrates string manipulation and recursive data processing.
 
-use core::String;
-use core::List;
+use core::primitives::String;
+use core::collections::List;
 
 /// Escapes special characters in a JSON string.
 fn escape_string(s: String): String {

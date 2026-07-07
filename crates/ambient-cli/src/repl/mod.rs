@@ -57,7 +57,7 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
         ctx.register_ability_modules();
 
         // Compile and load core library functions into the VM.
-        // This allows calling functions like core::List::last() from the REPL.
+        // This allows calling functions like core::collections::List::last() from the REPL.
         compile_and_load_core_library(&mut ctx, &mut vm);
     }
 
@@ -215,7 +215,7 @@ fn eval_repl_input(
     ctx: &mut ReplContext,
     line: &str,
 ) -> Result<Option<ambient_engine::value::Value>, String> {
-    // Check if the input is a module path (e.g., "core", "core::Number", "Stdio").
+    // Check if the input is a module path (e.g., "core", "core::primitives::Number", "Stdio").
     // This allows users to inspect modules by just typing their name. Namespaces
     // are addressed with `::`; a `.` is value/field access and must never resolve
     // a namespace, so a dotted path (e.g. `core.Number.sign`) is not a module
@@ -229,7 +229,7 @@ fn eval_repl_input(
             )));
         }
 
-        // Check if the input is a module member path (e.g., "core::List::first").
+        // Check if the input is a module member path (e.g., "core::collections::List::first").
         // This allows users to inspect functions and constants from modules.
         if let Some(kind) = ctx.get_module_member(trimmed) {
             use ambient_engine::value::ModuleMemberRef;
@@ -441,13 +441,14 @@ fn path_to_module_name(path: &Path, src_root: &Path) -> Option<String> {
 
 /// Compile core library modules and load them into the VM.
 ///
-/// This allows calling functions like `core::List::last([1, 2])` from the REPL.
+/// This allows calling functions like `core::collections::List::last([1, 2])` from the REPL.
 fn compile_and_load_core_library(ctx: &mut ReplContext, vm: &mut Vm) {
     use ambient_engine::compiler::compile_module;
     use ambient_engine::core_library::CoreLibrary;
 
     for module_name in CoreLibrary::available_modules() {
-        let Ok(source) = CoreLibrary::get_source(&[std::sync::Arc::from(module_name)]) else {
+        let Ok(source) = CoreLibrary::get_source(&[std::sync::Arc::from(module_name.as_str())])
+        else {
             continue;
         };
 

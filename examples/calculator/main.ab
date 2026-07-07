@@ -3,7 +3,7 @@
 //! Evaluates simple arithmetic expressions with +, -, *, / operators.
 //! Demonstrates recursive descent parsing and string tokenization.
 
-use core::String;
+use core::primitives::String;
 
 /// Checks if a character is a digit.
 fn is_digit(c: String): Bool {

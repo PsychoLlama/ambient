@@ -1191,7 +1191,7 @@ impl<'src> Parser<'src> {
         let mut segments = Vec::new();
         let start = self.current().span.start;
 
-        // A path may be rooted at a keyword (`pkg::m::T`, `core::List`,
+        // A path may be rooted at a keyword (`pkg::m::T`, `core::collections::List`,
         // `self::m::T`, `super::m::T`); segments after the head are plain
         // identifiers. `parse_use_segment` accepts exactly this set.
         segments.push(self.parse_use_segment()?);
@@ -1790,20 +1790,20 @@ mod tests {
 
     #[test]
     fn test_parse_use_root_group() {
-        let uses = flatten_uses("use {core::Number, platform::Stdio};");
+        let uses = flatten_uses("use {core::primitives::Number, platform::Stdio};");
         assert_eq!(uses.len(), 2);
         assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Core);
-        assert_eq!(path_names(&uses[0]), ["Number"]);
+        assert_eq!(path_names(&uses[0]), ["primitives", "Number"]);
         assert_eq!(uses[1].prefix, ambient_engine::ast::UsePrefix::Platform);
         assert_eq!(path_names(&uses[1]), ["Stdio"]);
     }
 
     #[test]
     fn test_parse_use_alias() {
-        let uses = flatten_uses("use core::Number::sqrt as root2;");
+        let uses = flatten_uses("use core::primitives::Number::sqrt as root2;");
         assert_eq!(uses.len(), 1);
         assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Core);
-        assert_eq!(path_names(&uses[0]), ["Number", "sqrt"]);
+        assert_eq!(path_names(&uses[0]), ["primitives", "Number", "sqrt"]);
         assert_eq!(uses[0].local_name().map(AsRef::as_ref), Some("root2"));
     }
 
@@ -1834,7 +1834,7 @@ mod tests {
 
     #[test]
     fn test_parse_use_in_block() {
-        let source = "fn f(): Number {\n  use core::Number::sqrt;\n  sqrt(16)\n}";
+        let source = "fn f(): Number {\n  use core::primitives::Number::sqrt;\n  sqrt(16)\n}";
         let mut parser = Parser::new(source).unwrap();
         let module = parser.parse_module().expect("parse error");
         let lowered = crate::lower::lower_module(&module).expect("lower error");

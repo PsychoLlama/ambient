@@ -4,7 +4,7 @@
 //! Partial operations (`head`, `get`) return `Option`, so recursion
 //! naturally terminates when `head` returns `None`.
 
-use core::List;
+use core::collections::List;
 
 /// Sums all numbers in a list.
 fn sum(xs: List<Number>): Number {

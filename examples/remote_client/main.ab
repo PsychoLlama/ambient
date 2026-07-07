@@ -61,10 +61,10 @@ fn send_and_receive<A>(conn: Number, arg: A, thunk: (A) -> Number with Log, Stdi
 
     // Build Execute message: [msg_type, hash_len, hash_bytes, captures]
     let hash_bytes = core::protocol::serialize_value(hash);
-    let hash_len = core::Binary::length(hash_bytes);
-    let msg = core::Binary::concat(
-        core::Binary::from([1, hash_len]),
-        core::Binary::concat(hash_bytes, captures)
+    let hash_len = core::primitives::Binary::length(hash_bytes);
+    let msg = core::primitives::Binary::concat(
+        core::primitives::Binary::from([1, hash_len]),
+        core::primitives::Binary::concat(hash_bytes, captures)
     );
     Network::send!(conn, msg);
 
@@ -76,28 +76,28 @@ fn send_and_receive<A>(conn: Number, arg: A, thunk: (A) -> Number with Log, Stdi
 fn handle_response<A>(conn: Number, thunk: (A) -> Number with Log, Stdio): Number with Stdio, Network, Execute {
     let response = Network::receive!(conn);
 
-    if core::Binary::length(response) == 0 {
+    if core::primitives::Binary::length(response) == 0 {
         Stdio::out!("Client: connection closed");
         0
     } else {
-        let msg_type = core::Binary::get(response, 0).unwrap_or(0);
+        let msg_type = core::primitives::Binary::get(response, 0).unwrap_or(0);
 
         if msg_type == 4 {
             // Result message
-            let payload = core::Binary::slice(response, 1, core::Binary::length(response));
+            let payload = core::primitives::Binary::slice(response, 1, core::primitives::Binary::length(response));
             let result_opt = core::protocol::deserialize_value(payload);
             result_opt.unwrap_or(0)
         } else {
             if msg_type == 2 {
                 // NeedDeps message
                 Stdio::out!("Client: server needs function bytecode");
-                let payload = core::Binary::slice(response, 1, core::Binary::length(response));
+                let payload = core::primitives::Binary::slice(response, 1, core::primitives::Binary::length(response));
                 let hashes_opt = core::protocol::deserialize_value(payload);
                 let hashes: List<String> = hashes_opt.unwrap_or([]);
 
                 // Send Provide message with function bytecode
                 let data = Execute::get_functions!(hashes);
-                let provide_msg = core::Binary::concat(core::Binary::from([3]), data);
+                let provide_msg = core::primitives::Binary::concat(core::primitives::Binary::from([3]), data);
                 Network::send!(conn, provide_msg);
 
                 Stdio::out!("Client: sent function bytecode");

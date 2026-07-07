@@ -1,0 +1,11 @@
+// Core library: enum reflection.
+//
+// Runtime reflection over enum values — `tag` (the variant's numeric
+// discriminant) and `payload` (an unchecked escape hatch that
+// materializes the variant's payload) — as intrinsics that compile to
+// dedicated opcodes. They attach to this module at registration
+// (`intrinsics_for_module`), so it carries no source declarations of its
+// own.
+//
+// Named `reflect` rather than `enum` because `enum` is a lexer keyword and
+// cannot appear as a `use`-path segment.

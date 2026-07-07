@@ -85,7 +85,7 @@ use crate::types::{
 
 /// The four primitive type aliases (`String → Type::string()`, ...), seeded
 /// into every `Infer`'s `type_aliases` so a bare `String` resolves in *every*
-/// module — not only those that `use core::String`. Mirrors the enum prelude
+/// module — not only those that `use core::primitives::String`. Mirrors the enum prelude
 /// (`Option`/`Result`). The core module's own `register_named_types` overwrites
 /// these with value-identical entries (pinned by `validate_reserved_structs`),
 /// and `retain_imported_type_aliases` keeps them across the per-module retract.

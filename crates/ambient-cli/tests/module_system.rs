@@ -173,7 +173,7 @@ fn use_trees_flatten_to_plain_imports() {
             "main.ab",
             r"
 use {pkg::util::double, pkg::deep::{nested::leaf::leaf_fn as leaf7}};
-use core::Number::sqrt as root;
+use core::primitives::Number::sqrt as root;
 
 pub fn run(): Number {
   double(leaf7()) + root(4)
@@ -231,12 +231,12 @@ fn intrinsics_import_and_alias_like_functions() {
     let dir = package(&[(
         "main.ab",
         r"
-use core::Number::sqrt;
-use core::Number;
-use core::List;
+use core::primitives::Number::sqrt;
+use core::primitives::Number;
+use core::collections::List;
 
 pub fn run(): Number {
-  sqrt(16) + Number::sqrt(16) + core::Number::sqrt(16) + List::length(List::range(1, 4))
+  sqrt(16) + Number::sqrt(16) + core::primitives::Number::sqrt(16) + List::length(List::range(1, 4))
 }
 ",
     )]);
@@ -594,4 +594,50 @@ pub fn run(n: Number, b: Bool): String {
 "#,
     )]);
     check_passes(dir.path());
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// The `core::` hierarchy is file-defined and arbitrary-depth
+// ─────────────────────────────────────────────────────────────────────────
+
+/// A deep core path walks through its namespace parents: `core::collections`
+/// and `core::collections::List` are real registered modules, so both the
+/// `use` alias spelling and the inline fully-qualified spelling reach the
+/// same `range` — the access-rule invariant, now through two namespace
+/// levels.
+#[test]
+fn core_collections_list_reaches_range_both_ways() {
+    let dir = package(&[(
+        "main.ab",
+        r#"
+use core::collections::List;
+
+pub fn run(): Number {
+  // Alias spelling and inline rooted spelling must agree.
+  let viaAlias = List::range(0, 3);
+  let viaPath = core::collections::List::range(0, 3);
+  viaAlias.length() + viaPath.length()
+}
+"#,
+    )]);
+    assert_eq!(run(dir.path()), "6");
+}
+
+/// A moved primitive intrinsic type-checks and runs under its new home:
+/// `core::primitives::Number::sqrt` is both the inherent-method delegate
+/// and a directly callable qualified intrinsic.
+#[test]
+fn core_primitives_number_sqrt_checks_and_runs() {
+    let dir = package(&[(
+        "main.ab",
+        r#"
+pub fn run(): Number {
+  // The inherent method and the qualified intrinsic are the same builtin.
+  let viaMethod = (16).sqrt();
+  let viaPath = core::primitives::Number::sqrt(16);
+  viaMethod + viaPath
+}
+"#,
+    )]);
+    assert_eq!(run(dir.path()), "8");
 }

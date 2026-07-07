@@ -196,7 +196,7 @@ fn test_run_simple_return() {
 /// methods. `.length()` lowers to the dispatch symbol `List::length`, which is
 /// globally unique and already qualified, so the link table must bind it
 /// unprefixed. Regression for the drifted duplicate of `build::linking_table`
-/// that double-qualified it (`core::List::List::length`). The `CliTest` harness
+/// that double-qualified it (`core::collections::List::List::length`). The `CliTest` harness
 /// package-wraps every `run`, so this bypasses it to exercise the bare-file path.
 #[test]
 fn single_file_run_links_core_inherent_methods() {
@@ -721,7 +721,7 @@ fn test_local_ability_shadows_platform_name() {
         pub fn run(): () with platform::Stdio {
             let loud = handle noise() {
                 Stdio::shout(msg) => {
-                    resume(core::String::concat(msg, "!"))
+                    resume(core::primitives::String::concat(msg, "!"))
                 }
             };
             platform::Stdio::out!(loud)
@@ -2394,13 +2394,13 @@ fn test_inherent_impl_on_primitives() {
         r#"
         impl String {
             fn shout(self): String {
-                core::String::to_upper(self)
+                core::primitives::String::to_upper(self)
             }
         }
 
         impl Number {
             fn clamped(self, lo: Number, hi: Number): Number {
-                core::Number::min(core::Number::max(self, lo), hi)
+                core::primitives::Number::min(core::primitives::Number::max(self, lo), hi)
             }
         }
 
@@ -2619,16 +2619,16 @@ fn test_list_accessors_return_option() {
     let (dir, pkg) = temp_package(
         r#"
         pub fn run(): String {
-            let hit = match core::List::get([1, 2, 3], 1) {
+            let hit = match core::collections::List::get([1, 2, 3], 1) {
                 Some(v) => v,
                 None => 0 - 1,
             };
-            let miss = match core::List::head([]) {
+            let miss = match core::collections::List::head([]) {
                 Some(v) => v,
                 None => 0 - 1,
             };
-            let first = core::List::first([7, 8]).unwrap_or(0);
-            let last = core::List::last([7, 8]).unwrap_or(0);
+            let first = core::collections::List::first([7, 8]).unwrap_or(0);
+            let last = core::collections::List::last([7, 8]).unwrap_or(0);
             core::convert::to_string(hit) + " " + core::convert::to_string(miss)
                 + " " + core::convert::to_string(first) + " " + core::convert::to_string(last)
         }
@@ -2691,9 +2691,9 @@ fn test_map_get_returns_option() {
     let (dir, pkg) = temp_package(
         r#"
         pub fn run(): String {
-            let m = core::map::insert(core::map::empty(), "a", 1);
-            let hit = core::map::get(m, "a").unwrap_or(0);
-            let miss = match core::map::get(m, "b") {
+            let m = core::collections::map::insert(core::collections::map::empty(), "a", 1);
+            let hit = core::collections::map::get(m, "a").unwrap_or(0);
+            let miss = match core::collections::map::get(m, "b") {
                 Some(_) => "some",
                 None => "none",
             };
@@ -2712,8 +2712,8 @@ fn test_string_index_of_returns_option() {
     let (dir, pkg) = temp_package(
         r#"
         pub fn run(): String {
-            let found = core::String::index_of("hello world", "wor").unwrap_or(0 - 1);
-            let missing = core::String::index_of("hello", "xyz").is_none();
+            let found = core::primitives::String::index_of("hello world", "wor").unwrap_or(0 - 1);
+            let missing = core::primitives::String::index_of("hello", "xyz").is_none();
             core::convert::to_string(found) + " " + core::convert::to_string(missing)
         }
         "#,
@@ -2736,7 +2736,7 @@ fn test_core_functions_fully_qualified() {
     let (dir, pkg) = temp_package(
         r"
         pub fn run(): Number {
-            core::List::range(1, 5).sum()
+            core::collections::List::range(1, 5).sum()
         }
         ",
     );
@@ -2748,10 +2748,10 @@ fn test_core_functions_fully_qualified() {
 
 #[test]
 fn test_core_whole_module_import_alias() {
-    // `use core::List;` binds the alias `List` for qualified calls.
+    // `use core::collections::List;` binds the alias `List` for qualified calls.
     let (dir, pkg) = temp_package(
         r"
-        use core::List;
+        use core::collections::List;
 
         pub fn run(): Number {
             List::range(1, 5).fold(0, (acc: Number, x: Number) => acc + x)
@@ -2766,12 +2766,12 @@ fn test_core_whole_module_import_alias() {
 
 #[test]
 fn test_core_item_import() {
-    // `use core::List::{range};` binds a plain name. (Combinators are now
+    // `use core::collections::List::{range};` binds a plain name. (Combinators are now
     // methods, so `range` — a receiverless core free function — is the
     // importable plain name; the chain finishes with the `.sum()` method.)
     let (dir, pkg) = temp_package(
         r"
-        use core::List::{range};
+        use core::collections::List::{range};
 
         pub fn run(): Number {
             range(1, 5).sum()
@@ -2814,11 +2814,11 @@ fn test_non_brace_item_import() {
 
 #[test]
 fn test_non_brace_core_item_import() {
-    // The unification reaches core too: `use core::List::range;` binds the
+    // The unification reaches core too: `use core::collections::List::range;` binds the
     // bare name `range` without braces.
     let (dir, pkg) = temp_package(
         r"
-        use core::List::range;
+        use core::collections::List::range;
 
         pub fn run(): Number {
             range(1, 4).sum()
@@ -3102,7 +3102,7 @@ fn test_result_constructors_and_chaining() {
             let ok = parse(5).map((x: Number) => x * 10);
             let err = parse(0 - 3);
             match ok.and_then((x: Number) => parse(x)) {
-                Ok(v) => core::String::from_number(v),
+                Ok(v) => core::primitives::String::from_number(v),
                 Err(e) => e,
             }
         }
@@ -3226,7 +3226,7 @@ fn test_user_ability_inline_handler() {
         pub fn run(): String {
             handle hello() {
                 Greeter::greet(name) => {
-                    resume(core::String::concat("hi ", name))
+                    resume(core::primitives::String::concat("hi ", name))
                 }
             }
         }
@@ -3435,7 +3435,7 @@ fn test_handler_methods_intrinsic() {
 
         pub fn run(): Number {
             let oracle = { answer() => resume(42) };
-            core::List::length(core::protocol::handler_methods(oracle))
+            core::collections::List::length(core::protocol::handler_methods(oracle))
         }
         ",
     )
@@ -3709,7 +3709,7 @@ fn test_fs_list_returns_written_entries() {
         pub fn run(): Number with platform::FileSystem {{
             platform::FileSystem::write!("{base}/a.txt", "1");
             platform::FileSystem::write!("{base}/b.txt", "2");
-            core::List::length(platform::FileSystem::list!("{base}"))
+            core::collections::List::length(platform::FileSystem::list!("{base}"))
         }}
         "#
     ))

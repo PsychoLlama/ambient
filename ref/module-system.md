@@ -30,7 +30,7 @@ use super::parent;                 // Import from ../parent.ab
 use super::super::grandparent;      // Import from ../../grandparent.ab
 
 // Standard library
-use core::List;                    // List::map(), List::filter()
+use core::collections::List;                    // List::map(), List::filter()
 
 // Re-exports (make imported items part of this module's public API)
 pub use pkg::other::Thing;          // Re-export Thing
@@ -382,7 +382,7 @@ use pkg::module::{item1, item2};
 use self::sibling;
 use super::parent;
 use super::super::grandparent;
-use core::List;
+use core::collections::List;
 pub use pkg::other::Thing;
 ```
 
@@ -470,7 +470,7 @@ Implement the `core` standard library.
 - Modify: `crates/ambient-engine/src/infer/mod.rs` - Preload core types
 
 **Deliverables:**
-- Core modules: `core::List`, `core::Option`, `core::Result`, `core::String`
+- Core modules: `core::collections::List`, `core::Option`, `core::Result`, `core::primitives::String`
 - Implicit prelude (Option, Result always available)
 - Core abilities: `core::console`, `core::time`, `core::random`
 
