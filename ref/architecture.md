@@ -987,6 +987,20 @@ ability Process {
   fn whereis(name: string): number;   // 0 if no such name
   fn exit(): ();                      // stop after the current reduction
 }
+
+// The host process's environment. `var` returns None for an unset
+// variable (absence is data, not an exception). `args` is the captured
+// argv the CLI composes at startup — index 0 is the program path, the
+// rest are the user args after `--` — not live OS state. `set` is
+// process-global and best-effort (see below).
+ability Env {
+  fn var(name: string): Option<string>;
+  fn vars(): List<(string, string)>;
+  fn set(name: string, value: string): ();
+  fn args(): List<string>;            // index 0 is the program path
+  fn cwd(): string;
+  fn pid(): number;
+}
 ```
 
 `Process` is the surface of the process model (`ref/processes.md`):
@@ -997,6 +1011,17 @@ FileSystem failures (missing files, permission errors, invalid UTF-8) raise
 catchable `Exception`s, recoverable with
 `handle ... { Exception.throw(msg) => ... }`. Only `exists` is
 infallible: it returns `false` when the path can't be inspected.
+
+`Env` reads (and mutates) the process environment. `var`/`vars`/`cwd`/`pid`
+read live OS state — a missing variable is `None`, not an exception; only
+`cwd` raises (an unreadable working directory). `args` is *not* live OS
+state: the CLI captures it at startup — `ambient run <path> -- a b` yields
+`[<path>, "a", "b"]`, mirroring Python's `sys.argv[0]` / Go's `os.Args[0]`
+(`ambient dev` and the REPL supply an empty argv). `set` is process-global
+and best-effort: under edition 2024 it wraps an `unsafe std::env::set_var`,
+and since each process runs on its own OS thread, mutating the environment
+while another thread reads it is undefined behavior — it is intended for
+early startup/config, not concurrent mutation. Exit codes are out of scope.
 
 ### Standard Functions
 
