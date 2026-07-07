@@ -569,6 +569,7 @@ fn test_fibonacci_sequence() {
 }
 
 #[test]
+#[allow(clippy::cast_precision_loss)] // n is a small enumerate index
 fn test_fibonacci_values() {
     let expected = [0.0, 1.0, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0, 34.0, 55.0];
 
