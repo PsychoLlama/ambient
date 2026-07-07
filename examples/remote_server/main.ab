@@ -7,16 +7,27 @@
 //!
 //! Run with: `ambient run examples/remote_server`
 
-use core::system::{Stdio, Network, Execute};
+use core::system::{Stdio, Network, Execute, Env};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Entry Point
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Resolve the listen endpoint from the environment, defaulting to
+/// `127.0.0.1:8080`. `REMOTE_HOST` overrides the interface;
+/// `REMOTE_PORT` the port — `parse_number` yields None for a
+/// non-numeric value, which falls back to the default port too.
+fn endpoint(): (String, Number) with Env {
+    let host = Env::var!("REMOTE_HOST").unwrap_or("127.0.0.1");
+    let port = core::convert::parse_number(Env::var!("REMOTE_PORT").unwrap_or("8080")).unwrap_or(8080);
+    (host, port)
+}
+
 /// Entry point that starts the server.
-pub fn run(): () with Stdio, Network, Execute {
-    Stdio::out!("Server: listening on 127.0.0.1:8080...");
-    let listener = Network::listen!(("127.0.0.1", 8080));
+pub fn run(): () with Stdio, Network, Execute, Env {
+    let addr = endpoint();
+    Stdio::out!("Server: listening on ".concat(addr.0).concat(":").concat(core::convert::to_string(addr.1)).concat("..."));
+    let listener = Network::listen!(addr);
 
     Stdio::out!("Server: waiting for connection...");
     let conn = Network::accept!(listener);

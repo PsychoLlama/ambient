@@ -8,7 +8,7 @@
 //! Run with: `ambient run examples/remote_client`
 //! (Make sure the remote_server is running first!)
 
-use core::system::{Stdio, Network, Execute, Log};
+use core::system::{Stdio, Network, Execute, Log, Env};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Entry Point
@@ -23,10 +23,21 @@ fn double(x: Number): Number with Log, Stdio {
     x * 2
 }
 
+/// Resolve the server endpoint from the environment, defaulting to
+/// `127.0.0.1:8080` — the same `REMOTE_HOST`/`REMOTE_PORT`
+/// the server reads, so pointing both at one address only takes setting
+/// two variables.
+fn endpoint(): (String, Number) with Env {
+    let host = Env::var!("REMOTE_HOST").unwrap_or("127.0.0.1");
+    let port = core::convert::parse_number(Env::var!("REMOTE_PORT").unwrap_or("8080")).unwrap_or(8080);
+    (host, port)
+}
+
 /// Entry point that connects to server and executes a function remotely.
-pub fn run(): () with Stdio, Network, Execute {
-    Stdio::out!("Client: connecting to 127.0.0.1:8080...");
-    let conn = Network::connect!(("127.0.0.1", 8080));
+pub fn run(): () with Stdio, Network, Execute, Env {
+    let addr = endpoint();
+    Stdio::out!("Client: connecting to ".concat(addr.0).concat(":").concat(core::convert::to_string(addr.1)).concat("..."));
+    let conn = Network::connect!(addr);
 
     let local = Network::local_addr!(conn);
     Stdio::out!("Client: connected from ".concat(local));
