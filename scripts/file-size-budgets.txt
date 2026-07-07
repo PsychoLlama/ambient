@@ -4,7 +4,6 @@
 # fails the check, and shrinking it requires lowering the budget to match.
 # The goal is for this file to become empty — never add an entry to
 # accommodate new growth; split the file instead.
-crates/ambient-cli/tests/integration_tests.rs 3981
 crates/ambient-engine/src/vm/tests.rs 2030
 crates/ambient-parser/src/parser/mod.rs 1967
 crates/ambient-engine/src/compiler/tests.rs 1790
