@@ -23,6 +23,9 @@
 // Test-only DSL: assertion helpers panic by design, so documenting every
 // panic path adds no value here.
 #![allow(clippy::missing_panics_doc)]
+// Returning Result from a test helper is deliberate; an `# Errors` section
+// on test-only code adds no value.
+#![allow(clippy::missing_errors_doc)]
 
 use std::sync::Arc;
 
