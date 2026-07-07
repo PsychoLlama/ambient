@@ -1331,6 +1331,9 @@ impl Param {
 
 #[cfg(test)]
 mod tests {
+    // Number-literal assertions compare against exact, representable values.
+    #![allow(clippy::float_cmp)]
+
     use super::*;
 
     #[test]

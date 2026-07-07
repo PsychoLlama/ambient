@@ -1,3 +1,7 @@
+// These tests assert that number literals parse to exact, representable
+// values (42.0, 1.0, ...), so exact float comparison is intended.
+#![allow(clippy::float_cmp)]
+
 use ambient_engine::ast::Span;
 
 use super::Parser;
