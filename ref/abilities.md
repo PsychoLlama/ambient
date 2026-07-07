@@ -66,12 +66,12 @@ bare `use core::system::…` there is a follow-up.
 let content = FileSystem::read!("file.txt");
 ```
 
-Every module's abilities are in scope *fully-qualified* (`core::system::Stdio`
+Every module's abilities are in scope _fully-qualified_ (`core::system::Stdio`
 or `pkg::effects::Counter` in performs, `with` clauses, effect-row
 annotations, handler arms, and sandbox clauses) with no `use` — the same
 rule as every other item. To drop the prefix, import the ability:
 `use core::system::Stdio;` then `with Stdio` and `Stdio::out!(...)` work
-bare thereafter. A bare `Stdio` that was *never* imported (and is not a
+bare thereafter. A bare `Stdio` that was _never_ imported (and is not a
 local declaration) is a type error — the diagnostic suggests qualifying with
 `core::system::` or adding the `use`. A local `ability Stdio` shadows an
 imported one under the bare name; the platform one stays reachable
@@ -145,7 +145,7 @@ Handler arms are fully typed against the ability's declared interface:
 - Exception is special: `throw` returns `!`, and the host raises it at
   arbitrary perform sites (see "Host failures are catchable exceptions"),
   so the value passed to `resume` in an Exception arm is deliberately
-  unconstrained — it substitutes for the *failing call's* result, whose
+  unconstrained — it substitutes for the _failing call's_ result, whose
   type is unknowable at the arm.
 
 ## Handlers as Values
@@ -166,13 +166,13 @@ with mock_fs, { FileSystem::read(path) => resume("intercepted") } handle unit_te
 
 A handler value binds a brace group of arms to a name. Its type is
 `Handler<A, R>`: `A` is the single ability it covers, and `R` is the
-*answer type* — the type an arm yields when it returns *without*
+_answer type_ — the type an arm yields when it returns _without_
 resuming, which is also the result type of any `handle` expression it is
 installed on. `Handler<A>` is shorthand for "`R` inferred". Because a
 handler value covers exactly one ability, its arm names must be
 **qualified** (`FileSystem::read`, not `read`) — the ability is no longer
 guessed from method names. A brace group mixing multiple abilities is
-allowed only *directly inline* in a `with` list, never as a `let`-bound
+allowed only _directly inline_ in a `with` list, never as a `let`-bound
 handler value.
 
 Handlers in a `with` list install **left-to-right**, so a later handler
@@ -194,7 +194,7 @@ sandbox {
 }
 ```
 
-The restriction is enforced statically: the body may only *use* the
+The restriction is enforced statically: the body may only _use_ the
 allowed abilities, checked at compile time (including through calls to
 functions defined elsewhere in the module). The sandbox installs no
 handlers — allowed abilities still execute against the enclosing
@@ -227,7 +227,7 @@ casing.
 The declarations in `platform.ab` are `pub` for the same reason core
 exports are: the registry only imports public symbols, so `use
 core::system::FileSystem;` requires `pub ability FileSystem`. Visibility gates
-*only* the bare-import path — fully-qualified use is seeded independently.
+_only_ the bare-import path — fully-qualified use is seeded independently.
 
 The engine seeds the namespaced `core::system::` abilities from the registered
 `core::system` module during type checking (`seed_namespaced_ability_dynamics`),

@@ -63,8 +63,8 @@ vice versa.
 See **[modules.md](modules.md)** for the full treatment of `Fqn` identity,
 the `use` grammar, re-exports, and how the `core::` hierarchy is built.
 
-**Note:** the `Fqn` is a *location* axis — a compile-time
-lookup key and post-hash label — never a *content* axis. It must never
+**Note:** the `Fqn` is a _location_ axis — a compile-time
+lookup key and post-hash label — never a _content_ axis. It must never
 feed a content hash: a hash pins an item's implementation and its
 transitive dependencies, never the name it resolves to, so renaming or
 re-scoping an item leaves every hash untouched.

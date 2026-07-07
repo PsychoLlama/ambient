@@ -44,7 +44,7 @@ fn identity<T>(x: T): T { x }
 ## Nominal Types
 
 A `unique(<uuid>) struct` declaration gives a type its own identity, distinct
-from any structurally identical type. That identity *is* the UUID:
+from any structurally identical type. That identity _is_ the UUID:
 
 ```ambient
 unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct UserId { value: String }
@@ -56,7 +56,7 @@ convention: the lexer recognizes an uppercase UUID as a single token, which
 keeps it unambiguous against identifiers, numbers, and future lowercase `0x`
 hex literals. A lowercase or malformed UUID is a syntax error. The stored
 value is canonicalized to lowercase for content addressing and display; only
-the *source syntax* is uppercase.
+the _source syntax_ is uppercase.
 
 ## Nominal Enums
 
@@ -92,12 +92,12 @@ are ordinary Ambient source — `pub unique(…FFFF0001) enum Option<T>` in
 `core_lib/option.ab`, likewise `Result` in `core_lib/result.ab` — alongside
 their combinators and predicates, exposed as inherent methods (`map`,
 `and_then`, `is_some`, `unwrap_or`, `is_ok`, …). What makes them special is
-the *prelude*: `core_lib/prelude.ab` re-exports the two enums and their
+the _prelude_: `core_lib/prelude.ab` re-exports the two enums and their
 variants (`pub use core::Option::{Option, Some, None};`, likewise `Result`),
 and `ModuleRegistry::inject_prelude` folds every such re-export into every
 module's scope at lowest precedence — the resolver-level equivalent of a
 `use prelude::*` at the top of each module. That is why `Some`, `None`, `Ok`,
-and `Err` need no import anywhere, and it is the *same* mechanism that carries
+and `Err` need no import anywhere, and it is the _same_ mechanism that carries
 the four primitives and the operator traits: a global value is just a
 shorthand for its fully-qualified `core::…` path, re-exported onto the
 prelude. Reserved UUIDs cannot drift from the source: a declaration that

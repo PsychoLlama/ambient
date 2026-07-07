@@ -16,7 +16,7 @@ An `Fqn` is a `ModuleId` (a `Scope` + a scope-relative module path) plus an
 ident path of one or more segments. There are two identity axes that
 coexist:
 
-- **Location** (the `Fqn`): the identity of every *resolved* reference —
+- **Location** (the `Fqn`): the identity of every _resolved_ reference —
   same-module included — that the resolve pass canonicalizes: top-level
   items, type-associated members, and enum variants (the two-segment ident
   `[Enum, Variant]`). `Scope` is `Builtin` for the `core` standard library
@@ -27,9 +27,9 @@ coexist:
   data: `b` a submodule vs. `b` a type land on distinct `Fqn`s even though
   they render the same.
 - **Content**: UUID-based method dispatch symbols (`<type-uuid>::method`)
-  keep their perfect content identity and are *not* folded into the `Fqn`.
+  keep their perfect content identity and are _not_ folded into the `Fqn`.
   Content hashes never depend on the `Fqn`: finalization folds a recursive
-  function's *bare* short name into its group object, so the `Fqn` is a
+  function's _bare_ short name into its group object, so the `Fqn` is a
   compile-time lookup key and post-hash label, never a hashing input.
 
 Internal tables key off the `Fqn` struct (`Eq`/`Hash`) through a `NameKey`
@@ -97,7 +97,7 @@ traits are module-private unless declared `pub`. A failed import — missing
 module, missing symbol, or private symbol — is a compile error at the `use`
 item, never a silent no-op. Importing an enum brings its variant
 constructors and patterns into scope wholesale, as if declared locally;
-a single variant cannot be imported on its own, and a qualified *type*
+a single variant cannot be imported on its own, and a qualified _type_
 reference alone (`pkg::shapes::Shape` in a signature) does not bring
 constructors into scope — import the enum where you construct or match
 it. `pub use` re-exports items (and whole modules), and imports through a
@@ -121,9 +121,9 @@ identifier again: `src/platform.ab` is a perfectly legal user module.
 
 The `core::` hierarchy is defined by the `core_lib/` source tree itself, not
 by a hand-maintained list: `register_core_modules` walks the embedded tree and
-maps every `.ab` file to a module path through the *same* file↔module mapping
+maps every `.ab` file to a module path through the _same_ file↔module mapping
 (`ModulePath::from_relative_file_path`) that user packages use, and each
-directory's `main.ab` (a *directory module*) groups its siblings with `pub use
+directory's `main.ab` (a _directory module_) groups its siblings with `pub use
 self::…`. A directory module anchors `self`/`super` at its own path rather than
 its parent, so `core_lib/collections/main.ab` re-exports its neighbours as
 `core::collections::…`. Intrinsic opcodes are the one Rust-side coupling: their
@@ -141,9 +141,9 @@ Types, values, and modules occupy separate namespaces resolved by
 syntactic position, so the type `List` and the module `core::collections::List` coexist
 without ambiguity.
 
-Known gaps (deliberate, minor): qualified references to *generic* type
+Known gaps (deliberate, minor): qualified references to _generic_ type
 aliases and generic `unique` types are unresolved (parameter substitution
-is checker work); ability names inside function *type* annotations
+is checker work); ability names inside function _type_ annotations
 (`(T) -> U with E`) accept only bare or `core::system::` spellings; intrinsics
 are not first-class values (`let f = core::primitives::Number::sqrt;` is an error —
 call them directly).

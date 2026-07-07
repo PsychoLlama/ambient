@@ -4,7 +4,7 @@ Part of the [Ambient Language Reference](architecture.md).
 
 > **Status: experimental — may pivot.** This process model is our current
 > experiment for giving live code upgrade a well-defined unit of state to
-> hand off. Prototyping has shown it is *not* a perfect fit: the
+> hand off. Prototyping has shown it is _not_ a perfect fit: the
 > state-handoff contract is coarse, and a reducer/mailbox boundary may be
 > the wrong unit. We may pivot to a different design. Treat everything
 > below as the shape of one experiment, not a settled architecture. See
@@ -12,11 +12,11 @@ Part of the [Ambient Language Reference](architecture.md).
 > [architecture.md](architecture.md#future-work) for where this is headed.
 
 Ambient's unit of long-lived state is the **process**: a named, isolated
-reducer driven by a mailbox, in the spirit of Erlang's gen_server. The
+reducer driven by a mailbox, in the spirit of Erlang's `gen_server`. The
 process model exists for one reason above all others: **hot code
 replacement needs a well-defined unit of state to hand off**, and a
 mailbox/reducer boundary provides exactly that. Content addressing
-supplies the other half — a deploy knows *precisely* which processes'
+supplies the other half — a deploy knows _precisely_ which processes'
 code changed, because code identity is a hash.
 
 ## The model
@@ -85,9 +85,9 @@ signature — the same host-boundary rule that governs `core::system::Execute::r
 
 ### Root vs dynamic processes
 
-- **Root processes** are spawned during a *deploy pass* (see below) —
+- **Root processes** are spawned during a _deploy pass_ (see below) —
   the program's entry function declaring its process tree. They are
-  *reconciled* on every deploy: rebound, kept, or stopped.
+  _reconciled_ on every deploy: rebound, kept, or stopped.
 - **Dynamic processes** are spawned during ordinary reductions (e.g. one
   per accepted connection). They are pinned to their spawn-time code and
   run until they `exit!` or crash out; deploys never touch them. Old and
@@ -117,20 +117,20 @@ way a UI framework re-renders and reconciles:
      A process mid-reduction (or blocked in IO) finishes on old code
      first; the swap lands before the next message is processed.
    - **New name** → spawn it fresh.
-3. Root processes the new entry did *not* declare are stopped.
+3. Root processes the new entry did _not_ declare are stopped.
 4. Every process VM (including pinned dynamic processes) gets the new
    generation's functions loaded alongside the old — additive and
    collision-free because functions are content-addressed. Old code
    keeps running; values referencing new code (e.g. closures inside
    messages) resolve.
 
-State handoff is therefore *by default and by name*: a changed reducer
+State handoff is therefore _by default and by name_: a changed reducer
 receives the state its predecessor left. There is no `code_change`
 callback yet; the migration contract is:
 
 - If the new reducer can consume the old state, it just does.
 - If it can't — the reduction faults — supervision takes over: the
-  process restarts with a fresh state from the *new* init. Live data
+  process restarts with a fresh state from the _new_ init. Live data
   loss is bounded to that one process, and the failure is loud.
 
 Because the entry re-runs on every deploy, it should stay
@@ -150,7 +150,7 @@ Every process is supervised by the runtime:
   and retrying init in a loop would flap.
 
 This is deliberately the smallest useful supervisor. Supervision
-*trees* (per-child restart strategies, escalation) are future work and
+_trees_ (per-child restart strategies, escalation) are future work and
 should be expressible in-language once process linking exists.
 
 ## Interaction with blocking IO
@@ -158,7 +158,7 @@ should be expressible in-language once process linking exists.
 Reductions may block (accept a connection, read a socket). The rules
 that fall out:
 
-- A blocked process delays *its own* upgrade until the reduction
+- A blocked process delays _its own_ upgrade until the reduction
   completes; everyone else proceeds. An acceptor loop structured as
   "reduce per accepted connection" (see `examples/live_server`)
   upgrades on the next connection.
@@ -168,9 +168,9 @@ that fall out:
 
 ## Relation to Execute (remote upgrade)
 
-Nothing here is dev-server-specific. A deploy pass is: *a code
+Nothing here is dev-server-specific. A deploy pass is: _a code
 generation (pack of content-addressed objects) plus one run of an entry
-function in reconcile mode*. `ambient dev` produces generations from
+function in reconcile mode_. `ambient dev` produces generations from
 the local file watcher; a future `Execute`-driven path can receive the
 same pack over the wire and run the same reconciliation — live upgrade
 of a remote service with the exact mechanics tested locally. The

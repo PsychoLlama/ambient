@@ -167,7 +167,7 @@ Rules:
 - **Inherent wins.** If a type has both an inherent method and a trait
   method of the same name, dot dispatch resolves the inherent one (as in
   Rust). Adding an inherent method is a deliberate local override, never
-  silent ambiguity; trait dispatch ambiguity between two *traits* is still
+  silent ambiguity; trait dispatch ambiguity between two _traits_ is still
   an error at the call site.
 - **No blanket impls.** The target must be a concrete type identity —
   `impl<T> T` is rejected, as are structural targets (records, tuples,
@@ -200,7 +200,7 @@ re-exported onto the prelude (`pub use core::traits::{Add, …, Ord};` in
 hardcoded copy. A module that declares its own trait with the same name
 shadows the prelude entry.
 
-`Default` lives in `core::traits` too but is *not* in the prelude: it has no
+`Default` lives in `core::traits` too but is _not_ in the prelude: it has no
 operator that desugars to it, so it is standard-library convenience rather
 than a load-bearing global. Using it requires an explicit
 `use core::traits::Default;`. It supplies a canonical value for a type via the
@@ -276,7 +276,7 @@ replace `impl Money` in a running system without touching `Money`, so
   impl's.
 
 The residual hazard is semantic, not mechanical: a data structure whose
-*invariant* depends on impl behavior (say, a set ordered by `Ord::cmp`)
+_invariant_ depends on impl behavior (say, a set ordered by `Ord::cmp`)
 can be built by one version and queried by another that compares
 differently. That hazard predates inherent impls — any trait impl edit
 plus surviving state can trigger it — and it is a state-handoff problem,
