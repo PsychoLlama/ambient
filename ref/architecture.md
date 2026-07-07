@@ -19,8 +19,12 @@ Expression-based with C-like syntax. No statements, only expressions. Semicolons
 // Constants map an identifier to a single hashed primitive value. The
 // initializer must be a literal (number, string, boolean, `()`, or a negated
 // numeric literal) — not an identifier, call, or compound expression. The
-// value is baked in when the module is built and inlined at each reference.
-// This is deliberately minimal and may widen later.
+// value is content-addressed into a standalone object when the module is
+// built and referenced by hash (deduplicated, never re-inlined); two consts
+// with the same value share one object. This is deliberately minimal and may
+// widen later. The type annotation is optional — it is inferred from the
+// literal when omitted (`const PI = 3.14159;`). A `const` is valid at module
+// scope and inside any block, wherever a `use` is.
 const PI: number = 3.14159;
 
 // Functions
