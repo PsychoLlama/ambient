@@ -126,6 +126,9 @@ fn apply_edits(content: &str, edits: &[TextEdit]) -> String {
 }
 
 /// Apply a `WorkspaceEdit` to the on-disk files it names.
+// `WorkspaceEdit::changes` is an lsp-types `HashMap<Uri, _>`; `Uri` has interior
+// mutability we don't control and only read here as a key.
+#[allow(clippy::mutable_key_type)]
 fn apply_workspace_edit(edit: &WorkspaceEdit) {
     let changes = edit.changes.as_ref().expect("changes present");
     for (uri, edits) in changes {
