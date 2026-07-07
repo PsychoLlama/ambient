@@ -318,7 +318,7 @@ fn test_handler_literal_prelude_ability() {
             crate::types::AbilityId::from_bytes([7; 32])
         );
     } else {
-        panic!("Expected Handler type, got {:?}", ty);
+        panic!("Expected Handler type, got {ty:?}");
     }
 }
 
@@ -342,7 +342,7 @@ fn test_handler_literal_exception_throw() {
         assert_eq!(handler_ty.ability, ambient_core::exception::ability_id());
         assert_eq!(*handler_ty.answer, Type::Unit);
     } else {
-        panic!("Expected Handler type, got {:?}", ty);
+        panic!("Expected Handler type, got {ty:?}");
     }
 }
 
@@ -376,7 +376,7 @@ fn test_handler_literal_multi_method() {
             crate::types::AbilityId::from_bytes([8; 32])
         );
     } else {
-        panic!("Expected Handler type, got {:?}", ty);
+        panic!("Expected Handler type, got {ty:?}");
     }
 }
 
@@ -452,8 +452,7 @@ fn test_handler_literal_wrong_arity() {
         let msg = format!("{}", err.kind);
         assert!(
             msg.contains("expects 1 parameters") || msg.contains("expected 1"),
-            "Error should mention expected arity: {}",
-            msg
+            "Error should mention expected arity: {msg}"
         );
     }
 }

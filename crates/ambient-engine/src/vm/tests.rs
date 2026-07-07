@@ -971,13 +971,13 @@ fn test_make_handler_creates_handler_value() {
     let result = vm.call(&main_hash, vec![]);
 
     // Should return a handler value.
-    assert!(result.is_ok(), "Should succeed: {:?}", result);
+    assert!(result.is_ok(), "Should succeed: {result:?}");
     if let Ok(Value::Handler(handler)) = result {
         assert_eq!(handler.ability_id, ABILITY_HANDLER_TEST);
         assert!(handler.handles_method(HANDLER_METHOD_A));
         assert_eq!(handler.methods.len(), 1);
     } else {
-        panic!("Expected Handler value, got {:?}", result);
+        panic!("Expected Handler value, got {result:?}");
     }
 }
 
@@ -1018,14 +1018,14 @@ fn test_make_handler_with_multiple_methods() {
 
     let result = vm.call(&main_hash, vec![]);
 
-    assert!(result.is_ok(), "Should succeed: {:?}", result);
+    assert!(result.is_ok(), "Should succeed: {result:?}");
     if let Ok(Value::Handler(handler)) = result {
         assert_eq!(handler.ability_id, ABILITY_HANDLER_TEST);
         assert!(handler.handles_method(HANDLER_METHOD_A));
         assert!(handler.handles_method(HANDLER_METHOD_B));
         assert_eq!(handler.methods.len(), 2);
     } else {
-        panic!("Expected Handler value, got {:?}", result);
+        panic!("Expected Handler value, got {result:?}");
     }
 }
 
@@ -1056,7 +1056,7 @@ fn test_make_list() {
         assert_eq!(elements[1], Value::Number(2.0));
         assert_eq!(elements[2], Value::Number(3.0));
     } else {
-        panic!("Expected List, got {:?}", result);
+        panic!("Expected List, got {result:?}");
     }
 }
 
@@ -1220,7 +1220,7 @@ fn test_list_concat() {
         assert_eq!(elements[2], Value::Number(3.0));
         assert_eq!(elements[3], Value::Number(4.0));
     } else {
-        panic!("Expected List, got {:?}", result);
+        panic!("Expected List, got {result:?}");
     }
 }
 
@@ -1246,7 +1246,7 @@ fn test_list_append() {
         assert_eq!(elements.len(), 3);
         assert_eq!(elements[2], Value::Number(3.0));
     } else {
-        panic!("Expected List, got {:?}", result);
+        panic!("Expected List, got {result:?}");
     }
 }
 
@@ -1310,7 +1310,7 @@ fn test_list_tail() {
         assert_eq!(elements[0], Value::Number(2.0));
         assert_eq!(elements[1], Value::Number(3.0));
     } else {
-        panic!("Expected List, got {:?}", result);
+        panic!("Expected List, got {result:?}");
     }
 }
 
@@ -1357,7 +1357,7 @@ fn test_string_split() {
         assert_eq!(elements[1], Value::string("b"));
         assert_eq!(elements[2], Value::string("c"));
     } else {
-        panic!("Expected List, got {:?}", result);
+        panic!("Expected List, got {result:?}");
     }
 }
 
