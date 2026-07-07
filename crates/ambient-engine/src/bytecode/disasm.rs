@@ -44,8 +44,7 @@ fn operands(op: Opcode) -> Operands {
         | O::LoadCapture
         | O::MakeList
         | O::MakeSet
-        | O::EnumIs
-        | O::Handle => Operands::U16,
+        | O::EnumIs => Operands::U16,
 
         O::Jump | O::JumpIf | O::JumpIfNot => Operands::I16,
 
@@ -166,9 +165,7 @@ fn instruction_detail(
             .u8()
             .map_or_else(|| TRUNCATED.to_string(), |v| format!(" {v}")),
         Operands::U16 => match cur.u16() {
-            Some(v)
-                if op == Opcode::PushConst || op == Opcode::LoadObject || op == Opcode::Handle =>
-            {
+            Some(v) if op == Opcode::PushConst || op == Opcode::LoadObject => {
                 format!(" {}", const_at(v))
             }
             Some(v) => format!(" {v}"),

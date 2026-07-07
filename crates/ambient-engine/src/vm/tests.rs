@@ -664,7 +664,7 @@ fn test_bytecode_handler_overrides_host_handler() {
             // This should NOT be called - bytecode handler takes priority
             Ok(Value::Number(999.0))
         })
-        .handle(ABILITY_MATH, handler_hash)
+        .handle(ABILITY_MATH, METHOD_DOUBLE, handler_hash)
         .push(5.0)
         .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
         .perform()
@@ -698,7 +698,7 @@ fn test_bytecode_handler_simple_resume() {
 
     VmTest::new()
         .with_function(handler)
-        .handle(ABILITY_MATH, handler_hash)
+        .handle(ABILITY_MATH, METHOD_DOUBLE, handler_hash)
         .push(5.0)
         .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
         .perform()
@@ -720,7 +720,7 @@ fn test_single_shot_enforcement() {
 
     VmTest::new()
         .with_function(handler)
-        .handle(ABILITY_MATH, handler_hash)
+        .handle(ABILITY_MATH, METHOD_DOUBLE, handler_hash)
         .push(5.0)
         .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
         .perform()

@@ -650,6 +650,32 @@ fn test_handler_value_multi_arm_captures() {
     .expect_output("30");
 }
 
+/// An inline multi-method brace for one ability installs a single
+/// method-dispatched `HandlerValue`, so each perform reaches its own arm.
+/// `left` yields 1 and `right` yields 2, giving `1*10 + 2`; a
+/// method-agnostic install (the old per-arm `Handle` path) would run one
+/// arm for both performs.
+#[test]
+fn test_inline_multi_method_dispatch() {
+    CliTest::new(
+        r#"
+        ability Pair {
+          fn left(): Number;
+          fn right(): Number;
+        }
+
+        fn body(): Number with Pair {
+          Pair::left!() * 10 + Pair::right!()
+        }
+
+        fn run(): Number {
+          with { Pair::left() => resume(1), Pair::right() => resume(2) } handle body()
+        }
+    "#,
+    )
+    .expect_output("12");
+}
+
 #[test]
 fn test_example_handler_value() {
     let output = ambient_cmd()

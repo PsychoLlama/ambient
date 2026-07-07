@@ -707,7 +707,9 @@ impl ModuleContext {
 
     /// Look up an ability by identity (for handler literals, where the
     /// type checker hands the compiler an `AbilityId`). Searches locals,
-    /// then the prelude.
+    /// the prelude, then imported foreign abilities — the same set
+    /// [`Self::resolve_ability`] covers, so an ability reachable by name is
+    /// also reachable by id.
     fn ability_by_id(
         &self,
         id: crate::types::AbilityId,
@@ -719,6 +721,14 @@ impl ModuleContext {
                 self.prelude_abilities
                     .iter()
                     .find(|(_, info)| info.id == id)
+            })
+            .or_else(|| {
+                self.foreign_abilities
+                    .iter()
+                    .find(|(_, info)| info.id == id)
+                    // An `Fqn`'s ident path always has a final segment (the
+                    // ability's own name).
+                    .and_then(|(fqn, info)| fqn.ident.last().map(|name| (name, info)))
             })
     }
 

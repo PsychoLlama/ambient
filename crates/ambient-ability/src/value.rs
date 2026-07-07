@@ -685,33 +685,14 @@ pub struct CapturedFrame {
     pub captures: Vec<Value>,
 }
 
-/// The implementation behind an installed ability handler.
-#[derive(Debug, Clone)]
-pub enum HandlerImpl {
-    /// An inline handler arm: one function for all methods of the ability,
-    /// with the environment it captured from its enclosing scope.
-    Inline {
-        /// The compiled arm function (receives continuation + suspended ability).
-        func: blake3::Hash,
-        /// Values captured from the scope enclosing the handle expression.
-        captures: Vec<Value>,
-    },
-
-    /// A first-class handler value with per-method functions.
-    Value {
-        /// The handler value (methods + captures).
-        handler: Arc<HandlerValue>,
-    },
-}
-
 /// A handler entry captured into a continuation.
 #[derive(Debug, Clone)]
 pub struct CapturedHandler {
     /// The ability this handler intercepts.
     pub ability_id: AbilityId,
 
-    /// The handler implementation.
-    pub handler: HandlerImpl,
+    /// The installed handler value (per-method functions + shared captures).
+    pub handler: Arc<HandlerValue>,
 
     /// The delimiting frame index, relative to the continuation's frames.
     pub boundary: usize,

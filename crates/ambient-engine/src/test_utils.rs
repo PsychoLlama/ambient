@@ -374,15 +374,22 @@ impl VmTest {
         self
     }
 
-    /// Install a bytecode handler for an ability.
+    /// Install a bytecode handler for one method of an ability.
     ///
-    /// The handler function is packaged as a capture-free closure (the
-    /// Handle instruction pops the arm closure from the stack). The
-    /// current frame becomes the delimitation boundary.
+    /// The arm function is packaged into a capture-free single-method
+    /// `HandlerValue` and installed with `HandleWithValue` — the sole
+    /// handler-install path. The current frame becomes the delimitation
+    /// boundary.
     #[must_use]
-    pub fn handle(mut self, ability_id: AbilityId, handler_hash: blake3::Hash) -> Self {
-        self.builder.emit_make_closure(handler_hash, 0);
-        self.builder.emit_handle(ability_id);
+    pub fn handle(
+        mut self,
+        ability_id: AbilityId,
+        method_id: u16,
+        handler_hash: blake3::Hash,
+    ) -> Self {
+        self.builder
+            .emit_make_handler(ability_id, &[(method_id, handler_hash)], 0);
+        self.builder.emit_handle_with_value();
         self
     }
 

@@ -259,15 +259,6 @@ pub enum Opcode {
     /// captures the continuation, and jumps to the handler code.
     Perform = 0x81,
 
-    /// Install an ability handler and mark a handler boundary.
-    /// Operand: u16 (ability ID to handle)
-    /// Operand: u16 (handler function index in constant pool)
-    /// Operand: i16 (offset to jump to after handled expression completes normally)
-    ///
-    /// This marks the start of a handled region. When an ability with matching ID
-    /// is performed, control transfers to the handler function.
-    Handle = 0x82,
-
     /// Remove the most recent ability handler.
     ///
     /// Called when exiting a handled region normally (not via ability performance).
@@ -788,7 +779,6 @@ impl Opcode {
             // Abilities
             0x80 => Some(Self::Suspend),
             0x81 => Some(Self::Perform),
-            0x82 => Some(Self::Handle),
             0x83 => Some(Self::Unhandle),
             0x84 => Some(Self::Resume),
             0x85 => Some(Self::GetAbilityArg),

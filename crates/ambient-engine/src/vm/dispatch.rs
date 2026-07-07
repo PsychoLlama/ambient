@@ -329,21 +329,6 @@ impl Vm {
                     self.op_perform()?;
                 }
 
-                Opcode::Handle => {
-                    let ability_idx = self.read_u16()?;
-                    let ability_id = match self.get_constant(ability_idx)? {
-                        Value::AbilityRef(id) => id,
-                        other => {
-                            return Err(VmError::TypeError {
-                                expected: "ability",
-                                got: other.type_name(),
-                                operation: "handle",
-                            });
-                        }
-                    };
-                    self.op_handle(ability_id)?;
-                }
-
                 Opcode::Unhandle => {
                     self.handlers.pop();
                 }

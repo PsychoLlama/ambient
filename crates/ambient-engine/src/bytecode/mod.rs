@@ -390,7 +390,6 @@ mod tests {
             // Abilities
             Opcode::Suspend,
             Opcode::Perform,
-            Opcode::Handle,
             Opcode::Unhandle,
             Opcode::Resume,
             // Closures

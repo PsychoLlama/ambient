@@ -131,17 +131,46 @@ pub(super) fn compile_handle_expr(
 
     // Install each handler in the flat `with` list, in source order (so a
     // later handler shadows an earlier one for the same ability — "last
-    // wins"). Two install paths are dispatched per element:
-    //   - a handler-literal node installs each arm as a closure via `Handle`
-    //     (preserving inline-arm capture support and multi-ability installs);
-    //   - any other expression yields a `Handler` value installed via
-    //     `HandleWithValue`.
+    // wins"). Every handler installs through the single `HandlerValue` path
+    // (`MakeHandler` + `HandleWithValue`):
+    //   - a handler-literal node is compiled in place, its arms grouped by
+    //     ability into one `HandlerValue` per ability (a multi-ability inline
+    //     brace thus becomes one install per ability);
+    //   - any other expression already evaluates to a `Handler` value.
     // Everything is compiled inside the thunk; free names capture through it.
     let mut install_count: usize = 0;
     for handler in &handle_expr.handlers {
         if let crate::ast::ExprKind::HandlerLiteral(lit) = &handler.kind {
+            // Group arms by ability, preserving first-seen order.
+            let mut groups: Vec<(AbilityId, Vec<&HandlerLiteralMethod>)> = Vec::new();
             for method in &lit.methods {
-                compile_handler_arm(fc, &mut thunk_fc, method, ctx)?;
+                let ability_id = resolve_arm_ability(ctx, method)?;
+                match groups.iter_mut().find(|(id, _)| *id == ability_id) {
+                    Some((_, arms)) => arms.push(method),
+                    None => groups.push((ability_id, vec![method])),
+                }
+            }
+
+            for (ability_id, arms) in &groups {
+                let span = (handler.span.start, handler.span.end);
+                let (method_hashes, captures) =
+                    compile_handler_methods(fc, *ability_id, arms, span, ctx)?;
+                // Load the shared captures in the thunk, capturing them
+                // through it when they come from the installer's scope.
+                for (name, _slot) in &captures {
+                    if let Some(&slot) = thunk_fc.local_names.get(name) {
+                        thunk_fc.builder.emit_u16(Opcode::LoadLocal, slot);
+                    } else {
+                        let capture_slot = thunk_fc.get_or_create_capture_by_name(Arc::clone(name));
+                        thunk_fc.builder.emit_load_capture(capture_slot);
+                    }
+                }
+                thunk_fc.builder.emit_make_handler(
+                    *ability_id,
+                    &method_hashes,
+                    captures.len() as u8,
+                );
+                thunk_fc.builder.emit_handle_with_value();
                 install_count += 1;
             }
         } else {
@@ -220,28 +249,16 @@ pub(super) fn compile_handle_expr(
     Ok(())
 }
 
-/// Compile one inline handler arm and emit its installation in the thunk.
-///
-/// The arm is compiled as a separate function with the *installer* as its
-/// parent scope. Arm functions have implicit parameters:
-/// - slot 0: continuation
-/// - slot 1: suspended ability value
-/// - slot 2+: ability method arguments
-///
-/// The arm's captured values are loaded in the thunk (capturing through it
-/// on demand), packaged with `MakeClosure`, and installed with `Handle`.
-fn compile_handler_arm(
-    fc: &mut FunctionCompiler,
-    thunk_fc: &mut FunctionCompiler,
-    handler: &crate::ast::HandlerLiteralMethod,
-    ctx: &mut ModuleContext,
-) -> Result<(), CompileError> {
-    // Get ability ID for this handler. Locals, foreign, and prelude
-    // abilities resolve through the context; core builtins (Exception)
-    // fall back to the resolver.
-    let ability_name = &handler.ability.name;
-    let ability_id = ctx
-        .resolve_ability(&handler.ability)
+/// Resolve the ability an inline handler arm covers, so a multi-ability
+/// brace can be grouped into one `HandlerValue` per ability. Locals,
+/// foreign, and prelude abilities resolve through the context; core
+/// builtins (Exception) fall back to the resolver.
+fn resolve_arm_ability(
+    ctx: &ModuleContext,
+    method: &HandlerLiteralMethod,
+) -> Result<AbilityId, CompileError> {
+    let ability_name = &method.ability.name;
+    ctx.resolve_ability(&method.ability)
         .map(|info| info.id)
         .or_else(|| get_ability_id(ability_name))
         .ok_or_else(|| {
@@ -249,60 +266,9 @@ fn compile_handler_arm(
                 CompileErrorKind::Unsupported {
                     feature: format!("unknown ability: {ability_name}"),
                 },
-                (handler.span.start, handler.span.end),
+                (method.span.start, method.span.end),
             )
-        })?;
-
-    let mut arm_fc = FunctionCompiler::new_for_closure(
-        fc.function_hashes.clone(),
-        fc.locals.clone(),
-        fc.local_names.clone(),
-    );
-
-    // Allocate implicit slots for continuation and suspended ability.
-    let _continuation_slot =
-        arm_fc.alloc_local_with_name(0, &Arc::from(super::HANDLER_PARAM_CONTINUATION))?;
-    let _ability_slot =
-        arm_fc.alloc_local_with_name(0, &Arc::from(super::HANDLER_PARAM_SUSPENDED_ABILITY))?;
-
-    // At the start of the arm, extract ability arguments into param slots.
-    for (i, param) in handler.params.iter().enumerate() {
-        arm_fc.alloc_local_with_name(param.id, &param.name)?;
-
-        // Load suspended ability from slot 1, extract argument i,
-        // store to the param slot (slot 2+i).
-        arm_fc.builder.emit_u16(Opcode::LoadLocal, 1);
-        arm_fc.builder.emit_get_ability_arg(i as u8);
-        arm_fc.builder.emit_u16(Opcode::StoreLocal, 2 + i as u16);
-    }
-
-    // Compile the arm body.
-    compile_expr(&mut arm_fc, &handler.body, ctx)?;
-    arm_fc.builder.emit(Opcode::Return);
-
-    // Build the arm function (2 implicit params).
-    let local_count = arm_fc.next_local;
-    let capture_names = arm_fc.get_capture_names_in_order();
-    let arm_func = arm_fc.builder.build(local_count, 2);
-    let arm_hash = ctx.register_lambda(arm_func);
-
-    // In the thunk: load the arm's captured values (capturing through
-    // the thunk when they come from the installer), then create the
-    // arm closure and install it.
-    for (name, _slot) in &capture_names {
-        if let Some(&slot) = thunk_fc.local_names.get(name) {
-            thunk_fc.builder.emit_u16(Opcode::LoadLocal, slot);
-        } else {
-            let capture_slot = thunk_fc.get_or_create_capture_by_name(Arc::clone(name));
-            thunk_fc.builder.emit_load_capture(capture_slot);
-        }
-    }
-    thunk_fc
-        .builder
-        .emit_make_closure(arm_hash, capture_names.len() as u8);
-    thunk_fc.builder.emit_handle(ability_id);
-
-    Ok(())
+        })
 }
 
 /// Compile an ability call (perform).

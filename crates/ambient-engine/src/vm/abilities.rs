@@ -6,16 +6,18 @@
 //! - `Suspend` packages a method call's arguments into a suspended ability.
 //! - `Perform` executes it: bytecode handlers capture the delimited
 //!   continuation and run the handler arm; host handlers run synchronously.
-//! - `Handle` / `HandleWithValue` install handlers that delimit the
-//!   *current frame* (the handle expression's body thunk).
+//! - `HandleWithValue` installs a `HandlerValue` that delimits the
+//!   *current frame* (the handle expression's body thunk). It is the sole
+//!   install path: inline `with` arms and first-class handler values both
+//!   compile to a `HandlerValue` (one per ability), dispatched by method.
 //! - `Resume` reinstates a captured continuation, rebased onto the
 //!   current stack and frame heights.
 //!
 //! The delimitation invariants:
 //!
 //! - A handle expression compiles its body into a thunk closure; the
-//!   `Handle` instructions execute inside that thunk, so a handler's
-//!   `boundary_frame_idx` is the thunk's own frame.
+//!   `HandleWithValue` instructions execute inside that thunk, so a
+//!   handler's `boundary_frame_idx` is the thunk's own frame.
 //! - Performing a handled ability captures `frames[boundary..]`, the value
 //!   stack above the boundary frame's base pointer, and every handler
 //!   entry delimiting any captured frame. The handler arm then runs *in
@@ -32,9 +34,7 @@
 
 use std::sync::Arc;
 
-use ambient_ability::{
-    CapturedFrame, CapturedHandler, HandlerImpl, SuspendedAbility, Value, VmError,
-};
+use ambient_ability::{CapturedFrame, CapturedHandler, SuspendedAbility, Value, VmError};
 
 use super::core::{CallFrame, HandlerFrame, Vm};
 
@@ -151,18 +151,16 @@ impl Vm {
     ) -> Result<(), VmError> {
         let fired = self.handlers[handler_idx].clone();
 
-        // Determine the arm function (and its environment) by handler kind.
-        let (arm_func, arm_captures) = match &fired.handler {
-            HandlerImpl::Inline { func, captures } => (*func, captures.clone()),
-            HandlerImpl::Value { handler } => match handler.get_method(ability.method_id) {
-                Some(func) => (func, handler.captures.clone()),
-                None => {
-                    return Err(VmError::UnhandledAbility {
-                        ability_id: ability.ability_id,
-                        method_id: ability.method_id,
-                    });
-                }
-            },
+        // Dispatch to the fired handler's arm for this method, with the
+        // handler value's shared capture environment.
+        let (arm_func, arm_captures) = match fired.handler.get_method(ability.method_id) {
+            Some(func) => (func, fired.handler.captures.clone()),
+            None => {
+                return Err(VmError::UnhandledAbility {
+                    ability_id: ability.ability_id,
+                    method_id: ability.method_id,
+                });
+            }
         };
 
         let boundary = fired.boundary_frame_idx;
@@ -216,37 +214,13 @@ impl Vm {
         Ok(())
     }
 
-    /// Handle the `Handle` opcode: install an inline ability handler.
-    ///
-    /// Pops the handler arm closure from the stack. The current frame (the
-    /// handle expression's body thunk) becomes the delimitation boundary.
-    pub(super) fn op_handle(&mut self, ability_id: ambient_core::AbilityId) -> Result<(), VmError> {
-        let arm = match self.pop()? {
-            Value::Closure(c) => c,
-            other => {
-                return Err(VmError::TypeError {
-                    expected: "closure",
-                    got: other.type_name(),
-                    operation: "handle",
-                });
-            }
-        };
-
-        self.handlers.push(HandlerFrame {
-            ability_id,
-            handler: HandlerImpl::Inline {
-                func: arm.function_hash,
-                captures: arm.environment.clone(),
-            },
-            boundary_frame_idx: self.frames.len() - 1,
-        });
-        Ok(())
-    }
-
     /// Handle the `HandleWithValue` opcode: install a handler from a `HandlerValue`.
     ///
     /// Pops the handler value from the stack and installs it as a handler.
-    /// The `ability_id` is taken from the handler value itself.
+    /// The `ability_id` is taken from the handler value itself. This is the
+    /// single handler-install path: inline `with` arms compile to a
+    /// `HandlerValue` (one per ability) just like a first-class handler
+    /// value does.
     pub(super) fn op_handle_with_value(&mut self) -> Result<(), VmError> {
         let handler_value = match self.pop()? {
             Value::Handler(h) => h,
@@ -261,9 +235,7 @@ impl Vm {
 
         self.handlers.push(HandlerFrame {
             ability_id: handler_value.ability_id,
-            handler: HandlerImpl::Value {
-                handler: handler_value,
-            },
+            handler: handler_value,
             boundary_frame_idx: self.frames.len() - 1,
         });
 

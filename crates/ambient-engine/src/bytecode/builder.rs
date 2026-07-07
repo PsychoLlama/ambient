@@ -171,16 +171,6 @@ impl BytecodeBuilder {
         self.code.push(arg_count);
     }
 
-    /// Emit a Handle instruction to install an ability handler.
-    ///
-    /// Expects the handler arm closure on top of the stack; the instruction
-    /// pops it and installs it as a handler delimiting the current frame.
-    pub fn emit_handle(&mut self, ability_id: AbilityId) {
-        let ability_idx = self.add_constant(Value::AbilityRef(ability_id));
-        self.code.push(Opcode::Handle as u8);
-        self.code.extend_from_slice(&ability_idx.to_le_bytes());
-    }
-
     /// Emit a `MakeClosure` instruction.
     ///
     /// Creates a closure from a function hash and captured values on the stack.

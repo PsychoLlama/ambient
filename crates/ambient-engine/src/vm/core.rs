@@ -38,8 +38,8 @@ pub(super) struct HandlerFrame {
     /// The ability ID this handler handles.
     pub ability_id: AbilityId,
 
-    /// The handler implementation (inline arm closure or handler value).
-    pub handler: ambient_ability::HandlerImpl,
+    /// The installed handler value (per-method functions + shared captures).
+    pub handler: std::sync::Arc<ambient_ability::HandlerValue>,
 
     /// Index of the first call frame inside the delimited region.
     pub boundary_frame_idx: usize,
@@ -152,9 +152,7 @@ impl Vm {
         for handler_value in &base {
             self.handlers.push(HandlerFrame {
                 ability_id: handler_value.ability_id,
-                handler: ambient_ability::HandlerImpl::Value {
-                    handler: Arc::clone(handler_value),
-                },
+                handler: Arc::clone(handler_value),
                 boundary_frame_idx: 0,
             });
         }
