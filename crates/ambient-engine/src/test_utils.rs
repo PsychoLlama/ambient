@@ -17,6 +17,10 @@
 //! }
 //! ```
 
+// Fluent builder methods (`.neg()`, `.not()`, ...) read better than the
+// operator traits clippy suggests; renaming them would hurt the DSL.
+#![allow(clippy::should_implement_trait)]
+
 use std::sync::Arc;
 
 use crate::bytecode::{BytecodeBuilder, CompiledFunction, Opcode};
