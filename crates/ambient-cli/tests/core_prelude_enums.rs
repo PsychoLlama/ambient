@@ -150,6 +150,8 @@ fn prelude_reexports_the_full_global_set() {
 
     let mut expected = vec![
         "Option", "Some", "None", "Result", "Ok", "Err", "Bool", "Number", "String", "Binary",
+        // Operator traits (`Default` is deliberately excluded from the prelude).
+        "Add", "Sub", "Mul", "Div", "Mod", "Eq", "Ord",
     ]
     .into_iter()
     .map(String::from)

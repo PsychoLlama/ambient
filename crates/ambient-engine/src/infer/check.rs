@@ -254,6 +254,10 @@ fn register_cross_module(
     // must resolve an imported enum target to its uuid, or the impl's
     // dispatch key won't match the call sites'.
     register_imported_enums(infer, module_path, registry);
+    // Imported trait *definitions* register next: like enums, they are
+    // import-scoped, so a module sees only the traits it can name (via `use`
+    // or the prelude). Impl coherence stays build-global below.
+    register_imported_traits(infer, module_path, registry);
     // Make the rest of the package's types, traits, and impls visible
     // (signatures only). Runs before local registration and import
     // resolution so imported signatures resolve foreign nominal types.
@@ -576,6 +580,45 @@ fn register_imported_enums(
     }
 }
 
+/// Register the traits a module imports (`use pkg::m::{SomeTrait}`, or the
+/// prelude operator traits) into the trait registry, as if declared locally.
+///
+/// Trait *definitions* are import-scoped: only the traits a module can name
+/// (via `use` or the prelude) register here, so `Default` — omitted from the
+/// prelude — is unavailable without `use core::traits::Default`. Impl
+/// coherence stays build-global (`register_package_items`), keying off trait
+/// *name*, so an imported trait's impls are still visible for dispatch.
+fn register_imported_traits(
+    infer: &mut Infer,
+    current_module: &ModulePath,
+    registry: &ModuleRegistry,
+) {
+    let Ok(resolved) = registry.resolve_imports(current_module) else {
+        return;
+    };
+    for (name, bindings) in resolved.imports {
+        for import in bindings {
+            let ResolvedImport::Symbol {
+                from_module,
+                export_kind: ExportKind::Trait,
+                ..
+            } = import
+            else {
+                continue;
+            };
+            if let Some(module_info) = registry.get(&from_module) {
+                for item in &module_info.module.items {
+                    if let crate::ast::ItemKind::Trait(def) = &item.kind
+                        && def.name == name
+                    {
+                        register_trait_def(infer, def);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Retract the foreign type aliases that leaked into the alias table during
 /// package registration, keeping only the ones this module imports by name.
 ///
@@ -643,7 +686,9 @@ fn retain_imported_type_aliases(
 /// dispatch mapping `(trait, type uuid) → method symbol`; the symbols are
 /// resolved to content hashes at link time like any function name.
 ///
-/// Traits and impls stay build-global for coherence, but the foreign *type
+/// Trait *impls* stay build-global for coherence (loop 2 below keys dispatch
+/// off trait *name*), but trait *definitions* are import-scoped — they
+/// register via [`register_imported_traits`], not here. The foreign *type
 /// aliases* registered here are transient: they exist so foreign impl
 /// targets and imported signatures resolve to the right nominal identity.
 /// [`retain_imported_type_aliases`] retracts the ones this module didn't
@@ -661,13 +706,13 @@ fn register_package_items(
         .filter(|info| &info.path != current_module)
         .collect();
 
-    // Types and traits first: impl registration needs both resolvable.
+    // Foreign types first: impl registration (loop 2) needs them resolvable.
+    // Trait defs already registered via `register_imported_traits`.
     for info in &foreign_modules {
         // Foreign types register bare (transient, retracted later); their
         // *public* `Item(Fqn)` keys come from the loop just below, so the
         // bare-only registration here passes `None`.
         register_named_types(infer, &info.module, None);
-        register_traits(infer, &info.module);
         // Public named types also register under their canonical qualified key
         // (`shapes.Money`): the resolve pass rewrites qualified type
         // constructors (`pkg::shapes::Money { … }`) to that key, and canonical

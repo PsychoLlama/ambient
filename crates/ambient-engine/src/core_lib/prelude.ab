@@ -18,3 +18,8 @@ pub use core::primitives::Bool::Bool;
 pub use core::primitives::Number::Number;
 pub use core::primitives::String::String;
 pub use core::primitives::Binary::Binary;
+
+// The operator traits desugar `+`, `-`, `==`, `<`, ... so the checker must
+// always have them in scope. `Default` is deliberately omitted: it has no
+// desugaring hook and is reachable through `use core::traits::Default`.
+pub use core::traits::{Add, Sub, Mul, Div, Mod, Eq, Ord};

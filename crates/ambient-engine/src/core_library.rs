@@ -28,15 +28,9 @@ use crate::module_path::ModulePath;
 pub use crate::compiler::intrinsics::get_intrinsics_for_module as intrinsics_for_module;
 
 /// The embedded core library source tree. Every `.ab` file becomes a
-/// module under `core::`; `traits.ab` is the sole exception (see
-/// [`register_core_modules`]).
+/// module under `core::` — including `traits.ab`, which registers as
+/// `core::traits` and is the source of truth for the operator traits.
 static CORE_LIB: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/src/core_lib");
-
-/// The operator-trait module (`traits.ab`) is excluded from registration:
-/// the operator traits (Add, Eq, Ord, ...) are the hardcoded prelude in
-/// `TraitRegistry::with_prelude`, and registering a second copy would
-/// collide with it.
-const EXCLUDED_FILE: &str = "traits.ab";
 
 /// Error that can occur when loading core library modules.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -63,8 +57,8 @@ struct CoreModule {
     is_dir_module: bool,
 }
 
-/// Every embedded core module (excluding `traits.ab`), in a deterministic
-/// order (by module path). Built once and reused.
+/// Every embedded core module, in a deterministic order (by module path).
+/// Built once and reused.
 fn core_modules() -> &'static [CoreModule] {
     static MODULES: OnceLock<Vec<CoreModule>> = OnceLock::new();
     MODULES.get_or_init(|| {
@@ -83,9 +77,6 @@ fn collect_core_modules(dir: &'static Dir<'static>, out: &mut Vec<CoreModule>) {
             DirEntry::File(file) => {
                 let path = file.path();
                 if path.extension().and_then(|e| e.to_str()) != Some("ab") {
-                    continue;
-                }
-                if path.file_name().and_then(|n| n.to_str()) == Some(EXCLUDED_FILE) {
                     continue;
                 }
                 let (Some((module_path, is_dir_module)), Some(source)) =
@@ -207,8 +198,6 @@ impl CoreLibrary {
 /// discovered by walking the embedded `core_lib/` tree; each file's module
 /// path comes from the canonical file↔module mapping, so the core
 /// hierarchy is defined by the source tree rather than a list here.
-/// `traits.ab` is excluded (its operator traits are the hardcoded
-/// prelude).
 ///
 /// Intrinsics are items of their core module even though they have no AST
 /// declaration (they compile to dedicated opcodes), so they export like
@@ -332,9 +321,10 @@ mod tests {
         // Namespace parents and top-level modules are present too.
         assert!(modules.contains(&"collections".to_string()));
         assert!(modules.contains(&"Option".to_string()));
-        // The `core` root itself and the excluded `traits` module are not.
+        // `traits` registers as an ordinary core module now.
+        assert!(modules.contains(&"traits".to_string()));
+        // The `core` root itself is not.
         assert!(!modules.iter().any(|m| m.is_empty()));
-        assert!(!modules.contains(&"traits".to_string()));
     }
 
     #[test]

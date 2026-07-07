@@ -1320,10 +1320,13 @@ fn test_operator_overloading_eq() {
 
 #[test]
 fn test_default_trait_associated_call() {
-    // The prelude `Default` trait provides an associated (no-`self`)
-    // `default(): Self`, invoked as `Type::default()`.
+    // `core::traits::Default` provides an associated (no-`self`)
+    // `default(): Self`, invoked as `Type::default()`. It is not in the
+    // prelude, so it must be imported explicitly.
     CliTest::new(
         r#"
+        use core::traits::Default;
+
         unique(A1B2C3D4-0000-0000-0000-000000000010) struct Config { level: Number }
 
         impl Default for Config {
@@ -1342,11 +1345,34 @@ fn test_default_trait_associated_call() {
 }
 
 #[test]
+fn test_default_trait_requires_import() {
+    // `Default` is not in the prelude (only the operator traits are), so
+    // implementing it without `use core::traits::Default;` is an unknown
+    // trait — the visible proof that trait defs are import-scoped.
+    CliTest::new(
+        r#"
+        unique(A1B2C3D4-0000-0000-0000-000000000013) struct Config { level: Number }
+
+        impl Default for Config {
+            fn default(): Config {
+                Config { level: 7 }
+            }
+        }
+
+        fn run(): Number { 0 }
+    "#,
+    )
+    .expect_error("unknown trait: `Default`");
+}
+
+#[test]
 fn test_default_trait_composes_with_operator() {
     // An associated call is an ordinary expression: it nests and composes
     // with operators like any other value.
     CliTest::new(
         r#"
+        use core::traits::Default;
+
         unique(A1B2C3D4-0000-0000-0000-000000000011) struct Vec2 { x: Number, y: Number }
 
         impl Default for Vec2 {
@@ -1962,7 +1988,9 @@ fn test_cross_module_trait_dispatch() {
     // A type, its trait impls (using the prelude Add trait and a local
     // trait), and its constructor live in one module; another module calls
     // the operator and the method. Dispatch symbols must link across the
-    // module boundary.
+    // module boundary. The caller must `use` the local `Doubled` trait to
+    // dispatch its method — trait defs are import-scoped (only the prelude
+    // operator traits are always in scope).
     let (_dir, pkg) = temp_multi_package(&[
         (
             "money.ab",
@@ -1993,7 +2021,7 @@ fn test_cross_module_trait_dispatch() {
         (
             "main.ab",
             r#"
-            use pkg::money::{Money, make};
+            use pkg::money::{Money, make, Doubled};
 
             pub fn run(): Number {
                 let total = make(100) + make(50);

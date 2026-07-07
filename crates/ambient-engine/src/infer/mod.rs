@@ -206,14 +206,14 @@ impl Infer {
             current_abilities: AbilitySet::Empty,
             ability_registry: registry,
             ability_resolver: resolver,
-            // Option/Result and the primitive types are no longer seeded
-            // here: they enter every module through the `core::prelude`
-            // injection (`register_imported_enums` / the primitive imports),
-            // exactly like any other import. A registry-less check (no
-            // prelude) therefore starts without them. The operator traits
-            // stay hardcoded until Phase 3.
+            // Option/Result, the primitive types, and the operator traits
+            // are no longer seeded here: they enter every module through the
+            // `core::prelude` injection (`register_imported_enums` /
+            // `register_imported_traits` / the primitive imports), exactly
+            // like any other import. A registry-less check (no prelude)
+            // therefore starts without them.
             type_aliases: HashMap::new(),
-            trait_registry: TraitRegistry::with_prelude(),
+            trait_registry: TraitRegistry::default(),
             inherent_registry: inherent::InherentRegistry::default(),
             enum_registry: enums::EnumRegistry::default(),
             pending_errors: Vec::new(),

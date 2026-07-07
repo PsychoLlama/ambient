@@ -1,13 +1,15 @@
 //! Default Trait Example
 //!
-//! Demonstrates the `Default` prelude trait: an associated (no-`self`)
-//! function `default(): Self` that yields a canonical value for a type.
+//! Demonstrates the `Default` trait: an associated (no-`self`) function
+//! `default(): Self` that yields a canonical value for a type. Unlike the
+//! operator traits (`Add`, `Eq`, ...), `Default` is not in the prelude, so
+//! it must be imported explicitly.
 //!
-//! Unlike the operator traits (`Add`, `Eq`, ...), `default` takes no
-//! receiver, so it is invoked as `Type::default()` rather than through
-//! dot-notation on a value.
+//! `default` takes no receiver, so it is invoked as `Type::default()` rather
+//! than through dot-notation on a value.
 
 use core::system::Stdio;
+use core::traits::Default;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // A settings record with sensible defaults

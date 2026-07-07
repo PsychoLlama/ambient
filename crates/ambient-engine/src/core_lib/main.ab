@@ -5,9 +5,9 @@
 // public core surface, re-exporting each so the hierarchy is defined here
 // rather than by a hand-maintained list in the engine.
 //
-// `traits` is deliberately absent: the operator traits (Add, Eq, Ord, ...)
-// are the hardcoded prelude in `TraitRegistry::with_prelude`, and
-// registering a second copy would collide with it.
+// `traits` holds the operator traits (Add, Eq, Ord, ...) and `Default`.
+// The operator traits are re-exported onto the prelude (see `prelude.ab`);
+// `Default` is reachable only through `use core::traits::Default`.
 
 pub use self::collections;
 pub use self::primitives;
@@ -15,5 +15,6 @@ pub use self::convert;
 pub use self::protocol;
 pub use self::reflect;
 pub use self::time;
+pub use self::traits;
 pub use self::Option;
 pub use self::Result;
