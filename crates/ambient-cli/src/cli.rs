@@ -47,6 +47,16 @@ pub enum Command {
         /// Function to execute (defaults to "run").
         #[arg(long, default_value = "run")]
         entry: String,
+
+        /// Arguments passed to the program, available through
+        /// `core::system::Env::args!()` after the program path at index 0.
+        /// Everything after `--` lands here (hyphen-led values included).
+        #[arg(
+            trailing_var_arg = true,
+            allow_hyphen_values = true,
+            value_name = "ARGS"
+        )]
+        args: Vec<String>,
     },
 
     /// Check an Ambient source file or package for errors without compiling.

@@ -19,8 +19,9 @@ use ambient_platform::process::{
     DeployOutcome, EventSink, ProcessRuntime, ProcessRuntimeConfig, functions_from_module,
 };
 use ambient_platform::{
-    ExecuteConfig, LogConfig, NetworkState, StdioConfig, StdioSink, register_execute, register_fs,
-    register_log, register_network_shared, register_random, register_stdio, register_time,
+    ExecuteConfig, LogConfig, NetworkState, StdioConfig, StdioSink, register_env, register_execute,
+    register_fs, register_log, register_network_shared, register_random, register_stdio,
+    register_time,
 };
 
 use super::{platform_prelude, prelude_interface};
@@ -38,7 +39,12 @@ impl RuntimeHost {
     /// Build the host: resolve the platform prelude, share one network
     /// table and one store across every future VM, and start an (empty)
     /// process runtime.
-    pub fn new(events: EventSink) -> Result<Self> {
+    ///
+    /// `program_args` become `core::system::Env::args!()` for every VM
+    /// this host builds (`ambient run` composes the program path plus the
+    /// trailing args; `ambient dev` passes an empty vec — program args
+    /// have no coherent meaning across reconciliation re-deploys).
+    pub fn new(events: EventSink, program_args: Vec<String>) -> Result<Self> {
         let tokio = tokio::runtime::Runtime::new().context("failed to create async runtime")?;
         let prelude = platform_prelude()?;
 
@@ -50,9 +56,11 @@ impl RuntimeHost {
         let network = prelude_interface(&prelude, "Network")?;
         let execute = prelude_interface(&prelude, "Execute")?;
         let process = prelude_interface(&prelude, "Process")?;
+        let env = prelude_interface(&prelude, "Env")?;
 
         let network_state = Arc::new(NetworkState::new(tokio.handle().clone()));
         let store = Arc::new(std::sync::Mutex::new(Store::new()));
+        let argv = Arc::new(program_args);
 
         // Log shares Stdio's output sink, so both stream to the same
         // stdout for every VM this host builds.
@@ -74,6 +82,7 @@ impl RuntimeHost {
         let factory_store = Arc::clone(&store);
         let factory = {
             let network_state = Arc::clone(&network_state);
+            let argv = Arc::clone(&argv);
             Arc::new(move || {
                 let mut vm = Vm::new();
                 register_stdio(&mut vm, &stdio, sink.clone(), StdioConfig::default());
@@ -81,6 +90,7 @@ impl RuntimeHost {
                 register_random(&mut vm, &random);
                 register_log(&mut vm, &log, LogConfig::default(), sink.clone());
                 register_fs(&mut vm, &fs);
+                register_env(&mut vm, &env, Arc::clone(&argv));
                 register_network_shared(&mut vm, &network, Arc::clone(&network_state));
                 register_execute(
                     &mut vm,

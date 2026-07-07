@@ -18,9 +18,17 @@ use crate::diagnostic::report_build_error;
 ///
 /// If `path` is a directory (or contains an `ambient.toml`), runs the package.
 /// If `path` is a `.ambient` file, runs the pre-compiled artifact pack.
-pub fn cmd_run(path: &Path, entry: &str) -> Result<()> {
+///
+/// `args` are the trailing program arguments (everything after `--`).
+/// They become `core::system::Env::args!()` with the program path — the
+/// `path` argument as typed — at index 0, mirroring Python's `sys.argv[0]`
+/// / Go's `os.Args[0]`.
+pub fn cmd_run(path: &Path, entry: &str, args: Vec<String>) -> Result<()> {
+    let program_args = std::iter::once(path.to_string_lossy().into_owned())
+        .chain(args)
+        .collect::<Vec<_>>();
     let compiled = load_compiled(path)?;
-    run_compiled(&compiled, entry)
+    run_compiled(&compiled, entry, program_args)
 }
 
 /// Load a compiled module from a path.
@@ -93,7 +101,7 @@ pub(super) fn compile_package(path: &Path) -> Result<CompiledModule> {
 /// program that spawns no processes behaves exactly as before: the
 /// entry runs to completion and the command exits. A program that
 /// spawns processes keeps running until every process has exited.
-fn run_compiled(compiled: &CompiledModule, entry: &str) -> Result<()> {
+fn run_compiled(compiled: &CompiledModule, entry: &str, program_args: Vec<String>) -> Result<()> {
     // `run` is quiet about routine lifecycle; only failures print.
     let events = Arc::new(|event: &ProcessEvent| match event {
         ProcessEvent::Crashed {
@@ -114,7 +122,7 @@ fn run_compiled(compiled: &CompiledModule, entry: &str) -> Result<()> {
         _ => {}
     });
 
-    let host = RuntimeHost::new(events)?;
+    let host = RuntimeHost::new(events, program_args)?;
 
     match host.deploy(compiled, entry) {
         Ok(outcome) => {

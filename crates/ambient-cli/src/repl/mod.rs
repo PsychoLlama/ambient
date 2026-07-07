@@ -201,7 +201,8 @@ impl ReplSession {
         let prelude = platform_prelude()?;
         let project_root = find_project_root(project_dir);
         let (package, base, imported_hashes) = build_base(project_root.as_deref(), &prelude)?;
-        let host = RuntimeHost::new(noop_event_sink())?;
+        // The REPL has no program args; `Env::args!()` is empty.
+        let host = RuntimeHost::new(noop_event_sink(), Vec::new())?;
 
         Ok(Self {
             entries: Vec::new(),
@@ -225,7 +226,7 @@ impl ReplSession {
         self.base = base;
         self.imported_hashes = imported_hashes;
         self.entry_counter = 0;
-        self.host = RuntimeHost::new(noop_event_sink())?;
+        self.host = RuntimeHost::new(noop_event_sink(), Vec::new())?;
         // Drop any lingering `repl` module from the package.
         self.sync_repl_module(&self.committed_source());
         Ok(())
