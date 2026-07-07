@@ -159,6 +159,9 @@ pub fn register_stdio_with_collector(
 /// The default `read` behavior: one line from the process stdin, minus the
 /// trailing newline. End of input is the empty string; a genuine IO error
 /// is a catchable exception.
+// Under `cfg(test)` the body is infallible, but production reads real stdin
+// and can fail, so the `Result` is load-bearing.
+#[cfg_attr(test, allow(clippy::unnecessary_wraps))]
 fn read_stdin_line() -> Result<Value, VmError> {
     #[cfg(not(test))]
     {
