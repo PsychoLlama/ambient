@@ -124,8 +124,18 @@ impl Infer {
             for quantified in &method.quantified {
                 subst.insert(*quantified, self.fresh());
             }
-            let params = method.params.iter().map(|p| p.substitute(&subst)).collect();
-            let ret = method.ret.substitute(&subst);
+            // `resolve_holes` re-attaches reserved enum identities from the
+            // checking context (see `lookup_dynamic_method`): the dynamic
+            // method's types were resolved without an enum registry, so
+            // prelude `Option`/`Result` arrive uuid-less and would miss
+            // inherent-method dispatch and unification against uuid-bearing
+            // values.
+            let params = method
+                .params
+                .iter()
+                .map(|p| self.resolve_holes(&p.substitute(&subst)))
+                .collect();
+            let ret = self.resolve_holes(&method.ret.substitute(&subst));
             return Some((params, ret));
         }
 
@@ -249,11 +259,22 @@ impl Infer {
         }
 
         for (param, arg) in method.params.iter().zip(arg_tys) {
-            let param = param.substitute(&subst);
+            // `resolve_holes` re-attaches reserved enum identities
+            // (`Option`/`Result` uuids) from the *checking* context: the
+            // dynamic method's types were resolved in isolation (the
+            // ability prelude has no enum registry), so a declared
+            // `Option<T>` param arrives as a bare `Named("Option")` and
+            // would fail to unify against an argument that carries the
+            // uuid its constructors produce.
+            let param = self.resolve_holes(&param.substitute(&subst));
             self.unify(&param, arg, span)?;
         }
 
-        let ret = method.ret.substitute(&subst);
+        // Likewise normalize the result type so a method returning
+        // `Option<T>`/`Result<T, E>` dispatches its inherent methods
+        // (`.unwrap_or`, ...) — those key on the reserved enum uuid, which
+        // only the checking context supplies.
+        let ret = self.resolve_holes(&method.ret.substitute(&subst));
         let ret = self.apply(&ret);
         let additional = AbilitySet::from_abilities(dynamic.dependencies.iter().copied());
         Ok((dynamic.id, ret, additional))
