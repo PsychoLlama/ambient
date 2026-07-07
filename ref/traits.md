@@ -192,14 +192,20 @@ only free functions it keeps are the two with no method form: `List::range`
 
 ## Prelude Traits
 
-The operator traits (`Add`, `Sub`, `Mul`, `Div`, `Mod`, `Eq`, `Ord`) plus
-`Default` are part of the prelude: they are always in scope, and
-implementing an operator trait enables the corresponding operator.
-`core::traits` mirrors their definitions for documentation. A module that
-declares its own trait with the same name shadows the prelude entry.
+The operator traits (`Add`, `Sub`, `Mul`, `Div`, `Mod`, `Eq`, `Ord`) are
+part of the prelude: they are always in scope, and implementing one enables
+the corresponding operator. They are ordinary declarations in `core::traits`,
+re-exported onto the prelude (`pub use core::traits::{Add, …, Ord};` in
+`core_lib/prelude.ab`) like every other global — there is no separate
+hardcoded copy. A module that declares its own trait with the same name
+shadows the prelude entry.
 
-`Default` supplies a canonical value for a type via the associated function
-`default(): Self` (see [Associated Functions](#associated-functions)):
+`Default` lives in `core::traits` too but is *not* in the prelude: it has no
+operator that desugars to it, so it is standard-library convenience rather
+than a load-bearing global. Using it requires an explicit
+`use core::traits::Default;`. It supplies a canonical value for a type via the
+associated function `default(): Self` (see
+[Associated Functions](#associated-functions)):
 
 ```ambient
 trait Default {
