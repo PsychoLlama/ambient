@@ -756,6 +756,59 @@ impl ModuleRegistry {
         }
     }
 
+    /// The primitive type aliases the prelude contributes to every module:
+    /// for each public prelude re-export whose origin is an `extern` unit
+    /// struct, the exported name mapped to that struct's nominal type.
+    ///
+    /// This is the module-system source of the four primitive nominals
+    /// (`Bool`/`Number`/`String`/`Binary`). Rather than hardcode
+    /// `Type::string()` and friends, they are discovered by walking
+    /// `core::prelude`'s re-exports exactly the way [`Self::inject_prelude`]
+    /// resolves them — through [`Self::lookup_symbol`], chasing `pub use`
+    /// chains to the defining `extern` declaration. Enums (`Option`/`Result`)
+    /// and non-re-exported types (`Duration`) are naturally excluded: only a
+    /// re-exported `extern` unit struct qualifies.
+    ///
+    /// Ability resolution seeds these so a primitive named in an ability
+    /// signature (`Stdio.out(String)`) resolves to its uuid-carrying nominal
+    /// — keeping ability content hashes byte-stable — without the checker
+    /// carrying a context-independent `Primitive::from_name` shortcut.
+    #[must_use]
+    pub fn prelude_type_aliases(&self) -> Vec<(Arc<str>, crate::types::Type)> {
+        let mut aliases = Vec::new();
+        let Some(prelude_path) = &self.prelude else {
+            return aliases;
+        };
+        let Some(prelude_info) = self.modules.get(&prelude_path.to_string()) else {
+            return aliases;
+        };
+        for re_export in &prelude_info.re_exports {
+            let Some(local) = re_export.exported_name() else {
+                continue;
+            };
+            let Ok((export, origin)) = self.lookup_symbol(prelude_path, local) else {
+                continue;
+            };
+            if export.kind != ExportKind::Struct {
+                continue;
+            }
+            let origin_name = Arc::clone(&export.name);
+            let Some(origin_info) = self.modules.get(&origin.to_string()) else {
+                continue;
+            };
+            for item in &origin_info.module.items {
+                if let ItemKind::Struct(def) = &item.kind
+                    && def.name == origin_name
+                    && def.is_extern
+                    && def.is_unit()
+                {
+                    aliases.push((Arc::from(local), def.ty.clone()));
+                }
+            }
+        }
+        aliases
+    }
+
     /// Interpret a list of `use` items into a scope. Shared by module
     /// scope building and block-scoped `use` resolution.
     #[must_use]

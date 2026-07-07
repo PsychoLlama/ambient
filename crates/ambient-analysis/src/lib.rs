@@ -286,8 +286,19 @@ pub fn analyze_with_registry_and_resolver(
 #[must_use]
 pub fn platform_prelude_resolver() -> AbilityResolver {
     let mut resolver = ambient_engine::ability_resolver::core_abilities();
-    if let Ok(mut module) = ambient_parser::parse(ambient_platform::ABILITY_DECLARATIONS) {
-        let (abilities, _errors) = ambient_engine::infer::resolve_ability_declarations(&mut module);
+    // A parse-only core registry supplies the prelude so ability resolution
+    // seeds the primitive nominals it hashes against (see the CLI's
+    // `platform_prelude`). Without it, ability ids would drift from the CLI's.
+    let mut registry = ambient_engine::module_registry::ModuleRegistry::new();
+    let registered = ambient_engine::core_library::register_core_modules(&mut registry, |s| {
+        ambient_parser::parse(s).map_err(|e| e.to_string())
+    })
+    .is_ok();
+    if registered
+        && let Ok(mut module) = ambient_parser::parse(ambient_platform::ABILITY_DECLARATIONS)
+    {
+        let (abilities, _errors) =
+            ambient_engine::infer::resolve_ability_declarations(&mut module, &registry);
         for ability in abilities {
             resolver.register_dynamic_in_namespace(
                 &ambient_engine::fqn::ModuleId::core_system(),

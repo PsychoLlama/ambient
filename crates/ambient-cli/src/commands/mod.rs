@@ -54,9 +54,20 @@ pub fn parse_source(source: &str) -> Result<Module, ParseFailure> {
 /// types are `Rc`-based, so this is recomputed rather than cached in a
 /// static.
 pub fn platform_prelude() -> Result<Vec<Arc<DynAbility>>> {
+    // A parse-only core registry supplies the prelude, so ability resolution
+    // can seed the primitive nominals (`String`/`Number`/...) its signatures
+    // hash against. Parsing the small core sources is cheap — nothing is
+    // compiled — and keeps ability ids byte-stable through the module system.
+    let mut registry = ModuleRegistry::new();
+    ambient_engine::core_library::register_core_modules(&mut registry, |s| {
+        ambient_parser::parse(s).map_err(|e| e.to_string())
+    })
+    .map_err(|(module, e)| anyhow::anyhow!("core module `{module}` failed to parse: {e}"))?;
+
     let mut module = ambient_parser::parse(ambient_platform::ABILITY_DECLARATIONS)
         .map_err(|e| anyhow::anyhow!("platform bindings interface failed to parse: {e}"))?;
-    let (abilities, errors) = ambient_engine::infer::resolve_ability_declarations(&mut module);
+    let (abilities, errors) =
+        ambient_engine::infer::resolve_ability_declarations(&mut module, &registry);
     if let Some(error) = errors.first() {
         bail!("platform bindings interface failed to resolve: {error}");
     }

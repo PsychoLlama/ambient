@@ -243,6 +243,15 @@ fn register_cross_module(
     registry: &ModuleRegistry,
     errors: &mut Vec<BoxedTypeError>,
 ) -> TypeEnv {
+    // Seed the four primitive nominals from the prelude *first*: the next
+    // step resolves every module's ability signatures (which name primitives
+    // like `String`/`Number`), and it runs before `register_package_items`
+    // populates the general alias table. Without this, a primitive in an
+    // ability signature would resolve to a bare name and corrupt the ability
+    // hash — the same reason `resolve_ability_declarations` seeds them. Only
+    // the four primitives are seeded here; every other type still resolves at
+    // its use site once the full alias table is built below.
+    seed_prelude_primitive_aliases(infer, registry);
     // Every module's abilities are always in scope fully-qualified. Seed
     // them as namespaced dynamics before imports and local abilities
     // resolve, so `core::system::Stdio` / `pkg::effects::Counter`
@@ -2036,6 +2045,25 @@ fn seed_namespaced_ability_dynamics(
 /// recomputed deterministically from the canonical interface, so a foreign
 /// import matches the origin module's own registration without touching the
 /// (immutable) foreign AST's `resolved_id`.
+/// Find a residual bare primitive name (`Bool`/`Number`/`String`/`Binary`)
+/// anywhere in `ty` — an argument-less, uuid-less `Named` whose name is a
+/// primitive. Recurses into type arguments so a nested `List<String>` is
+/// caught too. Used only as the ability-hash tripwire below.
+fn residual_primitive_name(ty: &Type) -> Option<&str> {
+    match ty {
+        Type::Named(named) => {
+            if named.args.is_empty()
+                && named.uuid.is_none()
+                && crate::types::Primitive::from_name(&named.name).is_some()
+            {
+                return Some(&named.name);
+            }
+            named.args.iter().find_map(residual_primitive_name)
+        }
+        _ => None,
+    }
+}
+
 fn resolve_ability_def(
     infer: &mut Infer,
     def: &crate::ast::AbilityDef,
@@ -2088,6 +2116,29 @@ fn resolve_ability_def(
             .collect();
         let ret = infer.resolve_holes(&substitute_type_params(&method.ret_ty, &param_map));
 
+        // Tripwire: a primitive that stayed a bare `Named` (uuid-less, no
+        // args) after `resolve_holes` would render `named:String` and
+        // silently corrupt this ability's hash — the exact regression that
+        // deleting the `Primitive::from_name` shortcut could reintroduce if
+        // the prelude primitives ever stop being seeded. Fail loudly instead
+        // of hashing wrong. (Non-primitive names like `Duration` legitimately
+        // stay unresolved and are byte-stable, so they are not flagged.)
+        for ty in params.iter().chain(std::iter::once(&ret)) {
+            if let Some(name) = residual_primitive_name(ty) {
+                errors.push(Box::new(TypeError::new(
+                    TypeErrorKind::InvalidDeclaration {
+                        message: format!(
+                            "primitive `{name}` in ability `{}` resolved to a bare name; \
+                             the prelude primitive nominals were not seeded — this would \
+                             corrupt the ability hash",
+                            def.name
+                        ),
+                    },
+                    (def.name_span.start, def.name_span.end),
+                )));
+            }
+        }
+
         // One renderer per signature: variable numbering is
         // signature-local, by first occurrence.
         let mut renderer = CanonicalTypeRenderer::new();
@@ -2127,6 +2178,22 @@ fn resolve_ability_def(
     }
 }
 
+/// Seed the four primitive nominals (`Bool`/`Number`/`String`/`Binary`) into
+/// the alias table from the registry's prelude.
+///
+/// Ability resolution runs on an `Infer::new()` with no import processing, so
+/// `resolve_holes` has no way to turn a bare primitive name in a signature
+/// into its uuid-carrying nominal — which the canonical renderer needs, or
+/// the ability hash drifts. This threads exactly the four primitives in
+/// through the module system ([`ModuleRegistry::prelude_type_aliases`]),
+/// leaving every other named type (`Duration`, `Option`) untouched so their
+/// renderings stay byte-identical.
+fn seed_prelude_primitive_aliases(infer: &mut Infer, registry: &ModuleRegistry) {
+    for (name, ty) in registry.prelude_type_aliases() {
+        infer.register_type_alias(name, ty);
+    }
+}
+
 /// Resolve a module's `ability` declarations without checking the rest of
 /// the module.
 ///
@@ -2140,11 +2207,20 @@ fn resolve_ability_def(
 /// as during a full module check.
 pub fn resolve_ability_declarations(
     module: &mut crate::ast::Module,
+    registry: &ModuleRegistry,
 ) -> (
     Vec<Arc<crate::ability_resolver::DynAbility>>,
     Vec<BoxedTypeError>,
 ) {
     let mut infer = Infer::new();
+    // Seed the primitive nominals from the prelude so a primitive named in
+    // an ability signature resolves to its uuid-carrying type. This is the
+    // module-system replacement for the deleted `Primitive::from_name`
+    // shortcut; without it a primitive would render `named:String` and
+    // corrupt the ability hash. Only the four primitives are seeded — the
+    // module's own `use`s and enum registry are deliberately left untouched,
+    // so `Duration`/`Option` stay byte-identical to before.
+    seed_prelude_primitive_aliases(&mut infer, registry);
     let mut errors = Vec::new();
 
     // Register each declaration under the `core::system` namespace
@@ -2192,6 +2268,10 @@ pub fn resolve_registry_abilities(
     registry: &ModuleRegistry,
 ) -> Vec<(crate::fqn::Fqn, Arc<crate::ability_resolver::DynAbility>)> {
     let mut infer = Infer::new();
+    // Seed the primitive nominals from the prelude, exactly as
+    // `resolve_ability_declarations` does, so the two paths compute
+    // identical ability ids. (Nothing else is seeded — see there.)
+    seed_prelude_primitive_aliases(&mut infer, registry);
     let mut discarded = Vec::new();
     let mut out = Vec::new();
     let mut modules: Vec<_> = registry
@@ -2708,7 +2788,12 @@ mod tests {
             ],
         );
 
-        let (abilities, errors) = resolve_ability_declarations(&mut module);
+        // Types here are already resolved nominals (`Type::string()`), so no
+        // prelude seeding is needed — an empty registry suffices.
+        let (abilities, errors) = resolve_ability_declarations(
+            &mut module,
+            &crate::module_registry::ModuleRegistry::new(),
+        );
         assert!(errors.is_empty());
         assert_eq!(abilities.len(), 1);
 
@@ -2789,7 +2874,10 @@ mod tests {
             ],
         );
 
-        let (abilities, errors) = resolve_ability_declarations(&mut module);
+        let (abilities, errors) = resolve_ability_declarations(
+            &mut module,
+            &crate::module_registry::ModuleRegistry::new(),
+        );
         assert!(errors.is_empty());
 
         let expected = hash_interface(

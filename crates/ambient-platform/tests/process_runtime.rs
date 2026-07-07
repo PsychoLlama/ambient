@@ -9,9 +9,13 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use ambient_engine::ability_resolver::{AbilityInterface, DynAbility, core_abilities};
+use ambient_engine::ability_resolver::{AbilityInterface, DynAbility};
 use ambient_engine::compiler::{CompileOptions, CompiledModule, compile_module_with_options};
-use ambient_engine::infer::{check_module_with_resolver, resolve_ability_declarations};
+use ambient_engine::infer::{
+    check_module_with_registry, resolve_ability_declarations, resolve_registry_abilities,
+};
+use ambient_engine::module_path::ModulePath;
+use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::value::Value;
 use ambient_engine::vm::Vm;
 use ambient_platform::process::{
@@ -22,9 +26,16 @@ use ambient_platform::register_stdio_with_collector;
 /// Resolve the platform bindings interface (fresh per call; the
 /// resolved types are not `Send`).
 fn platform_prelude() -> Vec<Arc<DynAbility>> {
+    // Parse-only core registry: seeds the primitive nominals ability
+    // resolution hashes against, so ids match the CLI's.
+    let mut registry = ambient_engine::module_registry::ModuleRegistry::new();
+    ambient_engine::core_library::register_core_modules(&mut registry, |s| {
+        ambient_parser::parse(s).map_err(|e| e.to_string())
+    })
+    .expect("core modules parse");
     let mut module = ambient_parser::parse(ambient_platform::ABILITY_DECLARATIONS)
         .expect("platform declarations parse");
-    let (abilities, errors) = resolve_ability_declarations(&mut module);
+    let (abilities, errors) = resolve_ability_declarations(&mut module, &registry);
     assert!(errors.is_empty(), "platform declarations resolve");
     abilities
 }
@@ -37,19 +48,34 @@ fn interface(prelude: &[Arc<DynAbility>], name: &str) -> AbilityInterface {
         .unwrap_or_else(|| panic!("prelude has `{name}`"))
 }
 
-/// Compile a test program against the platform prelude (no core
-/// library: tests stick to intrinsics like `core::convert::to_string`).
+/// Compile a test program against a core + platform registry — the same
+/// world `ambient run` checks against.
+///
+/// The programs name `core::system::*` abilities, `core::convert::to_string`,
+/// and the primitives (`Number`/`String`) fully qualified or bare. Since the
+/// primitives are no longer a registry-less shortcut, resolution goes through
+/// a real registry: parse-only core modules (for the prelude and intrinsics)
+/// plus the `core::system` declaration module (for the platform abilities).
 fn compile(src: &str) -> CompiledModule {
     let prelude = platform_prelude();
     let module = ambient_parser::parse(src).expect("test program parses");
-    let mut resolver = core_abilities();
-    for ability in &prelude {
-        resolver.register_dynamic_in_namespace(
-            &ambient_engine::fqn::ModuleId::core_system(),
-            (**ability).clone(),
-        );
-    }
-    let checked = check_module_with_resolver(module, resolver);
+
+    let mut registry = ModuleRegistry::new();
+    ambient_engine::core_library::register_core_modules(&mut registry, |s| {
+        ambient_parser::parse(s).map_err(|e| e.to_string())
+    })
+    .expect("core modules parse");
+    ambient_engine::core_library::register_declaration_module(
+        &mut registry,
+        &["core", "system"],
+        ambient_platform::ABILITY_DECLARATIONS,
+        |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
+    )
+    .expect("core::system registers");
+    let path = ModulePath::root();
+    registry.register(&path, Arc::new(module.clone()));
+
+    let checked = check_module_with_registry(module, &path, &registry);
     assert!(
         checked.is_ok(),
         "test program type-checks: {:?}",
@@ -62,16 +88,18 @@ fn compile(src: &str) -> CompiledModule {
     compile_module_with_options(
         &checked.module,
         CompileOptions {
-            module_id: None,
+            module_id: Some(registry.module_id(&path)),
             source: Some(src),
             source_file: None,
             imported_hashes: None,
-            imported_enums: Vec::new(),
+            imported_enums: ambient_engine::build::build_imported_enums(&path, &registry),
             imported_unit_structs: Vec::new(),
             imported_const_hashes: std::collections::HashMap::new(),
-            foreign_enum_variants: Vec::new(),
+            foreign_enum_variants: ambient_engine::build::build_foreign_enum_variants(
+                &path, &registry,
+            ),
             prelude_abilities: &prelude,
-            foreign_abilities: Vec::new(),
+            foreign_abilities: resolve_registry_abilities(&registry),
         },
     )
     .expect("test program compiles")

@@ -345,25 +345,21 @@ impl Infer {
         self.type_aliases.get(&NameKey::Bare(Arc::from(name)))
     }
 
-    /// Resolve a bare (unparameterized) named type to a concrete type: a
-    /// registered type alias if present, else the builtin primitive of that
-    /// name. Primitives are builtin type identities, so their bare name
-    /// denotes the primitive type in *every* context (registry-backed or
-    /// not) — the prelude only governs whether user code may spell it. This
-    /// is the single point `resolve_holes` and unification consult, so an
-    /// annotation `String` and a `String` literal always meet as the same
-    /// nominal.
+    /// Resolve a bare (unparameterized) named type to a concrete type: the
+    /// registered type alias of that name, if any.
+    ///
+    /// The four primitives are no longer a context-independent shortcut here:
+    /// they arrive as ordinary prelude imports (registered as aliases like any
+    /// other type), so a bare `String` resolves only where the prelude — or an
+    /// explicit `use` — put it in scope. A registry-less check therefore never
+    /// resolves a primitive by name; the one path that needs them without
+    /// imports (ability resolution) seeds them explicitly from the prelude via
+    /// [`ModuleRegistry::prelude_type_aliases`]. This is the single point
+    /// `resolve_holes` and unification consult, so an annotation `String` and a
+    /// `String` literal always meet as the same nominal.
     #[must_use]
     pub(crate) fn expand_named_alias(&self, name: &str) -> Option<Type> {
-        if let Some(ty) = self.get_type_alias(name) {
-            return Some(ty.clone());
-        }
-        crate::types::Primitive::from_name(name).map(|prim| match prim {
-            crate::types::Primitive::Bool => Type::bool(),
-            crate::types::Primitive::Number => Type::number(),
-            crate::types::Primitive::String => Type::string(),
-            crate::types::Primitive::Binary => Type::binary(),
-        })
+        self.get_type_alias(name).cloned()
     }
 
     /// Look up a type alias by a reference's resolution key (a bare local

@@ -17,9 +17,16 @@ use ambient_platform::register_env;
 
 /// The resolved `Env` interface from the platform bindings.
 fn env_interface() -> AbilityInterface {
+    // Parse-only core registry: seeds the primitive nominals ability
+    // resolution hashes against, so ids match the CLI's.
+    let mut registry = ambient_engine::module_registry::ModuleRegistry::new();
+    ambient_engine::core_library::register_core_modules(&mut registry, |s| {
+        ambient_parser::parse(s).map_err(|e| e.to_string())
+    })
+    .expect("core modules parse");
     let mut module = ambient_parser::parse(ambient_platform::ABILITY_DECLARATIONS)
         .expect("platform declarations parse");
-    let (abilities, errors) = resolve_ability_declarations(&mut module);
+    let (abilities, errors) = resolve_ability_declarations(&mut module, &registry);
     assert!(errors.is_empty(), "platform declarations resolve");
     abilities
         .iter()

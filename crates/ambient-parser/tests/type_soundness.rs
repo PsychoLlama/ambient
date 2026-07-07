@@ -2,15 +2,32 @@
 //!
 //! Each test pins a bug where the checker previously accepted an unsound
 //! program (or produced code the compiler could not handle). These check
-//! whole programs through `parse` + `check_module`, the same path `ambient
-//! check` takes; user-declared abilities stand in for platform ones so no
-//! embedder wiring is needed.
+//! whole programs against a core-backed registry with the prelude in scope —
+//! the same path `ambient check` takes — so bare `Number`/`String`/`Some`
+//! resolve through the module system rather than a registry-less shortcut.
+//! User-declared abilities stand in for platform ones so no embedder wiring
+//! is needed.
 
-use ambient_engine::infer::check_module;
+use std::sync::Arc;
+
+use ambient_engine::infer::check_module_with_registry;
+use ambient_engine::module_path::ModulePath;
+use ambient_engine::module_registry::ModuleRegistry;
 
 fn check(source: &str) -> Vec<String> {
     let module = ambient_parser::parse(source).expect("test source must parse");
-    let result = check_module(module);
+    // Parse-only core registry: registers the core modules and sets the
+    // prelude, so the primitives and Option/Result resolve without compiling
+    // the core library.
+    let mut registry = ModuleRegistry::new();
+    registry.set_workspace_name("pkg");
+    ambient_engine::core_library::register_core_modules(&mut registry, |s| {
+        ambient_parser::parse(s).map_err(|e| e.to_string())
+    })
+    .expect("core modules parse");
+    let path = ModulePath::root();
+    registry.register(&path, Arc::new(module.clone()));
+    let result = check_module_with_registry(module, &path, &registry);
     result
         .errors
         .iter()
@@ -445,8 +462,10 @@ fn handler_annotation_ability_obeys_namespace_policy() {
     // Bare local ability: accepted.
     assert_ok(&program("Reader"));
 
-    // A bogus namespace no longer strips to `Reader`: it is unknown.
-    assert_err_containing(&program("bogus::Reader"), "unknown ability");
+    // A bogus namespace no longer strips to `Reader`: the qualified ability
+    // reference fails to resolve, so the annotation is rejected rather than
+    // silently matched on the tail segment.
+    assert_err_containing(&program("bogus::Reader"), "is not in scope bare");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

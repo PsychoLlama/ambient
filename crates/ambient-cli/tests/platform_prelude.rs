@@ -14,9 +14,18 @@ use std::sync::Arc;
 use ambient_engine::ability_resolver::DynAbility;
 
 fn resolved_prelude() -> HashMap<String, Arc<DynAbility>> {
+    // Parse-only core registry: supplies the prelude so ability resolution
+    // seeds the primitive nominals its signatures hash against.
+    let mut registry = ambient_engine::module_registry::ModuleRegistry::new();
+    ambient_engine::core_library::register_core_modules(&mut registry, |s| {
+        ambient_parser::parse(s).map_err(|e| e.to_string())
+    })
+    .expect("core modules must parse");
+
     let mut module = ambient_parser::parse(ambient_platform::ABILITY_DECLARATIONS)
         .expect("platform bindings interface must parse");
-    let (abilities, errors) = ambient_engine::infer::resolve_ability_declarations(&mut module);
+    let (abilities, errors) =
+        ambient_engine::infer::resolve_ability_declarations(&mut module, &registry);
     assert!(
         errors.is_empty(),
         "platform bindings interface must resolve: {errors:?}"
