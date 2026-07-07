@@ -68,6 +68,10 @@ pub struct BuildResult {
     pub module_count: usize,
     /// Package name.
     pub package_name: String,
+    /// The canonical [`NameKey`] linking table for the whole build (core +
+    /// package). Consumers that compile *additional* modules against this
+    /// build — the REPL, notably — pass it as `imported_hashes`.
+    pub link_table: HashMap<NameKey, blake3::Hash>,
 }
 
 /// Error during package building.
@@ -287,6 +291,7 @@ pub fn build_package(
         compiled: all_compiled,
         module_count: total_modules,
         package_name,
+        link_table: linking_table(&module_function_hashes, &registry),
     })
 }
 
@@ -687,6 +692,88 @@ fn compile_loaded_module_with_registry(
     })?;
 
     Ok(compiled)
+}
+
+/// Check and compile a single in-memory session module against a registry,
+/// then merge it onto a clone of a cached base module.
+///
+/// This is the REPL's per-turn pipeline. `base` is the already-built
+/// core (+ project) module to merge onto; `imported_hashes` is the matching
+/// [`NameKey`] linking table (`CoreContext::hashes` or
+/// [`BuildResult::link_table`]) that resolves the session module's
+/// cross-module calls. `registry` must already contain `module` (resolved)
+/// plus every module it references. The session module's own function names
+/// are qualified with `path` (`repl::foo`) before merging — matching how
+/// [`build_package`] qualifies package modules — so the caller can deploy an
+/// entry by its qualified name (`repl::__repl_entry_N`).
+///
+/// Mirrors [`compile_loaded_module_with_registry`] but keeps the "how to wire
+/// the imported channels" logic here in the engine rather than duplicated in
+/// the CLI frontend.
+///
+/// # Errors
+///
+/// Returns [`BuildError::TypeCheck`] if the module fails to type-check, or
+/// [`BuildError::Compile`] if codegen fails.
+#[allow(clippy::implicit_hasher)]
+pub fn compile_session_module(
+    base: &CompiledModule,
+    registry: &ModuleRegistry,
+    module: &Module,
+    path: &ModulePath,
+    source: &str,
+    imported_hashes: HashMap<NameKey, blake3::Hash>,
+    prelude_abilities: &[Arc<crate::ability_resolver::DynAbility>],
+) -> Result<CompiledModule, BuildError> {
+    let check_result = crate::infer::check_module_with_registry(module.clone(), path, registry);
+
+    if !check_result.is_ok() {
+        return Err(BuildError::TypeCheck {
+            module: path.to_string(),
+            path: PathBuf::from(path.to_string()),
+            source: source.to_string(),
+            errors: check_result.errors,
+        });
+    }
+
+    let source_file = path.to_string();
+    let mut compiled = crate::compiler::compile_module_with_options(
+        &check_result.module,
+        crate::compiler::CompileOptions {
+            source: Some(source),
+            source_file: Some(&source_file),
+            imported_hashes: Some(imported_hashes),
+            imported_enums: build_imported_enums(path, registry),
+            imported_unit_structs: build_foreign_unit_structs(path, registry),
+            imported_constants: build_foreign_constants(path, registry),
+            prelude_abilities,
+            foreign_abilities: crate::infer::resolve_registry_abilities(registry),
+        },
+    )
+    .map_err(|e| BuildError::Compile {
+        module: path.to_string(),
+        error: e.to_string(),
+    })?;
+
+    // Qualify this module's function names with its path (`repl::foo`), the
+    // canonical identity, so deploy-by-name resolves them. Impl-method
+    // dispatch symbols are already globally unique and pass through.
+    compiled.function_names = compiled
+        .function_names
+        .iter()
+        .map(|(name, hash)| {
+            let qualified: Arc<str> = if name.contains("::") {
+                Arc::clone(name)
+            } else {
+                format!("{path}::{name}").into()
+            };
+            (qualified, *hash)
+        })
+        .collect();
+
+    let mut merged = base.clone();
+    merged.merge(&compiled);
+    Ok(merged)
 }
 
 // Tests are in ambient-cli since they require the parser

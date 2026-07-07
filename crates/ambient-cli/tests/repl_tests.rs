@@ -8,7 +8,16 @@
 
 mod repl_harness;
 
+use std::path::PathBuf;
+
 use repl_harness::{Arrow, ReplTest};
+
+/// Path to an example project shipped in the repo.
+fn example_project(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples")
+        .join(name)
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Basic Expression Tests
@@ -209,5 +218,105 @@ fn test_user_defined_function_inspection() {
         .type_line("example")
         // Referencing a function by name should display it as a function
         .expect_output("fn") // Should show function representation
+        .shutdown();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Full-language Tests (unlocked by running the shared pipeline)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_define_struct_and_access_field() {
+    // struct definitions are now supported; a value can be constructed and
+    // its fields read back.
+    ReplTest::new()
+        .wait_ready()
+        .type_line("struct Point { x: Number, y: Number }")
+        .expect_output("Defined: Point")
+        .type_line("Point { x: 3, y: 4 }.x")
+        .expect_output("3")
+        .shutdown();
+}
+
+#[test]
+fn test_define_enum() {
+    ReplTest::new()
+        .wait_ready()
+        .type_line("unique(A1B2C3D4-0000-0000-0000-000000000001) enum Color { Red, Green, Blue }")
+        .expect_output("Defined: Color")
+        .shutdown();
+}
+
+#[test]
+fn test_define_type_alias() {
+    ReplTest::new()
+        .wait_ready()
+        .type_line("type Count = Number;")
+        .expect_output("Defined: Count")
+        .shutdown();
+}
+
+#[test]
+fn test_cross_turn_use_and_ability_call() {
+    // A `use` committed on one turn stays in scope for later turns, and the
+    // full platform ability set is wired, so a bare `Stdio::out!` runs.
+    ReplTest::new()
+        .wait_ready()
+        .type_line("use core::system::Stdio;")
+        .type_line("Stdio::out!(\"hello-repl\")")
+        .expect_output("hello-repl")
+        .shutdown();
+}
+
+#[test]
+fn test_type_error_is_reported() {
+    // A return-type mismatch is caught by the real type checker.
+    ReplTest::new()
+        .wait_ready()
+        .type_line("fn bad(): String { 42 }")
+        .expect_error("String")
+        .expect_prompt()
+        .shutdown();
+}
+
+#[test]
+fn test_redefine_function_across_turns() {
+    // Redefinition replaces the earlier same-named definition (last wins).
+    ReplTest::new()
+        .wait_ready()
+        .type_line("fn f() { 1 }")
+        .expect_output("Defined: f")
+        .type_line("f()")
+        .expect_output("1")
+        .clear_output()
+        .type_line("fn f() { 2 }")
+        .expect_output("Defined: f")
+        .type_line("f()")
+        .expect_output("2")
+        .shutdown();
+}
+
+#[test]
+fn test_project_module_is_usable() {
+    // Started inside a project, the REPL builds the whole package as its base
+    // and project modules are reachable (fully-qualified or via `use`).
+    ReplTest::with_project(&example_project("multi_module"))
+        .wait_ready()
+        .type_line("pkg::math_utils::gcd(48, 60)")
+        .expect_output("12")
+        .shutdown();
+}
+
+#[test]
+fn test_non_literal_const_is_rejected() {
+    // Language parity: a `const` must be a literal. A computed value (here a
+    // function call) is rejected — use a `fn` instead.
+    ReplTest::new()
+        .wait_ready()
+        .type_line("fn two() { 2 }")
+        .expect_output("Defined: two")
+        .type_line("const C: Number = two()")
+        .expect_error("error")
+        .expect_prompt()
         .shutdown();
 }

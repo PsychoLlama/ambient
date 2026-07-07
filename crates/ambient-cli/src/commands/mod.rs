@@ -5,7 +5,7 @@
 mod check;
 mod compile;
 mod dev;
-mod host;
+pub(crate) mod host;
 mod init;
 mod run;
 mod store;

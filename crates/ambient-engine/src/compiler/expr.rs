@@ -125,14 +125,9 @@ pub(super) fn compile_expr(
                 // identifier→value mapping rather than a callable thunk.
                 fc.builder.emit_const(value);
             } else if let Some(&hash) = fc.function_hashes.get(&key) {
-                // The REPL still models its constants as zero-arg thunks (each
-                // REPL line is its own function), so a reference auto-calls.
-                if fc.is_repl_constant(&key) {
-                    fc.builder.emit_call(hash, 0);
-                } else {
-                    // It's a function reference - push it for later use.
-                    fc.builder.emit_const(Value::FunctionRef(hash));
-                }
+                // A bare identifier resolving to a function hash is a function
+                // reference - push it for later use.
+                fc.builder.emit_const(Value::FunctionRef(hash));
             } else if let Some(variant) = ctx.enums.get(var_name).cloned() {
                 // Unit enum variant as a value: `None`, `Nothing`.
                 if variant.has_payload {

@@ -33,13 +33,8 @@ mod hash;
 pub(crate) mod intrinsics;
 mod lambdas;
 mod patterns;
-mod repl;
 
 pub use error::{CompileError, CompileErrorKind};
-pub use repl::{
-    CompiledReplItem, ReplContext, ReplItemKind, compile_expression,
-    compile_expression_with_context, compile_repl_item, parse_module_exports,
-};
 
 // Re-export for use by submodules
 use expr::compile_expr;
@@ -301,9 +296,6 @@ struct FunctionCompiler {
 
     /// Debug information being built.
     debug_info: DebugInfo,
-
-    /// REPL context for identifying constants (which need to be auto-called).
-    repl_context: Option<ReplContext>,
 }
 
 impl FunctionCompiler {
@@ -320,25 +312,7 @@ impl FunctionCompiler {
             parent_locals: None,
             parent_local_names: None,
             debug_info: DebugInfo::new(),
-            repl_context: None,
         }
-    }
-
-    /// Set the REPL context for this compiler.
-    fn set_repl_context(&mut self, context: &ReplContext) {
-        self.repl_context = Some(context.clone());
-    }
-
-    /// Check if a reference resolves to a REPL constant. REPL constants are
-    /// bare-named (each REPL line is its own module), so only a
-    /// [`NameKey::Bare`] key can match one.
-    fn is_repl_constant(&self, key: &NameKey) -> bool {
-        let NameKey::Bare(name) = key else {
-            return false;
-        };
-        self.repl_context
-            .as_ref()
-            .is_some_and(|ctx| ctx.is_constant(name))
     }
 
     /// Create a function compiler for a closure, with access to parent scope.
@@ -358,7 +332,6 @@ impl FunctionCompiler {
             parent_locals: Some(parent_locals),
             parent_local_names: Some(parent_local_names),
             debug_info: DebugInfo::new(),
-            repl_context: None,
         }
     }
 

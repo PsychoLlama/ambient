@@ -24,6 +24,13 @@ pub struct AnalysisPackage {
     pub root: PathBuf,
     /// The source directory.
     pub src_dir: PathBuf,
+    /// The package name (`[package].name`). This is the workspace scope
+    /// every user item's `Fqn` is minted under, so it must match what
+    /// `ambient_engine::build::build_package` uses — otherwise a consumer
+    /// that links analysis output against a build (the REPL) sees
+    /// mismatched identities. Empty for an in-memory session with no
+    /// manifest.
+    pub package_name: String,
     /// Parsed modules, keyed by module path string.
     pub modules: HashMap<String, ParsedModule>,
     /// Host abilities configured in `[host].abilities`.
@@ -55,11 +62,29 @@ impl AnalysisPackage {
                 return Some(Self {
                     root: current.to_path_buf(),
                     src_dir: current.join(&manifest.src_dir),
+                    package_name: manifest.name,
                     modules: HashMap::new(),
                     host_abilities: manifest.host_abilities,
                 });
             }
             current = current.parent()?;
+        }
+    }
+
+    /// Create an empty, in-memory package with no modules loaded from disk.
+    ///
+    /// Used by the REPL, which accumulates a single synthetic `repl` module
+    /// in memory and re-checks it each turn. `root`/`src_dir` are notional —
+    /// nothing is read from them — but `insert_module` and `build_registry`
+    /// work exactly as they do for an on-disk package.
+    #[must_use]
+    pub fn empty(root: PathBuf, src_dir: PathBuf) -> Self {
+        Self {
+            root,
+            src_dir,
+            package_name: String::new(),
+            modules: HashMap::new(),
+            host_abilities: Vec::new(),
         }
     }
 
@@ -71,6 +96,7 @@ impl AnalysisPackage {
         let mut package = Self {
             root: root.to_path_buf(),
             src_dir: root.join(&manifest.src_dir),
+            package_name: manifest.name,
             modules: HashMap::new(),
             host_abilities: manifest.host_abilities,
         };
@@ -146,6 +172,14 @@ impl AnalysisPackage {
     #[must_use]
     pub fn build_registry(&self) -> ModuleRegistry {
         let mut registry = crate::core_platform_registry();
+        // Mint user items' `Fqn`s under the package's workspace scope — the
+        // same scope `build_package` uses — so the resolve pass below stamps
+        // identities that match a compiled build. This keeps `ambient
+        // check`/LSP identity-consistent with `ambient run`, and lets the
+        // REPL link its session module against a `build_package` base.
+        if !self.package_name.is_empty() {
+            registry.set_workspace_name(self.package_name.as_str());
+        }
         for module in self.modules.values() {
             registry.register(&module.path, Arc::new(module.ast.clone()));
         }

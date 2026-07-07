@@ -1,34 +1,52 @@
 //! REPL (Read-Eval-Print-Loop) implementation.
 //!
-//! This module provides an interactive environment for evaluating Ambient code.
+//! The REPL is a thin frontend over the same pipeline that powers `ambient
+//! check`, the LSP, and `ambient run`. Each session is modeled as an
+//! accumulating in-memory module named `repl`: every turn re-checks and
+//! re-compiles the committed definitions (plus the new input) through
+//! `ambient_analysis`/`ambient_engine`, so the REPL gets the full language —
+//! type checking, every item kind, cross-module `use`, real shared
+//! diagnostics, and the full platform ability set — without a bespoke
+//! parallel compiler. "What is an error" and "how to compile a module set"
+//! live in the shared layer, never here (see AGENTS.md).
 
 mod completer;
 mod editor;
 mod highlighter;
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
 use rustyline::{Config as RustylineConfig, Editor, EventHandler, KeyEvent};
 
 use editor::ExternalEditorHandler;
 
-use ambient_engine::compiler::{
-    ReplContext, ReplItemKind, compile_expression_with_context, compile_repl_item,
-    parse_module_exports,
-};
+use ambient_analysis::Diagnostic;
+use ambient_analysis::package::AnalysisPackage;
+use ambient_engine::ability_resolver::DynAbility;
+use ambient_engine::ast::{Item, ItemKind};
+use ambient_engine::build::{BuildOptions, compile_session_module};
+use ambient_engine::compiler::CompiledModule;
 use ambient_engine::format::format_value_colored;
-use ambient_engine::manifest::Manifest;
-use ambient_engine::value::{ModuleExport, ModuleExportKind, ModuleValue};
-use ambient_engine::vm::Vm;
+use ambient_engine::fqn::NameKey;
+use ambient_engine::module_path::ModulePath;
+use ambient_engine::module_registry::{ExportKind, ModuleInfo, ModuleRegistry};
+use ambient_engine::value::{ModuleExport, ModuleExportKind, ModuleMemberRef, ModuleValue, Value};
 use ambient_parser::ReplInput;
+use ambient_platform::process::{EventSink, ProcessEvent};
 
-use completer::ReplHelper;
+use crate::commands::host::RuntimeHost;
+use crate::commands::{core_context, platform_prelude};
+use crate::diagnostic::report_build_error;
+
+/// The module path all session definitions accumulate into.
+const REPL_MODULE: &str = "repl";
 
 /// Run the interactive REPL.
 pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
@@ -40,32 +58,10 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
         None => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     };
 
-    // Create shared REPL context for evaluation and module introspection,
-    // with the platform prelude registered so ability calls compile.
-    let prelude = crate::commands::platform_prelude()?;
-    let repl_ctx = Arc::new(Mutex::new(ReplContext::with_prelude(prelude.clone())));
-
-    let mut vm = Vm::new();
-
-    // Register standard abilities for the REPL against the resolved prelude.
-    ambient_platform::register_defaults(&mut vm, &prelude);
-
-    // Register built-in modules for introspection and compile core library.
-    {
-        let mut ctx = repl_ctx.lock().unwrap();
-        ctx.register_core_modules();
-        ctx.register_ability_modules();
-
-        // Compile and load core library functions into the VM.
-        // This allows calling functions like core::collections::List::last() from the REPL.
-        compile_and_load_core_library(&mut ctx, &mut vm);
-    }
-
-    // Register project modules for introspection.
-    register_project_modules(&project_dir, &repl_ctx);
+    let mut session = ReplSession::new(&project_dir)?;
 
     // Create the REPL helper (syntax highlighting).
-    let completer = ReplHelper::new();
+    let completer = completer::ReplHelper::new();
 
     // Configure rustyline with our helper.
     let config = RustylineConfig::builder()
@@ -74,7 +70,7 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
         .expect("valid history size")
         .build();
 
-    let mut rl: Editor<ReplHelper, DefaultHistory> =
+    let mut rl: Editor<completer::ReplHelper, DefaultHistory> =
         Editor::with_config(config).context("failed to initialize readline")?;
     rl.set_helper(Some(completer));
 
@@ -114,16 +110,11 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
                 if line.starts_with(':') {
                     match handle_repl_command(line) {
                         ReplCommand::Help => print_repl_help(),
-                        ReplCommand::Quit => {
-                            break;
-                        }
-                        ReplCommand::Clear => {
-                            // Clear the VM state by creating a fresh VM.
-                            vm = Vm::new();
-                            ambient_platform::register_defaults(&mut vm, &prelude);
-                            *repl_ctx.lock().unwrap() = ReplContext::with_prelude(prelude.clone());
-                            eprintln!("State cleared.");
-                        }
+                        ReplCommand::Quit => break,
+                        ReplCommand::Clear => match session.clear() {
+                            Ok(()) => eprintln!("State cleared."),
+                            Err(e) => eprintln!("\x1b[1;31merror\x1b[0m: {e}"),
+                        },
                         ReplCommand::Unknown(cmd) => {
                             eprintln!("Unknown command: {cmd}");
                             eprintln!("Type :help for available commands.");
@@ -133,8 +124,7 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
                 }
 
                 // Parse and evaluate the input.
-                let mut ctx = repl_ctx.lock().unwrap();
-                match eval_repl_input(&mut vm, &mut ctx, line) {
+                match session.eval(line) {
                     Ok(Some(value)) => {
                         println!("{}", format_value_colored(&value));
                     }
@@ -165,6 +155,407 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// One committed session input: the raw source the user typed plus the names
+/// it binds, used to replace same-named earlier definitions.
+struct SessionEntry {
+    /// Names this input binds (functions, consts, types, imports). Empty for
+    /// `impl` blocks, which have no single name.
+    names: Vec<Arc<str>>,
+    /// The raw source text of the input, re-emitted verbatim each turn.
+    source: String,
+}
+
+/// Everything the REPL accumulates and reuses across turns.
+struct ReplSession {
+    /// Committed definitions, in insertion order.
+    entries: Vec<SessionEntry>,
+    /// The `repl` module path all definitions live under.
+    repl_path: ModulePath,
+    /// The analysis package: an opened project, or an empty in-memory
+    /// package when the REPL runs outside a project.
+    package: AnalysisPackage,
+    /// The project root, if any — used to rebuild base state on `:clear`.
+    project_root: Option<PathBuf>,
+    /// The cached base build (core, plus the project when present) that each
+    /// session module merges onto.
+    base: CompiledModule,
+    /// The canonical [`NameKey`] linking table for `base`, resolving the
+    /// session module's cross-module calls.
+    imported_hashes: HashMap<NameKey, blake3::Hash>,
+    /// Resolved platform prelude abilities for the compiler.
+    prelude: Vec<Arc<DynAbility>>,
+    /// Monotonic counter naming synthetic expression entry functions.
+    entry_counter: u64,
+    /// The runtime host that executes entries with the full platform set.
+    host: RuntimeHost,
+}
+
+impl ReplSession {
+    /// Build a fresh session: resolve the project (if any), build the base,
+    /// and start the runtime host.
+    fn new(project_dir: &Path) -> Result<Self> {
+        let repl_path = ModulePath::from_str_segments(&[REPL_MODULE])
+            .ok_or_else(|| anyhow!("invalid repl module path"))?;
+        let prelude = platform_prelude()?;
+        let project_root = find_project_root(project_dir);
+        let (package, base, imported_hashes) = build_base(project_root.as_deref(), &prelude)?;
+        let host = RuntimeHost::new(noop_event_sink())?;
+
+        Ok(Self {
+            entries: Vec::new(),
+            repl_path,
+            package,
+            project_root,
+            base,
+            imported_hashes,
+            prelude,
+            entry_counter: 0,
+            host,
+        })
+    }
+
+    /// Reset all session definitions and rebuild the base + host from scratch.
+    fn clear(&mut self) -> Result<()> {
+        let (package, base, imported_hashes) =
+            build_base(self.project_root.as_deref(), &self.prelude)?;
+        self.entries.clear();
+        self.package = package;
+        self.base = base;
+        self.imported_hashes = imported_hashes;
+        self.entry_counter = 0;
+        self.host = RuntimeHost::new(noop_event_sink())?;
+        // Drop any lingering `repl` module from the package.
+        self.sync_repl_module(&self.committed_source());
+        Ok(())
+    }
+
+    /// The concatenated source of every committed definition.
+    fn committed_source(&self) -> String {
+        let mut source = String::new();
+        for entry in &self.entries {
+            source.push_str(&entry.source);
+            source.push('\n');
+        }
+        source
+    }
+
+    /// Install `source` as the current `repl` module in the analysis package.
+    fn sync_repl_module(&mut self, source: &str) {
+        self.package
+            .insert_module(self.repl_path.clone(), source.to_string());
+    }
+
+    /// Evaluate one line: an introspection query, a definition, or an
+    /// expression. Definitions print `Defined: <name>` and return `None`;
+    /// expressions return their value (unless `Unit`).
+    fn eval(&mut self, line: &str) -> std::result::Result<Option<Value>, String> {
+        let trimmed = line.trim();
+
+        // Introspection: a `::` path (or bare module name) that names a
+        // module or one of its members browses the registry instead of
+        // evaluating. Namespaces are addressed with `::`; a `.` is
+        // value/field access and never resolves a namespace, so a dotted
+        // path falls through to the parser (which rejects it). The
+        // path-shape guard keeps ordinary expressions (`1 + 2`, `f(x)`) off
+        // the registry-building path.
+        if looks_like_path(trimmed)
+            && let Some(value) = self.introspect(trimmed)
+        {
+            return Ok(Some(value));
+        }
+
+        // Parse the input as either items or an expression.
+        let input = match ambient_parser::parse_repl_input(line) {
+            Ok(i) => i,
+            Err(e) => return Err(format_repl_parse_error(line, &e)),
+        };
+
+        match input {
+            ReplInput::Items(items) => self.eval_items(line, &items),
+            ReplInput::Expr(_) => self.eval_expression(line),
+        }
+    }
+
+    /// Type-check and commit a definition input, replacing any same-named
+    /// earlier definitions.
+    fn eval_items(
+        &mut self,
+        line: &str,
+        items: &[Item],
+    ) -> std::result::Result<Option<Value>, String> {
+        let committed = self.committed_source();
+        let trial_source = format!("{committed}{line}\n");
+
+        // Type-check the whole trial module; commit only if it is clean.
+        let registry = self.check_trial(&trial_source)?;
+
+        // Compile to surface any codegen error before mutating state (the
+        // merged module is discarded — definitions produce no value).
+        self.compile_trial(&registry, &trial_source)
+            .map_err(|e| format!("{e}"))?;
+
+        // Commit: drop earlier entries this input redefines, then append.
+        let names: Vec<Arc<str>> = items.iter().filter_map(item_name).collect();
+        self.commit_entry(SessionEntry {
+            names: names.clone(),
+            source: line.to_string(),
+        });
+        self.sync_repl_module(&self.committed_source());
+
+        let defined: Vec<Arc<str>> = items.iter().filter_map(definition_name).collect();
+        for name in &defined {
+            eprintln!("Defined: {name}");
+        }
+        Ok(None)
+    }
+
+    /// Wrap an expression in a synthetic entry function, run it, and return
+    /// its value.
+    fn eval_expression(&mut self, line: &str) -> std::result::Result<Option<Value>, String> {
+        self.entry_counter += 1;
+        let entry_local = format!("__repl_entry_{}", self.entry_counter);
+        let committed = self.committed_source();
+        // The entry is private and unannotated, so effect inference gives it
+        // whatever abilities the expression performs — no `with` clause or
+        // `use` needed for fully-qualified platform calls.
+        let trial_source = format!("{committed}fn {entry_local}() {{\n{line}\n}}\n");
+
+        let registry = self.check_trial(&trial_source)?;
+        let merged = self
+            .compile_trial(&registry, &trial_source)
+            .map_err(|e| format!("{e}"))?;
+
+        // The synthetic entry is never committed; restore the package's
+        // `repl` module to the committed state.
+        self.sync_repl_module(&committed);
+
+        let entry_qualified = format!("{REPL_MODULE}::{entry_local}");
+        let outcome = self
+            .host
+            .deploy(&merged, &entry_qualified)
+            .map_err(|e| format!("{e}"))?;
+
+        if matches!(outcome.value, Value::Unit) {
+            Ok(None)
+        } else {
+            Ok(Some(outcome.value))
+        }
+    }
+
+    /// Run the shared analysis over a trial `repl` module and reject the turn
+    /// if it produces any diagnostics. On success the built registry (with
+    /// the trial module resolved) is returned for the caller to compile
+    /// against, avoiding a second registry build.
+    fn check_trial(&mut self, trial_source: &str) -> std::result::Result<ModuleRegistry, String> {
+        self.sync_repl_module(trial_source);
+        let registry = self.package.build_registry();
+        let result = ambient_analysis::analyze_with_registry(
+            trial_source,
+            Some(&self.repl_path),
+            Some(&registry),
+        );
+        let diagnostics = result.diagnostics();
+        if diagnostics.is_empty() {
+            Ok(registry)
+        } else {
+            // Leave the committed module in place for the next turn.
+            let committed = self.committed_source();
+            self.sync_repl_module(&committed);
+            Err(format_repl_diagnostics(trial_source, &diagnostics))
+        }
+    }
+
+    /// Compile the (already type-clean) trial `repl` module against `registry`
+    /// and merge it onto the base.
+    fn compile_trial(
+        &self,
+        registry: &ModuleRegistry,
+        trial_source: &str,
+    ) -> Result<CompiledModule> {
+        let info = registry
+            .get(&self.repl_path)
+            .ok_or_else(|| anyhow!("repl module missing from registry"))?;
+        let module = info.module.as_ref().clone();
+        compile_session_module(
+            &self.base,
+            registry,
+            &module,
+            &self.repl_path,
+            trial_source,
+            self.imported_hashes.clone(),
+            &self.prelude,
+        )
+        .map_err(report_build_error)
+    }
+
+    /// Drop committed entries whose names or source this input replaces, then
+    /// append it.
+    fn commit_entry(&mut self, entry: SessionEntry) {
+        self.entries.retain(|existing| {
+            existing.source != entry.source
+                && !existing.names.iter().any(|n| entry.names.contains(n))
+        });
+        self.entries.push(entry);
+    }
+
+    /// Browse the registry for a module path or member path, if `path` names
+    /// one. Bare value names (variables, constants, functions) return `None`
+    /// so they evaluate normally.
+    fn introspect(&self, path: &str) -> Option<Value> {
+        let registry = self.package.build_registry();
+
+        // Whole module: `core`, `core::collections::List`, `repl`.
+        if let Some(module_path) = parse_module_path(path)
+            && let Some(info) = registry.get(&module_path)
+        {
+            return Some(Value::Module(Arc::new(module_value(path, info))));
+        }
+
+        // Member: `core::collections::List::first`. Split the trailing name
+        // off and look it up in the parent module's exports (raw, so the
+        // user's own non-`pub` items are browsable too).
+        let (parent, member) = path.rsplit_once("::")?;
+        let parent_path = parse_module_path(parent)?;
+        let info = registry.get(&parent_path)?;
+        let export = info.exports.get(member)?;
+        Some(Value::ModuleMember(Arc::new(ModuleMemberRef {
+            path: path.into(),
+            kind: export_kind(export.kind),
+        })))
+    }
+}
+
+/// A no-op process event sink: the REPL is quiet about process lifecycle.
+fn noop_event_sink() -> EventSink {
+    Arc::new(|_event: &ProcessEvent| {})
+}
+
+/// Build the base compiled module and its analysis package.
+///
+/// With a project, the base is the full package build (core + project, names
+/// qualified) and the package is opened from disk. Without one, the base is
+/// just the core library and the package is an empty in-memory shell.
+fn build_base(
+    project_root: Option<&Path>,
+    prelude: &[Arc<DynAbility>],
+) -> Result<(
+    AnalysisPackage,
+    CompiledModule,
+    HashMap<NameKey, blake3::Hash>,
+)> {
+    match project_root {
+        Some(root) => {
+            let result = ambient_engine::build::build_package(
+                root,
+                crate::commands::parse_source,
+                &BuildOptions {
+                    platform_source: ambient_platform::ABILITY_DECLARATIONS,
+                    prelude_abilities: prelude,
+                    progress: None,
+                },
+            )
+            .map_err(report_build_error)?;
+            let package = AnalysisPackage::open(root).map_err(|e| anyhow!(e))?;
+            Ok((package, result.compiled, result.link_table))
+        }
+        None => {
+            let core = core_context()?;
+            let package = AnalysisPackage::empty(PathBuf::from("."), PathBuf::from("."));
+            Ok((package, core.compiled, core.hashes))
+        }
+    }
+}
+
+/// Walk up from `dir` looking for an `ambient.toml` that marks a project root.
+fn find_project_root(dir: &Path) -> Option<PathBuf> {
+    let mut current = dir;
+    loop {
+        if current.join("ambient.toml").exists() {
+            return Some(current.to_path_buf());
+        }
+        current = current.parent()?;
+    }
+}
+
+/// The name a definition input binds, for redefinition bookkeeping. `impl`
+/// blocks have no single name and return `None`.
+fn item_name(item: &Item) -> Option<Arc<str>> {
+    match &item.kind {
+        ItemKind::Function(def) => Some(def.name.clone()),
+        ItemKind::Const(def) => Some(def.name.clone()),
+        ItemKind::Struct(def) => Some(def.name.clone()),
+        ItemKind::TypeAlias(def) => Some(def.name.clone()),
+        ItemKind::Enum(def) => Some(def.name.clone()),
+        ItemKind::Ability(def) => Some(def.name.clone()),
+        ItemKind::Trait(def) => Some(def.name.clone()),
+        ItemKind::Use(def) => def
+            .alias
+            .as_ref()
+            .map(|(name, _)| name.clone())
+            .or_else(|| def.path.last().map(|(name, _)| name.clone())),
+        ItemKind::Impl(_) => None,
+    }
+}
+
+/// The name to announce as `Defined: <name>`. Imports and impls stay quiet.
+fn definition_name(item: &Item) -> Option<Arc<str>> {
+    match &item.kind {
+        ItemKind::Use(_) | ItemKind::Impl(_) => None,
+        _ => item_name(item),
+    }
+}
+
+/// Map a registry export kind to its value-level rendering kind.
+fn export_kind(kind: ExportKind) -> ModuleExportKind {
+    match kind {
+        ExportKind::Function => ModuleExportKind::Function,
+        ExportKind::Const => ModuleExportKind::Const,
+        ExportKind::Struct | ExportKind::TypeAlias => ModuleExportKind::Type,
+        ExportKind::Enum => ModuleExportKind::Enum,
+        ExportKind::EnumVariant => ModuleExportKind::Variant,
+        ExportKind::Ability | ExportKind::Trait => ModuleExportKind::Ability,
+    }
+}
+
+/// Build a browsable module value from a registry module's exports and
+/// re-exported children.
+fn module_value(path: &str, info: &ModuleInfo) -> ModuleValue {
+    let mut exports: Vec<ModuleExport> = info
+        .exports
+        .values()
+        .map(|e| ModuleExport::new(e.name.as_ref(), export_kind(e.kind)))
+        .collect();
+    for re in &info.re_exports {
+        if let Some(name) = re.exported_name() {
+            exports.push(ModuleExport::new(name, ModuleExportKind::Module));
+        }
+    }
+    ModuleValue::new(path, exports)
+}
+
+/// Whether `s` is shaped like a module/member path: one or more identifier
+/// segments joined by `::`, nothing else. Ordinary expressions (with
+/// operators, whitespace, calls, or a `.`) are not path-shaped and skip
+/// introspection so they never trigger a registry build.
+fn looks_like_path(s: &str) -> bool {
+    !s.is_empty()
+        && s.split("::").all(|seg| {
+            let mut chars = seg.chars();
+            chars
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        })
+}
+
+/// Parse a `::`-separated module path, rejecting empty input.
+fn parse_module_path(path: &str) -> Option<ModulePath> {
+    if path.is_empty() {
+        return None;
+    }
+    ModulePath::from_segments(path.split("::").map(Arc::from).collect())
 }
 
 /// REPL command types.
@@ -199,108 +590,19 @@ fn print_repl_help() {
     eprintln!();
     eprintln!("Definitions:");
     eprintln!("  fn add(x, y) {{ x + y }}   Define a function");
-    eprintln!("  const PI = 3.14159        Define a constant");
+    eprintln!("  const PI: Number = 3      Define a constant (must be a literal)");
+    eprintln!("  struct Point {{ x: Number, y: Number }}   Define a type");
+    eprintln!("  use core::system::Stdio   Import across turns");
     eprintln!();
     eprintln!("Expressions:");
     eprintln!("  1 + 2 * 3        Evaluate an expression");
     eprintln!("  add(1, 2)        Call a defined function");
     eprintln!("  \"hello\"          String literal");
-    eprintln!("  (1, 2, 3)        Tuple");
-    eprintln!("  {{ x: 1, y: 2 }}   Record");
-}
-
-/// Evaluate REPL input (either an expression or a definition).
-fn eval_repl_input(
-    vm: &mut Vm,
-    ctx: &mut ReplContext,
-    line: &str,
-) -> Result<Option<ambient_engine::value::Value>, String> {
-    // Check if the input is a module path (e.g., "core", "core::primitives::Number", "Stdio").
-    // This allows users to inspect modules by just typing their name. Namespaces
-    // are addressed with `::`; a `.` is value/field access and must never resolve
-    // a namespace, so a dotted path (e.g. `core.Number.sign`) is not a module
-    // inspection — it falls through to the parser, which rejects it. Modules are
-    // keyed internally by their `::` path, matching what the user types.
-    let trimmed = line.trim();
-    if !trimmed.contains('.') {
-        if let Some(module) = ctx.get_module(trimmed) {
-            return Ok(Some(ambient_engine::value::Value::Module(
-                std::sync::Arc::clone(module),
-            )));
-        }
-
-        // Check if the input is a module member path (e.g., "core::collections::List::first").
-        // This allows users to inspect functions and constants from modules.
-        if let Some(kind) = ctx.get_module_member(trimmed) {
-            use ambient_engine::value::ModuleMemberRef;
-            return Ok(Some(ambient_engine::value::Value::ModuleMember(
-                std::sync::Arc::new(ModuleMemberRef {
-                    path: trimmed.into(),
-                    kind,
-                }),
-            )));
-        }
-    }
-
-    // Parse the input as either an item or an expression.
-    let input = match ambient_parser::parse_repl_input(line) {
-        Ok(i) => i,
-        Err(e) => {
-            return Err(format_repl_parse_error(line, &e));
-        }
-    };
-
-    match input {
-        ReplInput::Items(items) => {
-            // A single source item usually lowers to one AST item; a
-            // `use` tree flattens to one per imported leaf.
-            for item in items {
-                let compiled =
-                    compile_repl_item(&item, ctx).map_err(|e| format!("compile error: {e}"))?;
-
-                let name = compiled.name.clone();
-                let hash = compiled.function.hash;
-                let kind = compiled.kind;
-
-                // Load the function into the VM.
-                vm.load_function(compiled.function);
-
-                // Register the name in the context for future references.
-                match kind {
-                    ReplItemKind::Function => ctx.register_function(name.clone(), hash),
-                    ReplItemKind::Constant => ctx.register_constant(name.clone(), hash),
-                }
-
-                // Print confirmation of the definition.
-                eprintln!("Defined: {name}");
-            }
-
-            // Definitions don't produce a value.
-            Ok(None)
-        }
-        ReplInput::Expr(expr) => {
-            // Compile the expression with the current context.
-            let func = compile_expression_with_context(&expr, ctx)
-                .map_err(|e| format!("compile error: {e}"))?;
-
-            let func_hash = func.hash;
-
-            // Load the function into the VM.
-            vm.load_function(func);
-
-            // Execute the function with stack trace support.
-            let result = vm
-                .call_with_trace(&func_hash, Vec::new())
-                .map_err(|e| format!("{e}"))?;
-
-            // Return the result (None for Unit).
-            if matches!(result, ambient_engine::value::Value::Unit) {
-                Ok(None)
-            } else {
-                Ok(Some(result))
-            }
-        }
-    }
+    eprintln!();
+    eprintln!("The REPL runs the full pipeline: type checking, every item kind");
+    eprintln!("(struct/enum/type/ability/trait/impl/use), cross-module `use`, and");
+    eprintln!("the same diagnostics as `ambient check`. A `const` must be a literal;");
+    eprintln!("use a `fn` for a computed value.");
 }
 
 /// Format a parse error for REPL display (without file path).
@@ -326,164 +628,59 @@ fn format_repl_parse_error(line: &str, error: &ambient_parser::ParseError) -> St
     msg
 }
 
+/// Render shared analysis diagnostics against the trial module source.
+///
+/// The trial source is `committed definitions + this turn's input`, so a
+/// caret can point at the exact offending line even when the error is in the
+/// synthetic entry wrapper.
+fn format_repl_diagnostics(source: &str, diagnostics: &[Diagnostic]) -> String {
+    let mut out = String::new();
+    for (i, diag) in diagnostics.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let (col, line_start, line_end) = line_info(source, diag.span.start as usize);
+        let line_content = &source[line_start..line_end];
+
+        out.push_str(&diag.message);
+        out.push('\n');
+        out.push_str(&format!("  {line_content}\n"));
+
+        let underline_start = col;
+        let underline_len = ((diag.span.end - diag.span.start) as usize)
+            .min(line_content.len().saturating_sub(underline_start))
+            .max(1);
+        out.push_str(&format!(
+            "  {}{}",
+            " ".repeat(underline_start),
+            "^".repeat(underline_len)
+        ));
+
+        if let Some(note) = &diag.note {
+            out.push_str(&format!("\n  note: {note}"));
+        }
+    }
+    out
+}
+
+/// Column offset within its line and the line's byte bounds for `offset`.
+fn line_info(source: &str, offset: usize) -> (usize, usize, usize) {
+    let mut line_start = 0;
+    for (i, ch) in source.char_indices() {
+        if i >= offset {
+            break;
+        }
+        if ch == '\n' {
+            line_start = i + 1;
+        }
+    }
+    let line_end = source[line_start..]
+        .find('\n')
+        .map_or(source.len(), |i| line_start + i);
+    (offset.saturating_sub(line_start), line_start, line_end)
+}
+
 /// Get the history file path.
 fn get_history_path() -> Option<PathBuf> {
     dirs::data_local_dir().map(|d| d.join("ambient").join("repl_history"))
-}
-
-/// Register project modules for introspection in the REPL.
-fn register_project_modules(project_dir: &Path, repl_ctx: &Arc<Mutex<ReplContext>>) {
-    // Find the manifest by walking up from project_dir
-    let mut current = project_dir;
-    let manifest_path = loop {
-        let candidate = current.join("ambient.toml");
-        if candidate.exists() {
-            break Some(candidate);
-        }
-        match current.parent() {
-            Some(parent) => current = parent,
-            None => break None,
-        }
-    };
-
-    let Some(manifest_path) = manifest_path else {
-        return;
-    };
-
-    let Ok(manifest) = Manifest::from_file(&manifest_path) else {
-        return;
-    };
-
-    let project_root = manifest_path.parent().unwrap();
-    let src_dir = project_root.join(&manifest.src_dir);
-
-    if !src_dir.is_dir() {
-        return;
-    }
-
-    // Discover all .ab files and register them
-    let modules = discover_project_modules(&src_dir, &src_dir);
-
-    let mut ctx = repl_ctx.lock().unwrap();
-
-    // Register "pkg" as the root module containing all project modules
-    let pkg_exports: Vec<ModuleExport> = modules
-        .iter()
-        .filter_map(|(name, _)| {
-            // Only include top-level modules (no `::` in name)
-            if !name.contains("::") {
-                Some(ModuleExport::new(name.as_str(), ModuleExportKind::Module))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    if !pkg_exports.is_empty() {
-        ctx.register_module("pkg", ModuleValue::new("pkg", pkg_exports));
-    }
-
-    // Register each module with its exports
-    for (module_name, source) in modules {
-        let exports = parse_module_exports(&source);
-        let path = format!("pkg::{module_name}");
-        ctx.register_module(path.clone(), ModuleValue::new(path, exports));
-
-        // Also register without pkg prefix for convenience (e.g., "math_utils" directly)
-        let exports = parse_module_exports(&source);
-        ctx.register_module(module_name.clone(), ModuleValue::new(module_name, exports));
-    }
-}
-
-/// Recursively discover .ab files and return (module_path, source) pairs.
-fn discover_project_modules(dir: &Path, src_root: &Path) -> Vec<(String, String)> {
-    let mut modules = Vec::new();
-
-    let Ok(entries) = fs::read_dir(dir) else {
-        return modules;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-
-        if path.is_dir() {
-            modules.extend(discover_project_modules(&path, src_root));
-        } else if path.extension().is_some_and(|ext| ext == "ab")
-            && let Some(module_path) = path_to_module_name(&path, src_root)
-        {
-            // Skip "main" as it's the entry point, not a reusable module
-            if module_path != "main"
-                && let Ok(source) = fs::read_to_string(&path)
-            {
-                modules.push((module_path, source));
-            }
-        }
-    }
-
-    modules
-}
-
-/// Convert a file path to a module path string.
-fn path_to_module_name(path: &Path, src_root: &Path) -> Option<String> {
-    let relative = path.strip_prefix(src_root).ok()?;
-    let mut segments = Vec::new();
-
-    for component in relative.components() {
-        if let std::path::Component::Normal(s) = component {
-            let name = s.to_str()?;
-            let name = name.strip_suffix(".ab").unwrap_or(name);
-            segments.push(name);
-        }
-    }
-
-    Some(segments.join("::"))
-}
-
-/// Compile core library modules and load them into the VM.
-///
-/// This allows calling functions like `core::collections::List::last([1, 2])` from the REPL.
-fn compile_and_load_core_library(ctx: &mut ReplContext, vm: &mut Vm) {
-    use ambient_engine::compiler::compile_module;
-    use ambient_engine::core_library::CoreLibrary;
-
-    for module_name in CoreLibrary::available_modules() {
-        let Ok(source) = CoreLibrary::get_source(&[std::sync::Arc::from(module_name.as_str())])
-        else {
-            continue;
-        };
-
-        // Parse the module source
-        let Ok(module) = ambient_parser::parse(source) else {
-            continue;
-        };
-
-        // Type-check to resolve impl-method dispatch symbols — the compiler
-        // requires them for the core modules' inherent impl blocks. Check
-        // errors are ignored (compilation below fails on anything fatal).
-        let checked = ambient_engine::infer::check_module(module);
-
-        // Compile the module
-        let Ok(compiled) = compile_module(&checked.module) else {
-            continue;
-        };
-
-        // Register each function with its qualified name and load into VM
-        for (name, hash) in &compiled.function_names {
-            // Impl-method symbols (`Option::map`) are already canonical
-            // dispatch names; module functions get their qualified path.
-            let qualified_name: std::sync::Arc<str> = if name.contains("::") {
-                std::sync::Arc::clone(name)
-            } else {
-                format!("core::{module_name}::{name}").into()
-            };
-
-            // Register the hash so the expression compiler can find it
-            ctx.register_core_function(qualified_name, *hash);
-        }
-
-        // Load all compiled functions into the VM
-        for func in compiled.functions.into_values() {
-            vm.load_function(func);
-        }
-    }
 }
