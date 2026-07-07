@@ -310,8 +310,8 @@ pub struct CstConstDef {
     pub is_public: bool,
     /// Constant name.
     pub name: CstIdent,
-    /// Type annotation.
-    pub ty: CstTypeExpr,
+    /// Type annotation, or `None` when omitted (inferred from the literal).
+    pub ty: Option<CstTypeExpr>,
     /// Value expression.
     pub value: CstExpr,
 }

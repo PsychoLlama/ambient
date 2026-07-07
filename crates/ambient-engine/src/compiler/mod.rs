@@ -2583,7 +2583,7 @@ mod tests {
                         name: Arc::from("NANOS_PER_SEC"),
                         name_span: Span::default(),
                         is_public: false,
-                        ty: Type::number(),
+                        ty: Some(Type::number()),
                         value: Expr::number(1_000_000_000.0),
                     }),
                     test_span(),
@@ -2662,7 +2662,7 @@ mod tests {
                         name: Arc::from("ANSWER"),
                         name_span: Span::default(),
                         is_public: false,
-                        ty: Type::number(),
+                        ty: Some(Type::number()),
                         value: Expr::number(42.0),
                     }),
                     test_span(),
@@ -2716,6 +2716,60 @@ mod tests {
         );
     }
 
+    /// A `const` written without a type annotation type-checks (the type is
+    /// inferred from the literal) and compiles/runs like an annotated one.
+    #[test]
+    fn const_without_annotation_infers_type() {
+        use crate::ast::ConstDef;
+        use crate::vm::Vm;
+
+        let module = Module {
+            name: Arc::from("test"),
+            doc: None,
+            items: vec![
+                Item::new(
+                    ItemKind::Const(ConstDef {
+                        name: Arc::from("ANSWER"),
+                        name_span: Span::default(),
+                        is_public: false,
+                        ty: None,
+                        value: Expr::number(42.0),
+                    }),
+                    test_span(),
+                ),
+                Item::new(
+                    ItemKind::Function(FunctionDef {
+                        name: Arc::from("run"),
+                        name_span: Span::default(),
+                        is_public: true,
+                        type_params: vec![],
+                        params: vec![],
+                        ret_ty: None,
+                        abilities: vec![],
+                        body: Expr::name("ANSWER"),
+                    }),
+                    test_span(),
+                ),
+            ],
+        };
+        let checked = crate::infer::check_module(module);
+        assert!(checked.errors.is_empty(), "{:?}", checked.errors);
+        let compiled = compile_module(&checked.module).expect("compile");
+
+        let mut vm = Vm::new();
+        for func in compiled.functions.values() {
+            vm.load_function(func.clone());
+        }
+        for (hash, object) in &compiled.objects {
+            if let Some(value) = object.as_value() {
+                vm.load_value(*hash, value);
+            }
+        }
+        let entry = compiled.entry_point.expect("entry point");
+        let result = vm.call(&entry, vec![]).expect("run failed");
+        assert_eq!(result, Value::Number(42.0));
+    }
+
     /// Two `const`s with the same value collapse to a single value object:
     /// content addressing deduplicates them, name notwithstanding.
     #[test]
@@ -2729,7 +2783,7 @@ mod tests {
                     name: Arc::from(name),
                     name_span: Span::default(),
                     is_public: false,
-                    ty: Type::number(),
+                    ty: Some(Type::number()),
                     value: Expr::number(100.0),
                 }),
                 test_span(),
@@ -2790,7 +2844,7 @@ mod tests {
                     name: Arc::from("ANSWER"),
                     name_span: Span::default(),
                     is_public: true,
-                    ty: Type::number(),
+                    ty: Some(Type::number()),
                     value: Expr::number(42.0),
                 }),
                 test_span(),
@@ -2837,7 +2891,7 @@ mod tests {
                         name: Arc::from("ANSWER"),
                         name_span: Span::default(),
                         is_public: true,
-                        ty: Type::number(),
+                        ty: Some(Type::number()),
                         value: Expr::number(42.0),
                     }),
                     test_span(),
@@ -2897,7 +2951,7 @@ mod tests {
                         name: Arc::from("A"),
                         name_span: Span::default(),
                         is_public: false,
-                        ty: Type::number(),
+                        ty: Some(Type::number()),
                         value: Expr::number(1.0),
                     }),
                     test_span(),
@@ -2907,7 +2961,7 @@ mod tests {
                         name: Arc::from("B"),
                         name_span: Span::default(),
                         is_public: false,
-                        ty: Type::number(),
+                        ty: Some(Type::number()),
                         value: Expr::name("A"),
                     }),
                     test_span(),

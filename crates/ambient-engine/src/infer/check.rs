@@ -1349,7 +1349,7 @@ fn collect_const_signatures(
         if let crate::ast::ItemKind::Const(const_def) = &item.kind {
             let binding_id = next_binding_id;
             next_binding_id += 1;
-            let ty = resolve_erroring(infer, &const_def.ty);
+            let ty = const_declared_type(infer, const_def);
             bind_own_item(
                 env,
                 module_id,
@@ -1573,7 +1573,9 @@ fn check_declared_types(
                 }
             }
             crate::ast::ItemKind::Const(c) => {
-                report_undefined_types(infer, &c.ty, span, &empty, errors);
+                if let Some(ty) = &c.ty {
+                    report_undefined_types(infer, ty, span, &empty, errors);
+                }
             }
             crate::ast::ItemKind::Struct(s) => {
                 let known = type_param_set(&s.type_params);
@@ -1733,20 +1735,39 @@ fn check_const_body(
         )));
     }
 
-    let expected_ty = resolve_erroring(infer, &const_def.ty);
-
     match infer.infer_expr(env, &mut const_def.value) {
         Ok(actual_ty) => {
-            let span = (const_def.value.span.start, const_def.value.span.end);
-            if let Err(e) = infer.unify(&expected_ty, &actual_ty, span) {
-                errors.push(
-                    e.with_context(format!("in constant `{}`: type mismatch", const_def.name)),
-                );
+            // With an explicit annotation, the value must match it. Without
+            // one, the literal's own type is authoritative (registered in
+            // Phase 1 via `const_declared_type`), so there is nothing to
+            // reconcile.
+            if let Some(annotation) = &const_def.ty {
+                let expected_ty = resolve_erroring(infer, annotation);
+                let span = (const_def.value.span.start, const_def.value.span.end);
+                if let Err(e) = infer.unify(&expected_ty, &actual_ty, span) {
+                    errors.push(
+                        e.with_context(format!("in constant `{}`: type mismatch", const_def.name)),
+                    );
+                }
             }
         }
         Err(e) => {
             errors.push(e.with_context(format!("in constant `{}`", const_def.name)));
         }
+    }
+}
+
+/// The type a `const` is registered under: its resolved annotation when
+/// present, otherwise the type inferred from its literal initializer. A
+/// non-literal initializer (already reported as `ConstNotLiteral`) falls back
+/// to a fresh variable so downstream inference can proceed.
+fn const_declared_type(infer: &mut Infer, const_def: &crate::ast::ConstDef) -> Type {
+    match &const_def.ty {
+        // `resolve_erroring` rewrites an undefined nominal to `Type::Error`
+        // (reporting is done by the declared-types sweep), so the checked type
+        // never carries an opaque `Named` — matching every other annotation.
+        Some(annotation) => resolve_erroring(infer, annotation),
+        None => crate::const_eval::literal_type(&const_def.value).unwrap_or_else(|| infer.fresh()),
     }
 }
 
@@ -2546,7 +2567,12 @@ fn get_symbol_scheme(
             (crate::ast::ItemKind::Const(const_def), ExportKind::Const)
                 if const_def.name.as_ref() == name =>
             {
-                return Some(Scheme::mono(const_def.ty.clone()));
+                let ty = const_def
+                    .ty
+                    .clone()
+                    .or_else(|| crate::const_eval::literal_type(&const_def.value))
+                    .unwrap_or(Type::Unit);
+                return Some(Scheme::mono(ty));
             }
             // A foreign unit struct is a value too: bind its bare-name
             // constructor under the canonical `<module>::Origin` key (the
@@ -2800,7 +2826,7 @@ mod tests {
                         name: Arc::from("NANOS_PER_SEC"),
                         name_span: span(),
                         is_public: false,
-                        ty: Type::number(),
+                        ty: Some(Type::number()),
                         value: Expr::number(1_000_000_000.0),
                     }),
                     span(),

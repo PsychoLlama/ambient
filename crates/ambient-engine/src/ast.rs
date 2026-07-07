@@ -795,8 +795,10 @@ pub struct ConstDef {
     pub name_span: Span,
     /// Whether this constant is public.
     pub is_public: bool,
-    /// Type annotation (required).
-    pub ty: Type,
+    /// Type annotation, or `None` when omitted — inferred from the literal
+    /// initializer (a `const` value is always a primitive literal, so its
+    /// type is determined by the value).
+    pub ty: Option<Type>,
     /// The value expression.
     pub value: Expr,
 }

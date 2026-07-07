@@ -493,8 +493,13 @@ impl<'src> Parser<'src> {
     fn parse_const(&mut self, is_public: bool) -> Result<CstConstDef, ParseError> {
         self.expect(TokenKind::Const)?;
         let name = self.parse_ident()?;
-        self.expect(TokenKind::Colon)?;
-        let ty = self.parse_type()?;
+        // The type annotation is optional: when omitted the checker infers it
+        // from the literal initializer (`const MAX = 100;`).
+        let ty = if self.consume(TokenKind::Colon).is_some() {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
         self.expect(TokenKind::Eq)?;
         let value = self.parse_expression()?;
         self.expect(TokenKind::Semi)?;

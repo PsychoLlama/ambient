@@ -204,7 +204,9 @@ impl<'r> Resolver<'r> {
                     self.pop_scope();
                 }
                 ItemKind::Const(c) => {
-                    self.resolve_type(&mut c.ty);
+                    if let Some(ty) = &mut c.ty {
+                        self.resolve_type(ty);
+                    }
                     self.resolve_expr(&mut c.value);
                 }
                 ItemKind::Ability(a) => {
@@ -1036,7 +1038,7 @@ mod tests {
                 name: Arc::from("K"),
                 name_span: Span::default(),
                 is_public: true,
-                ty: Type::number(),
+                ty: Some(Type::number()),
                 value: Expr::number(1.0),
             }),
             Span::default(),

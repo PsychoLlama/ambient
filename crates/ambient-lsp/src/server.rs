@@ -392,8 +392,11 @@ fn format_item_signature(kind: &ItemKind, content: &mut String) {
         ItemKind::Const(c) => {
             content.push_str("const ");
             content.push_str(&c.name);
-            content.push_str(": ");
-            content.push_str(&format_type(&c.ty));
+            // The annotation is optional; only render `: Type` when written.
+            if let Some(ty) = &c.ty {
+                content.push_str(": ");
+                content.push_str(&format_type(ty));
+            }
         }
         ItemKind::Struct(s) => {
             use ambient_engine::types::Type;
@@ -1081,7 +1084,7 @@ fn item_to_document_symbol(
         )),
         ItemKind::Const(c) => Some(make_symbol(
             c.name.to_string(),
-            Some(format_type(&c.ty)),
+            c.ty.as_ref().map(format_type),
             LspSymbolKind::CONSTANT,
             range,
             offset_range_to_lsp_range(doc, c.name_span.start as usize, c.name_span.end as usize),

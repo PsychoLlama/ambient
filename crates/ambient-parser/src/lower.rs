@@ -182,7 +182,7 @@ fn lower_function(
 }
 
 fn lower_const(ctx: &mut LoweringContext, c: &CstConstDef) -> Result<ConstDef, ParseError> {
-    let ty = lower_type(&c.ty)?;
+    let ty = c.ty.as_ref().map(lower_type).transpose()?;
     let value = lower_expression(ctx, &c.value)?;
 
     Ok(ConstDef {
