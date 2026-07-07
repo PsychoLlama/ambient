@@ -31,14 +31,14 @@ pub enum RegistryError {
     /// A `Local`-rooted use path whose head never resolved to a module
     /// alias in scope.
     #[error(
-        "cannot resolve `{head}`: use paths start with pkg, core, platform, self, super, or a module alias from another `use`"
+        "cannot resolve `{head}`: use paths start with pkg, core, self, super, or a module alias from another `use`"
     )]
     UnresolvedHead { head: String },
 
     /// A `pub use` re-export rooted at a module alias — re-exports must
     /// use a rooted path so downstream modules can resolve them without
     /// this module's scope.
-    #[error("re-export paths must start with pkg, core, platform, self, or super")]
+    #[error("re-export paths must start with pkg, core, self, or super")]
     LocalReExport,
 }
 

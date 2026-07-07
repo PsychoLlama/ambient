@@ -127,8 +127,8 @@ impl std::error::Error for BuildError {}
 ///
 /// Pipeline:
 /// 1. Load and parse every `.ab` file under `src/`.
-/// 2. Register core modules (compiling them), the `platform` declaration
-///    module, and every package module in one [`ModuleRegistry`].
+/// 2. Register core modules (compiling them), the `core::system`
+///    declaration module, and every package module in one [`ModuleRegistry`].
 /// 3. Run the resolve pass over each package module: canonicalize every
 ///    cross-module reference and collect the true dependency graph.
 /// 4. Compile modules in dependency order, linking canonical names to

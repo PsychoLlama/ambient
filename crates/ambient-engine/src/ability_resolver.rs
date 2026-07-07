@@ -1,6 +1,6 @@
 //! Ability resolver for looking up abilities from registered providers.
 //!
-//! The `AbilityResolver` aggregates abilities from multiple providers (core, platform,
+//! The `AbilityResolver` aggregates abilities from multiple providers (core, core::system,
 //! and any user-defined providers) and provides lookup methods for the type checker
 //! and compiler.
 
@@ -144,7 +144,7 @@ impl From<&DynAbility> for AbilityInterface {
 ///
 /// Three populations live here: builtin descriptors (registered from
 /// providers/config), local module-declared dynamics, and namespaced
-/// dynamics (ability preludes such as `platform`). Source references
+/// dynamics (ability preludes such as `core::system`). Source references
 /// resolve through [`AbilityResolver::resolve_ref`], which enforces the
 /// namespace policy: namespaced dynamics require their prefix
 /// everywhere, locals and builtins are bare, and locals shadow both.
@@ -169,7 +169,7 @@ pub struct AbilityResolver {
 
     /// Namespaced dynamic abilities: (namespace, name) → ability.
     ///
-    /// A namespace is a dotted module path: the reserved `platform`
+    /// A namespace is a dotted module path: the `core::system`
     /// declaration module, or any module in the build (`utils`,
     /// `deep.nested.effects`). The resolve pass canonicalizes every
     /// qualified or imported ability reference to its declaring module's
