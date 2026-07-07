@@ -5,18 +5,19 @@
 # The goal is for this file to become empty — never add an entry to
 # accommodate new growth; split the file instead.
 crates/ambient-cli/tests/integration_tests.rs 3981
-crates/ambient-engine/src/compiler/mod.rs 3146
 crates/ambient-engine/src/infer/check.rs 2988
 crates/ambient-engine/src/types.rs 2207
 crates/ambient-engine/src/vm/tests.rs 2030
 crates/ambient-parser/src/parser/mod.rs 1967
 crates/ambient-engine/src/module_registry.rs 1904
+crates/ambient-engine/src/compiler/tests.rs 1782
 crates/ambient-engine/src/infer/expr.rs 1776
 crates/ambient-parser/src/lower.rs 1613
 crates/ambient-engine/src/vm/dispatch.rs 1545
 crates/ambient-lsp/src/server.rs 1539
 crates/ambient-engine/src/ast.rs 1417
 crates/ambient-parser/src/parser/expr.rs 1396
+crates/ambient-engine/src/compiler/mod.rs 1361
 crates/ambient-engine/src/resolve.rs 1328
 crates/ambient-ability/src/value.rs 1290
 crates/ambient-parser/src/lexer.rs 1263
