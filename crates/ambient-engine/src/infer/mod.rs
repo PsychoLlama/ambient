@@ -735,7 +735,7 @@ mod tests {
             (0, 10),
         );
         let msg = format!("{err}");
-        assert!(msg.contains("5") || msg.contains("out of bounds") || msg.contains("index"));
+        assert!(msg.contains('5') || msg.contains("out of bounds") || msg.contains("index"));
     }
 
     #[test]
@@ -765,7 +765,7 @@ mod tests {
             (0, 10),
         );
         let msg = format!("{err}");
-        assert!(msg.contains("2") && msg.contains("1"));
+        assert!(msg.contains('2') && msg.contains('1'));
     }
 
     #[test]
