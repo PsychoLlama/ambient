@@ -18,7 +18,7 @@ use crate::compiler::CompiledModule;
 use crate::fqn::{Fqn, NameKey};
 use crate::infer::BoxedTypeError;
 use crate::module_path::ModulePath;
-use crate::module_registry::{ExportKind, ModuleRegistry};
+use crate::module_registry::{ExportKind, ModuleRegistry, ResolvedImport};
 use crate::package::{LoadedModule, Package};
 
 /// Progress callback for reporting build progress.
@@ -403,27 +403,41 @@ pub fn linking_table(
     table
 }
 
-/// Collect the enum definitions a module imports (`use pkg::m::{SomeEnum}`).
+/// Collect the enum definitions a module imports — whether by an explicit
+/// `use pkg::m::{SomeEnum}` or through the prelude (`Option`/`Result`).
 ///
 /// Enum constructors compile inline by tag rather than linking by hash,
 /// so cross-module enum use hands the compiler the imported definitions
 /// themselves — a separate channel from the linking table.
+///
+/// This mirrors the checker's `register_imported_enums`: both read
+/// `resolve_imports`, which folds in the prelude re-exports, so the compiler
+/// receives exactly the enums the checker registered — Option/Result
+/// included. That is what lets prelude enum *construction* compile without
+/// a hardcoded seed.
 #[must_use]
 pub fn build_imported_enums(
     module_path: &ModulePath,
     registry: &ModuleRegistry,
 ) -> Vec<crate::ast::EnumDef> {
     let mut enums = Vec::new();
-    let scope = registry.build_module_scope(module_path);
-    for imports in scope.items.values() {
-        for import in imports {
-            if import.kind != ExportKind::Enum {
+    let Ok(resolved) = registry.resolve_imports(module_path) else {
+        return enums;
+    };
+    for (name, bindings) in resolved.imports {
+        for import in bindings {
+            let ResolvedImport::Symbol {
+                from_module,
+                export_kind: ExportKind::Enum,
+                ..
+            } = import
+            else {
                 continue;
-            }
-            if let Some(info) = registry.get(&import.module) {
+            };
+            if let Some(info) = registry.get(&from_module) {
                 for item in &info.module.items {
                     if let ItemKind::Enum(def) = &item.kind
-                        && def.name == import.name
+                        && def.name == name
                     {
                         enums.push(def.clone());
                     }
@@ -639,6 +653,13 @@ pub fn compile_core_modules(
             crate::compiler::CompileOptions {
                 module_id: Some(registry.module_id(&core_path)),
                 imported_hashes: Some(linking_table(module_function_hashes, registry)),
+                // Core modules construct prelude enums (`collections/List.ab`
+                // builds bare `Some`/`None`), so they need the same enum
+                // channels a user compile gets. With the hardcoded seed gone,
+                // this is the only path that supplies Option/Result to the
+                // core compile — via the prelude, through `resolve_imports`.
+                imported_enums: build_imported_enums(&core_path, registry),
+                foreign_enum_variants: build_foreign_enum_variants(&core_path, registry),
                 ..crate::compiler::CompileOptions::default()
             },
         )

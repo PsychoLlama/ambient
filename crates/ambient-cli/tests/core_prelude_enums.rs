@@ -1,10 +1,10 @@
 //! The canonical `Option`/`Result` declarations live in Ambient source
-//! (`core_lib/option.ab`, `core_lib/result.ab`), while the type checker's
-//! prelude is built from the engine-side spec (`PRELUDE_ENUMS`) because
-//! the engine cannot parse. `validate_reserved_declaration` pins the two
-//! together at build time; this test pins them at test time — parse the
-//! embedded sources and check the declarations are present, reserved,
-//! and canonical.
+//! (`core_lib/Option.ab`, `core_lib/Result.ab`) and reach the checker and
+//! compiler through the module system (via the prelude), like any other
+//! enum — no hardcoded seed. `validate_reserved_declaration` pins them to
+//! their reserved identity at build time; these tests pin them at test time —
+//! parse the embedded sources and check the declarations are present,
+//! reserved, and canonical, and exercise construction end-to-end.
 
 use std::fs;
 use std::path::Path;
@@ -162,6 +162,25 @@ fn prelude_reexports_the_full_global_set() {
         exported, expected,
         "core::prelude must re-export exactly the global set"
     );
+}
+
+#[test]
+fn bare_prelude_enums_construct_without_an_import() {
+    // Bare `Some`/`Ok` construction with no `use` of Option/Result must
+    // compile and run: the prelude enums reach the *compiler* through the
+    // same import channel as the checker (`build_imported_enums` reads
+    // `resolve_imports`), so nothing hardcodes them. This is the end-to-end
+    // proof that deleting the compiler's `PRELUDE_ENUMS` seed is sound.
+    let out = run_main(
+        r"
+pub fn run(): Number {
+  let some = match Some(4) { Some(n) => n, None => 0 };
+  let ok = match Ok(3) { Ok(n) => n, Err(e) => e };
+  some + ok
+}
+",
+    );
+    assert_eq!(out, "7");
 }
 
 #[test]

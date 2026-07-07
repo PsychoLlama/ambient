@@ -573,28 +573,16 @@ pub struct VariantInfo {
 
 impl ModuleContext {
     fn new(module_id: Option<ModuleId>) -> Self {
-        let mut enums = HashMap::new();
-        // Prelude constructors, derived from the same canonical specs the type
-        // registry uses (`PRELUDE_ENUMS`), so tags and payload shapes stay in
-        // lockstep with the VM's Option/Result layout.
-        for spec in crate::infer::enums::PRELUDE_ENUMS {
-            for (variant, tag, has_payload) in spec.constructors() {
-                enums.insert(
-                    Arc::from(variant),
-                    VariantInfo {
-                        enum_name: Arc::from(spec.name),
-                        tag,
-                        has_payload,
-                    },
-                );
-            }
-        }
+        // Option/Result carry no hardcoded seed: they arrive through the same
+        // `imported_enums` channel as any other enum, folded in from the
+        // prelude by `build_imported_enums`. A registry-less compile (no
+        // prelude) therefore starts with no enums, exactly like the checker.
         Self {
             lambdas: Vec::new(),
             lambda_counter: 0,
             const_objects: HashMap::new(),
             current_function: None,
-            enums,
+            enums: HashMap::new(),
             foreign_variants: HashMap::new(),
             unit_structs: HashSet::new(),
             const_hashes: HashMap::new(),
@@ -1387,6 +1375,51 @@ mod tests {
         compile_function_with_hash(func, &hashes, &mut ctx, None, None)
     }
 
+    /// Minimal `Option`/`Result` enum definitions in canonical variant order.
+    /// A registry-backed compile receives these through `imported_enums`
+    /// (folded in from the prelude); the compiler no longer hardcodes them, so
+    /// registry-less unit tests that match on `Some`/`None`/`Ok`/`Err` must
+    /// supply them explicitly, exactly like any other enum.
+    fn prelude_enum_defs() -> Vec<crate::ast::EnumDef> {
+        use crate::ast::{EnumDef, EnumVariant};
+        let variant = |name: &str, has_payload: bool| EnumVariant {
+            name: Arc::from(name),
+            payload: has_payload.then(|| crate::types::Type::named("T", vec![])),
+            span: Span::default(),
+        };
+        vec![
+            EnumDef {
+                name: Arc::from("Option"),
+                name_span: Span::default(),
+                is_public: true,
+                type_params: vec![],
+                variants: vec![variant("None", false), variant("Some", true)],
+                uuid: crate::types::OPTION_UUID,
+            },
+            EnumDef {
+                name: Arc::from("Result"),
+                name_span: Span::default(),
+                is_public: true,
+                type_params: vec![],
+                variants: vec![variant("Ok", true), variant("Err", true)],
+                uuid: crate::types::RESULT_UUID,
+            },
+        ]
+    }
+
+    /// Like [`compile_test_function`], but with the prelude enums registered
+    /// so `Some`/`None`/`Ok`/`Err` patterns resolve.
+    fn compile_test_function_with_prelude_enums(
+        func: &FunctionDef,
+    ) -> Result<CompiledFunction, CompileError> {
+        let mut hashes = HashMap::new();
+        let hash = compute_temporary_hash(&func.name);
+        hashes.insert(NameKey::Bare(Arc::clone(&func.name)), hash);
+        let mut ctx = ModuleContext::new(None);
+        ctx.register_imported_enums(&prelude_enum_defs());
+        compile_function_with_hash(func, &hashes, &mut ctx, None, None)
+    }
+
     #[test]
     fn test_compile_simple_function() {
         // fn add(x, y) { x + y }
@@ -1682,7 +1715,7 @@ mod tests {
             ),
         };
 
-        let compiled = compile_test_function(&func).expect("compilation failed");
+        let compiled = compile_test_function_with_prelude_enums(&func).expect("compilation failed");
         assert_eq!(compiled.param_count, 1);
     }
 
@@ -1716,7 +1749,7 @@ mod tests {
             ),
         };
 
-        let compiled = compile_test_function(&func).expect("compilation failed");
+        let compiled = compile_test_function_with_prelude_enums(&func).expect("compilation failed");
         assert_eq!(compiled.param_count, 1);
         // Should have at least 2 locals (param x and binding v)
         assert!(compiled.local_count >= 2);
@@ -1755,7 +1788,7 @@ mod tests {
             ),
         };
 
-        let compiled = compile_test_function(&func).expect("compilation failed");
+        let compiled = compile_test_function_with_prelude_enums(&func).expect("compilation failed");
         assert_eq!(compiled.param_count, 1);
     }
 
@@ -1789,7 +1822,7 @@ mod tests {
             ),
         };
 
-        let compiled = compile_test_function(&func).expect("compilation failed");
+        let compiled = compile_test_function_with_prelude_enums(&func).expect("compilation failed");
         assert_eq!(compiled.param_count, 1);
     }
 

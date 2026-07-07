@@ -39,71 +39,78 @@ pub struct EnumInfo {
     pub type_params: Vec<Arc<str>>,
     /// Variants in declaration order; the index is the runtime tag.
     pub variants: Vec<EnumVariantInfo>,
-    /// Nominal identity. Every enum carries `Some(uuid)`: declared enums take
-    /// it from their mandatory `unique(<uuid>)` prefix, and the reserved-name
-    /// prelude enums (`Option`, `Result`) take the fixed
-    /// [`OPTION_UUID`]/[`RESULT_UUID`]. So two structurally identical enums are
-    /// always distinct types. `None` only appears transiently, before an
+    /// Nominal identity. Every enum carries `Some(uuid)` from its mandatory
+    /// `unique(<uuid>)` prefix — including `Option`/`Result`, whose core
+    /// declarations claim the fixed [`OPTION_UUID`]/[`RESULT_UUID`] (pinned by
+    /// [`validate_reserved_declaration`]). So two structurally identical enums
+    /// are always distinct types. `None` only appears transiently, before an
     /// annotation or payload is resolved against the registry.
     pub uuid: Option<Uuid>,
     /// The module that declares this enum — the first two ident segments of
-    /// each variant's `Fqn(module, [Enum, Variant])` key. `None` for the
-    /// reserved prelude enums (`Option`/`Result`), whose variants bind bare,
-    /// and for registry-less checks where the resolve pass never ran.
+    /// each variant's `Fqn(module, [Enum, Variant])` key. `None` only for
+    /// registry-less checks where the resolve pass never ran (`Option`/`Result`
+    /// arrive through the prelude carrying their `core::Option`/`core::Result`
+    /// module like any other imported enum).
     pub module: Option<ModuleId>,
 }
 
-/// One variant in a reserved prelude enum's canonical layout.
-struct PreludeVariant {
+/// One variant in a reserved enum's canonical layout (validation only).
+struct ReservedVariant {
     name: &'static str,
     /// The type parameter this variant's payload is, or `None` for a unit
     /// variant (`Some(T)` → `Some("T")`; `None` → `None`).
     payload_param: Option<&'static str>,
 }
 
-/// A reserved-name prelude enum (`Option`/`Result`).
+/// A reserved-identity enum (`Option`/`Result`): its fixed uuid, type
+/// parameters, and canonical variant layout.
 ///
-/// This is the single source of truth for their nominal uuid, type
-/// parameters, and variant layout. Both the type registry
-/// ([`EnumRegistry::with_prelude`]) and the compiler's constructor table
-/// ([`crate::compiler`]) derive from it, so their tags and payload shapes can
-/// never drift apart. Variant declaration order is the runtime tag, which
-/// must match how the VM constructs these values (`None`/`Ok` = 0,
-/// `Some`/`Err` = 1).
-pub(crate) struct PreludeEnum {
-    pub name: &'static str,
-    pub uuid: Uuid,
+/// This table is *validation-only* — nothing seeds a registry or a
+/// constructor table from it. The canonical `Option`/`Result` declarations
+/// live in Ambient source (`core_lib/Option.ab`, `core_lib/Result.ab`) and
+/// reach the checker and compiler through the module system like any other
+/// enum. [`validate_reserved_declaration`] uses this table to guarantee a
+/// declaration claiming a reserved uuid *is* the canonical one (same name,
+/// type params, variant order), so the core sources can never drift from the
+/// spec and no other module can hijack a reserved identity for a different
+/// shape. Variant declaration order is the runtime tag (`None`/`Ok` = 0,
+/// `Some`/`Err` = 1); the uuids are anchored in `types.rs`
+/// ([`OPTION_UUID`]/[`RESULT_UUID`]). This mirrors the shape
+/// [`validate_reserved_struct`] uses for the reserved primitives.
+struct ReservedEnum {
+    name: &'static str,
+    uuid: Uuid,
     type_params: &'static [&'static str],
-    variants: &'static [PreludeVariant],
+    variants: &'static [ReservedVariant],
 }
 
-/// The reserved prelude enums, in the order they are registered.
-pub(crate) const PRELUDE_ENUMS: &[PreludeEnum] = &[
-    PreludeEnum {
+/// The reserved-identity enums, in canonical variant order.
+const RESERVED_ENUMS: &[ReservedEnum] = &[
+    ReservedEnum {
         name: "Option",
         uuid: OPTION_UUID,
         type_params: &["T"],
         variants: &[
-            PreludeVariant {
+            ReservedVariant {
                 name: "None",
                 payload_param: None,
             },
-            PreludeVariant {
+            ReservedVariant {
                 name: "Some",
                 payload_param: Some("T"),
             },
         ],
     },
-    PreludeEnum {
+    ReservedEnum {
         name: "Result",
         uuid: RESULT_UUID,
         type_params: &["T", "E"],
         variants: &[
-            PreludeVariant {
+            ReservedVariant {
                 name: "Ok",
                 payload_param: Some("T"),
             },
-            PreludeVariant {
+            ReservedVariant {
                 name: "Err",
                 payload_param: Some("E"),
             },
@@ -111,48 +118,16 @@ pub(crate) const PRELUDE_ENUMS: &[PreludeEnum] = &[
     },
 ];
 
-impl PreludeEnum {
-    /// Build the type-checker's [`EnumInfo`] for this prelude enum.
-    fn to_enum_info(&self) -> EnumInfo {
-        EnumInfo {
-            name: Arc::from(self.name),
-            type_params: self.type_params.iter().map(|p| Arc::from(*p)).collect(),
-            variants: self
-                .variants
-                .iter()
-                .map(|v| EnumVariantInfo {
-                    name: Arc::from(v.name),
-                    payload: v.payload_param.map(|p| Type::named(p, vec![])),
-                })
-                .collect(),
-            uuid: Some(self.uuid),
-            // Prelude enums have no declaring module; their variants bind bare.
-            module: None,
-        }
-    }
-
-    /// The compiler's constructor layout: `(variant_name, tag, has_payload)`
-    /// for each variant, in declaration order.
-    pub(crate) fn constructors(&self) -> impl Iterator<Item = (&'static str, u16, bool)> + '_ {
-        // Zip against a `u16` range so the tag needs no fallible cast; a
-        // reserved prelude enum never has more than a handful of variants.
-        self.variants
-            .iter()
-            .zip(0u16..)
-            .map(|(v, tag)| (v.name, tag, v.payload_param.is_some()))
-    }
-}
-
-/// Validate a source declaration against the reserved prelude specs.
+/// Validate a source declaration against the reserved-enum specs.
 ///
 /// The canonical `Option`/`Result` declarations live in Ambient source
-/// (`core_lib/option.ab`, `core_lib/result.ab`), while the checker's
-/// prelude is built from [`PRELUDE_ENUMS`] because the engine cannot
-/// parse. This check pins the two together: a declaration that claims a
-/// reserved uuid must *be* the canonical declaration — same name, type
-/// parameters, and variant layout. The core sources therefore can never
-/// drift from the spec (they fail every build if they try), and no other
-/// module can hijack a reserved identity for a different shape.
+/// (`core_lib/Option.ab`, `core_lib/Result.ab`) and reach the checker and
+/// compiler through the module system. This check pins them to their fixed
+/// identity: a declaration that claims a reserved uuid must *be* the canonical
+/// declaration — same name, type parameters, and variant layout. The core
+/// sources therefore can never drift from the spec (they fail every build if
+/// they try), and no other module can hijack a reserved identity for a
+/// different shape.
 ///
 /// # Errors
 ///
@@ -160,7 +135,7 @@ impl PreludeEnum {
 /// without matching its spec. A declaration with a non-reserved uuid
 /// always passes.
 pub fn validate_reserved_declaration(def: &crate::ast::EnumDef) -> Result<(), String> {
-    let Some(spec) = PRELUDE_ENUMS.iter().find(|s| s.uuid == def.uuid) else {
+    let Some(spec) = RESERVED_ENUMS.iter().find(|s| s.uuid == def.uuid) else {
         return Ok(());
     };
 
@@ -302,17 +277,6 @@ pub struct EnumRegistry {
 }
 
 impl EnumRegistry {
-    /// Create a registry containing the built-in `Option` and `Result`,
-    /// derived from the canonical [`PRELUDE_ENUMS`] specs.
-    #[must_use]
-    pub fn with_prelude() -> Self {
-        let mut registry = Self::default();
-        for spec in PRELUDE_ENUMS {
-            registry.register(Arc::new(spec.to_enum_info()));
-        }
-        registry
-    }
-
     /// Register an enum. Its variants shadow same-named variants
     /// registered earlier.
     pub fn register(&mut self, info: Arc<EnumInfo>) {
@@ -462,39 +426,33 @@ mod tests {
     use crate::types::{Primitive, STRING_UUID};
 
     #[test]
-    fn prelude_option_result_are_nominal() {
-        let registry = EnumRegistry::with_prelude();
-        let option = registry.get("Option").expect("Option registered");
-        let result = registry.get("Result").expect("Result registered");
-        assert_eq!(option.uuid, Some(OPTION_UUID));
-        assert_eq!(result.uuid, Some(RESULT_UUID));
+    fn reserved_enums_have_fixed_identity() {
+        // Option/Result no longer seed any registry; they flow in from the
+        // core `.ab` sources through the module system. The validation-only
+        // spec still anchors their reserved uuids (end-to-end construction is
+        // covered by `ambient-cli`'s `core_prelude_enums` tests).
+        let option = RESERVED_ENUMS.iter().find(|e| e.name == "Option").unwrap();
+        let result = RESERVED_ENUMS.iter().find(|e| e.name == "Result").unwrap();
+        assert_eq!(option.uuid, OPTION_UUID);
+        assert_eq!(result.uuid, RESULT_UUID);
         assert_ne!(OPTION_UUID, RESULT_UUID);
     }
 
     #[test]
-    fn prelude_variant_tags_match_runtime_layout() {
+    fn reserved_enum_variant_order_matches_runtime_layout() {
         // The VM constructs these with fixed tags (`None`/`Ok` = 0,
-        // `Some`/`Err` = 1); the registry and the compiler's constructor table
-        // both derive from `PRELUDE_ENUMS`, so pin that order here.
-        let registry = EnumRegistry::with_prelude();
-        let option = registry.get("Option").expect("Option registered");
-        assert_eq!(option.variants[0].name.as_ref(), "None");
-        assert!(option.variants[0].payload.is_none());
-        assert_eq!(option.variants[1].name.as_ref(), "Some");
-        assert!(option.variants[1].payload.is_some());
+        // `Some`/`Err` = 1). `validate_reserved_declaration` pins the core
+        // `.ab` declarations to this order, so a canonical declaration's
+        // runtime tags can never drift from the VM.
+        let option = RESERVED_ENUMS.iter().find(|e| e.name == "Option").unwrap();
+        assert_eq!(option.variants[0].name, "None");
+        assert!(option.variants[0].payload_param.is_none());
+        assert_eq!(option.variants[1].name, "Some");
+        assert!(option.variants[1].payload_param.is_some());
 
-        let result = registry.get("Result").expect("Result registered");
-        assert_eq!(result.variants[0].name.as_ref(), "Ok");
-        assert_eq!(result.variants[1].name.as_ref(), "Err");
-
-        // The compiler's constructor view must agree with the registry.
-        for spec in PRELUDE_ENUMS {
-            let info = registry.get(spec.name).expect("spec registered");
-            for (variant, tag, has_payload) in spec.constructors() {
-                assert_eq!(info.variants[tag as usize].name.as_ref(), variant);
-                assert_eq!(info.variants[tag as usize].payload.is_some(), has_payload);
-            }
-        }
+        let result = RESERVED_ENUMS.iter().find(|e| e.name == "Result").unwrap();
+        assert_eq!(result.variants[0].name, "Ok");
+        assert_eq!(result.variants[1].name, "Err");
     }
 
     fn enum_def(
