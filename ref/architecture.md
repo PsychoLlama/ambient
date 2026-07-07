@@ -40,7 +40,8 @@ Modules map 1:1 to files under `src/`; a directory is a namespace module
 whose members are its children, so `src/net/http/client.ab` is the module
 `pkg::net::http::client` with no `mod.rs`-style ceremony. Path roots:
 `pkg` (package root), `self` (same directory), `super` (parent directory,
-chainable), `core` (standard library), `platform` (host bindings).
+chainable), `core` (standard library — host bindings live under
+`core::system`).
 
 **Every item in a build has exactly one fully-qualified identity** —
 `<defining module>::<name>` — and the two access rules follow from it:
@@ -60,7 +61,7 @@ chainable), `core` (standard library), `platform` (host bindings).
 use pkg::utils::helper;                 // Item import: `helper` as a bare name
 use pkg::utils::{a, deep::{b, c}};      // Brace groups, nested arbitrarily
 use core::primitives::Number::sqrt as root2;        // `as` renames the local binding
-use {core::primitives::Number, platform::Stdio};    // Root-level groups
+use {core::primitives::Number, core::system::Stdio};    // Root-level groups
 use self::utils;                        // Whole-module import: utils::helper(...)
 use pkg::net::http;                     // Directory namespaces import too:
 use http::client::get;                  //   ...and a module alias can root
@@ -92,7 +93,7 @@ pub fn hyp(a: number, b: number): number {
 Inline fully-qualified paths need no import anywhere a name can appear:
 expressions (`pkg::utils::helper(1)`), type positions
 (`pkg::shapes::Money`, `core::collections::List<number>`), effect rows
-(`with platform::Stdio`, `with pkg::effects::Counter`), performs, handler
+(`with core::system::Stdio`, `with pkg::effects::Counter`), performs, handler
 arms, and sandbox clauses. Local bindings shadow module-level names,
 which shadow imports, which shadow the prelude.
 
@@ -106,7 +107,7 @@ reference alone (`pkg::shapes::Shape` in a signature) does not bring
 constructors into scope — import the enum where you construct or match
 it. `pub use` re-exports items (and whole modules), and imports through a
 re-export resolve (and link) to the module that defines the symbol.
-Re-export paths must be rooted (`pkg`/`core`/`platform`/`self`/`super`),
+Re-export paths must be rooted (`pkg`/`core`/`self`/`super`),
 not alias-relative, so downstream modules can resolve them without this
 module's scope.
 
@@ -118,9 +119,10 @@ a fixed set of _intrinsics_ (`core::primitives::Number::sqrt`, `core::collection
 intrinsic is an ordinary item of its module — importable, aliasable,
 reachable through `use core::primitives::Number;` + `Number::sqrt(x)` — and takes
 precedence over a compiled function at the same path. `core` is a keyword
-and `platform` a contextual keyword, and a user module may not take
-either name (the build rejects `src/core.ab` / `src/platform.ab`), so the
-reserved namespaces can never be shadowed.
+and a user module may not take that name (the build rejects `src/core.ab`),
+so the one reserved namespace — which now also houses the host bindings at
+`core::system` — can never be shadowed. `platform` is an ordinary
+identifier again: `src/platform.ab` is a perfectly legal user module.
 
 The `core::` hierarchy is defined by the `core_lib/` source tree itself, not
 by a hand-maintained list: `register_core_modules` walks the embedded tree and
@@ -147,7 +149,7 @@ without ambiguity.
 Known gaps (deliberate, minor): qualified references to *generic* type
 aliases and generic `unique` types are unresolved (parameter substitution
 is checker work); ability names inside function *type* annotations
-(`(T) -> U with E`) accept only bare or `platform::` spellings; intrinsics
+(`(T) -> U with E`) accept only bare or `core::system::` spellings; intrinsics
 are not first-class values (`let f = core::primitives::Number::sqrt;` is an error —
 call them directly).
 
@@ -600,33 +602,33 @@ ability Log with Stdio {
 ```
 
 The platform abilities (Stdio, FileSystem, Network, ...) are themselves plain
-`ability` declarations — see "The platform module" below. User abilities
+`ability` declarations — see "The `core::system` module" below. User abilities
 are handled in-language (`handle` blocks or handler values); a performed
 ability with no handler in scope — in-language or host — is a runtime
 error. Abilities import across modules like any other item: `use
-pkg::b::SomeAbility;` (and `use platform::Network;`) brings the ability into
+pkg::b::SomeAbility;` (and `use core::system::Network;`) brings the ability into
 scope under its bare name, and every ability is also reachable fully
 qualified with no import (`with pkg::b::SomeAbility`,
 `pkg::b::SomeAbility::method!(…)`) — the same rule as every other item.
-Current limit: the REPL does not yet register `platform` as a module, so
-bare `use platform::…` there is a follow-up.
+Current limit: the REPL does not yet register `core::system` as a module, so
+bare `use core::system::…` there is a follow-up.
 
 ### Using Abilities
 
 ```ambient
 // Perform with ! (FileSystem here is the module-local declaration above;
-// the platform ability would be platform::FileSystem::read!)
+// the platform ability would be core::system::FileSystem::read!)
 let content = FileSystem::read!("file.txt");
 ```
 
-Every module's abilities are in scope *fully-qualified* (`platform::Stdio`
+Every module's abilities are in scope *fully-qualified* (`core::system::Stdio`
 or `pkg::effects::Counter` in performs, `with` clauses, effect-row
 annotations, handler arms, and sandbox clauses) with no `use` — the same
 rule as every other item. To drop the prefix, import the ability:
-`use platform::Stdio;` then `with Stdio` and `Stdio::out!(...)` work
+`use core::system::Stdio;` then `with Stdio` and `Stdio::out!(...)` work
 bare thereafter. A bare `Stdio` that was *never* imported (and is not a
 local declaration) is a type error — the diagnostic suggests qualifying with
-`platform::` or adding the `use`. A local `ability Stdio` shadows an
+`core::system::` or adding the `use`. A local `ability Stdio` shadows an
 imported one under the bare name; the platform one stays reachable
 qualified. The builtin `Exception` is always bare and may not be spelled
 with a namespace.
@@ -645,7 +647,7 @@ fn read_config(path: Path): Config
 // Multiple abilities; platform abilities keep their namespace in
 // effect rows, and mix freely with local declarations like Log.
 fn fetch_and_log(url: Url): Response
-  with platform::Network, Log
+  with core::system::Network, Log
 { ... }
 
 // No abilities (pure function)
@@ -715,7 +717,7 @@ handle unit_test() with mock_fs {
 ### Sandboxing
 
 ```ambient
-sandbox with platform::Log {
+sandbox with core::system::Log {
   untrusted_code()  // Only the platform Log ability available
 }
 
@@ -731,7 +733,7 @@ handlers — allowed abilities still execute against the enclosing
 context's handlers, so the body's effects count against the enclosing
 function like any other code.
 
-### The platform module and host bindings
+### The `core::system` module and host bindings
 
 Builtin abilities are not defined in engine code. The engine's only
 native ability is `Exception` (part of the language). Everything else —
@@ -739,26 +741,28 @@ Stdio, Time, Random, Log, FileSystem, Network, Process, Execute — is declared 
 Ambient source, in the **platform bindings interface**
 (`crates/ambient-platform/src/platform.ab`).
 
-`platform` is a first-class importable module root, resolved through the
-same `ModuleRegistry` machinery as `core::`/`pkg::` (it is a *contextual*
-keyword — recognized only in use-prefix position, so it still lexes as a
-plain identifier in an ability head like `with platform::Network`). Its
-abilities are always in scope fully-qualified (`platform::FileSystem::read!`,
-`with platform::FileSystem`, `platform::FileSystem::read(path) => ...`,
-`sandbox with platform::Log`) with no `use`, and importable by name
-(`use platform::FileSystem;`) to use bare — exactly like `core::` items.
+`core::system` is an ordinary module under the reserved `core` root,
+resolved through the same `ModuleRegistry` machinery as any other
+`core::`/`pkg::` path — no dedicated root or contextual keyword. The
+embedder registers it at the path `["core", "system"]`, but the source
+still ships in the `ambient-platform` crate, so the engine keeps its
+decoupling from any embedder. Its abilities are always in scope
+fully-qualified (`core::system::FileSystem::read!`,
+`with core::system::FileSystem`, `core::system::FileSystem::read(path) => ...`,
+`sandbox with core::system::Log`) with no `use`, and importable by name
+(`use core::system::FileSystem;`) to use bare — exactly like `core::` items.
 Because ability identity is the content-addressed interface hash, a bare
-imported `FileSystem` and a qualified `platform::FileSystem` share one
+imported `FileSystem` and a qualified `core::system::FileSystem` share one
 `AbilityId`, so handlers, effect rows, and linking unify with no special
 casing.
 
 The declarations in `platform.ab` are `pub` for the same reason core
 exports are: the registry only imports public symbols, so `use
-platform::FileSystem;` requires `pub ability FileSystem`. Visibility gates
+core::system::FileSystem;` requires `pub ability FileSystem`. Visibility gates
 *only* the bare-import path — fully-qualified use is seeded independently.
 
-The engine seeds the namespaced `platform::` abilities from the registered
-`platform` module during type checking (`seed_namespaced_platform_dynamics`),
+The engine seeds the namespaced `core::system::` abilities from the registered
+`core::system` module during type checking (`seed_namespaced_ability_dynamics`),
 and the general cross-module bridge (`build_import_env`) registers an
 imported ability as a bare dynamic — the same code path any
 `use pkg::b::SomeAbility;` takes.
@@ -767,11 +771,11 @@ An embedder still wires the **host binding** half:
 
 1. Parse the declarations and resolve them
    (`resolve_ability_declarations`) into content-addressed interfaces, and
-   register the `platform` module in the registry
+   register the `core::system` module in the registry
    (`register_declaration_module`) so the naming layer resolves it.
 2. Pass the resolved interfaces in `CompileOptions::prelude_abilities` for
    compilation. Type checking no longer needs an embedder ability resolver:
-   performs resolve against the seeded `platform` module, the same path
+   performs resolve against the seeded `core::system` module, the same path
    user-declared abilities take.
 3. Bind host handlers **by method name** against the resolved
    interfaces (`AbilityInterface`: identity plus name→method-id map) via
@@ -791,12 +795,12 @@ second copy of the interface to fall out of sync.
 ## Concurrency
 
 All IO is blocking. There is no `Async` ability and no async/await-style
-primitives — this is intentional. A perform like `platform::Network::receive!`
+primitives — this is intentional. A perform like `core::system::Network::receive!`
 simply blocks the calling code until the host handler returns.
 
 Concurrency comes from the Erlang-inspired **process model** (see
 `ref/processes.md`): named reducer processes with isolated state,
-communicating by message passing through the `platform::Process`
+communicating by message passing through the `core::system::Process`
 ability. Each process runs on its own thread with its own VM, so a
 blocked process blocks only itself. This design is chosen for
 live-upgrade correctness — hot code replacement needs a well-defined
@@ -851,8 +855,8 @@ substitute value, and the IO caller continues as if the operation had
 succeeded:
 
 ```ambient
-fn fetch_or_default(): number with platform::Network {
-  handle platform::Network::connect!(("10.0.0.1", 9)) {
+fn fetch_or_default(): number with core::system::Network {
+  handle core::system::Network::connect!(("10.0.0.1", 9)) {
     Exception::throw(msg) => resume(0 - 1)  // substitute connection id
   }
 }
@@ -928,7 +932,7 @@ ability Stdio {
 // Log is emitted through Stdio, so it declares the dependency: performing
 // Log requires Stdio in the effect row, and a handler for Stdio captures
 // log lines.
-ability Log with platform::Stdio {
+ability Log with core::system::Stdio {
   fn debug(message: string): ();
   fn info(message: string): ();
   fn warn(message: string): ();
@@ -1216,8 +1220,8 @@ dedicated `serve` command.
 ### Hello World
 
 ```ambient
-pub fn run(): () with platform::Stdio {
-  platform::Stdio::out!("Hello, world!");
+pub fn run(): () with core::system::Stdio {
+  core::system::Stdio::out!("Hello, world!");
 }
 ```
 

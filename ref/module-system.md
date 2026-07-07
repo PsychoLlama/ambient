@@ -133,7 +133,7 @@ pub fn run(): () {
 }
 
 // With abilities (optional)
-pub fn run(): () with platform::Stdio, platform::FileSystem {
+pub fn run(): () with core::system::Stdio, core::system::FileSystem {
     // ...
 }
 ```
@@ -300,8 +300,8 @@ version = "0.1.0"
 src = "src"
 
 $ cat my_project/src/main.ab
-pub fn run(): () with platform::Stdio {
-    platform::Stdio::out!("Hello, world!");
+pub fn run(): () with core::system::Stdio {
+    core::system::Stdio::out!("Hello, world!");
 }
 ```
 

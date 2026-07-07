@@ -1,6 +1,6 @@
 //! Ability resolver for looking up abilities from registered providers.
 //!
-//! The `AbilityResolver` aggregates abilities from multiple providers (core, core::system,
+//! The `AbilityResolver` aggregates abilities from multiple providers (core, `core::system`,
 //! and any user-defined providers) and provides lookup methods for the type checker
 //! and compiler.
 

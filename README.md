@@ -56,14 +56,16 @@ Examples:
 ## Taste of the language
 
 ```ambient
+use core::system::Log;
+
 // Effects are explicit capabilities ("abilities"), tracked in types.
-pub fn run(): () with platform::Log {
+pub fn run(): () with Log {
   greet("world");
 }
 
 // Private functions infer their abilities. No annotation needed.
 fn greet(name: string) {
-  platform::Log::info!("Hello, ${name}!");
+  Log::info!("Hello, ${name}!");
 }
 ```
 
@@ -85,18 +87,20 @@ fn example(): bool {
 Effect handlers are delimited continuations. Mock any capability in tests, sandbox untrusted code, or intercept and transform operations:
 
 ```ambient
+use core::system::{Random, Log};
+
 fn roll_dice(): number {
-  platform::Random::in_range!(6).abs()
+  Random::in_range!(6).abs()
 }
 
-fn run(): () with platform::Random, platform::Log {
+fn run(): () with Random, Log {
   let roll = handle roll_dice() {
-    platform::Random::in_range(max) => {
+    Random::in_range(max) => {
       resume(4) // Chosen by fair dice roll. Guaranteed to be random.
     }
   };
 
-  platform::Log::info!("Rolled ${roll}");
+  Log::info!("Rolled ${roll}");
 }
 ```
 
