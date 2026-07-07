@@ -21,7 +21,7 @@
 
 use std::sync::Arc;
 
-use crate::ast::{BinaryOp, Expr, ExprKind, LetBinding, Stmt, StmtKind, UnaryOp};
+use crate::ast::{BinaryOp, ConstDef, Expr, ExprKind, LetBinding, Stmt, StmtKind, UnaryOp};
 use crate::bytecode::Opcode;
 use crate::fqn::NameKey;
 use crate::value::Value;
@@ -119,6 +119,15 @@ pub(super) fn compile_expr(
                 // This is a free variable from the parent - add it as a capture.
                 let capture_slot = fc.get_or_create_capture_by_name(Arc::clone(var_name));
                 fc.builder.emit_load_capture(capture_slot);
+            } else if name.path.is_empty()
+                && name.resolved.is_none()
+                && let Some(&hash) = fc.block_consts.get(var_name)
+            {
+                // Block-scoped constant: like a module const, load its
+                // content-addressed value object by hash (recorded as a
+                // dependency). Checked before the module-level tables so a
+                // block `const` shadows an outer const or function.
+                fc.builder.emit_load_object(hash);
             } else if let Some(hash) = ctx.constant_hash(&key) {
                 // Module-level constant: load its content-addressed value
                 // object. The `const` is stored once and referenced by hash
@@ -583,7 +592,41 @@ pub(super) fn compile_stmt(
             // Block-scoped imports were consumed by the resolve pass;
             // nothing executes.
         }
+        StmtKind::Const(const_def) => {
+            compile_block_const(fc, const_def, ctx)?;
+        }
     }
+    Ok(())
+}
+
+/// Compile a block-scoped `const`: content-address its value into a
+/// standalone value object (deduplicated by hash like a module-level const)
+/// and bind the name to that object's hash for the rest of the block. The
+/// declaration emits no bytecode; a *reference* emits `LoadObject` (see the
+/// `ExprKind::Name` arm), so the value's content hash flows into the
+/// referencing function's identity — exactly the module-const behaviour.
+fn compile_block_const(
+    fc: &mut FunctionCompiler,
+    const_def: &ConstDef,
+    ctx: &mut ModuleContext,
+) -> Result<(), CompileError> {
+    // The checker already rejects non-literal consts. If a value still can't
+    // be content-addressed, skip binding it — a reference then surfaces as an
+    // undefined-name error, mirroring how module-level consts drop non-values.
+    let Some(value) = crate::const_eval::literal_value(&const_def.value) else {
+        return Ok(());
+    };
+    let object = crate::object::value_object(&value).map_err(|_| {
+        CompileError::new(
+            CompileErrorKind::Internal {
+                message: "const value could not be content-addressed",
+            },
+            (const_def.value.span.start, const_def.value.span.end),
+        )
+    })?;
+    let hash = object.hash();
+    ctx.const_objects.insert(hash, object);
+    fc.block_consts.insert(Arc::clone(&const_def.name), hash);
     Ok(())
 }
 

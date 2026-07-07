@@ -947,6 +947,8 @@ pub enum CstStmtKind {
     Error,
     /// Block-scoped import: `use pkg::utils::helper;`.
     Use(CstUseDef),
+    /// Block-scoped constant: `const NAME = <literal>;`.
+    Const(CstConstDef),
 }
 
 /// A let binding.

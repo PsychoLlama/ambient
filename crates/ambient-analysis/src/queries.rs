@@ -106,6 +106,14 @@ fn find_expr_in_tree(expr: &Expr, offset: u32) -> Option<&Expr> {
                             return find_expr_in_tree(e, offset);
                         }
                         StmtKind::Use(_) => return None,
+                        StmtKind::Const(const_def) => {
+                            // Hover on the value, or on the name (which shows
+                            // the const's value/type), returns the value expr.
+                            if let Some(e) = find_expr_in_tree(&const_def.value, offset) {
+                                return Some(e);
+                            }
+                            return Some(&const_def.value);
+                        }
                     }
                 }
             }
@@ -437,6 +445,14 @@ fn find_binding_in_expr(expr: &Expr, target_id: BindingId) -> Option<Span> {
                         return Some(stmt.span);
                     }
                     if let Some(span) = find_binding_in_expr(&binding.init, target_id) {
+                        return Some(span);
+                    }
+                }
+                if let StmtKind::Const(const_def) = &stmt.kind {
+                    if const_def.id == target_id {
+                        return Some(stmt.span);
+                    }
+                    if let Some(span) = find_binding_in_expr(&const_def.value, target_id) {
                         return Some(span);
                     }
                 }

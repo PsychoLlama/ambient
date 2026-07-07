@@ -489,6 +489,13 @@ impl Collector<'_> {
             }
             StmtKind::Expr(e) => self.expr(e),
             StmtKind::Use(use_def) => self.use_items(use_def),
+            StmtKind::Const(const_def) => {
+                // A block `const` binds its name lexically, just like `let`:
+                // walk the value first, then bind the name so references from
+                // here on resolve to it.
+                self.expr(&const_def.value);
+                self.bind_local(const_def.id, &const_def.name, const_def.name_span);
+            }
         }
     }
 

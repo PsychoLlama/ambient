@@ -182,10 +182,12 @@ fn lower_function(
 }
 
 fn lower_const(ctx: &mut LoweringContext, c: &CstConstDef) -> Result<ConstDef, ParseError> {
+    let id = ctx.fresh_binding();
     let ty = c.ty.as_ref().map(lower_type).transpose()?;
     let value = lower_expression(ctx, &c.value)?;
 
     Ok(ConstDef {
+        id,
         name: c.name.name.clone(),
         name_span: c.name.span,
         is_public: c.is_public,
@@ -874,6 +876,11 @@ fn lower_stmt(ctx: &mut LoweringContext, stmt: &CstStmt) -> Result<Vec<Stmt>, Pa
                 .into_iter()
                 .map(|flat| Stmt::new(StmtKind::Use(flat), stmt.span))
                 .collect());
+        }
+        CstStmtKind::Const(const_def) => {
+            // A block `const` lowers through the same path as a module-level
+            // one, so it is content-addressed identically.
+            StmtKind::Const(lower_const(ctx, const_def)?)
         }
         CstStmtKind::Expr(expr) => {
             let lowered = lower_expression(ctx, expr)?;

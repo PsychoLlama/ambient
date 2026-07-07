@@ -1092,6 +1092,20 @@ impl Parser<'_> {
                 continue;
             }
 
+            // Block-scoped constant. Shares `parse_const` with module-level
+            // items, so the grammar is identical (`const NAME[: Type] = …;`).
+            // A block `const` is never `pub`.
+            if self.check(TokenKind::Const) {
+                let const_def = self.parse_const(false)?;
+                let end = self.current().span.start;
+                stmts.push(CstStmt {
+                    leading_trivia,
+                    kind: CstStmtKind::Const(const_def),
+                    span: Span::new(stmt_start, end),
+                });
+                continue;
+            }
+
             // Let statement
             if self.check(TokenKind::Let) {
                 self.advance();

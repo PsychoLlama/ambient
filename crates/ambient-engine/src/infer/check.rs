@@ -2823,6 +2823,7 @@ mod tests {
                 ),
                 Item::new(
                     ItemKind::Const(ConstDef {
+                        id: 0,
                         name: Arc::from("NANOS_PER_SEC"),
                         name_span: span(),
                         is_public: false,

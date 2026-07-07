@@ -329,6 +329,50 @@ impl Infer {
                             // construct consumed by the resolve pass; they
                             // type as nothing and compile to nothing.
                         }
+                        StmtKind::Const(const_def) => {
+                            // A block `const` binds a name to a literal value,
+                            // exactly like a module-level one. Enforce the
+                            // literal-only rule, then bind the name at the
+                            // const's type — its annotation when written, else
+                            // the literal's own type. `const_eval` is the
+                            // shared authority on both (kept in lockstep with
+                            // the compiler).
+                            if crate::const_eval::literal_value(&const_def.value).is_none() {
+                                self.pending_errors.push(type_error(
+                                    TypeErrorKind::ConstNotLiteral {
+                                        name: const_def.name.clone(),
+                                    },
+                                    (const_def.value.span.start, const_def.value.span.end),
+                                ));
+                            }
+                            let value_ty = self.infer_expr(&block_env, &mut const_def.value)?;
+                            let ty = if let Some(annotation) = const_def.ty.clone() {
+                                // A block `const`'s annotation is a body-local
+                                // type: an undefined name in it is reported and
+                                // rewritten to `Type::Error`, like a `let`'s.
+                                let ann_span = (const_def.name_span.start, const_def.name_span.end);
+                                let expected = super::check::resolve_body_annotation(
+                                    self,
+                                    &annotation,
+                                    ann_span,
+                                );
+                                let span = (const_def.value.span.start, const_def.value.span.end);
+                                if let Err(e) = self.unify(&expected, &value_ty, span) {
+                                    self.pending_errors.push(e.with_context(format!(
+                                        "in constant `{}`: type mismatch",
+                                        const_def.name
+                                    )));
+                                }
+                                expected
+                            } else {
+                                value_ty
+                            };
+                            block_env.insert(
+                                const_def.id,
+                                const_def.name.clone(),
+                                crate::infer::Scheme::mono(ty),
+                            );
+                        }
                     }
                 }
                 if let Some(result) = result {

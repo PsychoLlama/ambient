@@ -888,6 +888,18 @@ impl<'r> Resolver<'r> {
             }
             StmtKind::Expr(expr) => self.resolve_expr(expr),
             StmtKind::Use(use_def) => self.bind_block_use(use_def, stmt.span),
+            StmtKind::Const(const_def) => {
+                if let Some(ty) = &mut const_def.ty {
+                    self.resolve_type(ty);
+                }
+                self.resolve_expr(&mut const_def.value);
+                // Bind the name lexically, exactly like `let`: it shadows
+                // outer bindings from here to the end of the block, and a
+                // reference *before* this point stays unresolved (an
+                // undefined-name error), so no forward-reference pass is
+                // needed.
+                self.declare_local(Arc::clone(&const_def.name));
+            }
         }
     }
 
@@ -1035,6 +1047,7 @@ mod tests {
     fn same_module_const_reference_resolves_to_its_fqn() {
         let konst = Item::new(
             ItemKind::Const(ConstDef {
+                id: 0,
                 name: Arc::from("K"),
                 name_span: Span::default(),
                 is_public: true,

@@ -1093,6 +1093,7 @@ mod tests {
         use crate::types::Type;
         Item::new(
             ItemKind::Const(ConstDef {
+                id: 0,
                 name: Arc::from(name),
                 name_span: Span::default(),
                 is_public,

@@ -216,6 +216,55 @@ fn test_run_arithmetic() {
     CliTest::new("fn run(): Number { 2 + 3 * 4 }").expect_output("14");
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Block-scoped `const` Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A `const` declared inside a function body binds a name for the rest of the
+/// block and is usable like any value.
+#[test]
+fn block_const_is_referenced_within_a_function() {
+    CliTest::new("fn run(): Number { const X = 40; X + 2 }").expect_output("42");
+}
+
+/// The block `const`'s type annotation is optional (inferred from the literal)
+/// but still accepted when written.
+#[test]
+fn block_const_accepts_explicit_type() {
+    CliTest::new("fn run(): Number { const X: Number = 42; X }").expect_output("42");
+}
+
+/// Block consts carry non-numeric literals too.
+#[test]
+fn block_const_binds_a_string() {
+    CliTest::new(r#"fn run(): String { const GREETING = "hello"; GREETING }"#)
+        .expect_output("hello");
+}
+
+/// An enclosing block `const` is visible inside a nested lambda — the
+/// reference loads the value object by hash, needing no capture slot.
+#[test]
+fn block_const_visible_inside_nested_lambda() {
+    CliTest::new("fn run(): Number { const BONUS = 10; let add = (n) => n + BONUS; add(32) }")
+        .expect_output("42");
+}
+
+/// A block `const` shadows a module-level binding of the same name from its
+/// declaration onward.
+#[test]
+fn block_const_shadows_module_const() {
+    CliTest::new("const N: Number = 1;\nfn run(): Number { const N = 42; N }").expect_output("42");
+}
+
+/// Referencing a block `const` before its declaration is an error, exactly
+/// like a `let` (no forward-reference pass).
+#[test]
+fn block_const_referenced_before_declaration_is_error() {
+    CliTest::new("fn run(): Number { let y = MISSING; const MISSING = 5; y }")
+        .check()
+        .expect_failure();
+}
+
 #[test]
 fn test_run_boolean_logic() {
     CliTest::new("fn run(): Bool { true && false || true }").expect_output("true");

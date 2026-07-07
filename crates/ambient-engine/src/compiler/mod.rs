@@ -318,6 +318,13 @@ struct FunctionCompiler {
     /// Parent's local names - for name-based lookups during closure compilation.
     parent_local_names: Option<HashMap<Arc<str>, u16>>,
 
+    /// Block-scoped `const` names in scope, mapped to their value object's
+    /// content hash. A reference emits `LoadObject` of the hash (never a
+    /// local slot) — a `const` is a compile-time value, not a runtime local.
+    /// Inherited into a nested lambda at creation, since the hash is
+    /// position-independent and an enclosing const is visible in the closure.
+    block_consts: HashMap<Arc<str>, blake3::Hash>,
+
     /// Debug information being built.
     debug_info: DebugInfo,
 }
@@ -335,6 +342,7 @@ impl FunctionCompiler {
             capture_names: HashMap::new(),
             parent_locals: None,
             parent_local_names: None,
+            block_consts: HashMap::new(),
             debug_info: DebugInfo::new(),
         }
     }
@@ -344,6 +352,7 @@ impl FunctionCompiler {
         function_hashes: HashMap<NameKey, blake3::Hash>,
         parent_locals: HashMap<BindingId, u16>,
         parent_local_names: HashMap<Arc<str>, u16>,
+        parent_block_consts: HashMap<Arc<str>, blake3::Hash>,
     ) -> Self {
         Self {
             builder: BytecodeBuilder::new(),
@@ -355,6 +364,9 @@ impl FunctionCompiler {
             capture_names: HashMap::new(),
             parent_locals: Some(parent_locals),
             parent_local_names: Some(parent_local_names),
+            // A lambda inherits the enclosing block consts in scope; each is a
+            // bare `LoadObject` of a hash, so no capture slot is needed.
+            block_consts: parent_block_consts,
             debug_info: DebugInfo::new(),
         }
     }
@@ -477,6 +489,12 @@ struct ModuleContext {
     lambdas: Vec<(blake3::Hash, Arc<str>, CompiledFunction)>,
     /// Counter for generating unique lambda temporary hashes.
     lambda_counter: u32,
+    /// Value objects for block-scoped `const`s discovered while compiling
+    /// function bodies. Folded into the module's objects after finalization
+    /// (deduplicated by hash), alongside module-level const objects. Module
+    /// consts are content-addressed in a pre-pass instead; these can only be
+    /// found by walking bodies.
+    const_objects: HashMap<blake3::Hash, crate::object::StoredObject>,
     /// Name of the function currently being compiled.
     /// Used to track lambda parent relationships.
     current_function: Option<Arc<str>>,
@@ -574,6 +592,7 @@ impl ModuleContext {
         Self {
             lambdas: Vec::new(),
             lambda_counter: 0,
+            const_objects: HashMap::new(),
             current_function: None,
             enums,
             foreign_variants: HashMap::new(),
@@ -1170,13 +1189,16 @@ fn compile_module_impl(
 
     // Collect lambda info: (temp_hash, parent_name, compiled_func).
     let lambdas: Vec<(blake3::Hash, Arc<str>, CompiledFunction)> = ctx.lambdas;
+    // Value objects for block-scoped consts, discovered while walking bodies.
+    let block_const_objects = ctx.const_objects;
 
     // Phase 3: Compute content-addressed hashes and finalize the module.
     let mut module = finalize_module_hashes(compiled_functions, lambdas)?;
-    // Fold in the const value objects from the pre-pass. They ship and
-    // deduplicate alongside function objects; a referencing function already
-    // records the const hash in its dependencies.
-    for (hash, object) in const_objects {
+    // Fold in every const value object — module-level ones from the pre-pass
+    // and block-scoped ones from the bodies. They ship and deduplicate
+    // alongside function objects; a referencing function already records the
+    // const hash in its dependencies.
+    for (hash, object) in const_objects.into_iter().chain(block_const_objects) {
         module.objects.entry(hash).or_insert(object);
     }
     module.const_names = const_names;
@@ -2580,6 +2602,7 @@ mod tests {
             items: vec![
                 Item::new(
                     ItemKind::Const(ConstDef {
+                        id: 0,
                         name: Arc::from("NANOS_PER_SEC"),
                         name_span: Span::default(),
                         is_public: false,
@@ -2659,6 +2682,7 @@ mod tests {
             items: vec![
                 Item::new(
                     ItemKind::Const(ConstDef {
+                        id: 0,
                         name: Arc::from("ANSWER"),
                         name_span: Span::default(),
                         is_public: false,
@@ -2729,6 +2753,7 @@ mod tests {
             items: vec![
                 Item::new(
                     ItemKind::Const(ConstDef {
+                        id: 0,
                         name: Arc::from("ANSWER"),
                         name_span: Span::default(),
                         is_public: false,
@@ -2770,6 +2795,107 @@ mod tests {
         assert_eq!(result, Value::Number(42.0));
     }
 
+    /// A block-scoped `const` is content-addressed exactly like a module-level
+    /// one: a reference links to its value object by hash (`LoadObject` + a
+    /// dependency edge, so the value's hash is part of the function's
+    /// identity), and an identical module const collapses to the same object.
+    #[test]
+    fn block_const_links_by_hash_and_dedups_with_module_const() {
+        use crate::ast::{ConstDef, ExprKind, Stmt, StmtKind};
+        use crate::value::Value;
+        use crate::vm::Vm;
+
+        // A module const and a block const, both `7` — content addressing
+        // must collapse them to one value object.
+        let module = Module {
+            name: Arc::from("test"),
+            doc: None,
+            items: vec![
+                Item::new(
+                    ItemKind::Const(ConstDef {
+                        id: 0,
+                        name: Arc::from("SHARED"),
+                        name_span: Span::default(),
+                        is_public: false,
+                        ty: None,
+                        value: Expr::number(7.0),
+                    }),
+                    test_span(),
+                ),
+                Item::new(
+                    ItemKind::Function(FunctionDef {
+                        name: Arc::from("run"),
+                        name_span: Span::default(),
+                        is_public: true,
+                        type_params: vec![],
+                        params: vec![],
+                        ret_ty: None,
+                        abilities: vec![],
+                        body: Expr::new(
+                            ExprKind::Block(
+                                vec![Stmt::new(
+                                    StmtKind::Const(ConstDef {
+                                        id: 42,
+                                        name: Arc::from("LOCAL"),
+                                        name_span: Span::default(),
+                                        is_public: false,
+                                        ty: None,
+                                        value: Expr::number(7.0),
+                                    }),
+                                    test_span(),
+                                )],
+                                Some(Box::new(Expr::name("LOCAL"))),
+                            ),
+                            test_span(),
+                        ),
+                    }),
+                    test_span(),
+                ),
+            ],
+        };
+        let checked = crate::infer::check_module(module);
+        assert!(checked.errors.is_empty(), "{:?}", checked.errors);
+        let compiled = compile_module(&checked.module).expect("compile");
+
+        // Both consts share one value object, keyed purely by content.
+        let expected_hash = crate::object::value_object(&Value::Number(7.0))
+            .unwrap()
+            .hash();
+        let value_hashes: Vec<_> = compiled
+            .objects
+            .iter()
+            .filter(|(_, o)| o.as_value().is_some())
+            .map(|(h, _)| *h)
+            .collect();
+        assert_eq!(value_hashes, vec![expected_hash]);
+
+        // `run` links to it by hash: dependency edge + `LoadObject`, never an
+        // inlined literal.
+        let run = compiled.get_function("run").expect("run");
+        assert!(
+            run.dependencies.contains(&expected_hash),
+            "block const hash should be a dependency of the referencing function"
+        );
+        let listing = crate::bytecode::disassemble(run);
+        assert!(
+            listing.contains("LoadObject"),
+            "block const reference should compile to LoadObject: {listing}"
+        );
+
+        // And it actually runs from a cold VM.
+        let mut vm = Vm::new();
+        for func in compiled.functions.values() {
+            vm.load_function(func.clone());
+        }
+        for (hash, object) in &compiled.objects {
+            if let Some(value) = object.as_value() {
+                vm.load_value(*hash, value);
+            }
+        }
+        let entry = compiled.entry_point.expect("entry point");
+        assert_eq!(vm.call(&entry, vec![]).expect("run"), Value::Number(7.0));
+    }
+
     /// Two `const`s with the same value collapse to a single value object:
     /// content addressing deduplicates them, name notwithstanding.
     #[test]
@@ -2780,6 +2906,7 @@ mod tests {
         let mk_const = |name: &str| {
             Item::new(
                 ItemKind::Const(ConstDef {
+                    id: 0,
                     name: Arc::from(name),
                     name_span: Span::default(),
                     is_public: false,
@@ -2841,6 +2968,7 @@ mod tests {
             doc: None,
             items: vec![Item::new(
                 ItemKind::Const(ConstDef {
+                    id: 0,
                     name: Arc::from("ANSWER"),
                     name_span: Span::default(),
                     is_public: true,
@@ -2888,6 +3016,7 @@ mod tests {
             items: vec![
                 Item::new(
                     ItemKind::Const(ConstDef {
+                        id: 0,
                         name: Arc::from("ANSWER"),
                         name_span: Span::default(),
                         is_public: true,
@@ -2948,6 +3077,7 @@ mod tests {
             items: vec![
                 Item::new(
                     ItemKind::Const(ConstDef {
+                        id: 0,
                         name: Arc::from("A"),
                         name_span: Span::default(),
                         is_public: false,
@@ -2958,6 +3088,7 @@ mod tests {
                 ),
                 Item::new(
                     ItemKind::Const(ConstDef {
+                        id: 0,
                         name: Arc::from("B"),
                         name_span: Span::default(),
                         is_public: false,

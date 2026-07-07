@@ -431,6 +431,17 @@ impl<'a> TokenCollector<'a> {
                 // Import paths get their coloring from the syntactic
                 // highlighter; nothing semantic to add.
             }
+            StmtKind::Const(const_def) => {
+                // Highlight the name as a read-only variable declaration, the
+                // same as a module-level `const`.
+                self.add_token(
+                    const_def.name_span.start,
+                    const_def.name_span.end,
+                    token_type::VARIABLE,
+                    token_modifier::DECLARATION | token_modifier::READONLY,
+                );
+                self.visit_expr(&const_def.value);
+            }
         }
     }
 

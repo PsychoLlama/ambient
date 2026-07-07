@@ -664,6 +664,13 @@ pub enum StmtKind {
     /// pass consumes it, the checker types it as `()`, and the compiler
     /// emits nothing for it.
     Use(UseDef),
+
+    /// Block-scoped constant: `const NAME = <literal>;` inside a block.
+    /// Binds a name to a content-addressed value object from here to the end
+    /// of the enclosing block, exactly like a module-level `const` but scoped
+    /// lexically. A reference before the declaration is an error (as with
+    /// `let`), so no forward-reference pass is needed.
+    Const(ConstDef),
 }
 
 /// A let binding.
@@ -789,6 +796,10 @@ pub struct TypeParam {
 /// A constant definition.
 #[derive(Debug, Clone)]
 pub struct ConstDef {
+    /// Unique binding ID. Distinguishes this declaration from every other
+    /// binding in the module (used when a block-scoped `const` enters the
+    /// checker's local environment, mirroring [`LetBinding::id`]).
+    pub id: BindingId,
     /// Constant name.
     pub name: Arc<str>,
     /// Span of the constant name (for go-to-definition).

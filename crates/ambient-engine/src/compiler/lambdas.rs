@@ -32,6 +32,7 @@ pub(super) fn compile_lambda(
         fc.function_hashes.clone(),
         fc.locals.clone(),
         fc.local_names.clone(),
+        fc.block_consts.clone(),
     );
 
     // Allocate slots for lambda parameters.
@@ -127,6 +128,7 @@ pub(super) fn compile_handle_expr(
         fc.function_hashes.clone(),
         fc.locals.clone(),
         fc.local_names.clone(),
+        fc.block_consts.clone(),
     );
 
     // Install each handler in the flat `with` list, in source order (so a
@@ -456,6 +458,7 @@ fn compile_handler_method(
         fc.function_hashes.clone(),
         fc.locals.clone(),
         fc.local_names.clone(),
+        fc.block_consts.clone(),
     );
     // Seed the shared captures so a name reused across arms keeps its slot.
     method_fc.capture_names.clone_from(seed_captures);
