@@ -3,14 +3,19 @@
 //! This module handles compilation of lambda expressions and closures,
 //! including variable capture analysis and closure creation.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::ast::{Expr, Lambda};
+use crate::ast::{Expr, HandlerLiteralMethod, Lambda};
 use crate::bytecode::{CompiledFunction, Opcode};
 use crate::types::AbilityId;
 
 use super::error::{CompileError, CompileErrorKind};
 use super::{FunctionCompiler, ModuleContext, compile_expr};
+
+/// A handler's method table (`method_id` → compiled-function hash) paired
+/// with the ordered captures its installer must push before `MakeHandler`.
+type HandlerMethods = (Vec<(u16, blake3::Hash)>, Vec<(Arc<str>, u16)>);
 
 /// Compile a lambda expression.
 ///
@@ -339,13 +344,13 @@ pub(super) fn compile_ability_call(
     Ok(())
 }
 
-/// Compile a handler literal expression (Milestone 13).
+/// Compile a handler literal expression to a `HandlerValue`.
 ///
-/// Handler literals create a `HandlerValue` at runtime. Each method
-/// is compiled as a separate function that receives implicit parameters:
-/// - slot 0: continuation
-/// - slot 1: suspended ability value
-/// - slot 2+: extracted ability method arguments
+/// A handler literal in value position (`let h = { A::m(p) => … }`) covers
+/// a single ability (the checker enforces this), so its ability id comes
+/// from the expression's `Handler<A, R>` type. The methods are compiled
+/// into one `HandlerValue`, sharing one capture environment, and the
+/// installer loads those captures before `MakeHandler`.
 pub(super) fn compile_handler_literal(
     fc: &mut FunctionCompiler,
     expr: &Expr,
@@ -353,7 +358,7 @@ pub(super) fn compile_handler_literal(
     ctx: &mut ModuleContext,
 ) -> Result<(), CompileError> {
     // Get the ability ID from the type (set by type checker).
-    // The type should be Handler<ability_id>.
+    // The type should be Handler<ability_id, R>.
     let ability_id = match &expr.ty {
         Some(crate::types::Type::Handler(h)) => h.ability,
         _ => {
@@ -366,6 +371,58 @@ pub(super) fn compile_handler_literal(
         }
     };
 
+    let methods: Vec<&HandlerLiteralMethod> = handler_lit.methods.iter().collect();
+    let (method_hashes, captures) = compile_handler_methods(
+        fc,
+        ability_id,
+        &methods,
+        (expr.span.start, expr.span.end),
+        ctx,
+    )?;
+
+    // Load the shared captures onto the stack (from the installer's own
+    // locals, or through its captures if it is itself a closure), then
+    // build the handler value.
+    for (name, _slot) in &captures {
+        if let Some(&slot) = fc.local_names.get(name) {
+            fc.builder.emit_u16(Opcode::LoadLocal, slot);
+        } else if let Some(&capture_slot) = fc.capture_names.get(name) {
+            fc.builder.emit_load_capture(capture_slot);
+        } else {
+            return Err(CompileError::new(
+                CompileErrorKind::Unsupported {
+                    feature: format!("unknown capture in handler literal: {name}"),
+                },
+                (expr.span.start, expr.span.end),
+            ));
+        }
+    }
+
+    fc.builder
+        .emit_make_handler(ability_id, &method_hashes, captures.len() as u8);
+
+    Ok(())
+}
+
+/// Compile the arms of a handler covering `ability_id` into method
+/// functions that share one capture environment, returning the
+/// `(method_id, hash)` map and the ordered captures the installer must
+/// push onto the stack (by name and slot) before `MakeHandler`.
+///
+/// All methods of a `HandlerValue` read from one shared capture array at
+/// runtime, so their capture slots must agree: a name used in two arms
+/// must resolve to the same slot. We thread one by-name accumulator across
+/// every arm — each arm compiler is seeded with the captures discovered so
+/// far, so a reused name keeps its slot and any new free variable appends
+/// at a stable index. (Locals from real source resolve by name; the by-id
+/// capture path only fires for hand-built ASTs, which never share.)
+fn compile_handler_methods(
+    fc: &FunctionCompiler,
+    ability_id: AbilityId,
+    methods: &[&HandlerLiteralMethod],
+    span: (u32, u32),
+    ctx: &mut ModuleContext,
+) -> Result<HandlerMethods, CompileError> {
     let dynamic = ctx
         .ability_by_id(ability_id)
         .map(|(name, info)| (Arc::clone(name), info.clone()));
@@ -378,14 +435,14 @@ pub(super) fn compile_handler_literal(
                 CompileErrorKind::Unsupported {
                     feature: format!("unknown ability ID: {ability_id}"),
                 },
-                (expr.span.start, expr.span.end),
+                span,
             )
         })?;
 
-    // Compile each handler method as a separate function.
     let mut method_hashes: Vec<(u16, blake3::Hash)> = Vec::new();
+    let mut shared_captures: HashMap<Arc<str>, u16> = HashMap::new();
 
-    for method in &handler_lit.methods {
+    for method in methods {
         let method_id = dynamic
             .as_ref()
             .and_then(|(_, info)| info.method_id(&method.method))
@@ -402,86 +459,60 @@ pub(super) fn compile_handler_literal(
                 )
             })?;
 
-        // Create a new FunctionCompiler for the handler method.
-        let mut method_fc = FunctionCompiler::new_for_closure(
-            fc.function_hashes.clone(),
-            fc.locals.clone(),
-            fc.local_names.clone(),
-        );
-
-        // Allocate implicit slots for continuation and suspended ability.
-        let _continuation_slot =
-            method_fc.alloc_local_with_name(0, &Arc::from(super::HANDLER_PARAM_CONTINUATION))?;
-        let _ability_slot = method_fc
-            .alloc_local_with_name(0, &Arc::from(super::HANDLER_PARAM_SUSPENDED_ABILITY))?;
-
-        // Extract ability arguments and store to param slots.
-        for (i, param) in method.params.iter().enumerate() {
-            method_fc.alloc_local_with_name(param.id, &param.name)?;
-
-            // Load suspended ability from slot 1.
-            method_fc.builder.emit_u16(Opcode::LoadLocal, 1);
-
-            // Extract argument at index i.
-            method_fc.builder.emit_get_ability_arg(i as u8);
-
-            // Store to the param slot (slot 2+i).
-            method_fc.builder.emit_u16(Opcode::StoreLocal, 2 + i as u16);
-        }
-
-        // Compile the handler method body.
-        compile_expr(&mut method_fc, &method.body, ctx)?;
-
-        // Emit return instruction.
-        method_fc.builder.emit(Opcode::Return);
-
-        // Build the handler method function.
-        let bytecode = method_fc.builder.bytecode().to_vec();
-        let constants = method_fc.builder.constants().to_vec();
-        let dependencies = method_fc.builder.dependencies().to_vec();
-        let local_count = method_fc.next_local;
-        // Handler receives 2 implicit params: continuation and suspended ability.
-        let param_count = 2;
-
-        let method_func = CompiledFunction {
-            hash: ctx.next_lambda_hash(),
-            bytecode,
-            constants,
-            local_count,
-            param_count,
-            dependencies,
-            debug_info: None,
-        };
-
-        // Get capture info for the handler method.
-        let capture_names = method_fc.get_capture_names_in_order();
-
-        // Register the handler method function.
-        let final_hash = ctx.register_lambda(method_func);
-
-        // If handler method captures variables, emit code to load them.
-        // This is similar to closure compilation.
-        for (name, _slot) in &capture_names {
-            if let Some(&slot) = fc.local_names.get(name) {
-                fc.builder.emit_u16(Opcode::LoadLocal, slot);
-            } else if let Some(&capture_slot) = fc.capture_names.get(name) {
-                fc.builder.emit_load_capture(capture_slot);
-            }
-            // If not found, the capture tracking is wrong, but we continue.
-        }
-
+        let (func, captures) = compile_handler_method(fc, method, &shared_captures, ctx)?;
+        let final_hash = ctx.register_lambda(func);
         method_hashes.push((method_id, final_hash));
+        // The arm was seeded with `shared_captures` and only appends, so
+        // its map is the grown superset — adopt it for the next arm.
+        shared_captures = captures;
     }
 
-    // Calculate total capture count (if any methods capture variables).
-    // For simplicity, we don't support handler method captures yet.
-    let capture_count = 0u8;
+    let mut ordered: Vec<(Arc<str>, u16)> = shared_captures.into_iter().collect();
+    ordered.sort_by_key(|(_, slot)| *slot);
+    Ok((method_hashes, ordered))
+}
 
-    // Emit MakeHandler instruction.
-    fc.builder
-        .emit_make_handler(ability_id, &method_hashes, capture_count);
+/// Compile one handler arm into its own function, seeded with the handler's
+/// shared capture map so capture slots stay consistent across arms. Returns
+/// the compiled function and the arm's (grown) capture map for the caller
+/// to carry into the next arm.
+///
+/// Arm functions take two implicit params — slot 0 the continuation, slot 1
+/// the suspended ability — and bind the method's declared parameters into
+/// slots 2.. by extracting the suspended ability's arguments.
+fn compile_handler_method(
+    fc: &FunctionCompiler,
+    method: &HandlerLiteralMethod,
+    seed_captures: &HashMap<Arc<str>, u16>,
+    ctx: &mut ModuleContext,
+) -> Result<(CompiledFunction, HashMap<Arc<str>, u16>), CompileError> {
+    let mut method_fc = FunctionCompiler::new_for_closure(
+        fc.function_hashes.clone(),
+        fc.locals.clone(),
+        fc.local_names.clone(),
+    );
+    // Seed the shared captures so a name reused across arms keeps its slot.
+    method_fc.capture_names.clone_from(seed_captures);
 
-    Ok(())
+    // Allocate implicit slots for continuation and suspended ability.
+    method_fc.alloc_local_with_name(0, &Arc::from(super::HANDLER_PARAM_CONTINUATION))?;
+    method_fc.alloc_local_with_name(0, &Arc::from(super::HANDLER_PARAM_SUSPENDED_ABILITY))?;
+
+    // Bind declared params by extracting the suspended ability's arguments.
+    for (i, param) in method.params.iter().enumerate() {
+        method_fc.alloc_local_with_name(param.id, &param.name)?;
+        method_fc.builder.emit_u16(Opcode::LoadLocal, 1);
+        method_fc.builder.emit_get_ability_arg(i as u8);
+        method_fc.builder.emit_u16(Opcode::StoreLocal, 2 + i as u16);
+    }
+
+    compile_expr(&mut method_fc, &method.body, ctx)?;
+    method_fc.builder.emit(Opcode::Return);
+
+    let local_count = method_fc.next_local;
+    // Handler receives 2 implicit params: continuation and suspended ability.
+    let func = method_fc.builder.build(local_count, 2);
+    Ok((func, method_fc.capture_names))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

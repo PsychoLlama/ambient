@@ -590,6 +590,66 @@ fn test_handler_value_override_last_wins() {
     .expect_output("2");
 }
 
+/// A handler *value* (let-bound, so it installs through the `HandlerValue`
+/// path) may capture variables from its enclosing scope. The arm body reads
+/// `offset`, a local of the surrounding function, proving the captured
+/// environment reaches the method function at runtime.
+#[test]
+fn test_handler_value_captures_outer_variable() {
+    CliTest::new(
+        r#"
+        ability Choice {
+          fn pick(): Number;
+        }
+
+        fn body(): Number with Choice {
+          Choice::pick!()
+        }
+
+        fn test(): Number {
+          let offset = 40;
+          let handler = { Choice::pick() => resume(offset + 2) };
+          with handler handle body()
+        }
+
+        fn run(): Number { test() }
+    "#,
+    )
+    .expect_output("42");
+}
+
+/// Two arms of one handler value capture *different* outer variables. They
+/// share one runtime capture array, so each name must land on its own
+/// stable slot; whichever arm fires reads the right value.
+#[test]
+fn test_handler_value_multi_arm_captures() {
+    CliTest::new(
+        r#"
+        ability Pair {
+          fn left(): Number;
+          fn right(): Number;
+        }
+
+        fn body(): Number with Pair {
+          Pair::left!() + Pair::right!()
+        }
+
+        fn test(): Number {
+          let a = 10;
+          let b = 20;
+          let handler = {
+            Pair::left() => resume(a),
+            Pair::right() => resume(b)
+          };
+          with handler handle body()
+        }
+
+        fn run(): Number { test() }
+    "#,
+    )
+    .expect_output("30");
+}
+
 #[test]
 fn test_example_handler_value() {
     let output = ambient_cmd()
