@@ -39,8 +39,11 @@ module.exports = grammar({
     [$._expression, $.record_literal],
     // Lambda parameters vs parenthesized expression: (x) could be either
     [$.lambda_parameter, $._expression],
-    // Handler method starts with identifier, conflicts with expression
-    [$.handler_method, $._expression],
+    // `Ability::method(...)` prefix of a handler arm looks exactly like a
+    // `scoped_identifier` call until the `=>` (or a param that isn't an
+    // expression) settles it. Equal precedence + this conflict keeps the
+    // handler branch alive under GLR instead of committing to the call.
+    [$.handler_method, $.scoped_identifier],
     // Pattern ambiguities: `x` could be binding or variant pattern
     [$.variant_pattern, $._pattern],
     // Match guard with () could be lambda params or unit
@@ -297,7 +300,8 @@ module.exports = grammar({
     ability_type: ($) =>
       seq("Ability", "<", $._type, ",", $.identifier, "!", ">"),
 
-    handler_type: ($) => seq("Handler", "<", $.identifier, ">"),
+    handler_type: ($) =>
+      seq("Handler", "<", $.identifier, optional(seq(",", $._type)), ">"),
 
     unit_type: ($) => seq("(", ")"),
 
@@ -331,7 +335,7 @@ module.exports = grammar({
         $.tuple,
         $.list_literal,
         $.record_literal,
-        $.handle_expression,
+        $.with_handle_expression,
         $.sandbox_expression,
         $.handler_literal,
         $.parenthesized_expression
@@ -395,11 +399,13 @@ module.exports = grammar({
       prec(PREC.MEMBER, seq($._expression, "[", $._expression, "]")),
 
     if_expression: ($) =>
-      seq(
-        "if",
-        field("condition", $._expression),
-        field("then", $.block),
-        optional(seq("else", field("else", choice($.block, $.if_expression))))
+      prec.right(
+        seq(
+          "if",
+          field("condition", $._expression),
+          field("then", $.block),
+          optional(seq("else", field("else", choice($.block, $.if_expression))))
+        )
       ),
 
     match_expression: ($) =>
@@ -508,44 +514,34 @@ module.exports = grammar({
     record_field: ($) =>
       seq(field("name", $.identifier), ":", field("value", $._expression)),
 
-    handle_expression: ($) =>
-      seq(
-        "handle",
-        field("body", $._expression),
-        optional(seq("with", $.handler_refs)),
-        $.handler_block
+    with_handle_expression: ($) =>
+      prec.right(
+        seq(
+          "with",
+          $.handler_list,
+          "handle",
+          field("body", $._expression),
+          optional(seq("else", $._expression))
+        )
       ),
 
-    handler_refs: ($) =>
+    handler_list: ($) =>
       seq($._expression, repeat(seq(",", $._expression))),
-
-    handler_block: ($) =>
-      seq(
-        "{",
-        repeat($.handler_arm),
-        optional(seq("else", "{", $._expression, "}")),
-        "}"
-      ),
-
-    handler_arm: ($) =>
-      seq(
-        field("ability", $.identifier),
-        "::",
-        field("method", $.identifier),
-        $.parameter_list,
-        "=>",
-        $.block
-      ),
 
     handler_literal: ($) =>
       seq("{", repeat($.handler_method), "}"),
 
     handler_method: ($) =>
-      seq(
-        field("name", $.identifier),
-        $.parameter_list,
-        "=>",
-        choice($.block, seq($._expression, ",")),
+      prec(
+        PREC.MEMBER,
+        seq(
+          field("ability", $.identifier),
+          "::",
+          field("method", $.identifier),
+          $.parameter_list,
+          "=>",
+          choice($.block, seq($._expression, optional(",")))
+        )
       ),
 
     sandbox_expression: ($) =>

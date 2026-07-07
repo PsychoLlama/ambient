@@ -24,10 +24,10 @@
 (match_arm) @local.scope
 
 ; Handle expressions introduce scope
-(handle_expression) @local.scope
+(with_handle_expression) @local.scope
 
 ; Handler arms introduce scope (for resume parameter)
-(handler_arm) @local.scope
+(handler_method) @local.scope
 
 ; -----------------------------------------------------------------------------
 ; Definitions
@@ -88,7 +88,7 @@
   (identifier) @local.definition.var)
 
 ; Handler arm parameters
-(handler_arm
+(handler_method
   (parameter_list
     (parameter
       name: (identifier) @local.definition.parameter)))

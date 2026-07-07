@@ -40,8 +40,7 @@
 (match_arm) @indent.begin
 
 ; Handle expressions
-(handle_expression) @indent.begin
-(handler_block) @indent.begin
+(with_handle_expression) @indent.begin
 
 ; Sandbox expressions
 (sandbox_expression) @indent.begin
@@ -84,7 +83,7 @@
 (match_arm) @indent.branch
 
 ; Handler arms should align with each other
-(handler_arm) @indent.branch
+(handler_method) @indent.branch
 
 ; Enum variants should align with each other
 (enum_variant) @indent.branch

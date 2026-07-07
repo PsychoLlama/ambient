@@ -3,11 +3,7 @@ Handle expression
 ================================================================================
 
 fn test(): number {
-  handle compute() {
-    Exception::throw(e) => {
-      resume(0)
-    }
-  }
+  with { Exception::throw(e) => { resume(0) } } handle compute()
 }
 
 --------------------------------------------------------------------------------
@@ -18,15 +14,94 @@ fn test(): number {
     (parameter_list)
     return_type: (identifier)
     body: (block
-      (handle_expression
+      (with_handle_expression
+        (handler_list
+          (handler_literal
+            (handler_method
+              ability: (identifier)
+              method: (identifier)
+              (parameter_list (parameter name: (identifier)))
+              (block
+                (call_expression (identifier) (argument_list (number)))))))
+        body: (call_expression (identifier) (argument_list))))))
+
+================================================================================
+Handler value in list
+================================================================================
+
+fn test(): number {
+  with mock_fs handle unit_test()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (with_handle_expression
+        (handler_list (identifier))
+        body: (call_expression (identifier) (argument_list))))))
+
+================================================================================
+Multi-arm handler literal
+================================================================================
+
+fn test(): number {
+  with { Stdio::out(m) => resume(()), Exception::throw(e) => resume(e) } handle body()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (with_handle_expression
+        (handler_list
+          (handler_literal
+            (handler_method
+              ability: (identifier)
+              method: (identifier)
+              (parameter_list (parameter name: (identifier)))
+              (call_expression (identifier) (argument_list (unit))))
+            (handler_method
+              ability: (identifier)
+              method: (identifier)
+              (parameter_list (parameter name: (identifier)))
+              (call_expression (identifier) (argument_list (identifier))))))
+        body: (call_expression (identifier) (argument_list))))))
+
+================================================================================
+Handle with else
+================================================================================
+
+fn test(): number {
+  with { Exception::throw(e) => 0 } handle risky() else double(r)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (with_handle_expression
+        (handler_list
+          (handler_literal
+            (handler_method
+              ability: (identifier)
+              method: (identifier)
+              (parameter_list (parameter name: (identifier)))
+              (number))))
         body: (call_expression (identifier) (argument_list))
-        (handler_block
-          (handler_arm
-            ability: (identifier)
-            method: (identifier)
-            (parameter_list (parameter name: (identifier)))
-            (block
-              (call_expression (identifier) (argument_list (number))))))))))
+        (call_expression (identifier) (argument_list (identifier)))))))
 
 ================================================================================
 Sandbox expression

@@ -32,7 +32,7 @@
 (match_expression) @fold
 
 ; Handle expressions
-(handle_expression) @fold
+(with_handle_expression) @fold
 
 ; Sandbox expressions
 (sandbox_expression) @fold

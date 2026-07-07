@@ -77,7 +77,7 @@
 (ability_definition
   name: (identifier) @type)
 
-(handler_arm
+(handler_method
   ability: (identifier) @type
   method: (identifier) @function.method)
 
