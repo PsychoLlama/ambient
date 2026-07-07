@@ -14,6 +14,10 @@ format:
 lint:
   cargo clippy --workspace --quiet
 
+# Enforce per-file line budgets (see scripts/file-size-budgets.txt)
+size-check:
+  ./scripts/check-file-sizes.sh
+
 # Build all crates (debug)
 build:
   cargo build --workspace --quiet
@@ -36,6 +40,9 @@ check:
   echo ""
   echo "=== Lint ==="
   just lint || failed=1
+  echo ""
+  echo "=== File Sizes ==="
+  just size-check || failed=1
   echo ""
   echo "=== Build ==="
   just build || failed=1
