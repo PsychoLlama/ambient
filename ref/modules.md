@@ -79,7 +79,7 @@ to the end of the enclosing block, types as nothing, and compiles to
 nothing.
 
 ```ambient
-pub fn hyp(a: number, b: number): number {
+pub fn hyp(a: Number, b: Number): Number {
   use core::primitives::Number::sqrt;
   sqrt(a * a + b * b)
 }
@@ -87,7 +87,7 @@ pub fn hyp(a: number, b: number): number {
 
 Inline fully-qualified paths need no import anywhere a name can appear:
 expressions (`pkg::utils::helper(1)`), type positions
-(`pkg::shapes::Money`, `core::collections::List<number>`), effect rows
+(`pkg::shapes::Money`, `core::collections::List<Number>`), effect rows
 (`with core::system::Stdio`, `with pkg::effects::Counter`), performs, handler
 arms, and sandbox clauses. Local bindings shadow module-level names,
 which shadow imports, which shadow the prelude.

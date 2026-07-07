@@ -6,13 +6,14 @@ Part of the [Ambient Language Reference](architecture.md).
 
 ```ambient
 // Primitives
-number    // 64-bit float (f64)
-string    // UTF-8 string
-bool      // true, false
+Number    // 64-bit float (f64)
+String    // UTF-8 string
+Bool      // true, false
+Binary    // immutable byte buffer
 
 // Composite
-{ x: number, y: number }           // Records (structural)
-(number, string, bool)             // Tuples
+{ x: Number, y: Number }           // Records (structural)
+(Number, String, Bool)             // Tuples
 List<T>, Set<T>, Map<K, V>         // Collections
 
 // Enums (tagged unions) are nominal: every declaration carries a
@@ -20,12 +21,12 @@ List<T>, Set<T>, Map<K, V>         // Collections
 // are distinct types (see Nominal Enums below). Option and Result are
 // ordinary declarations in core (with fixed reserved UUIDs) whose
 // constructors (Some, None, Ok, Err) are always in scope via the prelude.
-unique(E1B2C3D4-0000-0000-0000-000000000001) enum Shape { Circle(number), Square(number), Dot }
+unique(E1B2C3D4-0000-0000-0000-000000000001) enum Shape { Circle(Number), Square(Number), Dot }
 
 // Construct with the variant name; destructure with match. In pattern
 // position, bare uppercase-initial identifiers are variant patterns
 // (None, Dot); lowercase identifiers are bindings.
-fn area(s: Shape): number {
+fn area(s: Shape): Number {
   match s {
     Circle(r) => 3 * r * r,
     Square(side) => side * side,
@@ -34,7 +35,7 @@ fn area(s: Shape): number {
 }
 
 // Nominal types (structurally identical but incompatible)
-unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct UserId { value: string }
+unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct UserId { value: String }
 
 // Generics
 fn identity<T>(x: T): T { x }
@@ -46,7 +47,7 @@ A `unique(<uuid>) struct` declaration gives a type its own identity, distinct
 from any structurally identical type. That identity *is* the UUID:
 
 ```ambient
-unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct UserId { value: string }
+unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct UserId { value: String }
 ```
 
 UUID literals are written in canonical `8-4-4-4-12` form and **must be
@@ -67,7 +68,7 @@ non-interchangeable types.
 
 ```ambient
 unique(E1B2C3D4-0000-0000-0000-000000000001) enum Shape {
-  Circle(number), Square(number), Dot
+  Circle(Number), Square(Number), Dot
 }
 
 unique(E1B2C3D4-0000-0000-0000-000000000002) enum Tree<T> {

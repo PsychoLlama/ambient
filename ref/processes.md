@@ -43,7 +43,7 @@ pub fn run(): () with core::system::Process {
   core::system::Process::send!(counter, "hit");
 }
 
-fn count_hits(count: number, msg: string): number with core::system::Stdio {
+fn count_hits(count: Number, msg: String): Number with core::system::Stdio {
   core::system::Stdio::out!("hits: ${to_string(count + 1)}");
   count + 1
 }
@@ -58,15 +58,15 @@ like any platform ability:
 ability Process {
   /// Spawn a named process; returns its pid. During a deploy pass this
   /// is a *declaration*: an existing live name is rebound instead.
-  fn spawn<I, H>(name: string, init: I, handler: H): number;
+  fn spawn<I, H>(name: String, init: I, handler: H): Number;
   /// Deliver a message. Never fails; sends to dead pids are dropped.
-  fn send<M>(pid: number, msg: M): ();
+  fn send<M>(pid: Number, msg: M): ();
   /// Deliver a message to a named process (dropped if no such name).
-  fn send_named<M>(name: string, msg: M): ();
+  fn send_named<M>(name: String, msg: M): ();
   /// The calling process's pid (0 outside any process).
-  fn self(): number;
+  fn self(): Number;
   /// The pid registered under a name, or 0 if none.
-  fn whereis(name: string): number;
+  fn whereis(name: String): Number;
   /// Stop the calling process after the current reduction.
   fn exit(): ();
 }

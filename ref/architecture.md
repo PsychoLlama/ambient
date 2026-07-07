@@ -37,15 +37,15 @@ Expression-based with C-like syntax. No statements, only expressions. Semicolons
 // widen later. The type annotation is optional — it is inferred from the
 // literal when omitted (`const PI = 3.14159;`). A `const` is valid at module
 // scope and inside any block, wherever a `use` is.
-const PI: number = 3.14159;
+const PI: Number = 3.14159;
 
 // Functions
-fn add(x: number, y: number): number {
+fn add(x: Number, y: Number): Number {
   x + y
 }
 
 // Public functions (exported)
-pub fn multiply(x: number, y: number): number {
+pub fn multiply(x: Number, y: Number): Number {
   x * y
 }
 ```
@@ -63,25 +63,32 @@ vice versa.
 See **[modules.md](modules.md)** for the full treatment of `Fqn` identity,
 the `use` grammar, re-exports, and how the `core::` hierarchy is built.
 
+**Note:** the `Fqn` is a *location* axis — a compile-time
+lookup key and post-hash label — never a *content* axis. It must never
+feed a content hash: a hash pins an item's implementation and its
+transitive dependencies, never the name it resolves to, so renaming or
+re-scoping an item leaves every hash untouched.
+
 ### Types
 
 ```ambient
 // Primitives
-number    // 64-bit float (f64)
-string    // UTF-8 string
-bool      // true, false
+Number    // 64-bit float (f64)
+String    // UTF-8 string
+Bool      // true, false
+Binary    // immutable byte buffer
 
 // Composite
-{ x: number, y: number }           // Records (structural)
-(number, string, bool)             // Tuples
+{ x: Number, y: Number }           // Records (structural)
+(Number, String, Bool)             // Tuples
 List<T>, Set<T>, Map<K, V>         // Collections
 
 // Enums are nominal: every declaration carries a mandatory `unique(<uuid>)`
 // prefix, so two structurally identical enums are distinct types.
-unique(E1B2C3D4-0000-0000-0000-000000000001) enum Shape { Circle(number), Square(number), Dot }
+unique(E1B2C3D4-0000-0000-0000-000000000001) enum Shape { Circle(Number), Square(Number), Dot }
 
 // Nominal structs (structurally identical but incompatible)
-unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct UserId { value: string }
+unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct UserId { value: String }
 
 // Generics
 fn identity<T>(x: T): T { x }
@@ -204,7 +211,7 @@ Source (.ab) → Parser (CST → AST) → Type Checker → Compiler → Bytecode
 ### The shared analysis layer
 
 `crates/ambient-analysis` composes the parser and engine into one
-parse → check → diagnose pipeline, and it is the *only* place that
+parse → check → diagnose pipeline, and it is the _only_ place that
 decides what is an error. `ambient check` and the language server are
 both renderers over it: same package loading, same `ModuleRegistry`,
 same diagnostic text and spans, byte for byte (pinned by
@@ -373,7 +380,7 @@ pub fn run(): () with core::system::Stdio {
 ### Factorial
 
 ```ambient
-fn factorial(n: number): number {
+fn factorial(n: Number): Number {
   if n <= 1 { 1 } else { n * factorial(n - 1) }
 }
 ```
@@ -382,7 +389,7 @@ fn factorial(n: number): number {
 
 ```ambient
 // Add and Eq come from the prelude; implementing them enables + and ==.
-unique(A1B2C3D4-0000-0000-0000-000000000001) struct Vec2 { x: number, y: number }
+unique(A1B2C3D4-0000-0000-0000-000000000001) struct Vec2 { x: Number, y: Number }
 
 impl Add for Vec2 {
   fn add(self, other: Vec2): Vec2 {
@@ -391,12 +398,12 @@ impl Add for Vec2 {
 }
 
 impl Eq for Vec2 {
-  fn eq(self, other: Vec2): bool {
+  fn eq(self, other: Vec2): Bool {
     self.x == other.x && self.y == other.y
   }
 }
 
-fn run(): bool {
+fn run(): Bool {
   let a = Vec2 { x: 1, y: 2 };
   let b = Vec2 { x: 3, y: 4 };
   let c = a + b;              // Vec2 { x: 4, y: 6 }

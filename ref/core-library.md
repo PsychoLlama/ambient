@@ -9,48 +9,48 @@ The authoritative declarations live in
 
 ```ambient
 ability Time {
-  fn now(): number;               // ms since the Unix epoch
-  fn wait(duration: number): (); // ms
+  fn now(): Number;               // ms since the Unix epoch
+  fn wait(duration: Number): (); // ms
 }
 
 ability Random {
-  fn seed(): number;              // 0.0 to 1.0
-  fn in_range(max: number): number;
+  fn seed(): Number;              // 0.0 to 1.0
+  fn in_range(max: Number): Number;
 }
 
 ability Stdio {
-  fn out(message: string): ();   // write a line to stdout
-  fn err(message: string): ();   // write a line to stderr
-  fn read(): string;             // read a line from stdin
+  fn out(message: String): ();   // write a line to stdout
+  fn err(message: String): ();   // write a line to stderr
+  fn read(): String;             // read a line from stdin
 }
 
 // Log is emitted through Stdio, so it declares the dependency: performing
 // Log requires Stdio in the effect row, and a handler for Stdio captures
 // log lines.
 ability Log with core::system::Stdio {
-  fn debug(message: string): ();
-  fn info(message: string): ();
-  fn warn(message: string): ();
-  fn error(message: string): ();
+  fn debug(message: String): ();
+  fn info(message: String): ();
+  fn warn(message: String): ();
+  fn error(message: String): ();
 }
 
 ability FileSystem {
-  fn read(path: string): string;              // UTF-8 text
-  fn write(path: string, content: string): ();  // create/truncate
-  fn read_binary(path: string): Binary;
-  fn write_binary(path: string, data: Binary): ();
-  fn exists(path: string): bool;              // infallible
-  fn list(path: string): List<string>;        // sorted entry names
-  fn remove(path: string): ();                // file or empty directory
-  fn create_dir(path: string): ();            // mkdir -p
+  fn read(path: String): String;              // UTF-8 text
+  fn write(path: String, content: String): ();  // create/truncate
+  fn read_binary(path: String): Binary;
+  fn write_binary(path: String, data: Binary): ();
+  fn exists(path: String): Bool;              // infallible
+  fn list(path: String): List<String>;        // sorted entry names
+  fn remove(path: String): ();                // file or empty directory
+  fn create_dir(path: String): ();            // mkdir -p
 }
 
 ability Process {
-  fn spawn<I, H>(name: string, init: I, handler: H): number;
-  fn send<M>(pid: number, msg: M): ();
-  fn send_named<M>(name: string, msg: M): ();
-  fn self_pid(): number;              // 0 outside any process
-  fn whereis(name: string): number;   // 0 if no such name
+  fn spawn<I, H>(name: String, init: I, handler: H): Number;
+  fn send<M>(pid: Number, msg: M): ();
+  fn send_named<M>(name: String, msg: M): ();
+  fn self_pid(): Number;              // 0 outside any process
+  fn whereis(name: String): Number;   // 0 if no such name
   fn exit(): ();                      // stop after the current reduction
 }
 
@@ -60,12 +60,12 @@ ability Process {
 // rest are the user args after `--` — not live OS state. `set` is
 // process-global and best-effort (see below).
 ability Env {
-  fn var(name: string): Option<string>;
-  fn vars(): List<(string, string)>;
-  fn set(name: string, value: string): ();
-  fn args(): List<string>;            // index 0 is the program path
-  fn cwd(): string;
-  fn pid(): number;
+  fn var(name: String): Option<String>;
+  fn vars(): List<(String, String)>;
+  fn set(name: String, value: String): ();
+  fn args(): List<String>;            // index 0 is the program path
+  fn cwd(): String;
+  fn pid(): Number;
 }
 ```
 

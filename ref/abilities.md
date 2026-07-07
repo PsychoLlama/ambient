@@ -30,9 +30,9 @@ values, generic methods):
 
 ```ambient
 ability FileSystem {
-  fn read(path: string): string;
-  fn write(path: string, content: string): ();
-  fn exists(path: string): bool;
+  fn read(path: String): String;
+  fn write(path: String, content: String): ();
+  fn exists(path: String): Bool;
 }
 
 ability Picker {
@@ -42,7 +42,7 @@ ability Picker {
 // Abilities can depend on other abilities: performing Log also
 // requires Stdio in the effect row.
 ability Log with Stdio {
-  fn info(message: string): ();
+  fn info(message: String): ();
 }
 ```
 
@@ -96,7 +96,7 @@ fn fetch_and_log(url: Url): Response
 { ... }
 
 // No abilities (pure function)
-fn add(x: number, y: number): number { x + y }
+fn add(x: Number, y: Number): Number { x + y }
 ```
 
 ## Ability Polymorphism
@@ -136,7 +136,7 @@ normal completion (see "Error handling without exceptions").
 Handler arms are fully typed against the ability's declared interface:
 
 - Arm parameters take the method's declared parameter types
-  (`FileSystem::read(path)` binds `path: string`).
+  (`FileSystem::read(path)` binds `path: String`).
 - `resume(v)` feeds the continuation, so `v` must have the method's
   return type; the `resume(...)` expression itself has the handle
   expression's result type.
@@ -269,10 +269,10 @@ bypass it.
 
 ```ambient
 ability Exception {
-  fn throw(error: string): !;  // ! = never returns normally
+  fn throw(error: String): !;  // ! = never returns normally
 }
 
-fn parse_int(s: string): number with Exception {
+fn parse_int(s: String): Number with Exception {
   match try_parse(s) {
     Some(n) => n,
     None => Exception::throw!("not a number"),
@@ -280,7 +280,7 @@ fn parse_int(s: string): number with Exception {
 }
 
 // Handling exceptions
-fn safe_parse(s: string): Option<number> {
+fn safe_parse(s: String): Option<Number> {
   with { Exception::throw(e) => None } handle parse_int(s) else (result) => Some(result)
 }
 ```
@@ -299,7 +299,7 @@ substitute value, and the IO caller continues as if the operation had
 succeeded:
 
 ```ambient
-fn fetch_or_default(): number with core::system::Network {
+fn fetch_or_default(): Number with core::system::Network {
   with { Exception::throw(msg) => resume(0 - 1) }  // substitute connection id
     handle core::system::Network::connect!(("10.0.0.1", 9))
 }
@@ -324,7 +324,7 @@ _Operational failure_ - the file was deleted, the peer hung up - is not
 data the caller asked for; it is an interruption of an effect, and it
 travels through the effect system as an Exception. No builtin ability
 returns `Result` to signal failure. This keeps IO signatures honest
-(`FileSystem.read` returns `string`, not `Result<string, _>`) while `handle`
+(`FileSystem.read` returns `String`, not `Result<String, _>`) while `handle`
 gives callers strictly more power than matching: they can substitute a
 fallback for the failing call and continue, not just observe the error
 after the fact.

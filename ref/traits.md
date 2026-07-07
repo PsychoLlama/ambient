@@ -10,7 +10,7 @@ traits. (Types also take methods directly, without a trait — see
 
 ```ambient
 trait Show {
-  fn show(self): string;
+  fn show(self): String;
 }
 
 trait Add {
@@ -18,7 +18,7 @@ trait Add {
 }
 
 trait Eq {
-  fn eq(self, other: Self): bool;
+  fn eq(self, other: Self): Bool;
 }
 ```
 
@@ -27,10 +27,10 @@ The `Self` type refers to the implementing type.
 ## Implementing Traits
 
 ```ambient
-unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct Money { cents: number }
+unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct Money { cents: Number }
 
 impl Show for Money {
-  fn show(self): string {
+  fn show(self): String {
     "$" + to_string(self.cents / 100)
   }
 }
@@ -42,7 +42,7 @@ impl Add for Money {
 }
 
 impl Eq for Money {
-  fn eq(self, other: Money): bool {
+  fn eq(self, other: Money): Bool {
     self.cents == other.cents
   }
 }
@@ -72,7 +72,7 @@ Standard operators dispatch to trait methods for nominal types:
 | `*`      | `Mul` | `mul(self, other: Self): Self` |
 | `/`      | `Div` | `div(self, other: Self): Self` |
 | `%`      | `Mod` | `rem(self, other: Self): Self` |
-| `==`     | `Eq`  | `eq(self, other: Self): bool`  |
+| `==`     | `Eq`  | `eq(self, other: Self): Bool`  |
 | `!=`     | `Eq`  | `eq` (negated)                 |
 
 ```ambient
@@ -82,7 +82,7 @@ let c = a + b;              // Calls a.add(b)
 let equal = a == b;         // Calls a.eq(b)
 ```
 
-For primitive types (`number`, `bool`, `string`), operators use built-in implementations.
+For primitive types (`Number`, `Bool`, `String`), operators use built-in implementations.
 
 Trait method signatures carry no `with` clause, so **trait impl method
 bodies must be pure** — the checker enforces it. An effectful method
@@ -123,13 +123,13 @@ is how a type grows an API that isn't shared behavior — no trait ceremony
 required:
 
 ```ambient
-unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct Money { cents: number }
+unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct Money { cents: Number }
 
 impl Money {
   fn double(self): Money {
     Money { cents: self.cents * 2 }
   }
-  fn from_dollars(d: number): Money {   // no self: associated function,
+  fn from_dollars(d: Number): Money {   // no self: associated function,
     Money { cents: d * 100 }            // called as Money::from_dollars(3)
   }
 }
@@ -211,7 +211,7 @@ The `Ord` trait is used for comparison operators:
 
 ```ambient
 trait Ord {
-  fn cmp(self, other: Self): number;  // -1, 0, or 1
+  fn cmp(self, other: Self): Number;  // -1, 0, or 1
 }
 ```
 
