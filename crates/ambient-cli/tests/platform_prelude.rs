@@ -31,7 +31,7 @@ fn resolved_prelude() -> HashMap<String, Arc<DynAbility>> {
 fn declarations_expose_the_expected_interfaces() {
     let prelude = resolved_prelude();
 
-    let expected: [(&str, &[&str]); 8] = [
+    let expected: [(&str, &[&str]); 9] = [
         ("Stdio", &["out", "err", "read"]),
         ("Time", &["now", "wait"]),
         ("Random", &["seed", "in_range"]),
@@ -78,12 +78,13 @@ fn declarations_expose_the_expected_interfaces() {
                 "run_with",
             ],
         ),
+        ("Env", &["var", "vars", "set", "args", "cwd", "pid"]),
     ];
 
     assert_eq!(
         prelude.len(),
         expected.len(),
-        "platform.ab must declare exactly the 8 platform abilities"
+        "platform.ab must declare exactly the 9 platform abilities"
     );
 
     for (name, methods) in expected {

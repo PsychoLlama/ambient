@@ -22,6 +22,7 @@
 )]
 #![cfg_attr(not(test), deny(clippy::expect_used))]
 
+pub mod env;
 pub mod execute;
 pub mod fs;
 pub mod log;
@@ -48,6 +49,7 @@ use ambient_engine::vm::Vm;
 /// sibling modules).
 pub const ABILITY_DECLARATIONS: &str = include_str!("platform.ab");
 
+pub use env::register_env;
 pub use execute::{ExecuteConfig, ExecuteGrants, register_execute};
 pub use fs::register_fs;
 pub use log::{LogConfig, register_log};
@@ -93,6 +95,8 @@ pub fn register_defaults(vm: &mut Vm, prelude: &[Arc<DynAbility>]) {
             "Random" => register_random(vm, &interface),
             "Log" => register_log(vm, &interface, LogConfig::default(), sink.clone()),
             "FileSystem" => register_fs(vm, &interface),
+            // REPL/tests get a working ability with empty program args.
+            "Env" => register_env(vm, &interface, Arc::new(Vec::new())),
             _ => {}
         }
     }

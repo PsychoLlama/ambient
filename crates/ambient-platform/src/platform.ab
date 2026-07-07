@@ -130,6 +130,24 @@ pub ability Process {
   fn exit(): ();
 }
 
+/// The host process's environment: variables, arguments, working
+/// directory, and OS process id.
+pub ability Env {
+  /// The value of an environment variable, or None if unset.
+  fn var(name: String): Option<String>;
+  /// Every environment variable as (name, value) pairs.
+  fn vars(): List<(String, String)>;
+  /// Set (or overwrite) an environment variable for this process.
+  fn set(name: String, value: String): ();
+  /// The program's arguments: index 0 is the program path, the rest are
+  /// the user arguments passed after `--`.
+  fn args(): List<String>;
+  /// The current working directory.
+  fn cwd(): String;
+  /// The OS process id.
+  fn pid(): Number;
+}
+
 /// Content-addressed remote execution: run functions by hash in an
 /// isolated VM whose capabilities the host decides.
 pub ability Execute {
