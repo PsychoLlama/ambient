@@ -12,7 +12,7 @@ format:
 
 # Run clippy lints
 lint:
-  cargo clippy --workspace --quiet
+  cargo clippy --workspace --all-targets --quiet
 
 # Enforce per-file line budgets (see scripts/file-size-budgets.txt)
 size-check:
