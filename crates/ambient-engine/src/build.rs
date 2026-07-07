@@ -48,7 +48,7 @@ pub type ParseFn = fn(&str) -> Result<Module, ParseFailure>;
 /// Knobs for a package build.
 #[derive(Default)]
 pub struct BuildOptions<'a> {
-    /// Source of the embedder's `platform` declaration module (ability
+    /// Source of the embedder's `core::system` declaration module (ability
     /// bindings interface). Empty disables platform registration.
     pub platform_source: &'a str,
     /// Embedder-resolved prelude abilities for the compiler (host binding
@@ -173,14 +173,14 @@ pub fn build_package(
         compile_core_modules(&mut registry, &mut module_function_hashes, parse_str)?;
     all_compiled.merge(&core_compiled);
 
-    // Register the embedder-supplied `platform` declaration module so its
-    // abilities are in scope fully-qualified (`platform::Network`) and
-    // importable (`use platform::Network;`). Declaration-only: never
-    // compiled.
+    // Register the embedder-supplied `core::system` declaration module so
+    // its abilities are in scope fully-qualified (`core::system::Network`)
+    // and importable (`use core::system::Network;`). Declaration-only:
+    // never compiled.
     if !options.platform_source.is_empty() {
         crate::core_library::register_declaration_module(
             &mut registry,
-            &["platform"],
+            &["core", "system"],
             options.platform_source,
             parse_str,
         )

@@ -46,8 +46,6 @@ pub enum ImportPrefix {
     Pkg,
     /// Standard library: `core::module`
     Core,
-    /// Embedded platform ability module: `platform::Ability`
-    Platform,
     /// Same directory: `self::sibling`
     Self_,
     /// Parent directory: `super::parent`, `super::super::grandparent`
@@ -96,17 +94,13 @@ impl ModulePath {
         &self.segments
     }
 
-    /// Whether this path lives under a reserved root (`core`,
-    /// `platform`). User modules may not take these names: `core` is a
-    /// keyword and `platform` a contextual keyword, so such a module
-    /// could never be referenced — but worse, its canonical names would
-    /// collide with the reserved namespace.
+    /// Whether this path lives under the reserved root (`core`). User
+    /// modules may not take this name: `core` is a keyword, so such a
+    /// module could never be referenced — but worse, its canonical names
+    /// would collide with the reserved namespace.
     #[must_use]
     pub fn collides_with_reserved_root(&self) -> bool {
-        matches!(
-            self.segments.first().map(AsRef::as_ref),
-            Some("core" | "platform")
-        )
+        matches!(self.segments.first().map(AsRef::as_ref), Some("core"))
     }
 
     /// Get the module name (last segment).
@@ -197,15 +191,6 @@ impl ModulePath {
                 // Core modules live under the reserved `core` root. `core`
                 // is a lexer keyword, so user modules can never collide.
                 let mut segments: Vec<Arc<str>> = vec![Arc::from("core")];
-                segments.extend(path.iter().cloned());
-                Ok(ModulePath { segments })
-            }
-            ImportPrefix::Platform => {
-                // Platform abilities live under the reserved `platform`
-                // root, registered as a declaration module by embedders.
-                // `platform` is a contextual keyword in use-prefix position,
-                // so a user module named `platform` never collides here.
-                let mut segments: Vec<Arc<str>> = vec![Arc::from("platform")];
                 segments.extend(path.iter().cloned());
                 Ok(ModulePath { segments })
             }
@@ -466,17 +451,6 @@ mod tests {
             .resolve_relative(&ImportPrefix::Core, &path, false)
             .expect("core paths resolve under the reserved `core` root");
         assert_eq!(resolved.to_string(), "core::List");
-    }
-
-    #[test]
-    fn test_resolve_platform() {
-        let current = ModulePath::root();
-        let path = vec![Arc::from("Network")];
-
-        let resolved = current
-            .resolve_relative(&ImportPrefix::Platform, &path, false)
-            .expect("platform paths resolve under the reserved `platform` root");
-        assert_eq!(resolved.to_string(), "platform::Network");
     }
 
     #[test]

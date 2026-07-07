@@ -536,7 +536,6 @@ impl ModuleRegistry {
         let prefix = match re_export.prefix {
             UsePrefix::Pkg => ImportPrefix::Pkg,
             UsePrefix::Core => ImportPrefix::Core,
-            UsePrefix::Platform => ImportPrefix::Platform,
             UsePrefix::Self_ => ImportPrefix::Self_,
             UsePrefix::Super(count) => ImportPrefix::Super(count),
             // Alias-rooted re-exports are rejected at scope building; a
@@ -571,7 +570,6 @@ impl ModuleRegistry {
         let import_prefix = match prefix {
             UsePrefix::Pkg => ImportPrefix::Pkg,
             UsePrefix::Core => ImportPrefix::Core,
-            UsePrefix::Platform => ImportPrefix::Platform,
             UsePrefix::Self_ => ImportPrefix::Self_,
             UsePrefix::Super(count) => ImportPrefix::Super(*count),
             UsePrefix::Local => {

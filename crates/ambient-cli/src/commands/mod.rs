@@ -93,11 +93,12 @@ pub fn core_context() -> Result<CoreContext> {
     )
     .map_err(|e| anyhow::anyhow!("core library failed to build: {e}"))?;
 
-    // Register the `platform` declaration module so `platform::Network`
-    // resolves fully-qualified and `use platform::Network;` imports it.
+    // Register the `core::system` declaration module so
+    // `core::system::Network` resolves fully-qualified and
+    // `use core::system::Network;` imports it.
     ambient_engine::core_library::register_declaration_module(
         &mut registry,
-        &["platform"],
+        &["core", "system"],
         ambient_platform::ABILITY_DECLARATIONS,
         |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
     )

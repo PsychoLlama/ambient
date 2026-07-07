@@ -421,9 +421,9 @@ fn flatten_use_tree(
 }
 
 /// Lower one flattened use path. The head segment determines the root:
-/// a keyword (`pkg`, `core`, `self`, `super`, contextual `platform`) or a
-/// module alias from another `use` (`UsePrefix::Local`). Root keywords
-/// anywhere but the head are errors.
+/// a keyword (`pkg`, `core`, `self`, `super`) or a module alias from
+/// another `use` (`UsePrefix::Local`). Root keywords anywhere but the head
+/// are errors.
 fn lower_use_leaf(
     full: &[crate::cst::CstIdent],
     alias: Option<&crate::cst::CstIdent>,
@@ -440,7 +440,6 @@ fn lower_use_leaf(
     let (prefix, consumed) = match head.name.as_ref() {
         "pkg" => (UsePrefix::Pkg, 1),
         "core" => (UsePrefix::Core, 1),
-        "platform" => (UsePrefix::Platform, 1),
         "self" => (UsePrefix::Self_, 1),
         "super" => {
             let supers = full
@@ -1116,7 +1115,7 @@ fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
             // Ability names can't be resolved to IDs here (lowering has no
             // ability resolver); pass them through symbolically for the type
             // checker's resolve_holes to resolve. Qualified names keep their
-            // full `::`-joined spelling (`platform::Stdio`) so the checker
+            // full `::`-joined spelling (`core::system::Stdio`) so the checker
             // can enforce the namespace policy on effect rows too.
             let ability_set = if abilities.is_empty() {
                 ambient_engine::types::AbilitySet::empty()

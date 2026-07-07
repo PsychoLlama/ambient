@@ -233,9 +233,9 @@ fn register_cross_module(
 ) -> TypeEnv {
     // Every module's abilities are always in scope fully-qualified. Seed
     // them as namespaced dynamics before imports and local abilities
-    // resolve, so `platform::Stdio` / `pkg::effects::Counter` references
-    // (inline uses and cross-module ability deps) and the
-    // `use platform::Network;` bridge all find their target — on every
+    // resolve, so `core::system::Stdio` / `pkg::effects::Counter`
+    // references (inline uses and cross-module ability deps) and the
+    // `use core::system::Network;` bridge all find their target — on every
     // path that has a registry, including the package build.
     seed_namespaced_ability_dynamics(infer, registry, errors);
     // Imported enums register first: foreign impl registration (next)
@@ -361,13 +361,13 @@ fn enforce_ability_subset(
 ) {
     let inferred = infer.apply_abilities(inferred);
 
-    // Namespace-aware resolution first (a `with platform::Stdio` clause
-    // must mean the platform ability even when a local declaration
+    // Namespace-aware resolution first (a `with core::system::Stdio` clause
+    // must mean the system ability even when a local declaration
     // shadows the bare name), then a deliberately lenient bare fallback:
     // the namespace policy was already enforced where the clause was
     // resolved into the scheme (`build_function_scheme`,
     // `resolve_declared_abilities`), which reported
-    // `AbilityRequiresNamespace` for a bare platform name. Resolving that
+    // `AbilityRequiresNamespace` for a bare system name. Resolving that
     // name leniently here keeps the reported error from cascading into a
     // second "uses ability but doesn't declare it" error.
     let declared: Vec<AbilityId> = declared
@@ -1392,13 +1392,13 @@ fn register_abilities(
 }
 
 /// Register a cross-module ability import (`use pkg::b::SomeAbility;`,
-/// `use platform::Network;`) as a *bare* local dynamic, resolved from the
-/// origin module's declaration.
+/// `use core::system::Network;`) as a *bare* local dynamic, resolved from
+/// the origin module's declaration.
 ///
 /// The identity is content-addressed, so it unifies with the origin
 /// module's own registration — and with any namespaced copy
-/// (`platform::Network`) — meaning handlers, effect-rows, and linking need
-/// no changes. Called from `build_import_env` for each `ExportKind::Ability`
+/// (`core::system::Network`) — meaning handlers, effect-rows, and linking
+/// need no changes. Called from `build_import_env` for each `ExportKind::Ability`
 /// import.
 fn register_imported_ability(
     infer: &mut Infer,
@@ -1426,8 +1426,8 @@ fn register_imported_ability(
 }
 
 /// Seed every registered module's `ability` declarations as namespaced
-/// dynamics under the declaring module's dotted path (`platform.Network`,
-/// `effects.Counter`, `deep.nested.fx.Log`).
+/// dynamics under the declaring module's dotted path
+/// (`core::system.Network`, `effects.Counter`, `deep.nested.fx.Log`).
 ///
 /// This is the ability-layer counterpart of canonical name resolution:
 /// the resolve pass rewrites every qualified or imported ability
@@ -1442,12 +1442,12 @@ fn register_imported_ability(
 /// references to them normalize to the bare form). Seeding the current
 /// module's namespace matters for hydrating foreign signatures: checking
 /// `effects` hydrates `worker.tick`, whose `with` clause resolved to
-/// `effects::Counter`. The `platform` module seeds first so its
-/// intra-file dependencies (`Log with platform::Stdio`) resolve; other
+/// `effects::Counter`. The `core::system` module seeds first so its
+/// intra-file dependencies (`Log with core::system::Stdio`) resolve; other
 /// modules seed in path order. Resolution errors inside *foreign* modules
 /// are not this module's diagnostics — they surface when that module
-/// itself is checked — except for `platform`, whose declarations have no
-/// other checking path.
+/// itself is checked — except for `core::system`, whose declarations have
+/// no other checking path.
 fn seed_namespaced_ability_dynamics(
     infer: &mut Infer,
     registry: &ModuleRegistry,
@@ -1458,16 +1458,14 @@ fn seed_namespaced_ability_dynamics(
         .map(|info| (info.path.clone(), Arc::clone(&info.module)))
         .collect();
     modules.sort_by_key(|(path, _)| {
-        // Platform first, then path order.
-        (
-            path.segments().first().map(AsRef::as_ref) != Some("platform"),
-            path.to_string(),
-        )
+        // The declaration module (`core::system`) first, then path order.
+        let key = path.to_string();
+        (key != "core::system", key)
     });
 
     for (path, module) in modules {
-        let is_platform = path.segments().first().map(AsRef::as_ref) == Some("platform");
         let namespace = path.to_string();
+        let is_declaration = namespace == "core::system";
         let mut foreign_errors = Vec::new();
         for item in &module.items {
             if let crate::ast::ItemKind::Ability(def) = &item.kind {
@@ -1477,7 +1475,7 @@ fn seed_namespaced_ability_dynamics(
                     .register_dynamic_in_namespace(&namespace, dyn_ab);
             }
         }
-        if is_platform {
+        if is_declaration {
             errors.append(&mut foreign_errors);
         }
     }
@@ -1503,7 +1501,7 @@ fn resolve_ability_def(
 
     // Resolve dependencies first: they must already be known. The
     // namespace policy applies here too: `ability Log with
-    // platform::Stdio` — a platform dependency needs its prefix.
+    // core::system::Stdio` — a system dependency needs its prefix.
     let mut dependencies = Vec::new();
     for dep in &def.dependencies {
         match infer.resolve_ability_ref(dep, (def.name_span.start, def.name_span.end)) {
@@ -1592,13 +1590,13 @@ pub fn resolve_ability_declarations(
     let mut infer = Infer::new();
     let mut errors = Vec::new();
 
-    // Register each declaration under the reserved `platform` namespace
+    // Register each declaration under the `core::system` namespace
     // *before* resolving the next, so an intra-module dependency
-    // (`ability Log with platform::Stdio`) resolves exactly as it does when
-    // checking user code (see `seed_namespaced_platform_dynamics`, which
-    // also hardcodes `platform`). Registering these bare — as the local
-    // module path does — would leave a `platform::`-qualified dependency
-    // unresolvable.
+    // (`ability Log with core::system::Stdio`) resolves exactly as it does
+    // when checking user code (see `seed_namespaced_ability_dynamics`,
+    // which also hardcodes `core::system`). Registering these bare — as the
+    // local module path does — would leave a `core::system::`-qualified
+    // dependency unresolvable.
     let mut abilities = Vec::new();
     for item in &mut module.items {
         let crate::ast::ItemKind::Ability(def) = &mut item.kind else {
@@ -1609,8 +1607,11 @@ pub fn resolve_ability_declarations(
         def.resolved_id = Some(dyn_ab.id);
         infer
             .ability_resolver
-            .register_dynamic_in_namespace("platform", dyn_ab);
-        if let Some(ability) = infer.ability_resolver.get_namespaced("platform", &def.name) {
+            .register_dynamic_in_namespace("core::system", dyn_ab);
+        if let Some(ability) = infer
+            .ability_resolver
+            .get_namespaced("core::system", &def.name)
+        {
             abilities.push(Arc::clone(ability));
         }
     }
@@ -1641,10 +1642,9 @@ pub fn resolve_registry_abilities(
         .map(|info| (info.path.clone(), Arc::clone(&info.module)))
         .collect();
     modules.sort_by_key(|(path, _)| {
-        (
-            path.segments().first().map(AsRef::as_ref) != Some("platform"),
-            path.to_string(),
-        )
+        // The declaration module (`core::system`) first, then path order.
+        let key = path.to_string();
+        (key != "core::system", key)
     });
     for (path, module) in modules {
         let namespace = path.to_string();

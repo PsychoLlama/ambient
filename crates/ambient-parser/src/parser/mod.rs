@@ -1060,10 +1060,9 @@ impl<'src> Parser<'src> {
     /// segment   = ident | "pkg" | "core" | "self" | "super"
     /// ```
     ///
-    /// `as` is contextual (an identifier in alias position), like
-    /// `platform` in path-head position. Keyword segments are only valid
-    /// at the head of a full path — validated during lowering, where the
-    /// flattened paths exist.
+    /// `as` is contextual (an identifier in alias position). Keyword
+    /// segments are only valid at the head of a full path — validated
+    /// during lowering, where the flattened paths exist.
     fn parse_use(&mut self, is_public: bool) -> Result<CstUseDef, ParseError> {
         let start = self.current().span.start;
         self.expect(TokenKind::Use)?;
@@ -1146,7 +1145,7 @@ impl<'src> Parser<'src> {
     }
 
     /// Parse one use-path segment: an identifier or a path-root keyword
-    /// (`pkg`, `core`, `self`, `super`; `platform` is a plain identifier).
+    /// (`pkg`, `core`, `self`, `super`).
     fn parse_use_segment(&mut self) -> Result<CstIdent, ParseError> {
         self.skip_trivia();
         match self.current_kind() {
@@ -1164,8 +1163,7 @@ impl<'src> Parser<'src> {
             }
             _ => Err(ParseError::new(
                 ParseErrorKind::Expected {
-                    expected: "a path segment (identifier, pkg, core, platform, self, or super)"
-                        .into(),
+                    expected: "a path segment (identifier, pkg, core, self, or super)".into(),
                     found: format!("{:?}", self.current_kind()),
                 },
                 self.current().span,
@@ -1790,12 +1788,12 @@ mod tests {
 
     #[test]
     fn test_parse_use_root_group() {
-        let uses = flatten_uses("use {core::primitives::Number, platform::Stdio};");
+        let uses = flatten_uses("use {core::primitives::Number, core::system::Stdio};");
         assert_eq!(uses.len(), 2);
         assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Core);
         assert_eq!(path_names(&uses[0]), ["primitives", "Number"]);
-        assert_eq!(uses[1].prefix, ambient_engine::ast::UsePrefix::Platform);
-        assert_eq!(path_names(&uses[1]), ["Stdio"]);
+        assert_eq!(uses[1].prefix, ambient_engine::ast::UsePrefix::Core);
+        assert_eq!(path_names(&uses[1]), ["system", "Stdio"]);
     }
 
     #[test]
@@ -1852,18 +1850,19 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_use_platform() {
-        // `platform` is a contextual keyword in use-root position.
-        let uses = flatten_uses("use platform::Network;");
+    fn test_parse_use_core_system() {
+        // Platform abilities live under `core::system`, an ordinary `core`
+        // path — no dedicated root.
+        let uses = flatten_uses("use core::system::Network;");
         assert_eq!(uses.len(), 1);
-        assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Platform);
-        assert_eq!(path_names(&uses[0]), ["Network"]);
+        assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Core);
+        assert_eq!(path_names(&uses[0]), ["system", "Network"]);
     }
 
     #[test]
     fn test_parse_use_pkg_named_platform() {
-        // A user path segment `platform` under `pkg` is still `Pkg` — the
-        // contextual keyword only wins in root position.
+        // `platform` is now an ordinary identifier: a user path segment
+        // `platform` under `pkg` parses as `Pkg`.
         let uses = flatten_uses("use pkg::platform;");
         assert_eq!(uses.len(), 1);
         assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Pkg);
@@ -1871,24 +1870,14 @@ mod tests {
     }
 
     #[test]
-    fn test_with_platform_stays_qualified_name() {
-        // Regression: the soft `platform` keyword must NOT leak into
-        // `parse_qualified_name`, so a `with platform::Network` ability head
-        // still parses as a two-segment qualified name starting with
-        // `platform`.
-        let source = "fn f(): () with platform::Network { () }";
-        let mut parser = Parser::new(source).unwrap();
-        let module = parser.parse_module().expect("parse error");
-        match &module.items[0].kind {
-            CstItemKind::Function(f) => {
-                assert_eq!(f.abilities.len(), 1);
-                let segments = &f.abilities[0].segments;
-                assert_eq!(segments.len(), 2);
-                assert_eq!(&*segments[0].name, "platform");
-                assert_eq!(&*segments[1].name, "Network");
-            }
-            _ => panic!("Expected function"),
-        }
+    fn test_parse_use_platform_is_local_alias() {
+        // With the reserved `platform` root removed, `use platform::X`
+        // parses as an alias-rooted (`Local`) path like any other bare
+        // head — it no longer names a reserved root.
+        let uses = flatten_uses("use platform::Network;");
+        assert_eq!(uses.len(), 1);
+        assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Local);
+        assert_eq!(path_names(&uses[0]), ["platform", "Network"]);
     }
 
     #[test]

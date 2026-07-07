@@ -4,9 +4,9 @@
 //! platform can do. Each ability's identity is the blake3 hash of its
 //! canonical interface; the host registers handlers keyed by that hash,
 //! so shipping this module *is* shipping the binding contract. These
-//! abilities are named with the `platform::` prefix in every position:
-//! performs (`platform::Stdio::out!("hi")`), `with` clauses and
-//! effect rows (`with platform::Stdio`), handler arms, and sandbox
+//! abilities are named with the `core::system::` prefix in every position:
+//! performs (`core::system::Stdio::out!("hi")`), `with` clauses and
+//! effect rows (`with core::system::Stdio`), handler arms, and sandbox
 //! clauses.
 //!
 //! Operational failures (missing files, refused connections, ...) do not
@@ -17,13 +17,14 @@
 // a bare millisecond count.
 use core::time::Duration;
 
-// Abilities are `pub` because `platform` is an ordinary importable module:
-// the registry only lets you `use` a public export (`lookup_symbol` rejects
-// a non-`pub` symbol), so `use platform::Network;` needs `pub ability
-// Network` — exactly as the core library marks its surface with `pub fn` /
-// `pub enum`. `pub` affects *only* the import path; fully-qualified use
-// (`platform::Stdio::out!`, `with platform::Stdio`, handler arms,
-// effect rows) is seeded as namespaced dynamics regardless of visibility.
+// Abilities are `pub` because `core::system` is an ordinary importable
+// module: the registry only lets you `use` a public export
+// (`lookup_symbol` rejects a non-`pub` symbol), so
+// `use core::system::Network;` needs `pub ability Network` — exactly as the
+// core library marks its surface with `pub fn` / `pub enum`. `pub` affects
+// *only* the import path; fully-qualified use (`core::system::Stdio::out!`,
+// `with core::system::Stdio`, handler arms, effect rows) is seeded as
+// namespaced dynamics regardless of visibility.
 
 /// Standard input/output streams of the host process.
 pub ability Stdio {
@@ -53,8 +54,8 @@ pub ability Random {
 }
 
 /// Leveled diagnostic logging. Its output is emitted through
-/// `platform::Stdio`, so a handler for `Stdio` also captures log lines.
-pub ability Log with platform::Stdio {
+/// `core::system::Stdio`, so a handler for `Stdio` also captures log lines.
+pub ability Log with core::system::Stdio {
   fn debug(message: String): ();
   fn info(message: String): ();
   fn warn(message: String): ();

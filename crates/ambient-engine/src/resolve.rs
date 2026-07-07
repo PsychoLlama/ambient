@@ -7,7 +7,7 @@
 //! - a bare imported name (`double` after `use pkg::util::double;`),
 //! - a module-alias path (`util::double`, `nested::leaf::leaf_fn`),
 //! - an inline rooted path (`pkg::util::double`, `core::primitives::Number::sqrt`,
-//!   `self::sibling::helper`, `platform::Stdio`).
+//!   `self::sibling::helper`, `core::system::Stdio`).
 //!
 //! The canonical identity is recorded in [`QualifiedName::resolved`]
 //! without disturbing the source spelling (whose spans serve IDE
@@ -528,8 +528,8 @@ impl<'r> Resolver<'r> {
 
     /// Resolve a reference's path segments to the module they name.
     ///
-    /// The head segment may be a root keyword (`pkg`, `core`, `platform`,
-    /// `self`, `super`) or a module alias from a `use` item; every
+    /// The head segment may be a root keyword (`pkg`, `core`, `self`,
+    /// `super`) or a module alias from a `use` item; every
     /// following segment must name a child module (a submodule file, a
     /// directory namespace, or a module re-export). Returns `None` — and
     /// leaves the reference for the checker to diagnose — when the path
@@ -540,7 +540,6 @@ impl<'r> Resolver<'r> {
         let (mut cursor, rest): (Option<ModulePath>, &[Arc<str>]) = match head.as_ref() {
             "pkg" => (None, &path[1..]),
             "core" => (ModulePath::from_str_segments(&["core"]), &path[1..]),
-            "platform" => (ModulePath::from_str_segments(&["platform"]), &path[1..]),
             "self" => (self.current.file_dir(self.current_is_dir), &path[1..]),
             "super" => {
                 // `self` is the module's own directory; each `super` steps

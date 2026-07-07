@@ -264,7 +264,7 @@ pub fn resolve_qualified_name(
 
     // Qualified: resolve the module the head names, then look the symbol
     // up in it. The head is either an imported module alias or the first
-    // segment of an absolute path (pkg/core/platform handled upstream by
+    // segment of an absolute path (pkg/core handled upstream by
     // the parser as prefixes on `use`; in expression position the head is
     // an alias bound by a `use`).
     let target = resolve_module_reference(module_path, registry, &qname.path)?;
@@ -365,8 +365,8 @@ pub fn find_qname_module_at_offset(
 }
 
 /// Resolve a module reference in expression position (`alias::rest…`),
-/// where `alias` was bound by a `use` (or names a core/platform module
-/// qualified from the root).
+/// where `alias` was bound by a `use` (or names a `core` module qualified
+/// from the root).
 fn resolve_module_reference(
     module_path: &ModulePath,
     registry: &ModuleRegistry,
@@ -374,10 +374,11 @@ fn resolve_module_reference(
 ) -> Option<ModulePath> {
     let (head, rest) = path.split_first()?;
 
-    // Reserved roots spelled inline: `core::collections::List::…`, `platform::…`,
-    // `pkg::a::b::…` resolve absolutely, same as the checker.
+    // Reserved roots spelled inline: `core::collections::List::…`,
+    // `core::system::…`, `pkg::a::b::…` resolve absolutely, same as the
+    // checker.
     let absolute = match head.as_ref() {
-        "core" | "platform" => {
+        "core" => {
             let mut segments = vec![head.clone()];
             segments.extend(rest.iter().cloned());
             ModulePath::from_segments(segments)

@@ -1012,8 +1012,6 @@ pub enum UsePrefix {
     Pkg,
     /// `core::module` - Standard library
     Core,
-    /// `platform::Ability` - Embedded platform ability module
-    Platform,
     /// `self::sibling` - Same directory as current module
     Self_,
     /// `super::module` - Parent directory (can be chained: `super::super`)
