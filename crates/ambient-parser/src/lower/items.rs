@@ -1,0 +1,574 @@
+//! Item lowering: functions, consts, type definitions, use flattening,
+//! traits, and impls.
+
+use std::sync::Arc;
+
+use uuid::Uuid;
+
+use ambient_engine::ast::{
+    AbilityDef, AbilityMethod, ConstDef, EnumDef, EnumVariant, FunctionDef, ImplDef, ImplMethod,
+    Item, ItemKind, Param, Span, StructDef, TraitDef, TraitMethod, TypeAliasDef, TypeParam, UseDef,
+    UsePrefix, WhereClause,
+};
+use ambient_engine::types::{NominalType, Type};
+
+use super::LoweringContext;
+use super::exprs::lower_expression;
+use super::types::{lower_qualified_name, lower_type};
+use crate::cst::{
+    CstAbilityDef, CstConstDef, CstEnumDef, CstFunctionDef, CstImplDef, CstItem, CstItemKind,
+    CstParam, CstStructDef, CstTraitDef, CstTraitParamKind, CstTypeAliasDef, CstTypeExprKind,
+    CstUseDef, CstUseTree, CstUseTreeKind,
+};
+use crate::error::{ParseError, ParseErrorKind};
+
+pub(super) fn lower_item_impl(
+    ctx: &mut LoweringContext,
+    item: &CstItem,
+) -> Result<Vec<Item>, ParseError> {
+    // Extract item documentation from doc comments (`///`)
+    let doc = item.leading_trivia.extract_doc_comments().map(Arc::from);
+
+    let kind = match &item.kind {
+        CstItemKind::Function(f) => ItemKind::Function(lower_function(ctx, f)?),
+        CstItemKind::Const(c) => ItemKind::Const(lower_const(ctx, c)?),
+        CstItemKind::Struct(s) => ItemKind::Struct(lower_struct_def(s)?),
+        CstItemKind::TypeAlias(t) => ItemKind::TypeAlias(lower_type_alias(t)?),
+        CstItemKind::Enum(e) => ItemKind::Enum(lower_enum(e)?),
+        CstItemKind::Ability(a) => ItemKind::Ability(lower_ability_def(a)?),
+        CstItemKind::Use(u) => {
+            // A use tree flattens to one item per imported leaf.
+            return Ok(lower_use(u)?
+                .into_iter()
+                .map(|use_def| Item::with_doc(ItemKind::Use(use_def), item.span, doc.clone()))
+                .collect());
+        }
+        CstItemKind::Trait(t) => ItemKind::Trait(lower_trait_def(t)?),
+        CstItemKind::Impl(i) => ItemKind::Impl(lower_impl_def(ctx, i)?),
+        CstItemKind::Error => {
+            return Err(ParseError::new(
+                ParseErrorKind::LoweringError("cannot lower error item".into()),
+                item.span,
+            ));
+        }
+    };
+
+    Ok(vec![Item::with_doc(kind, item.span, doc)])
+}
+
+fn lower_function(
+    ctx: &mut LoweringContext,
+    f: &CstFunctionDef,
+) -> Result<FunctionDef, ParseError> {
+    let type_params = f
+        .type_params
+        .iter()
+        .map(|tp| TypeParam {
+            name: tp.name.name.clone(),
+            span: tp.span,
+        })
+        .collect();
+
+    let params = f
+        .params
+        .iter()
+        .map(|p| lower_param(ctx, p))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let ret_ty = f.ret_ty.as_ref().map(lower_type).transpose()?;
+
+    let abilities = f.abilities.iter().map(lower_qualified_name).collect();
+
+    let body = lower_expression(ctx, &f.body)?;
+
+    Ok(FunctionDef {
+        name: f.name.name.clone(),
+        name_span: f.name.span,
+        is_public: f.is_public,
+        type_params,
+        params,
+        ret_ty,
+        abilities,
+        body,
+    })
+}
+
+pub(super) fn lower_const(
+    ctx: &mut LoweringContext,
+    c: &CstConstDef,
+) -> Result<ConstDef, ParseError> {
+    let id = ctx.fresh_binding();
+    let ty = c.ty.as_ref().map(lower_type).transpose()?;
+    let value = lower_expression(ctx, &c.value)?;
+
+    Ok(ConstDef {
+        id,
+        name: c.name.name.clone(),
+        name_span: c.name.span,
+        is_public: c.is_public,
+        ty,
+        value,
+    })
+}
+
+pub(crate) fn lower_struct_def(s: &CstStructDef) -> Result<StructDef, ParseError> {
+    let type_params = s
+        .type_params
+        .iter()
+        .map(|tp| TypeParam {
+            name: tp.name.name.clone(),
+            span: tp.span,
+        })
+        .collect();
+
+    // Parse the UUID if this is a nominal (`unique(...)`) struct.
+    let unique_id = s
+        .unique_id
+        .as_ref()
+        .map(|s_uuid| {
+            Uuid::parse_str(s_uuid).map_err(|e| {
+                ParseError::new(ParseErrorKind::InvalidUuid(e.to_string()), s.name.span)
+            })
+        })
+        .transpose()?;
+
+    // An `extern` struct is engine-provided; the engine needs a stable nominal
+    // identity to refer to it by, so `unique(...)` is mandatory (mirroring the
+    // unit-struct rule). The parser also checks this, but a hand-built CST or a
+    // recovered parse can still reach lowering without it. Checked before the
+    // unit-struct rule so `extern struct T;` reports the extern-specific error.
+    if s.is_extern && unique_id.is_none() {
+        return Err(ParseError::new(
+            ParseErrorKind::ExternStructRequiresUnique,
+            s.name.span,
+        ));
+    }
+
+    // Determine the record body. A unit struct (`struct Foo;`) has no body and
+    // must be nominal — a fieldless structural type carries no identity and no
+    // fields, mirroring the `EnumRequiresUnique` rule. A brace body must declare
+    // at least one field; an empty `struct Foo {}` is rejected in favor of the
+    // unit form.
+    let inner_ty = match &s.ty {
+        None => {
+            if unique_id.is_none() {
+                return Err(ParseError::new(
+                    ParseErrorKind::UnitStructRequiresUnique,
+                    s.name.span,
+                ));
+            }
+            Type::Record(ambient_engine::types::RecordType { fields: vec![] })
+        }
+        Some(ty) => {
+            if matches!(&ty.kind, CstTypeExprKind::Record(fields) if fields.is_empty()) {
+                return Err(ParseError::new(
+                    ParseErrorKind::EmptyStructBody,
+                    s.name.span,
+                ));
+            }
+            lower_type(ty)?
+        }
+    };
+
+    // Wrap in a Nominal type when the struct carries a unique identity.
+    let ty = if let Some(uuid) = unique_id {
+        Type::Nominal(
+            NominalType::new(uuid, inner_ty, Some(s.name.name.clone())).with_extern(s.is_extern),
+        )
+    } else {
+        inner_ty
+    };
+
+    Ok(StructDef {
+        name: s.name.name.clone(),
+        name_span: s.name.span,
+        is_public: s.is_public,
+        type_params,
+        ty,
+        unique_id,
+        is_extern: s.is_extern,
+    })
+}
+
+fn lower_type_alias(t: &CstTypeAliasDef) -> Result<TypeAliasDef, ParseError> {
+    let type_params = t
+        .type_params
+        .iter()
+        .map(|tp| TypeParam {
+            name: tp.name.name.clone(),
+            span: tp.span,
+        })
+        .collect();
+
+    let ty = lower_type(&t.ty)?;
+
+    Ok(TypeAliasDef {
+        name: t.name.name.clone(),
+        name_span: t.name.span,
+        is_public: t.is_public,
+        type_params,
+        ty,
+    })
+}
+
+fn lower_enum(e: &CstEnumDef) -> Result<EnumDef, ParseError> {
+    // Every enum is nominal: the `unique(<uuid>)` prefix is mandatory. A bare
+    // `enum` has no identity, which would make structurally identical enums
+    // interchangeable — the exact confusion nominal identity exists to
+    // prevent — so reject it here.
+    let uuid = match &e.unique_id {
+        Some(s) => Uuid::parse_str(s).map_err(|err| {
+            ParseError::new(ParseErrorKind::InvalidUuid(err.to_string()), e.name.span)
+        })?,
+        None => {
+            return Err(ParseError::new(
+                ParseErrorKind::EnumRequiresUnique,
+                e.name.span,
+            ));
+        }
+    };
+
+    let type_params = e
+        .type_params
+        .iter()
+        .map(|tp| TypeParam {
+            name: tp.name.name.clone(),
+            span: tp.span,
+        })
+        .collect();
+
+    let variants = e
+        .variants
+        .iter()
+        .map(|v| {
+            let payload = v.payload.as_ref().map(lower_type).transpose()?;
+            Ok(EnumVariant {
+                name: v.name.name.clone(),
+                payload,
+                span: v.span,
+            })
+        })
+        .collect::<Result<Vec<_>, ParseError>>()?;
+
+    Ok(EnumDef {
+        name: e.name.name.clone(),
+        name_span: e.name.span,
+        is_public: e.is_public,
+        type_params,
+        variants,
+        uuid,
+    })
+}
+
+fn lower_ability_def(a: &CstAbilityDef) -> Result<AbilityDef, ParseError> {
+    let dependencies = a.dependencies.iter().map(lower_qualified_name).collect();
+
+    let methods = a
+        .methods
+        .iter()
+        .map(|m| {
+            let type_params = m
+                .type_params
+                .iter()
+                .map(|tp| TypeParam {
+                    name: tp.name.name.clone(),
+                    span: tp.span,
+                })
+                .collect();
+
+            let params = m
+                .params
+                .iter()
+                .map(|(name, ty)| {
+                    let lowered_ty = lower_type(ty)?;
+                    Ok((name.name.clone(), lowered_ty))
+                })
+                .collect::<Result<Vec<_>, ParseError>>()?;
+
+            let ret_ty = lower_type(&m.ret_ty)?;
+
+            Ok(AbilityMethod {
+                name: m.name.name.clone(),
+                type_params,
+                params,
+                ret_ty,
+                span: m.span,
+            })
+        })
+        .collect::<Result<Vec<_>, ParseError>>()?;
+
+    Ok(AbilityDef {
+        name: a.name.name.clone(),
+        name_span: a.name.span,
+        is_public: a.is_public,
+        dependencies,
+        methods,
+        resolved_id: None,
+    })
+}
+
+/// Lower a use tree, flattening it to one `UseDef` per imported leaf.
+/// Braces are pure grouping: `use a::{b, c};` lowers exactly like
+/// `use a::b; use a::c;`.
+pub(super) fn lower_use(u: &CstUseDef) -> Result<Vec<UseDef>, ParseError> {
+    let mut out = Vec::new();
+    flatten_use_tree(&u.tree, &[], u.is_public, &mut out)?;
+    Ok(out)
+}
+
+fn flatten_use_tree(
+    tree: &CstUseTree,
+    base: &[crate::cst::CstIdent],
+    is_public: bool,
+    out: &mut Vec<UseDef>,
+) -> Result<(), ParseError> {
+    let mut full: Vec<crate::cst::CstIdent> = base.to_vec();
+    full.extend(tree.segments.iter().cloned());
+    match &tree.kind {
+        CstUseTreeKind::Leaf { alias } => {
+            out.push(lower_use_leaf(&full, alias.as_ref(), is_public, tree.span)?);
+        }
+        CstUseTreeKind::Group(children) => {
+            for child in children {
+                flatten_use_tree(child, &full, is_public, out)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Lower one flattened use path. The head segment determines the root:
+/// a keyword (`pkg`, `core`, `self`, `super`) or a module alias from
+/// another `use` (`UsePrefix::Local`). Root keywords anywhere but the head
+/// are errors.
+fn lower_use_leaf(
+    full: &[crate::cst::CstIdent],
+    alias: Option<&crate::cst::CstIdent>,
+    is_public: bool,
+    span: Span,
+) -> Result<UseDef, ParseError> {
+    let Some(head) = full.first() else {
+        return Err(ParseError::new(
+            ParseErrorKind::LoweringError("empty use path".into()),
+            span,
+        ));
+    };
+
+    let (prefix, consumed) = match head.name.as_ref() {
+        "pkg" => (UsePrefix::Pkg, 1),
+        "core" => (UsePrefix::Core, 1),
+        "self" => (UsePrefix::Self_, 1),
+        "super" => {
+            let supers = full
+                .iter()
+                .take_while(|seg| seg.name.as_ref() == "super")
+                .count();
+            (UsePrefix::Super(supers), supers)
+        }
+        _ => (UsePrefix::Local, 0),
+    };
+
+    for seg in &full[consumed..] {
+        if matches!(seg.name.as_ref(), "pkg" | "core" | "self" | "super") {
+            return Err(ParseError::new(
+                ParseErrorKind::LoweringError(format!("`{}` may only begin a use path", seg.name)),
+                seg.span,
+            ));
+        }
+    }
+
+    Ok(UseDef {
+        is_public,
+        prefix,
+        path: full[consumed..]
+            .iter()
+            .map(|seg| (seg.name.clone(), seg.span))
+            .collect(),
+        alias: alias.map(|a| (a.name.clone(), a.span)),
+    })
+}
+
+pub(super) fn lower_param(ctx: &mut LoweringContext, p: &CstParam) -> Result<Param, ParseError> {
+    let id = ctx.fresh_binding();
+    let ty = p.ty.as_ref().map(lower_type).transpose()?;
+
+    Ok(Param {
+        id,
+        name: p.name.name.clone(),
+        ty,
+        span: p.span,
+    })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trait and Impl Lowering
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
+    let type_params = t
+        .type_params
+        .iter()
+        .map(|tp| TypeParam {
+            name: tp.name.name.clone(),
+            span: tp.span,
+        })
+        .collect();
+
+    let supertraits = t.supertraits.iter().map(lower_qualified_name).collect();
+
+    let methods = t
+        .methods
+        .iter()
+        .map(|m| {
+            let method_type_params = m
+                .type_params
+                .iter()
+                .map(|tp| TypeParam {
+                    name: tp.name.name.clone(),
+                    span: tp.span,
+                })
+                .collect();
+
+            // Check if first param is self
+            let (has_self, other_params) = if let Some(first) = m.params.first() {
+                match &first.kind {
+                    CstTraitParamKind::SelfParam => (true, &m.params[1..]),
+                    CstTraitParamKind::Named { .. } => (false, &m.params[..]),
+                }
+            } else {
+                (false, &m.params[..])
+            };
+
+            let params = other_params
+                .iter()
+                .map(|p| match &p.kind {
+                    CstTraitParamKind::Named { name, ty } => {
+                        let lowered_ty = lower_type(ty)?;
+                        Ok((name.name.clone(), lowered_ty))
+                    }
+                    CstTraitParamKind::SelfParam => Err(ParseError::new(
+                        ParseErrorKind::LoweringError(
+                            "self can only be the first parameter".into(),
+                        ),
+                        p.span,
+                    )),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let ret_ty = lower_type(&m.ret_ty)?;
+
+            Ok(TraitMethod {
+                name: m.name.name.clone(),
+                name_span: m.name.span,
+                type_params: method_type_params,
+                has_self,
+                params,
+                ret_ty,
+                span: m.span,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(TraitDef {
+        name: t.name.name.clone(),
+        name_span: t.name.span,
+        is_public: t.is_public,
+        type_params,
+        supertraits,
+        methods,
+    })
+}
+
+fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, ParseError> {
+    let type_params = i
+        .type_params
+        .iter()
+        .map(|tp| TypeParam {
+            name: tp.name.name.clone(),
+            span: tp.span,
+        })
+        .collect();
+
+    let trait_name = i.trait_name.as_ref().map(lower_qualified_name);
+    let for_type = lower_type(&i.for_type)?;
+
+    let where_clauses = i
+        .where_clauses
+        .iter()
+        .map(|wc| {
+            let ty = lower_type(&wc.ty)?;
+            let bounds = wc.bounds.iter().map(lower_qualified_name).collect();
+            Ok(WhereClause { ty, bounds })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let methods = i
+        .methods
+        .iter()
+        .map(|m| {
+            let method_type_params = m
+                .type_params
+                .iter()
+                .map(|tp| TypeParam {
+                    name: tp.name.name.clone(),
+                    span: tp.span,
+                })
+                .collect();
+
+            // Allocate self binding ID
+            let self_id = ctx.fresh_binding();
+
+            // A leading `self` parameter marks an instance method; its
+            // absence marks an associated method (e.g. `Default::default`).
+            let has_self = m
+                .params
+                .first()
+                .is_some_and(|p| matches!(p.kind, CstTraitParamKind::SelfParam));
+
+            // Lower non-self parameters
+            let params = m
+                .params
+                .iter()
+                .filter_map(|p| match &p.kind {
+                    CstTraitParamKind::SelfParam => None,
+                    CstTraitParamKind::Named { name, ty } => Some({
+                        let lowered_ty = lower_type(ty).ok();
+                        Ok(Param {
+                            id: ctx.fresh_binding(),
+                            name: name.name.clone(),
+                            ty: lowered_ty,
+                            span: p.span,
+                        })
+                    }),
+                })
+                .collect::<Result<Vec<_>, ParseError>>()?;
+
+            let ret_ty = m.ret_ty.as_ref().map(lower_type).transpose()?;
+            let abilities = m.abilities.iter().map(lower_qualified_name).collect();
+            let body = lower_expression(ctx, &m.body)?;
+
+            Ok(ImplMethod {
+                name: m.name.name.clone(),
+                name_span: m.name.span,
+                type_params: method_type_params,
+                has_self,
+                self_id,
+                params,
+                ret_ty,
+                abilities,
+                body,
+                span: m.span,
+                resolved_symbol: None,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(ImplDef {
+        type_params,
+        trait_name,
+        for_type,
+        where_clauses,
+        methods,
+        span: i.span,
+    })
+}
