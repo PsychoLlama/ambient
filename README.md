@@ -94,9 +94,13 @@ fn roll_dice(): number {
 }
 
 fn run(): () with Random, Log {
-  let roll = with { Random::in_range(max) => {
-    resume(4) // Chosen by fair dice roll. Guaranteed to be random.
-  } } handle roll_dice();
+  let roll = with {
+    Random::in_range(max) => {
+      resume(4) // Chosen by fair dice roll. Guaranteed to be random.
+    }
+  } handle {
+    roll_dice()
+  };
 
   Log::info!("Rolled ${roll}");
 }
