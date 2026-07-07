@@ -5,90 +5,12 @@ Part of the [Ambient Language Reference](architecture.md).
 ## Core Abilities
 
 The authoritative declarations live in
-`crates/ambient-platform/src/platform.ab`; excerpts:
-
-```ambient
-ability Time {
-  fn now(): Number;               // ms since the Unix epoch
-  fn wait(duration: Number): (); // ms
-}
-
-ability Random {
-  fn seed(): Number;              // 0.0 to 1.0
-  fn in_range(max: Number): Number;
-}
-
-ability Stdio {
-  fn out(message: String): ();   // write a line to stdout
-  fn err(message: String): ();   // write a line to stderr
-  fn read(): String;             // read a line from stdin
-}
-
-// Log is emitted through Stdio, so it declares the dependency: performing
-// Log requires Stdio in the effect row, and a handler for Stdio captures
-// log lines.
-ability Log with core::system::Stdio {
-  fn debug(message: String): ();
-  fn info(message: String): ();
-  fn warn(message: String): ();
-  fn error(message: String): ();
-}
-
-ability FileSystem {
-  fn read(path: String): String;              // UTF-8 text
-  fn write(path: String, content: String): ();  // create/truncate
-  fn read_binary(path: String): Binary;
-  fn write_binary(path: String, data: Binary): ();
-  fn exists(path: String): Bool;              // infallible
-  fn list(path: String): List<String>;        // sorted entry names
-  fn remove(path: String): ();                // file or empty directory
-  fn create_dir(path: String): ();            // mkdir -p
-}
-
-ability Process {
-  fn spawn<I, H>(name: String, init: I, handler: H): Number;
-  fn send<M>(pid: Number, msg: M): ();
-  fn send_named<M>(name: String, msg: M): ();
-  fn self_pid(): Number;              // 0 outside any process
-  fn whereis(name: String): Number;   // 0 if no such name
-  fn exit(): ();                      // stop after the current reduction
-}
-
-// The host process's environment. `var` returns None for an unset
-// variable (absence is data, not an exception). `args` is the captured
-// argv the CLI composes at startup — index 0 is the program path, the
-// rest are the user args after `--` — not live OS state. `set` is
-// process-global and best-effort (see below).
-ability Env {
-  fn var(name: String): Option<String>;
-  fn vars(): List<(String, String)>;
-  fn set(name: String, value: String): ();
-  fn args(): List<String>;            // index 0 is the program path
-  fn cwd(): String;
-  fn pid(): Number;
-}
-```
-
-`Process` is the surface of the process model ([processes.md](processes.md)):
-named reducer processes with isolated state, message passing, flat
-supervision, and reconciliation-based live upgrade under `ambient dev`.
-It is **experimental** — see that document for the caveats.
-
-FileSystem failures (missing files, permission errors, invalid UTF-8) raise
-catchable `Exception`s, recoverable with
-`with { Exception::throw(msg) => ... } handle ...`. Only `exists` is
-infallible: it returns `false` when the path can't be inspected.
-
-`Env` reads (and mutates) the process environment. `var`/`vars`/`cwd`/`pid`
-read live OS state — a missing variable is `None`, not an exception; only
-`cwd` raises (an unreadable working directory). `args` is *not* live OS
-state: the CLI captures it at startup — `ambient run <path> -- a b` yields
-`[<path>, "a", "b"]`, mirroring Python's `sys.argv[0]` / Go's `os.Args[0]`
-(`ambient dev` and the REPL supply an empty argv). `set` is process-global
-and best-effort: under edition 2024 it wraps an `unsafe std::env::set_var`,
-and since each process runs on its own OS thread, mutating the environment
-while another thread reads it is undefined behavior — it is intended for
-early startup/config, not concurrent mutation. Exit codes are out of scope.
+`crates/ambient-platform/src/platform.ab` — the platform bindings interface
+declares every core ability (Time, Random, Stdio, Log, FileSystem, Process,
+Env, Network, Execute) with doc comments on each method. See
+[abilities.md](abilities.md) for how those declarations become in-scope
+abilities, and [processes.md](processes.md) for the (experimental) `Process`
+ability.
 
 ## Standard Functions
 
