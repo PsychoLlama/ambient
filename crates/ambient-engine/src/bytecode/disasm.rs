@@ -37,6 +37,7 @@ fn operands(op: Opcode) -> Operands {
     use Opcode as O;
     match op {
         O::PushConst
+        | O::LoadObject
         | O::StoreLocal
         | O::LoadLocal
         | O::RecordGet
@@ -67,6 +68,10 @@ fn format_constant(value: &Value) -> String {
         Value::FunctionRef(hash) => {
             let hex = hash.to_hex();
             format!("fn {}", &hex.as_str()[..12])
+        }
+        Value::ObjectRef(hash) => {
+            let hex = hash.to_hex();
+            format!("const {}", &hex.as_str()[..12])
         }
         Value::AbilityRef(id) => format!("ability {}", id.short_hex()),
         Value::String(s) => {
@@ -161,7 +166,9 @@ fn instruction_detail(
             .u8()
             .map_or_else(|| TRUNCATED.to_string(), |v| format!(" {v}")),
         Operands::U16 => match cur.u16() {
-            Some(v) if op == Opcode::PushConst || op == Opcode::Handle => {
+            Some(v)
+                if op == Opcode::PushConst || op == Opcode::LoadObject || op == Opcode::Handle =>
+            {
                 format!(" {}", const_at(v))
             }
             Some(v) => format!(" {v}"),

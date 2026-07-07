@@ -76,7 +76,7 @@ fn format_value_impl(value: &Value, mode: FormatMode) -> String {
         Value::Tuple(elements) => format_sequence(elements, "(", ")", mode),
         Value::List(elements) => format_sequence(elements, "[", "]", mode),
         Value::Record(fields) => format_record(fields, color, mode),
-        Value::FunctionRef(hash) => format_function_ref(hash, color),
+        Value::FunctionRef(hash) | Value::ObjectRef(hash) => format_function_ref(hash, color),
         Value::AbilityRef(id) => {
             let hex = id.short_hex();
             if color {

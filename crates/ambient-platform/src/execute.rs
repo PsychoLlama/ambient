@@ -173,6 +173,10 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                     exec_vm.load_function(func.as_ref().clone());
                 }
             }
+            // Load the `const` value objects those functions depend on.
+            for (value_hash, value) in subset.values() {
+                exec_vm.load_value(*value_hash, value.clone());
+            }
 
             // Execute the function with the provided argument
             exec_vm.call(&hash, vec![arg])
@@ -235,6 +239,9 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                 if let Some(func) = subset.get(&func_hash) {
                     exec_vm.load_function(func.as_ref().clone());
                 }
+            }
+            for (value_hash, value) in subset.values() {
+                exec_vm.load_value(*value_hash, value.clone());
             }
 
             exec_vm.install_base_handler(handler_value);

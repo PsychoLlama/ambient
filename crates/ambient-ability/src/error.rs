@@ -153,6 +153,10 @@ pub enum VmError {
     /// Unknown function hash.
     UnknownFunction(blake3::Hash),
 
+    /// Unknown value-object hash (a `const` referenced by `LoadObject` that
+    /// was never loaded into the VM).
+    UnknownObject(blake3::Hash),
+
     /// Tuple index out of bounds.
     TupleIndexOutOfBounds { index: u8, length: usize },
 
@@ -247,6 +251,7 @@ impl std::fmt::Display for VmError {
             Self::InvalidConstant(idx) => write!(f, "invalid constant index: {idx}"),
             Self::InvalidLocal(slot) => write!(f, "invalid local variable slot: {slot}"),
             Self::UnknownFunction(hash) => write!(f, "unknown function: {hash}"),
+            Self::UnknownObject(hash) => write!(f, "unknown value object: {hash}"),
             Self::TupleIndexOutOfBounds { index, length } => {
                 write!(f, "tuple index {index} out of bounds (length {length})")
             }

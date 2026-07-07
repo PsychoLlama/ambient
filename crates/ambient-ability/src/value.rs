@@ -41,6 +41,16 @@ pub enum Value {
     /// Reference to a content-addressed function.
     FunctionRef(blake3::Hash),
 
+    /// Reference to a content-addressed value object (a `const`).
+    ///
+    /// Appears only in compiled constant pools: the `LoadObject` opcode
+    /// names the value object it loads through one of these. It is never a
+    /// first-class runtime value on the stack — `LoadObject` immediately
+    /// resolves it to the stored value — so it is kept distinct from
+    /// [`Value::FunctionRef`] to prevent a value ref being mistaken for a
+    /// function ref.
+    ObjectRef(blake3::Hash),
+
     /// Reference to a content-addressed ability interface.
     ///
     /// Appears in compiled constant pools: `Suspend`/`Handle`/`MakeHandler`
@@ -778,6 +788,7 @@ impl Value {
             Self::Tuple(_) => "tuple",
             Self::Record(_) => "record",
             Self::FunctionRef(_) => "function",
+            Self::ObjectRef(_) => "object",
             Self::AbilityRef(_) => "ability",
             Self::SuspendedAbility(_) => "suspended_ability",
             Self::Continuation(_) => "continuation",
@@ -965,7 +976,8 @@ impl PartialEq for Value {
             (Self::Map(a), Self::Map(b)) => a == b,
             // Sets are structurally equal
             (Self::Set(a), Self::Set(b)) => a == b,
-            (Self::FunctionRef(a), Self::FunctionRef(b)) => a == b,
+            (Self::FunctionRef(a), Self::FunctionRef(b))
+            | (Self::ObjectRef(a), Self::ObjectRef(b)) => a == b,
             (Self::AbilityRef(a), Self::AbilityRef(b)) => a == b,
             // Suspended abilities are equal if they have the same ability/method/args
             (Self::SuspendedAbility(a), Self::SuspendedAbility(b)) => {

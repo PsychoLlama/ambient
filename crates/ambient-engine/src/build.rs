@@ -447,19 +447,23 @@ pub fn build_imported_enums(
     enums
 }
 
-/// Collect every foreign constant in the build, keyed canonically
-/// (`utils::MAX`). Constants inline their literal value at each reference
-/// site rather than linking by hash, so the compiler needs the
-/// definitions themselves — a separate channel from the linking table,
-/// mirroring [`build_imported_enums`]. All public constants are provided
-/// (not just imported ones) because inline `pkg::utils::MAX` references
-/// need no import.
+/// Collect every foreign constant's value-object hash, keyed canonically by
+/// `Fqn` (`utils::MAX`). A `const` links by hash exactly like a function: the
+/// consumer emits a `LoadObject` of this hash, and the defining module ships
+/// the value object itself (content-addressed, deduplicated). This is the
+/// const analogue of the [`linking_table`] — a name→hash channel, not an
+/// AST-replication one. All public constants are provided (not just imported
+/// ones) because inline `pkg::utils::MAX` references need no import.
+///
+/// A value object's hash derives only from the const's value, never its name,
+/// so this recomputes exactly the hash the defining module's compile produced.
 #[must_use]
-pub fn build_foreign_constants(
+#[allow(clippy::implicit_hasher)]
+pub fn build_foreign_const_hashes(
     module_path: &ModulePath,
     registry: &ModuleRegistry,
-) -> Vec<(NameKey, crate::ast::ConstDef)> {
-    let mut constants = Vec::new();
+) -> HashMap<NameKey, blake3::Hash> {
+    let mut hashes = HashMap::new();
     for info in registry.all_modules() {
         if &info.path == module_path {
             continue;
@@ -467,13 +471,15 @@ pub fn build_foreign_constants(
         for item in &info.module.items {
             if let ItemKind::Const(def) = &item.kind
                 && def.is_public
+                && let Some(value) = crate::const_eval::literal_value(&def.value)
+                && let Ok(object) = crate::object::value_object(&value)
             {
                 let key = NameKey::Item(registry.fqn(&info.path, &[Arc::clone(&def.name)]));
-                constants.push((key, def.clone()));
+                hashes.insert(key, object.hash());
             }
         }
     }
-    constants
+    hashes
 }
 
 /// Collect every foreign unit struct in the build, as canonical
@@ -481,7 +487,7 @@ pub fn build_foreign_constants(
 /// name) as well as a type; the compiler inlines each reference to an empty
 /// record value rather than linking by hash, so it only needs the key — a
 /// separate channel from the linking table, mirroring
-/// [`build_foreign_constants`]. All public unit structs are provided (not
+/// [`build_foreign_const_hashes`]. All public unit structs are provided (not
 /// just imported ones) because inline `pkg::shapes::Origin` references need
 /// no import.
 #[must_use]
@@ -748,7 +754,7 @@ fn compile_loaded_module_with_registry(
             imported_hashes: Some(imported_hashes),
             imported_enums: build_imported_enums(module_path, registry),
             imported_unit_structs: build_foreign_unit_structs(module_path, registry),
-            imported_constants: build_foreign_constants(module_path, registry),
+            imported_const_hashes: build_foreign_const_hashes(module_path, registry),
             foreign_enum_variants: build_foreign_enum_variants(module_path, registry),
             prelude_abilities,
             foreign_abilities: crate::infer::resolve_registry_abilities(registry),
@@ -814,7 +820,7 @@ pub fn compile_session_module(
             imported_hashes: Some(imported_hashes),
             imported_enums: build_imported_enums(path, registry),
             imported_unit_structs: build_foreign_unit_structs(path, registry),
-            imported_constants: build_foreign_constants(path, registry),
+            imported_const_hashes: build_foreign_const_hashes(path, registry),
             foreign_enum_variants: build_foreign_enum_variants(path, registry),
             prelude_abilities,
             foreign_abilities: crate::infer::resolve_registry_abilities(registry),

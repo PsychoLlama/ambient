@@ -31,6 +31,40 @@ fn test_dup() {
 }
 
 #[test]
+fn test_load_object_pushes_stored_value() {
+    let object_hash = blake3::hash(b"const-answer");
+    let mut builder = BytecodeBuilder::new();
+    builder.emit_load_object(object_hash);
+    builder.emit(Opcode::Return);
+    let func = builder.build(0, 0);
+    let hash = func.hash;
+
+    let mut vm = Vm::new();
+    vm.load_function(func);
+    vm.load_value(object_hash, Value::Number(42.0));
+
+    assert_eq!(vm.call(&hash, vec![]), Ok(Value::Number(42.0)));
+}
+
+#[test]
+fn test_load_object_missing_value_errors() {
+    let object_hash = blake3::hash(b"absent");
+    let mut builder = BytecodeBuilder::new();
+    builder.emit_load_object(object_hash);
+    builder.emit(Opcode::Return);
+    let func = builder.build(0, 0);
+    let hash = func.hash;
+
+    let mut vm = Vm::new();
+    vm.load_function(func);
+    // No value loaded: the reference dangles.
+    assert_eq!(
+        vm.call(&hash, vec![]),
+        Err(ambient_ability::VmError::UnknownObject(object_hash))
+    );
+}
+
+#[test]
 fn test_pop() {
     VmTest::new()
         .push(1.0)

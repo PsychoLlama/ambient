@@ -244,6 +244,11 @@ fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
             hasher.update(&[TYPE_FUNCTION_REF]);
             hasher.update(h.as_bytes());
         }
+        Value::ObjectRef(h) => {
+            const TYPE_OBJECT_REF: u8 = 19;
+            hasher.update(&[TYPE_OBJECT_REF]);
+            hasher.update(h.as_bytes());
+        }
         Value::SuspendedAbility(ability) => {
             hasher.update(&[TYPE_SUSPENDED_ABILITY]);
             hasher.update(ability.ability_id.as_bytes());

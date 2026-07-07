@@ -6,7 +6,6 @@
 //! collector-backed Stdio, runtime introspection (`whereis`,
 //! `process_count`), and the event sink.
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -69,7 +68,7 @@ fn compile(src: &str) -> CompiledModule {
             imported_hashes: None,
             imported_enums: Vec::new(),
             imported_unit_structs: Vec::new(),
-            imported_constants: Vec::new(),
+            imported_const_hashes: std::collections::HashMap::new(),
             foreign_enum_variants: Vec::new(),
             prelude_abilities: &prelude,
             foreign_abilities: Vec::new(),
@@ -121,7 +120,7 @@ impl TestHost {
                 interface: process,
                 events: sink,
             },
-            Arc::new(HashMap::new()),
+            Arc::new(ambient_platform::process::Generation::default()),
         );
 
         Self {

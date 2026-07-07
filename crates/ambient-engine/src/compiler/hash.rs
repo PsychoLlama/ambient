@@ -28,12 +28,48 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::bytecode::CompiledFunction;
+use crate::fqn::NameKey;
 use crate::object::{GroupMember, ObjectRef, StoredObject, function_from_compiled, member_hash};
 use crate::store::compute_sccs_with_cmp;
 use crate::value::Value;
 
 use super::CompiledModule;
 use super::error::{CompileError, CompileErrorKind};
+
+/// Content-address every module-level `const`, in a pre-pass before function
+/// bodies compile.
+///
+/// A `const` value object is `blake3(encode(value))` — a pure function of the
+/// value's type and bytes, independent of the const's name — so two consts
+/// with the same value produce byte-identical objects and one shared hash.
+/// Because a `const` literal references nothing (the literal-only rule), each
+/// object is a self-contained leaf and needs no call-graph pass: its hash is
+/// known immediately, so function bodies compiled afterward can link to it.
+///
+/// Returns the `NameKey → final hash` table (seeded into the compiler so a
+/// reference emits `LoadObject`) and the `hash → value object` map (folded
+/// into the module's objects so the value ships and deduplicates like any
+/// other content-addressed object). Values that cannot be content-addressed
+/// are skipped; a reference to one then surfaces as an undefined-name error,
+/// exactly as a non-literal `const` does today.
+#[must_use]
+pub(super) fn finalize_const_values(
+    consts: &[(NameKey, Value)],
+) -> (
+    HashMap<NameKey, blake3::Hash>,
+    HashMap<blake3::Hash, StoredObject>,
+) {
+    let mut hashes = HashMap::new();
+    let mut objects = HashMap::new();
+    for (key, value) in consts {
+        if let Ok(object) = crate::object::value_object(value) {
+            let hash = object.hash();
+            hashes.insert(key.clone(), hash);
+            objects.insert(hash, object);
+        }
+    }
+    (hashes, objects)
+}
 
 /// A function awaiting finalization.
 struct Node {

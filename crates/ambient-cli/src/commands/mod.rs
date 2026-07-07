@@ -176,7 +176,7 @@ pub fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
                 &main_path,
                 &core.registry,
             ),
-            imported_constants: ambient_engine::build::build_foreign_constants(
+            imported_const_hashes: ambient_engine::build::build_foreign_const_hashes(
                 &main_path,
                 &core.registry,
             ),

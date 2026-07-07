@@ -110,7 +110,7 @@ impl RuntimeHost {
                 interface: process,
                 events,
             },
-            Arc::new(std::collections::HashMap::new()),
+            Arc::new(ambient_platform::process::Generation::default()),
         );
 
         Ok(Self {

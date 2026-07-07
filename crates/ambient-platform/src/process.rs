@@ -28,19 +28,35 @@ use ambient_engine::vm::Vm;
 
 use crate::require;
 
-/// A code generation: every compiled function of a build, shared.
-pub type Functions = Arc<HashMap<blake3::Hash, Arc<CompiledFunction>>>;
+/// A code generation: every compiled function of a build, plus the
+/// content-addressed `const` value objects those functions reference.
+#[derive(Default)]
+pub struct Generation {
+    /// Function hash → runnable function.
+    pub functions: HashMap<blake3::Hash, Arc<CompiledFunction>>,
+    /// Value-object hash → the `const` value it holds.
+    pub values: HashMap<blake3::Hash, Value>,
+}
 
-/// Share a compiled module's function table as a code generation.
+/// A shared code generation.
+pub type Functions = Arc<Generation>;
+
+/// Share a compiled module's functions and `const` value objects as a code
+/// generation.
 #[must_use]
 pub fn functions_from_module(compiled: &CompiledModule) -> Functions {
-    Arc::new(
-        compiled
-            .functions
-            .iter()
-            .map(|(hash, func)| (*hash, Arc::new(func.clone())))
-            .collect(),
-    )
+    let functions = compiled
+        .functions
+        .iter()
+        .map(|(hash, func)| (*hash, Arc::new(func.clone())))
+        .collect();
+    // Value objects live in `objects`; pull out each one's `const` value.
+    let values = compiled
+        .objects
+        .iter()
+        .filter_map(|(hash, object)| Some((*hash, object.as_value()?)))
+        .collect();
+    Arc::new(Generation { functions, values })
 }
 
 /// Builds a base VM for a process: platform host handlers registered
@@ -353,8 +369,11 @@ impl ProcessRuntime {
     /// factory, the given generation loaded, Process ability bound.
     fn build_vm(self: &Arc<Self>, functions: &Functions, ctx: &ProcessContext) -> Vm {
         let mut vm = (self.vm_factory)();
-        for func in functions.values() {
+        for func in functions.functions.values() {
             vm.load_function_shared(Arc::clone(func));
+        }
+        for (hash, value) in &functions.values {
+            vm.load_value(*hash, value.clone());
         }
         register_process(&mut vm, &self.interface, self, ctx);
         vm
@@ -513,7 +532,7 @@ fn require_function(
             )));
         }
     };
-    let Some(func) = generation.get(&hash) else {
+    let Some(func) = generation.functions.get(&hash) else {
         return Err(VmError::exception(format!(
             "Process.spawn: {role} references unknown code (hash not in this build)"
         )));
@@ -590,8 +609,11 @@ fn process_main(
         let staged = cell.staged.lock().unwrap().take();
         if let Some(staged) = staged {
             for functions in &staged.generations {
-                for func in functions.values() {
+                for func in functions.functions.values() {
                     vm.load_function_shared(Arc::clone(func));
+                }
+                for (hash, value) in &functions.values {
+                    vm.load_value(*hash, value.clone());
                 }
             }
             if let Some((new_init, new_handler)) = staged.swap {

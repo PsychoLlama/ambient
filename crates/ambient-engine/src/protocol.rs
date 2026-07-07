@@ -116,6 +116,7 @@ impl SerializableValue {
                         .collect::<Result<_, _>>()?,
                 }
             }
+            Value::ObjectRef(_) => return Err("object reference"),
             Value::Closure(_) => return Err("closure"),
             Value::SuspendedAbility(_) => return Err("suspended ability"),
             Value::Continuation(_) => return Err("continuation"),

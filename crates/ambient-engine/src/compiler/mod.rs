@@ -38,7 +38,7 @@ pub use error::{CompileError, CompileErrorKind};
 
 // Re-export for use by submodules
 use expr::compile_expr;
-use hash::{compute_temporary_hash, finalize_module_hashes};
+use hash::{compute_temporary_hash, finalize_const_values, finalize_module_hashes};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -472,12 +472,14 @@ struct ModuleContext {
     /// [`Fqn`] ([`NameKey::Item`]). A reference whose key is here compiles
     /// to an empty record value, mirroring a nullary enum variant.
     unit_structs: HashSet<NameKey>,
-    /// Module-level constants: resolution key → the literal value it
-    /// denotes. A reference to one compiles to a direct push of this value
-    /// (the value is baked in when the module is built), so a constant is
-    /// genuinely a mapping of identifier to hashed value rather than a
-    /// callable thunk. Local constants key bare, imported ones by `Fqn`.
-    constants: HashMap<NameKey, Value>,
+    /// Module-level constants: resolution key → the content hash of the
+    /// `const`'s value object. A reference to one compiles to a `LoadObject`
+    /// of this hash, so a constant links through the same name→hash table as
+    /// a function — deduplicated and hash-addressed, not inlined. Local
+    /// constants key on their `Fqn` (bare in the registry-less convention),
+    /// imported ones by their `Fqn`; both hashes are final (value objects are
+    /// leaves computed in a pre-pass). Key present ⇒ the name is a const.
+    const_hashes: HashMap<NameKey, blake3::Hash>,
     /// Module-declared abilities in scope: ability name → compile info.
     /// The identity comes from the type checker (`AbilityDef::resolved_id`);
     /// the compiler never re-derives interface hashes. Local declarations
@@ -552,7 +554,7 @@ impl ModuleContext {
             enums,
             foreign_variants: HashMap::new(),
             unit_structs: HashSet::new(),
-            constants: HashMap::new(),
+            const_hashes: HashMap::new(),
             abilities: HashMap::new(),
             prelude_abilities: HashMap::new(),
             foreign_abilities: HashMap::new(),
@@ -560,46 +562,22 @@ impl ModuleContext {
         }
     }
 
-    /// Record each module-level constant's literal value so references to it
-    /// can be inlined (see the `ExprKind::Name` arm in `expr.rs`). The type
-    /// checker guarantees every `const` initializer is a literal before we get
-    /// here; a non-literal that somehow reaches this point is simply skipped
-    /// and left to surface as an undefined-name error at its reference site.
-    ///
-    /// Registers foreign constant definitions under their canonical
-    /// qualified keys (`utils.MAX`). Canonical keys never collide with the
-    /// module's own bare-named constants, so registration order against
-    /// [`Self::register_constants`] is immaterial.
-    fn register_imported_constants(&mut self, imported: &[(NameKey, crate::ast::ConstDef)]) {
-        for (key, const_def) in imported {
-            if let Some(value) = crate::const_eval::literal_value(&const_def.value) {
-                self.constants.insert(key.clone(), value);
-            }
+    /// Register content hashes for module-level constants so a reference to
+    /// one compiles to a `LoadObject` of its value object (see the
+    /// `ExprKind::Name` arm in `expr.rs`). Local hashes come from the const
+    /// pre-pass ([`finalize_const_values`]); imported hashes are final
+    /// already (a value object is a leaf). Keys never collide: locals key on
+    /// their own `Fqn`, imports on the defining module's `Fqn`.
+    fn register_const_hashes(&mut self, hashes: &HashMap<NameKey, blake3::Hash>) {
+        for (key, hash) in hashes {
+            self.const_hashes.insert(key.clone(), *hash);
         }
     }
 
-    /// Record each module-level constant's literal value so references to it
-    /// can be inlined (see the `ExprKind::Name` arm in `expr.rs`). The type
-    /// checker guarantees every `const` initializer is a literal before we get
-    /// here; a non-literal that somehow reaches this point is simply skipped
-    /// and left to surface as an undefined-name error at its reference site.
-    fn register_constants(&mut self, module: &Module) {
-        for item in &module.items {
-            if let ItemKind::Const(const_def) = &item.kind
-                && let Some(value) = crate::const_eval::literal_value(&const_def.value)
-            {
-                self.constants.insert(
-                    own_item_key(self.module_id.as_ref(), &const_def.name),
-                    value,
-                );
-            }
-        }
-    }
-
-    /// The literal value of the module-level constant a reference resolves
-    /// to, if any.
-    fn constant_value(&self, key: &NameKey) -> Option<&Value> {
-        self.constants.get(key)
+    /// The content hash of the module-level constant a reference resolves to,
+    /// if any. A present key means the name denotes a `const`.
+    fn constant_hash(&self, key: &NameKey) -> Option<blake3::Hash> {
+        self.const_hashes.get(key).copied()
     }
 
     /// Register prelude abilities (declaration modules resolved by the
@@ -849,13 +827,15 @@ pub struct CompileOptions<'a> {
     /// rewrites every cross-module unit-struct value reference to its
     /// canonical key, which is looked up here.
     pub imported_unit_structs: Vec<NameKey>,
-    /// Foreign constant definitions, keyed by canonical qualified name
-    /// (`utils.MAX`). Constants inline their literal value at each
-    /// reference rather than linking by hash, so the compiler needs the
-    /// definitions themselves, not name→hash entries. The resolve pass
-    /// rewrites every cross-module constant reference to its canonical
-    /// key, which is looked up here.
-    pub imported_constants: Vec<(NameKey, crate::ast::ConstDef)>,
+    /// Foreign constant content hashes, keyed by canonical `Fqn`
+    /// ([`NameKey::Item`]). A `const` links by hash exactly like a function:
+    /// the resolve pass rewrites every cross-module constant reference to its
+    /// canonical key, and a reference to a key present here compiles to a
+    /// `LoadObject` of that value object (never an inlined literal). The
+    /// defining module emits the value object itself, so only the hash is
+    /// needed here — a name→hash channel like [`Self::imported_hashes`], not
+    /// an AST-replication one.
+    pub imported_const_hashes: HashMap<NameKey, blake3::Hash>,
     /// Foreign enum variant constructors, keyed by their canonical
     /// two-segment [`Fqn`] (`core::Option::Some`,
     /// `pkg::shapes::Shape::Circle`). Variant construction inlines a
@@ -995,6 +975,7 @@ fn own_item_key(module_id: Option<&ModuleId>, name: &Arc<str>) -> NameKey {
 }
 
 /// Implementation of module compilation with optional debug info.
+#[allow(clippy::too_many_lines)]
 fn compile_module_impl(
     module: &Module,
     options: CompileOptions,
@@ -1006,7 +987,7 @@ fn compile_module_impl(
         imported_hashes,
         imported_enums,
         imported_unit_structs,
-        imported_constants,
+        imported_const_hashes,
         foreign_enum_variants,
         prelude_abilities,
         foreign_abilities,
@@ -1037,10 +1018,23 @@ fn compile_module_impl(
         temp_hashes.insert(own_item_key(module_id.as_ref(), &func.name), hash);
     }
 
-    // Constants are not compiled to functions: they carry no hash and appear
-    // in no call site. Each reference inlines the constant's literal value
-    // (registered on the `ModuleContext` below), so there is nothing to
-    // temp-hash or finalize here.
+    // Content-address every local `const` in a pre-pass, before function
+    // bodies compile, so a reference can link to the value object's final
+    // hash (see `finalize_const_values`). A `const` is not compiled to a
+    // function — it is a standalone leaf value object — so it needs no temp
+    // hash or call-graph pass.
+    let local_consts: Vec<(NameKey, Value)> = module
+        .items
+        .iter()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Const(const_def) => {
+                let value = crate::const_eval::literal_value(&const_def.value)?;
+                Some((own_item_key(module_id.as_ref(), &const_def.name), value))
+            }
+            _ => None,
+        })
+        .collect();
+    let (local_const_hashes, const_objects) = finalize_const_values(&local_consts);
 
     // Add temporary hashes for impl methods under their canonical symbols.
     // Impl methods are ordinary functions named by `types::impl_method_symbol`;
@@ -1083,8 +1077,10 @@ fn compile_module_impl(
     ctx.register_foreign_variants(&foreign_enum_variants);
     ctx.register_imported_unit_structs(&imported_unit_structs);
     ctx.register_unit_structs(module);
-    ctx.register_imported_constants(&imported_constants);
-    ctx.register_constants(module);
+    // Both local (pre-pass) and imported const hashes are final and link the
+    // same way; a reference to either key emits a `LoadObject`.
+    ctx.register_const_hashes(&local_const_hashes);
+    ctx.register_const_hashes(&imported_const_hashes);
     ctx.register_prelude_abilities(prelude_abilities);
     ctx.register_foreign_abilities(&foreign_abilities);
     ctx.register_abilities(module)?;
@@ -1100,8 +1096,9 @@ fn compile_module_impl(
         compiled_functions.push((Arc::clone(&func.name), compiled, is_main));
     }
 
-    // Constants are inlined at their reference sites (see `register_constants`
-    // and the `ExprKind::Name` arm), so they produce no compiled function.
+    // Constants compile to standalone value objects (folded into the module
+    // below), not functions; each reference is a `LoadObject` of the object's
+    // hash (see the `ExprKind::Name` arm).
 
     // Compile impl methods as ordinary named functions.
     for (impl_def, method) in &impl_methods {
@@ -1125,7 +1122,14 @@ fn compile_module_impl(
     let lambdas: Vec<(blake3::Hash, Arc<str>, CompiledFunction)> = ctx.lambdas;
 
     // Phase 3: Compute content-addressed hashes and finalize the module.
-    finalize_module_hashes(compiled_functions, lambdas)
+    let mut module = finalize_module_hashes(compiled_functions, lambdas)?;
+    // Fold in the const value objects from the pre-pass. They ship and
+    // deduplicate alongside function objects; a referencing function already
+    // records the const hash in its dependencies.
+    for (hash, object) in const_objects {
+        module.objects.entry(hash).or_insert(object);
+    }
+    Ok(module)
 }
 
 /// Compile a function with pre-determined hash.
@@ -2560,20 +2564,162 @@ mod tests {
 
         let compiled = compile_module(&checked.module).expect("compilation failed");
 
-        // The constant is inlined, not compiled to a thunk: only `run` exists.
+        // The constant is a standalone value object, not a function: only
+        // `run` is a compiled function.
         assert_eq!(
             compiled.functions.len(),
             1,
             "constant should not produce a compiled function"
         );
+        // It does produce a content-addressed value object.
+        let value_objects = compiled
+            .objects
+            .values()
+            .filter(|o| o.as_value().is_some())
+            .count();
+        assert_eq!(value_objects, 1, "constant should produce one value object");
 
         let mut vm = Vm::new();
         for func in compiled.functions.values() {
             vm.load_function(func.clone());
         }
+        for (hash, object) in &compiled.objects {
+            if let Some(value) = object.as_value() {
+                vm.load_value(*hash, value);
+            }
+        }
         let entry = compiled.entry_point.expect("entry point");
         let result = vm.call(&entry, vec![]).expect("run failed");
         assert_eq!(result, Value::Number(1_000_000_000.0));
+    }
+
+    /// A `const` compiles to a content-addressed value object, and a
+    /// referencing function links to it by hash (`LoadObject` + a dependency
+    /// edge) rather than inlining the literal.
+    #[test]
+    fn const_reference_links_by_hash_not_inlined() {
+        use crate::ast::ConstDef;
+        use crate::types::Type;
+        use crate::value::Value;
+
+        let module = Module {
+            name: Arc::from("test"),
+            doc: None,
+            items: vec![
+                Item::new(
+                    ItemKind::Const(ConstDef {
+                        name: Arc::from("ANSWER"),
+                        name_span: Span::default(),
+                        is_public: false,
+                        ty: Type::number(),
+                        value: Expr::number(42.0),
+                    }),
+                    test_span(),
+                ),
+                Item::new(
+                    ItemKind::Function(FunctionDef {
+                        name: Arc::from("run"),
+                        name_span: Span::default(),
+                        is_public: true,
+                        type_params: vec![],
+                        params: vec![],
+                        ret_ty: None,
+                        abilities: vec![],
+                        body: Expr::name("ANSWER"),
+                    }),
+                    test_span(),
+                ),
+            ],
+        };
+        let checked = crate::infer::check_module(module);
+        assert!(checked.errors.is_empty(), "{:?}", checked.errors);
+        let compiled = compile_module(&checked.module).expect("compile");
+
+        // Exactly one value object, whose hash is a pure function of the value.
+        let expected_hash = crate::object::value_object(&Value::Number(42.0))
+            .unwrap()
+            .hash();
+        let value_hashes: Vec<_> = compiled
+            .objects
+            .iter()
+            .filter(|(_, o)| o.as_value().is_some())
+            .map(|(h, _)| *h)
+            .collect();
+        assert_eq!(value_hashes, vec![expected_hash]);
+
+        // `run` records the const hash as a dependency and emits `LoadObject`
+        // — no inlined `PushConst 42` at the reference site.
+        let run = compiled.get_function("run").expect("run");
+        assert!(
+            run.dependencies.contains(&expected_hash),
+            "const hash should be a dependency"
+        );
+        let listing = crate::bytecode::disassemble(run);
+        assert!(
+            listing.contains("LoadObject"),
+            "reference should compile to LoadObject: {listing}"
+        );
+        assert!(
+            !listing.contains("PushConst"),
+            "the literal must not be inlined: {listing}"
+        );
+    }
+
+    /// Two `const`s with the same value collapse to a single value object:
+    /// content addressing deduplicates them, name notwithstanding.
+    #[test]
+    fn identical_consts_deduplicate_to_one_object() {
+        use crate::ast::ConstDef;
+        use crate::types::Type;
+
+        let mk_const = |name: &str| {
+            Item::new(
+                ItemKind::Const(ConstDef {
+                    name: Arc::from(name),
+                    name_span: Span::default(),
+                    is_public: false,
+                    ty: Type::number(),
+                    value: Expr::number(100.0),
+                }),
+                test_span(),
+            )
+        };
+        // Reference both so neither is dead-code-eliminated conceptually
+        // (the compiler keeps all consts regardless, but this mirrors use).
+        let module = Module {
+            name: Arc::from("test"),
+            doc: None,
+            items: vec![
+                mk_const("A"),
+                mk_const("B"),
+                Item::new(
+                    ItemKind::Function(FunctionDef {
+                        name: Arc::from("run"),
+                        name_span: Span::default(),
+                        is_public: true,
+                        type_params: vec![],
+                        params: vec![],
+                        ret_ty: None,
+                        abilities: vec![],
+                        body: Expr::binary(BinaryOp::Add, Expr::name("A"), Expr::name("B")),
+                    }),
+                    test_span(),
+                ),
+            ],
+        };
+        let checked = crate::infer::check_module(module);
+        assert!(checked.errors.is_empty(), "{:?}", checked.errors);
+        let compiled = compile_module(&checked.module).expect("compile");
+
+        let value_object_count = compiled
+            .objects
+            .values()
+            .filter(|o| o.as_value().is_some())
+            .count();
+        assert_eq!(
+            value_object_count, 1,
+            "two consts with the same value share one object"
+        );
     }
 
     /// A `const` initialized with a non-literal (here, a reference to another

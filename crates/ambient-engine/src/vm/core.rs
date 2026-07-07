@@ -67,6 +67,10 @@ pub struct Vm {
     /// Content-addressed function store.
     pub(super) functions: HashMap<blake3::Hash, Arc<CompiledFunction>>,
 
+    /// Content-addressed `const` value objects, keyed by object hash. The
+    /// `LoadObject` opcode resolves against this map.
+    pub(super) values: HashMap<blake3::Hash, Value>,
+
     /// Maximum call stack depth to prevent infinite recursion.
     pub(super) max_call_depth: usize,
 }
@@ -88,6 +92,7 @@ impl Vm {
             host_handlers: HashMap::new(),
             base_handlers: Vec::new(),
             functions: HashMap::new(),
+            values: HashMap::new(),
             max_call_depth: 1000,
         }
     }
@@ -96,6 +101,15 @@ impl Vm {
     pub fn load_function(&mut self, func: CompiledFunction) {
         let hash = func.hash;
         self.functions.insert(hash, Arc::new(func));
+    }
+
+    /// Load a content-addressed `const` value object into the VM.
+    ///
+    /// Additive and content-addressed like [`Self::load_function`]:
+    /// re-loading a hash the VM already knows is a harmless overwrite with
+    /// an identical value.
+    pub fn load_value(&mut self, hash: blake3::Hash, value: Value) {
+        self.values.insert(hash, value);
     }
 
     /// Load an already-shared compiled function into the VM.

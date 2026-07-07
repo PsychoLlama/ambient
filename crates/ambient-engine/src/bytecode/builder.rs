@@ -32,6 +32,10 @@ enum ConstantKey {
     String(Arc<String>),
     Bool(bool),
     Hash(blake3::Hash),
+    /// A value-object hash. Kept distinct from [`Self::Hash`] (a function
+    /// ref) so a value ref and a function ref with the same hash bytes never
+    /// alias the same pool slot.
+    Object(blake3::Hash),
 }
 
 impl BytecodeBuilder {
@@ -60,6 +64,7 @@ impl BytecodeBuilder {
             Value::String(s) => ConstantKey::String(Arc::clone(s)),
             Value::Bool(b) => ConstantKey::Bool(*b),
             Value::FunctionRef(h) => ConstantKey::Hash(*h),
+            Value::ObjectRef(h) => ConstantKey::Object(*h),
             // For complex types, don't deduplicate (they're rare as constants)
             _ => {
                 let idx = self.constants.len() as u16;
@@ -120,6 +125,20 @@ impl BytecodeBuilder {
         self.code.push(Opcode::Call as u8);
         self.code.extend_from_slice(&idx.to_le_bytes());
         self.code.push(arg_count);
+    }
+
+    /// Emit a `LoadObject` instruction to push a content-addressed `const`.
+    ///
+    /// The value-object hash is tracked as a dependency (so a disk closure
+    /// loader ships the `const`) and routed through the constant pool as a
+    /// `Value::ObjectRef`, mirroring how [`Self::emit_call`] tracks and pools
+    /// a function reference.
+    pub fn emit_load_object(&mut self, object_hash: blake3::Hash) {
+        if !self.dependencies.contains(&object_hash) {
+            self.dependencies.push(object_hash);
+        }
+        let idx = self.add_constant(Value::ObjectRef(object_hash));
+        self.emit_u16(Opcode::LoadObject, idx);
     }
 
     /// Emit a placeholder jump and return its offset for later patching.

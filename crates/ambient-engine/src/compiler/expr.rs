@@ -119,11 +119,12 @@ pub(super) fn compile_expr(
                 // This is a free variable from the parent - add it as a capture.
                 let capture_slot = fc.get_or_create_capture_by_name(Arc::clone(var_name));
                 fc.builder.emit_load_capture(capture_slot);
-            } else if let Some(value) = ctx.constant_value(&key).cloned() {
-                // Module-level constant: inline its literal value. The value is
-                // baked in when the module is built, so a constant is a direct
-                // identifier→value mapping rather than a callable thunk.
-                fc.builder.emit_const(value);
+            } else if let Some(hash) = ctx.constant_hash(&key) {
+                // Module-level constant: load its content-addressed value
+                // object. The `const` is stored once and referenced by hash
+                // (recorded as a dependency), deduplicated like a function —
+                // never inlined at the reference site.
+                fc.builder.emit_load_object(hash);
             } else if let Some(&hash) = fc.function_hashes.get(&key) {
                 // A bare identifier resolving to a function hash is a function
                 // reference - push it for later use.

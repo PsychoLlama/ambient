@@ -37,11 +37,18 @@
 //!
 //! # Encoding layout (all integers little-endian)
 //!
+//! - **Value** — a single content-addressed `const` value (a `Unit`, `Bool`,
+//!   `Number`, `String`, or `Binary`). Its hash is a pure function of the
+//!   value's type tag and bytes, independent of the const's name, so two
+//!   consts with the same value share one object. Value objects are leaves:
+//!   they reference no other object.
+//!
 //! ```text
-//! header:   magic "ABOB" | version u8 = 1 | kind u8 (0 plain, 1 group, 2 redirect)
+//! header:   magic "ABOB" | version u8 = 1 | kind u8 (0 plain, 1 group, 2 redirect, 3 value)
 //! plain:    body
 //! group:    member_count u32 | members: [has_name u8, (name_len u32, name)?, body]
 //! redirect: group_hash [32] | index u32
+//! value:    constant
 //! body:     bytecode_len u32 | bytecode
 //!           local_count u16 | param_count u8
 //!           const_count u32 | constants
@@ -49,7 +56,7 @@
 //! ref:      0 u8 | hash [32]        (external)
 //!           1 u8 | index u32        (internal to the group)
 //! constant: 0 unit | 1 bool u8 | 2 number f64-bits | 3 string (u32, utf8)
-//!           4 bytes (u32, raw) | 5 ref
+//!           4 bytes (u32, raw) | 5 ref | 6 ability [32] | 7 value-ref [32]
 //! ```
 //!
 //! Decoding rejects trailing bytes and unknown tags, so decode∘encode is the
@@ -82,6 +89,7 @@ pub const OBJECT_VERSION: u8 = 3;
 const KIND_PLAIN: u8 = 0;
 const KIND_GROUP: u8 = 1;
 const KIND_REDIRECT: u8 = 2;
+const KIND_VALUE: u8 = 3;
 
 const REF_EXTERNAL: u8 = 0;
 const REF_INTERNAL: u8 = 1;
@@ -93,6 +101,7 @@ const CONST_STRING: u8 = 3;
 const CONST_BYTES: u8 = 4;
 const CONST_REF: u8 = 5;
 const CONST_ABILITY: u8 = 6;
+const CONST_VALUEREF: u8 = 7;
 
 /// A reference to another function, from inside an object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,6 +123,12 @@ pub enum ObjectConstant {
     Ref(ObjectRef),
     /// The content-addressed identity of an ability interface.
     Ability(ambient_core::AbilityId),
+    /// The content hash of a `const` value object. Distinct from [`Self::Ref`]
+    /// (a function reference) so a value ref is never mistaken for a function
+    /// ref: it decodes to [`Value::ObjectRef`], not [`Value::FunctionRef`].
+    /// Value objects are leaves, so this is always an external final hash —
+    /// never an internal group index.
+    ValueRef(blake3::Hash),
 }
 
 /// The body of one function inside an object.
@@ -143,6 +158,10 @@ pub enum StoredObject {
     Group(Vec<GroupMember>),
     /// A pointer from a member hash to its group.
     Redirect { group: blake3::Hash, index: u32 },
+    /// A single content-addressed `const` value. Its hash is a pure function
+    /// of the value (type tag + bytes), independent of the const's name, so
+    /// identical values deduplicate to one object.
+    Value(ObjectConstant),
 }
 
 /// Errors from encoding, decoding, or materializing objects.
@@ -272,6 +291,10 @@ impl StoredObject {
                 out.extend_from_slice(group.as_bytes());
                 out.extend_from_slice(&index.to_le_bytes());
             }
+            Self::Value(constant) => {
+                out.push(KIND_VALUE);
+                encode_constant(&mut out, constant);
+            }
         }
         out
     }
@@ -338,6 +361,7 @@ impl StoredObject {
                     index,
                 }
             }
+            KIND_VALUE => Self::Value(decode_constant(&mut r)?),
             t => return Err(ObjectError::BadTag(t)),
         };
         if r.pos != bytes.len() {
@@ -350,11 +374,25 @@ impl StoredObject {
     // Materialization
     // ─────────────────────────────────────────────────────────────────────
 
+    /// The runtime value of a value object, or `None` for code objects.
+    ///
+    /// Value objects hold a single `const` value; every function-reference
+    /// pool entry is external (value objects are leaves), so decoding never
+    /// needs a group context.
+    #[must_use]
+    pub fn as_value(&self) -> Option<Value> {
+        match self {
+            Self::Value(constant) => Some(constant_to_value(constant)),
+            _ => None,
+        }
+    }
+
     /// Turn this object into runnable functions with final hashes.
     ///
     /// Returns `(hash, function)` pairs: one for a plain object, one per
-    /// member for a group. All internal references are substituted with the
-    /// derived member hashes.
+    /// member for a group. Value objects carry no code and yield an empty
+    /// list. All internal references are substituted with the derived member
+    /// hashes.
     ///
     /// # Errors
     ///
@@ -362,6 +400,7 @@ impl StoredObject {
     /// internal references.
     pub fn materialize(&self) -> Result<Vec<(blake3::Hash, CompiledFunction)>, ObjectError> {
         match self {
+            Self::Value(_) => Ok(Vec::new()),
             Self::Plain(func) => {
                 let hash = self.hash();
                 let compiled = to_compiled(func, hash, &|_| None)?;
@@ -407,6 +446,10 @@ pub fn constant_from_value(
         Value::String(s) => ObjectConstant::String((**s).clone()),
         Value::Binary(b) => ObjectConstant::Binary((**b).clone()),
         Value::FunctionRef(h) => ObjectConstant::Ref(resolve(h)),
+        // A value ref is always a final external hash (value objects are
+        // leaves), so it bypasses `resolve`, which only classifies function
+        // references as internal/external.
+        Value::ObjectRef(h) => ObjectConstant::ValueRef(*h),
         Value::AbilityRef(id) => ObjectConstant::Ability(*id),
         Value::Tuple(_) => return Err(ObjectError::UnsupportedConstant("tuple")),
         Value::Record(_) => return Err(ObjectError::UnsupportedConstant("record")),
@@ -471,13 +514,8 @@ fn to_compiled(
         .iter()
         .map(|c| {
             Ok(match c {
-                ObjectConstant::Unit => Value::Unit,
-                ObjectConstant::Bool(b) => Value::Bool(*b),
-                ObjectConstant::Number(n) => Value::Number(*n),
-                ObjectConstant::String(s) => Value::String(Arc::new(s.clone())),
-                ObjectConstant::Binary(b) => Value::binary(b.clone()),
                 ObjectConstant::Ref(r) => Value::FunctionRef(resolve(r)?),
-                ObjectConstant::Ability(id) => Value::AbilityRef(*id),
+                other => constant_to_value(other),
             })
         })
         .collect::<Result<Vec<_>, ObjectError>>()?;
@@ -497,6 +535,42 @@ fn to_compiled(
         dependencies,
         debug_info: None,
     })
+}
+
+/// Convert a canonical constant to a runtime value.
+///
+/// Function references (`Ref`) need group context to resolve internal member
+/// indices, so they are handled by the caller ([`to_compiled`]) before this;
+/// a stray `Ref` here can only be a final external hash (as in a leaf value
+/// object) and maps straight to a [`Value::FunctionRef`].
+fn constant_to_value(constant: &ObjectConstant) -> Value {
+    match constant {
+        ObjectConstant::Bool(b) => Value::Bool(*b),
+        ObjectConstant::Number(n) => Value::Number(*n),
+        ObjectConstant::String(s) => Value::String(Arc::new(s.clone())),
+        ObjectConstant::Binary(b) => Value::binary(b.clone()),
+        ObjectConstant::Ref(ObjectRef::External(h)) => Value::FunctionRef(*h),
+        ObjectConstant::Ability(id) => Value::AbilityRef(*id),
+        ObjectConstant::ValueRef(h) => Value::ObjectRef(*h),
+        // A plain `Unit`, or an internal ref — which has no meaning outside a
+        // group and cannot occur in a leaf value object — is the inert Unit.
+        ObjectConstant::Unit | ObjectConstant::Ref(ObjectRef::Internal(_)) => Value::Unit,
+    }
+}
+
+/// Build a value object from a runtime `const` value.
+///
+/// The value's hash derives only from its type tag and bytes — never the
+/// const's name — so identical values across modules share one object. A
+/// primitive const references nothing, so `resolve` is never consulted.
+///
+/// # Errors
+///
+/// Returns an error if the value kind cannot be content-addressed (e.g. a
+/// structured value the encoding does not yet support).
+pub fn value_object(value: &Value) -> Result<StoredObject, ObjectError> {
+    let constant = constant_from_value(value, &|h| ObjectRef::External(*h))?;
+    Ok(StoredObject::Value(constant))
 }
 
 fn func_has_internal_refs(func: &ObjectFunction) -> bool {
@@ -574,6 +648,10 @@ fn encode_constant(out: &mut Vec<u8>, constant: &ObjectConstant) {
         ObjectConstant::Ability(id) => {
             out.push(CONST_ABILITY);
             out.extend_from_slice(id.as_bytes());
+        }
+        ObjectConstant::ValueRef(h) => {
+            out.push(CONST_VALUEREF);
+            out.extend_from_slice(h.as_bytes());
         }
     }
 }
@@ -680,6 +758,11 @@ fn decode_constant(r: &mut Reader<'_>) -> Result<ObjectConstant, ObjectError> {
             let mut bytes = [0u8; 32];
             bytes.copy_from_slice(r.take(32)?);
             ObjectConstant::Ability(ambient_core::AbilityId::from_bytes(bytes))
+        }
+        CONST_VALUEREF => {
+            let mut bytes = [0u8; 32];
+            bytes.copy_from_slice(r.take(32)?);
+            ObjectConstant::ValueRef(blake3::Hash::from_bytes(bytes))
         }
         t => return Err(ObjectError::BadTag(t)),
     })
@@ -905,6 +988,47 @@ mod tests {
             }])
         };
         assert_ne!(make("a").hash(), make("b").hash());
+    }
+
+    #[test]
+    fn value_object_roundtrips_and_hashes_by_content() {
+        // Every current const form round-trips through encode → decode.
+        for value in [
+            Value::Unit,
+            Value::Bool(true),
+            Value::Number(-1.5),
+            Value::string("embedded blob"),
+            Value::binary(vec![0xca, 0xfe]),
+        ] {
+            let object = value_object(&value).expect("value object");
+            let decoded = StoredObject::decode(&object.encode()).expect("decode");
+            assert_eq!(object, decoded);
+            assert_eq!(object.hash(), decoded.hash());
+            assert_eq!(object.as_value(), Some(value));
+        }
+    }
+
+    #[test]
+    fn identical_values_share_one_hash_different_values_differ() {
+        // Content addressing: the hash is a pure function of the value's type
+        // and bytes — the const's name never enters it.
+        let a = value_object(&Value::Number(42.0)).unwrap();
+        let b = value_object(&Value::Number(42.0)).unwrap();
+        assert_eq!(a.hash(), b.hash(), "same value ⇒ same hash");
+
+        let different_value = value_object(&Value::Number(43.0)).unwrap();
+        assert_ne!(a.hash(), different_value.hash());
+
+        // Same bytes, different type tag ⇒ different hash.
+        let number_zero = value_object(&Value::Number(0.0)).unwrap();
+        let bool_false = value_object(&Value::Bool(false)).unwrap();
+        assert_ne!(number_zero.hash(), bool_false.hash());
+    }
+
+    #[test]
+    fn value_object_materializes_no_functions() {
+        let object = value_object(&Value::Number(7.0)).unwrap();
+        assert!(object.materialize().unwrap().is_empty());
     }
 
     #[test]

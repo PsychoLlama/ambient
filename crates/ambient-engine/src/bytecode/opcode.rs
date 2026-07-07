@@ -23,6 +23,14 @@ pub enum Opcode {
     /// Duplicate the top value on the stack.
     Dup = 0x02,
 
+    /// Push a content-addressed `const` value onto the stack.
+    /// Operand: u16 (constant pool index holding a `Value::ObjectRef(hash)`)
+    ///
+    /// Resolves the object hash against the VM's value objects and pushes a
+    /// clone of the stored value. Mirrors how `Call` reads a
+    /// `Value::FunctionRef` from the pool.
+    LoadObject = 0x03,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Local variables
     // ─────────────────────────────────────────────────────────────────────────
@@ -729,6 +737,7 @@ impl Opcode {
             0x00 => Some(Self::PushConst),
             0x01 => Some(Self::Pop),
             0x02 => Some(Self::Dup),
+            0x03 => Some(Self::LoadObject),
             0x10 => Some(Self::StoreLocal),
             0x11 => Some(Self::LoadLocal),
             0x20 => Some(Self::Add),

@@ -747,6 +747,49 @@ mod tests {
     }
 
     #[test]
+    fn load_closure_pulls_in_const_value_objects() {
+        use ambient_ability::Value;
+
+        let (_dir, store) = temp_store();
+
+        // A `const` value object (a leaf) and a function that depends on it.
+        let value_object = crate::object::value_object(&Value::Number(42.0)).expect("value object");
+        let value_hash = store.put_object(&value_object).expect("put value");
+
+        let root = StoredObject::Plain(ObjectFunction {
+            bytecode: vec![9],
+            // The reference is a value ref in the pool plus a dependency edge.
+            constants: vec![ObjectConstant::ValueRef(value_hash)],
+            local_count: 0,
+            param_count: 0,
+            dependencies: vec![ObjectRef::External(value_hash)],
+        });
+        let root_hash = store.put_object(&root).expect("put root");
+
+        let mut memory = Store::new();
+        store
+            .load_closure(&root_hash, &mut memory)
+            .expect("load closure");
+        // The function loaded, and its const value object came along as a leaf.
+        assert!(memory.contains(&root_hash));
+        assert_eq!(memory.get_value(&value_hash), Some(&Value::Number(42.0)));
+    }
+
+    #[test]
+    fn identical_const_values_deduplicate_on_disk() {
+        use ambient_ability::Value;
+
+        let (_dir, store) = temp_store();
+        let a = crate::object::value_object(&Value::string("blob")).expect("value object");
+        let b = crate::object::value_object(&Value::string("blob")).expect("value object");
+
+        let first = store.put_object(&a).expect("put a");
+        // Byte-identical content ⇒ same path ⇒ the second write is a no-op.
+        assert!(!store.put_object_at(&b.hash(), &b).expect("put b"));
+        assert_eq!(first, b.hash());
+    }
+
+    #[test]
     fn load_closure_fails_on_missing_dependency() {
         let (_dir, store) = temp_store();
 

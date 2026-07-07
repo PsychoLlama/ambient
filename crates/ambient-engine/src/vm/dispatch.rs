@@ -31,6 +31,26 @@ impl Vm {
                     self.stack.push(value);
                 }
 
+                Opcode::LoadObject => {
+                    let idx = self.read_u16()?;
+                    let hash = match self.get_constant(idx)? {
+                        Value::ObjectRef(h) => h,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "object reference",
+                                got: other.type_name(),
+                                operation: "load_object",
+                            });
+                        }
+                    };
+                    let value = self
+                        .values
+                        .get(&hash)
+                        .cloned()
+                        .ok_or(VmError::UnknownObject(hash))?;
+                    self.stack.push(value);
+                }
+
                 Opcode::StoreLocal => {
                     let slot = self.read_u16()?;
                     let value = self.peek()?.clone();

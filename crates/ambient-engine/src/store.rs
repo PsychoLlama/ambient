@@ -32,6 +32,7 @@ use std::sync::Arc;
 
 use crate::bytecode::CompiledFunction;
 use crate::object::{ObjectError, StoredObject};
+use crate::value::Value;
 
 /// Magic bytes identifying a pack (a batch of objects with roots).
 pub const PACK_MAGIC: [u8; 4] = *b"ABPK";
@@ -49,10 +50,12 @@ pub const PACK_VERSION: u8 = 1;
 pub struct Store {
     /// Function hash -> runnable function (materialized view).
     functions: HashMap<blake3::Hash, Arc<CompiledFunction>>,
-    /// Object hash -> canonical object (plain functions and groups).
+    /// Object hash -> canonical object (plain functions, groups, and values).
     objects: HashMap<blake3::Hash, StoredObject>,
     /// Function hash -> hash of the object that provides it.
     providers: HashMap<blake3::Hash, blake3::Hash>,
+    /// Value-object hash -> the `const` value it holds (materialized view).
+    values: HashMap<blake3::Hash, Value>,
 }
 
 impl Store {
@@ -78,8 +81,15 @@ impl Store {
     /// Returns the object hash. Redirects are rejected: they are a
     /// disk-layout artifact, not portable content.
     pub fn add_object(&mut self, object: StoredObject) -> Result<blake3::Hash, StoreError> {
-        let materialized = object.materialize().map_err(StoreError::Object)?;
         let object_hash = object.hash();
+        // A value object holds a `const`, not code: index it into `values`
+        // (keyed by its own content hash) rather than materializing functions.
+        if let Some(value) = object.as_value() {
+            self.values.entry(object_hash).or_insert(value);
+            self.objects.insert(object_hash, object);
+            return Ok(object_hash);
+        }
+        let materialized = object.materialize().map_err(StoreError::Object)?;
         for (func_hash, func) in materialized {
             // Keep an existing entry if present: it may carry debug info.
             self.functions
@@ -124,6 +134,18 @@ impl Store {
     #[must_use]
     pub fn get(&self, hash: &blake3::Hash) -> Option<Arc<CompiledFunction>> {
         self.functions.get(hash).cloned()
+    }
+
+    /// Get a `const` value object by its content hash.
+    #[must_use]
+    pub fn get_value(&self, hash: &blake3::Hash) -> Option<&Value> {
+        self.values.get(hash)
+    }
+
+    /// Every `const` value object in the store, keyed by content hash.
+    #[must_use]
+    pub fn values(&self) -> &HashMap<blake3::Hash, Value> {
+        &self.values
     }
 
     /// Check if a function exists in the store.
@@ -253,6 +275,16 @@ impl Store {
                 object_hashes.push(*object_hash);
             }
         }
+        // Value objects a function depends on are content-addressed by their
+        // own hash (they have no provider entry); include them so a shipped
+        // closure carries the `const`s it reads.
+        let mut value_hashes: Vec<blake3::Hash> = subset.values.keys().copied().collect();
+        value_hashes.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        for value_hash in value_hashes {
+            if seen.insert(value_hash) {
+                object_hashes.push(value_hash);
+            }
+        }
         let pack = Pack {
             entry_point: None,
             names: Vec::new(),
@@ -279,6 +311,9 @@ impl Store {
         }
         for (func_hash, object_hash) in &other.providers {
             self.providers.entry(*func_hash).or_insert(*object_hash);
+        }
+        for (hash, value) in &other.values {
+            self.values.entry(*hash).or_insert_with(|| value.clone());
         }
     }
 
@@ -316,6 +351,16 @@ impl Store {
                         .entry(*object_hash)
                         .or_insert_with(|| object.clone());
                 }
+            }
+        } else if let Some(value) = self.values.get(hash) {
+            // A `const` value object a function depends on: a leaf, so there
+            // is nothing further to recurse into.
+            result.values.entry(*hash).or_insert_with(|| value.clone());
+            if let Some(object) = self.objects.get(hash) {
+                result
+                    .objects
+                    .entry(*hash)
+                    .or_insert_with(|| object.clone());
             }
         }
     }
