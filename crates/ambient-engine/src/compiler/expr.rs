@@ -128,6 +128,27 @@ pub(super) fn compile_expr(
                 // A bare identifier resolving to a function hash is a function
                 // reference - push it for later use.
                 fc.builder.emit_const(Value::FunctionRef(hash));
+            } else if let Some(variant) = name
+                .resolved
+                .as_ref()
+                .and_then(|fqn| ctx.foreign_variants.get(fqn))
+                .cloned()
+            {
+                // Fully-qualified unit variant as a value (`core::Option::None`).
+                // Keyed by `Fqn`, consulted before the bare `ctx.enums` table
+                // so a same-named local variant can't steal its tag.
+                if variant.has_payload {
+                    return Err(CompileError::new(
+                        CompileErrorKind::Unsupported {
+                            feature: format!(
+                                "constructor `{var_name}` used as a value; apply it: `{var_name}(...)`"
+                            ),
+                        },
+                        (expr.span.start, expr.span.end),
+                    ));
+                }
+                fc.builder
+                    .emit_make_enum(&variant.enum_name, variant.tag, var_name, false);
             } else if let Some(variant) = ctx.enums.get(var_name).cloned() {
                 // Unit enum variant as a value: `None`, `Nothing`.
                 if variant.has_payload {
@@ -381,6 +402,28 @@ pub(super) fn compile_expr(
                         compile_expr(fc, arg, ctx)?;
                     }
                     fc.builder.emit_call_closure(args.len() as u8);
+                } else if let Some(variant) = name
+                    .resolved
+                    .as_ref()
+                    .and_then(|fqn| ctx.foreign_variants.get(fqn))
+                    .cloned()
+                {
+                    // A fully-qualified variant constructor
+                    // (`core::Option::Some(x)`, `pkg::shapes::Shape::Circle(3)`).
+                    // Keyed by `Fqn`, so it is consulted *before* the bare
+                    // `ctx.enums` table and the cross-module bail — a
+                    // same-named local variant can never steal its tag.
+                    if !variant.has_payload || args.len() != 1 {
+                        return Err(CompileError::new(
+                            CompileErrorKind::Internal {
+                                message: "enum constructor arity mismatch (checker bug)",
+                            },
+                            (callee.span.start, callee.span.end),
+                        ));
+                    }
+                    compile_expr(fc, &args[0], ctx)?;
+                    fc.builder
+                        .emit_make_enum(&variant.enum_name, variant.tag, &name.name, true);
                 } else if let Some(variant) = ctx.enums.get(&name.name).cloned() {
                     // Enum variant constructor: `Some(x)`, `Just(v)`. Checked
                     // before the cross-module bail: a same-module variant now

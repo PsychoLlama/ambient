@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use crate::ast::{ItemKind, Module};
 use crate::compiler::CompiledModule;
-use crate::fqn::NameKey;
+use crate::fqn::{Fqn, NameKey};
 use crate::infer::BoxedTypeError;
 use crate::module_path::ModulePath;
 use crate::module_registry::{ExportKind, ModuleRegistry};
@@ -508,6 +508,52 @@ pub fn build_foreign_unit_structs(
     keys
 }
 
+/// Collect every foreign enum's variant constructors in the build, keyed by
+/// their canonical two-segment `Fqn(enum_module, [Enum, Variant])`.
+///
+/// Variant construction inlines a `MakeEnum` tag rather than linking by
+/// hash, so — like [`build_imported_enums`] — the compiler needs the
+/// tag/payload layout, not a name→hash entry. This is the *qualified*
+/// channel, distinct from [`build_imported_enums`]'s bare one: a
+/// fully-qualified (`core::Option::Some`) or explicit-enum
+/// (`pkg::shapes::Shape::Circle`) reference resolves to an `Fqn` looked up
+/// here. All public enums are provided (not just imported ones) because
+/// inline qualified references need no import.
+#[must_use]
+pub fn build_foreign_enum_variants(
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> Vec<(Fqn, crate::compiler::VariantInfo)> {
+    let mut variants = Vec::new();
+    for info in registry.all_modules() {
+        if &info.path == module_path {
+            continue;
+        }
+        for item in &info.module.items {
+            if let ItemKind::Enum(def) = &item.kind
+                && def.is_public
+            {
+                for (idx, variant) in def.variants.iter().enumerate() {
+                    let fqn = registry.fqn(
+                        &info.path,
+                        &[Arc::clone(&def.name), Arc::clone(&variant.name)],
+                    );
+                    variants.push((
+                        fqn,
+                        crate::compiler::VariantInfo {
+                            enum_name: Arc::clone(&def.name),
+                            #[allow(clippy::cast_possible_truncation)]
+                            tag: idx as u16,
+                            has_payload: variant.payload.is_some(),
+                        },
+                    ));
+                }
+            }
+        }
+    }
+    variants
+}
+
 /// Register and compile the embedded core library modules.
 ///
 /// Core modules are registered in the registry under their reserved
@@ -693,6 +739,7 @@ fn compile_loaded_module_with_registry(
             imported_enums: build_imported_enums(module_path, registry),
             imported_unit_structs: build_foreign_unit_structs(module_path, registry),
             imported_constants: build_foreign_constants(module_path, registry),
+            foreign_enum_variants: build_foreign_enum_variants(module_path, registry),
             prelude_abilities,
             foreign_abilities: crate::infer::resolve_registry_abilities(registry),
         },
@@ -758,6 +805,7 @@ pub fn compile_session_module(
             imported_enums: build_imported_enums(path, registry),
             imported_unit_structs: build_foreign_unit_structs(path, registry),
             imported_constants: build_foreign_constants(path, registry),
+            foreign_enum_variants: build_foreign_enum_variants(path, registry),
             prelude_abilities,
             foreign_abilities: crate::infer::resolve_registry_abilities(registry),
         },

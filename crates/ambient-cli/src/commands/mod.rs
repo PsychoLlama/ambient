@@ -180,6 +180,10 @@ pub fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
                 &main_path,
                 &core.registry,
             ),
+            foreign_enum_variants: ambient_engine::build::build_foreign_enum_variants(
+                &main_path,
+                &core.registry,
+            ),
             prelude_abilities: &prelude,
             foreign_abilities: ambient_engine::infer::resolve_registry_abilities(&core.registry),
         },

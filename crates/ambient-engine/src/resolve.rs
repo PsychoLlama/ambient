@@ -396,6 +396,11 @@ impl<'r> Resolver<'r> {
     /// names, chasing `pub use` re-exports to the defining origin.
     fn resolve_path_ref(&mut self, name: &mut QualifiedName) {
         let Some(target) = self.resolve_module_prefix(&name.path) else {
+            // The path's prefix didn't lead through modules. The one path
+            // shape this rescues is the explicit-enum variant spelling
+            // `m::Enum::Variant`, where the final *path* segment names an
+            // enum rather than a module.
+            self.resolve_explicit_enum_variant(name);
             return;
         };
         if target == *self.current {
@@ -569,9 +574,63 @@ impl<'r> Resolver<'r> {
     /// re-export chains to the defining origin, and land on its `Fqn`.
     /// Same-module references are normalized to bare by
     /// [`Self::resolve_path_ref`] before reaching here.
+    ///
+    /// A final segment that names an enum variant lands on the canonical
+    /// two-segment ident `Fqn(enum_module, [Enum, Variant])` — the key its
+    /// constructor scheme binds under — so `core::Option::Some` resolves
+    /// exactly like the imported/bare spellings.
     fn lookup_item(&mut self, module: &ModulePath, name: &str) -> Option<Fqn> {
-        let (_, origin) = self.registry.lookup_symbol(module, name).ok()?;
+        let (export, origin) = self.registry.lookup_symbol(module, name).ok()?;
+        let kind = export.kind;
+        if kind == ExportKind::EnumVariant {
+            let enum_name = self.variant_enum(&origin, name)?;
+            return Some(self.canonical(&origin, vec![enum_name, Arc::from(name)]));
+        }
         Some(self.canonical(&origin, vec![Arc::from(name)]))
+    }
+
+    /// Resolve the explicit-enum variant spelling `m::Enum::Variant`, where
+    /// the last *path* segment (`Enum`) names an enum rather than a module,
+    /// so [`Self::resolve_module_prefix`] over the full path fails.
+    ///
+    /// Tightly gated: the prefix minus the enum segment must name a module
+    /// that publicly exports an enum of that name whose variants include
+    /// the final ident. An empty prefix (`Enum::Variant`, `Money::default`)
+    /// never qualifies — it is an associated path the checker owns.
+    fn resolve_explicit_enum_variant(&mut self, name: &mut QualifiedName) {
+        let Some((enum_seg, prefix)) = name.path.split_last() else {
+            return;
+        };
+        if prefix.is_empty() {
+            return;
+        }
+        let Some(target) = self.resolve_module_prefix(prefix) else {
+            return;
+        };
+        let Ok((export, origin)) = self.registry.lookup_symbol(&target, enum_seg) else {
+            return;
+        };
+        if export.kind != ExportKind::Enum {
+            return;
+        }
+        let enum_name = Arc::clone(&export.name);
+        if !self.enum_has_variant(&origin, &enum_name, &name.name) {
+            return;
+        }
+        let variant = Arc::clone(&name.name);
+        name.resolved = Some(self.canonical(&origin, vec![enum_name, variant]));
+    }
+
+    /// Whether `module` declares an enum named `enum_name` that has a
+    /// variant `variant`.
+    fn enum_has_variant(&self, module: &ModulePath, enum_name: &str, variant: &str) -> bool {
+        self.registry.get(module).is_some_and(|info| {
+            info.module.items.iter().any(|item| {
+                matches!(&item.kind,
+                    ItemKind::Enum(e) if e.name.as_ref() == enum_name
+                        && e.variants.iter().any(|v| v.name.as_ref() == variant))
+            })
+        })
     }
 
     /// The enum that declares `variant` in foreign `module`, if any — the
@@ -1071,6 +1130,82 @@ mod tests {
 
         // The imported variant lands on `shapes::Shape::Circle`, not a bare
         // `Circle` (corner #2: imported variants now resolve).
+        assert_eq!(
+            body_resolved(&main, "ref_circle"),
+            Some(registry.fqn(&shapes_path, &[Arc::from("Shape"), Arc::from("Circle")]))
+        );
+    }
+
+    /// Build a `shapes` module (`enum Shape { Circle, Dot }`) plus a `main`
+    /// that references a variant through `callee`, resolve `main`, and return
+    /// it with the registry and shapes path.
+    fn shapes_and_ref(callee: QualifiedName) -> (Module, ModuleRegistry, ModulePath) {
+        let shapes = Module {
+            name: Arc::from("shapes"),
+            doc: None,
+            items: vec![Item::new(
+                ItemKind::Enum(EnumDef {
+                    name: Arc::from("Shape"),
+                    name_span: Span::default(),
+                    is_public: true,
+                    type_params: vec![],
+                    variants: vec![
+                        EnumVariant {
+                            name: Arc::from("Circle"),
+                            payload: None,
+                            span: Span::default(),
+                        },
+                        EnumVariant {
+                            name: Arc::from("Dot"),
+                            payload: None,
+                            span: Span::default(),
+                        },
+                    ],
+                    uuid: uuid::Uuid::from_u128(3),
+                }),
+                Span::default(),
+            )],
+        };
+        let body = Expr {
+            kind: crate::ast::ExprKind::Name(callee),
+            span: Span::default(),
+            ty: None,
+        };
+        let mut main = Module {
+            name: Arc::from("main"),
+            doc: None,
+            items: vec![func("ref_circle", body, vec![])],
+        };
+        let mut registry = ModuleRegistry::new();
+        let shapes_path = ModulePath::from_str_segments(&["shapes"]).unwrap();
+        let main_path = ModulePath::from_str_segments(&["main"]).unwrap();
+        registry.register(&shapes_path, Arc::new(shapes));
+        registry.register(&main_path, Arc::new(main.clone()));
+        resolve_module(&mut main, &main_path, &registry);
+        (main, registry, shapes_path)
+    }
+
+    #[test]
+    fn foreign_variant_qualified_by_module_resolves_to_two_segment_ident() {
+        // `pkg::shapes::Circle` — the variant is a direct export of module
+        // `shapes` — lands on the two-segment `shapes::Shape::Circle`.
+        let (main, registry, shapes_path) =
+            shapes_and_ref(QualifiedName::qualified(vec!["pkg", "shapes"], "Circle"));
+        assert_eq!(
+            body_resolved(&main, "ref_circle"),
+            Some(registry.fqn(&shapes_path, &[Arc::from("Shape"), Arc::from("Circle")]))
+        );
+    }
+
+    #[test]
+    fn foreign_variant_qualified_by_enum_resolves_to_two_segment_ident() {
+        // `pkg::shapes::Shape::Circle` — the explicit-enum spelling, where the
+        // last path segment names the enum, not a module — lands on the same
+        // two-segment ident (via the `resolve_explicit_enum_variant` fallback).
+        let (main, registry, shapes_path) = shapes_and_ref(QualifiedName::qualified(
+            vec!["pkg", "shapes", "Shape"],
+            "Circle",
+        ));
         assert_eq!(
             body_resolved(&main, "ref_circle"),
             Some(registry.fqn(&shapes_path, &[Arc::from("Shape"), Arc::from("Circle")]))

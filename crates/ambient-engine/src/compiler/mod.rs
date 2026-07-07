@@ -460,6 +460,13 @@ struct ModuleContext {
     /// Seeded with the prelude (Option/Result); local enum declarations
     /// shadow prelude variants of the same name.
     enums: HashMap<Arc<str>, VariantInfo>,
+    /// Foreign enum variant constructors keyed by their canonical
+    /// two-segment [`Fqn`] (`core::Option::Some`,
+    /// `pkg::shapes::Shape::Circle`). Consulted *before* the bare
+    /// [`Self::enums`] table so a fully-qualified reference always inlines
+    /// the defining enum's tag, never a same-named local variant's (see
+    /// `CompileOptions::foreign_enum_variants`).
+    foreign_variants: HashMap<Fqn, VariantInfo>,
     /// Unit-struct constructors in scope, keyed by resolution key: local
     /// declarations by bare name ([`NameKey::Bare`]), foreign ones by their
     /// [`Fqn`] ([`NameKey::Item`]). A reference whose key is here compiles
@@ -514,7 +521,7 @@ impl CompiledAbilityInfo {
 
 /// Compile-time info for one enum variant constructor.
 #[derive(Debug, Clone)]
-pub(crate) struct VariantInfo {
+pub struct VariantInfo {
     pub enum_name: Arc<str>,
     pub tag: u16,
     pub has_payload: bool,
@@ -543,6 +550,7 @@ impl ModuleContext {
             lambda_counter: 0,
             current_function: None,
             enums,
+            foreign_variants: HashMap::new(),
             unit_structs: HashSet::new(),
             constants: HashMap::new(),
             abilities: HashMap::new(),
@@ -737,6 +745,17 @@ impl ModuleContext {
         }
     }
 
+    /// Register foreign enum variant constructors under their canonical
+    /// two-segment [`Fqn`] (see [`CompileOptions::foreign_enum_variants`]).
+    /// A separate table from [`Self::enums`]: it is keyed by `Fqn`, not
+    /// bare name, so a qualified reference is never shadowed by (nor
+    /// shadows) a same-named local variant.
+    fn register_foreign_variants(&mut self, variants: &[(Fqn, VariantInfo)]) {
+        for (fqn, info) in variants {
+            self.foreign_variants.insert(fqn.clone(), info.clone());
+        }
+    }
+
     /// Register a module's enum declarations, shadowing prelude variants.
     fn register_enums(&mut self, module: &Module) {
         for item in &module.items {
@@ -837,6 +856,15 @@ pub struct CompileOptions<'a> {
     /// rewrites every cross-module constant reference to its canonical
     /// key, which is looked up here.
     pub imported_constants: Vec<(NameKey, crate::ast::ConstDef)>,
+    /// Foreign enum variant constructors, keyed by their canonical
+    /// two-segment [`Fqn`] (`core::Option::Some`,
+    /// `pkg::shapes::Shape::Circle`). Variant construction inlines a
+    /// `MakeEnum` tag rather than linking by hash, so — like
+    /// [`Self::imported_enums`] — the compiler needs the tag/payload layout,
+    /// not a name→hash entry. This is the *qualified* channel:
+    /// [`Self::imported_enums`] covers bare/enum-imported variants;
+    /// fully-qualified references resolve to an `Fqn` looked up here.
+    pub foreign_enum_variants: Vec<(Fqn, VariantInfo)>,
     /// Prelude abilities (embedder-resolved declaration modules, e.g. the
     /// platform bindings interface). Local declarations shadow them.
     pub prelude_abilities: &'a [std::sync::Arc<crate::ability_resolver::DynAbility>],
@@ -979,6 +1007,7 @@ fn compile_module_impl(
         imported_enums,
         imported_unit_structs,
         imported_constants,
+        foreign_enum_variants,
         prelude_abilities,
         foreign_abilities,
     } = options;
@@ -1051,6 +1080,7 @@ fn compile_module_impl(
     let mut ctx = ModuleContext::new(module_id.clone());
     ctx.register_imported_enums(&imported_enums);
     ctx.register_enums(module);
+    ctx.register_foreign_variants(&foreign_enum_variants);
     ctx.register_imported_unit_structs(&imported_unit_structs);
     ctx.register_unit_structs(module);
     ctx.register_imported_constants(&imported_constants);

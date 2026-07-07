@@ -70,6 +70,7 @@ fn compile(src: &str) -> CompiledModule {
             imported_enums: Vec::new(),
             imported_unit_structs: Vec::new(),
             imported_constants: Vec::new(),
+            foreign_enum_variants: Vec::new(),
             prelude_abilities: &prelude,
             foreign_abilities: Vec::new(),
         },

@@ -2069,8 +2069,52 @@ fn build_import_env(
     }
 
     bind_all_module_exports(infer, module_path, registry, &mut env, &mut next_binding_id);
+    bind_foreign_enum_variants(infer, module_path, registry, &mut env, &mut next_binding_id);
 
     env
+}
+
+/// Bind every *public* foreign enum's variant constructors under their
+/// canonical two-segment `Fqn(enum_module, [Enum, Variant])` — the key a
+/// fully-qualified (`core::Option::Some`) or explicit-enum
+/// (`pkg::shapes::Shape::Circle`) reference resolves to.
+///
+/// Fqn-only, never bare: same-module variants, enum-imported variants, and
+/// the prelude come through `register_enums`; this fills the qualified
+/// channel none of those cover. Mirrors [`bind_all_module_exports`] — every
+/// public enum in every *other* module, keyed by `Fqn`.
+fn bind_foreign_enum_variants(
+    infer: &mut Infer,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+    env: &mut TypeEnv,
+    next_binding_id: &mut BindingId,
+) {
+    for module_info in registry.all_modules() {
+        let path = module_info.path.clone();
+        if &path == module_path {
+            continue;
+        }
+        let module_id = registry.module_id(&path);
+        for item in &module_info.module.items {
+            let crate::ast::ItemKind::Enum(enum_def) = &item.kind else {
+                continue;
+            };
+            if !enum_def.is_public {
+                continue;
+            }
+            let info = super::enums::EnumInfo::from_def(enum_def, Some(module_id.clone()));
+            for idx in 0..info.variants.len() {
+                let scheme = info.constructor_scheme(&mut infer.r#gen, idx);
+                let fqn = Fqn::new(
+                    module_id.clone(),
+                    vec![Arc::clone(&info.name), Arc::clone(&info.variants[idx].name)],
+                );
+                env.insert_item(*next_binding_id, fqn, scheme);
+                *next_binding_id += 1;
+            }
+        }
+    }
 }
 
 /// Bind every registered module's public exports into `env` under their

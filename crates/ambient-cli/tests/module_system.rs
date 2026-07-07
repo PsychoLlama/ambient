@@ -366,6 +366,33 @@ pub fn run(): Number { area(Circle(3)) }
 }
 
 #[test]
+fn fully_qualified_enum_variant_constructs_across_modules() {
+    // The explicit-enum spelling `pkg::shapes::Shape::Circle(3)` — where the
+    // last path segment names an enum, not a module — constructs the same
+    // value the bare/imported `Circle(3)` does, end-to-end. Both the payload
+    // variant (`Circle`, via a call) and the unit variant (`Dot`, as a value)
+    // resolve through the qualified channel.
+    let dir = package(&[
+        ("shapes.ab", SHAPES),
+        (
+            "main.ab",
+            r"
+use pkg::shapes::Shape;
+
+pub fn area(s: Shape): Number {
+  match s { Circle(r) => r * r, Dot => 0 }
+}
+
+pub fn run(): Number {
+  area(pkg::shapes::Shape::Circle(3)) + area(pkg::shapes::Shape::Dot)
+}
+",
+        ),
+    ]);
+    assert_eq!(run(dir.path()), "9");
+}
+
+#[test]
 fn unit_struct_constructs_across_modules_both_spellings() {
     // A unit struct is a value reachable by bare name. It must construct from
     // another module both ways the access invariant requires: through
