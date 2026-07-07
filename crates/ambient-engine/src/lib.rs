@@ -21,6 +21,7 @@ mod const_eval;
 pub mod core_library;
 pub mod disk_store;
 pub mod format;
+pub mod fqn;
 pub mod infer;
 pub mod manifest;
 pub mod module_path;

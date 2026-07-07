@@ -103,6 +103,22 @@ impl ModulePath {
         matches!(self.segments.first().map(AsRef::as_ref), Some("core"))
     }
 
+    /// Split this path into `(is_builtin, scope-relative segments)`.
+    ///
+    /// A path rooted at the reserved `core` namespace is builtin; its
+    /// leading `core` segment is stripped so the remainder is relative to
+    /// [`crate::fqn::Scope::Builtin`]. Every other path is workspace-scoped
+    /// and returned whole. This is the single split
+    /// [`crate::fqn::ModuleId::from_module_path`] keys off.
+    #[must_use]
+    pub fn scope_relative(&self) -> (bool, &[Arc<str>]) {
+        if matches!(self.segments.first().map(AsRef::as_ref), Some("core")) {
+            (true, &self.segments[1..])
+        } else {
+            (false, &self.segments)
+        }
+    }
+
     /// Get the module name (last segment).
     #[must_use]
     pub fn name(&self) -> &str {

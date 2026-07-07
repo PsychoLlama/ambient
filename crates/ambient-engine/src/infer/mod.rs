@@ -78,6 +78,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::ability_resolver::AbilityResolver;
+use crate::fqn::NameKey;
 use crate::types::{
     AbilityId, AbilityRegistry, AbilitySet, AbilityValueType, AbilityVarId, ForallType, NamedType,
     Primitive, RecordType, TraitRegistry, Type, TypeVarGen, TypeVarId,
@@ -89,7 +90,7 @@ use crate::types::{
 /// (`Option`/`Result`). The core module's own `register_named_types` overwrites
 /// these with value-identical entries (pinned by `validate_reserved_structs`),
 /// and `retain_imported_type_aliases` keeps them across the per-module retract.
-fn primitive_type_aliases() -> HashMap<Arc<str>, Type> {
+fn primitive_type_aliases() -> HashMap<NameKey, Type> {
     [
         (Primitive::Bool, Type::bool()),
         (Primitive::Number, Type::number()),
@@ -97,7 +98,7 @@ fn primitive_type_aliases() -> HashMap<Arc<str>, Type> {
         (Primitive::Binary, Type::binary()),
     ]
     .into_iter()
-    .map(|(p, ty)| (Arc::from(p.name()), ty))
+    .map(|(p, ty)| (NameKey::Bare(Arc::from(p.name())), ty))
     .collect()
 }
 
@@ -122,7 +123,7 @@ pub struct Infer {
     pub(crate) ability_resolver: AbilityResolver,
     /// Type alias registry for looking up types by name.
     /// Maps type alias names to their resolved types (including Nominal types).
-    pub(crate) type_aliases: HashMap<Arc<str>, Type>,
+    pub(crate) type_aliases: HashMap<NameKey, Type>,
     /// Trait registry for trait and impl lookup.
     pub(crate) trait_registry: TraitRegistry,
     /// Inherent (trait-less) impl methods, keyed by target type identity.
@@ -145,6 +146,11 @@ pub struct Infer {
     /// the sandbox was checked. Enforced by
     /// [`Infer::resolve_pending_sandbox_checks`] after discharges resolve.
     pub(crate) pending_sandbox_checks: Vec<PendingSandboxCheck>,
+    /// The workspace package name user items are scoped under
+    /// (`workspace::<name>`). Seeded from the registry per check so
+    /// [`ModuleId`](crate::fqn::ModuleId)s the checker mints match the
+    /// registry's. Empty when checking without a registry.
+    pub(crate) workspace_name: Arc<str>,
 }
 
 /// A deferred "the sandbox body may only use these abilities" check.
@@ -216,7 +222,15 @@ impl Infer {
             resume_contexts: Vec::new(),
             pending_discharges: Vec::new(),
             pending_sandbox_checks: Vec::new(),
+            workspace_name: Arc::from(""),
         }
+    }
+
+    /// Seed the workspace package name user items are scoped under, so the
+    /// checker mints [`ModuleId`](crate::fqn::ModuleId)s matching the
+    /// registry's.
+    pub(crate) fn set_workspace_name(&mut self, name: Arc<str>) {
+        self.workspace_name = name;
     }
 
     /// Create a new inference context with standard abilities.
@@ -312,24 +326,40 @@ impl Infer {
         self.ability_subst.insert(discharge.remainder, bound);
     }
 
-    /// Register a type alias for later lookup during typed record inference.
+    /// Register a type alias under its bare name (a local or primitive
+    /// type, resolvable by the bare name the Type IR carries).
     pub fn register_type_alias(&mut self, name: Arc<str>, ty: Type) {
-        self.type_aliases.insert(name, ty);
+        self.type_aliases.insert(NameKey::Bare(name), ty);
     }
 
-    /// Look up a type alias by name.
+    /// Register a type alias under a cross-module type's [`Fqn`] identity,
+    /// the key a qualified constructor (`pkg::shapes::Money { … }`)
+    /// resolves to.
+    pub fn register_type_alias_item(&mut self, fqn: crate::fqn::Fqn, ty: Type) {
+        self.type_aliases.insert(NameKey::Item(fqn), ty);
+    }
+
+    /// Look up a type alias by its bare name (Type IR names, local and
+    /// primitive types).
     #[must_use]
     pub fn get_type_alias(&self, name: &str) -> Option<&Type> {
-        self.type_aliases.get(name)
+        self.type_aliases.get(&NameKey::Bare(Arc::from(name)))
     }
 
-    /// Drop every registered type alias whose name does not satisfy `keep`.
+    /// Look up a type alias by a reference's resolution key (a bare local
+    /// type or a cross-module type's [`Fqn`]).
+    #[must_use]
+    pub fn get_type_alias_key(&self, key: &NameKey) -> Option<&Type> {
+        self.type_aliases.get(key)
+    }
+
+    /// Drop every registered type alias whose key does not satisfy `keep`.
     ///
     /// Used to retract foreign package aliases that were registered only to
     /// hydrate imported signatures and impl targets, so they don't remain
     /// resolvable by bare name in this module's own bodies.
-    pub(crate) fn retain_type_aliases(&mut self, keep: impl Fn(&str) -> bool) {
-        self.type_aliases.retain(|name, _| keep(name));
+    pub(crate) fn retain_type_aliases(&mut self, keep: impl Fn(&NameKey) -> bool) {
+        self.type_aliases.retain(|key, _| keep(key));
     }
 
     /// Generate a fresh type variable.
@@ -408,7 +438,7 @@ impl Infer {
             Type::Named(n) => {
                 // Check if this named type corresponds to a registered type alias
                 if n.args.is_empty()
-                    && let Some(aliased_type) = self.type_aliases.get(&n.name).cloned()
+                    && let Some(aliased_type) = self.get_type_alias(&n.name).cloned()
                 {
                     // Resolve to the aliased type
                     return self.resolve_holes(&aliased_type);
@@ -459,7 +489,12 @@ impl Infer {
         for name in names {
             let mut segments: Vec<&str> = name.split("::").collect();
             let bare = segments.pop().unwrap_or_default();
-            match self.ability_resolver.resolve_ref(&segments, bare) {
+            // A bare name (no namespace segments) resolves to a local
+            // dynamic; a qualified one names its declaring module.
+            let namespace = (!segments.is_empty()).then(|| {
+                crate::fqn::ModuleId::from_dotted_segments(&segments, &self.workspace_name)
+            });
+            match self.ability_resolver.resolve_ref(namespace.as_ref(), bare) {
                 Ok(id) => ids.push(id),
                 Err(err) => {
                     let kind = match err {

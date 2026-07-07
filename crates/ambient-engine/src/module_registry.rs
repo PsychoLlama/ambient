@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::ast::{ItemKind, Module, Span, UseDef, UsePrefix};
+use crate::fqn::{Fqn, ModuleId};
 use crate::module_path::{ImportPrefix, ModulePath, ResolutionError};
 
 /// Error that can occur during module registry operations.
@@ -193,13 +194,14 @@ pub struct ItemImport {
 }
 
 impl ItemImport {
-    /// The canonical identity: `<module>::<name>`.
+    /// The canonical [`Fqn`] identity for this import, given the workspace
+    /// package name used to scope user modules.
     #[must_use]
-    pub fn canonical(&self) -> crate::ast::Resolved {
-        crate::ast::Resolved {
-            module: self.module.to_string().into(),
-            name: Arc::clone(&self.name),
-        }
+    pub fn canonical(&self, workspace: &Arc<str>) -> Fqn {
+        Fqn::new(
+            ModuleId::from_module_path(&self.module, workspace),
+            vec![Arc::clone(&self.name)],
+        )
     }
 }
 
@@ -284,10 +286,24 @@ impl ModuleScope {
 /// The registry maintains a map from module paths to their exports,
 /// enabling cross-module name resolution. Cloning is cheap relative to
 /// building: module ASTs are shared through `Arc`.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct ModuleRegistry {
     /// Map from module path string to module info.
     modules: HashMap<String, ModuleInfo>,
+    /// The workspace package name (`ambient.toml` `name`) user modules are
+    /// scoped under (`workspace::<name>`). Empty until
+    /// [`Self::set_workspace_name`] runs — a consistent placeholder that
+    /// keeps every key internally consistent within one build.
+    workspace_name: Arc<str>,
+}
+
+impl Default for ModuleRegistry {
+    fn default() -> Self {
+        Self {
+            modules: HashMap::new(),
+            workspace_name: Arc::from(""),
+        }
+    }
 }
 
 impl ModuleRegistry {
@@ -295,6 +311,32 @@ impl ModuleRegistry {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Set the workspace package name every user item's [`Fqn`] is scoped
+    /// under. Call once per build before resolving/checking so the engine,
+    /// LSP, and store all mint identical identities.
+    pub fn set_workspace_name(&mut self, name: impl Into<Arc<str>>) {
+        self.workspace_name = name.into();
+    }
+
+    /// The workspace package name user modules are scoped under.
+    #[must_use]
+    pub fn workspace_name(&self) -> &Arc<str> {
+        &self.workspace_name
+    }
+
+    /// The [`ModuleId`] for a module path under this registry's workspace.
+    #[must_use]
+    pub fn module_id(&self, path: &ModulePath) -> ModuleId {
+        ModuleId::from_module_path(path, &self.workspace_name)
+    }
+
+    /// The [`Fqn`] for an item named by `ident` in module `path`, scoped
+    /// under this registry's workspace.
+    #[must_use]
+    pub fn fqn(&self, path: &ModulePath, ident: &[Arc<str>]) -> Fqn {
+        Fqn::new(self.module_id(path), ident.to_vec())
     }
 
     /// Register a module in the registry.

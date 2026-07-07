@@ -301,8 +301,15 @@ fn get_namespace_ability_completions(
     namespace: &str,
     prefix: &str,
 ) -> Vec<CompletionItem> {
+    // Build the namespace's `ModuleId` from its dotted spelling. Platform
+    // abilities live under `core::system` (`Builtin`); a user namespace's
+    // workspace scope isn't known here, so it best-effort matches the empty
+    // workspace.
+    let segments: Vec<&str> = namespace.split("::").collect();
+    let module_id =
+        ambient_engine::fqn::ModuleId::from_dotted_segments(&segments, &std::sync::Arc::from(""));
     resolver
-        .namespace_ability_names(namespace)
+        .namespace_ability_names(&module_id)
         .into_iter()
         .filter(|ab| ab.starts_with(prefix))
         .map(|ab| CompletionItem {

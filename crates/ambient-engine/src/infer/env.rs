@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::ast::BindingId;
+use crate::fqn::{Fqn, NameKey};
 use crate::types::{AbilityVarId, Type, TypeVarId};
 
 /// A type environment mapping bindings to their types.
@@ -14,8 +15,10 @@ pub struct TypeEnv {
     /// Mapping from binding IDs to type schemes.
     bindings: HashMap<BindingId, Scheme>,
 
-    /// Mapping from names to binding IDs (for named lookups).
-    names: HashMap<Arc<str>, BindingId>,
+    /// Mapping from lookup keys to binding IDs. Locals and same-module
+    /// items key by [`NameKey::Bare`] (their bare source name);
+    /// cross-module imports key by [`NameKey::Item`] (their [`Fqn`]).
+    names: HashMap<NameKey, BindingId>,
 }
 
 /// A type scheme (potentially polymorphic type).
@@ -75,13 +78,24 @@ impl TypeEnv {
         Self::default()
     }
 
-    /// Insert a binding with its type scheme.
+    /// Insert a binding under its bare name (a local, or a same-module
+    /// item).
     pub fn insert(&mut self, id: BindingId, name: Arc<str>, scheme: Scheme) {
-        self.bindings.insert(id, scheme);
-        self.names.insert(name, id);
+        self.insert_key(id, NameKey::Bare(name), scheme);
     }
 
-    /// Insert a binding with a monomorphic type.
+    /// Insert a binding under a cross-module item's [`Fqn`] identity.
+    pub fn insert_item(&mut self, id: BindingId, fqn: Fqn, scheme: Scheme) {
+        self.insert_key(id, NameKey::Item(fqn), scheme);
+    }
+
+    /// Insert a binding under an arbitrary [`NameKey`].
+    pub fn insert_key(&mut self, id: BindingId, key: NameKey, scheme: Scheme) {
+        self.bindings.insert(id, scheme);
+        self.names.insert(key, id);
+    }
+
+    /// Insert a binding with a monomorphic type under its bare name.
     pub fn insert_mono(&mut self, id: BindingId, name: Arc<str>, ty: Type) {
         self.insert(id, name, Scheme::mono(ty));
     }
@@ -92,10 +106,17 @@ impl TypeEnv {
         self.bindings.get(&id)
     }
 
-    /// Look up a binding by name.
+    /// Look up a binding by its bare name (a local or same-module item).
     #[must_use]
     pub fn get_by_name(&self, name: &str) -> Option<&Scheme> {
-        self.names.get(name).and_then(|id| self.bindings.get(id))
+        self.get_key(&NameKey::Bare(Arc::from(name)))
+    }
+
+    /// Look up a binding by its [`NameKey`] — the single lookup convention
+    /// a reference's [`crate::ast::QualifiedName::resolution_key`] targets.
+    #[must_use]
+    pub fn get_key(&self, key: &NameKey) -> Option<&Scheme> {
+        self.names.get(key).and_then(|id| self.bindings.get(id))
     }
 
     /// Extend the environment with a new scope (for let bindings).
@@ -139,9 +160,9 @@ impl TypeEnv {
         self.bindings.iter().map(|(&id, scheme)| (id, scheme))
     }
 
-    /// Iterate over all names in the environment.
+    /// Iterate over all name keys in the environment.
     #[must_use]
-    pub fn names(&self) -> &HashMap<Arc<str>, BindingId> {
+    pub fn names(&self) -> &HashMap<NameKey, BindingId> {
         &self.names
     }
 }

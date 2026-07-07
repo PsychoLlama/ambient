@@ -50,6 +50,7 @@ use std::sync::Arc;
 
 use crate::ast::{BindingId, FunctionDef, ImplDef, ImplMethod, ItemKind, Module};
 use crate::bytecode::{BytecodeBuilder, CompiledFunction, DebugInfo, Opcode};
+use crate::fqn::{Fqn, NameKey};
 use crate::value::Value;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -282,7 +283,7 @@ struct FunctionCompiler {
     next_local: u16,
 
     /// Map from function names to their hashes (for recursive calls).
-    function_hashes: HashMap<Arc<str>, blake3::Hash>,
+    function_hashes: HashMap<NameKey, blake3::Hash>,
 
     /// Captured variables (for closures): binding ID -> capture slot index.
     /// These are variables from enclosing scopes that this function captures.
@@ -307,7 +308,7 @@ struct FunctionCompiler {
 
 impl FunctionCompiler {
     /// Create a new function compiler.
-    fn new(function_hashes: HashMap<Arc<str>, blake3::Hash>) -> Self {
+    fn new(function_hashes: HashMap<NameKey, blake3::Hash>) -> Self {
         Self {
             builder: BytecodeBuilder::new(),
             locals: HashMap::new(),
@@ -328,8 +329,13 @@ impl FunctionCompiler {
         self.repl_context = Some(context.clone());
     }
 
-    /// Check if a name refers to a constant (in REPL mode).
-    fn is_repl_constant(&self, name: &str) -> bool {
+    /// Check if a reference resolves to a REPL constant. REPL constants are
+    /// bare-named (each REPL line is its own module), so only a
+    /// [`NameKey::Bare`] key can match one.
+    fn is_repl_constant(&self, key: &NameKey) -> bool {
+        let NameKey::Bare(name) = key else {
+            return false;
+        };
         self.repl_context
             .as_ref()
             .is_some_and(|ctx| ctx.is_constant(name))
@@ -337,7 +343,7 @@ impl FunctionCompiler {
 
     /// Create a function compiler for a closure, with access to parent scope.
     fn new_for_closure(
-        function_hashes: HashMap<Arc<str>, blake3::Hash>,
+        function_hashes: HashMap<NameKey, blake3::Hash>,
         parent_locals: HashMap<BindingId, u16>,
         parent_local_names: HashMap<Arc<str>, u16>,
     ) -> Self {
@@ -482,27 +488,30 @@ struct ModuleContext {
     /// shadow prelude variants of the same name.
     enums: HashMap<Arc<str>, VariantInfo>,
     /// Unit-struct constructors in scope, keyed by resolution key: local
-    /// declarations by bare name (`Origin`), foreign ones canonically
-    /// (`shapes::Origin`). A bare-name reference whose key is here compiles
+    /// declarations by bare name ([`NameKey::Bare`]), foreign ones by their
+    /// [`Fqn`] ([`NameKey::Item`]). A reference whose key is here compiles
     /// to an empty record value, mirroring a nullary enum variant.
-    unit_structs: HashSet<Arc<str>>,
-    /// Module-level constants: name → the literal value it denotes. A
-    /// reference to one compiles to a direct push of this value (the value is
-    /// baked in when the module is built), so a constant is genuinely a
-    /// mapping of identifier to hashed value rather than a callable thunk.
-    constants: HashMap<Arc<str>, Value>,
+    unit_structs: HashSet<NameKey>,
+    /// Module-level constants: resolution key → the literal value it
+    /// denotes. A reference to one compiles to a direct push of this value
+    /// (the value is baked in when the module is built), so a constant is
+    /// genuinely a mapping of identifier to hashed value rather than a
+    /// callable thunk. Local constants key bare, imported ones by `Fqn`.
+    constants: HashMap<NameKey, Value>,
     /// Module-declared abilities in scope: ability name → compile info.
     /// The identity comes from the type checker (`AbilityDef::resolved_id`);
-    /// the compiler never re-derives interface hashes.
+    /// the compiler never re-derives interface hashes. Local declarations
+    /// resolve bare, so this stays a bare-name table.
     abilities: HashMap<Arc<str>, CompiledAbilityInfo>,
     /// Prelude abilities (embedder-resolved declaration modules, e.g. the
     /// platform bindings interface), kept apart from locals so a local
     /// declaration and a namespaced prelude ability of the same name
-    /// resolve independently.
+    /// resolve independently. Keyed by bare name (the `platform` module
+    /// never compiles, so it has no `Fqn` linking entry).
     prelude_abilities: HashMap<Arc<str>, CompiledAbilityInfo>,
-    /// Foreign ability identities keyed by canonical qualified name
-    /// (`effects.Counter`); see [`CompileOptions::foreign_abilities`].
-    foreign_abilities: HashMap<Arc<str>, CompiledAbilityInfo>,
+    /// Foreign ability identities keyed by their [`Fqn`]; see
+    /// [`CompileOptions::foreign_abilities`].
+    foreign_abilities: HashMap<Fqn, CompiledAbilityInfo>,
 }
 
 /// Compile-time info for one module-declared ability.
@@ -573,10 +582,10 @@ impl ModuleContext {
     /// qualified keys (`utils.MAX`). Canonical keys never collide with the
     /// module's own bare-named constants, so registration order against
     /// [`Self::register_constants`] is immaterial.
-    fn register_imported_constants(&mut self, imported: &[(Arc<str>, crate::ast::ConstDef)]) {
+    fn register_imported_constants(&mut self, imported: &[(NameKey, crate::ast::ConstDef)]) {
         for (key, const_def) in imported {
             if let Some(value) = crate::const_eval::literal_value(&const_def.value) {
-                self.constants.insert(Arc::clone(key), value);
+                self.constants.insert(key.clone(), value);
             }
         }
     }
@@ -591,14 +600,16 @@ impl ModuleContext {
             if let ItemKind::Const(const_def) = &item.kind
                 && let Some(value) = crate::const_eval::literal_value(&const_def.value)
             {
-                self.constants.insert(Arc::clone(&const_def.name), value);
+                self.constants
+                    .insert(NameKey::Bare(Arc::clone(&const_def.name)), value);
             }
         }
     }
 
-    /// The literal value of module-level constant `name`, if any.
-    fn constant_value(&self, name: &str) -> Option<&Value> {
-        self.constants.get(name)
+    /// The literal value of the module-level constant a reference resolves
+    /// to, if any.
+    fn constant_value(&self, key: &NameKey) -> Option<&Value> {
+        self.constants.get(key)
     }
 
     /// Register prelude abilities (declaration modules resolved by the
@@ -637,36 +648,33 @@ impl ModuleContext {
     /// then the prelude (platform declarations, keyed by bare name — the
     /// `platform` module never compiles, so it has no canonical entry).
     fn resolve_ability(&self, ability: &crate::ast::QualifiedName) -> Option<&CompiledAbilityInfo> {
-        if ability.resolved.is_none() && ability.path.is_empty() {
-            return self.abilities.get(&ability.name);
+        match &ability.resolved {
+            // A resolved reference names a foreign ability by its `Fqn`, or
+            // a platform prelude ability by bare name (the `platform`
+            // module never compiles, so it has no `Fqn` linking entry).
+            Some(fqn) => self
+                .foreign_abilities
+                .get(fqn)
+                .or_else(|| self.prelude_abilities.get(ability.resolved_name())),
+            // A bare unresolved reference is a local declaration
+            // (same-module abilities are never resolved to an `Fqn`). A
+            // *path-qualified* unresolved reference means the resolve pass
+            // did not run (e.g. the platform-declaration compile path): it
+            // names a prelude ability by its spelled final segment.
+            None if ability.path.is_empty() => self.abilities.get(&ability.name),
+            None => self.prelude_abilities.get(&ability.name),
         }
-        let key = ability.resolution_key();
-        // A resolved reference into the current module normalizes to the
-        // bare form; its key is the bare name.
-        if ability
-            .resolved
-            .as_ref()
-            .is_some_and(|r| r.module.is_empty())
-        {
-            return self.abilities.get(&key);
-        }
-        self.foreign_abilities
-            .get(&key)
-            .or_else(|| self.prelude_abilities.get(ability.resolved_name()))
     }
 
     /// Register the foreign-ability channel (see
     /// [`CompileOptions::foreign_abilities`]).
     fn register_foreign_abilities(
         &mut self,
-        foreign: &[(
-            Arc<str>,
-            std::sync::Arc<crate::ability_resolver::DynAbility>,
-        )],
+        foreign: &[(Fqn, std::sync::Arc<crate::ability_resolver::DynAbility>)],
     ) {
-        for (key, dyn_ab) in foreign {
+        for (fqn, dyn_ab) in foreign {
             self.foreign_abilities.insert(
-                Arc::clone(key),
+                fqn.clone(),
                 CompiledAbilityInfo {
                     id: dyn_ab.id,
                     methods: dyn_ab.methods.iter().map(|m| Arc::clone(&m.name)).collect(),
@@ -758,17 +766,17 @@ impl ModuleContext {
             if let ItemKind::Struct(s) = &item.kind
                 && s.is_unit_value()
             {
-                self.unit_structs.insert(Arc::clone(&s.name));
+                self.unit_structs.insert(NameKey::Bare(Arc::clone(&s.name)));
             }
         }
     }
 
-    /// Register foreign unit structs under their canonical `<module>::Origin`
-    /// keys — the key an imported or fully-qualified value reference resolves
-    /// to (see `build::build_foreign_unit_structs`).
-    fn register_imported_unit_structs(&mut self, keys: &[Arc<str>]) {
+    /// Register foreign unit structs under their [`Fqn`] keys — the key an
+    /// imported or fully-qualified value reference resolves to (see
+    /// `build::build_foreign_unit_structs`).
+    fn register_imported_unit_structs(&mut self, keys: &[NameKey]) {
         for key in keys {
-            self.unit_structs.insert(Arc::clone(key));
+            self.unit_structs.insert(key.clone());
         }
     }
 
@@ -814,7 +822,7 @@ pub struct CompileOptions<'a> {
     /// Source file path, for display in stack traces.
     pub source_file: Option<&'a str>,
     /// Imported function names mapped to their content-addressed hashes.
-    pub imported_hashes: Option<HashMap<Arc<str>, blake3::Hash>>,
+    pub imported_hashes: Option<HashMap<NameKey, blake3::Hash>>,
     /// Imported enum definitions (`use pkg::m::{SomeEnum}`). Constructors
     /// inline by tag rather than linking by hash, so the compiler needs
     /// the definitions themselves, not name→hash entries.
@@ -824,25 +832,22 @@ pub struct CompileOptions<'a> {
     /// (not the definition), keyed like foreign constants. The resolve pass
     /// rewrites every cross-module unit-struct value reference to its
     /// canonical key, which is looked up here.
-    pub imported_unit_structs: Vec<Arc<str>>,
+    pub imported_unit_structs: Vec<NameKey>,
     /// Foreign constant definitions, keyed by canonical qualified name
     /// (`utils.MAX`). Constants inline their literal value at each
     /// reference rather than linking by hash, so the compiler needs the
     /// definitions themselves, not name→hash entries. The resolve pass
     /// rewrites every cross-module constant reference to its canonical
     /// key, which is looked up here.
-    pub imported_constants: Vec<(Arc<str>, crate::ast::ConstDef)>,
+    pub imported_constants: Vec<(NameKey, crate::ast::ConstDef)>,
     /// Prelude abilities (embedder-resolved declaration modules, e.g. the
     /// platform bindings interface). Local declarations shadow them.
     pub prelude_abilities: &'a [std::sync::Arc<crate::ability_resolver::DynAbility>],
-    /// Foreign ability identities, keyed by canonical qualified name
-    /// (`effects.Counter`). The resolve pass rewrites cross-module ability
-    /// references to these keys; identities come from the checker (the
-    /// content-addressed interface hash), never re-derived here.
-    pub foreign_abilities: Vec<(
-        Arc<str>,
-        std::sync::Arc<crate::ability_resolver::DynAbility>,
-    )>,
+    /// Foreign ability identities, keyed by their [`Fqn`]. The resolve pass
+    /// rewrites cross-module ability references to these keys; identities
+    /// come from the checker (the content-addressed interface hash), never
+    /// re-derived here.
+    pub foreign_abilities: Vec<(Fqn, std::sync::Arc<crate::ability_resolver::DynAbility>)>,
 }
 
 /// Compile a module to bytecode.
@@ -882,7 +887,7 @@ pub fn compile_module_with_options(
 #[allow(clippy::implicit_hasher)]
 pub fn compile_module_with_imports(
     module: &Module,
-    imported_hashes: HashMap<Arc<str>, blake3::Hash>,
+    imported_hashes: HashMap<NameKey, blake3::Hash>,
 ) -> Result<CompiledModule, CompileError> {
     compile_module_impl(
         module,
@@ -941,7 +946,7 @@ pub fn compile_module_with_imports_and_source(
     module: &Module,
     source: &str,
     source_file: &str,
-    imported_hashes: HashMap<Arc<str>, blake3::Hash>,
+    imported_hashes: HashMap<NameKey, blake3::Hash>,
 ) -> Result<CompiledModule, CompileError> {
     compile_module_impl(
         module,
@@ -985,12 +990,14 @@ fn compile_module_impl(
     // Phase 1: Create temporary hashes for name-based lookup during compilation.
     // These will be replaced with content-addressed hashes after compilation.
     // Start with imported hashes (these are already content-addressed).
-    let mut temp_hashes: HashMap<Arc<str>, blake3::Hash> = imported_hashes.unwrap_or_default();
+    let mut temp_hashes: HashMap<NameKey, blake3::Hash> = imported_hashes.unwrap_or_default();
 
-    // Add temporary hashes for local functions.
+    // Add temporary hashes for local functions, keyed bare — a module's
+    // own functions are referenced by bare name (same-module references are
+    // never resolved to an `Fqn`).
     for func in &functions {
         let hash = compute_temporary_hash(&func.name);
-        temp_hashes.insert(Arc::clone(&func.name), hash);
+        temp_hashes.insert(NameKey::Bare(Arc::clone(&func.name)), hash);
     }
 
     // Constants are not compiled to functions: they carry no hash and appear
@@ -1025,7 +1032,10 @@ fn compile_module_impl(
                 (method.span.start, method.span.end),
             ));
         };
-        temp_hashes.insert(Arc::clone(symbol), compute_temporary_hash(symbol));
+        temp_hashes.insert(
+            NameKey::Bare(Arc::clone(symbol)),
+            compute_temporary_hash(symbol),
+        );
     }
 
     // Create module context for tracking lambdas discovered during
@@ -1083,7 +1093,7 @@ fn compile_module_impl(
 /// Compile a function with pre-determined hash.
 fn compile_function_with_hash(
     func: &FunctionDef,
-    function_hashes: &HashMap<Arc<str>, blake3::Hash>,
+    function_hashes: &HashMap<NameKey, blake3::Hash>,
     ctx: &mut ModuleContext,
     source: Option<&str>,
     source_file: Option<&str>,
@@ -1109,7 +1119,7 @@ fn compile_function_with_hash(
     let dependencies = fc.builder.dependencies().to_vec();
 
     // Get the pre-computed hash for this function
-    let hash = function_hashes[&func.name];
+    let hash = function_hashes[&NameKey::Bare(Arc::clone(&func.name))];
 
     // Build debug info if source is available
     let debug_info = if source.is_some() || source_file.is_some() {
@@ -1153,7 +1163,7 @@ fn compile_function_with_hash(
 fn compile_impl_method(
     impl_def: &ImplDef,
     method: &ImplMethod,
-    function_hashes: &HashMap<Arc<str>, blake3::Hash>,
+    function_hashes: &HashMap<NameKey, blake3::Hash>,
     ctx: &mut ModuleContext,
     source: Option<&str>,
     source_file: Option<&str>,
@@ -1191,7 +1201,7 @@ fn compile_impl_method(
     let hash = method
         .resolved_symbol
         .as_ref()
-        .and_then(|symbol| function_hashes.get(symbol))
+        .and_then(|symbol| function_hashes.get(&NameKey::Bare(Arc::clone(symbol))))
         .copied()
         .ok_or_else(|| {
             CompileError::new(
@@ -1256,7 +1266,7 @@ mod tests {
     fn compile_test_function(func: &FunctionDef) -> Result<CompiledFunction, CompileError> {
         let mut hashes = HashMap::new();
         let hash = compute_temporary_hash(&func.name);
-        hashes.insert(Arc::clone(&func.name), hash);
+        hashes.insert(NameKey::Bare(Arc::clone(&func.name)), hash);
         let mut ctx = ModuleContext::new();
         compile_function_with_hash(func, &hashes, &mut ctx, None, None)
     }
@@ -1696,7 +1706,7 @@ mod tests {
 
         let mut hashes = HashMap::new();
         let hash = compute_temporary_hash(&func.name);
-        hashes.insert(Arc::clone(&func.name), hash);
+        hashes.insert(NameKey::Bare(Arc::clone(&func.name)), hash);
         let mut ctx = ModuleContext::new();
 
         let compiled =

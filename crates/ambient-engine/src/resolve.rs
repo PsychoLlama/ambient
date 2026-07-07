@@ -28,8 +28,9 @@ use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 
 use crate::ast::{
-    Expr, ExprKind, ItemKind, Module, Pattern, PatternKind, QualifiedName, Resolved, Stmt, StmtKind,
+    Expr, ExprKind, ItemKind, Module, Pattern, PatternKind, QualifiedName, Stmt, StmtKind,
 };
+use crate::fqn::{Fqn, ModuleId};
 use crate::module_path::ModulePath;
 use crate::module_registry::{
     ExportKind, ImportError, ItemImport, ModuleRegistry, ModuleScope, Namespace,
@@ -56,7 +57,8 @@ pub fn resolve_module(
     // module to check.
     for import in resolver.scope.items.values().flatten() {
         if &import.module != module_path {
-            resolver.deps.insert(import.module.to_string().into());
+            let id = registry.module_id(&import.module);
+            resolver.deps.insert(id);
         }
     }
     ResolveOutcome {
@@ -67,10 +69,10 @@ pub fn resolve_module(
 
 /// What the resolve pass learned about a module.
 pub struct ResolveOutcome {
-    /// Foreign modules the module's references resolved into (dotted
-    /// paths, ordered): its true dependency set, which the build uses for
-    /// compilation ordering.
-    pub deps: BTreeSet<Arc<str>>,
+    /// Foreign modules the module's references resolved into (as
+    /// [`ModuleId`]s, ordered): its true dependency set, which the build
+    /// uses for compilation ordering.
+    pub deps: BTreeSet<ModuleId>,
     /// Failed block-scoped imports. (Module-level import failures are
     /// reported by the checker from the module scope; block-level `use`
     /// items only exist here.)
@@ -102,8 +104,8 @@ struct Resolver<'r> {
     overlays: Vec<ModuleScope>,
     /// Failed block-scoped imports, surfaced through [`ResolveOutcome`].
     import_errors: Vec<ImportError>,
-    /// Foreign modules that references resolved into (dotted paths).
-    deps: BTreeSet<Arc<str>>,
+    /// Foreign modules that references resolved into (as [`ModuleId`]s).
+    deps: BTreeSet<ModuleId>,
 }
 
 impl<'r> Resolver<'r> {
@@ -295,24 +297,16 @@ impl<'r> Resolver<'r> {
     // Reference resolution
     // ─────────────────────────────────────────────────────────────────────
 
-    /// The canonical form of `module` relative to the current module: a
-    /// reference into the current module normalizes to the bare form (the
-    /// module's own items are keyed bare in the env and linking tables).
-    /// Records the foreign module as a dependency.
-    fn canonical(&mut self, module: &ModulePath, name: &str) -> Resolved {
-        if module == self.current {
-            Resolved {
-                module: Arc::from(""),
-                name: Arc::from(name),
-            }
-        } else {
-            let module: Arc<str> = module.to_string().into();
-            self.deps.insert(Arc::clone(&module));
-            Resolved {
-                module,
-                name: Arc::from(name),
-            }
+    /// Build the [`Fqn`] identity for `ident` defined in `module`,
+    /// recording a foreign module as a dependency. Same-module references
+    /// resolve to their *full* `Fqn` (current module + ident) — there is no
+    /// bare special case.
+    fn canonical(&mut self, module: &ModulePath, ident: Vec<Arc<str>>) -> Fqn {
+        let module_id = self.registry.module_id(module);
+        if module != self.current {
+            self.deps.insert(module_id.clone());
         }
+        Fqn::new(module_id, ident)
     }
 
     /// Resolve a value-namespace reference (function or constant).
@@ -321,13 +315,19 @@ impl<'r> Resolver<'r> {
             return;
         }
         if name.path.is_empty() {
+            // Locals and same-module values (functions, consts, enum
+            // variants, unit-struct values) stay bare: the module's own
+            // items are keyed bare in the env and linking tables (and their
+            // runtime enum tags live in the enum registry). Only
+            // cross-module references carry a resolved `Fqn`.
             if self.is_local(&name.name) || self.module_values.contains(&name.name) {
                 return;
             }
             if let Some(import) = self.scope_item(&name.name, Namespace::Value)
                 && matches!(import.kind, ExportKind::Function | ExportKind::Const)
             {
-                name.resolved = Some(self.canonical(&import.module.clone(), &import.name.clone()));
+                let (module, item) = (import.module.clone(), import.name.clone());
+                name.resolved = Some(self.canonical(&module, vec![item]));
                 return;
             }
             // A bare `Origin` imported via `use m::{Origin}` lives in the
@@ -339,7 +339,8 @@ impl<'r> Resolver<'r> {
                 && import.kind == ExportKind::Struct
                 && self.registry.is_unit_struct(&import.module, &import.name)
             {
-                name.resolved = Some(self.canonical(&import.module.clone(), &import.name.clone()));
+                let (module, item) = (import.module.clone(), import.name.clone());
+                name.resolved = Some(self.canonical(&module, vec![item]));
             }
             return;
         }
@@ -356,6 +357,27 @@ impl<'r> Resolver<'r> {
         let Some(target) = self.resolve_module_prefix(&name.path) else {
             return;
         };
+        if target == *self.current {
+            // A qualified self-reference to a *declared* local item
+            // (`pkg::this_module::foo`, `self::foo`) normalizes to the bare
+            // local spelling — the key the module's own items are bound
+            // under — mirroring how `resolve_type` rewrites qualified
+            // self-references to bare.
+            if self.module_values.contains(&name.name)
+                || self.module_types.contains(&name.name)
+                || self.module_abilities.contains(&name.name)
+            {
+                name.path.clear();
+                name.path_spans.clear();
+                return;
+            }
+            // Otherwise it names an item this module exports without an AST
+            // declaration — an intrinsic (`core::collections::List::get`) or
+            // an injected export — which the intrinsic table and linker key
+            // by its full `Fqn`.
+            name.resolved = Some(self.canonical(&target, vec![Arc::clone(&name.name)]));
+            return;
+        }
         if let Some(resolved) = self.lookup_item(&target, &name.name) {
             name.resolved = Some(resolved);
         }
@@ -369,13 +391,15 @@ impl<'r> Resolver<'r> {
         }
         if name.path.is_empty() {
             // The builtin `Exception` and locally-declared abilities stay
-            // bare; imported abilities canonicalize to their declaring
-            // module.
+            // bare (the ability resolver registers local declarations by
+            // name, in their own table); imported abilities canonicalize to
+            // their declaring module.
             if self.module_abilities.contains(&name.name) {
                 return;
             }
             if let Some(import) = self.scope_item(&name.name, Namespace::Ability) {
-                name.resolved = Some(self.canonical(&import.module.clone(), &import.name.clone()));
+                let (module, item) = (import.module.clone(), import.name.clone());
+                name.resolved = Some(self.canonical(&module, vec![item]));
             }
             return;
         }
@@ -384,6 +408,10 @@ impl<'r> Resolver<'r> {
     }
 
     /// Resolve a type-namespace reference (typed record constructors).
+    ///
+    /// Same-module types stay bare (their identity lives in the Type IR,
+    /// keyed by bare name); only imported types canonicalize to their
+    /// declaring module's `Fqn`.
     fn resolve_type_ref(&mut self, name: &mut QualifiedName) {
         if name.resolved.is_some() {
             return;
@@ -393,7 +421,8 @@ impl<'r> Resolver<'r> {
                 return;
             }
             if let Some(import) = self.scope_item(&name.name, Namespace::Type) {
-                name.resolved = Some(self.canonical(&import.module.clone(), &import.name.clone()));
+                let (module, item) = (import.module.clone(), import.name.clone());
+                name.resolved = Some(self.canonical(&module, vec![item]));
             }
             return;
         }
@@ -446,7 +475,7 @@ impl<'r> Resolver<'r> {
                 let Some(info) = self.registry.get(&origin) else {
                     return;
                 };
-                self.deps.insert(origin.to_string().into());
+                self.deps.insert(self.registry.module_id(&origin));
                 for decl in &info.module.items {
                     match &decl.kind {
                         ItemKind::Enum(def) if def.name == *item => {
@@ -500,19 +529,13 @@ impl<'r> Resolver<'r> {
         }
     }
 
-    /// Look up `name` as an item of `module`, chasing `pub use` re-export
-    /// chains to the defining origin. References into the current module
-    /// resolve against its declared names (visibility doesn't apply to
-    /// yourself) and normalize to the bare form.
-    fn lookup_item(&mut self, module: &ModulePath, name: &str) -> Option<Resolved> {
-        if module == self.current {
-            let declared = self.module_values.contains(name)
-                || self.module_types.contains(name)
-                || self.module_abilities.contains(name);
-            return declared.then(|| self.canonical(module, name));
-        }
+    /// Look up `name` as an item of a *foreign* `module`, chasing `pub use`
+    /// re-export chains to the defining origin, and land on its `Fqn`.
+    /// Same-module references are normalized to bare by
+    /// [`Self::resolve_path_ref`] before reaching here.
+    fn lookup_item(&mut self, module: &ModulePath, name: &str) -> Option<Fqn> {
         let (_, origin) = self.registry.lookup_symbol(module, name).ok()?;
-        Some(self.canonical(&origin, name))
+        Some(self.canonical(&origin, vec![Arc::from(name)]))
     }
 
     /// Whether `module` exports `name` (publicly), or `module` is the
@@ -599,7 +622,7 @@ impl<'r> Resolver<'r> {
                 target.map(|module| {
                     let mut callee_name =
                         QualifiedName::qualified(vec![Arc::clone(&name.name)], Arc::clone(method));
-                    callee_name.resolved = Some(self.canonical(&module, method));
+                    callee_name.resolved = Some(self.canonical(&module, vec![Arc::clone(method)]));
                     let callee = Expr {
                         kind: ExprKind::Name(callee_name),
                         span: receiver.span,

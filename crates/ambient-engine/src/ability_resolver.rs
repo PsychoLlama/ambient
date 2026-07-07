@@ -4,6 +4,7 @@
 //! and any user-defined providers) and provides lookup methods for the type checker
 //! and compiler.
 
+use crate::fqn::ModuleId;
 use crate::types::Type;
 use ambient_core::{
     AbilityDescriptor, AbilityId, AbilityProvider, MethodId, RawMethod, TypeFactory,
@@ -167,16 +168,17 @@ pub struct AbilityResolver {
     /// inference) treat them uniformly.
     dynamic_by_id: HashMap<AbilityId, Arc<DynAbility>>,
 
-    /// Namespaced dynamic abilities: (namespace, name) → ability.
+    /// Namespaced dynamic abilities: ([`ModuleId`], name) → ability.
     ///
-    /// A namespace is a dotted module path: the `core::system`
+    /// A namespace is the ability's declaring module: the `core::system`
     /// declaration module, or any module in the build (`utils`,
-    /// `deep.nested.effects`). The resolve pass canonicalizes every
+    /// `deep::nested::effects`). The resolve pass canonicalizes every
     /// qualified or imported ability reference to its declaring module's
-    /// namespace, so performs (`core::system::Stdio::out!`), `with` clauses,
-    /// effect-row annotations, handler arms, and sandbox clauses all
-    /// resolve here (see [`AbilityResolver::resolve_ref`]).
-    namespaced_by_name: HashMap<(Arc<str>, Arc<str>), Arc<DynAbility>>,
+    /// [`Fqn`](crate::fqn::Fqn), whose [`ModuleId`] keys this table — so
+    /// performs (`core::system::Stdio::out!`), `with` clauses, effect-row
+    /// annotations, handler arms, and sandbox clauses all resolve here (see
+    /// [`AbilityResolver::resolve_ref`]).
+    namespaced_by_name: HashMap<(ModuleId, Arc<str>), Arc<DynAbility>>,
 }
 
 /// Why a namespace-aware ability reference failed to resolve.
@@ -217,15 +219,15 @@ impl AbilityResolver {
         self.dynamic_by_id.insert(ability.id, ability);
     }
 
-    /// Register a dynamic ability under a namespace.
+    /// Register a dynamic ability under a namespace ([`ModuleId`]).
     ///
     /// Namespaced abilities are referenced with their namespace prefix
     /// (`<namespace>::<Ability>`) in every source position; they do not
     /// shadow bare-name lookups of local declarations.
-    pub fn register_dynamic_in_namespace(&mut self, namespace: &str, ability: DynAbility) {
+    pub fn register_dynamic_in_namespace(&mut self, namespace: &ModuleId, ability: DynAbility) {
         let ability = Arc::new(ability);
         self.namespaced_by_name.insert(
-            (Arc::from(namespace), Arc::clone(&ability.name)),
+            (namespace.clone(), Arc::clone(&ability.name)),
             Arc::clone(&ability),
         );
         self.dynamic_by_id.insert(ability.id, ability);
@@ -239,15 +241,15 @@ impl AbilityResolver {
 
     /// Look up a namespaced dynamic ability by namespace and name.
     #[must_use]
-    pub fn get_namespaced(&self, namespace: &str, name: &str) -> Option<&Arc<DynAbility>> {
+    pub fn get_namespaced(&self, namespace: &ModuleId, name: &str) -> Option<&Arc<DynAbility>> {
         self.namespaced_by_name
-            .get(&(Arc::from(namespace), Arc::from(name)))
+            .get(&(namespace.clone(), Arc::from(name)))
     }
 
     /// A namespace a dynamic ability of this name was registered under, if
     /// any (used to suggest the qualifier for a bare misspelling).
     #[must_use]
-    pub fn dynamic_namespace_of(&self, name: &str) -> Option<&Arc<str>> {
+    pub fn dynamic_namespace_of(&self, name: &str) -> Option<&ModuleId> {
         self.namespaced_by_name
             .keys()
             .find(|(_, n)| n.as_ref() == name)
@@ -304,17 +306,17 @@ impl AbilityResolver {
     /// [`AbilityRefError::Unknown`] otherwise.
     pub fn resolve_ref(
         &self,
-        path: &[impl AsRef<str>],
+        namespace: Option<&ModuleId>,
         name: &str,
     ) -> Result<AbilityId, AbilityRefError> {
-        match path {
-            [] => {
+        match namespace {
+            None => {
                 if let Some(dynamic) = self.dynamic_by_name.get(name) {
                     return Ok(dynamic.id);
                 }
                 if let Some(namespace) = self.dynamic_namespace_of(name) {
                     return Err(AbilityRefError::RequiresNamespace {
-                        namespace: Arc::clone(namespace),
+                        namespace: Arc::from(namespace.to_string()),
                     });
                 }
                 self.by_name
@@ -322,22 +324,15 @@ impl AbilityResolver {
                     .map(|a| a.id)
                     .ok_or(AbilityRefError::Unknown)
             }
-            segments => {
-                // A namespace is a qualified module path of any depth; the
-                // reference's segments join to name it.
-                let namespace = segments
-                    .iter()
-                    .map(AsRef::as_ref)
-                    .collect::<Vec<_>>()
-                    .join("::");
-                if let Some(ability) = self.get_namespaced(&namespace, name) {
+            Some(namespace) => {
+                if let Some(ability) = self.get_namespaced(namespace, name) {
                     return Ok(ability.id);
                 }
                 // The right ability under the wrong qualifier still points
                 // the user at the namespace that would work.
                 if let Some(namespace) = self.dynamic_namespace_of(name) {
                     return Err(AbilityRefError::RequiresNamespace {
-                        namespace: Arc::clone(namespace),
+                        namespace: Arc::from(namespace.to_string()),
                     });
                 }
                 Err(AbilityRefError::Unknown)
@@ -469,6 +464,7 @@ impl AbilityResolver {
                     .keys()
                     .map(|(namespace, name)| Arc::from(format!("{namespace}::{name}"))),
             )
+            // `namespace` renders via `ModuleId`'s `Display`.
             .chain(self.by_name.keys().cloned())
             .collect();
         names.sort_unstable();
@@ -479,11 +475,11 @@ impl AbilityResolver {
     /// Bare names of the dynamic abilities registered under a namespace,
     /// sorted. For tooling: completing `core::system::` offers these.
     #[must_use]
-    pub fn namespace_ability_names(&self, namespace: &str) -> Vec<Arc<str>> {
+    pub fn namespace_ability_names(&self, namespace: &ModuleId) -> Vec<Arc<str>> {
         let mut names: Vec<Arc<str>> = self
             .namespaced_by_name
             .keys()
-            .filter(|(ns, _)| ns.as_ref() == namespace)
+            .filter(|(ns, _)| ns == namespace)
             .map(|(_, name)| Arc::clone(name))
             .collect();
         names.sort_unstable();
@@ -807,7 +803,7 @@ mod tests {
     #[test]
     fn test_infer_ability_from_methods() {
         let mut resolver = core_abilities();
-        resolver.register_dynamic_in_namespace("core::system", dyn_ability("Printer", 7));
+        resolver.register_dynamic_in_namespace(&ModuleId::core_system(), dyn_ability("Printer", 7));
 
         // Methods that match the namespaced dynamic.
         let methods = vec![Arc::from("go")];
@@ -839,29 +835,37 @@ mod tests {
     #[test]
     fn namespaced_dynamics_require_their_namespace() {
         let mut resolver = AbilityResolver::new();
-        resolver.register_dynamic_in_namespace("core::system", dyn_ability("Printer", 7));
+        resolver.register_dynamic_in_namespace(&ModuleId::core_system(), dyn_ability("Printer", 7));
 
         // Qualified lookup finds it; the wrong namespace does not.
-        assert!(resolver.get_namespaced("core::system", "Printer").is_some());
-        assert!(resolver.get_namespaced("other", "Printer").is_none());
+        assert!(
+            resolver
+                .get_namespaced(&ModuleId::core_system(), "Printer")
+                .is_some()
+        );
+        assert!(
+            resolver
+                .get_namespaced(&ModuleId::builtin(&["other"]), "Printer")
+                .is_none()
+        );
         assert_eq!(
-            resolver.dynamic_namespace_of("Printer").map(AsRef::as_ref),
-            Some("core::system")
+            resolver.dynamic_namespace_of("Printer"),
+            Some(&ModuleId::core_system())
         );
 
         // Source references resolve only with the namespace prefix.
         assert_eq!(
-            resolver.resolve_ref(&["core", "system"], "Printer"),
+            resolver.resolve_ref(Some(&ModuleId::core_system()), "Printer"),
             Ok(AbilityId::from_bytes([7; 32]))
         );
         assert_eq!(
-            resolver.resolve_ref(&[] as &[&str], "Printer"),
+            resolver.resolve_ref(None, "Printer"),
             Err(AbilityRefError::RequiresNamespace {
                 namespace: Arc::from("core::system"),
             })
         );
         assert_eq!(
-            resolver.resolve_ref(&["other"], "Printer"),
+            resolver.resolve_ref(Some(&ModuleId::builtin(&["other"])), "Printer"),
             Err(AbilityRefError::RequiresNamespace {
                 namespace: Arc::from("core::system"),
             })
@@ -900,31 +904,31 @@ mod tests {
 
         // Locals and the builtin Exception resolve bare.
         assert_eq!(
-            resolver.resolve_ref(&[] as &[&str], "Printer"),
+            resolver.resolve_ref(None, "Printer"),
             Ok(AbilityId::from_bytes([9; 32]))
         );
         assert_eq!(
-            resolver.resolve_ref(&[] as &[&str], "Exception"),
+            resolver.resolve_ref(None, "Exception"),
             Ok(ambient_core::exception::ability_id())
         );
 
         // Neither may be spelled with a namespace.
         assert_eq!(
-            resolver.resolve_ref(&["core", "system"], "Printer"),
+            resolver.resolve_ref(Some(&ModuleId::core_system()), "Printer"),
             Err(AbilityRefError::Unknown)
         );
         assert_eq!(
-            resolver.resolve_ref(&["core", "system"], "Exception"),
+            resolver.resolve_ref(Some(&ModuleId::core_system()), "Exception"),
             Err(AbilityRefError::Unknown)
         );
 
         // Unknown names are unknown, qualified or not.
         assert_eq!(
-            resolver.resolve_ref(&[] as &[&str], "Nope"),
+            resolver.resolve_ref(None, "Nope"),
             Err(AbilityRefError::Unknown)
         );
         assert_eq!(
-            resolver.resolve_ref(&["core", "system", "extra"], "Printer"),
+            resolver.resolve_ref(Some(&ModuleId::builtin(&["system", "extra"])), "Printer"),
             Err(AbilityRefError::Unknown)
         );
     }
@@ -932,12 +936,12 @@ mod tests {
     #[test]
     fn local_dynamics_shadow_namespaced_in_bare_lookups() {
         let mut resolver = AbilityResolver::new();
-        resolver.register_dynamic_in_namespace("core::system", dyn_ability("Printer", 7));
+        resolver.register_dynamic_in_namespace(&ModuleId::core_system(), dyn_ability("Printer", 7));
         resolver.register_dynamic(dyn_ability("Printer", 9));
 
         // The bare reference means the local declaration.
         assert_eq!(
-            resolver.resolve_ref(&[] as &[&str], "Printer"),
+            resolver.resolve_ref(None, "Printer"),
             Ok(AbilityId::from_bytes([9; 32]))
         );
         assert_eq!(
@@ -946,12 +950,12 @@ mod tests {
         );
         // The namespaced one remains reachable via qualification.
         assert_eq!(
-            resolver.resolve_ref(&["core", "system"], "Printer"),
+            resolver.resolve_ref(Some(&ModuleId::core_system()), "Printer"),
             Ok(AbilityId::from_bytes([7; 32]))
         );
         assert_eq!(
             resolver
-                .get_namespaced("core::system", "Printer")
+                .get_namespaced(&ModuleId::core_system(), "Printer")
                 .map(|a| a.id),
             Some(AbilityId::from_bytes([7; 32]))
         );
@@ -960,7 +964,7 @@ mod tests {
     #[test]
     fn ability_names_render_namespaced_qualified() {
         let mut resolver = core_abilities();
-        resolver.register_dynamic_in_namespace("core::system", dyn_ability("Printer", 7));
+        resolver.register_dynamic_in_namespace(&ModuleId::core_system(), dyn_ability("Printer", 7));
         resolver.register_dynamic(dyn_ability("Local", 9));
 
         let names = resolver.ability_names();

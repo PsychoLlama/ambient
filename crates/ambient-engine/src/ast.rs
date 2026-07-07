@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
+use crate::fqn::{Fqn, ModuleId, NameKey};
 use crate::types::Type;
 
 /// A source location span for error reporting.
@@ -69,43 +70,6 @@ impl<T> Spanned<T> {
 /// A unique identifier for a local binding (parameter or let binding).
 pub type BindingId = u32;
 
-/// The canonical target of a name reference, filled in by the resolve
-/// pass (`crate::resolve`).
-///
-/// Every item in a build has exactly one fully-qualified identity:
-/// `<defining module path>.<item name>`. The resolve pass maps each
-/// spelling of a reference — a bare imported name, a module-alias path,
-/// an inline `pkg::`/`self::`/`super::`/`core::` path — to
-/// that identity without disturbing the source spelling (whose spans
-/// serve IDE features). `None` means the reference is module-local (or
-/// the module was checked without a registry).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Resolved {
-    /// Qualified path of the defining module (`core::primitives::Number`, `utils::format`).
-    pub module: Arc<str>,
-    /// The item's name in the defining module (aliases unfolded: a
-    /// reference through `use pkg::m::f as g;` resolves to name `f`).
-    pub name: Arc<str>,
-}
-
-impl Resolved {
-    /// The canonical qualified form: `<module>::<name>`, or the bare
-    /// `name` for a same-module reference (`module` is empty).
-    #[must_use]
-    pub fn joined(&self) -> Arc<str> {
-        if self.module.is_empty() {
-            return Arc::clone(&self.name);
-        }
-        format!("{}::{}", self.module, self.name).into()
-    }
-
-    /// The defining module's path segments.
-    #[must_use]
-    pub fn module_segments(&self) -> Vec<&str> {
-        self.module.split("::").collect()
-    }
-}
-
 /// A reference to a named item (function, type, ability).
 #[derive(Debug, Clone)]
 pub struct QualifiedName {
@@ -118,11 +82,13 @@ pub struct QualifiedName {
     pub name: Arc<str>,
     /// Source span for the name (for IDE features).
     pub name_span: Option<Span>,
-    /// Canonical target, filled in by the resolve pass. Source spelling
-    /// (`path`/`name`) is preserved for IDE features; consumers that need
-    /// the semantic target go through [`QualifiedName::resolution_key`] or
-    /// [`QualifiedName::resolved_module_segments`].
-    pub resolved: Option<Resolved>,
+    /// Canonical target, filled in by the resolve pass — the item's
+    /// fully-qualified location identity. Source spelling (`path`/`name`)
+    /// is preserved for IDE features; consumers that need the semantic
+    /// target go through [`QualifiedName::resolution_key`]. `None` means
+    /// the reference is a local binding, or the module was checked without
+    /// a registry.
+    pub resolved: Option<Fqn>,
 }
 
 impl PartialEq for QualifiedName {
@@ -153,32 +119,52 @@ impl QualifiedName {
     }
 
     /// The key this reference is bound under in checker environments and
-    /// linker tables: the canonical form when resolved, else the spelled
-    /// qualified form (which is already canonical for module-local names).
+    /// linker tables: its fully-qualified [`Fqn`] identity when resolved,
+    /// else the spelled qualified string as a bare key (a local binding or
+    /// a registry-less reference).
     #[must_use]
-    pub fn resolution_key(&self) -> Arc<str> {
-        self.resolved
-            .as_ref()
-            .map_or_else(|| self.joined(), Resolved::joined)
-    }
-
-    /// The defining module's path segments for a resolved reference, else
-    /// the spelled path segments. Intrinsic tables match on this.
-    #[must_use]
-    pub fn resolved_module_segments(&self) -> Vec<&str> {
+    pub fn resolution_key(&self) -> NameKey {
         self.resolved.as_ref().map_or_else(
-            || self.path.iter().map(AsRef::as_ref).collect(),
-            Resolved::module_segments,
+            || NameKey::Bare(self.joined()),
+            |fqn| NameKey::Item(fqn.clone()),
         )
     }
 
-    /// The item name at the resolved target (aliases unfolded), else the
-    /// spelled name.
+    /// The resolved item's defining module, if resolved. Ability
+    /// resolution keys off this.
+    #[must_use]
+    pub fn resolved_module_id(&self) -> Option<&ModuleId> {
+        self.resolved.as_ref().map(|fqn| &fqn.module)
+    }
+
+    /// The [`Fqn`] an intrinsic reference resolves to, if any: the
+    /// canonicalized `Fqn` when the resolve pass ran, else one
+    /// reconstructed from the spelled path (intrinsics are always
+    /// `core`-rooted, so the scope is `Builtin` regardless of the
+    /// workspace). `None` for a bare reference, which is never an
+    /// intrinsic.
+    #[must_use]
+    pub fn intrinsic_fqn(&self) -> Option<Fqn> {
+        if let Some(fqn) = &self.resolved {
+            return Some(fqn.clone());
+        }
+        if self.path.is_empty() {
+            return None;
+        }
+        let segments: Vec<&str> = self.path.iter().map(AsRef::as_ref).collect();
+        Some(Fqn::new(
+            ModuleId::from_dotted_segments(&segments, &Arc::from("")),
+            vec![Arc::clone(&self.name)],
+        ))
+    }
+
+    /// The item name at the resolved target (aliases unfolded, the final
+    /// ident segment), else the spelled name.
     #[must_use]
     pub fn resolved_name(&self) -> &str {
         self.resolved
             .as_ref()
-            .map_or_else(|| self.name.as_ref(), |r| r.name.as_ref())
+            .map_or_else(|| self.name.as_ref(), Fqn::name)
     }
 
     /// Create a simple unqualified name.

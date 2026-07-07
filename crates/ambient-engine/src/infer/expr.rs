@@ -52,7 +52,7 @@ impl Infer {
                 // key is the single lookup convention. Unresolved bare
                 // names are locals or module-local items, whose keys are
                 // their bare names.
-                let scheme = env.get_by_name(&name.resolution_key());
+                let scheme = env.get_key(&name.resolution_key());
                 let scheme = scheme.ok_or_else(|| {
                     type_error(
                         TypeErrorKind::UndefinedVariable {
@@ -124,7 +124,7 @@ impl Infer {
                 // name for local/imported types, the canonical qualified
                 // key for path references (`pkg::shapes::Money { … }`).
                 let type_alias = self
-                    .get_type_alias(&type_name.resolution_key())
+                    .get_type_alias_key(&type_name.resolution_key())
                     .ok_or_else(|| {
                         type_error(
                             TypeErrorKind::UndefinedTypeName {
@@ -1302,7 +1302,7 @@ mod tests {
 
         let mut infer = Infer::new();
         infer.ability_resolver.register_dynamic_in_namespace(
-            "core::system",
+            &crate::fqn::ModuleId::core_system(),
             DynAbility {
                 id: crate::types::AbilityId::from_bytes([7; 32]),
                 name: "Printer".into(),
@@ -1318,7 +1318,7 @@ mod tests {
             },
         );
         infer.ability_resolver.register_dynamic_in_namespace(
-            "core::system",
+            &crate::fqn::ModuleId::core_system(),
             DynAbility {
                 id: crate::types::AbilityId::from_bytes([8; 32]),
                 name: "Clock".into(),

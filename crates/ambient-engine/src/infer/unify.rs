@@ -182,18 +182,22 @@ impl Infer {
             (Type::Named(n), _)
                 if n.args.is_empty()
                     && n.uuid.is_none()
-                    && self.type_aliases.contains_key(&n.name) =>
+                    && self.get_type_alias(&n.name).is_some() =>
             {
-                let expanded = self.type_aliases[&n.name].clone();
-                self.unify(&expanded, &t2, span)
+                match self.get_type_alias(&n.name).cloned() {
+                    Some(expanded) => self.unify(&expanded, &t2, span),
+                    None => Ok(()), // unreachable: the guard proved it present
+                }
             }
             (_, Type::Named(n))
                 if n.args.is_empty()
                     && n.uuid.is_none()
-                    && self.type_aliases.contains_key(&n.name) =>
+                    && self.get_type_alias(&n.name).is_some() =>
             {
-                let expanded = self.type_aliases[&n.name].clone();
-                self.unify(&t1, &expanded, span)
+                match self.get_type_alias(&n.name).cloned() {
+                    Some(expanded) => self.unify(&t1, &expanded, span),
+                    None => Ok(()), // unreachable: the guard proved it present
+                }
             }
 
             // Mismatch

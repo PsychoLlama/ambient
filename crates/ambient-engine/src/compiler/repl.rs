@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use crate::ast::{ConstDef, Expr, FunctionDef, ItemKind};
 use crate::bytecode::{CompiledFunction, Opcode};
+use crate::fqn::NameKey;
 use crate::value::{ModuleExport, ModuleExportKind, ModuleValue};
 
 use super::error::{CompileError, CompileErrorKind};
@@ -26,7 +27,7 @@ pub enum ReplItemKind {
 #[derive(Debug, Clone, Default)]
 pub struct ReplContext {
     /// Map from function/constant names to their hashes.
-    pub function_hashes: HashMap<Arc<str>, blake3::Hash>,
+    pub function_hashes: HashMap<NameKey, blake3::Hash>,
     /// Map from names to their kinds (function or constant).
     pub item_kinds: HashMap<Arc<str>, ReplItemKind>,
     /// Available modules for introspection (path -> module value).
@@ -61,13 +62,15 @@ impl ReplContext {
 
     /// Register a function with its hash.
     pub fn register_function(&mut self, name: Arc<str>, hash: blake3::Hash) {
-        self.function_hashes.insert(name.clone(), hash);
+        self.function_hashes
+            .insert(NameKey::Bare(name.clone()), hash);
         self.item_kinds.insert(name, ReplItemKind::Function);
     }
 
     /// Register a constant with its hash.
     pub fn register_constant(&mut self, name: Arc<str>, hash: blake3::Hash) {
-        self.function_hashes.insert(name.clone(), hash);
+        self.function_hashes
+            .insert(NameKey::Bare(name.clone()), hash);
         self.item_kinds.insert(name, ReplItemKind::Constant);
     }
 
@@ -170,7 +173,8 @@ impl ReplContext {
     /// E.g., `register_core_function("core::collections::List::last", hash)` makes `core::collections::List::last()`
     /// callable from the REPL.
     pub fn register_core_function(&mut self, qualified_name: Arc<str>, hash: blake3::Hash) {
-        self.function_hashes.insert(qualified_name.clone(), hash);
+        self.function_hashes
+            .insert(NameKey::Bare(qualified_name.clone()), hash);
         self.item_kinds
             .insert(qualified_name, ReplItemKind::Function);
     }
@@ -529,7 +533,7 @@ pub fn compile_expression_with_context(
 /// Compile a function for REPL, with access to previously defined constants.
 fn compile_function_for_repl(
     func: &FunctionDef,
-    function_hashes: &HashMap<Arc<str>, blake3::Hash>,
+    function_hashes: &HashMap<NameKey, blake3::Hash>,
     ctx: &mut ModuleContext,
     repl_ctx: &ReplContext,
 ) -> Result<CompiledFunction, CompileError> {
@@ -555,7 +559,7 @@ fn compile_function_for_repl(
     let dependencies = fc.builder.dependencies().to_vec();
 
     // Get the pre-computed hash for this function
-    let hash = function_hashes[&func.name];
+    let hash = function_hashes[&NameKey::Bare(Arc::clone(&func.name))];
 
     Ok(CompiledFunction {
         hash,
@@ -571,7 +575,7 @@ fn compile_function_for_repl(
 /// Compile a constant for REPL, with access to previously defined constants.
 fn compile_const_for_repl(
     const_def: &ConstDef,
-    function_hashes: &HashMap<Arc<str>, blake3::Hash>,
+    function_hashes: &HashMap<NameKey, blake3::Hash>,
     ctx: &mut ModuleContext,
     repl_ctx: &ReplContext,
 ) -> Result<CompiledFunction, CompileError> {
@@ -604,7 +608,7 @@ pub fn compile_repl_item(
             // Create a hash table including this function for self-recursion.
             let mut hashes = context.function_hashes.clone();
             let temp_hash = compute_temporary_hash(&func.name);
-            hashes.insert(Arc::clone(&func.name), temp_hash);
+            hashes.insert(NameKey::Bare(Arc::clone(&func.name)), temp_hash);
 
             let mut module_ctx = context.module_context();
             let compiled = compile_function_for_repl(func, &hashes, &mut module_ctx, context)?;

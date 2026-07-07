@@ -27,6 +27,30 @@ impl Infer {
         self.ability_resolver.name_to_id(name)
     }
 
+    /// The namespace [`ModuleId`](crate::fqn::ModuleId) an ability reference
+    /// names, or `None` for a bare reference (a local or builtin ability).
+    ///
+    /// A resolved reference names its canonicalized declaring module; an
+    /// unresolved but path-qualified one (e.g. a platform declaration's
+    /// `with core::system::Stdio`, which never runs the resolve pass) falls
+    /// back to its spelled path, scoped under the workspace.
+    pub(crate) fn ability_namespace(
+        &self,
+        ability: &QualifiedName,
+    ) -> Option<crate::fqn::ModuleId> {
+        if let Some(fqn) = &ability.resolved {
+            return Some(fqn.module.clone());
+        }
+        if ability.path.is_empty() {
+            return None;
+        }
+        let segments: Vec<&str> = ability.path.iter().map(AsRef::as_ref).collect();
+        Some(crate::fqn::ModuleId::from_dotted_segments(
+            &segments,
+            &self.workspace_name,
+        ))
+    }
+
     /// Resolve an ability reference as written in source, enforcing the
     /// namespace policy: namespaced (platform) abilities must be written
     /// with their prefix everywhere, locals and builtins bare.
@@ -44,8 +68,9 @@ impl Infer {
         let span = ability
             .name_span
             .map_or(fallback_span, |s| (s.start, s.end));
+        let namespace = self.ability_namespace(ability);
         self.ability_resolver
-            .resolve_ref(&ability.resolved_module_segments(), ability.resolved_name())
+            .resolve_ref(namespace.as_ref(), ability.resolved_name())
             .map_err(|err| {
                 let kind = match err {
                     crate::ability_resolver::AbilityRefError::RequiresNamespace { namespace } => {
@@ -278,9 +303,10 @@ mod tests {
     #[test]
     fn namespaced_dynamic_resolves_qualified_perform() {
         let mut infer = Infer::new();
-        infer
-            .ability_resolver
-            .register_dynamic_in_namespace("core::system", printer_ability(7));
+        infer.ability_resolver.register_dynamic_in_namespace(
+            &crate::fqn::ModuleId::core_system(),
+            printer_ability(7),
+        );
 
         let qualified = QualifiedName::qualified(vec!["core", "system"], "Printer");
         let (id, ret, _) = infer
@@ -336,9 +362,10 @@ mod tests {
     #[test]
     fn test_resolve_ability_ref_policy() {
         let mut infer = Infer::new();
-        infer
-            .ability_resolver
-            .register_dynamic_in_namespace("core::system", printer_ability(7));
+        infer.ability_resolver.register_dynamic_in_namespace(
+            &crate::fqn::ModuleId::core_system(),
+            printer_ability(7),
+        );
 
         // Exception is the only engine builtin; it resolves bare and may
         // not be namespaced.
@@ -410,9 +437,10 @@ mod tests {
     #[test]
     fn test_infer_ability_from_methods_uniqueness() {
         let mut infer = Infer::new();
-        infer
-            .ability_resolver
-            .register_dynamic_in_namespace("core::system", printer_ability(7));
+        infer.ability_resolver.register_dynamic_in_namespace(
+            &crate::fqn::ModuleId::core_system(),
+            printer_ability(7),
+        );
 
         // "go" exists only in Printer.
         let methods: Vec<Arc<str>> = vec!["go".into()];
@@ -428,9 +456,10 @@ mod tests {
     #[test]
     fn test_platform_namespace_required() {
         let mut infer = Infer::new();
-        infer
-            .ability_resolver
-            .register_dynamic_in_namespace("core::system", printer_ability(7));
+        infer.ability_resolver.register_dynamic_in_namespace(
+            &crate::fqn::ModuleId::core_system(),
+            printer_ability(7),
+        );
 
         // A namespaced prelude ability performed bare should fail.
         let bare = QualifiedName::simple("Printer");

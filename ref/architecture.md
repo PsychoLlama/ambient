@@ -43,17 +43,41 @@ whose members are its children, so `src/net/http/client.ab` is the module
 chainable), `core` (standard library — host bindings live under
 `core::system`).
 
-**Every item in a build has exactly one fully-qualified identity** —
-`<defining module>::<name>` — and the two access rules follow from it:
+**Every item in a build has exactly one fully-qualified identity** — a
+first-class `Fqn` (`crates/ambient-engine/src/fqn.rs`), not a string.
+
+An `Fqn` is a `ModuleId` (a `Scope` + a scope-relative module path) plus an
+ident path of one or more segments. There are two identity axes that
+coexist:
+
+- **Location** (the `Fqn`): the identity of anything a `use` path names and
+  the resolve pass canonicalizes — top-level items, type-associated
+  members, and (structurally) enum variants. `Scope` is `Builtin` for the
+  `core` standard library or `Workspace(pkg)` for a user package, so a
+  user item renders `workspace::<pkg>::utils::helper` and a builtin renders
+  `core::primitives::Number::sqrt`. (`Scope::Library(hash)` is reserved for
+  content-addressed dependencies.) This makes `a::b::c` unambiguous as
+  data: `b` a submodule vs. `b` a type land on distinct `Fqn`s even though
+  they render the same.
+- **Content**: UUID-based method dispatch symbols (`<type-uuid>::method`)
+  keep their perfect content identity and are *not* folded into the `Fqn`.
+
+Internal tables key off the `Fqn` struct (`Eq`/`Hash`) through a `NameKey`
+(`Item(Fqn)` for cross-module identity, `Bare(name)` for locals,
+same-module items, content symbols, and the registry-less REPL) — never
+string equivalence. `Display` exists only for diagnostics and the on-disk
+store (`.ambient/store/names`).
+
+The two access rules follow:
 
 1. Anything reachable by its fully-qualified path works through `use`,
    and vice versa.
 2. However a reference is spelled — bare imported name, module-alias
    path, inline rooted path — it resolves to that one identity. The
-   compiler front end canonicalizes every reference before checking
-   (`crates/ambient-engine/src/resolve.rs`), so the checker, the
-   intrinsic tables, the ability resolver, and the linker all key off
-   the same canonical name.
+   compiler front end canonicalizes every cross-module reference before
+   checking (`crates/ambient-engine/src/resolve.rs`), so the checker, the
+   intrinsic tables, the ability resolver, and the linker all key off the
+   same `Fqn` (a module's own items stay bare, keyed by name).
 
 `use` takes a Rust-style use-tree:
 

@@ -45,7 +45,10 @@ fn compile(src: &str) -> CompiledModule {
     let module = ambient_parser::parse(src).expect("test program parses");
     let mut resolver = core_abilities();
     for ability in &prelude {
-        resolver.register_dynamic_in_namespace("core::system", (**ability).clone());
+        resolver.register_dynamic_in_namespace(
+            &ambient_engine::fqn::ModuleId::core_system(),
+            (**ability).clone(),
+        );
     }
     let checked = check_module_with_resolver(module, resolver);
     assert!(

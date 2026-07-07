@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use crate::ast::{ItemKind, Module};
 use crate::compiler::CompiledModule;
+use crate::fqn::NameKey;
 use crate::infer::BoxedTypeError;
 use crate::module_path::ModulePath;
 use crate::module_registry::{ExportKind, ModuleRegistry};
@@ -160,6 +161,10 @@ pub fn build_package(
     load_all_modules(&mut pkg, parse)?;
 
     let mut registry = ModuleRegistry::new();
+    // Scope every user item's `Fqn` under the package name (`workspace::<name>`);
+    // core modules are `Builtin`-scoped regardless. Set before any
+    // resolve/check/link so all three mint identical identities.
+    registry.set_workspace_name(package_name.clone());
 
     // Core modules compile first: they are ordinary Ambient modules and
     // every user module may reference them. Core registration only needs a
@@ -201,9 +206,16 @@ pub fn build_package(
         // checks (the pass runs again there); only the dependency set
         // matters here.
         let outcome = crate::resolve::resolve_module(&mut module.ast, &module.path, &registry);
+        // Reconcile the `Fqn`-based dependency edges with this
+        // `ModulePath`-keyed ordering graph: a `ModuleId` renders as
+        // `workspace::<pkg>::a::top`, but the graph keys on `a::top`.
         deps.insert(
             module.path.to_string(),
-            outcome.deps.iter().map(ToString::to_string).collect(),
+            outcome
+                .deps
+                .iter()
+                .map(crate::fqn::ModuleId::module_path_string)
+                .collect(),
         );
         paths_by_key.insert(module.path.to_string(), module.path.clone());
     }
@@ -235,7 +247,7 @@ pub fn build_package(
             &file_path,
             &module_path,
             &registry,
-            linking_table(&module_function_hashes),
+            linking_table(&module_function_hashes, &registry),
             options.prelude_abilities,
         )?;
 
@@ -365,11 +377,12 @@ fn compilation_order(deps: &BTreeMap<String, Vec<String>>) -> Vec<String> {
 /// The linking table for a module about to compile: every already-compiled
 /// function, bound under its canonical name.
 ///
-/// - Ordinary functions bind as `<module path>::<name>` (`core::collections::List::map`,
-///   `utils::helper`). The resolve pass rewrites every cross-module
-///   reference to exactly this key.
+/// - Ordinary functions bind under their [`Fqn`] ([`NameKey::Item`]);
+///   `core::collections::List::map`, `utils::helper`. The resolve pass
+///   rewrites every cross-module reference to exactly this key.
 /// - Impl-method dispatch symbols (`<uuid>::Trait::method`) are globally
-///   unique and bind as-is, so cross-module method calls link.
+///   unique content symbols and bind as-is under [`NameKey::Bare`], so
+///   cross-module method calls link.
 ///
 /// Module-local calls use the module's own bare names, which the compiler
 /// seeds itself — they never pass through this table.
@@ -377,15 +390,19 @@ fn compilation_order(deps: &BTreeMap<String, Vec<String>>) -> Vec<String> {
 #[allow(clippy::implicit_hasher)]
 pub fn linking_table(
     compiled_hashes: &HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>>,
-) -> HashMap<Arc<str>, blake3::Hash> {
+    registry: &ModuleRegistry,
+) -> HashMap<NameKey, blake3::Hash> {
     let mut table = HashMap::new();
     for (path, module_hashes) in compiled_hashes {
         for (name, hash) in module_hashes {
-            if name.contains("::") {
-                table.insert(Arc::clone(name), *hash);
+            // A content-addressed dispatch symbol keeps its bare identity;
+            // an ordinary function keys under its `Fqn`.
+            let key = if name.contains("::") {
+                NameKey::Bare(Arc::clone(name))
             } else {
-                table.insert(format!("{path}::{name}").into(), *hash);
-            }
+                NameKey::Item(registry.fqn(path, &[Arc::clone(name)]))
+            };
+            table.insert(key, *hash);
         }
     }
     table
@@ -433,7 +450,7 @@ pub fn build_imported_enums(
 pub fn build_foreign_constants(
     module_path: &ModulePath,
     registry: &ModuleRegistry,
-) -> Vec<(Arc<str>, crate::ast::ConstDef)> {
+) -> Vec<(NameKey, crate::ast::ConstDef)> {
     let mut constants = Vec::new();
     for info in registry.all_modules() {
         if &info.path == module_path {
@@ -443,7 +460,7 @@ pub fn build_foreign_constants(
             if let ItemKind::Const(def) = &item.kind
                 && def.is_public
             {
-                let key: Arc<str> = format!("{}::{}", info.path, def.name).into();
+                let key = NameKey::Item(registry.fqn(&info.path, &[Arc::clone(&def.name)]));
                 constants.push((key, def.clone()));
             }
         }
@@ -463,7 +480,7 @@ pub fn build_foreign_constants(
 pub fn build_foreign_unit_structs(
     module_path: &ModulePath,
     registry: &ModuleRegistry,
-) -> Vec<Arc<str>> {
+) -> Vec<NameKey> {
     let mut keys = Vec::new();
     for info in registry.all_modules() {
         if &info.path == module_path {
@@ -474,7 +491,9 @@ pub fn build_foreign_unit_structs(
                 && def.is_public
                 && def.is_unit()
             {
-                keys.push(format!("{}::{}", info.path, def.name).into());
+                keys.push(NameKey::Item(
+                    registry.fqn(&info.path, &[Arc::clone(&def.name)]),
+                ));
             }
         }
     }
@@ -560,7 +579,7 @@ pub fn compile_core_modules(
 
         let compiled = crate::compiler::compile_module_with_imports(
             &check_result.module,
-            linking_table(module_function_hashes),
+            linking_table(module_function_hashes, registry),
         )
         .map_err(|e| BuildError::Compile {
             module: core_path.to_string(),
@@ -633,7 +652,7 @@ fn compile_loaded_module_with_registry(
     file_path: &Path,
     module_path: &ModulePath,
     registry: &ModuleRegistry,
-    imported_hashes: HashMap<Arc<str>, blake3::Hash>,
+    imported_hashes: HashMap<NameKey, blake3::Hash>,
     prelude_abilities: &[Arc<crate::ability_resolver::DynAbility>],
 ) -> Result<CompiledModule, BuildError> {
     let check_result =

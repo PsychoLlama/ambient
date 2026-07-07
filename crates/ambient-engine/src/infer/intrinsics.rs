@@ -29,14 +29,17 @@ impl Infer {
     ) -> InferResult<Option<Type>> {
         // Match on the canonical target: `use core::primitives::Number; Number::sqrt(x)`,
         // `use core::primitives::Number::sqrt; sqrt(x)`, and a literal `core::primitives::Number::sqrt(x)`
-        // all resolve to the same intrinsic.
-        let path = qualified_name.resolved_module_segments();
-        let name = qualified_name.resolved_name();
-
-        let Some(intrinsic) = crate::compiler::intrinsics::find(&path, name) else {
+        // all resolve to the same intrinsic `Fqn`.
+        let Some(fqn) = qualified_name.intrinsic_fqn() else {
             return Ok(None);
         };
 
+        let Some(intrinsic) = crate::compiler::intrinsics::find(&fqn) else {
+            return Ok(None);
+        };
+
+        // Human-readable spelling for diagnostics (never a lookup key).
+        let display = fqn.to_string();
         let signature = intrinsic.signature(&mut self.r#gen);
 
         if args.len() != signature.params.len() {
@@ -47,17 +50,13 @@ impl Infer {
                 },
                 span,
             )
-            .with_context(format!("in call to `{}::{name}`", path.join("::"))));
+            .with_context(format!("in call to `{display}`")));
         }
 
         for (i, (arg, param_ty)) in args.iter_mut().zip(&signature.params).enumerate() {
             let arg_ty = self.infer_expr(env, arg)?;
             if let Err(e) = self.unify(param_ty, &arg_ty, span) {
-                return Err(e.with_context(format!(
-                    "in argument {} of `{}::{name}`",
-                    i + 1,
-                    path.join("::")
-                )));
+                return Err(e.with_context(format!("in argument {} of `{display}`", i + 1)));
             }
         }
 

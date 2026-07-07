@@ -80,6 +80,13 @@ fn check_module_core(
 ) -> CheckResult {
     let mut errors = Vec::new();
 
+    // Seed the workspace package name so any `ModuleId`/`Fqn` the checker
+    // mints (ability annotation namespaces, imported type-alias keys)
+    // matches the ones the registry and resolve pass produce.
+    if let Some((_, registry)) = cross_module {
+        infer.set_workspace_name(registry.workspace_name().clone());
+    }
+
     // Phase 0: canonicalize cross-module references. Every import, module
     // alias, and inline rooted path is resolved to its one fully-qualified
     // identity (`QualifiedName::resolved`); everything downstream keys off
@@ -375,7 +382,7 @@ fn enforce_ability_subset(
         .filter_map(|qn| {
             infer
                 .ability_resolver
-                .resolve_ref(&qn.resolved_module_segments(), qn.resolved_name())
+                .resolve_ref(infer.ability_namespace(qn).as_ref(), qn.resolved_name())
                 .ok()
                 .or_else(|| infer.ability_name_to_id(&qn.name))
         })
@@ -584,8 +591,15 @@ fn retain_imported_type_aliases(
     // checked by the resolve pass. The four primitive aliases
     // (`String`/`Number`/`Bool`/`Binary`) are prelude — resolvable in every
     // module without an import — so they survive the retract too.
-    infer.retain_type_aliases(|name| {
-        name.contains("::") || imported.contains(name) || Primitive::from_name(name).is_some()
+    // Cross-module `Item` keys always stay: they can't collide with bare
+    // names, and qualified references are visibility-checked by the resolve
+    // pass. Among bare keys, keep the imported ones and the four primitive
+    // aliases (prelude — resolvable in every module).
+    infer.retain_type_aliases(|key| match key {
+        crate::fqn::NameKey::Item(_) => true,
+        crate::fqn::NameKey::Bare(name) => {
+            imported.contains(name) || Primitive::from_name(name).is_some()
+        }
     });
 }
 
@@ -625,8 +639,8 @@ fn register_package_items(
         // keys are never retracted (they can't leak as bare names).
         for item in &info.module.items {
             if let Some((name, ty, true)) = named_type_def(item) {
-                let key: Arc<str> = format!("{}::{}", info.path, name).into();
-                infer.register_type_alias(key, ty.clone());
+                let fqn = registry.fqn(&info.path, &[Arc::clone(name)]);
+                infer.register_type_alias_item(fqn, ty.clone());
             }
         }
     }
@@ -1463,9 +1477,10 @@ fn seed_namespaced_ability_dynamics(
         (key != "core::system", key)
     });
 
+    let core_system = crate::fqn::ModuleId::core_system();
     for (path, module) in modules {
-        let namespace = path.to_string();
-        let is_declaration = namespace == "core::system";
+        let namespace = registry.module_id(&path);
+        let is_declaration = namespace == core_system;
         let mut foreign_errors = Vec::new();
         for item in &module.items {
             if let crate::ast::ItemKind::Ability(def) = &item.kind {
@@ -1605,12 +1620,13 @@ pub fn resolve_ability_declarations(
         let dyn_ab = resolve_ability_def(&mut infer, def, &mut errors);
         // The compiler reads the identity back from the AST.
         def.resolved_id = Some(dyn_ab.id);
+        let core_system = crate::fqn::ModuleId::core_system();
         infer
             .ability_resolver
-            .register_dynamic_in_namespace("core::system", dyn_ab);
+            .register_dynamic_in_namespace(&core_system, dyn_ab);
         if let Some(ability) = infer
             .ability_resolver
-            .get_namespaced("core::system", &def.name)
+            .get_namespaced(&core_system, &def.name)
         {
             abilities.push(Arc::clone(ability));
         }
@@ -1619,8 +1635,7 @@ pub fn resolve_ability_declarations(
 }
 
 /// Resolve every registered module's `ability` declarations to their
-/// content-addressed identities, keyed canonically
-/// (`<module path>::<Ability>`).
+/// content-addressed identities, keyed by their [`Fqn`](crate::fqn::Fqn).
 ///
 /// The build hands this to the compiler as its foreign-ability channel:
 /// performs and handler arms that the resolve pass canonicalized to a
@@ -1633,7 +1648,7 @@ pub fn resolve_ability_declarations(
 #[must_use]
 pub fn resolve_registry_abilities(
     registry: &ModuleRegistry,
-) -> Vec<(Arc<str>, Arc<crate::ability_resolver::DynAbility>)> {
+) -> Vec<(crate::fqn::Fqn, Arc<crate::ability_resolver::DynAbility>)> {
     let mut infer = Infer::new();
     let mut discarded = Vec::new();
     let mut out = Vec::new();
@@ -1647,7 +1662,7 @@ pub fn resolve_registry_abilities(
         (key != "core::system", key)
     });
     for (path, module) in modules {
-        let namespace = path.to_string();
+        let namespace = registry.module_id(&path);
         for item in &module.items {
             if let crate::ast::ItemKind::Ability(def) = &item.kind {
                 let dyn_ab = resolve_ability_def(&mut infer, def, &mut discarded);
@@ -1656,10 +1671,8 @@ pub fn resolve_registry_abilities(
                     .register_dynamic_in_namespace(&namespace, dyn_ab);
                 if let Some(ability) = infer.ability_resolver.get_namespaced(&namespace, &def.name)
                 {
-                    out.push((
-                        format!("{namespace}::{}", def.name).into(),
-                        Arc::clone(ability),
-                    ));
+                    let fqn = crate::fqn::Fqn::new(namespace.clone(), vec![Arc::clone(&def.name)]);
+                    out.push((fqn, Arc::clone(ability)));
                 }
             }
         }
@@ -1958,10 +1971,10 @@ fn bind_all_module_exports(
             if let Some(scheme) =
                 get_symbol_scheme(infer, &module_info.module, &export.name, export.kind)
             {
-                let qualified: Arc<str> = format!("{path}::{}", export.name).into();
+                let fqn = registry.fqn(&path, &[Arc::clone(&export.name)]);
                 let binding_id = *next_binding_id;
                 *next_binding_id += 1;
-                env.insert(binding_id, qualified, scheme);
+                env.insert_item(binding_id, fqn, scheme);
             }
         }
     }

@@ -16,6 +16,7 @@
 
 use crate::ast::{Expr, QualifiedName};
 use crate::bytecode::Opcode;
+use crate::fqn::{Fqn, Scope};
 use crate::types::{Type, TypeVarGen};
 
 use super::error::CompileError;
@@ -116,9 +117,32 @@ impl Intrinsic {
     }
 }
 
-/// Look up an intrinsic by qualified path and name, regardless of arity.
-pub(crate) fn find(path: &[&str], name: &str) -> Option<&'static Intrinsic> {
-    INTRINSICS.iter().find(|i| i.path == path && i.name == name)
+/// Look up an intrinsic by its resolved [`Fqn`], regardless of arity.
+///
+/// Intrinsics are builtin type-associated members: the resolved `Fqn` is a
+/// [`Scope::Builtin`] module (`core::primitives::Number`) with a
+/// single-segment ident (`sqrt`). A table entry stores the full
+/// `core`-rooted module path (`["core", "primitives", "Number"]`), so the
+/// match drops the leading `core` the builtin scope already carries. This
+/// keys strictly off the `Fqn` struct — never a joined string.
+pub(crate) fn find(fqn: &Fqn) -> Option<&'static Intrinsic> {
+    if !matches!(fqn.module.scope, Scope::Builtin) {
+        return None;
+    }
+    let [name] = fqn.ident.as_slice() else {
+        return None;
+    };
+    let name = name.as_ref();
+    INTRINSICS.iter().find(|i| {
+        i.name == name
+            && matches!(i.path.split_first(), Some((root, rest))
+                if *root == "core"
+                    && rest.len() == fqn.module.path.len()
+                    && rest
+                        .iter()
+                        .zip(&fqn.module.path)
+                        .all(|(a, b)| *a == b.as_ref()))
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -852,12 +876,13 @@ pub(super) fn try_compile_intrinsic(
     // Match on the canonical target, so aliased and imported spellings hit
     // the intrinsic exactly like the fully-qualified one (mirrors
     // `Infer::try_infer_intrinsic`).
-    let path = qualified_name.resolved_module_segments();
-    let name = qualified_name.resolved_name();
+    let Some(fqn) = qualified_name.intrinsic_fqn() else {
+        return Ok(None);
+    };
 
     // The type checker already verified arity against this same table, so
     // a mismatch here means the expression bypassed checking.
-    let Some(intrinsic) = find(&path, name).filter(|i| i.arity as usize == args.len()) else {
+    let Some(intrinsic) = find(&fqn).filter(|i| i.arity as usize == args.len()) else {
         return Ok(None);
     };
 

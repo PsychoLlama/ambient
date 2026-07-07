@@ -78,7 +78,7 @@ pub fn prelude_interface(prelude: &[Arc<DynAbility>], name: &str) -> Result<Abil
 pub struct CoreContext {
     pub registry: ModuleRegistry,
     pub compiled: CompiledModule,
-    pub hashes: HashMap<Arc<str>, blake3::Hash>,
+    pub hashes: HashMap<ambient_engine::fqn::NameKey, blake3::Hash>,
 }
 
 /// Build the core library context (used by check/compile/dev on bare
@@ -104,7 +104,7 @@ pub fn core_context() -> Result<CoreContext> {
     )
     .map_err(|(module, e)| anyhow::anyhow!("platform module `{module}` failed to build: {e}"))?;
 
-    let hashes = ambient_engine::build::linking_table(&module_function_hashes);
+    let hashes = ambient_engine::build::linking_table(&module_function_hashes, &registry);
 
     Ok(CoreContext {
         registry,

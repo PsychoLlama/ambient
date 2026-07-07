@@ -289,7 +289,10 @@ pub fn platform_prelude_resolver() -> AbilityResolver {
     if let Ok(mut module) = ambient_parser::parse(ambient_platform::ABILITY_DECLARATIONS) {
         let (abilities, _errors) = ambient_engine::infer::resolve_ability_declarations(&mut module);
         for ability in abilities {
-            resolver.register_dynamic_in_namespace("core::system", (*ability).clone());
+            resolver.register_dynamic_in_namespace(
+                &ambient_engine::fqn::ModuleId::core_system(),
+                (*ability).clone(),
+            );
         }
     }
     resolver

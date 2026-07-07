@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use crate::ast::{BinaryOp, Expr, ExprKind, LetBinding, Stmt, StmtKind, UnaryOp};
 use crate::bytecode::Opcode;
+use crate::fqn::NameKey;
 use crate::value::Value;
 
 use super::error::{CompileError, CompileErrorKind};
@@ -243,7 +244,9 @@ pub(super) fn compile_expr(
                     // Check if we have a resolved trait method for operator overloading
                     if let Some(symbol) = resolved_op {
                         // Operator is overloaded - call the trait method.
-                        let Some(&hash) = fc.function_hashes.get(symbol) else {
+                        let Some(&hash) =
+                            fc.function_hashes.get(&NameKey::Bare(Arc::clone(symbol)))
+                        else {
                             return Err(CompileError::new(
                                 CompileErrorKind::UndefinedFunction {
                                     name: Arc::clone(symbol),
@@ -370,7 +373,9 @@ pub(super) fn compile_expr(
                 } else if is_cross_module {
                     // A qualified reference that linked to nothing.
                     return Err(CompileError::new(
-                        CompileErrorKind::UndefinedFunction { name: key },
+                        CompileErrorKind::UndefinedFunction {
+                            name: name.joined(),
+                        },
                         (callee.span.start, callee.span.end),
                     ));
                 } else if fc.get_local_by_name(&name.name).is_some()
@@ -484,7 +489,7 @@ pub(super) fn compile_expr(
                     (expr.span.start, expr.span.end),
                 ));
             };
-            let Some(&hash) = fc.function_hashes.get(symbol) else {
+            let Some(&hash) = fc.function_hashes.get(&NameKey::Bare(Arc::clone(symbol))) else {
                 return Err(CompileError::new(
                     CompileErrorKind::UndefinedFunction {
                         name: Arc::clone(symbol),
