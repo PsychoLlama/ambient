@@ -20,6 +20,9 @@
 // Fluent builder methods (`.neg()`, `.not()`, ...) read better than the
 // operator traits clippy suggests; renaming them would hurt the DSL.
 #![allow(clippy::should_implement_trait)]
+// Test-only DSL: assertion helpers panic by design, so documenting every
+// panic path adds no value here.
+#![allow(clippy::missing_panics_doc)]
 
 use std::sync::Arc;
 
