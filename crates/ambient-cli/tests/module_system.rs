@@ -641,3 +641,58 @@ pub fn run(): Number {
     )]);
     assert_eq!(run(dir.path()), "8");
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Shadowing: a local binding must win over a same-named top-level item.
+//
+// Since same-module references now resolve to the module's `Fqn`, a local
+// that shadows a top-level function or const must still load the local —
+// the resolve pass's lexical `is_local` tracking has to be complete across
+// every binding form, or a shadowing local misresolves to a module `Fqn`
+// and emits a function ref / inlined const instead of a local load.
+
+#[test]
+fn locals_shadow_top_level_functions_in_every_binding_form() {
+    let dir = package(&[(
+        "main.ab",
+        r"
+fn helper(): Number { 100 }
+
+// A parameter named `helper` shadows the top-level function.
+fn shadow_param(helper: Number): Number { helper }
+
+// A `let` binding shadows it.
+fn shadow_let(): Number { let helper = 7; helper }
+
+// A lambda parameter shadows it.
+fn shadow_lambda(): Number { let f = (helper) => helper; f(7) }
+
+// A match binding (lowercase = irrefutable binding) shadows it.
+fn shadow_match(): Number { match 7 { helper => helper } }
+
+pub fn run(): Number {
+  shadow_param(1) + shadow_let() + shadow_lambda() + shadow_match()
+}
+",
+    )]);
+    // 1 + 7 + 7 + 7 = 22. If any local misresolved to the top-level
+    // `helper`, the body would be a function ref (a type error) or 100.
+    assert_eq!(run(dir.path()), "22");
+}
+
+#[test]
+fn a_parameter_shadows_a_top_level_const() {
+    // A const inlines its literal at every reference; a parameter of the
+    // same name must load the argument, not the inlined const value.
+    let dir = package(&[(
+        "main.ab",
+        r"
+const LIMIT: Number = 100;
+
+fn echo(LIMIT: Number): Number { LIMIT }
+
+pub fn run(): Number { echo(7) }
+",
+    )]);
+    assert_eq!(run(dir.path()), "7");
+}

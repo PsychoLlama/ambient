@@ -1,13 +1,20 @@
-//! The resolve pass: canonicalize every cross-module reference.
+//! The resolve pass: canonicalize every resolved reference to its `Fqn`.
 //!
 //! Every item in a build has exactly one fully-qualified identity —
-//! `<defining module>.<item name>` — and this pass maps each *spelling*
-//! of a reference to that identity:
+//! `<defining module>::<item name>` — and this pass maps each *spelling*
+//! of a reference to that identity, whether it names an item in another
+//! module or in the current one:
 //!
+//! - a bare same-module name (a sibling `fn`/`const`/variant/type/ability),
 //! - a bare imported name (`double` after `use pkg::util::double;`),
 //! - a module-alias path (`util::double`, `nested::leaf::leaf_fn`),
 //! - an inline rooted path (`pkg::util::double`, `core::primitives::Number::sqrt`,
 //!   `self::sibling::helper`, `core::system::Stdio`).
+//!
+//! Only true lexical **locals** (params, `let`, pattern/lambda bindings)
+//! stay bare — they are not items. An enum variant resolves to the
+//! two-segment ident `Fqn(module, [Enum, Variant])`, both same-module and
+//! imported.
 //!
 //! The canonical identity is recorded in [`QualifiedName::resolved`]
 //! without disturbing the source spelling (whose spans serve IDE
@@ -24,7 +31,7 @@
 //! have before. Import errors on `use` items themselves are reported by
 //! the checker from [`ModuleRegistry::build_module_scope`].
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::ast::{
@@ -86,9 +93,15 @@ struct Resolver<'r> {
     /// which anchors inline `self::`/`super::` at its own path.
     current_is_dir: bool,
     scope: ModuleScope,
-    /// Module-level value names (functions, consts, enum variants):
-    /// these shadow imports for bare references.
+    /// Module-level value names (functions, consts, unit-struct values):
+    /// these shadow imports for bare references, and resolve to their
+    /// own `Fqn(current, [name])`. Enum variants live in
+    /// [`Self::module_variants`] instead (they carry a two-segment ident).
     module_values: HashSet<Arc<str>>,
+    /// Module-level enum variant names → their declaring enum's name. A
+    /// same-module variant reference resolves to `Fqn(current, [Enum,
+    /// Variant])`; the map supplies the `Enum` segment.
+    module_variants: HashMap<Arc<str>, Arc<str>>,
     /// Module-level type-namespace names (type aliases, enums): a path
     /// head naming one of these is a type-associated call
     /// (`Money::default()`), which the checker resolves.
@@ -116,6 +129,7 @@ impl<'r> Resolver<'r> {
         scope: ModuleScope,
     ) -> Self {
         let mut module_values = HashSet::new();
+        let mut module_variants = HashMap::new();
         let mut module_types = HashSet::new();
         let mut module_abilities = HashSet::new();
         for item in &module.items {
@@ -143,7 +157,7 @@ impl<'r> Resolver<'r> {
                 ItemKind::Enum(e) => {
                     module_types.insert(Arc::clone(&e.name));
                     for variant in &e.variants {
-                        module_values.insert(Arc::clone(&variant.name));
+                        module_variants.insert(Arc::clone(&variant.name), Arc::clone(&e.name));
                     }
                 }
                 ItemKind::Ability(a) => {
@@ -159,6 +173,7 @@ impl<'r> Resolver<'r> {
             current_is_dir,
             scope,
             module_values,
+            module_variants,
             module_types,
             module_abilities,
             locals: Vec::new(),
@@ -315,20 +330,46 @@ impl<'r> Resolver<'r> {
             return;
         }
         if name.path.is_empty() {
-            // Locals and same-module values (functions, consts, enum
-            // variants, unit-struct values) stay bare: the module's own
-            // items are keyed bare in the env and linking tables (and their
-            // runtime enum tags live in the enum registry). Only
-            // cross-module references carry a resolved `Fqn`.
-            if self.is_local(&name.name) || self.module_values.contains(&name.name) {
+            // Locals stay bare — they are lexical bindings, not items.
+            if self.is_local(&name.name) {
                 return;
             }
-            if let Some(import) = self.scope_item(&name.name, Namespace::Value)
-                && matches!(import.kind, ExportKind::Function | ExportKind::Const)
-            {
-                let (module, item) = (import.module.clone(), import.name.clone());
-                name.resolved = Some(self.canonical(&module, vec![item]));
+            // A same-module enum variant resolves to its two-segment ident
+            // `Fqn(current, [Enum, Variant])` — the key its constructor
+            // scheme is bound under. (Runtime tags still live in the enum
+            // registry, keyed by bare variant name.)
+            if let Some(enum_name) = self.module_variants.get(&name.name) {
+                let ident = vec![Arc::clone(enum_name), Arc::clone(&name.name)];
+                let current = self.current;
+                name.resolved = Some(self.canonical(current, ident));
                 return;
+            }
+            // A same-module function, const, or unit-struct value resolves
+            // to its own `Fqn(current, [name])`.
+            if self.module_values.contains(&name.name) {
+                let current = self.current;
+                name.resolved = Some(self.canonical(current, vec![Arc::clone(&name.name)]));
+                return;
+            }
+            if let Some(import) = self.scope_item(&name.name, Namespace::Value) {
+                match import.kind {
+                    ExportKind::Function | ExportKind::Const => {
+                        let (module, item) = (import.module.clone(), import.name.clone());
+                        name.resolved = Some(self.canonical(&module, vec![item]));
+                        return;
+                    }
+                    // An imported enum variant resolves to its declaring
+                    // enum's two-segment ident, mirroring the same-module
+                    // case. The enum segment comes from the defining module.
+                    ExportKind::EnumVariant => {
+                        let (module, variant) = (import.module.clone(), import.name.clone());
+                        if let Some(enum_name) = self.variant_enum(&module, &variant) {
+                            name.resolved = Some(self.canonical(&module, vec![enum_name, variant]));
+                        }
+                        return;
+                    }
+                    _ => {}
+                }
             }
             // A bare `Origin` imported via `use m::{Origin}` lives in the
             // type namespace (structs are types), but a unit struct is also a
@@ -358,23 +399,12 @@ impl<'r> Resolver<'r> {
             return;
         };
         if target == *self.current {
-            // A qualified self-reference to a *declared* local item
-            // (`pkg::this_module::foo`, `self::foo`) normalizes to the bare
-            // local spelling — the key the module's own items are bound
-            // under — mirroring how `resolve_type` rewrites qualified
-            // self-references to bare.
-            if self.module_values.contains(&name.name)
-                || self.module_types.contains(&name.name)
-                || self.module_abilities.contains(&name.name)
-            {
-                name.path.clear();
-                name.path_spans.clear();
-                return;
-            }
-            // Otherwise it names an item this module exports without an AST
-            // declaration — an intrinsic (`core::collections::List::get`) or
-            // an injected export — which the intrinsic table and linker key
-            // by its full `Fqn`.
+            // A qualified self-reference (`pkg::this_module::foo`,
+            // `self::foo`) canonicalizes to the current module's `Fqn` —
+            // the same identity a bare same-module reference resolves to.
+            // Whether `foo` is a declared item or an injected export
+            // (an intrinsic like `core::collections::List::get`), the
+            // env/intrinsic tables and linker key by this `Fqn`.
             name.resolved = Some(self.canonical(&target, vec![Arc::clone(&name.name)]));
             return;
         }
@@ -390,11 +420,13 @@ impl<'r> Resolver<'r> {
             return;
         }
         if name.path.is_empty() {
-            // The builtin `Exception` and locally-declared abilities stay
-            // bare (the ability resolver registers local declarations by
-            // name, in their own table); imported abilities canonicalize to
+            // The builtin `Exception` stays bare (it has no declaring
+            // module). A locally-declared ability resolves to its own
+            // `Fqn(current, [name])`; imported abilities canonicalize to
             // their declaring module.
             if self.module_abilities.contains(&name.name) {
+                let current = self.current;
+                name.resolved = Some(self.canonical(current, vec![Arc::clone(&name.name)]));
                 return;
             }
             if let Some(import) = self.scope_item(&name.name, Namespace::Ability) {
@@ -409,15 +441,19 @@ impl<'r> Resolver<'r> {
 
     /// Resolve a type-namespace reference (typed record constructors).
     ///
-    /// Same-module types stay bare (their identity lives in the Type IR,
-    /// keyed by bare name); only imported types canonicalize to their
-    /// declaring module's `Fqn`.
+    /// Same-module types resolve to their own `Fqn(current, [name])` — the
+    /// key the checker binds the current module's type aliases under; only
+    /// imported types canonicalize to their declaring module's `Fqn`. The
+    /// `Type::Nominal` uuid remains the runtime/content identity; this
+    /// `Fqn` is only the checker-side location key.
     fn resolve_type_ref(&mut self, name: &mut QualifiedName) {
         if name.resolved.is_some() {
             return;
         }
         if name.path.is_empty() {
             if self.module_types.contains(&name.name) {
+                let current = self.current;
+                name.resolved = Some(self.canonical(current, vec![Arc::clone(&name.name)]));
                 return;
             }
             if let Some(import) = self.scope_item(&name.name, Namespace::Type) {
@@ -538,11 +574,26 @@ impl<'r> Resolver<'r> {
         Some(self.canonical(&origin, vec![Arc::from(name)]))
     }
 
+    /// The enum that declares `variant` in foreign `module`, if any — the
+    /// first ident segment of an imported variant's two-segment `Fqn`.
+    fn variant_enum(&self, module: &ModulePath, variant: &str) -> Option<Arc<str>> {
+        let info = self.registry.get(module)?;
+        for item in &info.module.items {
+            if let ItemKind::Enum(e) = &item.kind
+                && e.variants.iter().any(|v| v.name.as_ref() == variant)
+            {
+                return Some(Arc::clone(&e.name));
+            }
+        }
+        None
+    }
+
     /// Whether `module` exports `name` (publicly), or `module` is the
     /// current module and declares it at all.
     fn item_exists(&self, module: &ModulePath, name: &str) -> bool {
         if module == self.current {
             return self.module_values.contains(name)
+                || self.module_variants.contains_key(name)
                 || self.module_types.contains(name)
                 || self.module_abilities.contains(name);
         }
@@ -615,7 +666,8 @@ impl<'r> Resolver<'r> {
             if let ExprKind::Name(name) = &receiver.kind {
                 let target = (name.path.is_empty()
                     && !self.is_local(&name.name)
-                    && !self.module_values.contains(&name.name))
+                    && !self.module_values.contains(&name.name)
+                    && !self.module_variants.contains_key(&name.name))
                 .then(|| self.scope_module(&name.name).cloned())
                 .flatten()
                 .filter(|module| self.item_exists(module, method));
@@ -856,5 +908,199 @@ fn collect_pattern_bindings(pattern: &Pattern, out: &mut Vec<Arc<str>>) {
                 collect_pattern_bindings(payload, out);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{
+        AbilityDef, ConstDef, EnumDef, EnumVariant, Expr, FunctionDef, Item, ItemKind, Module, Span,
+    };
+    use crate::types::Type;
+
+    fn func(name: &str, body: Expr, abilities: Vec<QualifiedName>) -> Item {
+        Item::new(
+            ItemKind::Function(FunctionDef {
+                name: Arc::from(name),
+                name_span: Span::default(),
+                is_public: true,
+                type_params: vec![],
+                params: vec![],
+                ret_ty: None,
+                abilities,
+                body,
+            }),
+            Span::default(),
+        )
+    }
+
+    /// Resolve module `m` (single-package registry) and return it.
+    fn resolve_m(items: Vec<Item>) -> (Module, ModuleRegistry, ModulePath) {
+        let mut module = Module {
+            name: Arc::from("m"),
+            doc: None,
+            items,
+        };
+        let mut registry = ModuleRegistry::new();
+        let path = ModulePath::from_str_segments(&["m"]).unwrap();
+        registry.register(&path, Arc::new(module.clone()));
+        resolve_module(&mut module, &path, &registry);
+        (module, registry, path)
+    }
+
+    /// The `resolved` of the body `Name` of function `name`.
+    fn body_resolved(module: &Module, name: &str) -> Option<Fqn> {
+        module.items.iter().find_map(|item| match &item.kind {
+            ItemKind::Function(f) if f.name.as_ref() == name => match &f.body.kind {
+                crate::ast::ExprKind::Name(n) => n.resolved.clone(),
+                _ => None,
+            },
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn same_module_function_reference_resolves_to_its_fqn() {
+        let items = vec![
+            func("a", Expr::unit(), vec![]),
+            func("ref_a", Expr::name("a"), vec![]),
+        ];
+        let (module, registry, path) = resolve_m(items);
+        assert_eq!(
+            body_resolved(&module, "ref_a"),
+            Some(registry.fqn(&path, &[Arc::from("a")]))
+        );
+    }
+
+    #[test]
+    fn same_module_const_reference_resolves_to_its_fqn() {
+        let konst = Item::new(
+            ItemKind::Const(ConstDef {
+                name: Arc::from("K"),
+                name_span: Span::default(),
+                is_public: true,
+                ty: Type::number(),
+                value: Expr::number(1.0),
+            }),
+            Span::default(),
+        );
+        let items = vec![konst, func("ref_k", Expr::name("K"), vec![])];
+        let (module, registry, path) = resolve_m(items);
+        assert_eq!(
+            body_resolved(&module, "ref_k"),
+            Some(registry.fqn(&path, &[Arc::from("K")]))
+        );
+    }
+
+    #[test]
+    fn same_module_enum_variant_resolves_to_two_segment_ident() {
+        let enum_def = Item::new(
+            ItemKind::Enum(EnumDef {
+                name: Arc::from("E"),
+                name_span: Span::default(),
+                is_public: true,
+                type_params: vec![],
+                variants: vec![EnumVariant {
+                    name: Arc::from("V"),
+                    payload: None,
+                    span: Span::default(),
+                }],
+                uuid: uuid::Uuid::from_u128(1),
+            }),
+            Span::default(),
+        );
+        let items = vec![enum_def, func("ref_v", Expr::name("V"), vec![])];
+        let (module, registry, path) = resolve_m(items);
+        // The variant's ident is `[Enum, Variant]`, not the bare `[V]`.
+        assert_eq!(
+            body_resolved(&module, "ref_v"),
+            Some(registry.fqn(&path, &[Arc::from("E"), Arc::from("V")]))
+        );
+    }
+
+    #[test]
+    fn imported_enum_variant_resolves_to_two_segment_ident() {
+        use crate::ast::{UseDef, UsePrefix};
+
+        // Module `shapes` declares `enum Shape { Circle }`.
+        let shapes = Module {
+            name: Arc::from("shapes"),
+            doc: None,
+            items: vec![Item::new(
+                ItemKind::Enum(EnumDef {
+                    name: Arc::from("Shape"),
+                    name_span: Span::default(),
+                    is_public: true,
+                    type_params: vec![],
+                    variants: vec![EnumVariant {
+                        name: Arc::from("Circle"),
+                        payload: None,
+                        span: Span::default(),
+                    }],
+                    uuid: uuid::Uuid::from_u128(2),
+                }),
+                Span::default(),
+            )],
+        };
+        // Module `main` imports the variant by name and references it.
+        let use_item = Item::new(
+            ItemKind::Use(UseDef {
+                is_public: false,
+                prefix: UsePrefix::Pkg,
+                path: vec![
+                    (Arc::from("shapes"), Span::default()),
+                    (Arc::from("Circle"), Span::default()),
+                ],
+                alias: None,
+            }),
+            Span::default(),
+        );
+        let mut main = Module {
+            name: Arc::from("main"),
+            doc: None,
+            items: vec![use_item, func("ref_circle", Expr::name("Circle"), vec![])],
+        };
+
+        let mut registry = ModuleRegistry::new();
+        let shapes_path = ModulePath::from_str_segments(&["shapes"]).unwrap();
+        let main_path = ModulePath::from_str_segments(&["main"]).unwrap();
+        registry.register(&shapes_path, Arc::new(shapes));
+        registry.register(&main_path, Arc::new(main.clone()));
+        resolve_module(&mut main, &main_path, &registry);
+
+        // The imported variant lands on `shapes::Shape::Circle`, not a bare
+        // `Circle` (corner #2: imported variants now resolve).
+        assert_eq!(
+            body_resolved(&main, "ref_circle"),
+            Some(registry.fqn(&shapes_path, &[Arc::from("Shape"), Arc::from("Circle")]))
+        );
+    }
+
+    #[test]
+    fn same_module_ability_reference_resolves_to_its_fqn() {
+        let ability = Item::new(
+            ItemKind::Ability(AbilityDef {
+                name: Arc::from("A"),
+                name_span: Span::default(),
+                is_public: true,
+                dependencies: vec![],
+                methods: vec![],
+                resolved_id: None,
+            }),
+            Span::default(),
+        );
+        let items = vec![
+            ability,
+            func("with_a", Expr::unit(), vec![QualifiedName::simple("A")]),
+        ];
+        let (module, registry, path) = resolve_m(items);
+        let resolved = module.items.iter().find_map(|item| match &item.kind {
+            ItemKind::Function(f) if f.name.as_ref() == "with_a" => {
+                f.abilities.first().and_then(|q| q.resolved.clone())
+            }
+            _ => None,
+        });
+        assert_eq!(resolved, Some(registry.fqn(&path, &[Arc::from("A")])));
     }
 }

@@ -167,6 +167,7 @@ pub fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
     let mut compiled = ambient_engine::compiler::compile_module_with_options(
         &check_result.module,
         ambient_engine::compiler::CompileOptions {
+            module_id: Some(core.registry.module_id(&main_path)),
             source: Some(source),
             source_file: Some(&source_file),
             imported_hashes: Some(core.hashes),

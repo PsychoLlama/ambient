@@ -46,6 +46,21 @@ fn resolve_ref(store: &DiskStore, reference: &str) -> Result<blake3::Hash> {
         return Ok(*hash);
     }
 
+    // Names are stored fully qualified (`workspace::<pkg>::geometry::circle::area`).
+    // Accept a `::`-qualified suffix (`area`, `circle::area`) when it names a
+    // single binding — the same ergonomic the runtime entry lookup allows.
+    let suffix = format!("::{reference}");
+    let suffix_matches: Vec<blake3::Hash> = names
+        .iter()
+        .filter(|(name, _)| name.ends_with(&suffix))
+        .map(|(_, hash)| *hash)
+        .collect();
+    match suffix_matches.len() {
+        0 => {}
+        1 => return Ok(suffix_matches[0]),
+        n => bail!("name suffix `{reference}` is ambiguous ({n} matches)"),
+    }
+
     // Hash prefix lookup (like git short hashes).
     if reference.len() >= 4 && reference.chars().all(|c| c.is_ascii_hexdigit()) {
         let matches: Vec<blake3::Hash> = store

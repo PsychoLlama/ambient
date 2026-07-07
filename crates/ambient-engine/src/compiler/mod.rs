@@ -45,7 +45,7 @@ use std::sync::Arc;
 
 use crate::ast::{BindingId, FunctionDef, ImplDef, ImplMethod, ItemKind, Module};
 use crate::bytecode::{BytecodeBuilder, CompiledFunction, DebugInfo, Opcode};
-use crate::fqn::{Fqn, NameKey};
+use crate::fqn::{Fqn, ModuleId, NameKey};
 use crate::value::Value;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -485,6 +485,12 @@ struct ModuleContext {
     /// Foreign ability identities keyed by their [`Fqn`]; see
     /// [`CompileOptions::foreign_abilities`].
     foreign_abilities: HashMap<Fqn, CompiledAbilityInfo>,
+    /// The current module's identity (registry-less compiles pass `None`).
+    /// The module's own consts and unit structs key on their `Fqn` under
+    /// this id, matching the resolve pass; a same-module ability reference
+    /// arrives as `Item(Fqn)` and resolves back to the bare-keyed local
+    /// ability table via this id.
+    module_id: Option<ModuleId>,
 }
 
 /// Compile-time info for one module-declared ability.
@@ -515,7 +521,7 @@ pub(crate) struct VariantInfo {
 }
 
 impl ModuleContext {
-    fn new() -> Self {
+    fn new(module_id: Option<ModuleId>) -> Self {
         let mut enums = HashMap::new();
         // Prelude constructors, derived from the same canonical specs the type
         // registry uses (`PRELUDE_ENUMS`), so tags and payload shapes stay in
@@ -542,6 +548,7 @@ impl ModuleContext {
             abilities: HashMap::new(),
             prelude_abilities: HashMap::new(),
             foreign_abilities: HashMap::new(),
+            module_id,
         }
     }
 
@@ -573,8 +580,10 @@ impl ModuleContext {
             if let ItemKind::Const(const_def) = &item.kind
                 && let Some(value) = crate::const_eval::literal_value(&const_def.value)
             {
-                self.constants
-                    .insert(NameKey::Bare(Arc::clone(&const_def.name)), value);
+                self.constants.insert(
+                    own_item_key(self.module_id.as_ref(), &const_def.name),
+                    value,
+                );
             }
         }
     }
@@ -622,12 +631,17 @@ impl ModuleContext {
     /// `platform` module never compiles, so it has no canonical entry).
     fn resolve_ability(&self, ability: &crate::ast::QualifiedName) -> Option<&CompiledAbilityInfo> {
         match &ability.resolved {
-            // A resolved reference names a foreign ability by its `Fqn`, or
-            // a platform prelude ability by bare name (the `platform`
-            // module never compiles, so it has no `Fqn` linking entry).
+            // A resolved reference names a same-module ability (its `Fqn`'s
+            // module is ours — look it up bare in the local table), a
+            // foreign ability by its `Fqn`, or a platform prelude ability by
+            // bare name (the `platform` module never compiles, so it has no
+            // `Fqn` linking entry).
             Some(fqn) => self
-                .foreign_abilities
-                .get(fqn)
+                .module_id
+                .as_ref()
+                .filter(|id| **id == fqn.module)
+                .and_then(|_| self.abilities.get(fqn.name()))
+                .or_else(|| self.foreign_abilities.get(fqn))
                 .or_else(|| self.prelude_abilities.get(ability.resolved_name())),
             // A bare unresolved reference is a local declaration
             // (same-module abilities are never resolved to an `Fqn`). A
@@ -732,14 +746,16 @@ impl ModuleContext {
         }
     }
 
-    /// Register the local module's unit structs under their bare names —
-    /// their resolution key when referenced from within the module.
+    /// Register the local module's unit structs under their `Fqn` (or bare,
+    /// registry-less) — their resolution key when referenced from within
+    /// the module.
     fn register_unit_structs(&mut self, module: &Module) {
         for item in &module.items {
             if let ItemKind::Struct(s) = &item.kind
                 && s.is_unit_value()
             {
-                self.unit_structs.insert(NameKey::Bare(Arc::clone(&s.name)));
+                self.unit_structs
+                    .insert(own_item_key(self.module_id.as_ref(), &s.name));
             }
         }
     }
@@ -790,6 +806,14 @@ impl ModuleContext {
 /// prelude abilities.
 #[derive(Default)]
 pub struct CompileOptions<'a> {
+    /// The current module's identity. When set, the module's own items
+    /// (functions, consts, unit structs, abilities) key on their
+    /// [`Fqn`] — matching the resolve pass, which canonicalizes every
+    /// same-module reference to `Fqn(module_id, [name])`. `None` is the
+    /// registry-less convention (single-file/REPL-less unit compiles): the
+    /// resolve pass never ran, so same-module references stay bare and own
+    /// items key bare to match.
+    pub module_id: Option<ModuleId>,
     /// Original source code, for debug info (line/column mapping).
     pub source: Option<&'a str>,
     /// Source file path, for display in stack traces.
@@ -932,12 +956,23 @@ pub fn compile_module_with_imports_and_source(
     )
 }
 
+/// The lookup key for one of the current module's own items (function,
+/// const, unit struct), matching the resolve pass: `Item(Fqn(module_id,
+/// [name]))` when the module has an identity, else bare (registry-less).
+fn own_item_key(module_id: Option<&ModuleId>, name: &Arc<str>) -> NameKey {
+    match module_id {
+        Some(id) => NameKey::Item(Fqn::new(id.clone(), vec![Arc::clone(name)])),
+        None => NameKey::Bare(Arc::clone(name)),
+    }
+}
+
 /// Implementation of module compilation with optional debug info.
 fn compile_module_impl(
     module: &Module,
     options: CompileOptions,
 ) -> Result<CompiledModule, CompileError> {
     let CompileOptions {
+        module_id,
         source,
         source_file,
         imported_hashes,
@@ -965,12 +1000,12 @@ fn compile_module_impl(
     // Start with imported hashes (these are already content-addressed).
     let mut temp_hashes: HashMap<NameKey, blake3::Hash> = imported_hashes.unwrap_or_default();
 
-    // Add temporary hashes for local functions, keyed bare — a module's
-    // own functions are referenced by bare name (same-module references are
-    // never resolved to an `Fqn`).
+    // Add temporary hashes for local functions, keyed on the same identity
+    // the resolve pass gives a same-module reference: `Item(Fqn)` when the
+    // module has an identity, bare in the registry-less convention.
     for func in &functions {
         let hash = compute_temporary_hash(&func.name);
-        temp_hashes.insert(NameKey::Bare(Arc::clone(&func.name)), hash);
+        temp_hashes.insert(own_item_key(module_id.as_ref(), &func.name), hash);
     }
 
     // Constants are not compiled to functions: they carry no hash and appear
@@ -1013,7 +1048,7 @@ fn compile_module_impl(
 
     // Create module context for tracking lambdas discovered during
     // compilation, with the module's enum constructors registered.
-    let mut ctx = ModuleContext::new();
+    let mut ctx = ModuleContext::new(module_id.clone());
     ctx.register_imported_enums(&imported_enums);
     ctx.register_enums(module);
     ctx.register_imported_unit_structs(&imported_unit_structs);
@@ -1091,8 +1126,9 @@ fn compile_function_with_hash(
     let constants = fc.builder.constants().to_vec();
     let dependencies = fc.builder.dependencies().to_vec();
 
-    // Get the pre-computed hash for this function
-    let hash = function_hashes[&NameKey::Bare(Arc::clone(&func.name))];
+    // Get the pre-computed hash for this function, keyed like its
+    // same-module references (see `own_item_key`).
+    let hash = function_hashes[&own_item_key(ctx.module_id.as_ref(), &func.name)];
 
     // Build debug info if source is available
     let debug_info = if source.is_some() || source_file.is_some() {
@@ -1240,7 +1276,7 @@ mod tests {
         let mut hashes = HashMap::new();
         let hash = compute_temporary_hash(&func.name);
         hashes.insert(NameKey::Bare(Arc::clone(&func.name)), hash);
-        let mut ctx = ModuleContext::new();
+        let mut ctx = ModuleContext::new(None);
         compile_function_with_hash(func, &hashes, &mut ctx, None, None)
     }
 
@@ -1680,7 +1716,7 @@ mod tests {
         let mut hashes = HashMap::new();
         let hash = compute_temporary_hash(&func.name);
         hashes.insert(NameKey::Bare(Arc::clone(&func.name)), hash);
-        let mut ctx = ModuleContext::new();
+        let mut ctx = ModuleContext::new(None);
 
         let compiled =
             compile_function_with_hash(&func, &hashes, &mut ctx, Some(source), Some(source_file))

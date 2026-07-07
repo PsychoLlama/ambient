@@ -63,6 +63,7 @@ fn compile(src: &str) -> CompiledModule {
     compile_module_with_options(
         &checked.module,
         CompileOptions {
+            module_id: None,
             source: Some(src),
             source_file: None,
             imported_hashes: None,

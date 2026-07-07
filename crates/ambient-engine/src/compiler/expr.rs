@@ -365,27 +365,28 @@ pub(super) fn compile_expr(
                     }
                     let hash = fc.function_hashes[&key];
                     fc.builder.emit_call(hash, args.len() as u8);
-                } else if is_cross_module {
-                    // A qualified reference that linked to nothing.
-                    return Err(CompileError::new(
-                        CompileErrorKind::UndefinedFunction {
-                            name: name.joined(),
-                        },
-                        (callee.span.start, callee.span.end),
-                    ));
-                } else if fc.get_local_by_name(&name.name).is_some()
-                    || fc.capture_names.contains_key(&name.name)
-                    || fc.is_parent_name(&name.name)
+                } else if name.resolved.is_none()
+                    && name.path.is_empty()
+                    && (fc.get_local_by_name(&name.name).is_some()
+                        || fc.capture_names.contains_key(&name.name)
+                        || fc.is_parent_name(&name.name))
                 {
                     // Indirect call through a closure stored in a variable.
-                    // First compile the closure (callee), then arguments.
+                    // Only a *bare* unresolved name can be a local, so this is
+                    // checked before the enum branch — a local shadowing a
+                    // variant constructor wins. First compile the closure
+                    // (callee), then arguments.
                     compile_expr(fc, callee, ctx)?;
                     for arg in args {
                         compile_expr(fc, arg, ctx)?;
                     }
                     fc.builder.emit_call_closure(args.len() as u8);
                 } else if let Some(variant) = ctx.enums.get(&name.name).cloned() {
-                    // Enum variant constructor: `Some(x)`, `Just(v)`.
+                    // Enum variant constructor: `Some(x)`, `Just(v)`. Checked
+                    // before the cross-module bail: a same-module variant now
+                    // resolves to its `Fqn` (so `is_cross_module` is true), but
+                    // its runtime identity is still the bare-named tag in
+                    // `ctx.enums`, not a linked function hash.
                     if !variant.has_payload || args.len() != 1 {
                         return Err(CompileError::new(
                             CompileErrorKind::Internal {
@@ -397,6 +398,14 @@ pub(super) fn compile_expr(
                     compile_expr(fc, &args[0], ctx)?;
                     fc.builder
                         .emit_make_enum(&variant.enum_name, variant.tag, &name.name, true);
+                } else if is_cross_module {
+                    // A qualified reference that linked to nothing.
+                    return Err(CompileError::new(
+                        CompileErrorKind::UndefinedFunction {
+                            name: name.joined(),
+                        },
+                        (callee.span.start, callee.span.end),
+                    ));
                 } else {
                     // Unknown function - will error at runtime
                     compile_expr(fc, callee, ctx)?;

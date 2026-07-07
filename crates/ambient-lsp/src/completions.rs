@@ -190,6 +190,7 @@ pub fn get_completions(
             resolver,
             module_path,
             ctx.word_prefix,
+            registry.map(ambient_engine::module_registry::ModuleRegistry::workspace_name),
         ));
         if !items.is_empty() {
             return items;
@@ -300,14 +301,19 @@ fn get_namespace_ability_completions(
     resolver: &AbilityResolver,
     namespace: &str,
     prefix: &str,
+    workspace: Option<&std::sync::Arc<str>>,
 ) -> Vec<CompletionItem> {
     // Build the namespace's `ModuleId` from its dotted spelling. Platform
-    // abilities live under `core::system` (`Builtin`); a user namespace's
-    // workspace scope isn't known here, so it best-effort matches the empty
-    // workspace.
+    // abilities live under `core::system` (`Builtin`); a user namespace is
+    // scoped under the analysis package name (mirroring
+    // `AnalysisPackage::build_registry`), so its `ModuleId` matches the
+    // registered ability namespaces. Absent a registry, fall back to the
+    // empty workspace.
+    let workspace = workspace
+        .cloned()
+        .unwrap_or_else(|| std::sync::Arc::from(""));
     let segments: Vec<&str> = namespace.split("::").collect();
-    let module_id =
-        ambient_engine::fqn::ModuleId::from_dotted_segments(&segments, &std::sync::Arc::from(""));
+    let module_id = ambient_engine::fqn::ModuleId::from_dotted_segments(&segments, &workspace);
     resolver
         .namespace_ability_names(&module_id)
         .into_iter()

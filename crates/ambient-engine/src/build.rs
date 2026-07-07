@@ -279,7 +279,10 @@ pub fn build_package(
                 let qualified: Arc<str> = if name.contains("::") {
                     Arc::clone(name)
                 } else {
-                    format!("{module_path}::{name}").into()
+                    registry
+                        .fqn(&module_path, &[Arc::clone(name)])
+                        .to_string()
+                        .into()
                 };
                 (qualified, *hash)
             })
@@ -582,9 +585,13 @@ pub fn compile_core_modules(
             });
         }
 
-        let compiled = crate::compiler::compile_module_with_imports(
+        let compiled = crate::compiler::compile_module_with_options(
             &check_result.module,
-            linking_table(module_function_hashes, registry),
+            crate::compiler::CompileOptions {
+                module_id: Some(registry.module_id(&core_path)),
+                imported_hashes: Some(linking_table(module_function_hashes, registry)),
+                ..crate::compiler::CompileOptions::default()
+            },
         )
         .map_err(|e| BuildError::Compile {
             module: core_path.to_string(),
@@ -610,7 +617,10 @@ pub fn compile_core_modules(
                 let qualified: Arc<str> = if name.contains("::") {
                     Arc::clone(name)
                 } else {
-                    format!("{core_path}::{name}").into()
+                    registry
+                        .fqn(&core_path, &[Arc::clone(name)])
+                        .to_string()
+                        .into()
                 };
                 (qualified, *hash)
             })
@@ -676,6 +686,7 @@ fn compile_loaded_module_with_registry(
     let compiled = crate::compiler::compile_module_with_options(
         &check_result.module,
         crate::compiler::CompileOptions {
+            module_id: Some(registry.module_id(module_path)),
             source: Some(&loaded.source),
             source_file: Some(&source_file),
             imported_hashes: Some(imported_hashes),
@@ -740,6 +751,7 @@ pub fn compile_session_module(
     let mut compiled = crate::compiler::compile_module_with_options(
         &check_result.module,
         crate::compiler::CompileOptions {
+            module_id: Some(registry.module_id(path)),
             source: Some(source),
             source_file: Some(&source_file),
             imported_hashes: Some(imported_hashes),
@@ -765,7 +777,7 @@ pub fn compile_session_module(
             let qualified: Arc<str> = if name.contains("::") {
                 Arc::clone(name)
             } else {
-                format!("{path}::{name}").into()
+                registry.fqn(path, &[Arc::clone(name)]).to_string().into()
             };
             (qualified, *hash)
         })

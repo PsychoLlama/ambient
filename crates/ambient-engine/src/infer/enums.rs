@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
+use crate::fqn::ModuleId;
 use crate::types::{NamedType, OPTION_UUID, RESULT_UUID, Type, TypeVarId};
 
 use super::env::Scheme;
@@ -45,6 +46,11 @@ pub struct EnumInfo {
     /// always distinct types. `None` only appears transiently, before an
     /// annotation or payload is resolved against the registry.
     pub uuid: Option<Uuid>,
+    /// The module that declares this enum — the first two ident segments of
+    /// each variant's `Fqn(module, [Enum, Variant])` key. `None` for the
+    /// reserved prelude enums (`Option`/`Result`), whose variants bind bare,
+    /// and for registry-less checks where the resolve pass never ran.
+    pub module: Option<ModuleId>,
 }
 
 /// One variant in a reserved prelude enum's canonical layout.
@@ -120,6 +126,8 @@ impl PreludeEnum {
                 })
                 .collect(),
             uuid: Some(self.uuid),
+            // Prelude enums have no declaring module; their variants bind bare.
+            module: None,
         }
     }
 
@@ -310,9 +318,10 @@ impl EnumRegistry {
         self.enums.insert(Arc::clone(&info.name), info);
     }
 
-    /// Register an enum from its AST definition.
-    pub fn register_def(&mut self, def: &crate::ast::EnumDef) {
-        self.register(Arc::new(EnumInfo::from_def(def)));
+    /// Register an enum from its AST definition, tagged with its declaring
+    /// module (`None` for prelude/registry-less registration).
+    pub fn register_def(&mut self, def: &crate::ast::EnumDef, module: Option<ModuleId>) {
+        self.register(Arc::new(EnumInfo::from_def(def, module)));
     }
 
     /// Look up an enum by name.
@@ -340,9 +349,10 @@ impl EnumRegistry {
 }
 
 impl EnumInfo {
-    /// Build registry info from an AST enum definition.
+    /// Build registry info from an AST enum definition, tagged with its
+    /// declaring module.
     #[must_use]
-    pub fn from_def(def: &crate::ast::EnumDef) -> Self {
+    pub fn from_def(def: &crate::ast::EnumDef, module: Option<ModuleId>) -> Self {
         Self {
             name: Arc::clone(&def.name),
             type_params: def
@@ -359,6 +369,7 @@ impl EnumInfo {
                 })
                 .collect(),
             uuid: Some(def.uuid),
+            module,
         }
     }
 

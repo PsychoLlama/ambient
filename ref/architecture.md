@@ -50,34 +50,39 @@ An `Fqn` is a `ModuleId` (a `Scope` + a scope-relative module path) plus an
 ident path of one or more segments. There are two identity axes that
 coexist:
 
-- **Location** (the `Fqn`): the identity of anything a `use` path names and
-  the resolve pass canonicalizes — top-level items, type-associated
-  members, and (structurally) enum variants. `Scope` is `Builtin` for the
-  `core` standard library or `Workspace(pkg)` for a user package, so a
-  user item renders `workspace::<pkg>::utils::helper` and a builtin renders
+- **Location** (the `Fqn`): the identity of every *resolved* reference —
+  same-module included — that the resolve pass canonicalizes: top-level
+  items, type-associated members, and enum variants (the two-segment ident
+  `[Enum, Variant]`). `Scope` is `Builtin` for the `core` standard library
+  or `Workspace(pkg)` for a user package, so a user item renders
+  `workspace::<pkg>::utils::helper` and a builtin renders
   `core::primitives::Number::sqrt`. (`Scope::Library(hash)` is reserved for
   content-addressed dependencies.) This makes `a::b::c` unambiguous as
   data: `b` a submodule vs. `b` a type land on distinct `Fqn`s even though
   they render the same.
 - **Content**: UUID-based method dispatch symbols (`<type-uuid>::method`)
   keep their perfect content identity and are *not* folded into the `Fqn`.
+  Content hashes never depend on the `Fqn`: finalization folds a recursive
+  function's *bare* short name into its group object, so the `Fqn` is a
+  compile-time lookup key and post-hash label, never a hashing input.
 
 Internal tables key off the `Fqn` struct (`Eq`/`Hash`) through a `NameKey`
-(`Item(Fqn)` for cross-module identity, `Bare(name)` for locals,
-same-module items, content symbols, and the registry-less REPL) — never
-string equivalence. `Display` exists only for diagnostics and the on-disk
-store (`.ambient/store/names`).
+(`Item(Fqn)` for a resolved location, `Bare(name)` for only two things:
+true lexical locals and content-addressed `<uuid>::method` symbols — plus
+registry-less checks/compiles, which never run resolve). `Display` exists
+only for diagnostics and the on-disk store (`.ambient/store/names`), which
+now records full `workspace::<pkg>::…` names.
 
 The two access rules follow:
 
 1. Anything reachable by its fully-qualified path works through `use`,
    and vice versa.
-2. However a reference is spelled — bare imported name, module-alias
-   path, inline rooted path — it resolves to that one identity. The
-   compiler front end canonicalizes every cross-module reference before
-   checking (`crates/ambient-engine/src/resolve.rs`), so the checker, the
-   intrinsic tables, the ability resolver, and the linker all key off the
-   same `Fqn` (a module's own items stay bare, keyed by name).
+2. However a reference is spelled — bare same-module name, bare imported
+   name, module-alias path, inline rooted path — it resolves to that one
+   identity. The compiler front end canonicalizes every resolved reference
+   before checking (`crates/ambient-engine/src/resolve.rs`), so the checker,
+   the intrinsic tables, the ability resolver, and the linker all key off
+   the same `Fqn`; only true locals stay bare.
 
 `use` takes a Rust-style use-tree:
 

@@ -113,16 +113,27 @@ impl RuntimeHost {
     /// Deploy a build: install it as the current code generation and run
     /// `entry` as a reconciliation pass over the live process tree.
     pub fn deploy(&self, compiled: &CompiledModule, entry: &str) -> Result<DeployOutcome> {
-        // Function names in the merged build carry their canonical module
-        // qualifier (`main::run`). A bare entry (`run`, the default) names a
-        // function in the root `main` module, so fall back to that identity.
+        // Function names in the merged build carry their full canonical
+        // qualifier (`workspace::<pkg>::main::run`). Resolve `entry` in order:
+        // an exact key; else any key ending in `::{entry}`, which lets a
+        // friendly bare form (`run`) or a partially-qualified one
+        // (`repl::__repl_entry_1`) name a fully-qualified function; else, for
+        // the default entry, the structurally-captured entry point.
+        let suffix = format!("::{entry}");
         let entry_hash = compiled
             .function_names
             .get(entry)
             .or_else(|| {
                 compiled
                     .function_names
-                    .get(format!("main::{entry}").as_str())
+                    .iter()
+                    .find(|(name, _)| name.ends_with(&suffix))
+                    .map(|(_, hash)| hash)
+            })
+            .or_else(|| {
+                (entry == "run")
+                    .then_some(compiled.entry_point.as_ref())
+                    .flatten()
             })
             .ok_or_else(|| anyhow::anyhow!("entry function `{entry}` not found"))?;
 

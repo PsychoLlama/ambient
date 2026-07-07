@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::ability_resolver::AbilityResolver;
 use crate::ast::BindingId;
+use crate::fqn::{Fqn, ModuleId, NameKey};
 use crate::module_path::ModulePath;
 use crate::module_registry::{ExportKind, ModuleRegistry, ResolvedImport};
 use crate::types::{AbilityId, AbilitySet, Primitive, TraitDef, TraitMethodDef, Type, TypeVarId};
@@ -87,6 +88,10 @@ fn check_module_core(
         infer.set_workspace_name(registry.workspace_name().clone());
     }
 
+    // The current module's identity: the key its own items bind under and
+    // its same-module refs resolve to; `None` registry-less (own items bare).
+    let current_module_id = cross_module.map(|(path, reg)| reg.module_id(path));
+
     // Phase 0: canonicalize cross-module references. Every import, module
     // alias, and inline rooted path is resolved to its one fully-qualified
     // identity (`QualifiedName::resolved`); everything downstream keys off
@@ -113,31 +118,13 @@ fn check_module_core(
         None => TypeEnv::new(),
     };
 
-    register_named_types(&mut infer, &module);
-    // A struct claiming a reserved primitive identity must *be* the canonical
-    // `extern` declaration (checked local-module only: foreign modules were
-    // validated in their own check pass).
-    validate_reserved_structs(&module, &mut errors);
-    // Unit structs are values as well as types: each denotes a single value
-    // constructed by its bare name (like a nullary enum variant). Bind that
-    // value into the env so `let o = Origin` type-checks.
-    register_unit_struct_values(&module, &mut env);
-    register_traits(&mut infer, &module);
-    register_enums(&mut infer, &module, &mut env, &mut errors);
-    // ORDERING (load-bearing): `build_import_env` (above) already registered
-    // cross-module ability imports as bare dynamics; `register_abilities`
-    // runs *after* and overwrites, so a local `ability` shadows an imported
-    // one of the same bare name (matching the value/type shadowing rule).
-    register_abilities(&mut infer, &mut module, &mut errors);
-    collect_function_signatures(&mut infer, &module, &mut env);
-    // Constants register alongside functions so they're referenceable from
-    // any function, const, or impl body regardless of declaration order —
-    // the value-level analogue of `collect_function_signatures`.
-    collect_const_signatures(&mut infer, &module, &mut env);
-    // Inherent method signatures register before any body is checked, so
-    // methods are callable from every function and impl body regardless of
-    // declaration order.
-    register_inherent_impls(&mut infer, &mut module, &mut errors);
+    register_local_declarations(
+        &mut infer,
+        &mut module,
+        &mut env,
+        &mut errors,
+        current_module_id.as_ref(),
+    );
 
     // Phase 2: impl blocks. Inherent method bodies record their inferred
     // abilities for deferred enforcement (like functions, phase 4).
@@ -181,7 +168,7 @@ fn check_module_core(
                         }
                     }
 
-                    bind_inferred_abilities(&mut infer, &env, func);
+                    bind_inferred_abilities(&mut infer, &env, func, current_module_id.as_ref());
                     inferred_abilities.push((idx, infer.current_abilities().clone()));
                 }
                 Err(e) => {
@@ -225,6 +212,43 @@ fn check_module_core(
 
     errors.extend(infer.take_pending_errors());
     CheckResult { errors, module }
+}
+
+/// Phase 1 registration of the current module's own declarations into the
+/// checker: named types, unit-struct values, traits, enums, abilities,
+/// function/const signatures, and inherent impls. `module_id` is the key
+/// the module's own items bind under (`None` registry-less; see
+/// [`bind_own_item`]).
+fn register_local_declarations(
+    infer: &mut Infer,
+    module: &mut crate::ast::Module,
+    env: &mut TypeEnv,
+    errors: &mut Vec<BoxedTypeError>,
+    module_id: Option<&ModuleId>,
+) {
+    register_named_types(infer, module, module_id);
+    // A struct claiming a reserved primitive identity must *be* the canonical
+    // `extern` declaration (checked local-module only: foreign modules were
+    // validated in their own check pass).
+    validate_reserved_structs(module, errors);
+    // Unit structs are values too: each denotes a single value constructed by
+    // its bare name (like a nullary variant), bound so `let o = Origin` checks.
+    register_unit_struct_values(module, env, module_id);
+    register_traits(infer, module);
+    register_enums(infer, module, env, errors, module_id);
+    // ORDERING (load-bearing): `build_import_env` already registered
+    // cross-module ability imports as bare dynamics; `register_abilities`
+    // runs *after* and overwrites, so a local `ability` shadows an imported
+    // one of the same bare name (matching the value/type shadowing rule).
+    register_abilities(infer, module, errors);
+    // Constants and functions register before any body is checked, so both
+    // are referenceable from every function/const/impl body regardless of
+    // declaration order.
+    collect_function_signatures(infer, module, env, module_id);
+    collect_const_signatures(infer, module, env, module_id);
+    // Inherent method signatures register before any body is checked too, so
+    // methods are callable from every function and impl body.
+    register_inherent_impls(infer, module, errors);
 }
 
 /// Register the cross-module context for a package build: platform dynamics,
@@ -271,11 +295,16 @@ fn register_cross_module(
 ///
 /// Annotated and public functions are skipped: their scheme carries the
 /// declared (possibly empty) ability set, which enforcement checks instead.
-fn bind_inferred_abilities(infer: &mut Infer, env: &TypeEnv, func: &crate::ast::FunctionDef) {
+fn bind_inferred_abilities(
+    infer: &mut Infer,
+    env: &TypeEnv,
+    func: &crate::ast::FunctionDef,
+    module_id: Option<&ModuleId>,
+) {
     if !func.abilities.is_empty() || func.is_public {
         return;
     }
-    let Some(scheme) = env.get_by_name(&func.name) else {
+    let Some(scheme) = own_item_scheme(env, module_id, &func.name) else {
         return;
     };
     let Type::Function(f) = &scheme.ty else {
@@ -432,10 +461,27 @@ fn named_type_def(item: &crate::ast::Item) -> Option<(&Arc<str>, &Type, bool)> {
 
 /// Register all struct definitions and type aliases from a module into the
 /// inferencer so their names resolve as types while checking.
-fn register_named_types(infer: &mut Infer, module: &crate::ast::Module) {
+///
+/// Each local type registers under *both* keys: its bare name (the Type IR
+/// / `resolve_holes` layer, and the bare-string `Type::method` dispatch
+/// sites, resolve types by bare name) and — when the module has an identity
+/// — its `Item(Fqn)`, the key a resolved same-module typed-record
+/// constructor (`Money { … }`) looks up. The `Type::Nominal` uuid stays the
+/// content identity; the `Fqn` is only the checker-side location key.
+fn register_named_types(
+    infer: &mut Infer,
+    module: &crate::ast::Module,
+    module_id: Option<&ModuleId>,
+) {
     for item in &module.items {
         if let Some((name, ty, _)) = named_type_def(item) {
             infer.register_type_alias(Arc::clone(name), ty.clone());
+            if let Some(id) = module_id {
+                infer.register_type_alias_item(
+                    Fqn::new(id.clone(), vec![Arc::clone(name)]),
+                    ty.clone(),
+                );
+            }
         }
     }
 }
@@ -447,7 +493,11 @@ fn register_named_types(infer: &mut Infer, module: &crate::ast::Module) {
 /// so nominal identity rides along exactly like a nullary variant
 /// constructor's scheme. Only unit structs get the value binding; a
 /// field-bearing struct used bare still fails as an undefined value.
-fn register_unit_struct_values(module: &crate::ast::Module, env: &mut TypeEnv) {
+fn register_unit_struct_values(
+    module: &crate::ast::Module,
+    env: &mut TypeEnv,
+    module_id: Option<&ModuleId>,
+) {
     // Synthetic binding ids distinct from imports (2_000_000+) and enum
     // variant constructors (4_000_000+).
     let mut next_binding_id: BindingId = 5_000_000;
@@ -455,9 +505,11 @@ fn register_unit_struct_values(module: &crate::ast::Module, env: &mut TypeEnv) {
         if let crate::ast::ItemKind::Struct(s) = &item.kind
             && s.is_unit_value()
         {
-            env.insert(
+            bind_own_item(
+                env,
+                module_id,
                 next_binding_id,
-                Arc::clone(&s.name),
+                &s.name,
                 Scheme::mono(s.ty.clone()),
             );
             next_binding_id += 1;
@@ -528,11 +580,14 @@ fn register_imported_enums(
                 continue;
             };
             if let Some(module_info) = registry.get(&from_module) {
+                let enum_module = registry.module_id(&from_module);
                 for item in &module_info.module.items {
                     if let crate::ast::ItemKind::Enum(def) = &item.kind
                         && def.name == name
                     {
-                        infer.enum_registry.register_def(def);
+                        infer
+                            .enum_registry
+                            .register_def(def, Some(enum_module.clone()));
                     }
                 }
             }
@@ -631,7 +686,10 @@ fn register_package_items(
 
     // Types and traits first: impl registration needs both resolvable.
     for info in &foreign_modules {
-        register_named_types(infer, &info.module);
+        // Foreign types register bare (transient, retracted later); their
+        // *public* `Item(Fqn)` keys come from the loop just below, so the
+        // bare-only registration here passes `None`.
+        register_named_types(infer, &info.module, None);
         register_traits(infer, &info.module);
         // Public named types also register under their canonical qualified key
         // (`shapes.Money`): the resolve pass rewrites qualified type
@@ -1215,15 +1273,54 @@ fn check_impl_completeness(
     }
 }
 
+/// Bind one of the current module's own items into `env` under the same
+/// key its same-module references resolve to: `Item(Fqn(module_id,
+/// [name]))` when the module has an identity (registry check), else bare
+/// (registry-less check, where the resolve pass never ran).
+fn bind_own_item(
+    env: &mut TypeEnv,
+    module_id: Option<&ModuleId>,
+    binding_id: BindingId,
+    name: &Arc<str>,
+    scheme: Scheme,
+) {
+    match module_id {
+        Some(id) => env.insert_item(
+            binding_id,
+            Fqn::new(id.clone(), vec![Arc::clone(name)]),
+            scheme,
+        ),
+        None => env.insert(binding_id, Arc::clone(name), scheme),
+    }
+}
+
+/// Look up one of the current module's own items, mirroring
+/// [`bind_own_item`]'s keying.
+fn own_item_scheme<'a>(
+    env: &'a TypeEnv,
+    module_id: Option<&ModuleId>,
+    name: &str,
+) -> Option<&'a Scheme> {
+    match module_id {
+        Some(id) => env.get_key(&NameKey::Item(Fqn::new(id.clone(), vec![Arc::from(name)]))),
+        None => env.get_by_name(name),
+    }
+}
+
 /// Collect function signatures into the environment.
-fn collect_function_signatures(infer: &mut Infer, module: &crate::ast::Module, env: &mut TypeEnv) {
+fn collect_function_signatures(
+    infer: &mut Infer,
+    module: &crate::ast::Module,
+    env: &mut TypeEnv,
+    module_id: Option<&ModuleId>,
+) {
     let mut next_binding_id: BindingId = 1_000_000;
     for item in &module.items {
         if let crate::ast::ItemKind::Function(func) = &item.kind {
             let binding_id = next_binding_id;
             next_binding_id += 1;
             let scheme = build_function_scheme(infer, func, true);
-            env.insert(binding_id, Arc::clone(&func.name), scheme);
+            bind_own_item(env, module_id, binding_id, &func.name, scheme);
         }
     }
 }
@@ -1237,14 +1334,25 @@ fn collect_function_signatures(infer: &mut Infer, module: &crate::ast::Module, e
 /// against that annotation later in Phase 3. Aliases and holes in the
 /// annotation are resolved so the registered scheme matches the type uses
 /// unify against (mirroring the Phase 3 `resolve_holes` on the same type).
-fn collect_const_signatures(infer: &mut Infer, module: &crate::ast::Module, env: &mut TypeEnv) {
+fn collect_const_signatures(
+    infer: &mut Infer,
+    module: &crate::ast::Module,
+    env: &mut TypeEnv,
+    module_id: Option<&ModuleId>,
+) {
     let mut next_binding_id: BindingId = 2_000_000;
     for item in &module.items {
         if let crate::ast::ItemKind::Const(const_def) = &item.kind {
             let binding_id = next_binding_id;
             next_binding_id += 1;
             let ty = infer.resolve_holes(&const_def.ty);
-            env.insert(binding_id, Arc::clone(&const_def.name), Scheme::mono(ty));
+            bind_own_item(
+                env,
+                module_id,
+                binding_id,
+                &const_def.name,
+                Scheme::mono(ty),
+            );
         }
     }
 }
@@ -1711,6 +1819,7 @@ fn register_enums(
     module: &crate::ast::Module,
     env: &mut TypeEnv,
     errors: &mut Vec<BoxedTypeError>,
+    module_id: Option<&ModuleId>,
 ) {
     for item in &module.items {
         if let crate::ast::ItemKind::Enum(enum_def) = &item.kind {
@@ -1724,7 +1833,9 @@ fn register_enums(
                 )));
                 continue;
             }
-            infer.enum_registry.register_def(enum_def);
+            infer
+                .enum_registry
+                .register_def(enum_def, module_id.cloned());
         }
     }
 
@@ -1744,8 +1855,25 @@ fn register_enums(
                 continue;
             }
             let scheme = info.constructor_scheme(&mut infer.r#gen, idx);
-            env.insert(next_binding_id, Arc::clone(&variant.name), scheme);
+            // A variant reference can arrive under either key, so bind both:
+            //   - bare `Variant` — a prelude variant (`None`/`Some`), or one
+            //     reachable through an *enum* import (`use m::Enum`), which
+            //     the resolve pass leaves bare;
+            //   - `Fqn(<owning module>, [Enum, Variant])` — a same-module
+            //     variant, or one imported *by variant* (`use m::{Variant}`),
+            //     which the resolve pass canonicalizes.
+            // The two keys never collide (bare vs. two-segment `Item`), and
+            // the runtime tag stays the bare-named entry in the enum registry.
+            env.insert(next_binding_id, Arc::clone(&variant.name), scheme.clone());
             next_binding_id += 1;
+            if let Some(enum_module) = &info.module {
+                let fqn = Fqn::new(
+                    enum_module.clone(),
+                    vec![Arc::clone(&info.name), Arc::clone(&variant.name)],
+                );
+                env.insert_item(next_binding_id, fqn, scheme);
+                next_binding_id += 1;
+            }
         }
     }
 }
