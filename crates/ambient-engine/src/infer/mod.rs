@@ -447,12 +447,13 @@ impl Infer {
             Type::Named(n) => {
                 // A `Handler<A>` / `Handler<A, R>` annotation resolves to a
                 // first-class handler type: `A` is an ability name (resolved
-                // to its id), `R` is the answer type (a fresh var when
-                // omitted, so `Handler<A>` means "R inferred").
+                // to its id under the same namespace policy every other
+                // ability position obeys), `R` is the answer type (a fresh
+                // var when omitted, so `Handler<A>` means "R inferred").
                 if n.name.as_ref() == "Handler"
                     && matches!(n.args.len(), 1 | 2)
                     && let Type::Named(ability) = &n.args[0]
-                    && let Some(ability_id) = self.ability_annotation_id(&ability.name)
+                    && let Some(ability_id) = self.resolve_annotated_ability(&ability.name)
                 {
                     let answer = if n.args.len() == 2 {
                         self.resolve_holes(&n.args[1])
@@ -512,37 +513,46 @@ impl Infer {
             return abilities.clone();
         };
 
-        let mut ids = Vec::new();
-        for name in names {
-            let mut segments: Vec<&str> = name.split("::").collect();
-            let bare = segments.pop().unwrap_or_default();
-            // A bare name (no namespace segments) resolves to a local
-            // dynamic; a qualified one names its declaring module.
-            let namespace = (!segments.is_empty()).then(|| {
-                crate::fqn::ModuleId::from_dotted_segments(&segments, &self.workspace_name)
-            });
-            match self.ability_resolver.resolve_ref(namespace.as_ref(), bare) {
-                Ok(id) => ids.push(id),
-                Err(err) => {
-                    let kind = match err {
-                        crate::ability_resolver::AbilityRefError::RequiresNamespace {
-                            namespace,
-                        } => TypeErrorKind::AbilityRequiresNamespace {
+        let ids = names
+            .iter()
+            .filter_map(|name| self.resolve_annotated_ability(name))
+            .collect::<Vec<_>>();
+        AbilitySet::from_abilities(ids)
+    }
+
+    /// Resolve one `::`-joined ability name from a source annotation to its
+    /// id under the namespace policy — the same rule performs, `with`
+    /// clauses, and handler arms enforce: a bare name names a local
+    /// dynamic; a qualified one names its declaring module. Returns `None`
+    /// and records a diagnostic in `pending_errors` on failure, so a bad
+    /// annotation reports the real namespace error instead of silently
+    /// resolving through a spelling-blind lookup.
+    fn resolve_annotated_ability(&mut self, name: &str) -> Option<AbilityId> {
+        let mut segments: Vec<&str> = name.split("::").collect();
+        let bare = segments.pop().unwrap_or_default();
+        let namespace = (!segments.is_empty())
+            .then(|| crate::fqn::ModuleId::from_dotted_segments(&segments, &self.workspace_name));
+        match self.ability_resolver.resolve_ref(namespace.as_ref(), bare) {
+            Ok(id) => Some(id),
+            Err(err) => {
+                let kind = match err {
+                    crate::ability_resolver::AbilityRefError::RequiresNamespace { namespace } => {
+                        TypeErrorKind::AbilityRequiresNamespace {
                             ability: Arc::from(bare),
                             expected_namespace: namespace,
-                        },
-                        crate::ability_resolver::AbilityRefError::Unknown => {
-                            TypeErrorKind::UnknownAbility {
-                                name: Arc::clone(name),
-                            }
                         }
-                    };
-                    self.pending_errors
-                        .push(Box::new(TypeError::new(kind, (0, 0))));
-                }
+                    }
+                    crate::ability_resolver::AbilityRefError::Unknown => {
+                        TypeErrorKind::UnknownAbility {
+                            name: Arc::from(name),
+                        }
+                    }
+                };
+                self.pending_errors
+                    .push(Box::new(TypeError::new(kind, (0, 0))));
+                None
             }
         }
-        AbilitySet::from_abilities(ids)
     }
 
     /// Take any errors recorded outside the normal `InferResult` flow.

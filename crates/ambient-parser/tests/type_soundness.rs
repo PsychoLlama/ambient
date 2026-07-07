@@ -417,6 +417,38 @@ fn multi_ability_handler_value_is_rejected() {
     );
 }
 
+/// The ability named in a `Handler<A, R>` annotation resolves under the
+/// same namespace policy as every other ability position — the qualifier
+/// is not blindly stripped to its last segment. A local ability resolves
+/// bare; naming it under a bogus namespace is an unknown reference, not a
+/// silent match on the tail segment.
+#[test]
+fn handler_annotation_ability_obeys_namespace_policy() {
+    let program = |ability_ref: &str| {
+        format!(
+            r"
+            ability Reader {{
+              fn read(): Number;
+            }}
+
+            fn get(): Number with Reader {{
+              Reader::read!()
+            }}
+
+            pub fn install(h: Handler<{ability_ref}>): Number {{
+              with h handle get()
+            }}
+            "
+        )
+    };
+
+    // Bare local ability: accepted.
+    assert_ok(&program("Reader"));
+
+    // A bogus namespace no longer strips to `Reader`: it is unknown.
+    assert_err_containing(&program("bogus::Reader"), "unknown ability");
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Perform argument checking
 // ─────────────────────────────────────────────────────────────────────────────

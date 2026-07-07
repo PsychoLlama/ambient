@@ -94,15 +94,6 @@ impl Infer {
         self.ability_resolver.id_to_name(id)
     }
 
-    /// Resolve an ability named in a `Handler<A, R>` type annotation to its
-    /// id. The name arrives `::`-joined from lowering (`FileSystem`,
-    /// `core::system::FileSystem`); we key off its final segment via the
-    /// low-level bare lookup, so both spellings resolve.
-    pub(crate) fn ability_annotation_id(&self, name: &str) -> Option<AbilityId> {
-        let last = name.rsplit("::").next().unwrap_or(name);
-        self.ability_name_to_id(last)
-    }
-
     /// The full declared signature of an ability method, instantiated for
     /// one use site: quantified type parameters of dynamic methods become
     /// fresh inference variables, and builtin-descriptor type variables
