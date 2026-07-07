@@ -296,15 +296,19 @@ are ordinary Ambient source — `pub unique(…FFFF0001) enum Option<T>` in
 `core_lib/option.ab`, likewise `Result` in `core_lib/result.ab` — alongside
 their combinators and predicates, exposed as inherent methods (`map`,
 `and_then`, `is_some`, `unwrap_or`, `is_ok`, …). What makes them special is
-the *prelude*: the engine that
-builds the type checker's prelude has no parser (the parser depends on the
-engine, not the other way round), so it registers the same two enums from a
-Rust-side spec (`PRELUDE_ENUMS`) into every module's scope — which is why
-`Some`, `None`, `Ok`, and `Err` need no import anywhere. The spec and the
-source declaration cannot drift: a declaration that claims a reserved uuid
-must match the spec's name, type parameters, and variant layout exactly
-(`validate_reserved_declaration`), so the core sources fail the build if
-they diverge — and no other module can hijack a reserved identity for a
+the *prelude*: `core_lib/prelude.ab` re-exports the two enums and their
+variants (`pub use core::Option::{Option, Some, None};`, likewise `Result`),
+and `ModuleRegistry::inject_prelude` folds every such re-export into every
+module's scope at lowest precedence — the resolver-level equivalent of a
+`use prelude::*` at the top of each module. That is why `Some`, `None`, `Ok`,
+and `Err` need no import anywhere, and it is the *same* mechanism that carries
+the four primitives and the operator traits: a global value is just a
+shorthand for its fully-qualified `core::…` path, re-exported onto the
+prelude. Reserved UUIDs cannot drift from the source: a declaration that
+claims one must match the reserved name, type parameters, and variant layout
+exactly (`validate_reserved_declaration`, which reads a small validation-only
+spec — not a second registry seed), so the core sources fail the build if
+they diverge and no other module can hijack a reserved identity for a
 different shape.
 
 ## Traits
@@ -499,14 +503,20 @@ only free functions it keeps are the two with no method form: `List::range`
 
 ### Prelude Traits
 
-The operator traits (`Add`, `Sub`, `Mul`, `Div`, `Mod`, `Eq`, `Ord`) plus
-`Default` are part of the prelude: they are always in scope, and
-implementing an operator trait enables the corresponding operator.
-`core::traits` mirrors their definitions for documentation. A module that
-declares its own trait with the same name shadows the prelude entry.
+The operator traits (`Add`, `Sub`, `Mul`, `Div`, `Mod`, `Eq`, `Ord`) are
+part of the prelude: they are always in scope, and implementing one enables
+the corresponding operator. They are ordinary declarations in `core::traits`,
+re-exported onto the prelude (`pub use core::traits::{Add, …, Ord};` in
+`core_lib/prelude.ab`) like every other global — there is no separate
+hardcoded copy. A module that declares its own trait with the same name
+shadows the prelude entry.
 
-`Default` supplies a canonical value for a type via the associated function
-`default(): Self` (see [Associated Functions](#associated-functions)):
+`Default` lives in `core::traits` too but is *not* in the prelude: it has no
+operator that desugars to it, so it is standard-library convenience rather
+than a load-bearing global. Using it requires an explicit
+`use core::traits::Default;`. It supplies a canonical value for a type via the
+associated function `default(): Self` (see
+[Associated Functions](#associated-functions)):
 
 ```ambient
 trait Default {
