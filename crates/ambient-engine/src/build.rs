@@ -272,21 +272,8 @@ pub fn build_package(
         // symbols are already globally unique (`<uuid>::Trait::method`), so
         // they pass through unqualified like in `linking_table`.
         let mut compiled = compiled;
-        compiled.function_names = compiled
-            .function_names
-            .iter()
-            .map(|(name, hash)| {
-                let qualified: Arc<str> = if name.contains("::") {
-                    Arc::clone(name)
-                } else {
-                    registry
-                        .fqn(&module_path, &[Arc::clone(name)])
-                        .to_string()
-                        .into()
-                };
-                (qualified, *hash)
-            })
-            .collect();
+        compiled.function_names = qualify_names(&compiled.function_names, &module_path, &registry);
+        compiled.const_names = qualify_names(&compiled.const_names, &module_path, &registry);
         all_compiled.merge(&compiled);
     }
 
@@ -672,21 +659,8 @@ pub fn compile_core_modules(
         // `::` (`List::all`), so they pass through unqualified — qualifying
         // them again would produce a double-qualified `core::collections::List::all`.
         let mut compiled = compiled;
-        compiled.function_names = compiled
-            .function_names
-            .iter()
-            .map(|(name, hash)| {
-                let qualified: Arc<str> = if name.contains("::") {
-                    Arc::clone(name)
-                } else {
-                    registry
-                        .fqn(&core_path, &[Arc::clone(name)])
-                        .to_string()
-                        .into()
-                };
-                (qualified, *hash)
-            })
-            .collect();
+        compiled.function_names = qualify_names(&compiled.function_names, &core_path, registry);
+        compiled.const_names = qualify_names(&compiled.const_names, &core_path, registry);
 
         module_function_hashes.insert(core_path, func_hashes);
         merged.merge(&compiled);
@@ -831,11 +805,28 @@ pub fn compile_session_module(
         error: e.to_string(),
     })?;
 
-    // Qualify this module's function names with its path (`repl::foo`), the
-    // canonical identity, so deploy-by-name resolves them. Impl-method
-    // dispatch symbols are already globally unique and pass through.
-    compiled.function_names = compiled
-        .function_names
+    // Qualify this module's function and const names with its path
+    // (`repl::foo`), the canonical identity, so deploy-by-name resolves them.
+    // Impl-method dispatch symbols are already globally unique and pass through.
+    compiled.function_names = qualify_names(&compiled.function_names, path, registry);
+    compiled.const_names = qualify_names(&compiled.const_names, path, registry);
+
+    let mut merged = base.clone();
+    merged.merge(&compiled);
+    Ok(merged)
+}
+
+/// Qualify a module's bare item names with its path (`gcd` → `math::gcd`),
+/// the canonical identity, so store bindings never collide across modules.
+/// Names already carrying `::` (impl-method dispatch symbols like
+/// `<uuid>::Trait::method`, already globally unique) pass through untouched.
+/// Applied identically to function and const name maps.
+fn qualify_names(
+    names: &HashMap<Arc<str>, blake3::Hash>,
+    path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> HashMap<Arc<str>, blake3::Hash> {
+    names
         .iter()
         .map(|(name, hash)| {
             let qualified: Arc<str> = if name.contains("::") {
@@ -845,11 +836,7 @@ pub fn compile_session_module(
             };
             (qualified, *hash)
         })
-        .collect();
-
-    let mut merged = base.clone();
-    merged.merge(&compiled);
-    Ok(merged)
+        .collect()
 }
 
 // Tests are in ambient-cli since they require the parser

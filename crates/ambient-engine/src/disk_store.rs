@@ -233,9 +233,11 @@ impl DiskStore {
             }
         }
 
-        // Merge this module's bindings into the names index.
+        // Merge this module's bindings into the names index. Functions and
+        // consts share the flat index; the object kind at each hash tells
+        // them apart (`store show`/`ls`).
         let mut names = self.names()?;
-        for (name, hash) in &module.function_names {
+        for (name, hash) in module.function_names.iter().chain(&module.const_names) {
             names.insert(name.to_string(), *hash);
         }
         self.write_names(&names)?;
@@ -787,6 +789,32 @@ mod tests {
         // Byte-identical content ⇒ same path ⇒ the second write is a no-op.
         assert!(!store.put_object_at(&b.hash(), &b).expect("put b"));
         assert_eq!(first, b.hash());
+    }
+
+    #[test]
+    fn put_module_binds_const_names_in_index() {
+        use ambient_ability::Value;
+
+        let (_dir, store) = temp_store();
+
+        // A module carrying one named const value object (no functions).
+        let mut module = CompiledModule::new();
+        let value_object = crate::object::value_object(&Value::Number(7.0)).expect("value object");
+        let hash = value_object.hash();
+        module.objects.insert(hash, value_object);
+        module
+            .const_names
+            .insert(std::sync::Arc::from("SEVEN"), hash);
+
+        store.put_module(&module).expect("put module");
+
+        // The const is a first-class named binding, resolving to a Value object.
+        let names = store.names().expect("names");
+        assert_eq!(names.get("SEVEN"), Some(&hash));
+        assert!(matches!(
+            store.get_object(&hash).expect("get object"),
+            Some(StoredObject::Value(_))
+        ));
     }
 
     #[test]

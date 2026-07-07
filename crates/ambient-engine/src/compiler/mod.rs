@@ -98,6 +98,14 @@ pub struct CompiledModule {
     /// Does NOT include lambdas - they have no names.
     pub function_names: HashMap<Arc<str>, blake3::Hash>,
 
+    /// Map from `const` names to their value-object hashes.
+    ///
+    /// Only local consts (an imported const is named in its own module).
+    /// The hash addresses a [`StoredObject::Value`](crate::object::StoredObject::Value);
+    /// these bind names the same way `function_names` do, so a const is a
+    /// first-class named binding in the store's `names` index.
+    pub const_names: HashMap<Arc<str>, blake3::Hash>,
+
     /// Map from lambda hashes to their parent function names.
     /// Used for navigation: to find a lambda's source location,
     /// compile the parent and match by hash.
@@ -123,6 +131,7 @@ impl CompiledModule {
         Self {
             functions: HashMap::new(),
             function_names: HashMap::new(),
+            const_names: HashMap::new(),
             lambda_parents: HashMap::new(),
             entry_point: None,
             objects: HashMap::new(),
@@ -156,6 +165,9 @@ impl CompiledModule {
         for (name, hash) in &other.function_names {
             self.function_names.entry(Arc::clone(name)).or_insert(*hash);
         }
+        for (name, hash) in &other.const_names {
+            self.const_names.entry(Arc::clone(name)).or_insert(*hash);
+        }
         for (hash, parent) in &other.lambda_parents {
             self.lambda_parents
                 .entry(*hash)
@@ -174,9 +186,12 @@ impl CompiledModule {
     /// object plus the name bindings and entry point.
     #[must_use]
     pub fn to_pack(&self) -> crate::store::Pack {
+        // Functions and consts share one flat name index; the object kind at
+        // each hash (function vs `Value`) distinguishes them on the far side.
         let mut names: Vec<(String, blake3::Hash)> = self
             .function_names
             .iter()
+            .chain(self.const_names.iter())
             .map(|(name, hash)| (name.to_string(), *hash))
             .collect();
         names.sort_by(|a, b| a.0.cmp(&b.0));
@@ -242,10 +257,19 @@ impl CompiledModule {
             module.objects.insert(object_hash, object.clone());
         }
 
+        // Route each name to the right index by the kind of object it binds:
+        // a `Value` object is a const, everything else a function.
         for (name, hash) in &pack.names {
-            module
-                .function_names
-                .insert(Arc::from(name.as_str()), *hash);
+            let is_const = matches!(
+                module.objects.get(hash),
+                Some(crate::object::StoredObject::Value(_))
+            );
+            let table = if is_const {
+                &mut module.const_names
+            } else {
+                &mut module.function_names
+            };
+            table.insert(Arc::from(name.as_str()), *hash);
         }
 
         Ok(module)
@@ -1036,6 +1060,22 @@ fn compile_module_impl(
         .collect();
     let (local_const_hashes, const_objects) = finalize_const_values(&local_consts);
 
+    // Bind each local const's short name to its value-object hash, so a
+    // named const is a first-class binding in the store's `names` index
+    // (imported consts are named in their own module).
+    let const_names: HashMap<Arc<str>, blake3::Hash> = module
+        .items
+        .iter()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Const(const_def) => {
+                let key = own_item_key(module_id.as_ref(), &const_def.name);
+                let hash = local_const_hashes.get(&key)?;
+                Some((Arc::clone(&const_def.name), *hash))
+            }
+            _ => None,
+        })
+        .collect();
+
     // Add temporary hashes for impl methods under their canonical symbols.
     // Impl methods are ordinary functions named by `types::impl_method_symbol`;
     // method-call sites resolve these symbols through the same name→hash table
@@ -1129,6 +1169,7 @@ fn compile_module_impl(
     for (hash, object) in const_objects {
         module.objects.entry(hash).or_insert(object);
     }
+    module.const_names = const_names;
     Ok(module)
 }
 
@@ -2719,6 +2760,110 @@ mod tests {
         assert_eq!(
             value_object_count, 1,
             "two consts with the same value share one object"
+        );
+    }
+
+    /// A named `const` binds its short name to its value-object hash in
+    /// `const_names` (a first-class named binding for the store), and never
+    /// leaks into `function_names` — a const is not a function.
+    #[test]
+    fn const_name_binds_to_value_object_hash() {
+        use crate::ast::ConstDef;
+        use crate::types::Type;
+        use crate::value::Value;
+
+        let module = Module {
+            name: Arc::from("test"),
+            doc: None,
+            items: vec![Item::new(
+                ItemKind::Const(ConstDef {
+                    name: Arc::from("ANSWER"),
+                    name_span: Span::default(),
+                    is_public: true,
+                    ty: Type::number(),
+                    value: Expr::number(42.0),
+                }),
+                test_span(),
+            )],
+        };
+        let checked = crate::infer::check_module(module);
+        assert!(checked.errors.is_empty(), "{:?}", checked.errors);
+        let compiled = compile_module(&checked.module).expect("compile");
+
+        let expected_hash = crate::object::value_object(&Value::Number(42.0))
+            .unwrap()
+            .hash();
+        assert_eq!(
+            compiled.const_names.get("ANSWER").copied(),
+            Some(expected_hash),
+            "const name should bind to its value-object hash"
+        );
+        assert!(
+            !compiled.function_names.contains_key("ANSWER"),
+            "a const must not appear in function_names"
+        );
+        // The bound hash addresses a `Value` object in the module.
+        assert!(matches!(
+            compiled.objects.get(&expected_hash),
+            Some(crate::object::StoredObject::Value(_))
+        ));
+    }
+
+    /// A pack round-trip preserves the function/const split: `from_pack`
+    /// routes each name back by the kind of object it binds (a `Value`
+    /// object ⇒ `const_names`, a function ⇒ `function_names`), even though
+    /// the pack itself carries one flat name list.
+    #[test]
+    fn pack_round_trip_preserves_const_names() {
+        use crate::ast::ConstDef;
+        use crate::types::Type;
+
+        let module = Module {
+            name: Arc::from("test"),
+            doc: None,
+            items: vec![
+                Item::new(
+                    ItemKind::Const(ConstDef {
+                        name: Arc::from("ANSWER"),
+                        name_span: Span::default(),
+                        is_public: true,
+                        ty: Type::number(),
+                        value: Expr::number(42.0),
+                    }),
+                    test_span(),
+                ),
+                Item::new(
+                    ItemKind::Function(FunctionDef {
+                        name: Arc::from("run"),
+                        name_span: Span::default(),
+                        is_public: true,
+                        type_params: vec![],
+                        params: vec![],
+                        ret_ty: None,
+                        abilities: vec![],
+                        body: Expr::name("ANSWER"),
+                    }),
+                    test_span(),
+                ),
+            ],
+        };
+        let checked = crate::infer::check_module(module);
+        assert!(checked.errors.is_empty(), "{:?}", checked.errors);
+        let compiled = compile_module(&checked.module).expect("compile");
+
+        let restored = CompiledModule::from_pack(&compiled.to_pack()).expect("from_pack");
+        assert_eq!(
+            restored.const_names.get("ANSWER").copied(),
+            compiled.const_names.get("ANSWER").copied(),
+            "const name should survive the pack round-trip in const_names"
+        );
+        assert!(
+            restored.function_names.contains_key("run"),
+            "function name should survive in function_names"
+        );
+        assert!(
+            !restored.function_names.contains_key("ANSWER"),
+            "a const must not be reconstructed as a function"
         );
     }
 
