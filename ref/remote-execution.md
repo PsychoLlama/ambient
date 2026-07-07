@@ -1,0 +1,41 @@
+# Remote Execution
+
+Part of the [Ambient Language Reference](architecture.md).
+
+```
+Client                          Server
+  |-- Execute(hash, args) ------->|
+  |<-- NeedDeps([hash1, hash2]) --|  (if missing)
+  |-- Provide([fn1, fn2]) ------->|
+  |<-- Result(value) -------------|
+```
+
+Remote execution servers are written in Ambient itself on the `Network`
+(TCP) and `Execute` (run-by-hash) abilities; the message framing above is
+a convention of the example programs, not engine code. Code ships as
+canonical object packs — receivers recompute every hash from the bytes.
+
+Executed code runs in an **isolated VM**, and the remote must provide all
+ability handlers — nothing proxies back to the caller. Effects reach it
+two ways:
+
+- **Host grants** (`ExecuteConfig::grants`): the executing host decides
+  which host handlers each isolated VM gets. The CLI grants Stdio and
+  Log — shipped code can print/log on the executing host but has no
+  Network, Time, Random, or recursive Execute. Performing an ungranted
+  ability is a hard unhandled-ability error. This is the wasm-style
+  split: the engine is pure; hosts bind effectful capabilities to pure
+  ability interfaces, and different embeddings grant different sets.
+- **Shipped handlers** (`Execute.run_with(hash, arg, handler)`): a
+  first-class handler value travels with the call — its methods are
+  content-addressed functions, shipped in packs like any code — and is
+  installed at the base of the isolated VM. Ability hashes make this
+  sound: handler and perform match only if both sides computed the same
+  interface hash. `core::protocol::handler_methods(h)` exposes a handler's
+  method hashes so clients can ship its code.
+
+Values cross via `core::protocol::serialize_value`/`deserialize_value`
+(bincode of the wire-safe subset: primitives, tuples/lists/records,
+enums, function refs by hash, handler values by hash table). Closures,
+continuations, maps/sets, and modules do not cross; serializing one is a
+runtime error, never a silent `()`.

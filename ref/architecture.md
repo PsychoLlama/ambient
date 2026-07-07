@@ -2,6 +2,18 @@
 
 A content-addressed, ability-based programming language inspired by Unison, Rust, and TypeScript.
 
+This document is the top-level authority on the language design. Deeper
+treatments of individual subsystems live in sibling documents, linked
+from each section:
+
+- [modules.md](modules.md) — modules, `Fqn` identity, `use`, the `core::` hierarchy
+- [types.md](types.md) — primitives, records, tuples, generics, nominal structs and enums
+- [traits.md](traits.md) — traits, impls, operators, inherent impls, dispatch/coherence
+- [abilities.md](abilities.md) — abilities, handlers, sandboxing, `core::system`, error handling
+- [core-library.md](core-library.md) — core abilities and the standard function set
+- [processes.md](processes.md) — the (experimental) process model and live upgrade
+- [remote-execution.md](remote-execution.md) — running code by hash on a remote
+
 ## Design Philosophy
 
 - **Content-addressed**: Functions identified by hash of implementation + type signature
@@ -40,154 +52,16 @@ pub fn multiply(x: number, y: number): number {
 
 ### Modules
 
-Modules map 1:1 to files under `src/`; a directory is a namespace module
-whose members are its children, so `src/net/http/client.ab` is the module
-`pkg::net::http::client` with no `mod.rs`-style ceremony. Path roots:
-`pkg` (package root), `self` (same directory), `super` (parent directory,
-chainable), `core` (standard library — host bindings live under
-`core::system`).
+Modules map 1:1 to files under `src/`; a directory is a namespace module,
+and **every item in a build has exactly one fully-qualified identity** — a
+first-class `Fqn`, not a string. Path roots are `pkg` (package root), `self`
+(same directory), `super` (parent, chainable), and `core` (standard library,
+with host bindings under `core::system`). `use` takes a Rust-style use-tree,
+and anything reachable by its fully-qualified path works through `use` and
+vice versa.
 
-**Every item in a build has exactly one fully-qualified identity** — a
-first-class `Fqn` (`crates/ambient-engine/src/fqn.rs`), not a string.
-
-An `Fqn` is a `ModuleId` (a `Scope` + a scope-relative module path) plus an
-ident path of one or more segments. There are two identity axes that
-coexist:
-
-- **Location** (the `Fqn`): the identity of every *resolved* reference —
-  same-module included — that the resolve pass canonicalizes: top-level
-  items, type-associated members, and enum variants (the two-segment ident
-  `[Enum, Variant]`). `Scope` is `Builtin` for the `core` standard library
-  or `Workspace(pkg)` for a user package, so a user item renders
-  `workspace::<pkg>::utils::helper` and a builtin renders
-  `core::primitives::Number::sqrt`. (`Scope::Library(hash)` is reserved for
-  content-addressed dependencies.) This makes `a::b::c` unambiguous as
-  data: `b` a submodule vs. `b` a type land on distinct `Fqn`s even though
-  they render the same.
-- **Content**: UUID-based method dispatch symbols (`<type-uuid>::method`)
-  keep their perfect content identity and are *not* folded into the `Fqn`.
-  Content hashes never depend on the `Fqn`: finalization folds a recursive
-  function's *bare* short name into its group object, so the `Fqn` is a
-  compile-time lookup key and post-hash label, never a hashing input.
-
-Internal tables key off the `Fqn` struct (`Eq`/`Hash`) through a `NameKey`
-(`Item(Fqn)` for a resolved location, `Bare(name)` for only two things:
-true lexical locals and content-addressed `<uuid>::method` symbols — plus
-registry-less checks/compiles, which never run resolve). `Display` exists
-only for diagnostics and the on-disk store (`.ambient/store/names`), which
-now records full `workspace::<pkg>::…` names.
-
-The two access rules follow:
-
-1. Anything reachable by its fully-qualified path works through `use`,
-   and vice versa.
-2. However a reference is spelled — bare same-module name, bare imported
-   name, module-alias path, inline rooted path — it resolves to that one
-   identity. The compiler front end canonicalizes every resolved reference
-   before checking (`crates/ambient-engine/src/resolve.rs`), so the checker,
-   the intrinsic tables, the ability resolver, and the linker all key off
-   the same `Fqn`; only true locals stay bare.
-
-`use` takes a Rust-style use-tree:
-
-```ambient
-use pkg::utils::helper;                 // Item import: `helper` as a bare name
-use pkg::utils::{a, deep::{b, c}};      // Brace groups, nested arbitrarily
-use core::primitives::Number::sqrt as root2;        // `as` renames the local binding
-use {core::primitives::Number, core::system::Stdio};    // Root-level groups
-use self::utils;                        // Whole-module import: utils::helper(...)
-use pkg::net::http;                     // Directory namespaces import too:
-use http::client::get;                  //   ...and a module alias can root
-                                        //   another use (any order; resolved
-                                        //   by fixed point)
-use pkg::shapes::Shape;                 // Enum import: type, constructors, patterns
-```
-
-Braces are pure grouping — the tree flattens during lowering, so
-`use a::b::{c, d};` is exactly `use a::b::c; use a::b::d;`. A flattened
-path names an entity by its final segment, and the resolver binds every
-namespace meaning that exists: a submodule, a value, a type, an ability.
-Modules, values, types, and abilities occupy separate namespaces resolved
-by syntactic position, so a name that is both a submodule and an exported
-item binds both and the use site disambiguates (`c(...)` is the value,
-`c::foo` the module).
-
-`use` is also a statement: a block-scoped import binds from its statement
-to the end of the enclosing block, types as nothing, and compiles to
-nothing.
-
-```ambient
-pub fn hyp(a: number, b: number): number {
-  use core::primitives::Number::sqrt;
-  sqrt(a * a + b * b)
-}
-```
-
-Inline fully-qualified paths need no import anywhere a name can appear:
-expressions (`pkg::utils::helper(1)`), type positions
-(`pkg::shapes::Money`, `core::collections::List<number>`), effect rows
-(`with core::system::Stdio`, `with pkg::effects::Counter`), performs, handler
-arms, and sandbox clauses. Local bindings shadow module-level names,
-which shadow imports, which shadow the prelude.
-
-`pub` gates every export: functions, consts, types, enums, abilities, and
-traits are module-private unless declared `pub`. A failed import — missing
-module, missing symbol, or private symbol — is a compile error at the `use`
-item, never a silent no-op. Importing an enum brings its variant
-constructors and patterns into scope wholesale, as if declared locally;
-a single variant cannot be imported on its own, and a qualified *type*
-reference alone (`pkg::shapes::Shape` in a signature) does not bring
-constructors into scope — import the enum where you construct or match
-it. `pub use` re-exports items (and whole modules), and imports through a
-re-export resolve (and link) to the module that defines the symbol.
-Re-export paths must be rooted (`pkg`/`core`/`self`/`super`),
-not alias-relative, so downstream modules can resolve them without this
-module's scope.
-
-Core modules (`core::collections::List`, `core::primitives::Number`, `core::primitives::String`) are ordinary
-Ambient modules — compiled, content-addressed, and stored exactly like
-user code (see `crates/ambient-engine/src/core_lib/`). Beneath them sits
-a fixed set of _intrinsics_ (`core::primitives::Number::sqrt`, `core::collections::List::length`,
-`core::primitives::String::concat`, ...) that compile to dedicated opcodes; an
-intrinsic is an ordinary item of its module — importable, aliasable,
-reachable through `use core::primitives::Number;` + `Number::sqrt(x)` — and takes
-precedence over a compiled function at the same path. `core` is a keyword
-and a user module may not take that name (the build rejects `src/core.ab`),
-so the one reserved namespace — which now also houses the host bindings at
-`core::system` — can never be shadowed. `platform` is an ordinary
-identifier again: `src/platform.ab` is a perfectly legal user module.
-
-The `core::` hierarchy is defined by the `core_lib/` source tree itself, not
-by a hand-maintained list: `register_core_modules` walks the embedded tree and
-maps every `.ab` file to a module path through the *same* file↔module mapping
-(`ModulePath::from_relative_file_path`) that user packages use, and each
-directory's `main.ab` (a *directory module*) groups its siblings with `pub use
-self::…`. A directory module anchors `self`/`super` at its own path rather than
-its parent, so `core_lib/collections/main.ab` re-exports its neighbours as
-`core::collections::…`. Intrinsic opcodes are the one Rust-side coupling: their
-table (`compiler/intrinsics.rs`) keys off the resolved module path, so it must
-name the same paths the tree registers.
-
-A core module that backs a type takes that type's PascalCase name: `List`,
-`Option`, `Result`, and `Number` are the companion modules of the `List<T>`,
-`Option<T>`, `Result<T, E>`, and `Number` types, so `List::range` reads as an
-associated function of `List` and `Number::sqrt` as one of `Number`. Related
-modules group under lowercase namespace parents — `core::collections` (`List`,
-`map`, `set`), `core::primitives` (`String`, `Number`, `Bool`, `Binary`) — while
-top-level namespaces like `time`, `convert`, and `reflect` name no single type.
-Types, values, and modules occupy separate namespaces resolved by
-syntactic position, so the type `List` and the module `core::collections::List` coexist
-without ambiguity.
-
-Known gaps (deliberate, minor): qualified references to *generic* type
-aliases and generic `unique` types are unresolved (parameter substitution
-is checker work); ability names inside function *type* annotations
-(`(T) -> U with E`) accept only bare or `core::system::` spellings; intrinsics
-are not first-class values (`let f = core::primitives::Number::sqrt;` is an error —
-call them directly).
-
-A local binding shadows a module alias: after `let utils = ...;`,
-`utils.method()` is a trait-method call on the value.
+See **[modules.md](modules.md)** for the full treatment of `Fqn` identity,
+the `use` grammar, re-exports, and how the `core::` hierarchy is built.
 
 ### Types
 
@@ -202,30 +76,20 @@ bool      // true, false
 (number, string, bool)             // Tuples
 List<T>, Set<T>, Map<K, V>         // Collections
 
-// Enums (tagged unions) are nominal: every declaration carries a
-// mandatory `unique(<uuid>)` prefix, so two structurally identical enums
-// are distinct types (see Nominal Enums below). Option and Result are
-// ordinary declarations in core (with fixed reserved UUIDs) whose
-// constructors (Some, None, Ok, Err) are always in scope via the prelude.
+// Enums are nominal: every declaration carries a mandatory `unique(<uuid>)`
+// prefix, so two structurally identical enums are distinct types.
 unique(E1B2C3D4-0000-0000-0000-000000000001) enum Shape { Circle(number), Square(number), Dot }
 
-// Construct with the variant name; destructure with match. In pattern
-// position, bare uppercase-initial identifiers are variant patterns
-// (None, Dot); lowercase identifiers are bindings.
-fn area(s: Shape): number {
-  match s {
-    Circle(r) => 3 * r * r,
-    Square(side) => side * side,
-    Dot => 0,
-  }
-}
-
-// Nominal types (structurally identical but incompatible)
+// Nominal structs (structurally identical but incompatible)
 unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct UserId { value: string }
 
 // Generics
 fn identity<T>(x: T): T { x }
 ```
+
+See **[types.md](types.md)** for records, tuples, generics, and the full
+story on nominal identity — why `unique(<uuid>)` is mandatory on structs
+and enums, and how `Option`/`Result` carry reserved UUIDs.
 
 ### Lambdas
 
@@ -243,620 +107,30 @@ let greeting = "Hello, ${name}!";
 let sum = "Sum: ${to_string(a + b)}";
 ```
 
----
-
-## Nominal Types
-
-A `unique(<uuid>) struct` declaration gives a type its own identity, distinct
-from any structurally identical type. That identity *is* the UUID:
-
-```ambient
-unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct UserId { value: string }
-```
-
-UUID literals are written in canonical `8-4-4-4-12` form and **must be
-uppercase** (`0-9`, `A-F`). Uppercase is a lexical requirement, not a
-convention: the lexer recognizes an uppercase UUID as a single token, which
-keeps it unambiguous against identifiers, numbers, and future lowercase `0x`
-hex literals. A lowercase or malformed UUID is a syntax error. The stored
-value is canonicalized to lowercase for content addressing and display; only
-the *source syntax* is uppercase.
-
-## Nominal Enums
-
-Enums are nominal too, and their `unique(<uuid>)` prefix is **mandatory** —
-a bare `enum` is a compile error. This is deliberate: an enum's identity is
-its UUID, not its shape or its name, so two structurally identical enums (or
-two enums with the same name in different packages) are distinct,
-non-interchangeable types.
-
-```ambient
-unique(E1B2C3D4-0000-0000-0000-000000000001) enum Shape {
-  Circle(number), Square(number), Dot
-}
-
-unique(E1B2C3D4-0000-0000-0000-000000000002) enum Tree<T> {
-  Leaf, Node(T)
-}
-```
-
-An enum is otherwise an ordinary named type constructor: it can be generic,
-its variant constructors and patterns are in scope in the declaring module,
-and it carries inherent methods (`impl Shape { ... }`,
-`impl<T> Tree<T> { ... }`). Because the identity is the UUID, an enum's
-inherent methods get uuid-based dispatch symbols (`<uuid>::method`) exactly
-like a nominal `struct`'s — see [Dispatch, Coherence, and
-Content-Addressing](#dispatch-coherence-and-content-addressing) — so a
-same-named enum elsewhere can never claim them.
-
-`Option<T>` and `Result<T, E>` are nominal on the same footing: they carry
-fixed reserved UUIDs (`OPTION_UUID`/`RESULT_UUID`), so they are as distinct
-and non-interchangeable as any declared enum. Their canonical declarations
-are ordinary Ambient source — `pub unique(…FFFF0001) enum Option<T>` in
-`core_lib/option.ab`, likewise `Result` in `core_lib/result.ab` — alongside
-their combinators and predicates, exposed as inherent methods (`map`,
-`and_then`, `is_some`, `unwrap_or`, `is_ok`, …). What makes them special is
-the *prelude*: `core_lib/prelude.ab` re-exports the two enums and their
-variants (`pub use core::Option::{Option, Some, None};`, likewise `Result`),
-and `ModuleRegistry::inject_prelude` folds every such re-export into every
-module's scope at lowest precedence — the resolver-level equivalent of a
-`use prelude::*` at the top of each module. That is why `Some`, `None`, `Ok`,
-and `Err` need no import anywhere, and it is the *same* mechanism that carries
-the four primitives and the operator traits: a global value is just a
-shorthand for its fully-qualified `core::…` path, re-exported onto the
-prelude. Reserved UUIDs cannot drift from the source: a declaration that
-claims one must match the reserved name, type parameters, and variant layout
-exactly (`validate_reserved_declaration`, which reads a small validation-only
-spec — not a second registry seed), so the core sources fail the build if
-they diverge and no other module can hijack a reserved identity for a
-different shape.
-
 ## Traits
 
-Traits define shared behavior for types. Only nominal types can implement
-traits. (Types also take methods directly, without a trait — see
-[Inherent Impls](#inherent-impls).)
+Traits define shared behavior for nominal types; types also take methods
+directly through inherent impls. Standard operators (`+`, `==`, `<`, ...)
+dispatch to prelude traits (`Add`, `Eq`, `Ord`, ...). Dispatch is fully
+static and content-addressed — impl methods compile to ordinary named
+functions under a canonical symbol, so there is no runtime trait registry.
 
-### Defining Traits
-
-```ambient
-trait Show {
-  fn show(self): string;
-}
-
-trait Add {
-  fn add(self, other: Self): Self;
-}
-
-trait Eq {
-  fn eq(self, other: Self): bool;
-}
-```
-
-The `Self` type refers to the implementing type.
-
-### Implementing Traits
-
-```ambient
-unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct Money { cents: number }
-
-impl Show for Money {
-  fn show(self): string {
-    "$" + to_string(self.cents / 100)
-  }
-}
-
-impl Add for Money {
-  fn add(self, other: Money): Money {
-    Money { cents: self.cents + other.cents }
-  }
-}
-
-impl Eq for Money {
-  fn eq(self, other: Money): bool {
-    self.cents == other.cents
-  }
-}
-```
-
-### Method Calls
-
-Methods are called using dot notation:
-
-```ambient
-let m = Money { cents: 1500 };
-let s = m.show();           // "$15"
-
-let a = Money { cents: 100 };
-let b = Money { cents: 50 };
-let c = a.add(b);           // Money { cents: 150 }
-```
-
-### Operator Overloading
-
-Standard operators dispatch to trait methods for nominal types:
-
-| Operator | Trait | Method                         |
-| -------- | ----- | ------------------------------ |
-| `+`      | `Add` | `add(self, other: Self): Self` |
-| `-`      | `Sub` | `sub(self, other: Self): Self` |
-| `*`      | `Mul` | `mul(self, other: Self): Self` |
-| `/`      | `Div` | `div(self, other: Self): Self` |
-| `%`      | `Mod` | `rem(self, other: Self): Self` |
-| `==`     | `Eq`  | `eq(self, other: Self): bool`  |
-| `!=`     | `Eq`  | `eq` (negated)                 |
-
-```ambient
-let a = Money { cents: 100 };
-let b = Money { cents: 50 };
-let c = a + b;              // Calls a.add(b)
-let equal = a == b;         // Calls a.eq(b)
-```
-
-For primitive types (`number`, `bool`, `string`), operators use built-in implementations.
-
-Trait method signatures carry no `with` clause, so **trait impl method
-bodies must be pure** — the checker enforces it. An effectful method
-would otherwise launder abilities past callers invisibly: dot dispatch
-and operator overloading consult only the trait signature. (Effectful
-shared behavior belongs in ordinary functions, or awaits effect-carrying
-trait signatures as a language extension.)
-
-### Associated Functions
-
-A trait method whose first parameter is not `self` is an _associated
-function_: it belongs to the type but takes no receiver. It is called with
-the `Type::method(...)` path form rather than dot notation, because there is
-no value to dispatch on — the leading path segment names the implementing
-type, which the checker resolves to the impl's method symbol:
-
-```ambient
-trait Default {
-  fn default(): Self;
-}
-
-impl Default for Money {
-  fn default(): Money { Money { cents: 0 } }
-}
-
-let m = Money::default();     // Money { cents: 0 }
-let c = Money::default() + Money { cents: 5 };  // associated calls are ordinary expressions
-```
-
-Dispatch is still static: `Money::default()` resolves to the same canonical
-`<type-uuid>::Default::default` symbol as any impl method, with no receiver
-pushed at the call site.
-
-### Inherent Impls
-
-An `impl` block without a trait attaches methods directly to a type. This
-is how a type grows an API that isn't shared behavior — no trait ceremony
-required:
-
-```ambient
-unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct Money { cents: number }
-
-impl Money {
-  fn double(self): Money {
-    Money { cents: self.cents * 2 }
-  }
-  fn from_dollars(d: number): Money {   // no self: associated function,
-    Money { cents: d * 100 }            // called as Money::from_dollars(3)
-  }
-}
-```
-
-Inherent impls are not limited to `unique struct` declarations. Declared
-enums (nominal, keyed by UUID), the reserved-name prelude enums (`Option`,
-`Result`), the built-in containers (`List`, `Map`, `Set`), and the
-primitives can all carry methods, and impls may be generic over the
-target's type parameters:
-
-```ambient
-impl<T> Option<T> {
-  fn get_or(self, fallback: T): T {
-    match self { Some(v) => v, None => fallback }
-  }
-}
-
-let x = Some(41).get_or(0);   // receiver's type arguments instantiate T
-```
-
-Rules:
-
-- **Signatures are contracts.** Parameter and return types are declared in
-  full (the return type is mandatory); `Self` refers to the target type.
-- **Effects are declared.** An inherent method takes a `with` clause like a
-  function; no clause means pure, enforced on the body and required at
-  call sites. (Trait impl methods don't take `with` clauses — their
-  signatures come from the trait.)
-- **One definition per method per type.** Several impl blocks for one type
-  merge, but a second definition of the same method name for the same type
-  — anywhere in the build — is a coherence error. Core already claims
-  `Option::map`, so a program cannot redefine it; new method names on core
-  types are fine.
-- **Inherent wins.** If a type has both an inherent method and a trait
-  method of the same name, dot dispatch resolves the inherent one (as in
-  Rust). Adding an inherent method is a deliberate local override, never
-  silent ambiguity; trait dispatch ambiguity between two *traits* is still
-  an error at the call site.
-- **No blanket impls.** The target must be a concrete type identity —
-  `impl<T> T` is rejected, as are structural targets (records, tuples,
-  functions), which have no identity to attach methods to.
-
-The core library uses inherent impls to expose its Option/Result/List
-combinators as methods (see `crates/ambient-engine/src/core_lib/*.ab`) — the
-canonical core API — so chains read left to right:
-
-```ambient
-[1, 2, 3].map((x) => x * 10).fold(0, (acc, x) => acc + x)   // 60
-Some(20).map((v) => v * 2).unwrap_or(0)                     // 40
-```
-
-The qualified module-function call form (`Module::f(x, ...)`) remains a
-general language feature for user code — a method call is just the
-receiver-first spelling of the same content-addressed function. Core itself,
-however, no longer publishes its combinators as free companion functions; the
-only free functions it keeps are the two with no method form: `List::range`
-(no receiver) and `Option::flatten` (its receiver would be
-`Option<Option<U>>`, inexpressible in `impl<T> Option<T>`).
-
-### Prelude Traits
-
-The operator traits (`Add`, `Sub`, `Mul`, `Div`, `Mod`, `Eq`, `Ord`) are
-part of the prelude: they are always in scope, and implementing one enables
-the corresponding operator. They are ordinary declarations in `core::traits`,
-re-exported onto the prelude (`pub use core::traits::{Add, …, Ord};` in
-`core_lib/prelude.ab`) like every other global — there is no separate
-hardcoded copy. A module that declares its own trait with the same name
-shadows the prelude entry.
-
-`Default` lives in `core::traits` too but is *not* in the prelude: it has no
-operator that desugars to it, so it is standard-library convenience rather
-than a load-bearing global. Using it requires an explicit
-`use core::traits::Default;`. It supplies a canonical value for a type via the
-associated function `default(): Self` (see
-[Associated Functions](#associated-functions)):
-
-```ambient
-trait Default {
-  fn default(): Self;
-}
-```
-
-The `Ord` trait is used for comparison operators:
-
-```ambient
-trait Ord {
-  fn cmp(self, other: Self): number;  // -1, 0, or 1
-}
-```
-
-Comparison operators adapt the trait method's result: `!=` negates
-`Eq.eq`, and `<`, `<=`, `>`, `>=` compare `Ord.cmp`'s result against 0.
-
-### Dispatch, Coherence, and Content-Addressing
-
-Method calls dispatch statically: the receiver's concrete type is known
-during type checking, which resolves the call to a canonical method symbol
-— `<type-uuid>::<Trait>::<method>` for trait methods, or the two-segment
-`<type-identity>::<method>` for inherent methods, where the identity is the
-UUID for any nominal type — a `unique struct`, a declared enum, or the
-reserved-name prelude enums `Option`/`Result` (which carry fixed UUIDs) —
-and the head name for the built-in containers, which have no UUID
-(`List::fold`, `Map::get`). The segment counts differ, so the two families
-can never collide. Impl methods
-compile as ordinary named functions under their symbol, so they are
-content-addressed exactly like any other function (hash = bytecode +
-constants + dependency hashes), and call sites link against the content
-hash. There is no runtime trait registry and no dynamic dispatch.
-
-Traits and impls declared anywhere in the build are visible to every
-module in it. Coherence is enforced at exactly the granularity of the
-dispatch symbol: one impl per `(trait, type)`, one inherent definition per
-`(type, method name)`, across the build closure — the modules reachable
-from the entry point. A local check ("this registration found no
-duplicate") is sufficient to guarantee the global invariant ("every call
-site resolves this symbol to one implementation"), because the symbol
-embeds the type's identity and resolution consults nothing outside the
-build.
-
-#### Why this survives live upgrade
-
-In Rust, coherence must be global forever because dispatch is resolved
-through type-indexed tables that all code shares — two crates disagreeing
-about `impl Hash for K` would silently corrupt any `HashMap<K, _>` they
-exchange. Ambient's constraint set is different: a live upgrade can
-replace `impl Money` in a running system without touching `Money`, so
-"one impl per type, ever" is not even expressible. It is also not needed:
-
-- **A call site is pinned to an implementation by hash, not by name.**
-  Type checking resolves the symbol, compilation freezes the callee's
-  content hash into the caller (the caller's own hash covers it). There is
-  no later lookup that could see a different impl.
-- **Upgrades replace call sites, not tables.** Shipping a new
-  `impl Money` produces new method hashes and re-links the callers that
-  should use them — themselves new hashes. Old code keeps calling the old
-  methods; both versions can coexist in one store, one VM, one wire
-  transfer. This is exactly how plain functions already behave under
-  content addressing; impls add nothing new to break.
-- **Values don't carry their impls.** Nominal types are erased at runtime
-  (a `Money` is just its record), so data constructed by old code is
-  fully usable by new methods and vice versa, as long as the type's shape
-  agrees — which is the type's identity question (its UUID), not the
-  impl's.
-
-The residual hazard is semantic, not mechanical: a data structure whose
-*invariant* depends on impl behavior (say, a set ordered by `Ord::cmp`)
-can be built by one version and queried by another that compares
-differently. That hazard predates inherent impls — any trait impl edit
-plus surviving state can trigger it — and it is a state-handoff problem,
-owned by the planned process model (state is re-established through a
-well-defined boundary on upgrade), not by the impl system. Coherence
-within one build plus hash-pinned dispatch across builds is the whole
-mechanical story.
-
----
+See **[traits.md](traits.md)** for defining and implementing traits,
+operator overloading, associated functions, inherent impls, and how
+dispatch, coherence, and content-addressing survive live upgrade.
 
 ## Abilities
 
-Abilities are the mechanism for controlled side effects.
+Abilities are the mechanism for controlled side effects, identified by the
+blake3 hash of their canonical interface. Functions declare the abilities
+they perform with a `with` clause; `with ... handle` installs handlers using
+single-shot delimited continuations. The platform abilities (Stdio,
+FileSystem, Network, ...) are ordinary in-language declarations under
+`core::system`, bound to host handlers by the embedder.
 
-### Ability Identity
-
-An ability is identified by the **blake3 hash of its canonical
-interface**: its name plus the ordered list of method names and
-canonicalized signatures (type variables numbered by first occurrence,
-so `<T>(T) -> U` encodes identically everywhere). Every ability hashes
-through the same scheme (`ambient-core/src/canonical.rs`) — the platform
-builtins are ordinary in-language declarations, not a special case.
-
-This is the same trick the language plays for functions, and it is what
-makes abilities portable: compiled bytecode references abilities by hash
-through the constant pool, so a function's content hash commits to the
-exact interface of every ability it performs, and two engines that
-compute the same ability hash agree on what performing it means. Change
-a method name, an argument type, or the ability's name and it is a
-different ability.
-
-### Declaring Abilities
-
-Modules declare abilities with `ability`; the type checker resolves the
-signatures, computes the interface hash, and the declaration behaves
-exactly like a builtin from then on (effect rows, `handle`, handler
-values, generic methods):
-
-```ambient
-ability FileSystem {
-  fn read(path: string): string;
-  fn write(path: string, content: string): ();
-  fn exists(path: string): bool;
-}
-
-ability Picker {
-  fn pick<T>(a: T, b: T): T;   // generic methods instantiate per call
-}
-
-// Abilities can depend on other abilities: performing Log also
-// requires Stdio in the effect row.
-ability Log with Stdio {
-  fn info(message: string): ();
-}
-```
-
-The platform abilities (Stdio, FileSystem, Network, ...) are themselves plain
-`ability` declarations — see "The `core::system` module" below. User abilities
-are handled in-language (`with ... handle` expressions or handler values); a performed
-ability with no handler in scope — in-language or host — is a runtime
-error. Abilities import across modules like any other item: `use
-pkg::b::SomeAbility;` (and `use core::system::Network;`) brings the ability into
-scope under its bare name, and every ability is also reachable fully
-qualified with no import (`with pkg::b::SomeAbility`,
-`pkg::b::SomeAbility::method!(…)`) — the same rule as every other item.
-Current limit: the REPL does not yet register `core::system` as a module, so
-bare `use core::system::…` there is a follow-up.
-
-### Using Abilities
-
-```ambient
-// Perform with ! (FileSystem here is the module-local declaration above;
-// the platform ability would be core::system::FileSystem::read!)
-let content = FileSystem::read!("file.txt");
-```
-
-Every module's abilities are in scope *fully-qualified* (`core::system::Stdio`
-or `pkg::effects::Counter` in performs, `with` clauses, effect-row
-annotations, handler arms, and sandbox clauses) with no `use` — the same
-rule as every other item. To drop the prefix, import the ability:
-`use core::system::Stdio;` then `with Stdio` and `Stdio::out!(...)` work
-bare thereafter. A bare `Stdio` that was *never* imported (and is not a
-local declaration) is a type error — the diagnostic suggests qualifying with
-`core::system::` or adding the `use`. A local `ability Stdio` shadows an
-imported one under the bare name; the platform one stays reachable
-qualified. The builtin `Exception` is always bare and may not be spelled
-with a namespace.
-
-### Ability Syntax in Type Signatures
-
-```ambient
-// read_config uses the module-local FileSystem declared above.
-fn read_config(path: Path): Config
-  with FileSystem
-{
-  let content = FileSystem::read!(path);
-  parse_config(content)
-}
-
-// Multiple abilities; platform abilities keep their namespace in
-// effect rows, and mix freely with local declarations like Log.
-fn fetch_and_log(url: Url): Response
-  with core::system::Network, Log
-{ ... }
-
-// No abilities (pure function)
-fn add(x: number, y: number): number { x + y }
-```
-
-### Ability Polymorphism
-
-```ambient
-// E is an ability variable
-fn map<T, U, E!>(list: List<T>, f: (T) -> U with E): List<U>
-  with E
-{ ... }
-
-// Partial annotation with _
-pub fn transform(x: Input): Output
-  with FileSystem, _
-{ ... }
-```
-
-### Handling Abilities
-
-```ambient
-fn run(): () {
-  with {
-    FileSystem::read(path) => {
-      let content = "contents from anywhere";
-      resume(content)
-    }
-  } handle read_config("config.toml")
-}
-```
-
-A handle expression reads as English — `with H1, ..., Hn handle BODY
-[else E]` — "with these handlers, handle this body". The `with` list is
-one or more handlers (inline brace groups of arms and/or handler values,
-see "Handlers as Values"), `BODY` is the handled expression, and the
-optional trailing `else (result) => E` transforms the body's value on
-normal completion (see "Error handling without exceptions").
-
-Handler arms are fully typed against the ability's declared interface:
-
-- Arm parameters take the method's declared parameter types
-  (`FileSystem::read(path)` binds `path: string`).
-- `resume(v)` feeds the continuation, so `v` must have the method's
-  return type; the `resume(...)` expression itself has the handle
-  expression's result type.
-- An arm body's own effects (performs outside the handled body) count
-  against the enclosing function, like any other code.
-- Exception is special: `throw` returns `!`, and the host raises it at
-  arbitrary perform sites (see "Host failures are catchable exceptions"),
-  so the value passed to `resume` in an Exception arm is deliberately
-  unconstrained — it substitutes for the *failing call's* result, whose
-  type is unknowable at the arm.
-
-### Handlers as Values
-
-```ambient
-let mock_fs: Handler<FileSystem> = {
-  FileSystem::read(path) => resume("mock content"),
-  FileSystem::write(path, content) => resume(()),
-  FileSystem::exists(path) => resume(true),
-};
-
-// Use handler values
-with mock_fs, mock_network handle unit_test()
-
-// Override specific methods
-with mock_fs, { FileSystem::read(path) => resume("intercepted") } handle unit_test()
-```
-
-A handler value binds a brace group of arms to a name. Its type is
-`Handler<A, R>`: `A` is the single ability it covers, and `R` is the
-*answer type* — the type an arm yields when it returns *without*
-resuming, which is also the result type of any `handle` expression it is
-installed on. `Handler<A>` is shorthand for "`R` inferred". Because a
-handler value covers exactly one ability, its arm names must be
-**qualified** (`FileSystem::read`, not `read`) — the ability is no longer
-guessed from method names. A brace group mixing multiple abilities is
-allowed only *directly inline* in a `with` list, never as a `let`-bound
-handler value.
-
-Handlers in a `with` list install **left-to-right**, so a later handler
-wins over an earlier one for the same method ("last wins"). Above,
-`with mock_fs, { FileSystem::read(path) => resume("intercepted") }`
-installs `mock_fs` first and the inline override second, so
-`FileSystem::read` resolves to the override while `write`/`exists` still
-fall through to `mock_fs`.
-
-### Sandboxing
-
-```ambient
-sandbox with core::system::Log {
-  untrusted_code()  // Only the platform Log ability available
-}
-
-sandbox {
-  pure_untrusted_code()  // No abilities - pure computation only
-}
-```
-
-The restriction is enforced statically: the body may only *use* the
-allowed abilities, checked at compile time (including through calls to
-functions defined elsewhere in the module). The sandbox installs no
-handlers — allowed abilities still execute against the enclosing
-context's handlers, so the body's effects count against the enclosing
-function like any other code.
-
-### The `core::system` module and host bindings
-
-Builtin abilities are not defined in engine code. The engine's only
-native ability is `Exception` (part of the language). Everything else —
-Stdio, Time, Random, Log, FileSystem, Network, Process, Execute — is declared once, in
-Ambient source, in the **platform bindings interface**
-(`crates/ambient-platform/src/platform.ab`).
-
-`core::system` is an ordinary module under the reserved `core` root,
-resolved through the same `ModuleRegistry` machinery as any other
-`core::`/`pkg::` path — no dedicated root or contextual keyword. The
-embedder registers it at the path `["core", "system"]`, but the source
-still ships in the `ambient-platform` crate, so the engine keeps its
-decoupling from any embedder. Its abilities are always in scope
-fully-qualified (`core::system::FileSystem::read!`,
-`with core::system::FileSystem`, `core::system::FileSystem::read(path) => ...`,
-`sandbox with core::system::Log`) with no `use`, and importable by name
-(`use core::system::FileSystem;`) to use bare — exactly like `core::` items.
-Because ability identity is the content-addressed interface hash, a bare
-imported `FileSystem` and a qualified `core::system::FileSystem` share one
-`AbilityId`, so handlers, effect rows, and linking unify with no special
-casing.
-
-The declarations in `platform.ab` are `pub` for the same reason core
-exports are: the registry only imports public symbols, so `use
-core::system::FileSystem;` requires `pub ability FileSystem`. Visibility gates
-*only* the bare-import path — fully-qualified use is seeded independently.
-
-The engine seeds the namespaced `core::system::` abilities from the registered
-`core::system` module during type checking (`seed_namespaced_ability_dynamics`),
-and the general cross-module bridge (`build_import_env`) registers an
-imported ability as a bare dynamic — the same code path any
-`use pkg::b::SomeAbility;` takes.
-
-An embedder still wires the **host binding** half:
-
-1. Parse the declarations and resolve them
-   (`resolve_ability_declarations`) into content-addressed interfaces, and
-   register the `core::system` module in the registry
-   (`register_declaration_module`) so the naming layer resolves it.
-2. Pass the resolved interfaces in `CompileOptions::prelude_abilities` for
-   compilation. Type checking no longer needs an embedder ability resolver:
-   performs resolve against the seeded `core::system` module, the same path
-   user-declared abilities take.
-3. Bind host handlers **by method name** against the resolved
-   interfaces (`AbilityInterface`: identity plus name→method-id map) via
-   `vm.register_host_handler(id, method_id, handler)`.
-
-`ambient-platform` is one such embedder, packaged as a library: it ships
-`platform.ab` plus native handler sets (std::fs, TCP via tokio, ...) and
-registration functions (`register_defaults`, `register_network`,
-`register_execute`). The engine crate does not depend on it — another
-crate can use the engine the same way with entirely different
-declarations and bindings. Because handlers bind by name at wiring time,
-editing a declaration re-keys everything consistently; there is no
-second copy of the interface to fall out of sync.
-
----
+See **[abilities.md](abilities.md)** for ability identity, declaring and
+performing abilities, ability polymorphism, handlers as values, sandboxing,
+the `core::system` host-binding split, and error handling.
 
 ## Concurrency
 
@@ -865,91 +139,31 @@ primitives — this is intentional. A perform like `core::system::Network::recei
 simply blocks the calling code until the host handler returns.
 
 Concurrency comes from the Erlang-inspired **process model** (see
-`ref/processes.md`): named reducer processes with isolated state,
+[processes.md](processes.md)): named reducer processes with isolated state,
 communicating by message passing through the `core::system::Process`
 ability. Each process runs on its own thread with its own VM, so a
-blocked process blocks only itself. This design is chosen for
-live-upgrade correctness — hot code replacement needs a well-defined
-unit of state to hand off, and a process mailbox/reducer boundary
-provides exactly that. `ambient dev` upgrades a running process tree by
-re-running the entry function as a reconciliation pass: content hashes
-decide which processes' code changed; changed reducers are swapped at
-their next message boundary, keeping their state.
+blocked process blocks only itself.
 
----
+This design is motivated by live-upgrade correctness — hot code
+replacement needs a well-defined unit of state to hand off, and a
+process mailbox/reducer boundary provides exactly that. It is, however,
+**experimental**: prototyping has shown it is not a perfect fit for live
+upgrades, and the design may yet pivot to a different unit of state.
+See [processes.md](processes.md) for the current model and its caveats,
+and Future Work below for where this is headed.
 
 ## Error Handling
 
-Errors are abilities. `Exception::throw!` raises; the nearest enclosing
-`with ... handle` for Exception catches. A handler arm's value becomes the
-handle expression's value, and execution continues after the handle
-expression (catch-and-continue). The optional trailing `else (result) =>
-E` clause transforms the body's value on _normal_ completion only; arms
-bypass it.
+Errors are abilities: `Exception::throw!` raises, and the nearest enclosing
+`with ... handle` for Exception catches (catch-and-continue). Fallible host
+operations raise a catchable `Exception` at the perform site rather than
+returning `Result`, so IO signatures stay honest and callers can substitute
+a fallback and resume. `Option`/`Result` remain ordinary data types for
+domain modeling.
 
-```ambient
-ability Exception {
-  fn throw(error: string): !;  // ! = never returns normally
-}
-
-fn parse_int(s: string): number with Exception {
-  match try_parse(s) {
-    Some(n) => n,
-    None => Exception::throw!("not a number"),
-  }
-}
-
-// Handling exceptions
-fn safe_parse(s: string): Option<number> {
-  with { Exception::throw(e) => None } handle parse_int(s) else (result) => Some(result)
-}
-```
-
-An uncaught throw halts the program with `uncaught exception: <value>`,
-carrying the actual thrown value.
-
-### Host failures are catchable exceptions
-
-Fallible host operations (file not found, connection refused, ...) do not
-return `Result` values and do not kill the VM: the host handler raises
-`Exception.throw(message)` _at the perform site_. The calling program
-catches it like any in-language throw. Because the Exception handler
-receives the continuation of the failed call, it can even `resume` with a
-substitute value, and the IO caller continues as if the operation had
-succeeded:
-
-```ambient
-fn fetch_or_default(): number with core::system::Network {
-  with { Exception::throw(msg) => resume(0 - 1) }  // substitute connection id
-    handle core::system::Network::connect!(("10.0.0.1", 9))
-}
-```
-
-Engine-level faults (stack overflow, type errors in bytecode, arity
-mismatches) remain fatal `VmError`s - they indicate bugs, not conditions
-programs should handle.
-
-Current limits: `Exception` is not generic yet (`throw` takes a string;
-`Exception<E>` with an error trait bound is the planned evolution), and
-`!` (never) does not yet unify with other types, so `throw` works in
-statement position but not as the value of a typed expression.
-
-### Option/Result vs exceptions
-
-`Option` and `Result` are ordinary data types for _domain modeling_: a
-lookup that may find nothing returns `Option`, a parser that produces a
-structured error returns `Result`. They are values you match on.
-
-_Operational failure_ - the file was deleted, the peer hung up - is not
-data the caller asked for; it is an interruption of an effect, and it
-travels through the effect system as an Exception. No builtin ability
-returns `Result` to signal failure. This keeps IO signatures honest
-(`FileSystem.read` returns `string`, not `Result<string, _>`) while `handle`
-gives callers strictly more power than matching: they can substitute a
-fallback for the failing call and continue, not just observe the error
-after the fact.
-
----
+See **[Error Handling in abilities.md](abilities.md#error-handling)** for the
+full treatment, including host failures as exceptions and the
+Option/Result-vs-exceptions distinction.
 
 ## Type Inference Rules
 
@@ -966,137 +180,16 @@ after the fact.
 5. **Effect propagation**: Calling a function requires the caller to provide
    (declare, infer, or handle) the callee's abilities
 
----
-
 ## Core Library
 
-### Core Abilities
+The core library ships as ordinary content-addressed Ambient modules. Core
+abilities (Time, Random, Stdio, Log, FileSystem, Process, Env, ...) are
+declared in the platform bindings interface; Option, Result, and List expose
+their combinators and predicates as inherent methods so pipelines read
+receiver-first.
 
-The authoritative declarations live in
-`crates/ambient-platform/src/platform.ab`; excerpts:
-
-```ambient
-ability Time {
-  fn now(): number;               // ms since the Unix epoch
-  fn wait(duration: number): (); // ms
-}
-
-ability Random {
-  fn seed(): number;              // 0.0 to 1.0
-  fn in_range(max: number): number;
-}
-
-ability Stdio {
-  fn out(message: string): ();   // write a line to stdout
-  fn err(message: string): ();   // write a line to stderr
-  fn read(): string;             // read a line from stdin
-}
-
-// Log is emitted through Stdio, so it declares the dependency: performing
-// Log requires Stdio in the effect row, and a handler for Stdio captures
-// log lines.
-ability Log with core::system::Stdio {
-  fn debug(message: string): ();
-  fn info(message: string): ();
-  fn warn(message: string): ();
-  fn error(message: string): ();
-}
-
-ability FileSystem {
-  fn read(path: string): string;              // UTF-8 text
-  fn write(path: string, content: string): ();  // create/truncate
-  fn read_binary(path: string): Binary;
-  fn write_binary(path: string, data: Binary): ();
-  fn exists(path: string): bool;              // infallible
-  fn list(path: string): List<string>;        // sorted entry names
-  fn remove(path: string): ();                // file or empty directory
-  fn create_dir(path: string): ();            // mkdir -p
-}
-
-ability Process {
-  fn spawn<I, H>(name: string, init: I, handler: H): number;
-  fn send<M>(pid: number, msg: M): ();
-  fn send_named<M>(name: string, msg: M): ();
-  fn self_pid(): number;              // 0 outside any process
-  fn whereis(name: string): number;   // 0 if no such name
-  fn exit(): ();                      // stop after the current reduction
-}
-
-// The host process's environment. `var` returns None for an unset
-// variable (absence is data, not an exception). `args` is the captured
-// argv the CLI composes at startup — index 0 is the program path, the
-// rest are the user args after `--` — not live OS state. `set` is
-// process-global and best-effort (see below).
-ability Env {
-  fn var(name: string): Option<string>;
-  fn vars(): List<(string, string)>;
-  fn set(name: string, value: string): ();
-  fn args(): List<string>;            // index 0 is the program path
-  fn cwd(): string;
-  fn pid(): number;
-}
-```
-
-`Process` is the surface of the process model (`ref/processes.md`):
-named reducer processes with isolated state, message passing, flat
-supervision, and reconciliation-based live upgrade under `ambient dev`.
-
-FileSystem failures (missing files, permission errors, invalid UTF-8) raise
-catchable `Exception`s, recoverable with
-`with { Exception::throw(msg) => ... } handle ...`. Only `exists` is
-infallible: it returns `false` when the path can't be inspected.
-
-`Env` reads (and mutates) the process environment. `var`/`vars`/`cwd`/`pid`
-read live OS state — a missing variable is `None`, not an exception; only
-`cwd` raises (an unreadable working directory). `args` is *not* live OS
-state: the CLI captures it at startup — `ambient run <path> -- a b` yields
-`[<path>, "a", "b"]`, mirroring Python's `sys.argv[0]` / Go's `os.Args[0]`
-(`ambient dev` and the REPL supply an empty argv). `set` is process-global
-and best-effort: under edition 2024 it wraps an `unsafe std::env::set_var`,
-and since each process runs on its own OS thread, mutating the environment
-while another thread reads it is undefined behavior — it is intended for
-early startup/config, not concurrent mutation. Exit codes are out of scope.
-
-### Standard Functions
-
-Option, Result, and List expose their combinators and predicates as inherent
-methods — the canonical core API — so pipelines read receiver-first
-(head/get/first/last return Option — no sentinel values):
-
-```ambient
-[1, 2, 3].filter((x) => x % 2 == 1).map((x) => x * 10).fold(0, (a, x) => a + x)
-Some(20).map((v) => v * 2).unwrap_or(0)
-Ok(5).map((v) => v + 1).ok().is_some()
-```
-
-The method names, by type:
-
-```ambient
-// Collections
-List::{map, filter, fold, any, all, sum, get, head, tail, first, last,
-       length, is_empty, reverse, sort, slice, append, concat}
-
-// Options
-Option::{map, and_then, or_else, is_some, is_none, unwrap_or}
-
-// Results
-Result::{map, map_err, and_then, ok, is_ok, is_err, unwrap_or}
-```
-
-Two combinators have no method form and stay qualified module functions:
-`core::collections::List::range(start, end)` (no receiver) and `core::Option::flatten(opt)`
-(its receiver would be `Option<Option<U>>`, inexpressible in an
-`impl<T> Option<T>` block). Strings and conversions remain module functions:
-
-```ambient
-// Strings
-String::split, String::join, String::trim, String::contains, String::length
-
-// Conversion (parsers return Option)
-to_string, parse_number, parse_bool
-```
-
----
+See **[core-library.md](core-library.md)** for the ability declarations and
+the full set of standard functions by type.
 
 ## Architecture
 
@@ -1233,51 +326,17 @@ Blocking IO on plain threads:
    operation completes
 2. Concurrency is processes: each process owns a thread and a VM, and
    the process runtime routes messages between them (see Concurrency
-   and `ref/processes.md`)
-
----
+   and [processes.md](processes.md))
 
 ## Remote Execution
 
-```
-Client                          Server
-  |-- Execute(hash, args) ------->|
-  |<-- NeedDeps([hash1, hash2]) --|  (if missing)
-  |-- Provide([fn1, fn2]) ------->|
-  |<-- Result(value) -------------|
-```
-
 Remote execution servers are written in Ambient itself on the `Network`
-(TCP) and `Execute` (run-by-hash) abilities; the message framing above is
-a convention of the example programs, not engine code. Code ships as
-canonical object packs — receivers recompute every hash from the bytes.
+(TCP) and `Execute` (run-by-hash) abilities. Code ships as canonical object
+packs — receivers recompute every hash from the bytes — and runs in an
+isolated VM whose effects come from host grants or shipped handler values.
 
-Executed code runs in an **isolated VM**, and the remote must provide all
-ability handlers — nothing proxies back to the caller. Effects reach it
-two ways:
-
-- **Host grants** (`ExecuteConfig::grants`): the executing host decides
-  which host handlers each isolated VM gets. The CLI grants Stdio and
-  Log — shipped code can print/log on the executing host but has no
-  Network, Time, Random, or recursive Execute. Performing an ungranted
-  ability is a hard unhandled-ability error. This is the wasm-style
-  split: the engine is pure; hosts bind effectful capabilities to pure
-  ability interfaces, and different embeddings grant different sets.
-- **Shipped handlers** (`Execute.run_with(hash, arg, handler)`): a
-  first-class handler value travels with the call — its methods are
-  content-addressed functions, shipped in packs like any code — and is
-  installed at the base of the isolated VM. Ability hashes make this
-  sound: handler and perform match only if both sides computed the same
-  interface hash. `core::protocol::handler_methods(h)` exposes a handler's
-  method hashes so clients can ship its code.
-
-Values cross via `core::protocol::serialize_value`/`deserialize_value`
-(bincode of the wire-safe subset: primitives, tuples/lists/records,
-enums, function refs by hash, handler values by hash table). Closures,
-continuations, maps/sets, and modules do not cross; serializing one is a
-runtime error, never a silent `()`.
-
----
+See **[remote-execution.md](remote-execution.md)** for the protocol, the
+grant/shipped-handler split, and value serialization.
 
 ## CLI
 
@@ -1300,8 +359,6 @@ ambient lsp                # Start the language server
 Remote execution servers are written in Ambient itself using the `Network`
 and `Execute` abilities (see `examples/remote_server`); there is no
 dedicated `serve` command.
-
----
 
 ## Example Programs
 
@@ -1361,8 +418,6 @@ fn test_my_function(): () {
 }
 ```
 
----
-
 ## Future Work
 
 Roughly in priority order:
@@ -1381,16 +436,30 @@ Roughly in priority order:
   `ability` from one user module and importing it in another (exports
   carry the kind but consumers don't hydrate them yet), plus REPL
   registration of user-declared abilities.
-- **Process model growth** (see `ref/processes.md` for what exists):
-  typed `spawn` via effect-polymorphic ability signatures, process
-  linking/monitors, supervision trees, receive timeouts, and
-  `Execute`-driven remote deploy passes (live upgrade over the network).
+- **Workspace mechanism (multi-package local development).** Resolve
+  sibling packages by name, share a build directory, and compile
+  independent packages in parallel. Lands before the package manager, and
+  the `Fqn` scope machinery (`Workspace(pkg)`) is already shaped for it.
+- **Formalizing live upgrades.** Live, in-place code replacement is a
+  core goal, but the mechanism is still open research. The current
+  experiment is the Erlang-style process model ([processes.md](processes.md)):
+  a reducer/mailbox boundary as the unit of state to hand off, with
+  `ambient dev` re-running the entry function as a reconciliation pass.
+  Prototyping has shown this is **not a perfect fit** — the state-handoff
+  contract is coarse (a faulted reduction restarts from a fresh init) and
+  a process boundary may be the wrong unit — so we may pivot to a
+  different design. What needs formalizing regardless of the vehicle: the
+  deploy-pass/reconciliation model, an explicit state-migration contract
+  (today's default is "the new reducer consumes the old state or the
+  process restarts"), and an `Execute`-driven remote deploy path (live
+  upgrade over the network with the mechanics tested locally). Process
+  features that only matter if the process model wins — typed `spawn` via
+  effect-polymorphic ability signatures, linking/monitors, supervision
+  trees, receive timeouts — are contingent on that decision.
 - Generic traits, supertraits, trait bounds (`fn foo<T: Eq>(x: T)`) — only
   if needed; traits exist to support polymorphic operators
 - Incremental compilation backed by the persisted store
 - WASM target
-- Workspace mechanism (multi-package local development) — lands before the
-  package manager
 - Package manager with a shared cache (stores are rsync-friendly by
   construction)
 - Match exhaustiveness checking (a failing final variant arm is a

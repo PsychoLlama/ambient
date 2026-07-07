@@ -1,5 +1,16 @@
 # Processes and Live Upgrade
 
+Part of the [Ambient Language Reference](architecture.md).
+
+> **Status: experimental — may pivot.** This process model is our current
+> experiment for giving live code upgrade a well-defined unit of state to
+> hand off. Prototyping has shown it is *not* a perfect fit: the
+> state-handoff contract is coarse, and a reducer/mailbox boundary may be
+> the wrong unit. We may pivot to a different design. Treat everything
+> below as the shape of one experiment, not a settled architecture. See
+> the "Formalizing live upgrades" entry in
+> [architecture.md](architecture.md#future-work) for where this is headed.
+
 Ambient's unit of long-lived state is the **process**: a named, isolated
 reducer driven by a mailbox, in the spirit of Erlang's gen_server. The
 process model exists for one reason above all others: **hot code
