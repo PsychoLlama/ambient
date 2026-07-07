@@ -1193,17 +1193,17 @@ mod tests {
         assert!(
             analysis
                 .scc_for(&hash_a)
-                .is_some_and(|scc| scc.is_singleton())
+                .is_some_and(GenericScc::is_singleton)
         );
         assert!(
             analysis
                 .scc_for(&hash_d)
-                .is_some_and(|scc| scc.is_singleton())
+                .is_some_and(GenericScc::is_singleton)
         );
         assert!(
             analysis
                 .scc_for(&hash_e)
-                .is_some_and(|scc| scc.is_singleton())
+                .is_some_and(GenericScc::is_singleton)
         );
     }
 

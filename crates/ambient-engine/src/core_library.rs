@@ -324,7 +324,7 @@ mod tests {
         // `traits` registers as an ordinary core module now.
         assert!(modules.contains(&"traits".to_string()));
         // The `core` root itself is not.
-        assert!(!modules.iter().any(|m| m.is_empty()));
+        assert!(!modules.iter().any(String::is_empty));
     }
 
     #[test]
