@@ -569,7 +569,6 @@ fn test_fibonacci_sequence() {
 }
 
 #[test]
-#[allow(clippy::cast_precision_loss)] // n is a small enumerate index
 fn test_fibonacci_values() {
     let expected = [0.0, 1.0, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0, 34.0, 55.0];
 
@@ -579,7 +578,7 @@ fn test_fibonacci_values() {
 
         let result = VmTest::new()
             .with_function(fib)
-            .push(n as f64)
+            .push(f64::from(u32::try_from(n).unwrap()))
             .call_func(hash, 1)
             .run();
 
@@ -983,28 +982,27 @@ fn test_make_handler_creates_handler_value() {
 }
 
 #[test]
-#[allow(clippy::similar_names)] // method_a_* / method_b_* are intentionally parallel
 fn test_make_handler_with_multiple_methods() {
     // Create handler method functions.
-    let mut method_a_builder = BytecodeBuilder::new();
-    method_a_builder.emit_const(Value::Unit);
-    method_a_builder.emit(Opcode::Return);
-    let method_a_func = method_a_builder.build(2, 2);
-    let method_a_hash = method_a_func.hash;
+    let mut first_builder = BytecodeBuilder::new();
+    first_builder.emit_const(Value::Unit);
+    first_builder.emit(Opcode::Return);
+    let first_func = first_builder.build(2, 2);
+    let first_hash = first_func.hash;
 
-    let mut method_b_builder = BytecodeBuilder::new();
-    method_b_builder.emit_const(Value::Unit);
-    method_b_builder.emit(Opcode::Return);
-    let method_b_func = method_b_builder.build(2, 2);
-    let method_b_hash = method_b_func.hash;
+    let mut second_builder = BytecodeBuilder::new();
+    second_builder.emit_const(Value::Unit);
+    second_builder.emit(Opcode::Return);
+    let second_func = second_builder.build(2, 2);
+    let second_hash = second_func.hash;
 
     // Create main function that makes a handler with 2 methods.
     let mut builder = BytecodeBuilder::new();
     builder.emit_make_handler(
         ABILITY_HANDLER_TEST,
         &[
-            (HANDLER_METHOD_A, method_a_hash),
-            (HANDLER_METHOD_B, method_b_hash),
+            (HANDLER_METHOD_A, first_hash),
+            (HANDLER_METHOD_B, second_hash),
         ],
         0,
     );
@@ -1014,8 +1012,8 @@ fn test_make_handler_with_multiple_methods() {
     let main_hash = main_func.hash;
 
     let mut vm = Vm::new();
-    vm.load_function(method_a_func);
-    vm.load_function(method_b_func);
+    vm.load_function(first_func);
+    vm.load_function(second_func);
     vm.load_function(main_func);
 
     let result = vm.call(&main_hash, vec![]);

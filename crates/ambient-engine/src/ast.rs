@@ -1331,9 +1331,6 @@ impl Param {
 
 #[cfg(test)]
 mod tests {
-    // Number-literal assertions compare against exact, representable values.
-    #![allow(clippy::float_cmp)]
-
     use super::*;
 
     #[test]
@@ -1353,8 +1350,8 @@ mod tests {
         } = expr.kind
         {
             assert_eq!(op, BinaryOp::Add);
-            assert!(matches!(left.kind, ExprKind::Number(n) if n == 1.0));
-            assert!(matches!(right.kind, ExprKind::Number(n) if n == 2.0));
+            assert!(matches!(left.kind, ExprKind::Number(n) if (n - 1.0).abs() < f64::EPSILON));
+            assert!(matches!(right.kind, ExprKind::Number(n) if (n - 2.0).abs() < f64::EPSILON));
         } else {
             panic!("Expected binary expression");
         }

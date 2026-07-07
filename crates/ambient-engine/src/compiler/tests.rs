@@ -1013,7 +1013,7 @@ fn test_compile_all_arithmetic_ops() {
             body: Expr::binary(op, Expr::local(0), Expr::local(1)),
         };
 
-        let compiled = compile_test_function(&func).unwrap_or_else(|_| panic!("{op:?} compilation failed"));
+        let compiled = compile_test_function(&func).unwrap_or_else(|_| panic!("{op:?} failed"));
         assert_eq!(compiled.param_count, 2);
     }
 }
@@ -1040,7 +1040,7 @@ fn test_compile_all_comparison_ops() {
             body: Expr::binary(op, Expr::local(0), Expr::local(1)),
         };
 
-        let compiled = compile_test_function(&func).unwrap_or_else(|_| panic!("{op:?} compilation failed"));
+        let compiled = compile_test_function(&func).unwrap_or_else(|_| panic!("{op:?} failed"));
         assert_eq!(compiled.param_count, 2);
     }
 }
