@@ -120,6 +120,7 @@
               pkgs.nixfmt
               pkgs.nodejs
               pkgs.pnpm
+              pkgs.prettier
               pkgs.stylua
               pkgs.tree-sitter
               pkgs.treefmt
