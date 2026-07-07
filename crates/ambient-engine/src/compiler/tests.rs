@@ -476,7 +476,7 @@ fn test_compile_match_variant_with_wildcard_inner() {
 #[test]
 fn test_debug_info_generation() {
     // Test that source maps are generated when source is provided
-    let source = r#"fn add(x, y) { x + y }"#;
+    let source = r"fn add(x, y) { x + y }";
     let source_file = "test.ab";
 
     // Create a function with spans that match the source

@@ -325,12 +325,12 @@ fn test_parse_list_literal() {
 
 #[test]
 fn test_parse_match() {
-    let source = r#"
+    let source = r"
         match x {
             Some(v) => v,
             None => 0,
         }
-    "#;
+    ";
     let mut parser = Parser::new(source).unwrap();
     let expr = parser.parse_expression().expect("parse error");
     match expr.kind {
@@ -362,13 +362,13 @@ fn test_parse_unit() {
 
 #[test]
 fn test_parse_block() {
-    let source = r#"
+    let source = r"
         {
             let x = 1;
             let y = 2;
             x + y
         }
-    "#;
+    ";
     let mut parser = Parser::new(source).unwrap();
     let expr = parser.parse_expression().expect("parse error");
     match expr.kind {
@@ -419,7 +419,7 @@ fn test_parse_handler_literal() {
 
 #[test]
 fn test_parse_handler_literal_single_method() {
-    let source = r#"{ Stdio::print(msg) => resume(()) }"#;
+    let source = r"{ Stdio::print(msg) => resume(()) }";
     let mut parser = Parser::new(source).unwrap();
     let expr = parser.parse_expression().expect("parse error");
     match expr.kind {
@@ -434,7 +434,7 @@ fn test_parse_handler_literal_single_method() {
 
 #[test]
 fn test_parse_handler_literal_qualified_ability() {
-    let source = r#"{ core::system::Clock::now() => resume(42) }"#;
+    let source = r"{ core::system::Clock::now() => resume(42) }";
     let mut parser = Parser::new(source).unwrap();
     let expr = parser.parse_expression().expect("parse error");
     match expr.kind {
@@ -453,7 +453,7 @@ fn test_parse_handler_literal_qualified_ability() {
 #[test]
 fn test_parse_with_handle_expr() {
     // `with { arms } handle BODY else E`
-    let source = r#"with { Exception::throw(e) => 0 } handle risky() else double(r)"#;
+    let source = r"with { Exception::throw(e) => 0 } handle risky() else double(r)";
     let mut parser = Parser::new(source).unwrap();
     let expr = parser.parse_expression().expect("parse error");
     match expr.kind {
@@ -474,7 +474,7 @@ fn test_parse_with_handle_expr() {
 fn test_parse_with_handle_multiple_handlers() {
     // `with v1, v2, { arms } handle BODY`
     let source =
-        r#"with mock_fs, mock_net, { Exception::throw(e) => resume(e) } handle unit_test()"#;
+        r"with mock_fs, mock_net, { Exception::throw(e) => resume(e) } handle unit_test()";
     let mut parser = Parser::new(source).unwrap();
     let expr = parser.parse_expression().expect("parse error");
     match expr.kind {
@@ -488,7 +488,7 @@ fn test_parse_with_handle_multiple_handlers() {
 
 #[test]
 fn test_parse_sandbox_with_abilities() {
-    let source = r#"sandbox with Log, Console { untrusted_code() }"#;
+    let source = r"sandbox with Log, Console { untrusted_code() }";
     let mut parser = Parser::new(source).unwrap();
     let expr = parser.parse_expression().expect("parse error");
     match expr.kind {
@@ -503,7 +503,7 @@ fn test_parse_sandbox_with_abilities() {
 
 #[test]
 fn test_parse_sandbox_pure() {
-    let source = r#"sandbox { pure_computation() }"#;
+    let source = r"sandbox { pure_computation() }";
     let mut parser = Parser::new(source).unwrap();
     let expr = parser.parse_expression().expect("parse error");
     match expr.kind {
@@ -516,7 +516,7 @@ fn test_parse_sandbox_pure() {
 
 #[test]
 fn test_parse_sandbox_single_ability() {
-    let source = r#"sandbox with Log { plugin() }"#;
+    let source = r"sandbox with Log { plugin() }";
     let mut parser = Parser::new(source).unwrap();
     let expr = parser.parse_expression().expect("parse error");
     match expr.kind {
