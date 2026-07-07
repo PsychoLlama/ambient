@@ -1213,6 +1213,81 @@ mod tests {
     }
 
     #[test]
+    fn prelude_name_creates_a_dep_only_when_referenced() {
+        use crate::ast::{Item, UseDef, UsePrefix};
+
+        // `donor` defines `gift`; `pre` re-exports it and is the prelude.
+        let mut registry = ModuleRegistry::new();
+        let donor = ModulePath::from_str_segments(&["donor"]).unwrap();
+        registry.register(
+            &donor,
+            Arc::new(Module {
+                name: Arc::from("donor"),
+                doc: None,
+                items: vec![func("gift", Expr::unit(), vec![])],
+            }),
+        );
+        let pre = ModulePath::from_str_segments(&["pre"]).unwrap();
+        registry.register(
+            &pre,
+            Arc::new(Module {
+                name: Arc::from("pre"),
+                doc: None,
+                items: vec![Item::new(
+                    ItemKind::Use(UseDef {
+                        is_public: true,
+                        prefix: UsePrefix::Pkg,
+                        path: vec![
+                            (Arc::from("donor"), Span::default()),
+                            (Arc::from("gift"), Span::default()),
+                        ],
+                        alias: None,
+                    }),
+                    Span::default(),
+                )],
+            }),
+        );
+        registry.set_prelude(pre);
+
+        let donor_id = registry.module_id(&donor);
+
+        // A module that never references `gift` gains no dependency on
+        // `donor`: the prelude tier is not folded into the dep closure.
+        let mut quiet = Module {
+            name: Arc::from("quiet"),
+            doc: None,
+            items: vec![func("noop", Expr::unit(), vec![])],
+        };
+        let quiet_path = ModulePath::from_str_segments(&["quiet"]).unwrap();
+        registry.register(&quiet_path, Arc::new(quiet.clone()));
+        let outcome = resolve_module(&mut quiet, &quiet_path, &registry);
+        assert!(
+            !outcome.deps.contains(&donor_id),
+            "an unreferenced prelude name must not create a dep edge"
+        );
+
+        // A module that *does* reference `gift` resolves it to donor's `Fqn`
+        // and gains the dependency.
+        let mut user = Module {
+            name: Arc::from("user"),
+            doc: None,
+            items: vec![func("use_gift", Expr::name("gift"), vec![])],
+        };
+        let user_path = ModulePath::from_str_segments(&["user"]).unwrap();
+        registry.register(&user_path, Arc::new(user.clone()));
+        let outcome = resolve_module(&mut user, &user_path, &registry);
+        assert_eq!(
+            body_resolved(&user, "use_gift"),
+            Some(registry.fqn(&donor, &[Arc::from("gift")])),
+            "a referenced prelude name resolves to its origin `Fqn`"
+        );
+        assert!(
+            outcome.deps.contains(&donor_id),
+            "a referenced prelude name creates the dep edge"
+        );
+    }
+
+    #[test]
     fn same_module_ability_reference_resolves_to_its_fqn() {
         let ability = Item::new(
             ItemKind::Ability(AbilityDef {

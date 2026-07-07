@@ -1,0 +1,20 @@
+// The core prelude: the names available in every module without an import.
+//
+// This module is not compiled or referenced directly. Its sole purpose is
+// its set of public re-exports: the engine injects them into every module's
+// scope at lowest precedence (`ModuleRegistry::inject_prelude`), so every
+// module behaves as though `use prelude::*` were written at its top. An
+// explicit `use` of the same name shadows the prelude, and a local
+// declaration shadows both.
+//
+// Each enum type is re-exported alongside its variants: the type so
+// `Option<T>` names a type without an import, the variants so `Some`/`None`
+// construct and pattern-match bare. The primitives are re-exported as types
+// by their in-module symbol path.
+
+pub use core::Option::{Option, Some, None};
+pub use core::Result::{Result, Ok, Err};
+pub use core::primitives::Bool::Bool;
+pub use core::primitives::Number::Number;
+pub use core::primitives::String::String;
+pub use core::primitives::Binary::Binary;

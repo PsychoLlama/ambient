@@ -590,6 +590,16 @@ pub fn compile_core_modules(
     let mut deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut paths_by_key: BTreeMap<String, ModulePath> = BTreeMap::new();
     for core_path in &core_paths {
+        // The prelude module is a pure re-export container (`pub use
+        // core::Option::{Some, None}`, ...). It is registered so its
+        // re-exports can be injected into every scope, but it is never
+        // itself checked or compiled: piecewise variant re-exports aren't a
+        // normal importable surface, and it contributes no functions. No
+        // module ever depends on it (injection resolves to each name's
+        // origin), so leaving it out of the order is sound.
+        if registry.prelude() == Some(core_path) {
+            continue;
+        }
         let mut ast = registry
             .get(core_path)
             .map(|info| (*info.module).clone())

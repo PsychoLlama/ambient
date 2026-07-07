@@ -81,26 +81,8 @@ use crate::ability_resolver::AbilityResolver;
 use crate::fqn::NameKey;
 use crate::types::{
     AbilityId, AbilityRegistry, AbilitySet, AbilityValueType, AbilityVarId, ForallType, NamedType,
-    Primitive, RecordType, TraitRegistry, Type, TypeVarGen, TypeVarId,
+    RecordType, TraitRegistry, Type, TypeVarGen, TypeVarId,
 };
-
-/// The four primitive type aliases (`String → Type::string()`, ...), seeded
-/// into every `Infer`'s `type_aliases` so a bare `String` resolves in *every*
-/// module — not only those that `use core::primitives::String`. Mirrors the enum prelude
-/// (`Option`/`Result`). The core module's own `register_named_types` overwrites
-/// these with value-identical entries (pinned by `validate_reserved_structs`),
-/// and `retain_imported_type_aliases` keeps them across the per-module retract.
-fn primitive_type_aliases() -> HashMap<NameKey, Type> {
-    [
-        (Primitive::Bool, Type::bool()),
-        (Primitive::Number, Type::number()),
-        (Primitive::String, Type::string()),
-        (Primitive::Binary, Type::binary()),
-    ]
-    .into_iter()
-    .map(|(p, ty)| (NameKey::Bare(Arc::from(p.name())), ty))
-    .collect()
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Type Inference
@@ -214,10 +196,16 @@ impl Infer {
             current_abilities: AbilitySet::Empty,
             ability_registry: registry,
             ability_resolver: resolver,
-            type_aliases: primitive_type_aliases(),
+            // Option/Result and the primitive types are no longer seeded
+            // here: they enter every module through the `core::prelude`
+            // injection (`register_imported_enums` / the primitive imports),
+            // exactly like any other import. A registry-less check (no
+            // prelude) therefore starts without them. The operator traits
+            // stay hardcoded until Phase 3.
+            type_aliases: HashMap::new(),
             trait_registry: TraitRegistry::with_prelude(),
             inherent_registry: inherent::InherentRegistry::default(),
-            enum_registry: enums::EnumRegistry::with_prelude(),
+            enum_registry: enums::EnumRegistry::default(),
             pending_errors: Vec::new(),
             resume_contexts: Vec::new(),
             pending_discharges: Vec::new(),
@@ -346,6 +334,27 @@ impl Infer {
         self.type_aliases.get(&NameKey::Bare(Arc::from(name)))
     }
 
+    /// Resolve a bare (unparameterized) named type to a concrete type: a
+    /// registered type alias if present, else the builtin primitive of that
+    /// name. Primitives are builtin type identities, so their bare name
+    /// denotes the primitive type in *every* context (registry-backed or
+    /// not) — the prelude only governs whether user code may spell it. This
+    /// is the single point `resolve_holes` and unification consult, so an
+    /// annotation `String` and a `String` literal always meet as the same
+    /// nominal.
+    #[must_use]
+    pub(crate) fn expand_named_alias(&self, name: &str) -> Option<Type> {
+        if let Some(ty) = self.get_type_alias(name) {
+            return Some(ty.clone());
+        }
+        crate::types::Primitive::from_name(name).map(|prim| match prim {
+            crate::types::Primitive::Bool => Type::bool(),
+            crate::types::Primitive::Number => Type::number(),
+            crate::types::Primitive::String => Type::string(),
+            crate::types::Primitive::Binary => Type::binary(),
+        })
+    }
+
     /// Look up a type alias by a reference's resolution key (a bare local
     /// type or a cross-module type's [`Fqn`]).
     #[must_use]
@@ -436,12 +445,13 @@ impl Infer {
                 Type::function_with_abilities(params, ret, abilities)
             }
             Type::Named(n) => {
-                // Check if this named type corresponds to a registered type alias
+                // A bare name that denotes a registered type alias or a
+                // builtin primitive resolves to that type (see
+                // `expand_named_alias`).
                 if n.args.is_empty()
-                    && let Some(aliased_type) = self.get_type_alias(&n.name).cloned()
+                    && let Some(expanded) = self.expand_named_alias(&n.name)
                 {
-                    // Resolve to the aliased type
-                    return self.resolve_holes(&aliased_type);
+                    return self.resolve_holes(&expanded);
                 }
                 let args = n.args.iter().map(|a| self.resolve_holes(a)).collect();
                 // Attach an enum's nominal identity so an annotation like

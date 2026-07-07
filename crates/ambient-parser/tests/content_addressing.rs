@@ -11,17 +11,8 @@ use std::sync::Arc;
 
 use ambient_engine::compiler::CompiledModule;
 
-/// Parse, type-check, and compile a single module from source.
-fn compile(source: &str) -> CompiledModule {
-    let module = ambient_parser::parse(source).expect("source should parse");
-    let checked = ambient_engine::infer::check_module(module);
-    assert!(
-        checked.errors.is_empty(),
-        "type errors: {:?}",
-        checked.errors
-    );
-    ambient_engine::compiler::compile_module(&checked.module).expect("source should compile")
-}
+mod common;
+use common::compile;
 
 /// Collect name → hash for every named function in the module.
 fn named_hashes(module: &CompiledModule) -> HashMap<Arc<str>, blake3::Hash> {

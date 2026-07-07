@@ -133,6 +133,19 @@ fn clean_package_reports_nothing_on_both_sides() {
 }
 
 #[test]
+fn bare_prelude_names_match() {
+    // A module using bare prelude names (`Some`/`None`/`Ok`/`Err`,
+    // `Option`/`Result`, `Number`) with no `use` must analyze identically
+    // on both frontends — the prelude injection is in the shared layer, so
+    // the LSP sees it exactly as `ambient check` does.
+    assert_parity(&[(
+        "main.ab",
+        "fn unwrap(o: Option<Number>): Number { match o { Some(n) => n, None => 0 } }\n\
+         pub fn run(): Result<Number, Number> { Ok(unwrap(Some(1))) }\n",
+    )]);
+}
+
+#[test]
 fn type_errors_match() {
     assert_parity(&[(
         "main.ab",

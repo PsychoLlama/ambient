@@ -623,6 +623,75 @@ pub fn run(n: Number, b: Bool): String {
     check_passes(dir.path());
 }
 
+/// Bare `Some`/`None`/`Ok`/`Err` and `Option<T>`/`Result<T, E>` resolve in
+/// every module without a `use` — they are the prelude, re-exported by
+/// `core::prelude` and injected at lowest precedence. Construct, pattern
+/// match, and run, all with no imports.
+#[test]
+fn prelude_enums_resolve_without_import() {
+    let dir = package(&[(
+        "main.ab",
+        r"
+fn unwrap(o: Option<Number>): Number {
+  match o { Some(n) => n, None => 0 }
+}
+
+fn collapse(r: Result<Number, Number>): Number {
+  match r { Ok(n) => n, Err(e) => e }
+}
+
+pub fn run(): Number {
+  unwrap(Some(4)) + unwrap(None) + collapse(Ok(2)) + collapse(Err(3))
+}
+",
+    )]);
+    assert_eq!(run(dir.path()), "9");
+}
+
+/// A local declaration shadows the prelude: a user `enum E { Some, None }`
+/// binds `Some`/`None` to *its* variants, not `core::Option`'s. The match
+/// arms and constructor resolve to the local enum end-to-end.
+#[test]
+fn user_declaration_shadows_prelude() {
+    let dir = package(&[(
+        "main.ab",
+        r"
+pub unique(D098767B-4093-4D5C-BA37-AD92AA7B5D09) enum E { Some(Number), None }
+
+fn tag(e: E): Number {
+  match e { Some(n) => n, None => 0 }
+}
+
+pub fn run(): Number {
+  tag(Some(7)) + tag(None)
+}
+",
+    )]);
+    assert_eq!(run(dir.path()), "7");
+}
+
+/// An explicit `use core::Option::Option;` names the very enum the prelude
+/// already injects. The two must coexist rather than collide: the import
+/// takes precedence at the same origin, and `Option`/`Some`/`None` still
+/// resolve and run. (Variants can't be imported piecemeal — the enum import
+/// carries them — so this is the meaningful "explicit use + prelude" case.)
+#[test]
+fn explicit_enum_import_coexists_with_prelude() {
+    let dir = package(&[(
+        "main.ab",
+        r"
+use core::Option::Option;
+
+fn unwrap(o: Option<Number>): Number {
+  match o { Some(n) => n, None => 0 }
+}
+
+pub fn run(): Number { unwrap(Some(5)) + unwrap(None) }
+",
+    )]);
+    assert_eq!(run(dir.path()), "5");
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // The `core::` hierarchy is file-defined and arbitrary-depth
 // ─────────────────────────────────────────────────────────────────────────

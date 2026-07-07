@@ -249,6 +249,15 @@ pub fn register_core_modules(
 
         paths.push(module.path.clone());
     }
+
+    // Default every package's global scope to the core prelude. All three
+    // entry points (package build, CLI/LSP platform registry, analysis)
+    // funnel through here, so this is the single place the default is set.
+    // A future manifest override calls `set_prelude` again afterwards.
+    if let Some(prelude) = ModulePath::from_str_segments(&["core", "prelude"]) {
+        registry.set_prelude(prelude);
+    }
+
     Ok(paths)
 }
 

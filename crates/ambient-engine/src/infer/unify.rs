@@ -182,9 +182,9 @@ impl Infer {
             (Type::Named(n), _)
                 if n.args.is_empty()
                     && n.uuid.is_none()
-                    && self.get_type_alias(&n.name).is_some() =>
+                    && self.expand_named_alias(&n.name).is_some() =>
             {
-                match self.get_type_alias(&n.name).cloned() {
+                match self.expand_named_alias(&n.name) {
                     Some(expanded) => self.unify(&expanded, &t2, span),
                     None => Ok(()), // unreachable: the guard proved it present
                 }
@@ -192,9 +192,9 @@ impl Infer {
             (_, Type::Named(n))
                 if n.args.is_empty()
                     && n.uuid.is_none()
-                    && self.get_type_alias(&n.name).is_some() =>
+                    && self.expand_named_alias(&n.name).is_some() =>
             {
-                match self.get_type_alias(&n.name).cloned() {
+                match self.expand_named_alias(&n.name) {
                     Some(expanded) => self.unify(&t1, &expanded, span),
                     None => Ok(()), // unreachable: the guard proved it present
                 }

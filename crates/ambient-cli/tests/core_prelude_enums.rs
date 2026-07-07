@@ -98,6 +98,70 @@ fn core_sources_declare_the_canonical_prelude_enums() {
     }
 }
 
+/// Building the core library must succeed with the prelude injection
+/// enabled — the regression guard for the `core::Option ↔ core::primitives`
+/// cycle the separate `prelude_items` tier is designed to avoid. A cyclic
+/// compile order would error here (`compilation_order` can't topo-sort a
+/// cycle), and a missing prelude default would leave core modules unable to
+/// resolve bare `Some`/`None`/`Number`.
+#[test]
+fn core_library_builds_acyclically_with_prelude() {
+    let mut registry = ambient_engine::module_registry::ModuleRegistry::new();
+    let mut module_function_hashes = std::collections::HashMap::new();
+    ambient_engine::build::compile_core_modules(&mut registry, &mut module_function_hashes, |s| {
+        ambient_parser::parse(s).map_err(|e| e.to_string())
+    })
+    .expect("core library builds acyclically");
+
+    // The default prelude is set as a side effect of registering core.
+    let prelude = registry
+        .prelude()
+        .expect("core registers a default prelude");
+    assert_eq!(prelude.to_string(), "core::prelude");
+}
+
+/// The `core::prelude` source must re-export the full global set: dropping
+/// any name here would silently remove it from every module's scope. Pin the
+/// exact set of exported leaves.
+#[test]
+fn prelude_reexports_the_full_global_set() {
+    let source = CoreLibrary::get_source(&[Arc::from("prelude")])
+        .expect("core module `prelude` has embedded source");
+    let module = ambient_parser::parse(source).expect("core module `prelude` parses");
+
+    let mut exported: Vec<String> = module
+        .items
+        .iter()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Use(use_def) => Some(use_def),
+            _ => None,
+        })
+        .flat_map(|use_def| {
+            assert!(use_def.is_public, "every prelude `use` must be `pub use`");
+            // The re-exported name is the alias, else the final path segment.
+            use_def
+                .alias
+                .as_ref()
+                .map(|(name, _)| name.to_string())
+                .or_else(|| use_def.path.last().map(|(name, _)| name.to_string()))
+        })
+        .collect();
+    exported.sort();
+
+    let mut expected = vec![
+        "Option", "Some", "None", "Result", "Ok", "Err", "Bool", "Number", "String", "Binary",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect::<Vec<_>>();
+    expected.sort();
+
+    assert_eq!(
+        exported, expected,
+        "core::prelude must re-export exactly the global set"
+    );
+}
+
 #[test]
 fn fully_qualified_option_constructs_and_runs() {
     // `core::Option::Some(10)` and `core::Option::None` — the FQN spelling

@@ -8,7 +8,7 @@ use crate::ast::BindingId;
 use crate::fqn::{Fqn, ModuleId, NameKey};
 use crate::module_path::ModulePath;
 use crate::module_registry::{ExportKind, ModuleRegistry, ResolvedImport};
-use crate::types::{AbilityId, AbilitySet, Primitive, TraitDef, TraitMethodDef, Type, TypeVarId};
+use crate::types::{AbilityId, AbilitySet, TraitDef, TraitMethodDef, Type, TypeVarId};
 
 use super::Infer;
 use super::env::{Scheme, TypeEnv};
@@ -641,20 +641,16 @@ fn retain_imported_type_aliases(
                 .collect()
         })
         .unwrap_or_default();
-    // Canonical qualified keys (`shapes.Money`) always stay: they can't
-    // collide with bare names, and qualified references are visibility-
-    // checked by the resolve pass. The four primitive aliases
-    // (`String`/`Number`/`Bool`/`Binary`) are prelude — resolvable in every
-    // module without an import — so they survive the retract too.
     // Cross-module `Item` keys always stay: they can't collide with bare
     // names, and qualified references are visibility-checked by the resolve
-    // pass. Among bare keys, keep the imported ones and the four primitive
-    // aliases (prelude — resolvable in every module).
+    // pass. Among bare keys, keep only the imported ones. The four
+    // primitives (`Bool`/`Number`/`String`/`Binary`) are no longer special-
+    // cased here: they arrive as ordinary prelude imports (see
+    // `core::prelude`), so they land in `imported` on every module that
+    // doesn't shadow them, exactly like any other imported type.
     infer.retain_type_aliases(|key| match key {
         crate::fqn::NameKey::Item(_) => true,
-        crate::fqn::NameKey::Bare(name) => {
-            imported.contains(name) || Primitive::from_name(name).is_some()
-        }
+        crate::fqn::NameKey::Bare(name) => imported.contains(name),
     });
 }
 
@@ -1647,6 +1643,11 @@ fn resolve_ability_def(
             quantified.push(var_id);
         }
 
+        // `resolve_holes` resolves bare primitive names to their nominal
+        // primitive type (a builtin identity, context-independent), so the
+        // canonical interface renders `number`/`string`/... rather than the
+        // `named:Number` an unresolved name would produce — keeping ability
+        // identities byte-stable regardless of the prelude/imports in scope.
         let params: Vec<Type> = method
             .params
             .iter()

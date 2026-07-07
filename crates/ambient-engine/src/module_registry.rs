@@ -219,6 +219,15 @@ pub struct ModuleScope {
     /// Item imports by local name. At most one binding per namespace
     /// (values, types, abilities, traits) per name.
     pub items: HashMap<Arc<str>, Vec<ItemImport>>,
+    /// Prelude re-exports injected at *lowest* precedence — every module
+    /// behaves as though `use prelude::*` were written at its top. Kept
+    /// separate from [`Self::items`] on purpose: the resolve pass turns
+    /// every `items` binding into an unconditional compile-ordering edge
+    /// (its dependency-closure loop), which a prelude binding must not do —
+    /// a prelude name only creates an edge when it is actually referenced.
+    /// [`Self::item`] consults this after `items`, so an explicit `use`
+    /// always shadows the prelude. See [`ModuleRegistry::inject_prelude`].
+    pub prelude_items: HashMap<Arc<str>, Vec<ItemImport>>,
     /// Imports that failed to resolve.
     pub errors: Vec<ImportError>,
 }
@@ -258,13 +267,20 @@ impl ExportKind {
 }
 
 impl ModuleScope {
-    /// The item bound to `local` in `ns`, if any.
+    /// The item bound to `local` in `ns`, if any. An explicit `use`
+    /// (`items`) always wins; the prelude tier is consulted only when no
+    /// import occupies the name+namespace.
     #[must_use]
     pub fn item(&self, local: &str, ns: Namespace) -> Option<&ItemImport> {
         self.items
-            .get(local)?
-            .iter()
-            .find(|import| import.kind.namespace() == ns)
+            .get(local)
+            .and_then(|imports| imports.iter().find(|import| import.kind.namespace() == ns))
+            .or_else(|| {
+                self.prelude_items
+                    .get(local)?
+                    .iter()
+                    .find(|import| import.kind.namespace() == ns)
+            })
     }
 
     /// The module bound to `local`, if any.
@@ -295,6 +311,12 @@ pub struct ModuleRegistry {
     /// [`Self::set_workspace_name`] runs — a consistent placeholder that
     /// keeps every key internally consistent within one build.
     workspace_name: Arc<str>,
+    /// The prelude module whose public re-exports are injected into every
+    /// module's scope at lowest precedence (see [`Self::inject_prelude`]).
+    /// `None` disables injection entirely — the registry-less/single-file
+    /// convention. Set to `core::prelude` by `register_core_modules`; a
+    /// future per-package manifest override calls [`Self::set_prelude`].
+    prelude: Option<ModulePath>,
 }
 
 impl Default for ModuleRegistry {
@@ -302,6 +324,7 @@ impl Default for ModuleRegistry {
         Self {
             modules: HashMap::new(),
             workspace_name: Arc::from(""),
+            prelude: None,
         }
     }
 }
@@ -324,6 +347,20 @@ impl ModuleRegistry {
     #[must_use]
     pub fn workspace_name(&self) -> &Arc<str> {
         &self.workspace_name
+    }
+
+    /// Set the prelude module whose public re-exports are injected into
+    /// every module's scope at lowest precedence. `register_core_modules`
+    /// sets the default (`core::prelude`); a future manifest override calls
+    /// this again from `build_package`.
+    pub fn set_prelude(&mut self, prelude: ModulePath) {
+        self.prelude = Some(prelude);
+    }
+
+    /// The prelude module, if injection is enabled.
+    #[must_use]
+    pub fn prelude(&self) -> Option<&ModulePath> {
+        self.prelude.as_ref()
     }
 
     /// The [`ModuleId`] for a module path under this registry's workspace.
@@ -663,7 +700,60 @@ impl ModuleRegistry {
                 _ => None,
             })
             .collect();
-        self.build_scope_from_uses(module_path, &uses)
+        let mut scope = self.build_scope_from_uses(module_path, &uses);
+        self.inject_prelude(module_path, &mut scope);
+        scope
+    }
+
+    /// Inject the prelude module's public re-exports into `scope` at lowest
+    /// precedence — the mechanism behind "every module behaves as though
+    /// `use prelude::*` were written at its top" (the syntax does not
+    /// exist; this is the resolver-level equivalent).
+    ///
+    /// Each re-export leaf is resolved to its defining origin (chasing
+    /// `pub use` chains through [`Self::lookup_symbol`], uniform over the
+    /// Value/Type/Ability/Trait namespaces) and bound into
+    /// [`ModuleScope::prelude_items`] — unless an explicit `use` already
+    /// occupies that name+namespace, so imports always shadow the prelude.
+    /// The prelude module itself is skipped (it can't import itself), and a
+    /// broken re-export is silently dropped (the prelude drift test catches
+    /// a genuinely missing name).
+    fn inject_prelude(&self, module_path: &ModulePath, scope: &mut ModuleScope) {
+        let Some(prelude_path) = &self.prelude else {
+            return;
+        };
+        if prelude_path == module_path {
+            return;
+        }
+        let Some(prelude_info) = self.modules.get(&prelude_path.to_string()) else {
+            return;
+        };
+        for re_export in &prelude_info.re_exports {
+            let Some(local) = re_export.exported_name() else {
+                continue;
+            };
+            let Ok((export, origin)) = self.lookup_symbol(prelude_path, local) else {
+                continue;
+            };
+            let ns = export.kind.namespace();
+            // An explicit `use` for this name+namespace shadows the prelude.
+            if scope
+                .items
+                .get(local)
+                .is_some_and(|imports| imports.iter().any(|i| i.kind.namespace() == ns))
+            {
+                continue;
+            }
+            let import = ItemImport {
+                module: origin,
+                name: Arc::clone(&export.name),
+                kind: export.kind,
+                span: Span::default(),
+            };
+            let entry = scope.prelude_items.entry(Arc::from(local)).or_default();
+            entry.retain(|existing| existing.kind.namespace() != ns);
+            entry.push(import);
+        }
     }
 
     /// Interpret a list of `use` items into a scope. Shared by module
@@ -833,6 +923,26 @@ impl ModuleRegistry {
         for (local, imports) in scope.items {
             let entry = resolved.imports.entry(local).or_default();
             for import in imports {
+                entry.push(ResolvedImport::Symbol {
+                    from_module: import.module,
+                    export_kind: import.kind,
+                    span: import.span,
+                });
+            }
+        }
+        // Prelude re-exports are ordinary imports to the checker's
+        // consumers (`register_imported_enums`, `retain_imported_type_aliases`),
+        // at lowest precedence. Enum *variants* are excluded: the resolve
+        // pass reads them straight off `ModuleScope::prelude_items` (so bare
+        // `Some`/`None` still resolve), and surfacing them here would trip
+        // `build_import_env`'s "import its enum instead" guard for a name
+        // the user never wrote a `use` for.
+        for (local, imports) in scope.prelude_items {
+            let entry = resolved.imports.entry(local).or_default();
+            for import in imports {
+                if import.kind == ExportKind::EnumVariant {
+                    continue;
+                }
                 entry.push(ResolvedImport::Symbol {
                     from_module: import.module,
                     export_kind: import.kind,
@@ -1299,6 +1409,109 @@ mod tests {
             }
             other => panic!("Expected a single symbol import, got {other:?}"),
         }
+    }
+
+    /// A `pub use pkg::donor::gift;` item, for building a prelude module.
+    fn pub_use(segments: &[&str]) -> crate::ast::Item {
+        use crate::ast::{Item, UseDef};
+        Item::new(
+            ItemKind::Use(UseDef {
+                is_public: true,
+                prefix: UsePrefix::Pkg,
+                path: segments
+                    .iter()
+                    .map(|s| (Arc::from(*s), Span::default()))
+                    .collect(),
+                alias: None,
+            }),
+            Span::default(),
+        )
+    }
+
+    #[test]
+    fn prelude_binds_at_lowest_precedence_and_imports_shadow_it() {
+        // `donor` defines `gift`; `pre` re-exports it; `pre` is the prelude.
+        let mut registry = ModuleRegistry::new();
+        let donor = ModulePath::from_str_segments(&["donor"]).unwrap();
+        registry.register(
+            &donor,
+            Arc::new(Module {
+                name: Arc::from("donor"),
+                doc: None,
+                items: vec![make_function("gift", true)],
+            }),
+        );
+        let other = ModulePath::from_str_segments(&["other"]).unwrap();
+        registry.register(
+            &other,
+            Arc::new(Module {
+                name: Arc::from("other"),
+                doc: None,
+                items: vec![make_function("gift", true)],
+            }),
+        );
+        let pre = ModulePath::from_str_segments(&["pre"]).unwrap();
+        registry.register(
+            &pre,
+            Arc::new(Module {
+                name: Arc::from("pre"),
+                doc: None,
+                items: vec![pub_use(&["donor", "gift"])],
+            }),
+        );
+        registry.set_prelude(pre.clone());
+
+        // A consumer with no `use` sees `gift` only through the prelude tier —
+        // never in `items` (which the dep-closure loop turns into edges).
+        let consumer = ModulePath::from_str_segments(&["consumer"]).unwrap();
+        registry.register(
+            &consumer,
+            Arc::new(Module {
+                name: Arc::from("consumer"),
+                doc: None,
+                items: vec![],
+            }),
+        );
+        let scope = registry.build_module_scope(&consumer);
+        assert!(
+            scope.items.get("gift").is_none(),
+            "prelude names must not live in `items`"
+        );
+        let bound = scope
+            .item("gift", Namespace::Value)
+            .expect("prelude `gift` resolves");
+        assert_eq!(bound.module, donor);
+
+        // An explicit `use pkg::other::gift;` shadows the prelude at the same
+        // name: `items` wins over `prelude_items`.
+        let shadower = ModulePath::from_str_segments(&["shadower"]).unwrap();
+        registry.register(
+            &shadower,
+            Arc::new(Module {
+                name: Arc::from("shadower"),
+                doc: None,
+                items: vec![{
+                    use crate::ast::{Item, UseDef};
+                    Item::new(
+                        ItemKind::Use(UseDef {
+                            is_public: false,
+                            prefix: UsePrefix::Pkg,
+                            path: vec![
+                                (Arc::from("other"), Span::default()),
+                                (Arc::from("gift"), Span::default()),
+                            ],
+                            alias: None,
+                        }),
+                        Span::default(),
+                    )
+                }],
+            }),
+        );
+        let scope = registry.build_module_scope(&shadower);
+        let bound = scope
+            .item("gift", Namespace::Value)
+            .expect("explicit `gift` resolves");
+        assert_eq!(bound.module, other, "an explicit `use` shadows the prelude");
     }
 
     #[test]
