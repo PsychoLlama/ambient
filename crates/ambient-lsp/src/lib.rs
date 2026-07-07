@@ -43,9 +43,9 @@
     clippy::complexity,
     clippy::correctness,
     clippy::suspicious,
-    clippy::unwrap_used,
     clippy::self_named_module_files
 )]
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 #![allow(clippy::module_name_repetitions)]
 
 mod analysis;

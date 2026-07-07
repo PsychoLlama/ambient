@@ -33,10 +33,9 @@
     clippy::complexity,
     clippy::correctness,
     clippy::suspicious,
-    clippy::unwrap_used,
     clippy::self_named_module_files
 )]
-#![cfg_attr(not(test), deny(clippy::expect_used))]
+#![cfg_attr(not(test), deny(clippy::expect_used, clippy::unwrap_used))]
 #![allow(clippy::missing_errors_doc)]
 
 pub mod occurrences;

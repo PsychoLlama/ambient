@@ -26,9 +26,9 @@
     clippy::style,
     clippy::complexity,
     clippy::correctness,
-    clippy::suspicious,
-    clippy::unwrap_used
+    clippy::suspicious
 )]
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
 mod error;
 mod format;

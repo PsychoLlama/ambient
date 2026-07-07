@@ -6,10 +6,9 @@
     clippy::complexity,
     clippy::correctness,
     clippy::suspicious,
-    clippy::unwrap_used,
     clippy::self_named_module_files
 )]
-#![cfg_attr(not(test), deny(clippy::expect_used))]
+#![cfg_attr(not(test), deny(clippy::expect_used, clippy::unwrap_used))]
 
 pub mod ability_resolver;
 pub mod ast;
