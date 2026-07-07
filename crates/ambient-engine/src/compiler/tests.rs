@@ -1,5 +1,13 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use super::entry::{compile_function_with_hash, span_to_line_col};
+use super::hash::compute_temporary_hash;
 use super::*;
-use crate::ast::{BinaryOp, Expr, ExprKind, FunctionDef, Item, Param, Span};
+use crate::ast::{BinaryOp, Expr, ExprKind, FunctionDef, Item, ItemKind, Module, Param, Span};
+use crate::bytecode::CompiledFunction;
+use crate::fqn::NameKey;
+use crate::value::Value;
 
 fn test_span() -> Span {
     Span::default()
