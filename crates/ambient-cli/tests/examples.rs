@@ -20,8 +20,8 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 /// Examples that require a live peer and are tested as pairs instead,
-/// plus long-lived services with their own dedicated tests
-/// (`live_server` is exercised by the `dev_live_upgrade` test).
+/// plus long-lived services (`live_server`) that never exit and so
+/// can't be run as a one-shot smoke test.
 const PAIRED_EXAMPLES: &[&str] = &[
     "network_client",
     "network_server",
