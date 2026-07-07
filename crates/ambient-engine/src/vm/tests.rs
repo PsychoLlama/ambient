@@ -772,10 +772,10 @@ fn test_ability_with_multiple_args() {
         .suspend(ABILITY_MATH, METHOD_ADD_TEN, 2)
         .perform()
         .with_host_handler(ABILITY_MATH, METHOD_ADD_TEN, |ability| {
-            if ability.args.len() >= 2 {
-                if let (Value::Number(a), Value::Number(b)) = (&ability.args[0], &ability.args[1]) {
-                    return Ok(Value::Number(a + b));
-                }
+            if ability.args.len() >= 2
+                && let (Value::Number(a), Value::Number(b)) = (&ability.args[0], &ability.args[1])
+            {
+                return Ok(Value::Number(a + b));
             }
             Ok(Value::Unit)
         })
