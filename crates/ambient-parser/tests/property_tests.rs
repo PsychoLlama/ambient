@@ -260,11 +260,11 @@ fn function_def_strategy() -> impl Strategy<Value = String> {
 fn enum_def_strategy() -> impl Strategy<Value = String> {
     (
         ident_strategy().prop_filter("starts uppercase", |s| {
-            s.chars().next().map_or(false, |c| c.is_uppercase())
+            s.chars().next().is_some_and(|c| c.is_uppercase())
         }),
         prop::collection::vec(
             ident_strategy().prop_filter("starts uppercase", |s| {
-                s.chars().next().map_or(false, |c| c.is_uppercase())
+                s.chars().next().is_some_and(|c| c.is_uppercase())
             }),
             1..5,
         ),
