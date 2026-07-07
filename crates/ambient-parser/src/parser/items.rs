@@ -7,9 +7,9 @@ use ambient_engine::ast::Span;
 
 use super::Parser;
 use crate::cst::{
-    CstAbilityDef, CstAbilityMethod, CstConstDef, CstEnumDef, CstEnumVariant, CstFunctionDef,
-    CstImplDef, CstImplMethod, CstItem, CstItemKind, CstParam, CstStructDef, CstTraitDef,
-    CstTraitMethod, CstTraitParam, CstTraitParamKind, CstTypeAliasDef, CstTypeParam,
+    CstAbilityDef, CstAbilityMethod, CstConstDef, CstEnumDef, CstEnumVariant, CstExternFnDef,
+    CstFunctionDef, CstImplDef, CstImplMethod, CstItem, CstItemKind, CstParam, CstStructDef,
+    CstTraitDef, CstTraitMethod, CstTraitParam, CstTraitParamKind, CstTypeAliasDef, CstTypeParam,
     CstWhereClause,
 };
 use crate::error::{ParseError, ParseErrorKind};
@@ -273,24 +273,73 @@ impl Parser<'_> {
         }
     }
 
-    /// Parse an `extern`-prefixed item: `extern unique(<uuid>) struct T ...`.
-    /// `extern` marks a nominal type as engine-provided — user code may name it
-    /// and read its fields, but not construct it. It requires `unique(...)` (the
-    /// engine needs a stable identity to refer to the type by) and applies to
-    /// `struct` only. The requirement is re-checked in lowering.
+    /// Parse an `extern`-prefixed item. Two forms exist:
+    ///
+    /// - `extern unique(<uuid>) struct T ...` marks a nominal type as
+    ///   host-provided — user code may name it and read its fields, but not
+    ///   construct it. It requires `unique(...)` (the type's identity must be
+    ///   readable from source alone, so checking works without host bindings)
+    ///   and applies to `struct` only. The requirement is re-checked in
+    ///   lowering.
+    /// - `extern fn name(...): Ret;` declares a body-less function whose
+    ///   implementation (and stable UUID identity) the host binds at compile
+    ///   time.
     fn parse_extern_item(&mut self, is_public: bool) -> Result<CstItemKind, ParseError> {
         self.expect(TokenKind::Extern)?;
         self.skip_trivia();
-        if !self.check(TokenKind::Unique) {
-            return Err(ParseError::new(
+        match self.current_kind() {
+            TokenKind::Fn => Ok(CstItemKind::ExternFn(self.parse_extern_fn(is_public)?)),
+            TokenKind::Unique => self.parse_unique_item(is_public, true),
+            other => Err(ParseError::new(
                 ParseErrorKind::Expected {
-                    expected: "`unique(<uuid>)` after `extern`".into(),
-                    found: format!("{:?}", self.current_kind()),
+                    expected: "`fn` or `unique(<uuid>)` after `extern`".into(),
+                    found: format!("{other:?}"),
                 },
+                self.current().span,
+            )),
+        }
+    }
+
+    /// Parse the signature of an `extern fn` declaration: like a function
+    /// header, but terminated by `;` instead of a body. A `with` clause is
+    /// rejected here — extern fns are pure by construction (effectful host
+    /// integration is what abilities are for).
+    fn parse_extern_fn(&mut self, is_public: bool) -> Result<CstExternFnDef, ParseError> {
+        self.expect(TokenKind::Fn)?;
+        let name = self.parse_ident()?;
+
+        let type_params = if self.check(TokenKind::Lt) {
+            self.parse_type_params()?
+        } else {
+            Vec::new()
+        };
+
+        self.expect(TokenKind::LParen)?;
+        let params = self.parse_params()?;
+        self.expect(TokenKind::RParen)?;
+
+        let ret_ty = if self.consume(TokenKind::Colon).is_some() {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        if self.check(TokenKind::With) {
+            return Err(ParseError::new(
+                ParseErrorKind::ExternFnWithAbilities,
                 self.current().span,
             ));
         }
-        self.parse_unique_item(is_public, true)
+
+        self.expect(TokenKind::Semi)?;
+
+        Ok(CstExternFnDef {
+            is_public,
+            name,
+            type_params,
+            params,
+            ret_ty,
+        })
     }
 
     /// Parse a `struct Foo { fields }` record definition, or the unit form

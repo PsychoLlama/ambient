@@ -491,6 +491,7 @@ fn item_name(item: &Item) -> Option<Arc<str>> {
         ItemKind::Enum(def) => Some(def.name.clone()),
         ItemKind::Ability(def) => Some(def.name.clone()),
         ItemKind::Trait(def) => Some(def.name.clone()),
+        ItemKind::ExternFn(def) => Some(def.name.clone()),
         ItemKind::Use(def) => def
             .alias
             .as_ref()

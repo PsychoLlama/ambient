@@ -205,6 +205,69 @@ fn test_extern_struct_parsing_and_lowering() {
 }
 
 #[test]
+fn test_extern_fn_parsing_and_lowering() {
+    use crate::error::ParseErrorKind;
+    use crate::lower_module;
+    use ambient_engine::ast::ItemKind;
+
+    // A body-less signature parses and lowers.
+    let mut parser = Parser::new("extern fn length(value: String): Number;").unwrap();
+    let item = parser.parse_item().expect("extern fn should parse");
+    assert!(matches!(item.kind, CstItemKind::ExternFn(_)));
+
+    // `pub extern fn` with generics lowers to an ExternFn item.
+    let mut parser = Parser::new("pub extern fn to_string<T>(value: T): String;").unwrap();
+    let module = parser.parse_module().expect("pub extern fn should parse");
+    let lowered = lower_module(&module).expect("extern fn must lower");
+    match &lowered.items[0].kind {
+        ItemKind::ExternFn(def) => {
+            assert!(def.is_public);
+            assert_eq!(def.name.as_ref(), "to_string");
+            assert_eq!(def.type_params.len(), 1);
+            assert_eq!(def.params.len(), 1);
+        }
+        other => panic!("expected an extern fn item, got {other:?}"),
+    }
+
+    // Zero-parameter extern fns are legal (`map::empty`-style constructors).
+    let mut parser = Parser::new("extern fn empty<K, V>(): Map<K, V>;").unwrap();
+    let module = parser.parse_module().expect("zero-arity extern fn parses");
+    lower_module(&module).expect("zero-arity extern fn must lower");
+
+    // A body instead of `;` is a parse error.
+    let mut parser = Parser::new("extern fn f(x: Number): Number { x }").unwrap();
+    assert!(parser.parse_item().is_err(), "extern fn body must error");
+
+    // A `with` clause is rejected — extern fns are pure by construction.
+    let mut parser =
+        Parser::new("extern fn f(x: Number): Number with core::system::Stdio;").unwrap();
+    let err = parser.parse_item().expect_err("with clause must error");
+    assert!(matches!(err.kind, ParseErrorKind::ExternFnWithAbilities));
+
+    // A missing return type is rejected at lowering (no body to infer from).
+    let mut parser = Parser::new("extern fn f(x: Number);").unwrap();
+    let module = parser.parse_module().expect("should parse");
+    let err = lower_module(&module).expect_err("missing return type must fail");
+    assert!(matches!(
+        err.kind,
+        ParseErrorKind::ExternFnRequiresReturnType
+    ));
+
+    // An untyped parameter is rejected at lowering.
+    let mut parser = Parser::new("extern fn f(x): Number;").unwrap();
+    let module = parser.parse_module().expect("should parse");
+    let err = lower_module(&module).expect_err("untyped param must fail");
+    assert!(matches!(
+        err.kind,
+        ParseErrorKind::ExternFnParamRequiresType(_)
+    ));
+
+    // `extern` followed by anything else still errors.
+    let mut parser = Parser::new("extern const X: Number = 1;").unwrap();
+    assert!(parser.parse_item().is_err(), "extern const must error");
+}
+
+#[test]
 fn test_parse_if_expr() {
     let mut parser = Parser::new("if x { 1 } else { 2 }").unwrap();
     let expr = parser.parse_expression().expect("parse error");

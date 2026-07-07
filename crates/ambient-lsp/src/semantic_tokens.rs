@@ -261,6 +261,23 @@ impl<'a> TokenCollector<'a> {
                     );
                 }
             }
+            ItemKind::ExternFn(e) => {
+                // Extern fn name at declaration; parameters like a function.
+                self.add_token(
+                    e.name_span.start,
+                    e.name_span.end,
+                    token_type::FUNCTION,
+                    token_modifier::DECLARATION,
+                );
+                for param in &e.params {
+                    self.add_token(
+                        param.span.start,
+                        param.span.start + str_len_u32(&param.name),
+                        token_type::PARAMETER,
+                        token_modifier::DECLARATION,
+                    );
+                }
+            }
             ItemKind::Use(_) => {
                 // Use statements - could highlight the path segments
             }

@@ -6,9 +6,9 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use ambient_engine::ast::{
-    AbilityDef, AbilityMethod, ConstDef, EnumDef, EnumVariant, FunctionDef, ImplDef, ImplMethod,
-    Item, ItemKind, Param, Span, StructDef, TraitDef, TraitMethod, TypeAliasDef, TypeParam, UseDef,
-    UsePrefix, WhereClause,
+    AbilityDef, AbilityMethod, ConstDef, EnumDef, EnumVariant, ExternFnDef, FunctionDef, ImplDef,
+    ImplMethod, Item, ItemKind, Param, Span, StructDef, TraitDef, TraitMethod, TypeAliasDef,
+    TypeParam, UseDef, UsePrefix, WhereClause,
 };
 use ambient_engine::types::{NominalType, Type};
 
@@ -16,9 +16,9 @@ use super::LoweringContext;
 use super::exprs::lower_expression;
 use super::types::{lower_qualified_name, lower_type};
 use crate::cst::{
-    CstAbilityDef, CstConstDef, CstEnumDef, CstFunctionDef, CstImplDef, CstItem, CstItemKind,
-    CstParam, CstStructDef, CstTraitDef, CstTraitParamKind, CstTypeAliasDef, CstTypeExprKind,
-    CstUseDef, CstUseTree, CstUseTreeKind,
+    CstAbilityDef, CstConstDef, CstEnumDef, CstExternFnDef, CstFunctionDef, CstImplDef, CstItem,
+    CstItemKind, CstParam, CstStructDef, CstTraitDef, CstTraitParamKind, CstTypeAliasDef,
+    CstTypeExprKind, CstUseDef, CstUseTree, CstUseTreeKind,
 };
 use crate::error::{ParseError, ParseErrorKind};
 
@@ -45,6 +45,7 @@ pub(super) fn lower_item_impl(
         }
         CstItemKind::Trait(t) => ItemKind::Trait(lower_trait_def(t)?),
         CstItemKind::Impl(i) => ItemKind::Impl(lower_impl_def(ctx, i)?),
+        CstItemKind::ExternFn(e) => ItemKind::ExternFn(lower_extern_fn(ctx, e)?),
         CstItemKind::Error => {
             return Err(ParseError::new(
                 ParseErrorKind::LoweringError("cannot lower error item".into()),
@@ -90,6 +91,53 @@ fn lower_function(
         ret_ty,
         abilities,
         body,
+    })
+}
+
+/// Lower an `extern fn` declaration. There is no body to infer from, so the
+/// signature must be complete: every parameter carries a type annotation and
+/// the return type is declared.
+fn lower_extern_fn(
+    ctx: &mut LoweringContext,
+    e: &CstExternFnDef,
+) -> Result<ExternFnDef, ParseError> {
+    let type_params = e
+        .type_params
+        .iter()
+        .map(|tp| TypeParam {
+            name: tp.name.name.clone(),
+            span: tp.span,
+        })
+        .collect();
+
+    let params = e
+        .params
+        .iter()
+        .map(|p| {
+            if p.ty.is_none() {
+                return Err(ParseError::new(
+                    ParseErrorKind::ExternFnParamRequiresType(p.name.name.to_string()),
+                    p.span,
+                ));
+            }
+            lower_param(ctx, p)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let Some(ret_ty) = e.ret_ty.as_ref().map(lower_type).transpose()? else {
+        return Err(ParseError::new(
+            ParseErrorKind::ExternFnRequiresReturnType,
+            e.name.span,
+        ));
+    };
+
+    Ok(ExternFnDef {
+        name: e.name.name.clone(),
+        name_span: e.name.span,
+        is_public: e.is_public,
+        type_params,
+        params,
+        ret_ty,
     })
 }
 

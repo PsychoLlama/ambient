@@ -42,6 +42,7 @@ pub fn item_name_span(item: &Item) -> Option<Span> {
         ItemKind::Enum(e) => Some(e.name_span),
         ItemKind::Ability(a) => Some(a.name_span),
         ItemKind::Trait(t) => Some(t.name_span),
+        ItemKind::ExternFn(e) => Some(e.name_span),
         ItemKind::Use(_) | ItemKind::Impl(_) => None,
     }
 }
@@ -57,6 +58,7 @@ pub fn item_name(item: &Item) -> Option<&std::sync::Arc<str>> {
         ItemKind::Enum(e) => Some(&e.name),
         ItemKind::Ability(a) => Some(&a.name),
         ItemKind::Trait(t) => Some(&t.name),
+        ItemKind::ExternFn(e) => Some(&e.name),
         ItemKind::Use(_) | ItemKind::Impl(_) => None,
     }
 }

@@ -144,6 +144,16 @@ pub(super) fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> 
                 name_span: t.name_span,
                 doc: item.doc.clone(),
             }),
+            // Extern fns export exactly like functions: the missing body is
+            // a compile-time binding concern, invisible to importers.
+            ItemKind::ExternFn(e) => Some(ExportInfo {
+                name: e.name.clone(),
+                kind: ExportKind::Function,
+                is_public: e.is_public,
+                re_export_from: None,
+                name_span: e.name_span,
+                doc: item.doc.clone(),
+            }),
             ItemKind::Use(_) | ItemKind::Impl(_) => None, // Use statements and impls are not exports
         };
 

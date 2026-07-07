@@ -137,6 +137,9 @@ impl<'r> Resolver<'r> {
                 ItemKind::Function(f) => {
                     module_values.insert(Arc::clone(&f.name));
                 }
+                ItemKind::ExternFn(e) => {
+                    module_values.insert(Arc::clone(&e.name));
+                }
                 ItemKind::Const(c) => {
                     module_values.insert(Arc::clone(&c.name));
                 }
@@ -260,6 +263,14 @@ impl<'r> Resolver<'r> {
                         }
                         self.resolve_type(&mut method.ret_ty);
                     }
+                }
+                ItemKind::ExternFn(e) => {
+                    for param in &mut e.params {
+                        if let Some(ty) = &mut param.ty {
+                            self.resolve_type(ty);
+                        }
+                    }
+                    self.resolve_type(&mut e.ret_ty);
                 }
                 ItemKind::Use(_) => {}
             }

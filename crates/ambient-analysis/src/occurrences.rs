@@ -310,6 +310,7 @@ impl Collector<'_> {
             ItemKind::Enum(e) => self.item_def(&e.name, e.name_span),
             ItemKind::Ability(a) => self.item_def(&a.name, a.name_span),
             ItemKind::Trait(t) => self.item_def(&t.name, t.name_span),
+            ItemKind::ExternFn(e) => self.item_def(&e.name, e.name_span),
             ItemKind::Use(use_def) => self.use_items(use_def),
             ItemKind::Impl(impl_def) => {
                 for method in &impl_def.methods {

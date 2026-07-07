@@ -761,6 +761,10 @@ pub enum ItemKind {
 
     /// A trait implementation.
     Impl(ImplDef),
+
+    /// An `extern fn` declaration: a body-less signature whose
+    /// implementation is provided by the host at compile time.
+    ExternFn(ExternFnDef),
 }
 
 /// A function definition.
@@ -782,6 +786,36 @@ pub struct FunctionDef {
     pub abilities: Vec<QualifiedName>,
     /// The function body.
     pub body: Expr,
+}
+
+/// An `extern fn` declaration.
+///
+/// An extern function is a signature without a body: the implementation is a
+/// native function provided by the host (the engine for `core::`, an embedder
+/// for its own modules) and attached at compile time through a
+/// [`crate::natives::NativeRegistry`]. The declaration carries no identity of
+/// its own — the registry supplies a stable UUID, which is the function's
+/// *content* identity (the name is only the compile-time lookup key, so
+/// renaming an extern fn never changes a hash).
+///
+/// Extern fns are pure by construction: they take no `with` clause, and the
+/// full signature (typed params, return type) is mandatory because there is
+/// no body to infer from. Otherwise they are ordinary items — `pub` gates
+/// export, they import through `use`, and they are first-class values.
+#[derive(Debug, Clone)]
+pub struct ExternFnDef {
+    /// Function name.
+    pub name: Arc<str>,
+    /// Span of the function name (for go-to-definition).
+    pub name_span: Span,
+    /// Whether this function is public.
+    pub is_public: bool,
+    /// Type parameters (generics).
+    pub type_params: Vec<TypeParam>,
+    /// Parameters (every parameter carries a declared type).
+    pub params: Vec<Param>,
+    /// Return type (mandatory).
+    pub ret_ty: Type,
 }
 
 /// A type parameter (generic).

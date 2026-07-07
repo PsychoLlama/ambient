@@ -443,7 +443,31 @@ fn format_item_signature(kind: &ItemKind, content: &mut String) {
             }
             content.push_str(&format_type(&i.for_type));
         }
+        ItemKind::ExternFn(e) => format_extern_fn_hover(e, content),
     }
+}
+
+/// Format an extern fn's signature for hover.
+fn format_extern_fn_hover(e: &ambient_engine::ast::ExternFnDef, content: &mut String) {
+    if e.is_public {
+        content.push_str("pub ");
+    }
+    content.push_str("extern fn ");
+    content.push_str(&e.name);
+    format_type_params(&e.type_params, content);
+    content.push('(');
+    for (i, param) in e.params.iter().enumerate() {
+        if i > 0 {
+            content.push_str(", ");
+        }
+        content.push_str(&param.name);
+        if let Some(ty) = &param.ty {
+            content.push_str(": ");
+            content.push_str(&format_type(ty));
+        }
+    }
+    content.push_str("): ");
+    content.push_str(&format_type(&e.ret_ty));
 }
 
 /// Format a function's signature for hover.
@@ -1163,6 +1187,22 @@ fn item_to_document_symbol(
             range,
             None,
         )),
+        ItemKind::ExternFn(e) => {
+            let mut signature = String::new();
+            format_extern_fn_hover(e, &mut signature);
+            Some(make_symbol(
+                e.name.to_string(),
+                Some(signature),
+                LspSymbolKind::FUNCTION,
+                range,
+                offset_range_to_lsp_range(
+                    doc,
+                    e.name_span.start as usize,
+                    e.name_span.end as usize,
+                ),
+                None,
+            ))
+        }
     }
 }
 

@@ -176,6 +176,8 @@ pub enum CstItemKind {
     Trait(CstTraitDef),
     /// Trait implementation.
     Impl(CstImplDef),
+    /// Extern function declaration (`extern fn name(...): Ret;`).
+    ExternFn(CstExternFnDef),
     /// Error recovery placeholder.
     Error,
 }
@@ -201,6 +203,24 @@ pub struct CstFunctionDef {
     pub abilities: Vec<CstQualifiedName>,
     /// Function body.
     pub body: CstExpr,
+}
+
+/// An `extern fn` declaration: a body-less function signature terminated by
+/// `;`, whose implementation is bound by the host. Parameters and the return
+/// type are syntactically optional (shared parsing paths) — lowering enforces
+/// that both are fully declared, since there is no body to infer from.
+#[derive(Debug, Clone)]
+pub struct CstExternFnDef {
+    /// Whether public (`pub extern fn`).
+    pub is_public: bool,
+    /// Function name.
+    pub name: CstIdent,
+    /// Type parameters (generics).
+    pub type_params: Vec<CstTypeParam>,
+    /// Parameters.
+    pub params: Vec<CstParam>,
+    /// Return type.
+    pub ret_ty: Option<CstTypeExpr>,
 }
 
 /// An identifier with trivia.

@@ -136,6 +136,18 @@ pub enum ParseErrorKind {
     /// engine to refer to it by.
     ExternStructRequiresUnique,
 
+    /// An `extern fn` was declared with a `with` clause. Extern fns are pure
+    /// by construction — effectful host integration goes through abilities.
+    ExternFnWithAbilities,
+
+    /// An `extern fn` was declared without a return type. There is no body to
+    /// infer from, so the full signature is mandatory.
+    ExternFnRequiresReturnType,
+
+    /// An `extern fn` parameter was declared without a type annotation. There
+    /// is no body to infer from, so the full signature is mandatory.
+    ExternFnParamRequiresType(String),
+
     // ─────────────────────────────────────────────────────────────────────────
     // Name resolution errors
     // ─────────────────────────────────────────────────────────────────────────
@@ -197,6 +209,21 @@ impl fmt::Display for ParseErrorKind {
                 f,
                 "`extern` structs require a `unique(<uuid>)` prefix \
                  (e.g. `extern unique(A1B2C3D4-0000-0000-0000-000000000001) struct Foo;`)"
+            ),
+            Self::ExternFnWithAbilities => write!(
+                f,
+                "an `extern fn` cannot declare abilities — extern fns are pure; \
+                 effectful host operations are declared as abilities instead"
+            ),
+            Self::ExternFnRequiresReturnType => write!(
+                f,
+                "an `extern fn` requires a declared return type \
+                 (there is no body to infer it from)"
+            ),
+            Self::ExternFnParamRequiresType(name) => write!(
+                f,
+                "extern fn parameter `{name}` requires a type annotation \
+                 (there is no body to infer it from)"
             ),
 
             Self::UndefinedName(name) => write!(f, "undefined name '{name}'"),
