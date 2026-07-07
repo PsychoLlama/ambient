@@ -65,7 +65,7 @@ struct DocumentAnalysis {
 /// References and rename both read this: the occurrence list is the source of
 /// exact reference ranges, and `uri` turns a module-local span into an LSP
 /// [`Location`]. Rebuilt from the package's parsed modules on every edit, so
-/// results are always fresh (unlike the old, snapshot-once symbol database).
+/// results are always fresh.
 struct ModuleOccurrences {
     module_path: ModulePath,
     uri: Uri,
@@ -1414,11 +1414,6 @@ fn publish_diagnostics(
 /// changed file, rebuild the registry once, then re-analyze every open
 /// document against it. A signature change in one file must surface (or
 /// clear) type errors in files that import it.
-///
-/// Note the symbol database is *not* refreshed here — it is populated
-/// once from a full package compile at first open. Find-references can
-/// go stale after edits; making it incrementally updatable is an
-/// engine-level gap.
 fn reanalyze_all(
     changed_uri: &Uri,
     state: &mut ServerState,

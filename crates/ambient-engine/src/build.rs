@@ -1,4 +1,4 @@
-//! Package building and symbol database population.
+//! Package building.
 //!
 //! This is the *single* package pipeline: load every module, register the
 //! core/platform/user modules in one registry, canonicalize references
@@ -19,7 +19,6 @@ use crate::infer::BoxedTypeError;
 use crate::module_path::ModulePath;
 use crate::module_registry::{ExportKind, ModuleRegistry};
 use crate::package::{LoadedModule, Package};
-use crate::symbol_db::SymbolDb;
 
 /// Progress callback for reporting build progress.
 ///
@@ -124,7 +123,7 @@ impl std::fmt::Display for BuildError {
 
 impl std::error::Error for BuildError {}
 
-/// Build an Ambient package and populate the symbol database.
+/// Build an Ambient package.
 ///
 /// Pipeline:
 /// 1. Load and parse every `.ab` file under `src/`.
@@ -216,12 +215,6 @@ pub fn build_package(
     let module_order = compilation_order(&deps);
     let total_modules = module_order.len();
 
-    // Open symbol database in build directory (create if needed).
-    let build_dir = path.join("build");
-    fs::create_dir_all(&build_dir).ok();
-    let db_path = build_dir.join("symbols.db");
-    let mut symbol_db = SymbolDb::open(&db_path).ok();
-
     for (idx, module_key) in module_order.iter().enumerate() {
         let module_path = paths_by_key
             .get(module_key)
@@ -245,17 +238,6 @@ pub fn build_package(
             linking_table(&module_function_hashes),
             options.prelude_abilities,
         )?;
-
-        // Populate symbol database with compiled module.
-        if let Some(ref mut db) = symbol_db {
-            let visibility = extract_function_visibility(&module.ast);
-
-            // Clean up old symbols for this module before repopulating.
-            let _ = db.remove_module(module_key);
-
-            // Populate with new symbols.
-            let _ = db.populate_from_module(&compiled, &package_name, module_key, &visibility);
-        }
 
         // Record this module's function hashes for dependents, keyed by
         // their bare names (the linking table qualifies them itself).
@@ -294,17 +276,6 @@ pub fn build_package(
         module_count: total_modules,
         package_name,
     })
-}
-
-/// Extract function visibility from a module AST.
-fn extract_function_visibility(module: &crate::ast::Module) -> HashMap<Arc<str>, bool> {
-    let mut visibility = HashMap::new();
-    for item in &module.items {
-        if let ItemKind::Function(func) = &item.kind {
-            visibility.insert(Arc::clone(&func.name), func.is_public);
-        }
-    }
-    visibility
 }
 
 /// Load and parse every `.ab` file under the package's `src/` directory.

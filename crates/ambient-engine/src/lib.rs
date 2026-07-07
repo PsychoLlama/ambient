@@ -30,7 +30,6 @@ pub mod package;
 pub mod protocol;
 pub mod resolve;
 pub mod store;
-pub mod symbol_db;
 pub mod types;
 pub mod vm;
 
