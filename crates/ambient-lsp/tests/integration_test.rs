@@ -75,5 +75,6 @@ fn test_lsp_initialize() {
     }
 
     child.kill().ok();
+    child.wait().ok();
     handle.join().ok();
 }
