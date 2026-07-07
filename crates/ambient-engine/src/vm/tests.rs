@@ -440,7 +440,7 @@ fn test_function_with_args() {
 // Milestone 1: Recursive Functions
 // =========================================================================
 
-/// Build a recursive factorial function using FunctionBuilder.
+/// Build a recursive factorial function using `FunctionBuilder`.
 fn build_factorial() -> crate::bytecode::CompiledFunction {
     FunctionBuilder::new("test::factorial")
         .with_locals(1)
@@ -503,7 +503,7 @@ fn test_factorial_larger() {
         .expect_number(3_628_800.0);
 }
 
-/// Build a recursive fibonacci function using FunctionBuilder.
+/// Build a recursive fibonacci function using `FunctionBuilder`.
 fn build_fibonacci() -> crate::bytecode::CompiledFunction {
     FunctionBuilder::new("test::fibonacci")
         .with_locals(1)
@@ -590,7 +590,7 @@ fn test_fibonacci_values() {
 // Milestone 2: Abilities and Handlers
 // =========================================================================
 
-/// Distinct, recognizable synthetic AbilityIds for tests.
+/// Distinct, recognizable synthetic `AbilityId`s for tests.
 const ABILITY_CONSOLE: crate::types::AbilityId = crate::types::AbilityId::from_bytes([1; 32]);
 const ABILITY_MATH: crate::types::AbilityId = crate::types::AbilityId::from_bytes([2; 32]);
 const METHOD_PRINT: u16 = 0;
@@ -936,7 +936,7 @@ fn test_ability_returned_from_function() {
         .expect_number(42.0);
 }
 
-/// Synthetic ability identity for the MakeHandler tests: the opcode only
+/// Synthetic ability identity for the `MakeHandler` tests: the opcode only
 /// carries an ability id and method slots, so no resolved interface is
 /// needed.
 const ABILITY_HANDLER_TEST: crate::types::AbilityId = crate::types::AbilityId::from_bytes([42; 32]);

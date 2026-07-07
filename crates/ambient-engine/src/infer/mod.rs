@@ -671,7 +671,7 @@ mod tests {
     use super::*;
     use crate::types::AbilityId;
 
-    /// A distinct, recognizable AbilityId for tests.
+    /// A distinct, recognizable `AbilityId` for tests.
     fn aid(n: u8) -> AbilityId {
         AbilityId::from_bytes([n; 32])
     }

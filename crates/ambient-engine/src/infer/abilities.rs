@@ -277,7 +277,7 @@ mod tests {
     use crate::infer::Infer;
     use crate::types::{AbilityId, AbilityInfo, AbilityRegistry, AbilitySet, Type};
 
-    /// A distinct, recognizable AbilityId for tests.
+    /// A distinct, recognizable `AbilityId` for tests.
     fn aid(n: u8) -> AbilityId {
         AbilityId::from_bytes([n; 32])
     }
