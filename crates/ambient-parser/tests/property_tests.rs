@@ -701,7 +701,7 @@ fn test_error_enum_lowercase_variant() {
 #[test]
 fn test_very_long_identifier() {
     let long_name = "a".repeat(1000);
-    let expr = format!("{}", long_name);
+    let expr = long_name.to_string();
     let result = parse_expr(&expr);
     assert!(result.is_ok());
 }
