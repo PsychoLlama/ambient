@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use ambient_engine::ast::Span;
 
 use super::Parser;
@@ -473,8 +471,7 @@ fn test_parse_with_handle_expr() {
 #[test]
 fn test_parse_with_handle_multiple_handlers() {
     // `with v1, v2, { arms } handle BODY`
-    let source =
-        r"with mock_fs, mock_net, { Exception::throw(e) => resume(e) } handle unit_test()";
+    let source = r"with mock_fs, mock_net, { Exception::throw(e) => resume(e) } handle unit_test()";
     let mut parser = Parser::new(source).unwrap();
     let expr = parser.parse_expression().expect("parse error");
     match expr.kind {
