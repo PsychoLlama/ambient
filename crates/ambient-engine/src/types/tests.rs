@@ -71,12 +71,9 @@ fn test_type_var_generator() {
 
 #[test]
 fn test_record_field_access() {
-    let record =
-        if let Type::Record(rec) = Type::record([("x", Type::number()), ("y", Type::string())]) {
-            rec
-        } else {
-            panic!("Expected record type");
-        };
+    let Type::Record(record) = Type::record([("x", Type::number()), ("y", Type::string())]) else {
+        panic!("Expected record type");
+    };
 
     assert_eq!(record.get_field("x"), Some(&Type::number()));
     assert_eq!(record.get_field("y"), Some(&Type::string()));
