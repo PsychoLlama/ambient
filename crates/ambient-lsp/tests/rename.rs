@@ -117,7 +117,7 @@ fn apply_edits(content: &str, edits: &[TextEdit]) -> String {
         })
         .collect();
     // Apply back-to-front so earlier edits don't shift later offsets.
-    byte_edits.sort_by(|a, b| b.0.cmp(&a.0));
+    byte_edits.sort_by_key(|b| std::cmp::Reverse(b.0));
     let mut out = content.to_string();
     for (start, end, text) in byte_edits {
         out.replace_range(start..end, text);
