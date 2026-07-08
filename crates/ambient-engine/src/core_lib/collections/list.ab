@@ -9,6 +9,13 @@
 // canonical core API. The sole free functions are `range` (no receiver) and
 // `first` (an alias of `head`, kept as a pure wrapper).
 
+// `List<T>` is an engine-provided container: its values are built in Rust
+// (list literals, and the `extern fn`s below), but user code may name the
+// type and pattern on its literals. The `unique(...)` uuid must equal
+// `LIST_UUID` in `types.rs`; it is what routes `list.map(f)` to the inherent
+// impl below through a uuid-keyed dispatch symbol.
+pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF05) struct List<T>;
+
 /// Number of elements.
 pub extern fn length<T>(list: List<T>): Number;
 /// The element at `i`, if any. Negative or fractional indexes have none.

@@ -1,9 +1,17 @@
 // Core library: the Map collection.
 //
-// `Map<K, V>` is an engine-provided persistent map. Its whole surface is a
-// set of `extern fn` declarations — signatures owned here, implementations
-// bound by the engine (`natives/core/collections.rs`). Every operation is
-// persistent: mutators return a new map.
+// `Map<K, V>` is an engine-provided persistent map. The low-level operations
+// are `extern fn` declarations — signatures owned here, implementations bound
+// by the engine (`natives/core/collections.rs`). Every operation is
+// persistent: mutators return a new map. The operations with a `Map` receiver
+// are exposed as inherent methods (`map.get(k)`, `map.insert(k, v)`, ...), the
+// canonical core API; `empty` has no receiver, so it stays a free function.
+
+// `Map<K, V>` is an engine-provided container: its values are built in Rust
+// (the `extern fn`s below), but user code may name the type. The `unique(...)`
+// uuid must equal `MAP_UUID` in `types.rs`; it is what routes `map.get(k)` to
+// the inherent impl below through a uuid-keyed dispatch symbol.
+pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF06) struct Map<K, V>;
 
 /// A map with no entries.
 pub extern fn empty<K, V>(): Map<K, V>;
@@ -21,3 +29,41 @@ pub extern fn length<K, V>(map: Map<K, V>): Number;
 pub extern fn keys<K, V>(map: Map<K, V>): List<K>;
 /// Every value, as a list.
 pub extern fn values<K, V>(map: Map<K, V>): List<V>;
+
+// Method forms over the externs: `map.get(k)`, `map.insert(k, v)`, ... The
+// inherent impl attaches these to the type itself; these methods are the
+// canonical core API.
+impl<K, V> Map<K, V> {
+    // The value at `key`, if any.
+    fn get(self, key: K): Option<V> {
+        get(self, key)
+    }
+    // This map with `key` set to `value` (replacing any existing entry).
+    fn insert(self, key: K, value: V): Map<K, V> {
+        insert(self, key, value)
+    }
+    // This map without `key` (unchanged if absent).
+    fn remove(self, key: K): Map<K, V> {
+        remove(self, key)
+    }
+    // True if `key` has an entry.
+    fn contains(self, key: K): Bool {
+        contains(self, key)
+    }
+    // Number of entries.
+    fn length(self): Number {
+        length(self)
+    }
+    // True if the map has no entries.
+    fn is_empty(self): Bool {
+        length(self) == 0
+    }
+    // Every key, as a list.
+    fn keys(self): List<K> {
+        keys(self)
+    }
+    // Every value, as a list.
+    fn values(self): List<V> {
+        values(self)
+    }
+}

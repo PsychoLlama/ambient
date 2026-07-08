@@ -1,9 +1,17 @@
 // Core library: the Set collection.
 //
-// `Set<T>` is an engine-provided persistent set. Its whole surface is a set
-// of `extern fn` declarations — signatures owned here, implementations
-// bound by the engine (`natives/core/collections.rs`). Every operation is
-// persistent: mutators return a new set.
+// `Set<T>` is an engine-provided persistent set. The low-level operations are
+// `extern fn` declarations — signatures owned here, implementations bound by
+// the engine (`natives/core/collections.rs`). Every operation is persistent:
+// mutators return a new set. The operations with a `Set` receiver are exposed
+// as inherent methods (`set.insert(v)`, `set.union(other)`, ...), the
+// canonical core API; `empty` has no receiver, so it stays a free function.
+
+// `Set<T>` is an engine-provided container: its values are built in Rust (the
+// `extern fn`s below), but user code may name the type. The `unique(...)` uuid
+// must equal `SET_UUID` in `types.rs`; it is what routes `set.insert(v)` to
+// the inherent impl below through a uuid-keyed dispatch symbol.
+pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF07) struct Set<T>;
 
 /// A set with no elements.
 pub extern fn empty<T>(): Set<T>;
@@ -23,3 +31,45 @@ pub extern fn intersection<T>(a: Set<T>, b: Set<T>): Set<T>;
 pub extern fn difference<T>(a: Set<T>, b: Set<T>): Set<T>;
 /// The elements as a list.
 pub extern fn to_list<T>(set: Set<T>): List<T>;
+
+// Method forms over the externs: `set.insert(v)`, `set.union(other)`, ... The
+// inherent impl attaches these to the type itself; these methods are the
+// canonical core API.
+impl<T> Set<T> {
+    // This set with `value` added (unchanged if present).
+    fn insert(self, value: T): Set<T> {
+        insert(self, value)
+    }
+    // This set without `value` (unchanged if absent).
+    fn remove(self, value: T): Set<T> {
+        remove(self, value)
+    }
+    // True if `value` is an element.
+    fn contains(self, value: T): Bool {
+        contains(self, value)
+    }
+    // Number of elements.
+    fn length(self): Number {
+        length(self)
+    }
+    // True if the set has no elements.
+    fn is_empty(self): Bool {
+        length(self) == 0
+    }
+    // Every element of either set.
+    fn union(self, other: Set<T>): Set<T> {
+        union(self, other)
+    }
+    // The elements in both sets.
+    fn intersection(self, other: Set<T>): Set<T> {
+        intersection(self, other)
+    }
+    // The elements of this set not in `other`.
+    fn difference(self, other: Set<T>): Set<T> {
+        difference(self, other)
+    }
+    // The elements as a list.
+    fn to_list(self): List<T> {
+        to_list(self)
+    }
+}

@@ -216,6 +216,35 @@ fn test_map_get_returns_option() {
 }
 
 #[test]
+fn test_map_and_set_inherent_methods() {
+    // `Map`/`Set` are nominal container types with inherent-method companions:
+    // `map.insert(k, v).get(k)` and `set.insert(v).contains(v)` dispatch
+    // through the same uuid-keyed machinery as `list.map(f)`.
+    let (dir, pkg) = temp_package(
+        r#"
+        pub fn run(): String {
+            let m = core::collections::map::empty().insert("a", 1).insert("b", 2);
+            let hit = m.get("a").unwrap_or(0);
+            let n = m.length();
+
+            let s = core::collections::set::empty().insert(7).insert(7).insert(9);
+            let has = s.contains(9);
+            let size = s.length();
+
+            core::convert::to_string(hit) + " "
+                + core::convert::to_string(n) + " "
+                + core::convert::to_string(has) + " "
+                + core::convert::to_string(size)
+        }
+        "#,
+    );
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("1 2 true 2"));
+    drop(dir);
+}
+
+#[test]
 fn test_string_index_of_returns_option() {
     let (dir, pkg) = temp_package(
         r#"

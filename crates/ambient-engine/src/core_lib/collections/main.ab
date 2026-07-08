@@ -1,10 +1,11 @@
 // Core namespace: collection types.
 //
-// Groups the collection modules — `List` (a type companion with methods),
-// and the intrinsic-only `map` and `set` — under `core::collections`. The
-// members live in the sibling files; this directory module re-exports them
-// so `core::collections::list`, `core::collections::map`, and
-// `core::collections::set` resolve through a registered namespace.
+// Groups the collection modules — `List`, `Map`, and `Set`, each an
+// engine-provided container type with an inherent-method companion — under
+// `core::collections`. The members live in the sibling files; this directory
+// module re-exports them so `core::collections::list`,
+// `core::collections::map`, and `core::collections::set` resolve through a
+// registered namespace.
 
 pub use self::list;
 pub use self::map;

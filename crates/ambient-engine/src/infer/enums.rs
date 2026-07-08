@@ -508,7 +508,7 @@ impl EnumInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Primitive, STRING_UUID};
+    use crate::types::{Container, LIST_UUID, MAP_UUID, Primitive, STRING_UUID};
 
     #[test]
     fn reserved_enums_have_fixed_identity() {
@@ -713,5 +713,61 @@ mod tests {
         // A struct touching neither a reserved name nor uuid is free.
         let user = struct_def("Widget", Some(Uuid::from_u128(0x1234)), false, &[], &[]);
         assert!(validate_reserved_struct(&user).is_ok());
+    }
+
+    #[test]
+    fn reserved_container_accepts_the_canonical_extern_declaration() {
+        for container in [Container::List, Container::Map, Container::Set] {
+            let params: &[&str] = match container.arity() {
+                1 => &["T"],
+                _ => &["K", "V"],
+            };
+            let def = struct_def(container.name(), Some(container.uuid()), true, params, &[]);
+            assert!(
+                validate_reserved_container(&def).is_ok(),
+                "canonical `{}` must validate",
+                container.name()
+            );
+            // Containers are not primitives, so the primitive validator lets
+            // them pass untouched.
+            assert!(validate_reserved_struct(&def).is_ok());
+        }
+    }
+
+    #[test]
+    fn reserved_container_rejects_drift_and_hijacks() {
+        // Reserved uuid but not `extern`.
+        let not_extern = struct_def("List", Some(LIST_UUID), false, &["T"], &[]);
+        assert!(validate_reserved_container(&not_extern).is_err());
+
+        // Reserved uuid, wrong name.
+        let wrong_name = struct_def("Seq", Some(LIST_UUID), true, &["T"], &[]);
+        assert!(validate_reserved_container(&wrong_name).is_err());
+
+        // Reserved uuid, carries fields (not a unit struct).
+        let with_fields = struct_def(
+            "List",
+            Some(LIST_UUID),
+            true,
+            &["T"],
+            &[("v", Type::number())],
+        );
+        assert!(validate_reserved_container(&with_fields).is_err());
+
+        // Reserved uuid, wrong arity (`List` takes one parameter, not two).
+        let wrong_arity = struct_def("List", Some(LIST_UUID), true, &["K", "V"], &[]);
+        assert!(validate_reserved_container(&wrong_arity).is_err());
+
+        // `Map` with a single parameter is likewise wrong arity.
+        let map_arity = struct_def("Map", Some(MAP_UUID), true, &["K"], &[]);
+        assert!(validate_reserved_container(&map_arity).is_err());
+
+        // Reserved *name* without the reserved uuid: an identity hijack.
+        let hijack = struct_def("List", Some(Uuid::from_u128(0x1234)), true, &["T"], &[]);
+        assert!(validate_reserved_container(&hijack).is_err());
+
+        // A struct touching neither a reserved container name nor uuid is free.
+        let user = struct_def("Widget", Some(Uuid::from_u128(0x1234)), true, &["T"], &[]);
+        assert!(validate_reserved_container(&user).is_ok());
     }
 }
