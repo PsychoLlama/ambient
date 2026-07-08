@@ -1,6 +1,7 @@
 use super::*;
 use crate::ast::{
-    AbilityDef, ConstDef, EnumDef, EnumVariant, Expr, FunctionDef, Item, ItemKind, Module, Span,
+    AbilityDef, ConstDef, EnumDef, EnumVariant, Expr, FunctionDef, Item, ItemKind, Module,
+    QualifiedName, Span,
 };
 use crate::types::Type;
 
