@@ -114,7 +114,7 @@ impl ModuleEnv {
                             ));
                         }
                     }
-                    ItemKind::Struct(def) if def.is_public && def.is_unit() => {
+                    ItemKind::Struct(def) if def.is_public && def.is_unit_value() => {
                         foreign_unit_structs.push(NameKey::Item(
                             registry.fqn(&info.path, &[Arc::clone(&def.name)]),
                         ));
