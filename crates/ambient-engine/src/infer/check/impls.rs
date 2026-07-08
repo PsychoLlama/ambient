@@ -280,16 +280,14 @@ pub(super) fn register_inherent_impls(
         let span = (item.span.start, item.span.end);
 
         let target = inherent_impl_target(infer, impl_def);
-        // Beyond being keyable, a `Named` target must actually exist: a declared
-        // enum or one of the built-in containers. Nominal targets — declared
-        // structs, `extern` types, and the primitives (`String`, `Number`, ...),
-        // which now resolve to their `extern` `Nominal` through the prelude
-        // alias — are always real, taking the `_ => true` branch.
+        // Beyond being keyable, a `Named` target must actually exist. After
+        // `resolve_holes`, every real nominal `Named` carries a uuid — a
+        // declared enum, a prelude enum (`Option`/`Result`), or a built-in
+        // container (`List`/`Map`/`Set`) — so a `uuid`-less `Named` is an
+        // undefined head. Nominal targets (declared structs, `extern` types,
+        // the primitives) are always real, taking the `_ => true` branch.
         let target = target.filter(|(_, for_type)| match for_type {
-            Type::Named(n) => {
-                infer.enum_registry.get(&n.name).is_some()
-                    || matches!(n.name.as_ref(), "List" | "Map" | "Set")
-            }
+            Type::Named(n) => n.uuid.is_some() || infer.enum_registry.get(&n.name).is_some(),
             _ => true,
         });
         let Some((key, for_type)) = target else {

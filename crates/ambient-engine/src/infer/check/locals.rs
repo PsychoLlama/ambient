@@ -172,9 +172,12 @@ pub(super) fn register_trait_def(infer: &mut Infer, trait_def: &crate::ast::Trai
 /// catches for `Option`/`Result`).
 fn validate_reserved_structs(module: &crate::ast::Module, errors: &mut Vec<BoxedTypeError>) {
     for item in &module.items {
-        if let crate::ast::ItemKind::Struct(struct_def) = &item.kind
-            && let Err(message) = crate::infer::enums::validate_reserved_struct(struct_def)
-        {
+        let crate::ast::ItemKind::Struct(struct_def) = &item.kind else {
+            continue;
+        };
+        let result = crate::infer::enums::validate_reserved_struct(struct_def)
+            .and_then(|()| crate::infer::enums::validate_reserved_container(struct_def));
+        if let Err(message) = result {
             errors.push(Box::new(TypeError::new(
                 TypeErrorKind::InvalidDeclaration { message },
                 (struct_def.name_span.start, struct_def.name_span.end),
@@ -552,7 +555,7 @@ fn is_known_type_name(
 ) -> bool {
     extra_known.contains(name)
         || name == "Self"
-        || matches!(name, "List" | "Map" | "Set")
+        || crate::types::Container::from_name(name).is_some()
         || infer.get_type_alias(name).is_some()
         || infer.enum_registry.get(name).is_some()
 }

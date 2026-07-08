@@ -252,7 +252,7 @@ impl Infer {
                     let ty = self.infer_expr(env, elem)?;
                     self.unify(&elem_ty, &ty, span)?;
                 }
-                Type::named("List", vec![self.apply(&elem_ty)])
+                Type::list(self.apply(&elem_ty))
             }
 
             ExprKind::Binary {

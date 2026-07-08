@@ -25,7 +25,8 @@ pub const RESULT_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ff
 /// Two authorities allocate discriminators in this namespace: these Rust
 /// consts, and source-declared `unique(...)` types that pick an `0xffff…`
 /// uuid by hand (e.g. `core::time::Duration` = `…0003`). To keep the ranges
-/// disjoint, the compiler-owned primitives take the *high* end of the
+/// disjoint, the compiler-owned built-ins (the scalar primitives *and* the
+/// generic containers `List`/`Map`/`Set`) take the *high* end of the
 /// discriminator (`0xff00…`); hand-written source uuids stay at the low end.
 /// A collision here would be silent: identity unifies on uuid + structure (so
 /// structureless `Bool` would not merge with `Duration`), but inherent/ability
@@ -41,6 +42,24 @@ pub const STRING_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ff
 
 /// Canonical nominal identity of the built-in `Binary` type. See [`BOOL_UUID`].
 pub const BINARY_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ff04);
+
+/// Canonical nominal identity of the built-in `List<T>` container. Like the
+/// scalar primitives, the containers are reserved-name generic types homed in
+/// `core::collections` and declared in Ambient source as `extern` unit structs
+/// (`extern unique(...) struct List<T>;`), anchored on these reserved uuids.
+/// A container's phantom type parameter never appears in its (empty) body, so
+/// its applied form is a [`Type::Named`] carrying the uuid + arguments — the
+/// same shape as `Option`/`Result` — rather than the field-substituting
+/// `Type::Nominal` a scalar primitive lowers to. See [`BOOL_UUID`].
+pub const LIST_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ff05);
+
+/// Canonical nominal identity of the built-in `Map<K, V>` container. See
+/// [`LIST_UUID`].
+pub const MAP_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ff06);
+
+/// Canonical nominal identity of the built-in `Set<T>` container. See
+/// [`LIST_UUID`].
+pub const SET_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ff07);
 
 /// A built-in primitive type. Primitives are ordinary [`Type::Named`] values
 /// carrying a reserved uuid ([`BOOL_UUID`] etc.); this enum is the ergonomic
@@ -117,6 +136,85 @@ impl Primitive {
             Self::Number => "core::primitives::number",
             Self::String => "core::primitives::string",
             Self::Binary => "core::primitives::binary",
+        }
+    }
+}
+
+/// A built-in generic container type (`List`/`Map`/`Set`). Containers are the
+/// generic counterpart to [`Primitive`]: reserved-name types carrying a fixed
+/// nominal uuid ([`LIST_UUID`] etc.), but with a phantom type parameter, so
+/// their applied form is a [`Type::Named`] with arguments (like `Option`) not a
+/// field-substituting [`Type::Nominal`]. This enum is the ergonomic way to map
+/// a head name to its reserved identity — the container analogue of the
+/// name/uuid tables `Primitive` exposes.
+///
+/// [`Type::Named`]: super::Type
+/// [`Type::Nominal`]: super::Type
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Container {
+    /// `List<T>`
+    List,
+    /// `Map<K, V>`
+    Map,
+    /// `Set<T>`
+    Set,
+}
+
+impl Container {
+    /// The reserved nominal uuid for this container.
+    #[must_use]
+    pub const fn uuid(self) -> Uuid {
+        match self {
+            Self::List => LIST_UUID,
+            Self::Map => MAP_UUID,
+            Self::Set => SET_UUID,
+        }
+    }
+
+    /// The container matching a reserved uuid, if any.
+    #[must_use]
+    pub fn from_uuid(uuid: Uuid) -> Option<Self> {
+        match uuid {
+            LIST_UUID => Some(Self::List),
+            MAP_UUID => Some(Self::Map),
+            SET_UUID => Some(Self::Set),
+            _ => None,
+        }
+    }
+
+    /// The bare type name (e.g. `"List"`), as it renders and is spelled in
+    /// source.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::List => "List",
+            Self::Map => "Map",
+            Self::Set => "Set",
+        }
+    }
+
+    /// The container matching a bare head name (e.g. `"List"`), if any. The
+    /// name-keyed dual of [`from_uuid`](Self::from_uuid); the sole point the
+    /// checker recognizes a container head, so `List<T>` resolves to its
+    /// reserved identity in every module without an import.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "List" => Some(Self::List),
+            "Map" => Some(Self::Map),
+            "Set" => Some(Self::Set),
+            _ => None,
+        }
+    }
+
+    /// The number of type parameters the container takes (`List<T>` → 1,
+    /// `Map<K, V>` → 2). Pins the canonical arity its `extern` declaration must
+    /// match.
+    #[must_use]
+    pub const fn arity(self) -> usize {
+        match self {
+            Self::List | Self::Set => 1,
+            Self::Map => 2,
         }
     }
 }

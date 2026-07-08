@@ -26,10 +26,12 @@ use crate::types::Type;
 pub enum ImplKey {
     /// A nominal type, identified by its UUID.
     Nominal(Uuid),
-    /// A named type constructor identified by head name: built-in
-    /// containers (`Option`, `Result`, `List`, `Map`, `Set`), declared
-    /// enums, and the primitives under their type names (`number`,
-    /// `string`, `bool`, `Binary`).
+    /// A named type constructor identified by head name. A fallback for a
+    /// `Named` type that carries no uuid; after `resolve_holes` every real
+    /// nominal head (declared/prelude enums, the built-in containers
+    /// `List`/`Map`/`Set`, and the primitives) carries a uuid and keys on
+    /// [`Nominal`](Self::Nominal) instead, so this arm is effectively unused
+    /// for valid impl targets.
     Named(Arc<str>),
 }
 
@@ -80,9 +82,10 @@ pub fn impl_key_for(ty: &Type) -> Option<ImplKey> {
         Type::Nominal(n) => Some(ImplKey::Nominal(n.uuid)),
         // A declared enum keys on its uuid — its methods get uuid-based
         // dispatch symbols exactly like a nominal type's, so a same-named
-        // enum in another package can never claim them. Structural
-        // constructors (built-in containers, prelude `Option`/`Result`)
-        // key on their reserved head name.
+        // enum in another package can never claim them. The prelude enums
+        // (`Option`/`Result`) and the built-in containers (`List`/`Map`/`Set`)
+        // likewise carry a reserved uuid and take the `Some` arm; only a
+        // uuid-less head (an unresolved name) falls back to `Named`.
         Type::Named(n) => Some(match n.uuid {
             Some(uuid) => ImplKey::Nominal(uuid),
             None => ImplKey::Named(Arc::clone(&n.name)),

@@ -6,8 +6,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::{
-    AbilityId, AbilitySet, AbilityVarId, BINARY_UUID, BOOL_UUID, NUMBER_UUID, OPTION_UUID,
-    Primitive, RESULT_UUID, STRING_UUID, TypeVarId,
+    AbilityId, AbilitySet, AbilityVarId, BINARY_UUID, BOOL_UUID, LIST_UUID, MAP_UUID, NUMBER_UUID,
+    OPTION_UUID, Primitive, RESULT_UUID, SET_UUID, STRING_UUID, TypeVarId,
 };
 
 /// Counter for generating fresh type variable IDs.
@@ -326,9 +326,11 @@ pub struct NamedType {
     /// mandatory `unique(<uuid>)` prefix, and the reserved-name prelude enums
     /// `Option`/`Result` take the fixed [`OPTION_UUID`]/[`RESULT_UUID`]. So two
     /// structurally identical enums are distinct types, even same-named enums
-    /// in different packages. Structural constructors — the built-in containers
-    /// (`List`, `Map`, `Set`) — and type-parameter references carry `None`:
-    /// their identity *is* the head name.
+    /// in different packages. The built-in containers (`List`, `Map`, `Set`)
+    /// likewise carry their reserved uuids ([`LIST_UUID`] etc.), so their
+    /// applied form dispatches by uuid like every other nominal type. Only
+    /// type-parameter references carry `None`: their identity *is* the head
+    /// name.
     ///
     /// A `None` here is still a wildcard in unification (see `Infer::unify`),
     /// but only meaningfully for those structural/parameter names: any `None`
@@ -560,6 +562,36 @@ impl Type {
             vec![ok, err],
             Some(RESULT_UUID),
         ))
+    }
+
+    /// Create a `List<T>` type carrying its canonical nominal identity. The
+    /// reserved uuid is what routes `list.method()` to `impl<T> List<T>` via a
+    /// uuid-keyed dispatch symbol, exactly like a scalar primitive's methods.
+    #[must_use]
+    pub fn list(inner: Type) -> Self {
+        Self::Named(NamedType::with_identity(
+            "List",
+            vec![inner],
+            Some(LIST_UUID),
+        ))
+    }
+
+    /// Create a `Map<K, V>` type carrying its canonical nominal identity. See
+    /// [`list`](Self::list).
+    #[must_use]
+    pub fn map(key: Type, value: Type) -> Self {
+        Self::Named(NamedType::with_identity(
+            "Map",
+            vec![key, value],
+            Some(MAP_UUID),
+        ))
+    }
+
+    /// Create a `Set<T>` type carrying its canonical nominal identity. See
+    /// [`list`](Self::list).
+    #[must_use]
+    pub fn set(inner: Type) -> Self {
+        Self::Named(NamedType::with_identity("Set", vec![inner], Some(SET_UUID)))
     }
 
     /// Check if this type is `Option<T>` and return the inner type.

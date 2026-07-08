@@ -727,7 +727,7 @@ impl TypeFactory<Type> for EngineTypeFactory {
     }
 
     fn list(&self, element: Type) -> Type {
-        Type::named("List", vec![element])
+        Type::list(element)
     }
 }
 

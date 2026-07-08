@@ -156,8 +156,9 @@ impl Infer {
             // resolved, uuid-carrying form — while two genuinely distinct
             // enums, even same-named ones from different packages, never unify.
             // A `None` that is *not* a registered enum (a type parameter, or a
-            // structural container like `List`) stays `None` and compares by
-            // name only.
+            // container annotation that never passed through `resolve_holes`)
+            // stays `None`; it still unifies with the uuid-carrying form,
+            // because a conflict needs *both* sides to name a uuid.
             (Type::Named(n1), Type::Named(n2)) => {
                 let id1 = self.resolve_named_identity(n1);
                 let id2 = self.resolve_named_identity(n2);

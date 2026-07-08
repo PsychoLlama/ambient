@@ -268,6 +268,91 @@ pub fn validate_reserved_struct(def: &crate::ast::StructDef) -> Result<(), Strin
     Ok(())
 }
 
+/// Validate a struct declaration against the reserved container specs.
+///
+/// The container analogue of [`validate_reserved_struct`]. The canonical
+/// `List`/`Map`/`Set` declarations live in Ambient source
+/// (`core_lib/collections/*.ab`) as generic `extern` unit structs, while the
+/// compiler anchors their identity on the reserved uuids in `types.rs`
+/// ([`crate::types::Container`]). This pins the two together: a declaration
+/// claiming a reserved container uuid must *be* the canonical declaration —
+/// same name, `extern`, unit shape, and matching arity — and a declaration
+/// claiming a reserved container *name* must carry the matching uuid. The core
+/// sources therefore can never drift from the anchors, and no other module can
+/// hijack a container identity.
+///
+/// # Errors
+///
+/// Returns a description of the mismatch if `def` reuses a reserved container
+/// uuid without matching its spec, or claims a reserved container name without
+/// the matching uuid. A declaration touching neither always passes.
+pub fn validate_reserved_container(def: &crate::ast::StructDef) -> Result<(), String> {
+    use crate::types::Container;
+
+    let by_uuid = def.unique_id.and_then(Container::from_uuid);
+    let by_name = Container::from_name(&def.name);
+
+    let Some(container) = by_uuid else {
+        // A struct claiming a reserved container *name* without the reserved
+        // uuid is an attempted identity hijack.
+        if let Some(container) = by_name {
+            return Err(format!(
+                "`{}` is a reserved built-in container; a struct named `{}` must use its \
+                 reserved identity `extern unique({}) struct {}<{}>;`",
+                container.name(),
+                container.name(),
+                crate::types::uuid_to_source(&container.uuid()),
+                container.name(),
+                container_param_list(container.arity()),
+            ));
+        }
+        return Ok(());
+    };
+
+    let mismatch = |what: &str| {
+        Err(format!(
+            "`unique({})` is the reserved identity of the built-in container `{}`; a \
+             declaration using it must be `extern unique(...) struct {}<{}>;` ({what})",
+            crate::types::uuid_to_source(&container.uuid()),
+            container.name(),
+            container.name(),
+            container_param_list(container.arity()),
+        ))
+    };
+
+    if def.name.as_ref() != container.name() {
+        return mismatch(&format!(
+            "expected name `{}`, found `{}`",
+            container.name(),
+            def.name
+        ));
+    }
+    if !def.is_extern {
+        return mismatch("must be declared `extern`");
+    }
+    if !def.is_unit() {
+        return mismatch("must be a unit struct carrying no fields");
+    }
+    if def.type_params.len() != container.arity() {
+        return mismatch(&format!(
+            "expected {} type parameter(s), found {}",
+            container.arity(),
+            def.type_params.len()
+        ));
+    }
+    Ok(())
+}
+
+/// A placeholder generic parameter list of the given arity for a container's
+/// canonical spelling in an error (`1` → `T`, `2` → `K, V`).
+fn container_param_list(arity: usize) -> &'static str {
+    match arity {
+        1 => "T",
+        2 => "K, V",
+        _ => "...",
+    }
+}
+
 /// Registry of enums visible to the module being checked.
 #[derive(Debug, Default, Clone)]
 pub struct EnumRegistry {

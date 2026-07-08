@@ -101,10 +101,10 @@ impl Infer {
                 Some(uuid) => ImplKey::Nominal(uuid),
                 None => ImplKey::Named(type_name.into()),
             })
-        } else if matches!(type_name, "List" | "Map" | "Set") {
-            Some(ImplKey::Named(type_name.into()))
         } else {
-            None
+            // Built-in containers key on their reserved uuid, exactly like the
+            // primitives and declared nominal types.
+            crate::types::Container::from_name(type_name).map(|c| ImplKey::Nominal(c.uuid()))
         };
 
         // Inherent associated method?

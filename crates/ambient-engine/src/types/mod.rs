@@ -17,8 +17,8 @@
 //!
 //! - `core.rs` - the [`Type`] enum, its support structs ([`RecordType`],
 //!   [`FunctionType`], ...), [`TypeVarGen`], and convenience constructors
-//! - `primitives.rs` - the [`Primitive`] enum and the reserved uuids
-//!   ([`BOOL_UUID`], [`OPTION_UUID`], ...)
+//! - `primitives.rs` - the [`Primitive`] and [`Container`] enums and the
+//!   reserved uuids ([`BOOL_UUID`], [`OPTION_UUID`], [`LIST_UUID`], ...)
 //! - `abilities.rs` - [`AbilitySet`], [`AbilityInfo`], [`AbilityRegistry`]
 //! - `traits.rs` - the trait system ([`TraitDef`], [`TraitRegistry`], ...)
 //!   plus the [`impl_method_symbol`]/[`uuid_to_source`] symbol helpers
@@ -53,7 +53,8 @@ pub use core::{
     Type, TypeVarGen,
 };
 pub use primitives::{
-    BINARY_UUID, BOOL_UUID, NUMBER_UUID, OPTION_UUID, Primitive, RESULT_UUID, STRING_UUID,
+    BINARY_UUID, BOOL_UUID, Container, LIST_UUID, MAP_UUID, NUMBER_UUID, OPTION_UUID, Primitive,
+    RESULT_UUID, SET_UUID, STRING_UUID,
 };
 pub use traits::{
     MethodLookup, TraitDef, TraitImpl, TraitMethodDef, TraitRegistry, impl_method_symbol,

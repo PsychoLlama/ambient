@@ -513,6 +513,18 @@ impl Infer {
                     let uuid = info.uuid;
                     return Type::Named(NamedType::with_identity(Arc::clone(&n.name), args, uuid));
                 }
+                // Attach a built-in container's reserved identity (`List`/`Map`/
+                // `Set`), so `List<T>` dispatches by uuid like `Option<T>`. The
+                // head name is reserved globally (no import needed), mirroring
+                // the pre-uuid magic these types used to rely on.
+                if let Some(container) = crate::types::Container::from_name(&n.name) {
+                    let name = Arc::clone(&n.name);
+                    return Type::Named(NamedType::with_identity(
+                        name,
+                        args,
+                        Some(container.uuid()),
+                    ));
+                }
                 // Otherwise keep as named type, preserving any existing identity.
                 Type::Named(n.map_args(args))
             }

@@ -502,10 +502,10 @@ fn inherent_same_source_compiles_to_same_hashes() {
 #[test]
 fn inherent_method_symbols_use_type_identity() {
     // Nominal targets key their symbols by UUID — this includes the
-    // reserved-name prelude enums `Option`/`Result`, which carry fixed
-    // UUIDs (only the built-in containers `List`/`Map`/`Set`, which have no
-    // UUID, still key by head name). All are two-segment symbols, so they
-    // can never collide with three-segment trait method symbols.
+    // reserved-name prelude enums `Option`/`Result` and the built-in
+    // containers `List`/`Map`/`Set`, which all carry fixed UUIDs. All are
+    // two-segment symbols, so they can never collide with three-segment
+    // trait method symbols.
     let module = compile(WALLET_MODULE);
     let names: Vec<&str> = module
         .function_names
