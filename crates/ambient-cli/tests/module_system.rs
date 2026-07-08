@@ -425,6 +425,65 @@ pub fn run(): Number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Same-named enums in different modules stay distinct types
+// ─────────────────────────────────────────────────────────────────────────
+
+/// `other` and `main` each declare their own `enum Color` with distinct
+/// uuids.
+const OTHER_COLOR: &str =
+    "pub unique(D098767B-4093-4D5C-BA37-AD92AA7B5DA1) enum Color { Foreign }\n";
+
+/// A function annotated with the *foreign* `pkg::other::Color` must keep that
+/// identity through hole resolution. Previously `resolve_holes` re-keyed any
+/// `Named("Color", ..)` to whatever enum the local registry held under that
+/// bare name — even when the resolve pass had already stamped the foreign
+/// uuid — so a same-named local `Color` silently unified with the foreign
+/// annotation. Passing a locally constructed value must be a type mismatch.
+#[test]
+fn foreign_enum_annotation_is_not_rekeyed_to_a_same_named_local() {
+    let dir = package(&[
+        ("other.ab", OTHER_COLOR),
+        (
+            "main.ab",
+            r"
+pub unique(D098767B-4093-4D5C-BA37-AD92AA7B5DA2) enum Color { Local }
+
+pub fn wants(c: pkg::other::Color): Number { 0 }
+
+pub fn run(): Number { wants(Local) }
+",
+        ),
+    ]);
+    let out = check_fails(dir.path());
+    assert!(
+        out.to_lowercase().contains("mismatch") || out.contains("Color"),
+        "expected a type mismatch between the two `Color`s, got:\n{out}"
+    );
+}
+
+/// The other side of the same coin: the foreign annotation still accepts a
+/// value constructed through the foreign enum. The fix preserves the
+/// resolve-pass uuid rather than dropping the annotation's identity, so this
+/// keeps checking.
+#[test]
+fn foreign_enum_annotation_accepts_a_foreign_constructed_value() {
+    let dir = package(&[
+        ("other.ab", OTHER_COLOR),
+        (
+            "main.ab",
+            r"
+pub unique(D098767B-4093-4D5C-BA37-AD92AA7B5DA2) enum Color { Local }
+
+pub fn wants(c: pkg::other::Color): Number { 0 }
+
+pub fn run(): Number { wants(pkg::other::Color::Foreign) }
+",
+        ),
+    ]);
+    check_passes(dir.path());
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Re-exports
 // ─────────────────────────────────────────────────────────────────────────
 

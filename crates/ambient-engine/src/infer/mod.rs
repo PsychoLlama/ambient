@@ -518,7 +518,13 @@ impl Infer {
                 // constructors and patterns produce. This covers declared
                 // enums and the reserved-name prelude enums (`Option`/`Result`)
                 // alike, since both are registered with a canonical uuid.
-                if let Some(info) = self.enum_registry.get(&n.name) {
+                // Skipped when the reference already carries a uuid (a
+                // qualified spelling the resolve pass canonicalized to a
+                // foreign enum): a same-named local enum must not re-key it,
+                // just as the opaque-generic arm below guards.
+                if n.uuid.is_none()
+                    && let Some(info) = self.enum_registry.get(&n.name)
+                {
                     let uuid = info.uuid;
                     return Type::Named(NamedType::with_identity(Arc::clone(&n.name), args, uuid));
                 }
