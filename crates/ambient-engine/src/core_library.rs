@@ -21,12 +21,6 @@ use include_dir::{Dir, DirEntry, include_dir};
 
 use crate::module_path::ModulePath;
 
-/// The intrinsics registered under a core module path, as (name, arity)
-/// pairs. Re-exported here so tooling can enumerate a core module's full
-/// surface (intrinsics take precedence over compiled functions at the
-/// same path).
-pub use crate::compiler::intrinsics::get_intrinsics_for_module as intrinsics_for_module;
-
 /// The embedded core library source tree. Every `.ab` file becomes a
 /// module under `core::` — including `traits.ab`, which registers as
 /// `core::traits` and is the source of truth for the operator traits.
@@ -199,10 +193,10 @@ impl CoreLibrary {
 /// path comes from the canonical file↔module mapping, so the core
 /// hierarchy is defined by the source tree rather than a list here.
 ///
-/// Intrinsics are items of their core module even though they have no AST
-/// declaration (they compile to dedicated opcodes), so they export like
-/// any compiled function: `use core::primitives::number::sqrt;` and `use
-/// core::primitives::number;` + `Number::sqrt(…)` resolve the same way
+/// Native operations are ordinary `extern fn` declarations in the sources,
+/// so they export like any compiled function: `use
+/// core::primitives::number::sqrt;` and `use core::primitives::number;` +
+/// `number::sqrt(…)` resolve the same way
 /// `core::primitives::number::sqrt(…)` does.
 ///
 /// # Errors
@@ -225,23 +219,6 @@ pub fn register_core_modules(
         let name = core_relative_name(&module.path);
         let ast = parse(module.source).map_err(|e| (name.clone(), e))?;
         registry.register_module(&module.path, Arc::new(ast), module.is_dir_module);
-
-        let segments: Vec<&str> = module.path.segments().iter().map(AsRef::as_ref).collect();
-        let intrinsic_exports = intrinsics_for_module(&segments)
-            .into_iter()
-            .map(
-                |(intrinsic_name, _arity)| crate::module_registry::ExportInfo {
-                    name: Arc::from(intrinsic_name),
-                    kind: crate::module_registry::ExportKind::Function,
-                    is_public: true,
-                    re_export_from: None,
-                    name_span: crate::ast::Span::default(),
-                    doc: None,
-                },
-            )
-            .collect();
-        registry.add_exports(&module.path, intrinsic_exports);
-
         paths.push(module.path.clone());
     }
 

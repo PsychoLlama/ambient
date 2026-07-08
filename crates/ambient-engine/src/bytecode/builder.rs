@@ -261,118 +261,17 @@ impl BytecodeBuilder {
         self.code.extend_from_slice(&count.to_le_bytes());
     }
 
-    /// Emit a `ListGet` instruction.
-    ///
-    /// Pops a list and index, pushes the element at that index.
-    pub fn emit_list_get(&mut self) {
-        self.code.push(Opcode::ListGet as u8);
-    }
-
-    /// Emit a `ListLength` instruction.
-    ///
-    /// Pops a list and pushes its length.
-    pub fn emit_list_length(&mut self) {
-        self.code.push(Opcode::ListLength as u8);
-    }
-
-    /// Emit a `ListConcat` instruction.
-    ///
-    /// Pops two lists and pushes their concatenation.
-    pub fn emit_list_concat(&mut self) {
-        self.code.push(Opcode::ListConcat as u8);
-    }
-
-    /// Emit a `ListAppend` instruction.
-    ///
-    /// Pops a list and value, pushes a new list with the value appended.
-    pub fn emit_list_append(&mut self) {
-        self.code.push(Opcode::ListAppend as u8);
-    }
-
-    /// Emit a `ListHead` instruction.
-    ///
-    /// Pops a list and pushes the first element.
-    pub fn emit_list_head(&mut self) {
-        self.code.push(Opcode::ListHead as u8);
-    }
-
-    /// Emit a `ListTail` instruction.
-    ///
-    /// Pops a list and pushes a list without the first element.
-    pub fn emit_list_tail(&mut self) {
-        self.code.push(Opcode::ListTail as u8);
-    }
-
-    /// Emit a `ListLast` instruction.
-    ///
-    /// Pops a list and pushes the last element (or Unit if empty).
-    pub fn emit_list_last(&mut self) {
-        self.code.push(Opcode::ListLast as u8);
-    }
-
     // ─────────────────────────────────────────────────────────────────────────
     // String operations (Milestone 15)
     // ─────────────────────────────────────────────────────────────────────────
-
-    /// Emit a `StringLength` instruction.
-    pub fn emit_string_length(&mut self) {
-        self.code.push(Opcode::StringLength as u8);
-    }
-
-    /// Emit a `StringSplit` instruction.
-    pub fn emit_string_split(&mut self) {
-        self.code.push(Opcode::StringSplit as u8);
-    }
-
-    /// Emit a `StringJoin` instruction.
-    pub fn emit_string_join(&mut self) {
-        self.code.push(Opcode::StringJoin as u8);
-    }
-
-    /// Emit a `StringTrim` instruction.
-    pub fn emit_string_trim(&mut self) {
-        self.code.push(Opcode::StringTrim as u8);
-    }
-
-    /// Emit a `StringContains` instruction.
-    pub fn emit_string_contains(&mut self) {
-        self.code.push(Opcode::StringContains as u8);
-    }
-
-    /// Emit a `StringConcat` instruction.
-    pub fn emit_string_concat(&mut self) {
-        self.code.push(Opcode::StringConcat as u8);
-    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Type conversion (Milestone 15)
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// Emit a `ToString` instruction.
-    pub fn emit_to_string(&mut self) {
-        self.code.push(Opcode::ToString as u8);
-    }
-
-    /// Emit a `ParseNumber` instruction.
-    pub fn emit_parse_number(&mut self) {
-        self.code.push(Opcode::ParseNumber as u8);
-    }
-
-    /// Emit a `ParseBool` instruction.
-    pub fn emit_parse_bool(&mut self) {
-        self.code.push(Opcode::ParseBool as u8);
-    }
-
     // ─────────────────────────────────────────────────────────────────────────
     // Set operations (Milestone 15)
     // ─────────────────────────────────────────────────────────────────────────
-
-    /// Emit a `MakeEmptySet` instruction.
-    ///
-    /// Creates an empty set.
-    pub fn emit_make_empty_set(&mut self) {
-        self.code.push(Opcode::MakeEmptySet as u8);
-    }
 
     /// Emit a `MakeSet` instruction.
     ///
@@ -380,62 +279,6 @@ impl BytecodeBuilder {
     pub fn emit_make_set(&mut self, count: u16) {
         self.code.push(Opcode::MakeSet as u8);
         self.code.extend_from_slice(&count.to_le_bytes());
-    }
-
-    /// Emit a `SetInsert` instruction.
-    ///
-    /// Pops a set and value, pushes a new set with the value inserted.
-    pub fn emit_set_insert(&mut self) {
-        self.code.push(Opcode::SetInsert as u8);
-    }
-
-    /// Emit a `SetRemove` instruction.
-    ///
-    /// Pops a set and value, pushes a new set with the value removed.
-    pub fn emit_set_remove(&mut self) {
-        self.code.push(Opcode::SetRemove as u8);
-    }
-
-    /// Emit a `SetContains` instruction.
-    ///
-    /// Pops a set and value, pushes a boolean.
-    pub fn emit_set_contains(&mut self) {
-        self.code.push(Opcode::SetContains as u8);
-    }
-
-    /// Emit a `SetLength` instruction.
-    ///
-    /// Pops a set and pushes its length.
-    pub fn emit_set_length(&mut self) {
-        self.code.push(Opcode::SetLength as u8);
-    }
-
-    /// Emit a `SetUnion` instruction.
-    ///
-    /// Pops two sets and pushes their union.
-    pub fn emit_set_union(&mut self) {
-        self.code.push(Opcode::SetUnion as u8);
-    }
-
-    /// Emit a `SetIntersection` instruction.
-    ///
-    /// Pops two sets and pushes their intersection.
-    pub fn emit_set_intersection(&mut self) {
-        self.code.push(Opcode::SetIntersection as u8);
-    }
-
-    /// Emit a `SetDifference` instruction.
-    ///
-    /// Pops two sets and pushes the difference (set1 - set2).
-    pub fn emit_set_difference(&mut self) {
-        self.code.push(Opcode::SetDifference as u8);
-    }
-
-    /// Emit a `SetToList` instruction.
-    ///
-    /// Pops a set and pushes it as a list.
-    pub fn emit_set_to_list(&mut self) {
-        self.code.push(Opcode::SetToList as u8);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -476,13 +319,6 @@ impl BytecodeBuilder {
     /// Extracts the payload from an enum value on the stack.
     pub fn emit_enum_payload(&mut self) {
         self.code.push(Opcode::EnumPayload as u8);
-    }
-
-    /// Emit a `EnumTag` instruction.
-    ///
-    /// Gets the tag (variant index) from an enum value as a number.
-    pub fn emit_enum_tag(&mut self) {
-        self.code.push(Opcode::EnumTag as u8);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

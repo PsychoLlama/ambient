@@ -1,8 +1,25 @@
 // Core library: the Set collection.
 //
-// `Set<T>` is an engine-provided persistent set. Its whole surface —
-// `empty`, `insert`, `remove`, `contains`, `length`, `union`,
-// `intersection`, `difference`, `to_list` — is a set of intrinsics that
-// compile to dedicated opcodes; they attach to this module at
-// registration (`intrinsics_for_module`), so it carries no source
-// declarations of its own.
+// `Set<T>` is an engine-provided persistent set. Its whole surface is a set
+// of `extern fn` declarations — signatures owned here, implementations
+// bound by the engine (`natives/core/collections.rs`). Every operation is
+// persistent: mutators return a new set.
+
+/// A set with no elements.
+pub extern fn empty<T>(): Set<T>;
+/// `set` with `value` added (unchanged if present).
+pub extern fn insert<T>(set: Set<T>, value: T): Set<T>;
+/// `set` without `value` (unchanged if absent).
+pub extern fn remove<T>(set: Set<T>, value: T): Set<T>;
+/// True if `value` is an element.
+pub extern fn contains<T>(set: Set<T>, value: T): Bool;
+/// Number of elements.
+pub extern fn length<T>(set: Set<T>): Number;
+/// Every element of either set.
+pub extern fn union<T>(a: Set<T>, b: Set<T>): Set<T>;
+/// The elements in both sets.
+pub extern fn intersection<T>(a: Set<T>, b: Set<T>): Set<T>;
+/// The elements of `a` not in `b`.
+pub extern fn difference<T>(a: Set<T>, b: Set<T>): Set<T>;
+/// The elements as a list.
+pub extern fn to_list<T>(set: Set<T>): List<T>;

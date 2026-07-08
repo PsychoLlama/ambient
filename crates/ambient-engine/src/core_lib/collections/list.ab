@@ -1,25 +1,55 @@
 // Core library: list utilities.
 //
-// Higher-order operations built on the list intrinsics (core::collections::list::length,
-// core::collections::list::get, core::collections::list::append). Compiled as ordinary Ambient modules
-// and content-addressed like user code.
+// The low-level operations are `extern fn` declarations — signatures owned
+// here, implementations bound by the engine (`natives/core/collections.rs`).
+// The higher-order combinators (`map`, `filter`, `fold`, ...) are pure
+// Ambient built on them, compiled and content-addressed like user code.
 //
 // The combinators are exposed as inherent methods (`list.map(f)`), the
-// canonical core API. The sole free function is `range`: it has no receiver
-// (it constructs a list from two numbers), so it stays a qualified module
-// function (`core::collections::list::range(start, end)`).
+// canonical core API. The sole free functions are `range` (no receiver) and
+// `first` (an alias of `head`, kept as a pure wrapper).
+
+/// Number of elements.
+pub extern fn length<T>(list: List<T>): Number;
+/// The element at `i`, if any. Negative or fractional indexes have none.
+pub extern fn get<T>(list: List<T>, i: Number): Option<T>;
+/// The first element, if any.
+pub extern fn head<T>(list: List<T>): Option<T>;
+/// Every element but the first ([] for an empty list).
+pub extern fn tail<T>(list: List<T>): List<T>;
+/// `a` and `b` joined end to end.
+pub extern fn concat<T>(a: List<T>, b: List<T>): List<T>;
+/// `list` with `item` added at the end.
+pub extern fn append<T>(list: List<T>, item: T): List<T>;
+/// True if the list has no elements.
+pub extern fn is_empty<T>(list: List<T>): Bool;
+/// The last element, if any.
+pub extern fn last<T>(list: List<T>): Option<T>;
+/// The elements in reverse order.
+pub extern fn reverse<T>(list: List<T>): List<T>;
+/// The elements sorted ascending (numbers and strings compare; anything
+/// else keeps its order).
+pub extern fn sort<T>(list: List<T>): List<T>;
+/// The elements in [start, end). Out-of-range bounds clamp.
+pub extern fn slice<T>(list: List<T>, start: Number, end: Number): List<T>;
+
+/// The first element, if any. A pure alias of `head` — one native, two
+/// spellings.
+pub fn first<T>(list: List<T>): Option<T> {
+    head(list)
+}
 
 fn map_from<T, U>(list: List<T>, f: (T) -> U, i: Number, acc: List<U>): List<U> {
-    match core::collections::list::get(list, i) {
-        Some(item) => map_from(list, f, i + 1, core::collections::list::append(acc, f(item))),
+    match get(list, i) {
+        Some(item) => map_from(list, f, i + 1, append(acc, f(item))),
         None => acc,
     }
 }
 
 fn filter_from<T>(list: List<T>, pred: (T) -> Bool, i: Number, acc: List<T>): List<T> {
-    match core::collections::list::get(list, i) {
+    match get(list, i) {
         Some(item) => {
-            let next = if pred(item) { core::collections::list::append(acc, item) } else { acc };
+            let next = if pred(item) { append(acc, item) } else { acc };
             filter_from(list, pred, i + 1, next)
         }
         None => acc,
@@ -27,21 +57,21 @@ fn filter_from<T>(list: List<T>, pred: (T) -> Bool, i: Number, acc: List<T>): Li
 }
 
 fn fold_from<T, A>(list: List<T>, acc: A, f: (A, T) -> A, i: Number): A {
-    match core::collections::list::get(list, i) {
+    match get(list, i) {
         Some(item) => fold_from(list, f(acc, item), f, i + 1),
         None => acc,
     }
 }
 
 fn any_from<T>(list: List<T>, pred: (T) -> Bool, i: Number): Bool {
-    match core::collections::list::get(list, i) {
+    match get(list, i) {
         Some(item) => pred(item) || any_from(list, pred, i + 1),
         None => false,
     }
 }
 
 fn all_from<T>(list: List<T>, pred: (T) -> Bool, i: Number): Bool {
-    match core::collections::list::get(list, i) {
+    match get(list, i) {
         Some(item) => pred(item) && all_from(list, pred, i + 1),
         None => true,
     }
@@ -53,13 +83,13 @@ pub fn range(start: Number, end: Number): List<Number> {
     if start >= end {
         []
     } else {
-        core::collections::list::concat([start], range(start + 1, end))
+        concat([start], range(start + 1, end))
     }
 }
 
 // Method forms: `list.map(f)`, `list.length()`, ... The inherent impl
 // attaches these to the type itself; these methods (over the private
-// helpers above and the list intrinsics) are the canonical core API.
+// helpers above and the externs) are the canonical core API.
 impl<T> List<T> {
     // Transform every element.
     fn map<U>(self, f: (T) -> U): List<U> {
@@ -82,40 +112,40 @@ impl<T> List<T> {
         all_from(self, pred, 0)
     }
     fn get(self, i: Number): Option<T> {
-        core::collections::list::get(self, i)
+        get(self, i)
     }
     fn head(self): Option<T> {
-        core::collections::list::head(self)
+        head(self)
     }
     fn tail(self): List<T> {
-        core::collections::list::tail(self)
+        tail(self)
     }
     fn first(self): Option<T> {
-        core::collections::list::first(self)
+        head(self)
     }
     fn last(self): Option<T> {
-        core::collections::list::last(self)
+        last(self)
     }
     fn length(self): Number {
-        core::collections::list::length(self)
+        length(self)
     }
     fn is_empty(self): Bool {
-        core::collections::list::is_empty(self)
+        is_empty(self)
     }
     fn reverse(self): List<T> {
-        core::collections::list::reverse(self)
+        reverse(self)
     }
     fn sort(self): List<T> {
-        core::collections::list::sort(self)
+        sort(self)
     }
     fn slice(self, start: Number, end: Number): List<T> {
-        core::collections::list::slice(self, start, end)
+        slice(self, start, end)
     }
     fn append(self, item: T): List<T> {
-        core::collections::list::append(self, item)
+        append(self, item)
     }
     fn concat(self, other: List<T>): List<T> {
-        core::collections::list::concat(self, other)
+        concat(self, other)
     }
 }
 

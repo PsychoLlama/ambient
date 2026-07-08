@@ -1,8 +1,24 @@
 // Core library: the binary protocol.
 //
-// Low-level serialization and closure-introspection operations —
-// `serialize_value`, `deserialize_value`, `closure_hash`,
-// `closure_captures`, `handler_methods`, `hex_to_binary`,
-// `binary_to_hex` — as intrinsics that compile to dedicated opcodes. They
-// attach to this module at registration (`intrinsics_for_module`), so it
-// carries no source declarations of its own.
+// Low-level serialization and closure-introspection operations, as
+// `extern fn` declarations — signatures owned here, implementations bound
+// by the engine (`natives/core/protocol.rs`).
+
+/// Encode a wire-safe value (primitives, tuples/lists/records, enums,
+/// function refs by hash, handlers by hash table) as bytes. Closures,
+/// continuations, maps/sets, and modules do not cross; serializing one is
+/// a runtime error.
+pub extern fn serialize_value<T>(value: T): Binary;
+/// Decode bytes produced by `serialize_value`, if they parse.
+pub extern fn deserialize_value<T>(bytes: Binary): Option<T>;
+/// The content hash of a function value, as a hex string.
+pub extern fn closure_hash<T>(f: T): String;
+/// A closure's captured environment, serialized as bytes.
+pub extern fn closure_captures<T>(f: T): Binary;
+/// A handler value's method function hashes (hex strings, in method-id
+/// order) — how a client discovers which code to ship with a handler.
+pub extern fn handler_methods<T>(handler: T): List<String>;
+/// Decode a hex string to bytes, if well-formed.
+pub extern fn hex_to_binary(hex: String): Option<Binary>;
+/// Encode bytes as a lowercase hex string.
+pub extern fn binary_to_hex(bytes: Binary): String;

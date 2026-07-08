@@ -50,19 +50,22 @@ fn interface(prelude: &[Arc<DynAbility>], name: &str) -> AbilityInterface {
 /// world `ambient run` checks against.
 ///
 /// The programs name `core::system::*` abilities, `core::convert::to_string`,
-/// and the primitives (`Number`/`String`) fully qualified or bare. Since the
-/// primitives are no longer a registry-less shortcut, resolution goes through
-/// a real registry: parse-only core modules (for the prelude and intrinsics)
-/// plus the `core::system` declaration module (for the platform abilities).
+/// and the primitives (`Number`/`String`) fully qualified or bare. Core
+/// compiles for real (its functions — extern fns included — link by hash,
+/// so the program needs core's linking table and its compiled functions
+/// merged into the deployable module).
 fn compile(src: &str) -> CompiledModule {
     let prelude = platform_prelude();
     let module = ambient_parser::parse(src).expect("test program parses");
 
     let mut registry = ModuleRegistry::new();
-    ambient_engine::core_library::register_core_modules(&mut registry, |s| {
-        ambient_parser::parse(s).map_err(|e| e.to_string())
-    })
-    .expect("core modules parse");
+    let mut module_function_hashes = std::collections::HashMap::new();
+    let core_compiled = ambient_engine::build::compile_core_modules(
+        &mut registry,
+        &mut module_function_hashes,
+        |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
+    )
+    .expect("core modules compile");
     ambient_engine::core_library::register_declaration_module(
         &mut registry,
         &["core", "system"],
@@ -83,17 +86,25 @@ fn compile(src: &str) -> CompiledModule {
             .map(std::string::ToString::to_string)
             .collect::<Vec<_>>()
     );
-    compile_module_with_options(
+    let compiled = compile_module_with_options(
         &checked.module,
         CompileOptions {
             source: Some(src),
             source_file: None,
-            imported_hashes: None,
+            imported_hashes: Some(ambient_engine::build::linking_table(
+                &module_function_hashes,
+                &registry,
+            )),
             prelude_abilities: &prelude,
             env: ambient_engine::module_env::ModuleEnv::new(&registry, &path),
         },
     )
-    .expect("test program compiles")
+    .expect("test program compiles");
+
+    // The deployable module is the program plus the core it links against.
+    let mut merged = core_compiled;
+    merged.merge(&compiled);
+    merged
 }
 
 struct TestHost {

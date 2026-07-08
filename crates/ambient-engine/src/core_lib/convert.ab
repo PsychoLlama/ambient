@@ -1,6 +1,14 @@
 // Core library: value conversions.
 //
-// Conversions between primitive types — `to_string`, `parse_number`,
-// `parse_bool` — as intrinsics that compile to dedicated opcodes. They
-// attach to this module at registration (`intrinsics_for_module`), so it
-// carries no source declarations of its own.
+// Conversions between primitive types, as `extern fn` declarations —
+// signatures owned here, implementations bound by the engine
+// (`natives/core/convert.rs`).
+
+/// Render any value as a human-readable string. Also the target of string
+/// interpolation: `"${x}"` desugars to `to_string`/`string::concat` calls.
+pub extern fn to_string<T>(value: T): String;
+/// Parse a number from its decimal rendering (leading/trailing whitespace
+/// ignored).
+pub extern fn parse_number(value: String): Option<Number>;
+/// Parse a boolean: true/1/yes and false/0/no (case-insensitive).
+pub extern fn parse_bool(value: String): Option<Bool>;

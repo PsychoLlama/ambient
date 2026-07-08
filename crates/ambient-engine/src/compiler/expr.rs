@@ -27,7 +27,6 @@ use crate::fqn::NameKey;
 use crate::value::Value;
 
 use super::error::{CompileError, CompileErrorKind};
-use super::intrinsics::try_compile_intrinsic;
 use super::lambdas::{
     compile_ability_call, compile_handle_expr, compile_handler_literal, compile_lambda,
 };
@@ -382,12 +381,9 @@ pub(super) fn compile_expr(
         ExprKind::Call(callee, args) => {
             // Check if this is a direct call to a known function or an indirect call.
             if let ExprKind::Name(name) = &callee.kind {
-                // Check for intrinsic functions first
                 let key = name.resolution_key();
                 let is_cross_module = name.resolved.is_some() || !name.path.is_empty();
-                if try_compile_intrinsic(fc, name, args, ctx)?.is_some() {
-                    // Intrinsic was compiled, nothing more to do
-                } else if fc.function_hashes.contains_key(&key) {
+                if fc.function_hashes.contains_key(&key) {
                     // Direct call to a known function: module-local by bare
                     // name, cross-module by canonical qualified key.
                     // Compile arguments first (left to right).

@@ -241,6 +241,8 @@ impl NativeRegistry {
     }
 }
 
+mod core;
+
 /// The engine's own native bindings: the implementations behind every
 /// `extern fn` in the embedded `core_lib` sources. Built once.
 ///
@@ -253,7 +255,7 @@ impl NativeRegistry {
 #[must_use]
 pub fn core_natives() -> &'static NativeRegistry {
     static CORE: std::sync::OnceLock<NativeRegistry> = std::sync::OnceLock::new();
-    CORE.get_or_init(NativeRegistry::new)
+    CORE.get_or_init(core::registry)
 }
 
 /// One way the declaration/binding contract can be broken.

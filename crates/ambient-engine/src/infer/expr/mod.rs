@@ -429,13 +429,6 @@ impl Infer {
             }
 
             ExprKind::Call(callee, args) => {
-                // Check for intrinsic functions first
-                if let ExprKind::Name(name) = &callee.kind
-                    && let Some(ret_ty) = self.try_infer_intrinsic(env, name, args, span)?
-                {
-                    return Ok(ret_ty);
-                }
-
                 // Associated trait-function call: `Type::method(args)` where
                 // the method takes no `self` (e.g. `Config::default()`).
                 // Resolve it to the canonical impl-method symbol and rewrite

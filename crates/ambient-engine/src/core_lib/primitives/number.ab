@@ -1,21 +1,66 @@
 // Core library: the Number primitive.
 //
+// The low-level math operations are `extern fn` declarations — signatures
+// owned here, implementations bound by the engine
+// (`natives/core/number.rs`). The public math API is exposed as inherent
+// methods on `Number` (`x.sqrt()`, `x.clamp(low, high)`, ...), the
+// canonical core surface; small helpers with no native half (`clamp`,
+// `sign`, `lerp`, ...) are pure Ambient.
+
 // `Number` is an engine-provided primitive: user code may name it and pattern
 // on its literals, but the value has no source constructor. The `unique(...)`
 // uuid must equal `NUMBER_UUID` in `types.rs`, and the compiler's literal
 // anchor (`Type::number()`) lowers to this exact declaration.
 pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF02) struct Number;
 
-// The public math API is exposed as inherent methods on `Number`
-// (`x.sqrt()`, `x.clamp(low, high)`, ...), the canonical core surface. Each
-// method either implements a small helper directly or delegates to a
-// low-level math intrinsic (`core::primitives::number::sqrt`, `core::primitives::number::min`, ...),
-// which remains the private implementation. This mirrors the `impl<T> List<T>`
-// pattern in list.ab.
+/// Square root.
+pub extern fn sqrt(value: Number): Number;
+/// Absolute value.
+pub extern fn abs(value: Number): Number;
+/// Largest integer not greater than `value`.
+pub extern fn floor(value: Number): Number;
+/// Smallest integer not less than `value`.
+pub extern fn ceil(value: Number): Number;
+/// Round to the nearest integer.
+pub extern fn round(value: Number): Number;
+/// Truncate towards zero, discarding the fractional part.
+pub extern fn trunc(value: Number): Number;
+/// Sine (argument in radians).
+pub extern fn sin(value: Number): Number;
+/// Cosine (argument in radians).
+pub extern fn cos(value: Number): Number;
+/// Tangent (argument in radians).
+pub extern fn tan(value: Number): Number;
+/// Natural logarithm (base e).
+pub extern fn ln(value: Number): Number;
+/// e raised to the power of `value`.
+pub extern fn exp(value: Number): Number;
+/// `base` raised to the `exp` power.
+pub extern fn pow(base: Number, exp: Number): Number;
+/// The smaller of the two numbers.
+pub extern fn min(a: Number, b: Number): Number;
+/// The larger of the two numbers.
+pub extern fn max(a: Number, b: Number): Number;
+/// Arcsine, in radians.
+pub extern fn asin(value: Number): Number;
+/// Arccosine, in radians.
+pub extern fn acos(value: Number): Number;
+/// Arctangent, in radians.
+pub extern fn atan(value: Number): Number;
+/// Arctangent of `y / x`, using the signs of both to pick the quadrant.
+/// Result in radians.
+pub extern fn atan2(y: Number, x: Number): Number;
+/// Base-10 logarithm.
+pub extern fn log10(value: Number): Number;
+/// Base-2 logarithm.
+pub extern fn log2(value: Number): Number;
+
+// The public math API: inherent methods on `Number`, delegating to the
+// externs above (or implemented directly when there is no native half).
 impl Number {
     // Clamp a value into [low, high].
     fn clamp(self, low: Number, high: Number): Number {
-        core::primitives::number::min(core::primitives::number::max(self, low), high)
+        min(max(self, low), high)
     }
     // -1, 0, or 1 depending on the sign of the number.
     fn sign(self): Number {
@@ -39,83 +84,83 @@ impl Number {
     }
     // Absolute value.
     fn abs(self): Number {
-        core::primitives::number::abs(self)
+        abs(self)
     }
     // Square root.
     fn sqrt(self): Number {
-        core::primitives::number::sqrt(self)
+        sqrt(self)
     }
     // Largest integer not greater than the number.
     fn floor(self): Number {
-        core::primitives::number::floor(self)
+        floor(self)
     }
     // Smallest integer not less than the number.
     fn ceil(self): Number {
-        core::primitives::number::ceil(self)
+        ceil(self)
     }
     // Round to the nearest integer.
     fn round(self): Number {
-        core::primitives::number::round(self)
+        round(self)
     }
     // Truncate towards zero, discarding the fractional part.
     fn trunc(self): Number {
-        core::primitives::number::trunc(self)
+        trunc(self)
     }
     // Raise the number to the `exp` power.
     fn pow(self, exp: Number): Number {
-        core::primitives::number::pow(self, exp)
+        pow(self, exp)
     }
     // The smaller of the two numbers.
     fn min(self, other: Number): Number {
-        core::primitives::number::min(self, other)
+        min(self, other)
     }
     // The larger of the two numbers.
     fn max(self, other: Number): Number {
-        core::primitives::number::max(self, other)
+        max(self, other)
     }
     // Sine (argument in radians).
     fn sin(self): Number {
-        core::primitives::number::sin(self)
+        sin(self)
     }
     // Cosine (argument in radians).
     fn cos(self): Number {
-        core::primitives::number::cos(self)
+        cos(self)
     }
     // Tangent (argument in radians).
     fn tan(self): Number {
-        core::primitives::number::tan(self)
+        tan(self)
     }
     // Arcsine, in radians.
     fn asin(self): Number {
-        core::primitives::number::asin(self)
+        asin(self)
     }
     // Arccosine, in radians.
     fn acos(self): Number {
-        core::primitives::number::acos(self)
+        acos(self)
     }
     // Arctangent, in radians.
     fn atan(self): Number {
-        core::primitives::number::atan(self)
+        atan(self)
     }
     // Arctangent of `self / other`, using the signs of both to pick the
     // quadrant. Result in radians.
     fn atan2(self, other: Number): Number {
-        core::primitives::number::atan2(self, other)
+        atan2(self, other)
     }
     // Natural logarithm (base e).
     fn ln(self): Number {
-        core::primitives::number::ln(self)
+        ln(self)
     }
     // e raised to the power of the number.
     fn exp(self): Number {
-        core::primitives::number::exp(self)
+        exp(self)
     }
     // Base-10 logarithm.
     fn log10(self): Number {
-        core::primitives::number::log10(self)
+        log10(self)
     }
     // Base-2 logarithm.
     fn log2(self): Number {
-        core::primitives::number::log2(self)
+        log2(self)
     }
 }

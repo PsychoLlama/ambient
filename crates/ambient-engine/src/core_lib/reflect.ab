@@ -1,11 +1,15 @@
 // Core library: enum reflection.
 //
-// Runtime reflection over enum values — `tag` (the variant's numeric
-// discriminant) and `payload` (an unchecked escape hatch that
-// materializes the variant's payload) — as intrinsics that compile to
-// dedicated opcodes. They attach to this module at registration
-// (`intrinsics_for_module`), so it carries no source declarations of its
-// own.
+// Runtime reflection over enum values, as `extern fn` declarations —
+// signatures owned here, implementations bound by the engine
+// (`natives/core/reflect.rs`).
 //
 // Named `reflect` rather than `enum` because `enum` is a lexer keyword and
 // cannot appear as a `use`-path segment.
+
+/// The variant's numeric discriminant (declaration index).
+pub extern fn tag<T>(value: T): Number;
+/// The variant's payload, materialized as an arbitrary type — an unchecked
+/// escape hatch (the result unifies with anything). A unit variant has no
+/// payload and raises a runtime error.
+pub extern fn payload<T, U>(value: T): U;

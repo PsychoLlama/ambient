@@ -1,7 +1,23 @@
 // Core library: the Map collection.
 //
-// `Map<K, V>` is an engine-provided persistent map. Its whole surface —
-// `empty`, `get`, `insert`, `remove`, `contains`, `length`, `keys`,
-// `values` — is a set of intrinsics that compile to dedicated opcodes;
-// they attach to this module at registration (`intrinsics_for_module`),
-// so it carries no source declarations of its own.
+// `Map<K, V>` is an engine-provided persistent map. Its whole surface is a
+// set of `extern fn` declarations — signatures owned here, implementations
+// bound by the engine (`natives/core/collections.rs`). Every operation is
+// persistent: mutators return a new map.
+
+/// A map with no entries.
+pub extern fn empty<K, V>(): Map<K, V>;
+/// The value at `key`, if any.
+pub extern fn get<K, V>(map: Map<K, V>, key: K): Option<V>;
+/// `map` with `key` set to `value` (replacing any existing entry).
+pub extern fn insert<K, V>(map: Map<K, V>, key: K, value: V): Map<K, V>;
+/// `map` without `key` (unchanged if absent).
+pub extern fn remove<K, V>(map: Map<K, V>, key: K): Map<K, V>;
+/// True if `key` has an entry.
+pub extern fn contains<K, V>(map: Map<K, V>, key: K): Bool;
+/// Number of entries.
+pub extern fn length<K, V>(map: Map<K, V>): Number;
+/// Every key, as a list.
+pub extern fn keys<K, V>(map: Map<K, V>): List<K>;
+/// Every value, as a list.
+pub extern fn values<K, V>(map: Map<K, V>): List<V>;

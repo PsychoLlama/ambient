@@ -406,19 +406,6 @@ fn get_core_path_completions(scope: &str, prefix: &str) -> Vec<CompletionItem> {
         }
     }
 
-    // Intrinsics registered at this exact path (compiled to opcodes; they
-    // take precedence over same-named compiled functions).
-    for (name, _arity) in ambient_engine::core_library::intrinsics_for_module(&target_segments) {
-        if name.starts_with(prefix) && seen.insert(name.to_string()) {
-            items.push(CompletionItem {
-                label: name.to_string(),
-                kind: Some(CompletionItemKind::FUNCTION),
-                detail: Some(format!("core::{scope}::{name} (intrinsic)")),
-                ..Default::default()
-            });
-        }
-    }
-
     // The target module's own public exports (straight from the registry,
     // so completion can never drift from what import resolution sees).
     if let Some(info) = registry.get(&target) {
@@ -1082,13 +1069,13 @@ mod tests {
 
     #[test]
     fn test_core_leaf_member_completions() {
-        // A leaf module offers its members and intrinsics.
+        // A leaf module offers its members, extern fns included.
         let items = get_core_path_completions("collections::list", "");
         assert!(items.iter().any(|i| i.label == "range")); // pub fn
-        assert!(items.iter().any(|i| i.label == "length")); // intrinsic
+        assert!(items.iter().any(|i| i.label == "length")); // pub extern fn
 
         let items = get_core_path_completions("primitives::number", "sq");
-        assert!(items.iter().any(|i| i.label == "sqrt")); // intrinsic
+        assert!(items.iter().any(|i| i.label == "sqrt")); // pub extern fn
     }
 
     #[test]

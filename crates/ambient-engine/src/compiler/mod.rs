@@ -31,7 +31,6 @@
 //! - [`expr`] - Expression and statement compilation
 //! - [`lambdas`] - Lambda/closure compilation
 //! - [`patterns`] - `match` compilation
-//! - [`intrinsics`] - Intrinsic (built-in) calls
 //! - [`hash`] - Content-addressed hash computation
 //! - [`error`] - Compilation error types
 
@@ -40,7 +39,6 @@ mod entry;
 mod error;
 mod expr;
 mod hash;
-pub(crate) mod intrinsics;
 mod lambdas;
 mod module_output;
 mod patterns;

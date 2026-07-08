@@ -1,7 +1,54 @@
 // Core library: the Binary primitive.
 //
+// The low-level operations are `extern fn` declarations — signatures owned
+// here, implementations bound by the engine (`natives/core/binary.rs`).
+// Operations with a `Binary` receiver are also exposed as inherent
+// methods, the canonical core surface; `from` constructs from a byte list
+// and stays a module function.
+
 // `Binary` is an engine-provided primitive: user code may name it and pattern on
 // its literals, but the value has no source constructor. The `unique(...)` uuid
 // must equal `BINARY_UUID` in `types.rs`, and the compiler's literal anchor
 // (`Type::binary()`) lowers to this exact declaration.
 pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF04) struct Binary;
+
+/// A buffer from a list of byte values (each truncated into 0..=255).
+pub extern fn from(bytes: List<Number>): Binary;
+/// The bytes as a list of numbers.
+pub extern fn to_list(bytes: Binary): List<Number>;
+/// Number of bytes.
+pub extern fn length(bytes: Binary): Number;
+/// The byte at `i`, if any.
+pub extern fn get(bytes: Binary, i: Number): Option<Number>;
+/// The bytes in [start, end). Out-of-range bounds clamp.
+pub extern fn slice(bytes: Binary, start: Number, end: Number): Binary;
+/// `a` and `b` joined end to end.
+pub extern fn concat(a: Binary, b: Binary): Binary;
+
+// Method forms over the externs: `b.length()`, `b.slice(0, 4)`, ...
+impl Binary {
+    // The bytes as a list of numbers.
+    fn to_list(self): List<Number> {
+        to_list(self)
+    }
+    // Number of bytes.
+    fn length(self): Number {
+        length(self)
+    }
+    // True if the buffer has no bytes.
+    fn is_empty(self): Bool {
+        length(self) == 0
+    }
+    // The byte at `i`, if any.
+    fn get(self, i: Number): Option<Number> {
+        get(self, i)
+    }
+    // The bytes in [start, end). Out-of-range bounds clamp.
+    fn slice(self, start: Number, end: Number): Binary {
+        slice(self, start, end)
+    }
+    // Concatenate `other` onto the end of this buffer.
+    fn concat(self, other: Binary): Binary {
+        concat(self, other)
+    }
+}

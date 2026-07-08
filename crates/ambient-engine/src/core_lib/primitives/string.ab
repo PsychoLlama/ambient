@@ -1,15 +1,12 @@
 // Core library: utilities for the String type.
 //
-// The public string API is exposed as inherent methods (`s.length()`,
-// `s.to_upper()`, ...), the canonical core surface. Each method delegates to
-// a low-level string intrinsic (core::primitives::string::length, core::primitives::string::concat,
-// ...), which remains the private implementation. This mirrors the
-// `impl<T> List<T>` pattern in list.ab.
-//
-// The exceptions are constructors and multi-string operations that have no
-// single `String` receiver: `from_number`/`from_bool` build a string from
-// another type, and `join` takes a `List<String>`. They stay free functions,
-// like `range` in list.ab.
+// The low-level operations are `extern fn` declarations — signatures owned
+// here, implementations bound by the engine (`natives/core/string.rs`). The
+// public string API is exposed as inherent methods (`s.length()`,
+// `s.to_upper()`, ...), the canonical core surface, each delegating to an
+// extern. The exceptions with no single `String` receiver stay module
+// functions: `from_number`/`from_bool` build a string from another type,
+// and `join` flattens a `List<String>`.
 
 // `String` is an engine-provided primitive: user code may name it and pattern
 // on its literals, but the value has no source constructor (`String {}` is
@@ -17,6 +14,40 @@
 // the compiler's literal anchor (`Type::string()`) lowers to this exact
 // declaration.
 pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF03) struct String;
+
+/// Number of characters in the string.
+pub extern fn length(value: String): Number;
+/// `a` and `b` joined end to end. Also the target of string interpolation:
+/// `"${x}"` desugars to `concat`/`core::convert::to_string` calls.
+pub extern fn concat(a: String, b: String): String;
+/// True if `needle` appears anywhere in `value`.
+pub extern fn contains(value: String, needle: String): Bool;
+/// Split `value` on every occurrence of `sep`.
+pub extern fn split(value: String, sep: String): List<String>;
+/// Join `parts` with `sep` between elements.
+pub extern fn join(parts: List<String>, sep: String): String;
+/// Strip leading and trailing whitespace.
+pub extern fn trim(value: String): String;
+/// The characters in `[start, end)`.
+pub extern fn slice(value: String, start: Number, end: Number): String;
+/// The characters as a list of single-character strings.
+pub extern fn chars(value: String): List<String>;
+/// Replace every occurrence of `from` with `to`.
+pub extern fn replace(value: String, from: String, to: String): String;
+/// True if `value` begins with `prefix`.
+pub extern fn starts_with(value: String, prefix: String): Bool;
+/// True if `value` ends with `suffix`.
+pub extern fn ends_with(value: String, suffix: String): Bool;
+/// Upper-case the string.
+pub extern fn to_upper(value: String): String;
+/// Lower-case the string.
+pub extern fn to_lower(value: String): String;
+/// Index of the first occurrence of `needle`, if any.
+pub extern fn index_of(value: String, needle: String): Option<Number>;
+/// Repeat the string `count` times.
+pub extern fn repeat(value: String, count: Number): String;
+/// Reverse the string.
+pub extern fn reverse(value: String): String;
 
 pub fn from_number(n: Number): String {
     core::convert::to_string(n)
@@ -27,91 +58,91 @@ pub fn from_bool(b: Bool): String {
 }
 
 // Method forms: `s.length()`, `s.to_upper()`, ... The inherent impl attaches
-// these to the type itself; these methods (over the string intrinsics) are
-// the canonical core API.
+// these to the type itself; these methods (over the externs above) are the
+// canonical core API.
 impl String {
     // Number of characters in the string.
     fn length(self): Number {
-        core::primitives::string::length(self)
+        length(self)
     }
     // True if the string has no characters.
     fn is_empty(self): Bool {
-        core::primitives::string::length(self) == 0
+        length(self) == 0
     }
     // Concatenate `other` onto the end of this string.
     fn concat(self, other: String): String {
-        core::primitives::string::concat(self, other)
+        concat(self, other)
     }
     // True if `needle` appears anywhere in the string.
     fn contains(self, needle: String): Bool {
-        core::primitives::string::contains(self, needle)
+        contains(self, needle)
     }
     // Split on every occurrence of `sep`.
     fn split(self, sep: String): List<String> {
-        core::primitives::string::split(self, sep)
+        split(self, sep)
     }
     // Strip leading and trailing whitespace.
     fn trim(self): String {
-        core::primitives::string::trim(self)
+        trim(self)
     }
     // The substring in [start, end).
     fn slice(self, start: Number, end: Number): String {
-        core::primitives::string::slice(self, start, end)
+        slice(self, start, end)
     }
     // The characters as a list of single-character strings.
     fn chars(self): List<String> {
-        core::primitives::string::chars(self)
+        chars(self)
     }
     // Replace every occurrence of `from` with `to`.
     fn replace(self, from: String, to: String): String {
-        core::primitives::string::replace(self, from, to)
+        replace(self, from, to)
     }
     // True if the string begins with `prefix`.
     fn starts_with(self, prefix: String): Bool {
-        core::primitives::string::starts_with(self, prefix)
+        starts_with(self, prefix)
     }
     // True if the string ends with `suffix`.
     fn ends_with(self, suffix: String): Bool {
-        core::primitives::string::ends_with(self, suffix)
+        ends_with(self, suffix)
     }
     // Upper-case the string.
     fn to_upper(self): String {
-        core::primitives::string::to_upper(self)
+        to_upper(self)
     }
     // Lower-case the string.
     fn to_lower(self): String {
-        core::primitives::string::to_lower(self)
+        to_lower(self)
     }
     // Index of the first occurrence of `needle`, if any.
     fn index_of(self, needle: String): Option<Number> {
-        core::primitives::string::index_of(self, needle)
+        index_of(self, needle)
     }
     // Repeat the string `count` times.
     fn repeat(self, count: Number): String {
-        core::primitives::string::repeat(self, count)
+        repeat(self, count)
     }
     // Reverse the string.
     fn reverse(self): String {
-        core::primitives::string::reverse(self)
+        reverse(self)
     }
     // Pad on the left with `pad` until the string is at least `width` long.
     fn pad_start(self, width: Number, pad: String): String {
-        if core::primitives::string::length(self) >= width {
+        if length(self) >= width {
             self
         } else {
-            core::primitives::string::concat(pad, self).pad_start(width, pad)
+            concat(pad, self).pad_start(width, pad)
         }
     }
     // Pad on the right with `pad` until the string is at least `width` long.
     fn pad_end(self, width: Number, pad: String): String {
-        if core::primitives::string::length(self) >= width {
+        if length(self) >= width {
             self
         } else {
-            core::primitives::string::concat(self, pad).pad_end(width, pad)
+            concat(self, pad).pad_end(width, pad)
         }
     }
     // Split into lines.
     fn lines(self): List<String> {
-        core::primitives::string::split(self, "\n")
+        split(self, "\n")
     }
 }

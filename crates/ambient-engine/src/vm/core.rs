@@ -489,11 +489,6 @@ impl Vm {
         self.pop_typed("Bool", |v| v.as_bool(), operation)
     }
 
-    /// Pop a string from the stack or return a type error.
-    pub(super) fn pop_string(&mut self, operation: &'static str) -> Result<Arc<String>, VmError> {
-        self.pop_typed("String", Value::into_string, operation)
-    }
-
     /// Execute a unary operation on a number.
     pub(super) fn unary_number_op(
         &mut self,

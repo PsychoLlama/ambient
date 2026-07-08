@@ -49,7 +49,6 @@
 //! - [`unify`] - Type and ability unification
 //! - [`expr`] - Expression type inference
 //! - [`pattern`] - Pattern matching inference
-//! - [`intrinsics`] - Intrinsic function type inference
 //! - [`abilities`] - Ability lookup and async type inference
 //! - [`Infer`] - The main type inference engine
 
@@ -61,7 +60,6 @@ mod env;
 mod error;
 mod expr;
 pub mod inherent;
-mod intrinsics;
 mod pattern;
 mod unify;
 

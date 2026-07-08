@@ -261,15 +261,20 @@ pub fn run(): Number {
     );
     let result_b = build(&dir_b, &natives_b).expect("build b");
 
+    // The merged build also carries core's natives; select the test one.
     let native_hash = |result: &BuildResult| {
         let hashes: Vec<blake3::Hash> = result
             .compiled
             .objects
             .iter()
-            .filter(|(_, object)| object.as_native().is_some())
+            .filter(|(_, object)| {
+                object
+                    .as_native()
+                    .is_some_and(|(uuid, _)| uuid == DOUBLE_UUID)
+            })
             .map(|(hash, _)| *hash)
             .collect();
-        assert_eq!(hashes.len(), 1, "exactly one native object");
+        assert_eq!(hashes.len(), 1, "exactly one test native object");
         hashes[0]
     };
     assert_eq!(
@@ -312,13 +317,18 @@ fn extern_fn_ships_through_a_pack() {
     let decoded = ambient_engine::store::Pack::decode(&pack.encode()).expect("pack roundtrip");
     let module = ambient_engine::compiler::CompiledModule::from_pack(&decoded).expect("from pack");
 
-    let mut natives_in_pack: Vec<_> = module
+    // The merged build also ships core's natives; check the test ones.
+    let natives_in_pack: Vec<_> = module
         .objects
         .values()
         .filter_map(ambient_engine::object::StoredObject::as_native)
         .collect();
-    natives_in_pack.sort_by_key(|(uuid, _)| *uuid);
-    assert_eq!(natives_in_pack, vec![(DOUBLE_UUID, 1), (GREET_UUID, 1)]);
+    for expected in [(DOUBLE_UUID, 1), (GREET_UUID, 1)] {
+        assert!(
+            natives_in_pack.contains(&expected),
+            "pack must carry the test natives, got {natives_in_pack:?}"
+        );
+    }
 
     // And the reconstructed module still runs.
     let rebuilt = BuildResult {
