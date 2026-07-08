@@ -60,6 +60,7 @@ module.exports = grammar({
     _item: ($) =>
       choice(
         $.function_definition,
+        $.extern_function_definition,
         $.const_definition,
         $.type_definition,
         $.struct_definition,
@@ -84,6 +85,20 @@ module.exports = grammar({
         optional(seq(":", field("return_type", $._type))),
         optional($.ability_clause),
         field("body", $.block)
+      ),
+
+    // `extern fn` declares a body-less signature implemented by the host;
+    // it ends with `;` and takes no ability clause (extern fns are pure).
+    extern_function_definition: ($) =>
+      seq(
+        optional($.visibility),
+        "extern",
+        "fn",
+        field("name", $.identifier),
+        optional($.type_parameters),
+        $.parameter_list,
+        optional(seq(":", field("return_type", $._type))),
+        ";"
       ),
 
     const_definition: ($) =>

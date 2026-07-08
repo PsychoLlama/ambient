@@ -58,6 +58,23 @@ hex literals. A lowercase or malformed UUID is a syntax error. The stored
 value is canonicalized to lowercase for content addressing and display; only
 the _source syntax_ is uppercase.
 
+## Extern Types
+
+An `extern unique(<uuid>) struct` is a nominal type whose _values_ are
+provided by the host: user code may name it, annotate with it, and read
+it, but never construct one (`String {}` is rejected). The four
+primitives are the canonical case — `pub extern unique(…FF03) struct
+String;` in `core_lib/primitives/string.ab` — ordinary in-language
+declarations whose reserved UUIDs are anchored against the engine
+(`validate_reserved_struct`), so the sources and the engine can never
+drift.
+
+Extern _types_ keep their UUID in source (type identity is a
+checking-time concept — an editor must resolve it without host bindings),
+while extern _functions_ get their UUIDs from the host binding at compile
+time (implementation identity is a link-time concept) — see
+[core-library.md](core-library.md#native-functions-extern-fn).
+
 ## Nominal Enums
 
 Enums are nominal too, and their `unique(<uuid>)` prefix is **mandatory** —
@@ -93,7 +110,7 @@ are ordinary Ambient source — `pub unique(…FFFF0001) enum Option<T>` in
 their combinators and predicates, exposed as inherent methods (`map`,
 `and_then`, `is_some`, `unwrap_or`, `is_ok`, …). What makes them special is
 the _prelude_: `core_lib/prelude.ab` re-exports the two enums and their
-variants (`pub use core::Option::{Option, Some, None};`, likewise `Result`),
+variants (`pub use core::option::{Option, Some, None};`, likewise `Result`),
 and `ModuleRegistry::inject_prelude` folds every such re-export into every
 module's scope at lowest precedence — the resolver-level equivalent of a
 `use prelude::*` at the top of each module. That is why `Some`, `None`, `Ok`,

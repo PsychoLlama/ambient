@@ -254,7 +254,7 @@ the function performs. One encoding serves as
 the unit of hashing, storage, and network transfer, which makes every object
 self-verifying: re-hash the bytes and compare.
 
-Two kinds of objects:
+Three kinds of code objects (plus leaf `Value` objects for `const`s):
 
 - **Plain** — one non-recursive function. `hash = blake3(encoding)`.
   Names are _not_ part of the encoding: renaming never changes the hash.
@@ -266,6 +266,11 @@ Two kinds of objects:
   `blake3("ambient/member/v1" ‖ group_hash ‖ index)`. Named members sort by
   name (names of cycle members are part of the group identity — they are the
   only way to distinguish members); lambdas order by first reference.
+- **Native** — an `extern fn`'s identity: exactly `(uuid, param_count)`,
+  nothing else. The host binding supplies the uuid, so renaming the
+  declaration never moves the hash, and a receiving VM binds the uuid
+  against its own native table or fails loudly. See
+  [core-library.md](core-library.md#native-functions-extern-fn).
 
 Invariants (pinned by `crates/ambient-parser/tests/content_addressing.rs`):
 
@@ -429,11 +434,11 @@ fn test_my_function(): () {
 
 Roughly in priority order:
 
-- **Grow the standard library as ordinary modules.** The module system now
+- **Grow the standard library as ordinary modules.** The module system
   treats `core` as a real package (compiled `.ab` modules, whole-module and
-  item imports, qualified calls), but the library itself is small
-  (list/math/string helpers) and many operations still live only as
-  intrinsics. Target roughly the granularity of Go's or Node's standard
+  item imports, qualified calls), and every native operation is now a
+  declared `extern fn` — but the library itself is small (list/math/string
+  helpers). Target roughly the granularity of Go's or Node's standard
   libraries. Generic trait bounds would unlock `contains`/`sort_by`.
 - **Cross-module ability imports.** The platform-bindings split is
   done: platform abilities are pure in-language declarations

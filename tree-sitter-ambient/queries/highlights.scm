@@ -48,6 +48,9 @@
 (function_definition
   name: (identifier) @function)
 
+(extern_function_definition
+  name: (identifier) @function)
+
 (ability_method
   name: (identifier) @function.method)
 
