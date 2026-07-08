@@ -55,7 +55,7 @@ The two access rules follow:
 ```ambient
 use pkg::utils::helper;                 // Item import: `helper` as a bare name
 use pkg::utils::{a, deep::{b, c}};      // Brace groups, nested arbitrarily
-use core::primitives::number::sqrt as root2;        // `as` renames the local binding
+use core::convert::to_string as show;               // `as` renames the local binding
 use {core::primitives::number, core::system::Stdio};    // Root-level groups
 use self::utils;                        // Whole-module import: utils::helper(...)
 use pkg::net::http;                     // Directory namespaces import too:
@@ -79,9 +79,9 @@ to the end of the enclosing block, types as nothing, and compiles to
 nothing.
 
 ```ambient
-pub fn hyp(a: Number, b: Number): Number {
-  use core::primitives::number::sqrt;
-  sqrt(a * a + b * b)
+pub fn describe(n: Number): String {
+  use core::convert::to_string;
+  "n = " + to_string(n)
 }
 ```
 
@@ -110,17 +110,21 @@ Core modules (`core::collections::list`, `core::primitives::number`,
 `core::primitives::string`) are ordinary Ambient modules — compiled,
 content-addressed, and stored exactly like user code (see
 `crates/ambient-engine/src/core_lib/`). Their low-level operations are
-`extern fn` declarations (`core::primitives::number::sqrt`,
-`core::collections::list::length`, `core::primitives::string::concat`, ...):
-signatures owned in the `.ab` source, implementations bound by the host
-under stable UUIDs (see [extern fns in core-library.md](core-library.md#native-functions-extern-fn)).
-An extern fn is an ordinary item of its module — importable, aliasable,
-first-class, reachable through `use core::primitives::number;` +
-`number::sqrt(x)`. `core` is a keyword
-and a user module may not take that name (the build rejects `src/core.ab`),
-so the one reserved namespace — which now also houses the host bindings at
-`core::system` — can never be shadowed. `platform` is an ordinary
-identifier again: `src/platform.ab` is a perfectly legal user module.
+**module-private** `extern fn` declarations (`sqrt`, `length`, `concat`,
+...): signatures owned in the `.ab` source, implementations bound by the
+host under stable UUIDs (see [extern fns in core-library.md](core-library.md#native-functions-extern-fn)).
+The public surface is the inherent `impl` on each type — receiver methods
+(`x.sqrt()`, `list.map(f)`) and associated functions (`List::range`,
+`Binary::from`, `String::join`), never the raw extern. The core free
+functions that _are_ public (`core::convert::to_string`,
+`core::option::flatten`, ...) stay ordinary items of their module —
+importable, aliasable, first-class, reachable through `use core::convert;`
+
+- `convert::to_string(x)`. `core` is a keyword
+  and a user module may not take that name (the build rejects `src/core.ab`),
+  so the one reserved namespace — which now also houses the host bindings at
+  `core::system` — can never be shadowed. `platform` is an ordinary
+  identifier again: `src/platform.ab` is a perfectly legal user module.
 
 The `core::` hierarchy is defined by the `core_lib/` source tree itself, not
 by a hand-maintained list: `register_core_modules` walks the embedded tree and

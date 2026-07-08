@@ -185,7 +185,7 @@ fn test_result_constructors_and_chaining() {
             let ok = parse(5).map((x: Number) => x * 10);
             let err = parse(0 - 3);
             match ok.and_then((x: Number) => parse(x)) {
-                Ok(v) => core::primitives::string::from_number(v),
+                Ok(v) => String::from_number(v),
                 Err(e) => e,
             }
         }

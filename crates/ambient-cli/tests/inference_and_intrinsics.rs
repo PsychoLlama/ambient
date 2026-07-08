@@ -127,16 +127,16 @@ fn test_list_accessors_return_option() {
     let (dir, pkg) = temp_package(
         r#"
         pub fn run(): String {
-            let hit = match core::collections::list::get([1, 2, 3], 1) {
+            let hit = match [1, 2, 3].get(1) {
                 Some(v) => v,
                 None => 0 - 1,
             };
-            let miss = match core::collections::list::head([]) {
+            let miss = match [].head() {
                 Some(v) => v,
                 None => 0 - 1,
             };
-            let first = core::collections::list::first([7, 8]).unwrap_or(0);
-            let last = core::collections::list::last([7, 8]).unwrap_or(0);
+            let first = [7, 8].first().unwrap_or(0);
+            let last = [7, 8].last().unwrap_or(0);
             core::convert::to_string(hit) + " " + core::convert::to_string(miss)
                 + " " + core::convert::to_string(first) + " " + core::convert::to_string(last)
         }
@@ -199,9 +199,9 @@ fn test_map_get_returns_option() {
     let (dir, pkg) = temp_package(
         r#"
         pub fn run(): String {
-            let m = core::collections::map::insert(core::collections::map::empty(), "a", 1);
-            let hit = core::collections::map::get(m, "a").unwrap_or(0);
-            let miss = match core::collections::map::get(m, "b") {
+            let m = Map::empty().insert("a", 1);
+            let hit = m.get("a").unwrap_or(0);
+            let miss = match m.get("b") {
                 Some(_) => "some",
                 None => "none",
             };
@@ -223,11 +223,11 @@ fn test_map_and_set_inherent_methods() {
     let (dir, pkg) = temp_package(
         r#"
         pub fn run(): String {
-            let m = core::collections::map::empty().insert("a", 1).insert("b", 2);
+            let m = Map::empty().insert("a", 1).insert("b", 2);
             let hit = m.get("a").unwrap_or(0);
             let n = m.length();
 
-            let s = core::collections::set::empty().insert(7).insert(7).insert(9);
+            let s = Set::empty().insert(7).insert(7).insert(9);
             let has = s.contains(9);
             let size = s.length();
 
@@ -249,8 +249,8 @@ fn test_string_index_of_returns_option() {
     let (dir, pkg) = temp_package(
         r#"
         pub fn run(): String {
-            let found = core::primitives::string::index_of("hello world", "wor").unwrap_or(0 - 1);
-            let missing = core::primitives::string::index_of("hello", "xyz").is_none();
+            let found = "hello world".index_of("wor").unwrap_or(0 - 1);
+            let missing = "hello".index_of("xyz").is_none();
             core::convert::to_string(found) + " " + core::convert::to_string(missing)
         }
         "#,

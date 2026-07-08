@@ -10,12 +10,13 @@ use common::*;
 #[test]
 fn test_core_functions_fully_qualified() {
     // Compiled core functions (not intrinsics) callable with no import.
-    // `range` is the surviving compiled core free function — combinators are
-    // now methods, so the chain uses `.sum()`.
+    // `flatten` is the surviving compiled core free function — its receiver
+    // would be `Option<Option<T>>`, inexpressible in an `impl<T> Option<T>`,
+    // so it stays a free function while the rest became inherent methods.
     let (dir, pkg) = temp_package(
         r"
         pub fn run(): Number {
-            core::collections::list::range(1, 5).sum()
+            core::option::flatten(Some(Some(10))).unwrap_or(0)
         }
         ",
     );
@@ -27,13 +28,15 @@ fn test_core_functions_fully_qualified() {
 
 #[test]
 fn test_core_whole_module_import_alias() {
-    // `use core::collections::list;` binds the alias `List` for qualified calls.
+    // `use core::collections::list;` binds the alias `list` for qualified
+    // access — here naming the `List` type through it.
     let (dir, pkg) = temp_package(
         r"
         use core::collections::list;
 
         pub fn run(): Number {
-            list::range(1, 5).fold(0, (acc: Number, x: Number) => acc + x)
+            let xs: list::List<Number> = List::range(1, 5);
+            xs.fold(0, (acc: Number, x: Number) => acc + x)
         }
         ",
     );
@@ -45,15 +48,15 @@ fn test_core_whole_module_import_alias() {
 
 #[test]
 fn test_core_item_import() {
-    // `use core::collections::list::{range};` binds a plain name. (Combinators are now
-    // methods, so `range` — a receiverless core free function — is the
-    // importable plain name; the chain finishes with the `.sum()` method.)
+    // `use core::option::{flatten};` binds a plain name. (Collection helpers
+    // are now inherent methods/associated fns, so `flatten` — a receiverless
+    // core free function — is the importable plain name.)
     let (dir, pkg) = temp_package(
         r"
-        use core::collections::list::{range};
+        use core::option::{flatten};
 
         pub fn run(): Number {
-            range(1, 5).sum()
+            flatten(Some(Some(10))).unwrap_or(0)
         }
         ",
     );
@@ -93,14 +96,14 @@ fn test_non_brace_item_import() {
 
 #[test]
 fn test_non_brace_core_item_import() {
-    // The unification reaches core too: `use core::collections::list::range;` binds the
-    // bare name `range` without braces.
+    // The unification reaches core too: `use core::option::flatten;` binds the
+    // bare name `flatten` without braces.
     let (dir, pkg) = temp_package(
         r"
-        use core::collections::list::range;
+        use core::option::flatten;
 
         pub fn run(): Number {
-            range(1, 4).sum()
+            flatten(Some(Some(6))).unwrap_or(0)
         }
         ",
     );

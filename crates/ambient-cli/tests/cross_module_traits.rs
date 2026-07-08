@@ -607,13 +607,13 @@ fn test_inherent_impl_on_primitives() {
         r#"
         impl String {
             fn shout(self): String {
-                core::primitives::string::to_upper(self)
+                self.to_upper()
             }
         }
 
         impl Number {
             fn clamped(self, lo: Number, hi: Number): Number {
-                core::primitives::number::min(core::primitives::number::max(self, lo), hi)
+                self.max(lo).min(hi)
             }
         }
 

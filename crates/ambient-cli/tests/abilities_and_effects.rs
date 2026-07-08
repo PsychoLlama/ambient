@@ -23,7 +23,7 @@ fn test_user_ability_inline_handler() {
         pub fn run(): String {
             with {
                 Greeter::greet(name) => {
-                    resume(core::primitives::string::concat("hi ", name))
+                    resume("hi ".concat(name))
                 }
             } handle hello()
         }
@@ -232,7 +232,7 @@ fn test_handler_methods_intrinsic() {
 
         pub fn run(): Number {
             let oracle = { Oracle::answer() => resume(42) };
-            core::collections::list::length(core::protocol::handler_methods(oracle))
+            core::protocol::handler_methods(oracle).length()
         }
         ",
     )
@@ -505,7 +505,7 @@ fn test_fs_list_returns_written_entries() {
         pub fn run(): Number with core::system::FileSystem {{
             core::system::FileSystem::write!("{base}/a.txt", "1");
             core::system::FileSystem::write!("{base}/b.txt", "2");
-            core::collections::list::length(core::system::FileSystem::list!("{base}"))
+            core::system::FileSystem::list!("{base}").length()
         }}
         "#
     ))

@@ -414,7 +414,7 @@ impl ReplSession {
             return Some(Value::Module(Arc::new(module_value(path, info))));
         }
 
-        // Member: `core::collections::list::first`. Split the trailing name
+        // Member: `core::option::flatten`. Split the trailing name
         // off and look it up in the parent module's exports (raw, so the
         // user's own non-`pub` items are browsable too).
         let (parent, member) = path.rsplit_once("::")?;

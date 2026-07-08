@@ -1069,13 +1069,13 @@ mod tests {
 
     #[test]
     fn test_core_leaf_member_completions() {
-        // A leaf module offers its members, extern fns included.
+        // A leaf module offers its public members — the type it defines; the
+        // low-level extern helpers are module-private and no longer surface.
         let items = get_core_path_completions("collections::list", "");
-        assert!(items.iter().any(|i| i.label == "range")); // pub fn
-        assert!(items.iter().any(|i| i.label == "length")); // pub extern fn
+        assert!(items.iter().any(|i| i.label == "List")); // pub extern struct
 
-        let items = get_core_path_completions("primitives::number", "sq");
-        assert!(items.iter().any(|i| i.label == "sqrt")); // pub extern fn
+        let items = get_core_path_completions("primitives::number", "Num");
+        assert!(items.iter().any(|i| i.label == "Number")); // pub extern struct
     }
 
     #[test]

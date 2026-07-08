@@ -71,6 +71,9 @@ The method names, by type:
 // Collections
 List::{map, filter, fold, any, all, sum, get, head, tail, first, last,
        length, is_empty, reverse, sort, slice, append, concat}
+Map::{get, insert, remove, contains, length, is_empty, keys, values}
+Set::{insert, remove, contains, length, is_empty, union, intersection,
+      difference, to_list}
 
 // Options
 Option::{map, and_then, or_else, is_some, is_none, unwrap_or}
@@ -92,16 +95,16 @@ Number::{clamp, sign, is_negative, is_positive, is_zero, lerp, abs, sqrt,
 Binary::{to_list, length, is_empty, get, slice, concat}
 ```
 
-Operations with no single receiver stay qualified module functions:
-`core::collections::list::range(start, end)`,
-`core::option::flatten(opt)` (its receiver would be `Option<Option<U>>`,
-inexpressible in an `impl<T> Option<T>` block),
-`core::primitives::string::{join, from_number, from_bool}`, and
-`core::primitives::binary::from(bytes)`. `Map` and `Set` expose their
-whole surface as module functions (`core::collections::map::{empty, get,
-insert, remove, contains, length, keys, values}`,
-`core::collections::set::{empty, insert, remove, contains, length, union,
-intersection, difference, to_list}`), as do the conversions
+Operations with no single receiver are **associated functions** on the type,
+called `Type::name(...)` — the low-level externs they delegate to are
+module-private, so the type is the whole public surface:
+`List::range(start, end)`, `Map::empty()`, `Set::empty()`,
+`Binary::from(bytes)`, and `String::{join, from_number, from_bool}`.
+
+The one operation that stays a qualified module free function is
+`core::option::flatten(opt)` — its receiver would be `Option<Option<U>>`,
+inexpressible in an `impl<T> Option<T>` block. The receiver-less utility
+modules likewise stay module functions: conversions
 (`core::convert::{to_string, parse_number, parse_bool}` — parsers return
 Option), reflection (`core::reflect::{tag, payload}`), and the wire
 protocol (`core::protocol::{serialize_value, deserialize_value,

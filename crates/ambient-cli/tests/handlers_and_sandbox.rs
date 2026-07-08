@@ -334,7 +334,7 @@ fn test_local_ability_shadows_platform_name() {
         pub fn run(): () with core::system::Stdio {
             let loud = with {
                 Stdio::shout(msg) => {
-                    resume(core::primitives::string::concat(msg, "!"))
+                    resume(msg.concat("!"))
                 }
             } handle noise();
             core::system::Stdio::out!(loud)

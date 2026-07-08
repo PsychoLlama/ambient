@@ -171,14 +171,14 @@ fn use_trees_flatten_to_plain_imports() {
         ("deep/nested/leaf.ab", LEAF),
         (
             "main.ab",
-            r"
+            r#"
 use {pkg::util::double, pkg::deep::{nested::leaf::leaf_fn as leaf7}};
-use core::primitives::number::sqrt as root;
+use core::convert::parse_number as root;
 
 pub fn run(): Number {
-  double(leaf7()) + root(4)
+  double(leaf7()) + root("2").unwrap_or(0)
 }
-",
+"#,
         ),
     ]);
     assert_eq!(run(dir.path()), "16");
@@ -230,17 +230,18 @@ pub fn run(): Number {
 fn intrinsics_import_and_alias_like_functions() {
     let dir = package(&[(
         "main.ab",
-        r"
-use core::primitives::number::sqrt;
-use core::primitives::number;
-use core::collections::list;
+        r#"
+use core::convert::parse_number;
+use core::convert;
 
 pub fn run(): Number {
-  sqrt(16) + number::sqrt(16) + core::primitives::number::sqrt(16) + list::length(list::range(1, 4))
+  parse_number("4").unwrap_or(0)
+    + convert::parse_number("4").unwrap_or(0)
+    + core::convert::parse_number("4").unwrap_or(0)
 }
-",
+"#,
     )]);
-    assert_eq!(run(dir.path()), "15");
+    assert_eq!(run(dir.path()), "12");
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -699,19 +700,20 @@ pub fn run(): Number { unwrap(Some(5)) + unwrap(None) }
 /// A deep core path walks through its namespace parents: `core::collections`
 /// and `core::collections::list` are real registered modules, so both the
 /// `use` alias spelling and the inline fully-qualified spelling reach the
-/// same `range` — the access-rule invariant, now through two namespace
-/// levels.
+/// same `List` type — the access-rule invariant, now through two namespace
+/// levels. (The module's helper functions are private; its public export is
+/// the type.)
 #[test]
-fn core_collections_list_reaches_range_both_ways() {
+fn core_collections_list_reaches_the_type_both_ways() {
     let dir = package(&[(
         "main.ab",
         r#"
 use core::collections::list;
 
 pub fn run(): Number {
-  // Alias spelling and inline rooted spelling must agree.
-  let viaAlias = list::range(0, 3);
-  let viaPath = core::collections::list::range(0, 3);
+  // Alias spelling and inline rooted spelling name the same `List` type.
+  let viaAlias: list::List<Number> = List::range(0, 3);
+  let viaPath: core::collections::list::List<Number> = List::range(0, 3);
   viaAlias.length() + viaPath.length()
 }
 "#,
@@ -719,23 +721,31 @@ pub fn run(): Number {
     assert_eq!(run(dir.path()), "6");
 }
 
-/// A moved primitive intrinsic type-checks and runs under its new home:
-/// `core::primitives::number::sqrt` is both the inherent-method delegate
-/// and a directly callable qualified intrinsic.
+/// The low-level `sqrt` extern is module-private: the inherent method
+/// `(16).sqrt()` is the whole public surface, and the qualified extern path
+/// no longer resolves.
 #[test]
-fn core_primitives_number_sqrt_checks_and_runs() {
+fn core_primitives_number_sqrt_is_method_only() {
     let dir = package(&[(
         "main.ab",
         r#"
 pub fn run(): Number {
-  // The inherent method and the qualified intrinsic are the same builtin.
-  let viaMethod = (16).sqrt();
-  let viaPath = core::primitives::number::sqrt(16);
-  viaMethod + viaPath
+  (16).sqrt() + (16).sqrt()
 }
 "#,
     )]);
     assert_eq!(run(dir.path()), "8");
+
+    let dir = package(&[(
+        "main.ab",
+        r#"
+pub fn run(): Number {
+  core::primitives::number::sqrt(16)
+}
+"#,
+    )]);
+    let out = check_fails(dir.path());
+    assert!(out.contains("sqrt"), "unexpected output:\n{out}");
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -830,15 +840,10 @@ pub fn set_len(s: Set<Number>): Number { s.length() }
         ),
         (
             "main.ab",
-            r#"use core::collections::map::insert as map_insert;
-use core::collections::map::empty as map_empty;
-use core::collections::set::insert as set_insert;
-use core::collections::set::empty as set_empty;
-
-pub fn run(): Number {
+            r#"pub fn run(): Number {
   let doubled = pkg::imported::double_all(pkg::qualified::tail_of([1, 2, 3]));
-  let m = map_insert(map_empty(), "four", 1);
-  let s = set_insert(set_empty(), 9);
+  let m = Map::empty().insert("four", 1);
+  let s = Set::empty().insert(9);
   pkg::bare::total(doubled)
     + pkg::qualified::keys_len(m)
     + pkg::imported::set_len(s)
