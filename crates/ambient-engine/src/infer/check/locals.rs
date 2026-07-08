@@ -9,7 +9,7 @@ use crate::fqn::{Fqn, ModuleId, NameKey};
 use crate::types::{AbilityId, AbilitySet, TraitDef, TraitMethodDef, Type, TypeVarId};
 
 use crate::infer::Infer;
-use crate::infer::env::{Scheme, TypeEnv};
+use crate::infer::env::{AliasTarget, Scheme, TypeEnv};
 use crate::infer::error::{BoxedTypeError, BoxedTypeErrorExt, TypeError, TypeErrorKind};
 
 use super::abilities::register_abilities;
@@ -55,15 +55,19 @@ pub(super) fn register_local_declarations(
     // Runs last so self- and mutually-recursive type names already resolve.
     check_declared_types(infer, module, errors);
 }
-/// The `(name, type, is_public)` view shared by the two named-type items:
-/// `struct` definitions and `type` aliases. Both register the same way — a name
-/// resolving to a type in the inferencer's substitution table. For a non-`unique`
-/// struct that type is a bare record, so it substitutes structurally exactly
-/// like an alias; `unique` structs carry a `Type::Nominal` identity instead.
-pub(super) fn named_type_def(item: &crate::ast::Item) -> Option<(&Arc<str>, &Type, bool)> {
+/// The `(name, target, is_public)` view shared by the two named-type items:
+/// `struct` definitions and `type` aliases. Both register the same way — a
+/// name resolving to an [`AliasTarget`] in the inferencer's alias table. For
+/// a non-`unique` struct that target is its bare record, substituting
+/// structurally exactly like an alias; `unique` structs carry a
+/// `Type::Nominal` identity; a generic `extern` unit struct registers as an
+/// opaque head (see [`AliasTarget::of_struct`]).
+pub(super) fn named_type_def(item: &crate::ast::Item) -> Option<(&Arc<str>, AliasTarget, bool)> {
     match &item.kind {
-        crate::ast::ItemKind::Struct(s) => Some((&s.name, &s.ty, s.is_public)),
-        crate::ast::ItemKind::TypeAlias(t) => Some((&t.name, &t.ty, t.is_public)),
+        crate::ast::ItemKind::Struct(s) => Some((&s.name, AliasTarget::of_struct(s), s.is_public)),
+        crate::ast::ItemKind::TypeAlias(t) => {
+            Some((&t.name, AliasTarget::Whole(t.ty.clone()), t.is_public))
+        }
         _ => None,
     }
 }
@@ -82,13 +86,11 @@ pub(super) fn register_named_types(
     module_id: Option<&ModuleId>,
 ) {
     for item in &module.items {
-        if let Some((name, ty, _)) = named_type_def(item) {
-            infer.register_type_alias(Arc::clone(name), ty.clone());
+        if let Some((name, target, _)) = named_type_def(item) {
+            infer.register_type_alias_target(Arc::clone(name), target.clone());
             if let Some(id) = module_id {
-                infer.register_type_alias_item(
-                    Fqn::new(id.clone(), vec![Arc::clone(name)]),
-                    ty.clone(),
-                );
+                infer
+                    .register_type_alias_item(Fqn::new(id.clone(), vec![Arc::clone(name)]), target);
             }
         }
     }
@@ -528,8 +530,9 @@ pub(in crate::infer) fn substitute_type_params(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Whether `name` denotes a type that exists in the module's world: a rigid
-/// parameter in scope (`extra_known`), the `Self` placeholder, a built-in
-/// structural container, a registered type alias/struct, or a registered enum.
+/// parameter in scope (`extra_known`), the `Self` placeholder, a registered
+/// type alias/struct (including opaque generic heads like a prelude `List`),
+/// or a registered enum.
 /// The predicate a written type annotation must satisfy to not be "undefined".
 ///
 /// The four primitives are **not** a special case here: they are ordinary
@@ -555,7 +558,6 @@ fn is_known_type_name(
 ) -> bool {
     extra_known.contains(name)
         || name == "Self"
-        || crate::types::Container::from_name(name).is_some()
         || infer.get_type_alias(name).is_some()
         || infer.enum_registry.get(name).is_some()
 }
@@ -587,7 +589,12 @@ fn report_undefined_types(
             }
         }
         Type::Named(n) => {
-            if !is_known_type_name(infer, &n.name, extra_known) {
+            // A uuid-carrying head is already resolved — a qualified
+            // spelling the resolve pass canonicalized to identity (e.g.
+            // `core::collections::List<T>` → `Named("List", …, uuid)`).
+            // Its bare name needn't be in scope; only its arguments are
+            // still written annotations to check.
+            if n.uuid.is_none() && !is_known_type_name(infer, &n.name, extra_known) {
                 errors.push(Box::new(TypeError::new(
                     TypeErrorKind::UndefinedTypeName {
                         name: Arc::clone(&n.name),

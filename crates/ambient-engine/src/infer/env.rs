@@ -21,6 +21,77 @@ pub struct TypeEnv {
     names: HashMap<NameKey, BindingId>,
 }
 
+/// What a registered type name denotes — the value of the checker's
+/// alias table (`Infer::type_aliases`).
+///
+/// Names enter the table through exactly one rule, [`AliasTarget::of_struct`]
+/// (plus `type` aliases, always [`Whole`](Self::Whole)), shared by every
+/// registration channel: local declarations, foreign package types, and the
+/// prelude seeding used by ability resolution. There is deliberately no
+/// name-keyed builtin fallback behind this table — a type name resolves iff
+/// something in scope put it here.
+#[derive(Debug, Clone)]
+pub enum AliasTarget {
+    /// Expand the name to this type: a `type` alias's target, a struct's
+    /// body (`Type::Nominal` when `unique`), a primitive's nominal. Written
+    /// type arguments never substitute into it, so only a bare (nullary)
+    /// reference expands.
+    Whole(Type),
+    /// An opaque generic head — `extern unique(u) struct Foo<T, …>;`. The
+    /// declaration has no body, so its parameters are phantom and there is
+    /// nothing to expand: the applied form is `Named(name, args, uuid)`,
+    /// identity plus arguments (the same shape an enum reference takes).
+    /// `List`/`Map`/`Set` resolve through this.
+    OpaqueGeneric {
+        /// The declaration's `unique(…)` nominal identity.
+        uuid: uuid::Uuid,
+        /// Declared type-parameter count (`Map<K, V>` → 2). Enforced by
+        /// unification (arity is part of a `Named`'s shape), not at the
+        /// annotation site.
+        arity: usize,
+    },
+}
+
+impl AliasTarget {
+    /// The alias-table target for a struct declaration — the single rule
+    /// every registration channel shares. An `extern` unit struct *with*
+    /// type parameters and a `unique(…)` identity is an opaque generic
+    /// head; every other struct registers its body type.
+    #[must_use]
+    pub fn of_struct(def: &crate::ast::StructDef) -> Self {
+        match def.unique_id {
+            Some(uuid) if !def.type_params.is_empty() && def.is_extern && def.is_unit() => {
+                Self::OpaqueGeneric {
+                    uuid,
+                    arity: def.type_params.len(),
+                }
+            }
+            _ => Self::Whole(def.ty.clone()),
+        }
+    }
+
+    /// The type this name expands to when written bare, if it is an
+    /// expansion-style entry.
+    #[must_use]
+    pub fn whole(&self) -> Option<&Type> {
+        match self {
+            Self::Whole(ty) => Some(ty),
+            Self::OpaqueGeneric { .. } => None,
+        }
+    }
+
+    /// The uuid this name's inherent/trait impls key on, if it denotes a
+    /// nominal type.
+    #[must_use]
+    pub fn impl_uuid(&self) -> Option<uuid::Uuid> {
+        match self {
+            Self::Whole(Type::Nominal(n)) => Some(n.uuid),
+            Self::OpaqueGeneric { uuid, .. } => Some(*uuid),
+            Self::Whole(_) => None,
+        }
+    }
+}
+
 /// A type scheme (potentially polymorphic type).
 ///
 /// `forall a b E!. T` where `a` and `b` are quantified type variables

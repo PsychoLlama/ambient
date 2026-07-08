@@ -19,6 +19,15 @@ pub use core::primitives::number::Number;
 pub use core::primitives::string::String;
 pub use core::primitives::binary::Binary;
 
+// The generic containers. Their *values* are engine-built (list literals and
+// the collection `extern fn`s), but the type names resolve through scope like
+// any other: bare here via the prelude, or `core::collections::list::List`
+// fully-qualified. (Declaring your own struct named `List`/`Map`/`Set` is
+// rejected by the reserved-identity validator, exactly like the primitives.)
+pub use core::collections::list::List;
+pub use core::collections::map::Map;
+pub use core::collections::set::Set;
+
 // The operator traits desugar `+`, `-`, `==`, `<`, ... so the checker must
 // always have them in scope. `Default` is deliberately omitted: it has no
 // desugaring hook and is reachable through `use core::traits::Default`.

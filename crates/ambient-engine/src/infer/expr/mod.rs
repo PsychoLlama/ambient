@@ -132,10 +132,10 @@ impl Infer {
             }
 
             ExprKind::TypedRecord { type_name, fields } => {
-                // Look up the type alias by its resolution key: the bare
+                // Look up the type name by its resolution key: the bare
                 // name for local/imported types, the canonical qualified
                 // key for path references (`pkg::shapes::Money { … }`).
-                let type_alias = self
+                let target = self
                     .get_type_alias_key(&type_name.resolution_key())
                     .ok_or_else(|| {
                         type_error(
@@ -145,7 +145,17 @@ impl Infer {
                             span,
                         )
                     })?;
-                let full_type = type_alias.clone();
+                // An opaque generic head (`List { … }`) has no record body to
+                // construct; it is `extern` by definition, so it fails the
+                // same way a nullary `extern` struct does below.
+                let Some(full_type) = target.whole().cloned() else {
+                    return Err(type_error(
+                        TypeErrorKind::CannotConstructExtern {
+                            name: type_name.joined(),
+                        },
+                        span,
+                    ));
+                };
 
                 // An `extern` struct is engine-provided: user code may name it
                 // and read its fields, but not construct it. The `is_extern`

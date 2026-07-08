@@ -15,7 +15,7 @@ use crate::infer::error::{BoxedTypeError, TypeError, TypeErrorKind};
 use crate::infer::{Infer, inherent};
 
 use super::abilities::{
-    register_imported_ability, seed_namespaced_ability_dynamics, seed_prelude_primitive_aliases,
+    register_imported_ability, seed_namespaced_ability_dynamics, seed_prelude_struct_aliases,
 };
 use super::impls::{build_inherent_method_scheme, inherent_impl_target};
 use super::locals::{
@@ -33,15 +33,17 @@ pub(super) fn register_cross_module(
     registry: &ModuleRegistry,
     errors: &mut Vec<BoxedTypeError>,
 ) -> TypeEnv {
-    // Seed the four primitive nominals from the prelude *first*: the next
-    // step resolves every module's ability signatures (which name primitives
-    // like `String`/`Number`), and it runs before `register_package_items`
-    // populates the general alias table. Without this, a primitive in an
-    // ability signature would resolve to a bare name and corrupt the ability
-    // hash — the same reason `resolve_ability_declarations` seeds them. Only
-    // the four primitives are seeded here; every other type still resolves at
-    // its use site once the full alias table is built below.
-    seed_prelude_primitive_aliases(infer, registry);
+    // Seed the prelude's `extern` struct types (primitive nominals and the
+    // `List`/`Map`/`Set` heads) *first*: the next step resolves every
+    // module's ability signatures (which name primitives like
+    // `String`/`Number` and containers like `List<String>`), and it runs
+    // before `register_package_items` populates the general alias table.
+    // Without this, such a name in an ability signature would resolve bare
+    // and corrupt the ability hash — the same reason
+    // `resolve_ability_declarations` seeds them. Only the prelude's `extern`
+    // structs are seeded here; every other type still resolves at its use
+    // site once the full alias table is built below.
+    seed_prelude_struct_aliases(infer, registry);
     // Every module's abilities are always in scope fully-qualified. Seed
     // them as namespaced dynamics before imports and local abilities
     // resolve, so `core::system::Stdio` / `pkg::effects::Counter`
@@ -152,9 +154,9 @@ fn register_package_items(
         // constructors (`pkg::shapes::Money { … }`) to that key, and canonical
         // keys are never retracted (they can't leak as bare names).
         for item in &info.module.items {
-            if let Some((name, ty, true)) = named_type_def(item) {
+            if let Some((name, target, true)) = named_type_def(item) {
                 let fqn = registry.fqn(&info.path, &[Arc::clone(name)]);
-                infer.register_type_alias_item(fqn, ty.clone());
+                infer.register_type_alias_item(fqn, target);
             }
         }
     }

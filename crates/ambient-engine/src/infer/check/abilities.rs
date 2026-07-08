@@ -13,24 +13,28 @@ use crate::infer::error::{BoxedTypeError, TypeError, TypeErrorKind};
 
 use super::locals::substitute_type_params;
 
-/// Seed the four primitive nominals (`Bool`/`Number`/`String`/`Binary`) into
-/// the alias table from the registry's prelude.
+/// Seed the prelude's `extern` struct types into the alias table: the four
+/// primitive nominals (`Bool`/`Number`/`String`/`Binary`) and the opaque
+/// generic containers (`List`/`Map`/`Set`).
 ///
 /// Ability resolution runs on an `Infer::new()` with no import processing, so
-/// `resolve_holes` has no way to turn a bare primitive name in a signature
-/// into its uuid-carrying nominal — which the canonical renderer needs, or
-/// the ability hash drifts. This threads exactly the four primitives in
-/// through the module system ([`ModuleRegistry::prelude_type_aliases`]),
-/// leaving every other named type (`Duration`, `Option`) untouched so their
-/// renderings stay byte-identical.
-pub(super) fn seed_prelude_primitive_aliases(infer: &mut Infer, registry: &ModuleRegistry) {
-    for (name, ty) in registry.prelude_type_aliases() {
-        infer.register_type_alias(name, ty);
+/// `resolve_holes` has no way to turn a bare primitive or container name in a
+/// signature into its uuid-carrying form — which the canonical renderer needs,
+/// or the ability hash drifts. This threads exactly the prelude's `extern`
+/// structs in through the module system
+/// ([`ModuleRegistry::prelude_struct_defs`]), registered by the same
+/// [`AliasTarget::of_struct`] rule as every other channel, leaving every
+/// other named type (`Duration`, `Option`) untouched so their renderings
+/// stay byte-identical.
+pub(super) fn seed_prelude_struct_aliases(infer: &mut Infer, registry: &ModuleRegistry) {
+    for (name, def) in registry.prelude_struct_defs() {
+        infer.register_type_alias_target(name, crate::infer::AliasTarget::of_struct(&def));
     }
 }
 
 /// The inference context every ability-id-computing path starts from: a
-/// fresh `Infer` with the prelude primitives seeded and nothing else.
+/// fresh `Infer` with the prelude's `extern` struct types seeded and
+/// nothing else.
 ///
 /// Ability identity is the hash of the canonically rendered interface, so
 /// every path that computes one must resolve type names identically.
@@ -39,7 +43,7 @@ pub(super) fn seed_prelude_primitive_aliases(infer: &mut Infer, registry: &Modul
 /// copying an existing one.
 fn ability_id_infer(registry: &ModuleRegistry) -> Infer {
     let mut infer = Infer::new();
-    seed_prelude_primitive_aliases(&mut infer, registry);
+    seed_prelude_struct_aliases(&mut infer, registry);
     infer
 }
 /// Register the module's `ability` declarations.

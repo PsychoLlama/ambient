@@ -792,3 +792,77 @@ pub fn run(): Number { echo(7) }
     )]);
     assert_eq!(run(dir.path()), "7");
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Container types resolve through scope, not a global name table
+// ─────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn containers_resolve_bare_qualified_and_imported() {
+    // `List`/`Map`/`Set` are ordinary prelude types: the bare spelling comes
+    // from `core::prelude`, the fully-qualified spelling needs no import,
+    // and an explicit `use` binds the same identity. All three must denote
+    // one type — a list built under one spelling flows through the others.
+    let dir = package(&[
+        (
+            "bare.ab",
+            "pub fn total(xs: List<Number>): Number { xs.sum() }\n",
+        ),
+        (
+            "qualified.ab",
+            "pub fn tail_of(
+    xs: core::collections::list::List<Number>,
+): core::collections::list::List<Number> { xs.tail() }
+
+pub fn keys_len(m: core::collections::map::Map<String, Number>): Number {
+    m.keys().length()
+}
+",
+        ),
+        (
+            "imported.ab",
+            "use core::collections::list::List;
+use core::collections::set::Set;
+
+pub fn double_all(xs: List<Number>): List<Number> { xs.map((x: Number) => x * 2) }
+pub fn set_len(s: Set<Number>): Number { s.length() }
+",
+        ),
+        (
+            "main.ab",
+            r#"use core::collections::map::insert as map_insert;
+use core::collections::map::empty as map_empty;
+use core::collections::set::insert as set_insert;
+use core::collections::set::empty as set_empty;
+
+pub fn run(): Number {
+  let doubled = pkg::imported::double_all(pkg::qualified::tail_of([1, 2, 3]));
+  let m = map_insert(map_empty(), "four", 1);
+  let s = set_insert(set_empty(), 9);
+  pkg::bare::total(doubled)
+    + pkg::qualified::keys_len(m)
+    + pkg::imported::set_len(s)
+}
+"#,
+        ),
+    ]);
+    // tail([1,2,3]) = [2,3]; doubled = [4,6]; total = 10; + 1 key + 1 element.
+    assert_eq!(run(dir.path()), "12");
+}
+
+#[test]
+fn container_names_cannot_be_redeclared() {
+    // The reserved-identity rule: resolution is scope-based, but declaring a
+    // struct *named* `List` (without the reserved uuid, which only the core
+    // declaration may carry) is an identity hijack and fails the check —
+    // exactly like the primitives.
+    let dir = package(&[(
+        "main.ab",
+        "struct List<T> { items: T }\n\npub fn run(): Number { 0 }\n",
+    )]);
+    let output = check_fails(dir.path());
+    assert!(
+        output.contains("reserved"),
+        "expected a reserved-identity error, got:\n{output}"
+    );
+}

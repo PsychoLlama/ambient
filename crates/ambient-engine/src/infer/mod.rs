@@ -67,7 +67,7 @@ pub use check::{
     CheckResult, check_module, check_module_with_registry, check_module_with_registry_and_resolver,
     check_module_with_resolver, resolve_ability_declarations, resolve_registry_abilities,
 };
-pub use env::{Scheme, TypeEnv};
+pub use env::{AliasTarget, Scheme, TypeEnv};
 pub use error::{BoxedTypeError, BoxedTypeErrorExt, InferResult, TypeError, TypeErrorKind};
 
 use error::type_error;
@@ -102,8 +102,10 @@ pub struct Infer {
     /// Ability resolver for looking up ability and method information.
     pub(crate) ability_resolver: AbilityResolver,
     /// Type alias registry for looking up types by name.
-    /// Maps type alias names to their resolved types (including Nominal types).
-    pub(crate) type_aliases: HashMap<NameKey, Type>,
+    /// Maps type names to what they denote (see [`AliasTarget`]): an
+    /// expandable type, or an opaque generic head applied as
+    /// `Named(name, args, uuid)`.
+    pub(crate) type_aliases: HashMap<NameKey, AliasTarget>,
     /// Trait registry for trait and impl lookup.
     pub(crate) trait_registry: TraitRegistry,
     /// Inherent (trait-less) impl methods, keyed by target type identity.
@@ -323,28 +325,35 @@ impl Infer {
         self.ability_subst.insert(discharge.remainder, bound);
     }
 
-    /// Register a type alias under its bare name (a local or primitive
-    /// type, resolvable by the bare name the Type IR carries).
+    /// Register an expand-to-type alias under its bare name (a local or
+    /// primitive type, resolvable by the bare name the Type IR carries).
     pub fn register_type_alias(&mut self, name: Arc<str>, ty: Type) {
-        self.type_aliases.insert(NameKey::Bare(name), ty);
+        self.register_type_alias_target(name, AliasTarget::Whole(ty));
+    }
+
+    /// Register any [`AliasTarget`] under its bare name.
+    pub fn register_type_alias_target(&mut self, name: Arc<str>, target: AliasTarget) {
+        self.type_aliases.insert(NameKey::Bare(name), target);
     }
 
     /// Register a type alias under a cross-module type's [`Fqn`] identity,
     /// the key a qualified constructor (`pkg::shapes::Money { … }`)
     /// resolves to.
-    pub fn register_type_alias_item(&mut self, fqn: crate::fqn::Fqn, ty: Type) {
-        self.type_aliases.insert(NameKey::Item(fqn), ty);
+    pub fn register_type_alias_item(&mut self, fqn: crate::fqn::Fqn, target: AliasTarget) {
+        self.type_aliases.insert(NameKey::Item(fqn), target);
     }
 
-    /// Look up a type alias by its bare name (Type IR names, local and
+    /// Look up a type name by its bare spelling (Type IR names, local and
     /// primitive types).
     #[must_use]
-    pub fn get_type_alias(&self, name: &str) -> Option<&Type> {
+    pub fn get_type_alias(&self, name: &str) -> Option<&AliasTarget> {
         self.type_aliases.get(&NameKey::Bare(Arc::from(name)))
     }
 
     /// Resolve a bare (unparameterized) named type to a concrete type: the
-    /// registered type alias of that name, if any.
+    /// registered expand-style alias of that name, if any. Opaque generic
+    /// heads (`List`) never expand — their applied form is built in
+    /// [`resolve_holes`](Self::resolve_holes) from identity plus arguments.
     ///
     /// The four primitives are no longer a context-independent shortcut here:
     /// they arrive as ordinary prelude imports (registered as aliases like any
@@ -352,18 +361,18 @@ impl Infer {
     /// explicit `use` — put it in scope. A registry-less check therefore never
     /// resolves a primitive by name; the one path that needs them without
     /// imports (ability resolution) seeds them explicitly from the prelude via
-    /// [`ModuleRegistry::prelude_type_aliases`]. This is the single point
+    /// [`ModuleRegistry::prelude_struct_defs`]. This is the single point
     /// `resolve_holes` and unification consult, so an annotation `String` and a
     /// `String` literal always meet as the same nominal.
     #[must_use]
     pub(crate) fn expand_named_alias(&self, name: &str) -> Option<Type> {
-        self.get_type_alias(name).cloned()
+        self.get_type_alias(name)?.whole().cloned()
     }
 
-    /// Look up a type alias by a reference's resolution key (a bare local
+    /// Look up a type name by a reference's resolution key (a bare local
     /// type or a cross-module type's [`Fqn`]).
     #[must_use]
-    pub fn get_type_alias_key(&self, key: &NameKey) -> Option<&Type> {
+    pub fn get_type_alias_key(&self, key: &NameKey) -> Option<&AliasTarget> {
         self.type_aliases.get(key)
     }
 
@@ -513,16 +522,24 @@ impl Infer {
                     let uuid = info.uuid;
                     return Type::Named(NamedType::with_identity(Arc::clone(&n.name), args, uuid));
                 }
-                // Attach a built-in container's reserved identity (`List`/`Map`/
-                // `Set`), so `List<T>` dispatches by uuid like `Option<T>`. The
-                // head name is reserved globally (no import needed), mirroring
-                // the pre-uuid magic these types used to rely on.
-                if let Some(container) = crate::types::Container::from_name(&n.name) {
-                    let name = Arc::clone(&n.name);
+                // Apply an opaque generic head in scope (`List`/`Map`/`Set`
+                // via the prelude, or any imported/local
+                // `extern unique(…) struct Foo<T>;`): the applied form is
+                // identity plus arguments, so `List<T>` dispatches by uuid
+                // like `Option<T>`. Skipped when the reference already
+                // carries a uuid (a qualified spelling the resolve pass
+                // canonicalized) — a same-named local must not re-key it.
+                // Arity mismatches are left to unification, which already
+                // treats argument count as part of a `Named`'s shape.
+                if n.uuid.is_none()
+                    && let Some(AliasTarget::OpaqueGeneric { uuid, .. }) =
+                        self.get_type_alias(&n.name)
+                {
+                    let uuid = *uuid;
                     return Type::Named(NamedType::with_identity(
-                        name,
+                        Arc::clone(&n.name),
                         args,
-                        Some(container.uuid()),
+                        Some(uuid),
                     ));
                 }
                 // Otherwise keep as named type, preserving any existing identity.

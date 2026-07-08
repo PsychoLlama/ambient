@@ -222,31 +222,35 @@ impl ModuleRegistry {
         }
     }
 
-    /// The primitive type aliases the prelude contributes to every module:
-    /// for each public prelude re-export whose origin is an `extern` unit
-    /// struct, the exported name mapped to that struct's nominal type.
+    /// The `extern` struct declarations the prelude contributes to every
+    /// module: for each public prelude re-export whose origin is an `extern`
+    /// unit struct, the exported name mapped to that struct's declaration.
     ///
     /// This is the module-system source of the four primitive nominals
-    /// (`Bool`/`Number`/`String`/`Binary`). Rather than hardcode
-    /// `Type::string()` and friends, they are discovered by walking
-    /// `core::prelude`'s re-exports exactly the way [`Self::inject_prelude`]
-    /// resolves them — through [`Self::lookup_symbol`], chasing `pub use`
-    /// chains to the defining `extern` declaration. Enums (`Option`/`Result`)
-    /// and non-re-exported types (`Duration`) are naturally excluded: only a
-    /// re-exported `extern` unit struct qualifies.
+    /// (`Bool`/`Number`/`String`/`Binary`) and the opaque generic containers
+    /// (`List`/`Map`/`Set`). Rather than hardcode `Type::string()` and
+    /// friends, they are discovered by walking `core::prelude`'s re-exports
+    /// exactly the way [`Self::inject_prelude`] resolves them — through
+    /// [`Self::lookup_symbol`], chasing `pub use` chains to the defining
+    /// `extern` declaration. Enums (`Option`/`Result`) and non-re-exported
+    /// types (`Duration`) are naturally excluded: only a re-exported `extern`
+    /// unit struct qualifies. The whole declaration is returned (not just its
+    /// type) so the consumer registers it by the same rule as every other
+    /// channel (`AliasTarget::of_struct`), type parameters included.
     ///
-    /// Ability resolution seeds these so a primitive named in an ability
-    /// signature (`Stdio.out(String)`) resolves to its uuid-carrying nominal
-    /// — keeping ability content hashes byte-stable — without the checker
-    /// carrying a context-independent `Primitive::from_name` shortcut.
+    /// Ability resolution seeds these so a primitive or container named in an
+    /// ability signature (`Stdio.out(String)`, `Env.args(): List<String>`)
+    /// resolves to its uuid-carrying form — keeping ability content hashes
+    /// byte-stable — without the checker carrying a context-independent
+    /// `Primitive::from_name`/`Container::from_name` shortcut.
     #[must_use]
-    pub fn prelude_type_aliases(&self) -> Vec<(Arc<str>, crate::types::Type)> {
-        let mut aliases = Vec::new();
+    pub fn prelude_struct_defs(&self) -> Vec<(Arc<str>, crate::ast::StructDef)> {
+        let mut defs = Vec::new();
         let Some(prelude_path) = &self.prelude else {
-            return aliases;
+            return defs;
         };
         let Some(prelude_info) = self.modules.get(&prelude_path.to_string()) else {
-            return aliases;
+            return defs;
         };
         for re_export in &prelude_info.re_exports {
             let Some(local) = re_export.exported_name() else {
@@ -268,11 +272,11 @@ impl ModuleRegistry {
                     && def.is_extern
                     && def.is_unit()
                 {
-                    aliases.push((Arc::from(local), def.ty.clone()));
+                    defs.push((Arc::from(local), def.clone()));
                 }
             }
         }
-        aliases
+        defs
     }
 
     /// Interpret a list of `use` items into a scope. Shared by module

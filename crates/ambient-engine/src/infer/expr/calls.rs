@@ -91,20 +91,22 @@ impl Infer {
         use crate::infer::inherent::ImplKey;
 
         // Resolve the leading segment to an impl-target key: a nominal type
-        // alias, or an enum / built-in container head.
-        let key = if let Some(Type::Nominal(n)) = self.get_type_alias(type_name) {
-            Some(ImplKey::Nominal(n.uuid))
-        } else if let Some(info) = self.enum_registry.get(type_name) {
+        // alias or opaque generic head in scope (a container like `List`
+        // arrives through the prelude), or an enum.
+        let key = if let Some(uuid) = self
+            .get_type_alias(type_name)
+            .and_then(crate::infer::AliasTarget::impl_uuid)
+        {
+            Some(ImplKey::Nominal(uuid))
+        } else {
             // A declared enum keys on its uuid (matching its receiver-form
             // dispatch); prelude enums key on their reserved head name.
-            Some(match info.uuid {
-                Some(uuid) => ImplKey::Nominal(uuid),
-                None => ImplKey::Named(type_name.into()),
-            })
-        } else {
-            // Built-in containers key on their reserved uuid, exactly like the
-            // primitives and declared nominal types.
-            crate::types::Container::from_name(type_name).map(|c| ImplKey::Nominal(c.uuid()))
+            self.enum_registry
+                .get(type_name)
+                .map(|info| match info.uuid {
+                    Some(uuid) => ImplKey::Nominal(uuid),
+                    None => ImplKey::Named(type_name.into()),
+                })
         };
 
         // Inherent associated method?
@@ -119,7 +121,11 @@ impl Infer {
         }
 
         // The leading segment must name a nominal type.
-        let Some(Type::Nominal(nominal)) = self.get_type_alias(type_name).cloned() else {
+        let Some(Type::Nominal(nominal)) = self
+            .get_type_alias(type_name)
+            .and_then(crate::infer::AliasTarget::whole)
+            .cloned()
+        else {
             return Ok(None);
         };
 
