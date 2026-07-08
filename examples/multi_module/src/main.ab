@@ -51,8 +51,8 @@ pub fn run(): Number {
 
     // A block-scoped import binds to the end of its block.
     let root = {
-        use core::primitives::number::sqrt;
-        sqrt(16)                                // 4
+        use core::convert::parse_number;
+        parse_number("4").unwrap_or(0)          // 4
     };
 
     // Combine results for verification
