@@ -65,6 +65,14 @@ pub struct ModuleEnv {
     /// interface hash, so recomputing here matches the declaring module's
     /// own registration exactly.
     pub foreign_abilities: Vec<(Fqn, Arc<crate::ability_resolver::DynAbility>)>,
+    /// The host's native bindings for *this* module's `extern fn`
+    /// declarations, keyed by item name. The compiler builds each
+    /// declaration's [`Native` object](crate::object::StoredObject::Native)
+    /// from its binding; a declaration with no entry here is an
+    /// unbound-extern compile error. Foreign extern fns need no channel of
+    /// their own: their hashes travel through the ordinary linking table
+    /// like any compiled function's.
+    pub extern_natives: HashMap<Arc<str>, crate::natives::NativeKey>,
 }
 
 impl ModuleEnv {
@@ -138,6 +146,7 @@ impl ModuleEnv {
             foreign_unit_structs,
             foreign_const_hashes,
             foreign_abilities: crate::infer::resolve_registry_abilities(registry),
+            extern_natives: registry.natives().keys_for_module(module_path),
         }
     }
 }

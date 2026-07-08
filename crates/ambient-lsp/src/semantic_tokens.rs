@@ -261,23 +261,7 @@ impl<'a> TokenCollector<'a> {
                     );
                 }
             }
-            ItemKind::ExternFn(e) => {
-                // Extern fn name at declaration; parameters like a function.
-                self.add_token(
-                    e.name_span.start,
-                    e.name_span.end,
-                    token_type::FUNCTION,
-                    token_modifier::DECLARATION,
-                );
-                for param in &e.params {
-                    self.add_token(
-                        param.span.start,
-                        param.span.start + str_len_u32(&param.name),
-                        token_type::PARAMETER,
-                        token_modifier::DECLARATION,
-                    );
-                }
-            }
+            ItemKind::ExternFn(e) => self.visit_extern_fn(e),
             ItemKind::Use(_) => {
                 // Use statements - could highlight the path segments
             }
@@ -311,6 +295,24 @@ impl<'a> TokenCollector<'a> {
                     self.visit_expr(&method.body);
                 }
             }
+        }
+    }
+
+    /// Extern fn name at declaration; parameters like a function.
+    fn visit_extern_fn(&mut self, e: &ambient_engine::ast::ExternFnDef) {
+        self.add_token(
+            e.name_span.start,
+            e.name_span.end,
+            token_type::FUNCTION,
+            token_modifier::DECLARATION,
+        );
+        for param in &e.params {
+            self.add_token(
+                param.span.start,
+                param.span.start + str_len_u32(&param.name),
+                token_type::PARAMETER,
+                token_modifier::DECLARATION,
+            );
         }
     }
 

@@ -454,6 +454,7 @@ fn build_base(
                 &BuildOptions {
                     platform_source: ambient_platform::ABILITY_DECLARATIONS,
                     prelude_abilities: prelude,
+                    natives: None,
                     progress: None,
                 },
             )

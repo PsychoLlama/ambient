@@ -58,6 +58,7 @@ fn compile_package_cmd(path: &Path) -> Result<()> {
         &ambient_engine::build::BuildOptions {
             platform_source: ambient_platform::ABILITY_DECLARATIONS,
             prelude_abilities: &prelude,
+            natives: None,
             progress: Some(&progress_cb),
         },
     )

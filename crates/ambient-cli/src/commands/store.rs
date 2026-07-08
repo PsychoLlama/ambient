@@ -111,6 +111,7 @@ fn stats(store: &DiskStore) -> Result<()> {
     let mut group_members = 0usize;
     let mut redirects = 0usize;
     let mut values = 0usize;
+    let mut natives = 0usize;
     let mut bytes = 0u64;
 
     for hash in store.all_hashes()? {
@@ -125,6 +126,7 @@ fn stats(store: &DiskStore) -> Result<()> {
             }
             Some(StoredObject::Redirect { .. }) => redirects += 1,
             Some(StoredObject::Value(_)) => values += 1,
+            Some(StoredObject::Native { .. }) => natives += 1,
             None => {}
         }
     }
@@ -136,6 +138,7 @@ fn stats(store: &DiskStore) -> Result<()> {
     println!("  in groups:      {group_members} (across {groups} recursive groups)");
     println!("redirect stubs:   {redirects}");
     println!("const values:     {values}");
+    println!("native fns:       {natives}");
     println!("named bindings:   {}", names.len());
     println!("disk usage:       {bytes} bytes");
     Ok(())
@@ -188,6 +191,10 @@ fn show(store: &DiskStore, reference: &str) -> Result<()> {
             members.len()
         ),
         StoredObject::Value(_) => println!("object {} (const value)", short(&display_hash)),
+        StoredObject::Native { uuid, param_count } => println!(
+            "object {} (native fn, uuid {uuid}, {param_count} params)",
+            short(&display_hash)
+        ),
         StoredObject::Redirect { .. } => unreachable!("redirects resolved above"),
     }
     println!("encoded size: {} bytes", object.encode().len());

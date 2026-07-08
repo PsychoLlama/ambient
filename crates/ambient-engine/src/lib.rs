@@ -26,6 +26,7 @@ pub mod manifest;
 pub mod module_env;
 pub mod module_path;
 pub mod module_registry;
+pub mod natives;
 pub mod object;
 pub mod package;
 pub mod protocol;

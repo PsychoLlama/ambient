@@ -71,6 +71,17 @@ pub struct Vm {
     /// `LoadObject` opcode resolves against this map.
     pub(super) values: HashMap<blake3::Hash, Value>,
 
+    /// Native (extern fn) objects loaded into this VM: content hash →
+    /// `(uuid, param_count)`. Calls to one of these hashes dispatch to the
+    /// implementation registered for the uuid instead of pushing a frame.
+    pub(super) native_functions: HashMap<blake3::Hash, (uuid::Uuid, u8)>,
+
+    /// Native implementations, keyed by their stable uuid. Calling a loaded
+    /// native whose uuid has no entry here is a loud
+    /// [`VmError::UnboundNative`] — the safety net for code compiled
+    /// against a host binding this VM does not provide.
+    pub(super) native_impls: HashMap<uuid::Uuid, crate::natives::NativeFn>,
+
     /// Maximum call stack depth to prevent infinite recursion.
     pub(super) max_call_depth: usize,
 }
@@ -83,9 +94,15 @@ impl Default for Vm {
 
 impl Vm {
     /// Create a new VM instance.
+    ///
+    /// Every VM starts with the engine's core native implementations
+    /// installed (see [`crate::natives::core_natives`]): natives are pure
+    /// value transformations, so even isolated Execute VMs get them
+    /// unconditionally. Embedder natives are registered separately
+    /// ([`Self::register_natives`]).
     #[must_use]
     pub fn new() -> Self {
-        Self {
+        let mut vm = Self {
             stack: Vec::with_capacity(256),
             frames: Vec::with_capacity(64),
             handlers: Vec::with_capacity(16),
@@ -93,8 +110,12 @@ impl Vm {
             base_handlers: Vec::new(),
             functions: HashMap::new(),
             values: HashMap::new(),
+            native_functions: HashMap::new(),
+            native_impls: HashMap::new(),
             max_call_depth: 1000,
-        }
+        };
+        vm.register_natives(crate::natives::core_natives());
+        vm
     }
 
     /// Load a compiled function into the VM.
@@ -110,6 +131,30 @@ impl Vm {
     /// an identical value.
     pub fn load_value(&mut self, hash: blake3::Hash, value: Value) {
         self.values.insert(hash, value);
+    }
+
+    /// Load a native (extern fn) object into the VM: calls to `hash` will
+    /// dispatch to the implementation registered for `uuid`. Additive and
+    /// content-addressed like [`Self::load_function`]. Loading does not
+    /// require the implementation to exist yet — binding is checked at the
+    /// first call, so hosts can load code before wiring implementations.
+    pub fn load_native(&mut self, hash: blake3::Hash, uuid: uuid::Uuid, param_count: u8) {
+        self.native_functions.insert(hash, (uuid, param_count));
+    }
+
+    /// Register the implementation for a native uuid.
+    pub fn register_native_impl(&mut self, uuid: uuid::Uuid, func: crate::natives::NativeFn) {
+        self.native_impls.insert(uuid, func);
+    }
+
+    /// Register every implementation in a [`NativeRegistry`] — how a VM
+    /// inherits the host's bindings at wiring time.
+    ///
+    /// [`NativeRegistry`]: crate::natives::NativeRegistry
+    pub fn register_natives(&mut self, natives: &crate::natives::NativeRegistry) {
+        for (uuid, func) in natives.impls() {
+            self.native_impls.insert(uuid, func);
+        }
     }
 
     /// Load an already-shared compiled function into the VM.
@@ -174,8 +219,11 @@ impl Vm {
             self.stack.push(arg);
         }
 
-        // Set up initial call frame
-        self.push_frame(hash, arg_count)?;
+        // Set up initial call frame. A native entry point executes inline
+        // (no frame), so its result is already on the stack.
+        if !self.push_frame(hash, arg_count)? {
+            return self.pop();
+        }
 
         // Run the execution loop
         self.run()
@@ -216,27 +264,72 @@ impl Vm {
             self.stack.push(arg);
         }
 
-        // Set up initial call frame with captures
-        self.push_frame_with_captures(hash, arg_count, captures)?;
+        // Set up initial call frame with captures. A native entry point
+        // executes inline (no frame), so its result is already on the stack.
+        if !self.push_frame_with_captures(hash, arg_count, captures)? {
+            return self.pop();
+        }
 
         // Run the execution loop
         self.run()
     }
 
-    /// Push a new call frame for the given function.
-    pub(super) fn push_frame(&mut self, hash: &blake3::Hash, arg_count: u8) -> Result<(), VmError> {
+    /// Push a new call frame for the given function. Returns `false` if the
+    /// target was a native executed inline (result already on the stack).
+    pub(super) fn push_frame(
+        &mut self,
+        hash: &blake3::Hash,
+        arg_count: u8,
+    ) -> Result<bool, VmError> {
         self.push_frame_with_captures(hash, arg_count, Vec::new())
     }
 
+    /// Execute a call to a native (extern fn): pop the arguments the caller
+    /// pushed, run the bound implementation, push the result. No frame is
+    /// pushed — a native is a pure value transformation, invisible to
+    /// continuations and stack traces.
+    fn call_native(
+        &mut self,
+        uuid: uuid::Uuid,
+        param_count: u8,
+        arg_count: u8,
+    ) -> Result<(), VmError> {
+        if arg_count != param_count {
+            return Err(VmError::ArityMismatch {
+                expected: param_count,
+                got: arg_count,
+            });
+        }
+        let func = self
+            .native_impls
+            .get(&uuid)
+            .ok_or_else(|| VmError::UnboundNative {
+                uuid: uuid.to_string(),
+            })?
+            .clone();
+        let split = self.stack.len() - arg_count as usize;
+        let args = self.stack.split_off(split);
+        let result = func(args)?;
+        self.stack.push(result);
+        Ok(())
+    }
+
     /// Push a new call frame for a closure call with captured environment.
+    /// Returns `false` if the target was a native executed inline (result
+    /// already on the stack, no frame pushed).
     pub(super) fn push_frame_with_captures(
         &mut self,
         hash: &blake3::Hash,
         arg_count: u8,
         captures: Vec<Value>,
-    ) -> Result<(), VmError> {
+    ) -> Result<bool, VmError> {
         if self.frames.len() >= self.max_call_depth {
             return Err(VmError::StackOverflow);
+        }
+
+        if let Some(&(uuid, param_count)) = self.native_functions.get(hash) {
+            self.call_native(uuid, param_count, arg_count)?;
+            return Ok(false);
         }
 
         let function = self
@@ -268,7 +361,7 @@ impl Vm {
             captures,
         });
 
-        Ok(())
+        Ok(true)
     }
 
     /// Fetch the next opcode from the current frame's bytecode.

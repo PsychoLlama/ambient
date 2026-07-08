@@ -107,6 +107,11 @@ pub struct ModuleRegistry {
     /// convention. Set to `core::prelude` by `register_core_modules`; a
     /// future per-package manifest override calls [`Self::set_prelude`].
     prelude: Option<ModulePath>,
+    /// Host-provided implementations for `extern fn` declarations. The
+    /// engine registers `core`'s bindings in `register_core_modules`;
+    /// embedders add their own via [`Self::register_natives`]. Compiles
+    /// read it through [`crate::module_env::ModuleEnv`].
+    natives: crate::natives::NativeRegistry,
 }
 
 impl Default for ModuleRegistry {
@@ -115,6 +120,7 @@ impl Default for ModuleRegistry {
             modules: HashMap::new(),
             workspace_name: Arc::from(""),
             prelude: None,
+            natives: crate::natives::NativeRegistry::new(),
         }
     }
 }
@@ -131,6 +137,31 @@ impl ModuleRegistry {
     /// LSP, and store all mint identical identities.
     pub fn set_workspace_name(&mut self, name: impl Into<Arc<str>>) {
         self.workspace_name = name.into();
+    }
+
+    /// The host's native bindings for `extern fn` declarations.
+    #[must_use]
+    pub fn natives(&self) -> &crate::natives::NativeRegistry {
+        &self.natives
+    }
+
+    /// Register native bindings (mutable access for the host wiring phase:
+    /// engine core bindings, then any embedder bindings).
+    pub fn natives_mut(&mut self) -> &mut crate::natives::NativeRegistry {
+        &mut self.natives
+    }
+
+    /// Verify the extern-fn contract across every registered module: each
+    /// declaration bound (with matching arity), each binding backed by a
+    /// declaration. Call after all modules and bindings are registered;
+    /// violations are build errors.
+    #[must_use]
+    pub fn verify_native_contract(&self) -> Vec<crate::natives::ContractViolation> {
+        self.natives.verify_contract(
+            self.modules
+                .values()
+                .map(|info| (&info.path, info.module.as_ref())),
+        )
     }
 
     /// The workspace package name user modules are scoped under.

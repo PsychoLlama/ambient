@@ -177,6 +177,12 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
             for (value_hash, value) in subset.values() {
                 exec_vm.load_value(*value_hash, value.clone());
             }
+            // Load native (extern fn) objects; implementations come from
+            // the executing host's own bindings (installed in `Vm::new`),
+            // so an unknown uuid fails loudly at the call.
+            for (native_hash, (uuid, param_count)) in subset.natives() {
+                exec_vm.load_native(*native_hash, *uuid, *param_count);
+            }
 
             // Execute the function with the provided argument
             exec_vm.call(&hash, vec![arg])
@@ -242,6 +248,9 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
             }
             for (value_hash, value) in subset.values() {
                 exec_vm.load_value(*value_hash, value.clone());
+            }
+            for (native_hash, (uuid, param_count)) in subset.natives() {
+                exec_vm.load_native(*native_hash, *uuid, *param_count);
             }
 
             exec_vm.install_base_handler(handler_value);

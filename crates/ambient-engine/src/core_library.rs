@@ -214,6 +214,12 @@ pub fn register_core_modules(
     registry: &mut crate::module_registry::ModuleRegistry,
     parse: impl Fn(&str) -> Result<crate::ast::Module, String>,
 ) -> Result<Vec<ModulePath>, (String, String)> {
+    // Attach the engine's native bindings for core's `extern fn`
+    // declarations. Compiles read them through `ModuleEnv`; the contract
+    // (every declaration bound, every binding declared) is verified by
+    // `ModuleRegistry::verify_native_contract` once registration completes.
+    registry.natives_mut().merge(crate::natives::core_natives());
+
     let mut paths = Vec::new();
     for module in core_modules() {
         let name = core_relative_name(&module.path);

@@ -25,5 +25,6 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+uuid.workspace = true
 portable-pty = "0.8"
 strip-ansi-escapes = "0.2"

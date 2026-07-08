@@ -209,6 +209,7 @@ fn compile_module_impl(
         foreign_unit_structs,
         foreign_const_hashes,
         foreign_abilities,
+        extern_natives,
     } = env;
     // Collect function definitions.
     let functions: Vec<&FunctionDef> = module
@@ -234,6 +235,48 @@ fn compile_module_impl(
     for func in &functions {
         let hash = compute_temporary_hash(&func.name);
         temp_hashes.insert(own_item_key(module_id.as_ref(), &func.name), hash);
+    }
+
+    // Content-address every `extern fn` in a pre-pass, like consts: a
+    // native object is a leaf — a pure function of its host binding's
+    // `(uuid, param_count)` — so its hash is final immediately and function
+    // bodies compiled afterward link to it like any callee. The declared
+    // name never enters the object, so renaming an extern fn moves no hash;
+    // it only re-keys the host binding (a loud error here until updated).
+    let mut native_objects: HashMap<blake3::Hash, crate::object::StoredObject> = HashMap::new();
+    let mut native_names: HashMap<Arc<str>, blake3::Hash> = HashMap::new();
+    for item in &module.items {
+        let ItemKind::ExternFn(def) = &item.kind else {
+            continue;
+        };
+        let span = (def.name_span.start, def.name_span.end);
+        let Some(key) = extern_natives.get(&def.name) else {
+            return Err(CompileError::new(
+                CompileErrorKind::UnboundExternFn {
+                    name: Arc::clone(&def.name),
+                },
+                span,
+            ));
+        };
+        let declared = def.params.len() as u8;
+        if key.arity != declared {
+            return Err(CompileError::new(
+                CompileErrorKind::ExternArityMismatch {
+                    name: Arc::clone(&def.name),
+                    declared,
+                    bound: key.arity,
+                },
+                span,
+            ));
+        }
+        let object = crate::object::StoredObject::Native {
+            uuid: key.uuid,
+            param_count: declared,
+        };
+        let hash = object.hash();
+        temp_hashes.insert(own_item_key(module_id.as_ref(), &def.name), hash);
+        native_objects.insert(hash, object);
+        native_names.insert(Arc::clone(&def.name), hash);
     }
 
     // Content-address every local `const` in a pre-pass, before function
@@ -367,6 +410,15 @@ fn compile_module_impl(
         module.objects.entry(hash).or_insert(object);
     }
     module.const_names = const_names;
+    // Fold in the module's extern fns. They bind names like functions (an
+    // extern fn exports, imports, and links exactly like a compiled one),
+    // and their native objects ship alongside everything else.
+    for (hash, object) in native_objects {
+        module.objects.entry(hash).or_insert(object);
+    }
+    for (name, hash) in native_names {
+        module.function_names.entry(name).or_insert(hash);
+    }
     Ok(module)
 }
 

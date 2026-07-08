@@ -387,9 +387,12 @@ impl Vm {
                     }
                     args.reverse();
 
-                    // Now pop the closure.
-                    let closure = match self.pop()? {
-                        Value::Closure(c) => c,
+                    // Now pop the callee: a closure, or a bare function
+                    // reference (a first-class named function or extern fn
+                    // has no environment to capture).
+                    let (function_hash, environment) = match self.pop()? {
+                        Value::Closure(c) => (c.function_hash, c.environment.clone()),
+                        Value::FunctionRef(hash) => (hash, Vec::new()),
                         other => {
                             return Err(VmError::TypeError {
                                 expected: "closure",
@@ -404,12 +407,8 @@ impl Vm {
                         self.stack.push(arg);
                     }
 
-                    // Call the closure's function with its captured environment.
-                    self.push_frame_with_captures(
-                        &closure.function_hash,
-                        arg_count,
-                        closure.environment.clone(),
-                    )?;
+                    // Call the function with its captured environment.
+                    self.push_frame_with_captures(&function_hash, arg_count, environment)?;
                 }
 
                 Opcode::LoadCapture => {

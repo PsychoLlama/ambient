@@ -505,6 +505,13 @@ fn get_symbol_scheme(
                 // `with` clause on an export means pure.
                 return Some(build_function_scheme(infer, func, false));
             }
+            // A foreign extern fn exports as a Function; its declared
+            // signature is the whole contract (always pure).
+            (crate::ast::ItemKind::ExternFn(def), ExportKind::Function)
+                if def.name.as_ref() == name =>
+            {
+                return Some(super::locals::build_extern_fn_scheme(infer, def));
+            }
             (crate::ast::ItemKind::Const(const_def), ExportKind::Const)
                 if const_def.name.as_ref() == name =>
             {

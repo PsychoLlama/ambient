@@ -36,6 +36,10 @@ pub struct Generation {
     pub functions: HashMap<blake3::Hash, Arc<CompiledFunction>>,
     /// Value-object hash → the `const` value it holds.
     pub values: HashMap<blake3::Hash, Value>,
+    /// Native-object hash → its `(uuid, param_count)` identity. Loaded so
+    /// calls to an extern fn dispatch to the host implementation registered
+    /// on the VM.
+    pub natives: HashMap<blake3::Hash, (uuid::Uuid, u8)>,
 }
 
 /// A shared code generation.
@@ -56,7 +60,17 @@ pub fn functions_from_module(compiled: &CompiledModule) -> Functions {
         .iter()
         .filter_map(|(hash, object)| Some((*hash, object.as_value()?)))
         .collect();
-    Arc::new(Generation { functions, values })
+    // Native objects too: each carries an extern fn's (uuid, arity).
+    let natives = compiled
+        .objects
+        .iter()
+        .filter_map(|(hash, object)| Some((*hash, object.as_native()?)))
+        .collect();
+    Arc::new(Generation {
+        functions,
+        values,
+        natives,
+    })
 }
 
 /// Builds a base VM for a process: platform host handlers registered
@@ -375,6 +389,9 @@ impl ProcessRuntime {
         for (hash, value) in &functions.values {
             vm.load_value(*hash, value.clone());
         }
+        for (hash, (uuid, param_count)) in &functions.natives {
+            vm.load_native(*hash, *uuid, *param_count);
+        }
         register_process(&mut vm, &self.interface, self, ctx);
         vm
     }
@@ -614,6 +631,9 @@ fn process_main(
                 }
                 for (hash, value) in &functions.values {
                     vm.load_value(*hash, value.clone());
+                }
+                for (hash, (uuid, param_count)) in &functions.natives {
+                    vm.load_native(*hash, *uuid, *param_count);
                 }
             }
             if let Some((new_init, new_handler)) = staged.swap {

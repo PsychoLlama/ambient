@@ -289,11 +289,20 @@ fn collect_function_signatures(
 ) {
     let mut next_binding_id: BindingId = 1_000_000;
     for item in &module.items {
-        if let crate::ast::ItemKind::Function(func) = &item.kind {
-            let binding_id = next_binding_id;
-            next_binding_id += 1;
-            let scheme = build_function_scheme(infer, func, true);
-            bind_own_item(env, module_id, binding_id, &func.name, scheme);
+        match &item.kind {
+            crate::ast::ItemKind::Function(func) => {
+                let binding_id = next_binding_id;
+                next_binding_id += 1;
+                let scheme = build_function_scheme(infer, func, true);
+                bind_own_item(env, module_id, binding_id, &func.name, scheme);
+            }
+            crate::ast::ItemKind::ExternFn(def) => {
+                let binding_id = next_binding_id;
+                next_binding_id += 1;
+                let scheme = build_extern_fn_scheme(infer, def);
+                bind_own_item(env, module_id, binding_id, &def.name, scheme);
+            }
+            _ => {}
         }
     }
 }
@@ -422,6 +431,46 @@ pub(super) fn build_function_scheme(
         Scheme::poly(quantified_vars, fn_ty)
     }
 }
+/// Build a type scheme for an `extern fn` from its declared signature.
+///
+/// Extern fns are pure by construction (the parser rejects a `with`
+/// clause), so the ability set is always empty — never an inference
+/// variable. The full signature is written (lowering enforces typed params
+/// and a return type), so no holes remain beyond quantified type params.
+pub(super) fn build_extern_fn_scheme(infer: &mut Infer, def: &crate::ast::ExternFnDef) -> Scheme {
+    let mut type_var_map: HashMap<Arc<str>, TypeVarId> = HashMap::new();
+    let mut quantified_vars = Vec::new();
+    for tp in &def.type_params {
+        let var_id = infer.r#gen.fresh_id();
+        type_var_map.insert(Arc::clone(&tp.name), var_id);
+        quantified_vars.push(var_id);
+    }
+
+    let param_types: Vec<Type> = def
+        .params
+        .iter()
+        .map(|p| match &p.ty {
+            Some(ty) => {
+                let substituted = substitute_type_params(ty, &type_var_map);
+                resolve_erroring(infer, &substituted)
+            }
+            // Unreachable through lowering (typed params are enforced), but
+            // a hole is the graceful fallback for a hand-built AST.
+            None => infer.fresh(),
+        })
+        .collect();
+
+    let substituted_ret = substitute_type_params(&def.ret_ty, &type_var_map);
+    let ret_ty = resolve_erroring(infer, &substituted_ret);
+
+    let fn_ty = Type::function_with_abilities(param_types, ret_ty, AbilitySet::Empty);
+    if quantified_vars.is_empty() {
+        Scheme::mono(fn_ty)
+    } else {
+        Scheme::poly(quantified_vars, fn_ty)
+    }
+}
+
 /// Substitute type parameters in a type with type variables.
 pub(in crate::infer) fn substitute_type_params(
     ty: &Type,
@@ -689,6 +738,16 @@ fn check_declared_types(
                 if let Some(ret) = &func.ret_ty {
                     report_undefined_types(infer, ret, span, &known, errors);
                 }
+            }
+            crate::ast::ItemKind::ExternFn(def) => {
+                let known = type_param_set(&def.type_params);
+                for p in &def.params {
+                    if let Some(ty) = &p.ty {
+                        let s = (p.span.start, p.span.end);
+                        report_undefined_types(infer, ty, s, &known, errors);
+                    }
+                }
+                report_undefined_types(infer, &def.ret_ty, span, &known, errors);
             }
             crate::ast::ItemKind::Const(c) => {
                 if let Some(ty) = &c.ty {

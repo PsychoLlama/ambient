@@ -53,6 +53,17 @@ pub enum CompileErrorKind {
     /// Unknown ability method.
     UnknownAbilityMethod { ability: Arc<str>, method: Arc<str> },
 
+    /// An `extern fn` declaration with no host binding to compile against.
+    UnboundExternFn { name: Arc<str> },
+
+    /// An `extern fn` whose host binding declares a different arity than
+    /// the source signature.
+    ExternArityMismatch {
+        name: Arc<str>,
+        declared: u8,
+        bound: u8,
+    },
+
     /// Internal compiler error (invariant violation).
     Internal { message: &'static str },
 }
@@ -70,6 +81,20 @@ impl std::fmt::Display for CompileErrorKind {
             }
             Self::Unsupported { feature } => write!(f, "unsupported feature: {feature}"),
             Self::UnknownAbility { name } => write!(f, "unknown ability: `{name}`"),
+            Self::UnboundExternFn { name } => write!(
+                f,
+                "extern fn `{name}` has no native binding — the host must \
+                 register an implementation for this module"
+            ),
+            Self::ExternArityMismatch {
+                name,
+                declared,
+                bound,
+            } => write!(
+                f,
+                "extern fn `{name}` declares {declared} parameter(s) but its \
+                 native binding registers {bound}"
+            ),
             Self::UnknownAbilityMethod { ability, method } => {
                 write!(f, "unknown method `{method}` for ability `{ability}`")
             }

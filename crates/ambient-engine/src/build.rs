@@ -57,6 +57,11 @@ pub struct BuildOptions<'a> {
     /// identities). The type checker resolves abilities through the
     /// registry; this is the compiler's separate concern.
     pub prelude_abilities: &'a [Arc<crate::ability_resolver::DynAbility>],
+    /// Embedder native bindings for `extern fn` declarations in *user*
+    /// modules (core's own bindings attach automatically). The build
+    /// enforces the full contract: every declaration bound, every binding
+    /// declared.
+    pub natives: Option<&'a crate::natives::NativeRegistry>,
     /// Optional callback for reporting per-module progress.
     pub progress: Option<ProgressCallback<'a>>,
 }
@@ -176,6 +181,13 @@ pub fn build_package(
     // string on failure (a parse error there is a compiler bug, not user
     // error), so adapt the richer `ParseFn`.
     let parse_str = |s: &str| parse(s).map_err(|e| e.message);
+
+    // Attach embedder native bindings before anything compiles (core's own
+    // bindings attach inside `register_core_modules`).
+    if let Some(natives) = options.natives {
+        registry.natives_mut().merge(natives);
+    }
+
     let mut all_compiled = CompiledModule::new();
     let mut module_function_hashes: HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>> =
         HashMap::new();
@@ -226,6 +238,23 @@ pub fn build_package(
     }
     for module in pkg.all_modules() {
         registry.register(&module.path, Arc::new(module.ast.clone()));
+    }
+
+    // Every module and every native binding is now registered: enforce the
+    // extern-fn contract in both directions before compiling anything, so a
+    // drifted host table or an unbound user declaration reports completely
+    // and up front.
+    let violations = registry.verify_native_contract();
+    if !violations.is_empty() {
+        let joined = violations
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(BuildError::Compile {
+            module: "extern bindings".to_string(),
+            error: joined,
+        });
     }
 
     // Compile in dependency order (dependencies first).
