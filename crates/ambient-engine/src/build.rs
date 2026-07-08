@@ -403,7 +403,7 @@ fn compilation_order(deps: &BTreeMap<String, Vec<String>>) -> Vec<String> {
 /// function, bound under its canonical name.
 ///
 /// - Ordinary functions bind under their [`Fqn`] ([`NameKey::Item`]);
-///   `core::collections::List::map`, `utils::helper`. The resolve pass
+///   `core::collections::list::map`, `utils::helper`. The resolve pass
 ///   rewrites every cross-module reference to exactly this key.
 /// - Impl-method dispatch symbols (`<uuid>::Trait::method`) are globally
 ///   unique content symbols and bind as-is under [`NameKey::Bare`], so
@@ -470,7 +470,7 @@ pub fn compile_core_modules(
     let mut paths_by_key: BTreeMap<String, ModulePath> = BTreeMap::new();
     for core_path in &core_paths {
         // The prelude module is a pure re-export container (`pub use
-        // core::Option::{Some, None}`, ...). It is registered so its
+        // core::option::{Some, None}`, ...). It is registered so its
         // re-exports can be injected into every scope, but it is never
         // itself checked or compiled: piecewise variant re-exports aren't a
         // normal importable surface, and it contributes no functions. No
@@ -548,7 +548,7 @@ pub fn compile_core_modules(
         // collide with each other or with user functions. Impl-method
         // dispatch symbols are already globally unique and carry their own
         // `::` (`List::all`), so they pass through unqualified — qualifying
-        // them again would produce a double-qualified `core::collections::List::all`.
+        // them again would produce a double-qualified `core::collections::list::all`.
         let mut compiled = compiled;
         compiled.function_names = qualify_names(&compiled.function_names, &core_path, registry);
         compiled.const_names = qualify_names(&compiled.const_names, &core_path, registry);

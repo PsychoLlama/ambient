@@ -18,7 +18,7 @@ fn test_run_simple_return() {
 /// methods. `.length()` lowers to the dispatch symbol `List::length`, which is
 /// globally unique and already qualified, so the link table must bind it
 /// unprefixed. Regression for the drifted duplicate of `build::linking_table`
-/// that double-qualified it (`core::collections::List::List::length`). The `CliTest` harness
+/// that double-qualified it (`core::collections::list::List::length`). The `CliTest` harness
 /// package-wraps every `run`, so this bypasses it to exercise the bare-file path.
 #[test]
 fn single_file_run_links_core_inherent_methods() {

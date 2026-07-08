@@ -185,7 +185,7 @@ pub(crate) fn format_module_hover(module_path: &ModulePath, registry: &ModuleReg
 ///
 /// Renders the expression's type through [`format_type_hover`], so a
 /// primitive-typed expression shows its fully-qualified identity
-/// (`core::primitives::String`) rather than the bare `String`. The literal arms fall back
+/// (`core::primitives::string`) rather than the bare `String`. The literal arms fall back
 /// to that same FQN when inference hasn't attached a type, since a literal's
 /// primitive is unambiguous.
 pub(crate) fn format_expr_hover(expr: &ambient_engine::ast::Expr) -> String {

@@ -173,7 +173,7 @@ fn use_trees_flatten_to_plain_imports() {
             "main.ab",
             r"
 use {pkg::util::double, pkg::deep::{nested::leaf::leaf_fn as leaf7}};
-use core::primitives::Number::sqrt as root;
+use core::primitives::number::sqrt as root;
 
 pub fn run(): Number {
   double(leaf7()) + root(4)
@@ -231,12 +231,12 @@ fn intrinsics_import_and_alias_like_functions() {
     let dir = package(&[(
         "main.ab",
         r"
-use core::primitives::Number::sqrt;
-use core::primitives::Number;
-use core::collections::List;
+use core::primitives::number::sqrt;
+use core::primitives::number;
+use core::collections::list;
 
 pub fn run(): Number {
-  sqrt(16) + Number::sqrt(16) + core::primitives::Number::sqrt(16) + List::length(List::range(1, 4))
+  sqrt(16) + number::sqrt(16) + core::primitives::number::sqrt(16) + list::length(list::range(1, 4))
 }
 ",
     )]);
@@ -649,7 +649,7 @@ pub fn run(): Number {
 }
 
 /// A local declaration shadows the prelude: a user `enum E { Some, None }`
-/// binds `Some`/`None` to *its* variants, not `core::Option`'s. The match
+/// binds `Some`/`None` to *its* variants, not `core::option`'s. The match
 /// arms and constructor resolve to the local enum end-to-end.
 #[test]
 fn user_declaration_shadows_prelude() {
@@ -670,7 +670,7 @@ pub fn run(): Number {
     assert_eq!(run(dir.path()), "7");
 }
 
-/// An explicit `use core::Option::Option;` names the very enum the prelude
+/// An explicit `use core::option::Option;` names the very enum the prelude
 /// already injects. The two must coexist rather than collide: the import
 /// takes precedence at the same origin, and `Option`/`Some`/`None` still
 /// resolve and run. (Variants can't be imported piecemeal — the enum import
@@ -680,7 +680,7 @@ fn explicit_enum_import_coexists_with_prelude() {
     let dir = package(&[(
         "main.ab",
         r"
-use core::Option::Option;
+use core::option::Option;
 
 fn unwrap(o: Option<Number>): Number {
   match o { Some(n) => n, None => 0 }
@@ -697,7 +697,7 @@ pub fn run(): Number { unwrap(Some(5)) + unwrap(None) }
 // ─────────────────────────────────────────────────────────────────────────
 
 /// A deep core path walks through its namespace parents: `core::collections`
-/// and `core::collections::List` are real registered modules, so both the
+/// and `core::collections::list` are real registered modules, so both the
 /// `use` alias spelling and the inline fully-qualified spelling reach the
 /// same `range` — the access-rule invariant, now through two namespace
 /// levels.
@@ -706,12 +706,12 @@ fn core_collections_list_reaches_range_both_ways() {
     let dir = package(&[(
         "main.ab",
         r#"
-use core::collections::List;
+use core::collections::list;
 
 pub fn run(): Number {
   // Alias spelling and inline rooted spelling must agree.
-  let viaAlias = List::range(0, 3);
-  let viaPath = core::collections::List::range(0, 3);
+  let viaAlias = list::range(0, 3);
+  let viaPath = core::collections::list::range(0, 3);
   viaAlias.length() + viaPath.length()
 }
 "#,
@@ -720,7 +720,7 @@ pub fn run(): Number {
 }
 
 /// A moved primitive intrinsic type-checks and runs under its new home:
-/// `core::primitives::Number::sqrt` is both the inherent-method delegate
+/// `core::primitives::number::sqrt` is both the inherent-method delegate
 /// and a directly callable qualified intrinsic.
 #[test]
 fn core_primitives_number_sqrt_checks_and_runs() {
@@ -730,7 +730,7 @@ fn core_primitives_number_sqrt_checks_and_runs() {
 pub fn run(): Number {
   // The inherent method and the qualified intrinsic are the same builtin.
   let viaMethod = (16).sqrt();
-  let viaPath = core::primitives::Number::sqrt(16);
+  let viaPath = core::primitives::number::sqrt(16);
   viaMethod + viaPath
 }
 "#,

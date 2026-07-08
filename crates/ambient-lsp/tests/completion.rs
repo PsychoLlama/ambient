@@ -185,7 +185,7 @@ fn test_no_completion_for_unknown_prefix() {
 #[test]
 fn test_core_module_completion() {
     // `core::` offers the top-level namespaces; the leaf types live one
-    // level deeper (`core::primitives::Number`, `core::collections::List`).
+    // level deeper (`core::primitives::number`, `core::collections::list`).
     LspTest::new()
         .with_source("use core::prim/*|*/")
         .complete_at("0")
@@ -198,10 +198,10 @@ fn test_core_module_completion() {
 #[test]
 fn test_core_nested_module_completion() {
     LspTest::new()
-        .with_source("use core::primitives::Num/*|*/")
+        .with_source("use core::primitives::num/*|*/")
         .complete_at("0")
-        .expect_item("Number")
-        .expect_item_kind("Number", CompletionItemKind::MODULE)
+        .expect_item("number")
+        .expect_item_kind("number", CompletionItemKind::MODULE)
         .done()
         .shutdown();
 }

@@ -374,14 +374,14 @@ fn make_to_string_call(expr: Expr, span: Span) -> Expr {
     Expr::new(ExprKind::Call(Box::new(callee), vec![expr]), span)
 }
 
-/// Create a `core::primitives::String::concat(left, right)` call expression.
+/// Create a `core::primitives::string::concat(left, right)` call expression.
 fn make_string_concat_call(left: Expr, right: Expr, span: Span) -> Expr {
     let callee = Expr::new(
         ExprKind::Name(QualifiedName::qualified(
             vec![
                 Arc::from("core"),
                 Arc::from("primitives"),
-                Arc::from("String"),
+                Arc::from("string"),
             ],
             Arc::from("concat"),
         )),

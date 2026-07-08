@@ -319,7 +319,7 @@ pub struct AbilityMethod {
 /// Examples (each line is one `UseDef` after flattening):
 /// - `use pkg::utils;` — whole-module import
 /// - `use pkg::utils::helper;` — item import
-/// - `use core::primitives::Number::sqrt as root2;` — aliased import
+/// - `use core::primitives::number::sqrt as root2;` — aliased import
 /// - `use utils::inner;` — `Local` root: `utils` is a module alias from
 ///   an earlier `use`
 /// - `pub use pkg::other::Thing;` — re-export

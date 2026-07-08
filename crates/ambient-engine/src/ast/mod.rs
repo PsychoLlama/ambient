@@ -100,7 +100,7 @@ impl PartialEq for QualifiedName {
 impl Eq for QualifiedName {}
 
 impl QualifiedName {
-    /// The full qualified form of this name (`core::collections::List::map`), or just
+    /// The full qualified form of this name (`core::collections::list::map`), or just
     /// the name when the path is empty.
     #[must_use]
     pub fn joined(&self) -> Arc<str> {

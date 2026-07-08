@@ -194,7 +194,7 @@ pub fn format_type(ty: &Type) -> String {
 }
 
 /// Format a type for hover, surfacing the module-qualified identity of a
-/// primitive (`core::primitives::String`) that its bare `Display` name (`String`) omits.
+/// primitive (`core::primitives::string`) that its bare `Display` name (`String`) omits.
 ///
 /// Hover is the one surface that shows a nominal type's fully-qualified
 /// identity; diagnostics, completions, and the REPL keep the terse bare
@@ -392,7 +392,7 @@ fn resolve_module_reference(
 ) -> Option<ModulePath> {
     let (head, rest) = path.split_first()?;
 
-    // Reserved roots spelled inline: `core::collections::List::…`,
+    // Reserved roots spelled inline: `core::collections::list::…`,
     // `core::system::…`, `pkg::a::b::…` resolve absolutely, same as the
     // checker.
     let absolute = match head.as_ref() {

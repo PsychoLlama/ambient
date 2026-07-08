@@ -109,7 +109,7 @@ pub enum Value {
 /// Reference to a module member for introspection.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModuleMemberRef {
-    /// Full path to the member (e.g., `core::collections::List::first`).
+    /// Full path to the member (e.g., `core::collections::list::first`).
     pub path: Arc<str>,
     /// The kind of member.
     pub kind: ModuleExportKind,
@@ -423,7 +423,7 @@ impl EnumValue {
 /// path and list of exports (functions, constants, types, etc.).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModuleValue {
-    /// The module path (e.g., `pkg::utils` or `core::primitives::Number`).
+    /// The module path (e.g., `pkg::utils` or `core::primitives::number`).
     pub path: Arc<str>,
 
     /// Exported symbols from this module.

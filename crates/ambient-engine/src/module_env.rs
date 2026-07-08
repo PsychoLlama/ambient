@@ -48,7 +48,7 @@ pub struct ModuleEnv {
     /// needs the definitions themselves, not name→hash entries.
     pub imported_enums: Vec<EnumDef>,
     /// Every public foreign enum's variants, keyed by their canonical
-    /// two-segment [`Fqn`] (`core::Option::Some`). The *qualified* channel:
+    /// two-segment [`Fqn`] (`core::option::Some`). The *qualified* channel:
     /// [`Self::imported_enums`] covers bare references; fully-qualified
     /// references — which need no import — are looked up here.
     pub foreign_enum_variants: Vec<(Fqn, VariantInfo)>,

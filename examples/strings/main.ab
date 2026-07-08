@@ -2,8 +2,8 @@
 //!
 //! Demonstrates string manipulation using stdlib intrinsics.
 
-use core::primitives::String;
-use core::collections::List;
+use core::primitives::string;
+use core::collections::list;
 
 /// Checks if a string is a palindrome.
 fn is_palindrome(s: String): Bool {
@@ -21,7 +21,7 @@ fn count_char_helper(chars: List<String>, target: String, acc: Number): Number {
     match chars.head() {
         Some(c) => {
             let increment = if c == target { 1 } else { 0 };
-            count_char_helper(List::tail(chars), target, acc + increment)
+            count_char_helper(list::tail(chars), target, acc + increment)
         }
         None => acc,
     }
@@ -77,14 +77,14 @@ fn word_count(s: String): Number {
 fn title_case(s: String): String {
     let words = s.split(" ");
     let capitalized = title_case_words(words);
-    String::join(capitalized, " ")
+    string::join(capitalized, " ")
 }
 
 fn title_case_words(words: List<String>): List<String> {
     match words.head() {
         Some(word) => {
             let cap_word = capitalize_word(word);
-            [cap_word].concat(title_case_words(List::tail(words)))
+            [cap_word].concat(title_case_words(list::tail(words)))
         }
         None => [],
     }
@@ -114,7 +114,7 @@ fn initials_helper(words: List<String>, acc: String): String {
             } else {
                 ""
             };
-            initials_helper(List::tail(words), acc.concat(initial))
+            initials_helper(list::tail(words), acc.concat(initial))
         }
         None => acc,
     }

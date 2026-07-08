@@ -8,7 +8,7 @@
 //! - a bare same-module name (a sibling `fn`/`const`/variant/type/ability),
 //! - a bare imported name (`double` after `use pkg::util::double;`),
 //! - a module-alias path (`util::double`, `nested::leaf::leaf_fn`),
-//! - an inline rooted path (`pkg::util::double`, `core::primitives::Number::sqrt`,
+//! - an inline rooted path (`pkg::util::double`, `core::primitives::number::sqrt`,
 //!   `self::sibling::helper`, `core::system::Stdio`).
 //!
 //! Only true lexical **locals** (params, `let`, pattern/lambda bindings)
@@ -421,7 +421,7 @@ impl<'r> Resolver<'r> {
             // `self::foo`) canonicalizes to the current module's `Fqn` —
             // the same identity a bare same-module reference resolves to.
             // Whether `foo` is a declared item or an injected export
-            // (an intrinsic like `core::collections::List::get`), the
+            // (an intrinsic like `core::collections::list::get`), the
             // env/intrinsic tables and linker key by this `Fqn`.
             name.resolved = Some(self.canonical(&target, vec![Arc::clone(&name.name)]));
             return;
@@ -590,7 +590,7 @@ impl<'r> Resolver<'r> {
     ///
     /// A final segment that names an enum variant lands on the canonical
     /// two-segment ident `Fqn(enum_module, [Enum, Variant])` — the key its
-    /// constructor scheme binds under — so `core::Option::Some` resolves
+    /// constructor scheme binds under — so `core::option::Some` resolves
     /// exactly like the imported/bare spellings.
     fn lookup_item(&mut self, module: &ModulePath, name: &str) -> Option<Fqn> {
         let (export, origin) = self.registry.lookup_symbol(module, name).ok()?;

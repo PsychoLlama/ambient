@@ -127,16 +127,16 @@ fn test_list_accessors_return_option() {
     let (dir, pkg) = temp_package(
         r#"
         pub fn run(): String {
-            let hit = match core::collections::List::get([1, 2, 3], 1) {
+            let hit = match core::collections::list::get([1, 2, 3], 1) {
                 Some(v) => v,
                 None => 0 - 1,
             };
-            let miss = match core::collections::List::head([]) {
+            let miss = match core::collections::list::head([]) {
                 Some(v) => v,
                 None => 0 - 1,
             };
-            let first = core::collections::List::first([7, 8]).unwrap_or(0);
-            let last = core::collections::List::last([7, 8]).unwrap_or(0);
+            let first = core::collections::list::first([7, 8]).unwrap_or(0);
+            let last = core::collections::list::last([7, 8]).unwrap_or(0);
             core::convert::to_string(hit) + " " + core::convert::to_string(miss)
                 + " " + core::convert::to_string(first) + " " + core::convert::to_string(last)
         }
@@ -220,8 +220,8 @@ fn test_string_index_of_returns_option() {
     let (dir, pkg) = temp_package(
         r#"
         pub fn run(): String {
-            let found = core::primitives::String::index_of("hello world", "wor").unwrap_or(0 - 1);
-            let missing = core::primitives::String::index_of("hello", "xyz").is_none();
+            let found = core::primitives::string::index_of("hello world", "wor").unwrap_or(0 - 1);
+            let missing = core::primitives::string::index_of("hello", "xyz").is_none();
             core::convert::to_string(found) + " " + core::convert::to_string(missing)
         }
         "#,

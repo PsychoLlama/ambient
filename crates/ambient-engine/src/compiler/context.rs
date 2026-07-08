@@ -226,7 +226,7 @@ pub(super) struct ModuleContext {
     /// shadow prelude variants of the same name.
     pub(super) enums: HashMap<Arc<str>, VariantInfo>,
     /// Foreign enum variant constructors keyed by their canonical
-    /// two-segment [`Fqn`] (`core::Option::Some`,
+    /// two-segment [`Fqn`] (`core::option::Some`,
     /// `pkg::shapes::Shape::Circle`). Consulted *before* the bare
     /// [`Self::enums`] table so a fully-qualified reference always inlines
     /// the defining enum's tag, never a same-named local variant's (see

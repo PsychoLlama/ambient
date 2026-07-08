@@ -18,16 +18,16 @@ pub fn run(): () with Stdio, Network {
 
     // Send a message as Binary
     let message = string_to_binary("Hello from Ambient!");
-    Stdio::out!("Client: sending ".concat(core::convert::to_string(core::primitives::Binary::length(message)).concat(" bytes...")));
+    Stdio::out!("Client: sending ".concat(core::convert::to_string(core::primitives::binary::length(message)).concat(" bytes...")));
     Network::send!(conn, message);
 
     // Receive the echo
     let response = Network::receive!(conn);
-    Stdio::out!("Client: received ".concat(core::convert::to_string(core::primitives::Binary::length(response)).concat(" bytes back")));
+    Stdio::out!("Client: received ".concat(core::convert::to_string(core::primitives::binary::length(response)).concat(" bytes back")));
 
     // Send empty message to signal quit
     Stdio::out!("Client: sending empty message to quit...");
-    Network::send!(conn, core::primitives::Binary::from([]));
+    Network::send!(conn, core::primitives::binary::from([]));
 
     Network::close!(conn);
     Stdio::out!("Client: done")
@@ -36,7 +36,7 @@ pub fn run(): () with Stdio, Network {
 /// Convert a string to Binary (ASCII).
 fn string_to_binary(s: String): Binary {
     // For now, just create a simple test payload
-    // In a real implementation, we'd use core::primitives::String::bytes or similar
+    // In a real implementation, we'd use core::primitives::string::bytes or similar
     // "Hello from Ambient!" in ASCII
-    core::primitives::Binary::from([72, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 65, 109, 98, 105, 101, 110, 116, 33])
+    core::primitives::binary::from([72, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 65, 109, 98, 105, 101, 110, 116, 33])
 }

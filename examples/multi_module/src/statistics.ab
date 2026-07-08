@@ -20,7 +20,7 @@ fn sum_squared_diff(xs: List<Number>, mean: Number, acc: Number): Number {
     match xs.head() {
         Some(h) => {
             let diff = h - mean;
-            sum_squared_diff(core::collections::List::tail(xs), mean, acc + diff * diff)
+            sum_squared_diff(core::collections::list::tail(xs), mean, acc + diff * diff)
         }
         None => acc,
     }

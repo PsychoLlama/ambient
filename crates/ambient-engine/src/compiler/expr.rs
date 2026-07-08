@@ -144,7 +144,7 @@ pub(super) fn compile_expr(
                 .and_then(|fqn| ctx.foreign_variants.get(fqn))
                 .cloned()
             {
-                // Fully-qualified unit variant as a value (`core::Option::None`).
+                // Fully-qualified unit variant as a value (`core::option::None`).
                 // Keyed by `Fqn`, consulted before the bare `ctx.enums` table
                 // so a same-named local variant can't steal its tag.
                 if variant.has_payload {
@@ -419,7 +419,7 @@ pub(super) fn compile_expr(
                     .cloned()
                 {
                     // A fully-qualified variant constructor
-                    // (`core::Option::Some(x)`, `pkg::shapes::Shape::Circle(3)`).
+                    // (`core::option::Some(x)`, `pkg::shapes::Shape::Circle(3)`).
                     // Keyed by `Fqn`, so it is consulted *before* the bare
                     // `ctx.enums` table and the cross-module bail — a
                     // same-named local variant can never steal its tag.

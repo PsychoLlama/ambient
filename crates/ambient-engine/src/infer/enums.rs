@@ -49,7 +49,7 @@ pub struct EnumInfo {
     /// The module that declares this enum — the first two ident segments of
     /// each variant's `Fqn(module, [Enum, Variant])` key. `None` only for
     /// registry-less checks where the resolve pass never ran (`Option`/`Result`
-    /// arrive through the prelude carrying their `core::Option`/`core::Result`
+    /// arrive through the prelude carrying their `core::option`/`core::result`
     /// module like any other imported enum).
     pub module: Option<ModuleId>,
 }

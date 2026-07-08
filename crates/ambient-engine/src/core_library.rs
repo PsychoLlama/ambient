@@ -1,8 +1,8 @@
 //! Core library support for the Ambient language.
 //!
 //! The core library provides built-in modules importable under the
-//! reserved `core::` root (`core::collections::List`,
-//! `core::primitives::Number`, `core::Option`, ...). Its *shape* is
+//! reserved `core::` root (`core::collections::list`,
+//! `core::primitives::number`, `core::option`, ...). Its *shape* is
 //! defined by the `core_lib/` source tree itself — a directory of `.ab`
 //! files plus per-directory `main.ab` modules — not by a hand-maintained
 //! list here: [`register_core_modules`] walks the embedded tree and maps
@@ -111,8 +111,8 @@ fn core_module_path(relative: &Path) -> Option<(ModulePath, bool)> {
     Some((ModulePath::from_segments(segments)?, is_dir_module))
 }
 
-/// The `core::`-relative name of a core module path (`core::collections::List`
-/// → `collections::List`; the `core` root → `""`).
+/// The `core::`-relative name of a core module path (`core::collections::list`
+/// → `collections::list`; the `core` root → `""`).
 fn core_relative_name(path: &ModulePath) -> String {
     path.segments()
         .iter()
@@ -160,7 +160,7 @@ impl CoreLibrary {
     }
 
     /// Get all available core module names, fully qualified relative to the
-    /// `core` root (`collections::List`, `primitives::Number`, `Option`,
+    /// `core` root (`collections::list`, `primitives::number`, `Option`,
     /// ...). The `core` root itself is excluded.
     #[must_use]
     pub fn available_modules() -> Vec<String> {
@@ -201,9 +201,9 @@ impl CoreLibrary {
 ///
 /// Intrinsics are items of their core module even though they have no AST
 /// declaration (they compile to dedicated opcodes), so they export like
-/// any compiled function: `use core::primitives::Number::sqrt;` and `use
-/// core::primitives::Number;` + `Number::sqrt(…)` resolve the same way
-/// `core::primitives::Number::sqrt(…)` does.
+/// any compiled function: `use core::primitives::number::sqrt;` and `use
+/// core::primitives::number;` + `Number::sqrt(…)` resolve the same way
+/// `core::primitives::number::sqrt(…)` does.
 ///
 /// # Errors
 ///
@@ -302,17 +302,17 @@ mod tests {
 
     #[test]
     fn test_has_module() {
-        assert!(CoreLibrary::has_module(&[Arc::from("collections::List")]));
+        assert!(CoreLibrary::has_module(&[Arc::from("collections::list")]));
         assert!(CoreLibrary::has_module(&[
             Arc::from("primitives"),
-            Arc::from("Number")
+            Arc::from("number")
         ]));
         assert!(!CoreLibrary::has_module(&[Arc::from("nonexistent")]));
     }
 
     #[test]
     fn test_get_source() {
-        let source = CoreLibrary::get_source(&[Arc::from("collections::List")]);
+        let source = CoreLibrary::get_source(&[Arc::from("collections::list")]);
         assert!(source.is_ok());
         assert!(source.unwrap().contains("fold"));
     }
@@ -321,12 +321,12 @@ mod tests {
     fn test_available_modules() {
         let modules = CoreLibrary::available_modules();
         // Fully qualified relative to the `core` root.
-        assert!(modules.contains(&"collections::List".to_string()));
-        assert!(modules.contains(&"primitives::Number".to_string()));
-        assert!(modules.contains(&"primitives::String".to_string()));
+        assert!(modules.contains(&"collections::list".to_string()));
+        assert!(modules.contains(&"primitives::number".to_string()));
+        assert!(modules.contains(&"primitives::string".to_string()));
         // Namespace parents and top-level modules are present too.
         assert!(modules.contains(&"collections".to_string()));
-        assert!(modules.contains(&"Option".to_string()));
+        assert!(modules.contains(&"option".to_string()));
         // `traits` registers as an ordinary core module now.
         assert!(modules.contains(&"traits".to_string()));
         // The `core` root itself is not.
@@ -335,8 +335,8 @@ mod tests {
 
     #[test]
     fn test_to_module_path() {
-        let path = CoreLibrary::to_module_path(&[Arc::from("collections"), Arc::from("List")]);
-        assert_eq!(path.to_string(), "core::collections::List");
+        let path = CoreLibrary::to_module_path(&[Arc::from("collections"), Arc::from("list")]);
+        assert_eq!(path.to_string(), "core::collections::list");
     }
 
     #[test]

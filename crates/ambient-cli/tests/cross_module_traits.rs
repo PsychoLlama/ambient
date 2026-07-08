@@ -549,7 +549,7 @@ fn test_core_method_and_module_call_coexist() {
     // `nums::scaled(...)`) and an inherent method `.scaled(factor)` of the
     // same name both resolve and agree. Core no longer exposes combinators
     // as free functions, so the coexistence is demonstrated with a user
-    // module rather than `core::Option::map`.
+    // module rather than `core::option::map`.
     let (_dir, pkg) = temp_multi_package(&[
         (
             "nums.ab",
@@ -607,13 +607,13 @@ fn test_inherent_impl_on_primitives() {
         r#"
         impl String {
             fn shout(self): String {
-                core::primitives::String::to_upper(self)
+                core::primitives::string::to_upper(self)
             }
         }
 
         impl Number {
             fn clamped(self, lo: Number, hi: Number): Number {
-                core::primitives::Number::min(core::primitives::Number::max(self, lo), hi)
+                core::primitives::number::min(core::primitives::number::max(self, lo), hi)
             }
         }
 

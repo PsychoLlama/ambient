@@ -5,11 +5,11 @@
 //! signature, and how to emit its bytecode. The type checker
 //! (`infer::intrinsics`) and the compiler both consult this table, so a
 //! builtin cannot type-check without compiling or vice versa — previously
-//! two hand-maintained lists drifted (e.g. `core::collections::List::first` compiled
+//! two hand-maintained lists drifted (e.g. `core::collections::list::first` compiled
 //! but never type-checked).
 //!
 //! Intrinsics must be called with their full qualified path
-//! (`core::primitives::Number::sqrt`, `core::collections::List::head`, ...). Signatures may be generic:
+//! (`core::primitives::number::sqrt`, `core::collections::list::head`, ...). Signatures may be generic:
 //! the signature builder receives a variable supply, and `vars.var(0)`
 //! names the same fresh inference variable at every use within one call
 //! site.
@@ -97,7 +97,7 @@ type SigFn = fn(&mut SigVars) -> Signature;
 
 /// An intrinsic function descriptor.
 pub(crate) struct Intrinsic {
-    /// Module path segments (e.g., `["core", "primitives", "Number"]`).
+    /// Module path segments (e.g., `["core", "primitives", "number"]`).
     path: &'static [&'static str],
     /// Function name (e.g., `sqrt`).
     name: &'static str,
@@ -120,9 +120,9 @@ impl Intrinsic {
 /// Look up an intrinsic by its resolved [`Fqn`], regardless of arity.
 ///
 /// Intrinsics are builtin type-associated members: the resolved `Fqn` is a
-/// [`Scope::Builtin`] module (`core::primitives::Number`) with a
+/// [`Scope::Builtin`] module (`core::primitives::number`) with a
 /// single-segment ident (`sqrt`). A table entry stores the full
-/// `core`-rooted module path (`["core", "primitives", "Number"]`), so the
+/// `core`-rooted module path (`["core", "primitives", "number"]`), so the
 /// match drops the leading `core` the builtin scope already carries. This
 /// keys strictly off the `Fqn` struct — never a joined string.
 pub(crate) fn find(fqn: &Fqn) -> Option<&'static Intrinsic> {
@@ -207,230 +207,230 @@ fn set2_to_set(v: &mut SigVars) -> Signature {
 /// Table of all intrinsic functions.
 static INTRINSICS: &[Intrinsic] = &[
     // ─────────────────────────────────────────────────────────────────────
-    // core::primitives::Number
+    // core::primitives::number
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "sqrt",
         1,
         EmitStrategy::Opcode(Opcode::Sqrt),
         num1,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "abs",
         1,
         EmitStrategy::Opcode(Opcode::Abs),
         num1,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "floor",
         1,
         EmitStrategy::Opcode(Opcode::Floor),
         num1,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "ceil",
         1,
         EmitStrategy::Opcode(Opcode::Ceil),
         num1,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "round",
         1,
         EmitStrategy::Opcode(Opcode::Round),
         num1,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "trunc",
         1,
         EmitStrategy::Opcode(Opcode::Trunc),
         num1,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "sin",
         1,
         EmitStrategy::Opcode(Opcode::Sin),
         num1,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "cos",
         1,
         EmitStrategy::Opcode(Opcode::Cos),
         num1,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "tan",
         1,
         EmitStrategy::Opcode(Opcode::Tan),
         num1,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "ln",
         1,
         EmitStrategy::Opcode(Opcode::Ln),
         num1,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "exp",
         1,
         EmitStrategy::Opcode(Opcode::Exp),
         num1,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "pow",
         2,
         EmitStrategy::Opcode(Opcode::Pow),
         num2,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "min",
         2,
         EmitStrategy::Opcode(Opcode::Min),
         num2,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "max",
         2,
         EmitStrategy::Opcode(Opcode::Max),
         num2,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "asin",
         1,
         EmitStrategy::Opcode(Opcode::Asin),
         num1,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "acos",
         1,
         EmitStrategy::Opcode(Opcode::Acos),
         num1,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "atan",
         1,
         EmitStrategy::Opcode(Opcode::Atan),
         num1,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "atan2",
         2,
         EmitStrategy::Opcode(Opcode::Atan2),
         num2,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "log10",
         1,
         EmitStrategy::Opcode(Opcode::Log10),
         num1,
     ),
     intrinsic(
-        &["core", "primitives", "Number"],
+        &["core", "primitives", "number"],
         "log2",
         1,
         EmitStrategy::Opcode(Opcode::Log2),
         num1,
     ),
     // ─────────────────────────────────────────────────────────────────────
-    // core::collections::List
+    // core::collections::list
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
-        &["core", "collections", "List"],
+        &["core", "collections", "list"],
         "length",
         1,
         EmitStrategy::Opcode(Opcode::ListLength),
         |v| sig(vec![list(v.var(0))], Type::number()),
     ),
     intrinsic(
-        &["core", "collections", "List"],
+        &["core", "collections", "list"],
         "get",
         2,
         EmitStrategy::Helper(Helper::ListGet),
         |v| sig(vec![list(v.var(0)), Type::number()], Type::option(v.var(0))),
     ),
     intrinsic(
-        &["core", "collections", "List"],
+        &["core", "collections", "list"],
         "head",
         1,
         EmitStrategy::Helper(Helper::ListHead),
         list_to_opt_elem,
     ),
     intrinsic(
-        &["core", "collections", "List"],
+        &["core", "collections", "list"],
         "tail",
         1,
         EmitStrategy::Helper(Helper::ListTail),
         list_to_list,
     ),
     intrinsic(
-        &["core", "collections", "List"],
+        &["core", "collections", "list"],
         "concat",
         2,
         EmitStrategy::Helper(Helper::ListConcat),
         |v| sig(vec![list(v.var(0)), list(v.var(0))], list(v.var(0))),
     ),
     intrinsic(
-        &["core", "collections", "List"],
+        &["core", "collections", "list"],
         "append",
         2,
         EmitStrategy::Helper(Helper::ListAppend),
         |v| sig(vec![list(v.var(0)), v.var(0)], list(v.var(0))),
     ),
     intrinsic(
-        &["core", "collections", "List"],
+        &["core", "collections", "list"],
         "is_empty",
         1,
         EmitStrategy::Opcode(Opcode::ListIsEmpty),
         |v| sig(vec![list(v.var(0))], Type::bool()),
     ),
     intrinsic(
-        &["core", "collections", "List"],
+        &["core", "collections", "list"],
         "first",
         1,
         EmitStrategy::Helper(Helper::ListHead),
         list_to_opt_elem,
     ),
     intrinsic(
-        &["core", "collections", "List"],
+        &["core", "collections", "list"],
         "last",
         1,
         EmitStrategy::Opcode(Opcode::ListLast),
         list_to_opt_elem,
     ),
     intrinsic(
-        &["core", "collections", "List"],
+        &["core", "collections", "list"],
         "reverse",
         1,
         EmitStrategy::Opcode(Opcode::ListReverse),
         list_to_list,
     ),
     intrinsic(
-        &["core", "collections", "List"],
+        &["core", "collections", "list"],
         "sort",
         1,
         EmitStrategy::Opcode(Opcode::ListSort),
         list_to_list,
     ),
     intrinsic(
-        &["core", "collections", "List"],
+        &["core", "collections", "list"],
         "slice",
         3,
         EmitStrategy::Opcode(Opcode::ListSlice),
@@ -442,52 +442,52 @@ static INTRINSICS: &[Intrinsic] = &[
         },
     ),
     // ─────────────────────────────────────────────────────────────────────
-    // core::primitives::String
+    // core::primitives::string
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "length",
         1,
         EmitStrategy::Helper(Helper::StringLength),
         |_| sig(vec![Type::string()], Type::number()),
     ),
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "concat",
         2,
         EmitStrategy::Helper(Helper::StringConcat),
         |_| sig(vec![Type::string(), Type::string()], Type::string()),
     ),
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "contains",
         2,
         EmitStrategy::Helper(Helper::StringContains),
         str2_to_bool,
     ),
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "split",
         2,
         EmitStrategy::Helper(Helper::StringSplit),
         |_| sig(vec![Type::string(), Type::string()], list(Type::string())),
     ),
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "join",
         2,
         EmitStrategy::Helper(Helper::StringJoin),
         |_| sig(vec![list(Type::string()), Type::string()], Type::string()),
     ),
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "trim",
         1,
         EmitStrategy::Helper(Helper::StringTrim),
         str_to_str,
     ),
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "slice",
         3,
         EmitStrategy::Opcode(Opcode::StringSlice),
@@ -499,14 +499,14 @@ static INTRINSICS: &[Intrinsic] = &[
         },
     ),
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "chars",
         1,
         EmitStrategy::Opcode(Opcode::StringChars),
         |_| sig(vec![Type::string()], list(Type::string())),
     ),
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "replace",
         3,
         EmitStrategy::Opcode(Opcode::StringReplace),
@@ -518,35 +518,35 @@ static INTRINSICS: &[Intrinsic] = &[
         },
     ),
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "starts_with",
         2,
         EmitStrategy::Opcode(Opcode::StringStartsWith),
         str2_to_bool,
     ),
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "ends_with",
         2,
         EmitStrategy::Opcode(Opcode::StringEndsWith),
         str2_to_bool,
     ),
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "to_upper",
         1,
         EmitStrategy::Opcode(Opcode::StringToUpper),
         str_to_str,
     ),
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "to_lower",
         1,
         EmitStrategy::Opcode(Opcode::StringToLower),
         str_to_str,
     ),
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "index_of",
         2,
         EmitStrategy::Opcode(Opcode::StringIndexOf),
@@ -558,14 +558,14 @@ static INTRINSICS: &[Intrinsic] = &[
         },
     ),
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "repeat",
         2,
         EmitStrategy::Opcode(Opcode::StringRepeat),
         |_| sig(vec![Type::string(), Type::number()], Type::string()),
     ),
     intrinsic(
-        &["core", "primitives", "String"],
+        &["core", "primitives", "string"],
         "reverse",
         1,
         EmitStrategy::Opcode(Opcode::StringReverse),
@@ -807,31 +807,31 @@ static INTRINSICS: &[Intrinsic] = &[
         |_| sig(vec![Type::binary()], Type::string()),
     ),
     // ─────────────────────────────────────────────────────────────────────
-    // core::primitives::Binary
+    // core::primitives::binary
     // ─────────────────────────────────────────────────────────────────────
     intrinsic(
-        &["core", "primitives", "Binary"],
+        &["core", "primitives", "binary"],
         "from",
         1,
         EmitStrategy::Opcode(Opcode::BinaryFrom),
         |_| sig(vec![list(Type::number())], Type::binary()),
     ),
     intrinsic(
-        &["core", "primitives", "Binary"],
+        &["core", "primitives", "binary"],
         "to_list",
         1,
         EmitStrategy::Opcode(Opcode::BinaryToList),
         |_| sig(vec![Type::binary()], list(Type::number())),
     ),
     intrinsic(
-        &["core", "primitives", "Binary"],
+        &["core", "primitives", "binary"],
         "length",
         1,
         EmitStrategy::Opcode(Opcode::BinaryLength),
         |_| sig(vec![Type::binary()], Type::number()),
     ),
     intrinsic(
-        &["core", "primitives", "Binary"],
+        &["core", "primitives", "binary"],
         "get",
         2,
         EmitStrategy::Opcode(Opcode::BinaryGet),
@@ -843,7 +843,7 @@ static INTRINSICS: &[Intrinsic] = &[
         },
     ),
     intrinsic(
-        &["core", "primitives", "Binary"],
+        &["core", "primitives", "binary"],
         "slice",
         3,
         EmitStrategy::Opcode(Opcode::BinarySlice),
@@ -855,7 +855,7 @@ static INTRINSICS: &[Intrinsic] = &[
         },
     ),
     intrinsic(
-        &["core", "primitives", "Binary"],
+        &["core", "primitives", "binary"],
         "concat",
         2,
         EmitStrategy::Opcode(Opcode::BinaryConcat),

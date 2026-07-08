@@ -2,7 +2,7 @@
 //
 // The public string API is exposed as inherent methods (`s.length()`,
 // `s.to_upper()`, ...), the canonical core surface. Each method delegates to
-// a low-level string intrinsic (core::primitives::String::length, core::primitives::String::concat,
+// a low-level string intrinsic (core::primitives::string::length, core::primitives::string::concat,
 // ...), which remains the private implementation. This mirrors the
 // `impl<T> List<T>` pattern in list.ab.
 //
@@ -32,86 +32,86 @@ pub fn from_bool(b: Bool): String {
 impl String {
     // Number of characters in the string.
     fn length(self): Number {
-        core::primitives::String::length(self)
+        core::primitives::string::length(self)
     }
     // True if the string has no characters.
     fn is_empty(self): Bool {
-        core::primitives::String::length(self) == 0
+        core::primitives::string::length(self) == 0
     }
     // Concatenate `other` onto the end of this string.
     fn concat(self, other: String): String {
-        core::primitives::String::concat(self, other)
+        core::primitives::string::concat(self, other)
     }
     // True if `needle` appears anywhere in the string.
     fn contains(self, needle: String): Bool {
-        core::primitives::String::contains(self, needle)
+        core::primitives::string::contains(self, needle)
     }
     // Split on every occurrence of `sep`.
     fn split(self, sep: String): List<String> {
-        core::primitives::String::split(self, sep)
+        core::primitives::string::split(self, sep)
     }
     // Strip leading and trailing whitespace.
     fn trim(self): String {
-        core::primitives::String::trim(self)
+        core::primitives::string::trim(self)
     }
     // The substring in [start, end).
     fn slice(self, start: Number, end: Number): String {
-        core::primitives::String::slice(self, start, end)
+        core::primitives::string::slice(self, start, end)
     }
     // The characters as a list of single-character strings.
     fn chars(self): List<String> {
-        core::primitives::String::chars(self)
+        core::primitives::string::chars(self)
     }
     // Replace every occurrence of `from` with `to`.
     fn replace(self, from: String, to: String): String {
-        core::primitives::String::replace(self, from, to)
+        core::primitives::string::replace(self, from, to)
     }
     // True if the string begins with `prefix`.
     fn starts_with(self, prefix: String): Bool {
-        core::primitives::String::starts_with(self, prefix)
+        core::primitives::string::starts_with(self, prefix)
     }
     // True if the string ends with `suffix`.
     fn ends_with(self, suffix: String): Bool {
-        core::primitives::String::ends_with(self, suffix)
+        core::primitives::string::ends_with(self, suffix)
     }
     // Upper-case the string.
     fn to_upper(self): String {
-        core::primitives::String::to_upper(self)
+        core::primitives::string::to_upper(self)
     }
     // Lower-case the string.
     fn to_lower(self): String {
-        core::primitives::String::to_lower(self)
+        core::primitives::string::to_lower(self)
     }
     // Index of the first occurrence of `needle`, if any.
     fn index_of(self, needle: String): Option<Number> {
-        core::primitives::String::index_of(self, needle)
+        core::primitives::string::index_of(self, needle)
     }
     // Repeat the string `count` times.
     fn repeat(self, count: Number): String {
-        core::primitives::String::repeat(self, count)
+        core::primitives::string::repeat(self, count)
     }
     // Reverse the string.
     fn reverse(self): String {
-        core::primitives::String::reverse(self)
+        core::primitives::string::reverse(self)
     }
     // Pad on the left with `pad` until the string is at least `width` long.
     fn pad_start(self, width: Number, pad: String): String {
-        if core::primitives::String::length(self) >= width {
+        if core::primitives::string::length(self) >= width {
             self
         } else {
-            core::primitives::String::concat(pad, self).pad_start(width, pad)
+            core::primitives::string::concat(pad, self).pad_start(width, pad)
         }
     }
     // Pad on the right with `pad` until the string is at least `width` long.
     fn pad_end(self, width: Number, pad: String): String {
-        if core::primitives::String::length(self) >= width {
+        if core::primitives::string::length(self) >= width {
             self
         } else {
-            core::primitives::String::concat(self, pad).pad_end(width, pad)
+            core::primitives::string::concat(self, pad).pad_end(width, pad)
         }
     }
     // Split into lines.
     fn lines(self): List<String> {
-        core::primitives::String::split(self, "\n")
+        core::primitives::string::split(self, "\n")
     }
 }

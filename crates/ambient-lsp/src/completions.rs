@@ -34,7 +34,7 @@ pub struct CompletionContext<'a> {
     /// Whether we're after a `core::…::` path (for core library
     /// completion). Holds the path *relative to* `core` — empty for
     /// `core::`, `"collections"` for `core::collections::`,
-    /// `"collections::List"` for `core::collections::List::`. Generalizes
+    /// `"collections::list"` for `core::collections::list::`. Generalizes
     /// over the arbitrary-depth core hierarchy.
     pub core_scope: Option<&'a str>,
     /// Whether we're after a pkg module path (for pkg module member completion).
@@ -77,7 +77,7 @@ impl<'a> CompletionContext<'a> {
         let after_scope = trimmed_before.ends_with("::");
 
         // The qualified path immediately before a trailing `::`
-        // (e.g. `core`, `core::collections::List`, `core::system::Stdio`).
+        // (e.g. `core`, `core::collections::list`, `core::system::Stdio`).
         let scope_path = if after_scope {
             let without_sep = trimmed_before.strip_suffix("::").unwrap_or(trimmed_before);
             let start = without_sep
@@ -89,7 +89,7 @@ impl<'a> CompletionContext<'a> {
         };
 
         // Core library completions: `core::` and any `core::<ns>::` offer
-        // the next path segment; a leaf like `core::collections::List::`
+        // the next path segment; a leaf like `core::collections::list::`
         // offers that module's members. `core_scope` holds the path
         // relative to `core` (empty for `core::` itself).
         let core_scope = match scope_path {
@@ -111,7 +111,7 @@ impl<'a> CompletionContext<'a> {
                     // A module path: either a conventional lowercase namespace,
                     // or an alias of a known core module. The latter matters for
                     // the PascalCase type-companion modules (`List`, `Option`,
-                    // `Result`): after `use core::collections::List;`, a bare `List::`
+                    // `Result`): after `use core::collections::list;`, a bare `List::`
                     // would otherwise be misread as an ability and lose completions.
                     (None, Some(path))
                 } else {
@@ -328,7 +328,7 @@ fn get_namespace_ability_completions(
 }
 
 /// The registry path of a core module named by its `core`-relative,
-/// `::`-qualified string (`collections::List` → `core::collections::List`;
+/// `::`-qualified string (`collections::list` → `core::collections::list`;
 /// `""` → `core`).
 fn core_module_path(relative: &str) -> Option<ambient_engine::module_path::ModulePath> {
     let mut segments: Vec<&str> = vec!["core"];
@@ -339,7 +339,7 @@ fn core_module_path(relative: &str) -> Option<ambient_engine::module_path::Modul
 }
 
 /// Whether `name` is the final segment of some registered core module
-/// (`List` matches `collections::List`). Drives the "bare alias of a core
+/// (`List` matches `collections::list`). Drives the "bare alias of a core
 /// type-companion module" case in [`CompletionContext`].
 fn core_module_final_segment_matches(name: &str) -> bool {
     CoreLibrary::available_modules()
@@ -358,7 +358,7 @@ fn core_module_final_segment_matches(name: &str) -> bool {
 ///   (so a namespace like `core::` or `core::collections::` completes to
 ///   its members), and
 /// - the target module's own public exports plus its intrinsics (so a leaf
-///   like `core::collections::List::` completes to its API).
+///   like `core::collections::list::` completes to its API).
 fn get_core_path_completions(scope: &str, prefix: &str) -> Vec<CompletionItem> {
     let registry = ambient_analysis::core_platform_registry();
     let Some(target) = core_module_path(scope) else {
@@ -1049,7 +1049,7 @@ mod tests {
         // `core::` offers the top-level namespaces and modules, not the
         // leaf types (which now live under `collections`/`primitives`).
         let items = get_core_path_completions("", "");
-        for expected in ["collections", "primitives", "Option", "Result", "time"] {
+        for expected in ["collections", "primitives", "option", "result", "time"] {
             assert!(
                 items
                     .iter()
@@ -1058,36 +1058,36 @@ mod tests {
                 items.iter().map(|i| &i.label).collect::<Vec<_>>()
             );
         }
-        // The leaf types are one level deeper now.
-        assert!(!items.iter().any(|i| i.label == "List"));
+        // The leaf modules are one level deeper now.
+        assert!(!items.iter().any(|i| i.label == "list"));
     }
 
     #[test]
     fn test_core_namespace_completions() {
         // `core::collections::` walks into the namespace's children.
         let items = get_core_path_completions("collections", "");
-        for expected in ["List", "map", "set"] {
+        for expected in ["list", "map", "set"] {
             assert!(
                 items.iter().any(|i| i.label == expected),
                 "expected `{expected}` under `core::collections::`"
             );
         }
 
-        // Prefix filtering: `core::primitives::Num` → `Number`.
-        let items = get_core_path_completions("primitives", "Num");
+        // Prefix filtering: `core::primitives::num` → `number`.
+        let items = get_core_path_completions("primitives", "num");
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].label, "Number");
+        assert_eq!(items[0].label, "number");
         assert_eq!(items[0].kind, Some(CompletionItemKind::MODULE));
     }
 
     #[test]
     fn test_core_leaf_member_completions() {
         // A leaf module offers its members and intrinsics.
-        let items = get_core_path_completions("collections::List", "");
+        let items = get_core_path_completions("collections::list", "");
         assert!(items.iter().any(|i| i.label == "range")); // pub fn
         assert!(items.iter().any(|i| i.label == "length")); // intrinsic
 
-        let items = get_core_path_completions("primitives::Number", "sq");
+        let items = get_core_path_completions("primitives::number", "sq");
         assert!(items.iter().any(|i| i.label == "sqrt")); // intrinsic
     }
 

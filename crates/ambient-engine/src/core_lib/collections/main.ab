@@ -3,9 +3,9 @@
 // Groups the collection modules — `List` (a type companion with methods),
 // and the intrinsic-only `map` and `set` — under `core::collections`. The
 // members live in the sibling files; this directory module re-exports them
-// so `core::collections::List`, `core::collections::map`, and
+// so `core::collections::list`, `core::collections::map`, and
 // `core::collections::set` resolve through a registered namespace.
 
-pub use self::List;
+pub use self::list;
 pub use self::map;
 pub use self::set;

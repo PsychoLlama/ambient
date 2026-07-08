@@ -79,7 +79,7 @@ impl Infer {
     /// (nominal types only). Returns `None` when this is not such a call —
     /// the caller then falls back to ordinary qualified name resolution, so
     /// module companion functions like `Option::map(opt, f)` keep resolving
-    /// to `core::Option::map`. Argument type errors surface as `Err`.
+    /// to `core::option::map`. Argument type errors surface as `Err`.
     pub(super) fn try_infer_associated_call(
         &mut self,
         env: &TypeEnv,

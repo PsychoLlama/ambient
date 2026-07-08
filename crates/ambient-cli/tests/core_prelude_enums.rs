@@ -74,13 +74,17 @@ fn strip_ansi(s: &str) -> String {
 
 #[test]
 fn core_sources_declare_the_canonical_prelude_enums() {
-    let cases = [("Option", OPTION_UUID), ("Result", RESULT_UUID)];
+    // Module files are snake_case; the enums they declare stay PascalCase.
+    let cases = [
+        ("option", "Option", OPTION_UUID),
+        ("result", "Result", RESULT_UUID),
+    ];
 
-    for (name, uuid) in cases {
-        let source = CoreLibrary::get_source(&[Arc::from(name)])
-            .unwrap_or_else(|e| panic!("core module `{name}` has embedded source: {e}"));
+    for (module_name, name, uuid) in cases {
+        let source = CoreLibrary::get_source(&[Arc::from(module_name)])
+            .unwrap_or_else(|e| panic!("core module `{module_name}` has embedded source: {e}"));
         let module = ambient_parser::parse(source)
-            .unwrap_or_else(|e| panic!("core module `{name}` parses: {e}"));
+            .unwrap_or_else(|e| panic!("core module `{module_name}` parses: {e}"));
 
         let def = module
             .items
@@ -99,7 +103,7 @@ fn core_sources_declare_the_canonical_prelude_enums() {
 }
 
 /// Building the core library must succeed with the prelude injection
-/// enabled — the regression guard for the `core::Option ↔ core::primitives`
+/// enabled — the regression guard for the `core::option ↔ core::primitives`
 /// cycle the separate `prelude_items` tier is designed to avoid. A cyclic
 /// compile order would error here (`compilation_order` can't topo-sort a
 /// cycle), and a missing prelude default would leave core modules unable to
@@ -185,14 +189,14 @@ pub fn run(): Number {
 
 #[test]
 fn fully_qualified_option_constructs_and_runs() {
-    // `core::Option::Some(10)` and `core::Option::None` — the FQN spelling
+    // `core::option::Some(10)` and `core::option::None` — the FQN spelling
     // of the prelude enum — construct and match end-to-end (resolve → check
     // → compile → VM), exactly like the bare `Some`/`None`.
     let out = run_main(
         r"
 pub fn run(): Number {
-  let some = match core::Option::Some(10) { Some(n) => n, None => 0 };
-  let none = match core::Option::None { Some(n) => n, None => 5 };
+  let some = match core::option::Some(10) { Some(n) => n, None => 0 };
+  let none = match core::option::None { Some(n) => n, None => 5 };
   some + none
 }
 ",
@@ -202,13 +206,13 @@ pub fn run(): Number {
 
 #[test]
 fn fully_qualified_result_constructs_and_runs() {
-    // `core::Result::Ok`/`core::Result::Err` — the FQN spelling — construct
+    // `core::result::Ok`/`core::result::Err` — the FQN spelling — construct
     // and match end-to-end.
     let out = run_main(
         r"
 pub fn run(): Number {
-  let ok = match core::Result::Ok(1) { Ok(n) => n, Err(e) => e };
-  let err = match core::Result::Err(2) { Ok(n) => n, Err(e) => e };
+  let ok = match core::result::Ok(1) { Ok(n) => n, Err(e) => e };
+  let err = match core::result::Err(2) { Ok(n) => n, Err(e) => e };
   ok + err
 }
 ",

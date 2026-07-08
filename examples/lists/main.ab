@@ -4,7 +4,7 @@
 //! Partial operations (`head`, `get`) return `Option`, so recursion
 //! naturally terminates when `head` returns `None`.
 
-use core::collections::List;
+use core::collections::list;
 
 /// Sums all numbers in a list.
 fn sum(xs: List<Number>): Number {
@@ -13,7 +13,7 @@ fn sum(xs: List<Number>): Number {
 
 fn sum_helper(xs: List<Number>, acc: Number): Number {
     match xs.head() {
-        Some(h) => sum_helper(List::tail(xs), acc + h),
+        Some(h) => sum_helper(list::tail(xs), acc + h),
         None => acc,
     }
 }
@@ -25,7 +25,7 @@ fn product(xs: List<Number>): Number {
 
 fn product_helper(xs: List<Number>, acc: Number): Number {
     match xs.head() {
-        Some(h) => product_helper(List::tail(xs), acc * h),
+        Some(h) => product_helper(list::tail(xs), acc * h),
         None => acc,
     }
 }
@@ -37,7 +37,7 @@ fn double_all(xs: List<Number>): List<Number> {
 
 fn map_double(xs: List<Number>): List<Number> {
     match xs.head() {
-        Some(h) => [h * 2].concat(map_double(List::tail(xs))),
+        Some(h) => [h * 2].concat(map_double(list::tail(xs))),
         None => [],
     }
 }
@@ -46,7 +46,7 @@ fn map_double(xs: List<Number>): List<Number> {
 fn filter_positive(xs: List<Number>): List<Number> {
     match xs.head() {
         Some(h) => {
-            let rest = filter_positive(List::tail(xs));
+            let rest = filter_positive(list::tail(xs));
             if h > 0 {
                 [h].concat(rest)
             } else {
@@ -60,7 +60,7 @@ fn filter_positive(xs: List<Number>): List<Number> {
 /// Finds the maximum element in a list (0 for an empty list).
 fn maximum(xs: List<Number>): Number {
     match xs.head() {
-        Some(h) => max_helper(List::tail(xs), h),
+        Some(h) => max_helper(list::tail(xs), h),
         None => 0,
     }
 }
@@ -69,7 +69,7 @@ fn max_helper(xs: List<Number>, current_max: Number): Number {
     match xs.head() {
         Some(h) => {
             let new_max = if h > current_max { h } else { current_max };
-            max_helper(List::tail(xs), new_max)
+            max_helper(list::tail(xs), new_max)
         }
         None => current_max,
     }
@@ -84,7 +84,7 @@ fn count_even_helper(xs: List<Number>, acc: Number): Number {
     match xs.head() {
         Some(h) => {
             let increment = if h % 2 == 0 { 1 } else { 0 };
-            count_even_helper(List::tail(xs), acc + increment)
+            count_even_helper(list::tail(xs), acc + increment)
         }
         None => acc,
     }
@@ -92,12 +92,12 @@ fn count_even_helper(xs: List<Number>, acc: Number): Number {
 
 /// Takes the first n elements from a list.
 fn take_n(xs: List<Number>, n: Number): List<Number> {
-    List::slice(xs, 0, n)
+    list::slice(xs, 0, n)
 }
 
 /// Drops the first n elements from a list.
 fn drop_n(xs: List<Number>, n: Number): List<Number> {
-    List::slice(xs, n, xs.length())
+    list::slice(xs, n, xs.length())
 }
 
 /// Zips two lists into pairs (truncates to shorter length).
@@ -105,7 +105,7 @@ fn zip_lists(xs: List<Number>, ys: List<Number>): List<(Number, Number)> {
     match xs.head() {
         Some(x) => match ys.head() {
             Some(y) => {
-                [(x, y)].concat(zip_lists(List::tail(xs), List::tail(ys)))
+                [(x, y)].concat(zip_lists(list::tail(xs), list::tail(ys)))
             }
             None => [],
         },
@@ -147,7 +147,7 @@ pub fn run(): Number {
     let first_reversed = reversed.head().unwrap_or(0);  // 10
 
     let unsorted = [5, 2, 8, 1, 9, 3];
-    let sorted = List::sort(unsorted);
+    let sorted = list::sort(unsorted);
     let first_sorted = sorted.head().unwrap_or(0);  // 1
     let last_sorted = sorted.get(5).unwrap_or(0);  // 9
 

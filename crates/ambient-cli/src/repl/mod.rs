@@ -407,14 +407,14 @@ impl ReplSession {
     fn introspect(&self, path: &str) -> Option<Value> {
         let registry = self.package.build_registry();
 
-        // Whole module: `core`, `core::collections::List`, `repl`.
+        // Whole module: `core`, `core::collections::list`, `repl`.
         if let Some(module_path) = parse_module_path(path)
             && let Some(info) = registry.get(&module_path)
         {
             return Some(Value::Module(Arc::new(module_value(path, info))));
         }
 
-        // Member: `core::collections::List::first`. Split the trailing name
+        // Member: `core::collections::list::first`. Split the trailing name
         // off and look it up in the parent module's exports (raw, so the
         // user's own non-`pub` items are browsable too).
         let (parent, member) = path.rsplit_once("::")?;

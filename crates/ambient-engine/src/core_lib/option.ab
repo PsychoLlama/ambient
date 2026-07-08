@@ -12,7 +12,7 @@
 // canonical core API. The sole free function is `flatten`: it needs a
 // receiver of type `Option<Option<U>>`, which the generic `impl<T>
 // Option<T>` block cannot name, so it stays a qualified module function
-// (`core::Option::flatten(opt)`).
+// (`core::option::flatten(opt)`).
 
 pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0001) enum Option<T> {
     None,

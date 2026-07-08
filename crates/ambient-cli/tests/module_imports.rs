@@ -15,7 +15,7 @@ fn test_core_functions_fully_qualified() {
     let (dir, pkg) = temp_package(
         r"
         pub fn run(): Number {
-            core::collections::List::range(1, 5).sum()
+            core::collections::list::range(1, 5).sum()
         }
         ",
     );
@@ -27,13 +27,13 @@ fn test_core_functions_fully_qualified() {
 
 #[test]
 fn test_core_whole_module_import_alias() {
-    // `use core::collections::List;` binds the alias `List` for qualified calls.
+    // `use core::collections::list;` binds the alias `List` for qualified calls.
     let (dir, pkg) = temp_package(
         r"
-        use core::collections::List;
+        use core::collections::list;
 
         pub fn run(): Number {
-            List::range(1, 5).fold(0, (acc: Number, x: Number) => acc + x)
+            list::range(1, 5).fold(0, (acc: Number, x: Number) => acc + x)
         }
         ",
     );
@@ -45,12 +45,12 @@ fn test_core_whole_module_import_alias() {
 
 #[test]
 fn test_core_item_import() {
-    // `use core::collections::List::{range};` binds a plain name. (Combinators are now
+    // `use core::collections::list::{range};` binds a plain name. (Combinators are now
     // methods, so `range` — a receiverless core free function — is the
     // importable plain name; the chain finishes with the `.sum()` method.)
     let (dir, pkg) = temp_package(
         r"
-        use core::collections::List::{range};
+        use core::collections::list::{range};
 
         pub fn run(): Number {
             range(1, 5).sum()
@@ -93,11 +93,11 @@ fn test_non_brace_item_import() {
 
 #[test]
 fn test_non_brace_core_item_import() {
-    // The unification reaches core too: `use core::collections::List::range;` binds the
+    // The unification reaches core too: `use core::collections::list::range;` binds the
     // bare name `range` without braces.
     let (dir, pkg) = temp_package(
         r"
-        use core::collections::List::range;
+        use core::collections::list::range;
 
         pub fn run(): Number {
             range(1, 4).sum()

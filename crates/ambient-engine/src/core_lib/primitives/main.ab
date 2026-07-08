@@ -4,10 +4,10 @@
 // `Binary`) under `core::primitives`. Each primitive is declared in the
 // sibling file of the same name and registered at
 // `core::primitives::<Name>`; this directory module re-exports them so
-// inline paths such as `core::primitives::Number::sqrt` walk through a
+// inline paths such as `core::primitives::number::sqrt` walk through a
 // registered namespace.
 
-pub use self::String;
-pub use self::Number;
-pub use self::Bool;
-pub use self::Binary;
+pub use self::string;
+pub use self::number;
+pub use self::bool;
+pub use self::binary;

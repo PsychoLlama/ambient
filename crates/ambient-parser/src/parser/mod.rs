@@ -331,7 +331,7 @@ impl<'src> Parser<'src> {
         let mut segments = Vec::new();
         let start = self.current().span.start;
 
-        // A path may be rooted at a keyword (`pkg::m::T`, `core::collections::List`,
+        // A path may be rooted at a keyword (`pkg::m::T`, `core::collections::list`,
         // `self::m::T`, `super::m::T`); segments after the head are plain
         // identifiers. `parse_use_segment` accepts exactly this set.
         segments.push(self.parse_use_segment()?);

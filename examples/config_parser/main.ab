@@ -3,8 +3,8 @@
 //! Parses a simple key=value config format and extracts values.
 //! Demonstrates string manipulation and list operations.
 
-use core::primitives::String;
-use core::collections::List;
+use core::primitives::string;
+use core::collections::list;
 
 /// Parses a single line into a key-value pair.
 ///
@@ -25,8 +25,8 @@ fn parse_line(line: String): List<(String, String)> {
                 if parts.length() >= 2 {
                     let key = raw_key.trim();
                     // Join remaining parts in case value contains =
-                    let value_parts = List::tail(parts);
-                    let value = String::join(value_parts, "=").trim();
+                    let value_parts = list::tail(parts);
+                    let value = string::join(value_parts, "=").trim();
                     [(key, value)]
                 } else {
                     []
@@ -46,7 +46,7 @@ fn parse_config(text: String): List<(String, String)> {
 fn parse_lines(lines: List<String>, acc: List<(String, String)>): List<(String, String)> {
     match lines.head() {
         Some(line) => {
-            let rest = List::tail(lines);
+            let rest = list::tail(lines);
             let parsed = parse_line(line);
             if parsed.is_empty() {
                 parse_lines(rest, acc)
@@ -65,7 +65,7 @@ fn get_config(config: List<(String, String)>, key: String, default: String): Str
             if entry.0 == key {
                 entry.1
             } else {
-                get_config(List::tail(config), key, default)
+                get_config(list::tail(config), key, default)
             }
         }
         None => default,

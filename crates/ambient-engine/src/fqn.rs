@@ -2,7 +2,7 @@
 //! every item a build contains.
 //!
 //! An item's identity used to be a *joined string* (`"utils::format"`,
-//! `"core::primitives::Number::sqrt"`), which could not say whether a
+//! `"core::primitives::number::sqrt"`), which could not say whether a
 //! middle segment was a submodule or a type, carried no package identity,
 //! and forced every internal table to compare strings. This module makes
 //! the identity a real data structure that every built-in and every user
@@ -162,8 +162,8 @@ impl fmt::Display for ModuleId {
 ///
 /// - A top-level item is one ident segment: `utils::format` →
 ///   `ident = ["format"]`.
-/// - A type-associated member is two: `core::primitives::Number::sqrt` →
-///   module `core::primitives`, `ident = ["Number", "sqrt"]`.
+/// - A type-associated member is two: `core::primitives::number::sqrt` →
+///   module `core::primitives`, `ident = ["number", "sqrt"]`.
 /// - An enum variant is two: `ident = [Enum, Variant]`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Fqn {
@@ -257,9 +257,9 @@ mod tests {
     fn display_builtin_type_associated() {
         let fqn = Fqn::new(
             ModuleId::builtin(&["primitives"]),
-            vec![Arc::from("Number"), Arc::from("sqrt")],
+            vec![Arc::from("number"), Arc::from("sqrt")],
         );
-        assert_eq!(fqn.to_string(), "core::primitives::Number::sqrt");
+        assert_eq!(fqn.to_string(), "core::primitives::number::sqrt");
         assert_eq!(fqn.name(), "sqrt");
     }
 

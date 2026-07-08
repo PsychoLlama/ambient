@@ -16,5 +16,5 @@ pub use self::protocol;
 pub use self::reflect;
 pub use self::time;
 pub use self::traits;
-pub use self::Option;
-pub use self::Result;
+pub use self::option;
+pub use self::result;

@@ -3,8 +3,8 @@
 //! Builds JSON strings from Ambient data structures.
 //! Demonstrates string manipulation and recursive data processing.
 
-use core::primitives::String;
-use core::collections::List;
+use core::primitives::string;
+use core::collections::list;
 
 /// Escapes special characters in a JSON string.
 fn escape_string(s: String): String {
@@ -30,13 +30,13 @@ fn json_bool(b: Bool): String {
 
 /// Builds a JSON array from a list of pre-formatted JSON values.
 fn json_array(items: List<String>): String {
-    "[".concat(String::join(items, ", ").concat("]"))
+    "[".concat(string::join(items, ", ").concat("]"))
 }
 
 /// Builds a JSON object from key-value pairs (values pre-formatted).
 fn json_object(pairs: List<(String, String)>): String {
     let formatted = format_pairs(pairs, []);
-    "{".concat(String::join(formatted, ", ").concat("}"))
+    "{".concat(string::join(formatted, ", ").concat("}"))
 }
 
 fn format_pairs(pairs: List<(String, String)>, acc: List<String>): List<String> {
@@ -45,7 +45,7 @@ fn format_pairs(pairs: List<(String, String)>, acc: List<String>): List<String> 
             let key = json_string(pair.0);
             let value = pair.1;
             let formatted = key.concat(": ".concat(value));
-            format_pairs(List::tail(pairs), acc.append(formatted))
+            format_pairs(list::tail(pairs), acc.append(formatted))
         }
         None => acc,
     }

@@ -107,16 +107,16 @@ impl Primitive {
         }
     }
 
-    /// The module-qualified identity (e.g. `"core::primitives::String"`)
+    /// The module-qualified identity (e.g. `"core::primitives::string"`)
     /// surfaced by hover. Primitives are homed in `core::primitives`; the
     /// bare [`name`](Self::name) alone doesn't carry the module.
     #[must_use]
     pub const fn fqn(self) -> &'static str {
         match self {
-            Self::Bool => "core::primitives::Bool",
-            Self::Number => "core::primitives::Number",
-            Self::String => "core::primitives::String",
-            Self::Binary => "core::primitives::Binary",
+            Self::Bool => "core::primitives::bool",
+            Self::Number => "core::primitives::number",
+            Self::String => "core::primitives::string",
+            Self::Binary => "core::primitives::binary",
         }
     }
 }

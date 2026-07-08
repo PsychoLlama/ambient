@@ -404,12 +404,12 @@ mod tests {
     #[test]
     fn test_resolve_self_from_dir_module() {
         let current = ModulePath::from_str_segments(&["core", "collections"]).unwrap();
-        let path = vec![Arc::from("List")];
+        let path = vec![Arc::from("list")];
 
         let resolved = current
             .resolve_relative(&ImportPrefix::Self_, &path, true)
             .unwrap();
-        assert_eq!(resolved.to_string(), "core::collections::List");
+        assert_eq!(resolved.to_string(), "core::collections::list");
     }
 
     /// From a directory module, `super` steps up from the module's own
@@ -461,12 +461,12 @@ mod tests {
     #[test]
     fn test_resolve_core() {
         let current = ModulePath::root();
-        let path = vec![Arc::from("List")];
+        let path = vec![Arc::from("list")];
 
         let resolved = current
             .resolve_relative(&ImportPrefix::Core, &path, false)
             .expect("core paths resolve under the reserved `core` root");
-        assert_eq!(resolved.to_string(), "core::List");
+        assert_eq!(resolved.to_string(), "core::list");
     }
 
     #[test]
@@ -493,9 +493,9 @@ mod tests {
         assert!(is_dir);
 
         let (path, is_dir) =
-            ModulePath::from_relative_file_path_with_kind(Path::new("collections/List.ab"))
+            ModulePath::from_relative_file_path_with_kind(Path::new("collections/list.ab"))
                 .unwrap();
-        assert_eq!(path.to_string(), "collections::List");
+        assert_eq!(path.to_string(), "collections::list");
         assert!(!is_dir);
 
         let (path, is_dir) =

@@ -271,7 +271,7 @@ impl ModuleRegistry {
     ///
     /// Core modules use this to expose their intrinsics: an intrinsic has
     /// no AST item (it compiles to a dedicated opcode), but it is still an
-    /// item of its module — `use core::primitives::Number::sqrt;` must resolve exactly
+    /// item of its module — `use core::primitives::number::sqrt;` must resolve exactly
     /// like a compiled function would.
     pub fn add_exports(&mut self, path: &ModulePath, exports: Vec<ExportInfo>) {
         if let Some(info) = self.modules.get_mut(&path.to_string()) {

@@ -31,5 +31,5 @@ fn fizzbuzz_range(start: Number, end: Number, acc: List<String>): List<String> {
 
 pub fn run(): String {
     let results = fizzbuzz_range(1, 20, []);
-    core::primitives::String::join(results, ", ")
+    core::primitives::string::join(results, ", ")
 }

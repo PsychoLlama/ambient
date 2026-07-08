@@ -442,7 +442,7 @@ fn bind_all_module_exports(
 }
 /// Bind every *public* foreign enum's variant constructors under their
 /// canonical two-segment `Fqn(enum_module, [Enum, Variant])` — the key a
-/// fully-qualified (`core::Option::Some`) or explicit-enum
+/// fully-qualified (`core::option::Some`) or explicit-enum
 /// (`pkg::shapes::Shape::Circle`) reference resolves to.
 ///
 /// Fqn-only, never bare: same-module variants, enum-imported variants, and
