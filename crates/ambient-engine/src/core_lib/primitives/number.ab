@@ -2,10 +2,10 @@
 //
 // The low-level math operations are `extern fn` declarations — signatures
 // owned here, implementations bound by the engine
-// (`natives/core/number.rs`). The public math API is exposed as inherent
-// methods on `Number` (`x.sqrt()`, `x.clamp(low, high)`, ...), the
-// canonical core surface; small helpers with no native half (`clamp`,
-// `sign`, `lerp`, ...) are pure Ambient.
+// (`natives/core/number.rs`). They are module-private: the public math API is
+// exposed as inherent methods on `Number` (`x.sqrt()`, `x.clamp(low, high)`,
+// ...), the canonical core surface; small helpers with no native half
+// (`clamp`, `sign`, `lerp`, ...) are pure Ambient.
 
 // `Number` is an engine-provided primitive: user code may name it and pattern
 // on its literals, but the value has no source constructor. The `unique(...)`
@@ -14,46 +14,46 @@
 pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF02) struct Number;
 
 /// Square root.
-pub extern fn sqrt(value: Number): Number;
+extern fn sqrt(value: Number): Number;
 /// Absolute value.
-pub extern fn abs(value: Number): Number;
+extern fn abs(value: Number): Number;
 /// Largest integer not greater than `value`.
-pub extern fn floor(value: Number): Number;
+extern fn floor(value: Number): Number;
 /// Smallest integer not less than `value`.
-pub extern fn ceil(value: Number): Number;
+extern fn ceil(value: Number): Number;
 /// Round to the nearest integer.
-pub extern fn round(value: Number): Number;
+extern fn round(value: Number): Number;
 /// Truncate towards zero, discarding the fractional part.
-pub extern fn trunc(value: Number): Number;
+extern fn trunc(value: Number): Number;
 /// Sine (argument in radians).
-pub extern fn sin(value: Number): Number;
+extern fn sin(value: Number): Number;
 /// Cosine (argument in radians).
-pub extern fn cos(value: Number): Number;
+extern fn cos(value: Number): Number;
 /// Tangent (argument in radians).
-pub extern fn tan(value: Number): Number;
+extern fn tan(value: Number): Number;
 /// Natural logarithm (base e).
-pub extern fn ln(value: Number): Number;
+extern fn ln(value: Number): Number;
 /// e raised to the power of `value`.
-pub extern fn exp(value: Number): Number;
+extern fn exp(value: Number): Number;
 /// `base` raised to the `exp` power.
-pub extern fn pow(base: Number, exp: Number): Number;
+extern fn pow(base: Number, exp: Number): Number;
 /// The smaller of the two numbers.
-pub extern fn min(a: Number, b: Number): Number;
+extern fn min(a: Number, b: Number): Number;
 /// The larger of the two numbers.
-pub extern fn max(a: Number, b: Number): Number;
+extern fn max(a: Number, b: Number): Number;
 /// Arcsine, in radians.
-pub extern fn asin(value: Number): Number;
+extern fn asin(value: Number): Number;
 /// Arccosine, in radians.
-pub extern fn acos(value: Number): Number;
+extern fn acos(value: Number): Number;
 /// Arctangent, in radians.
-pub extern fn atan(value: Number): Number;
+extern fn atan(value: Number): Number;
 /// Arctangent of `y / x`, using the signs of both to pick the quadrant.
 /// Result in radians.
-pub extern fn atan2(y: Number, x: Number): Number;
+extern fn atan2(y: Number, x: Number): Number;
 /// Base-10 logarithm.
-pub extern fn log10(value: Number): Number;
+extern fn log10(value: Number): Number;
 /// Base-2 logarithm.
-pub extern fn log2(value: Number): Number;
+extern fn log2(value: Number): Number;
 
 // The public math API: inherent methods on `Number`, delegating to the
 // externs above (or implemented directly when there is no native half).

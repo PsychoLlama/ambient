@@ -2,10 +2,11 @@
 //
 // `Set<T>` is an engine-provided persistent set. The low-level operations are
 // `extern fn` declarations — signatures owned here, implementations bound by
-// the engine (`natives/core/collections.rs`). Every operation is persistent:
-// mutators return a new set. The operations with a `Set` receiver are exposed
-// as inherent methods (`set.insert(v)`, `set.union(other)`, ...), the
-// canonical core API; `empty` has no receiver, so it stays a free function.
+// the engine (`natives/core/collections.rs`). They are module-private. Every
+// operation is persistent: mutators return a new set. The whole public surface
+// is the inherent `impl Set<T>` below: receiver methods (`set.insert(v)`,
+// `set.union(other)`, ...) plus the associated constructor `Set::empty()` (no
+// receiver).
 
 // `Set<T>` is an engine-provided container: its values are built in Rust (the
 // `extern fn`s below), but user code may name the type. The `unique(...)` uuid
@@ -14,28 +15,32 @@
 pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF07) struct Set<T>;
 
 /// A set with no elements.
-pub extern fn empty<T>(): Set<T>;
+extern fn empty<T>(): Set<T>;
 /// `set` with `value` added (unchanged if present).
-pub extern fn insert<T>(set: Set<T>, value: T): Set<T>;
+extern fn insert<T>(set: Set<T>, value: T): Set<T>;
 /// `set` without `value` (unchanged if absent).
-pub extern fn remove<T>(set: Set<T>, value: T): Set<T>;
+extern fn remove<T>(set: Set<T>, value: T): Set<T>;
 /// True if `value` is an element.
-pub extern fn contains<T>(set: Set<T>, value: T): Bool;
+extern fn contains<T>(set: Set<T>, value: T): Bool;
 /// Number of elements.
-pub extern fn length<T>(set: Set<T>): Number;
+extern fn length<T>(set: Set<T>): Number;
 /// Every element of either set.
-pub extern fn union<T>(a: Set<T>, b: Set<T>): Set<T>;
+extern fn union<T>(a: Set<T>, b: Set<T>): Set<T>;
 /// The elements in both sets.
-pub extern fn intersection<T>(a: Set<T>, b: Set<T>): Set<T>;
+extern fn intersection<T>(a: Set<T>, b: Set<T>): Set<T>;
 /// The elements of `a` not in `b`.
-pub extern fn difference<T>(a: Set<T>, b: Set<T>): Set<T>;
+extern fn difference<T>(a: Set<T>, b: Set<T>): Set<T>;
 /// The elements as a list.
-pub extern fn to_list<T>(set: Set<T>): List<T>;
+extern fn to_list<T>(set: Set<T>): List<T>;
 
 // Method forms over the externs: `set.insert(v)`, `set.union(other)`, ... The
 // inherent impl attaches these to the type itself; these methods are the
 // canonical core API.
 impl<T> Set<T> {
+    // A set with no elements.
+    fn empty(): Set<T> {
+        empty()
+    }
     // This set with `value` added (unchanged if present).
     fn insert(self, value: T): Set<T> {
         insert(self, value)

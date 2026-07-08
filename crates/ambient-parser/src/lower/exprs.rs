@@ -374,20 +374,22 @@ fn make_to_string_call(expr: Expr, span: Span) -> Expr {
     Expr::new(ExprKind::Call(Box::new(callee), vec![expr]), span)
 }
 
-/// Create a `core::primitives::string::concat(left, right)` call expression.
+/// Create a `left.concat(right)` method call expression.
+///
+/// String's low-level externs are module-private; `concat` is reachable only
+/// as the inherent method on `String`, so the desugar dispatches through it
+/// exactly like user code writing `a.concat(b)`.
 fn make_string_concat_call(left: Expr, right: Expr, span: Span) -> Expr {
-    let callee = Expr::new(
-        ExprKind::Name(QualifiedName::qualified(
-            vec![
-                Arc::from("core"),
-                Arc::from("primitives"),
-                Arc::from("string"),
-            ],
-            Arc::from("concat"),
-        )),
+    Expr::new(
+        ExprKind::MethodCall {
+            receiver: Box::new(left),
+            method: Arc::from("concat"),
+            method_span: span,
+            args: vec![right],
+            resolved_method: None,
+        },
         span,
-    );
-    Expr::new(ExprKind::Call(Box::new(callee), vec![left, right]), span)
+    )
 }
 
 fn lower_stmt(ctx: &mut LoweringContext, stmt: &CstStmt) -> Result<Vec<Stmt>, ParseError> {

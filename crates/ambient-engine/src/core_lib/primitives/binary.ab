@@ -1,10 +1,10 @@
 // Core library: the Binary primitive.
 //
 // The low-level operations are `extern fn` declarations — signatures owned
-// here, implementations bound by the engine (`natives/core/binary.rs`).
-// Operations with a `Binary` receiver are also exposed as inherent
-// methods, the canonical core surface; `from` constructs from a byte list
-// and stays a module function.
+// here, implementations bound by the engine (`natives/core/binary.rs`). They
+// are module-private: the whole public surface is the inherent `impl Binary`
+// below, whether receiver methods (`b.length()`) or the associated
+// constructor `Binary::from(bytes)`.
 
 // `Binary` is an engine-provided primitive: user code may name it and pattern on
 // its literals, but the value has no source constructor. The `unique(...)` uuid
@@ -13,20 +13,25 @@
 pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF04) struct Binary;
 
 /// A buffer from a list of byte values (each truncated into 0..=255).
-pub extern fn from(bytes: List<Number>): Binary;
+extern fn from(bytes: List<Number>): Binary;
 /// The bytes as a list of numbers.
-pub extern fn to_list(bytes: Binary): List<Number>;
+extern fn to_list(bytes: Binary): List<Number>;
 /// Number of bytes.
-pub extern fn length(bytes: Binary): Number;
+extern fn length(bytes: Binary): Number;
 /// The byte at `i`, if any.
-pub extern fn get(bytes: Binary, i: Number): Option<Number>;
+extern fn get(bytes: Binary, i: Number): Option<Number>;
 /// The bytes in [start, end). Out-of-range bounds clamp.
-pub extern fn slice(bytes: Binary, start: Number, end: Number): Binary;
+extern fn slice(bytes: Binary, start: Number, end: Number): Binary;
 /// `a` and `b` joined end to end.
-pub extern fn concat(a: Binary, b: Binary): Binary;
+extern fn concat(a: Binary, b: Binary): Binary;
 
-// Method forms over the externs: `b.length()`, `b.slice(0, 4)`, ...
+// The public surface: `Binary::from(bytes)` to construct, then receiver
+// methods (`b.length()`, `b.slice(0, 4)`, ...) over the externs above.
 impl Binary {
+    // A buffer from a list of byte values (each truncated into 0..=255).
+    fn from(bytes: List<Number>): Binary {
+        from(bytes)
+    }
     // The bytes as a list of numbers.
     fn to_list(self): List<Number> {
         to_list(self)

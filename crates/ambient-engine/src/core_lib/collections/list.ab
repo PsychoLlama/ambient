@@ -2,12 +2,13 @@
 //
 // The low-level operations are `extern fn` declarations — signatures owned
 // here, implementations bound by the engine (`natives/core/collections.rs`).
-// The higher-order combinators (`map`, `filter`, `fold`, ...) are pure
-// Ambient built on them, compiled and content-addressed like user code.
+// They are module-private. The higher-order combinators (`map`, `filter`,
+// `fold`, ...) are pure Ambient built on them, compiled and content-addressed
+// like user code.
 //
-// The combinators are exposed as inherent methods (`list.map(f)`), the
-// canonical core API. The sole free functions are `range` (no receiver) and
-// `first` (an alias of `head`, kept as a pure wrapper).
+// The whole public surface is the inherent `impl List<T>` / `impl List<Number>`
+// below: receiver methods (`list.map(f)`) plus the associated constructor
+// `List::range(start, end)` (no receiver).
 
 // `List<T>` is an engine-provided container: its values are built in Rust
 // (list literals, and the `extern fn`s below), but user code may name the
@@ -17,34 +18,28 @@
 pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF05) struct List<T>;
 
 /// Number of elements.
-pub extern fn length<T>(list: List<T>): Number;
+extern fn length<T>(list: List<T>): Number;
 /// The element at `i`, if any. Negative or fractional indexes have none.
-pub extern fn get<T>(list: List<T>, i: Number): Option<T>;
+extern fn get<T>(list: List<T>, i: Number): Option<T>;
 /// The first element, if any.
-pub extern fn head<T>(list: List<T>): Option<T>;
+extern fn head<T>(list: List<T>): Option<T>;
 /// Every element but the first ([] for an empty list).
-pub extern fn tail<T>(list: List<T>): List<T>;
+extern fn tail<T>(list: List<T>): List<T>;
 /// `a` and `b` joined end to end.
-pub extern fn concat<T>(a: List<T>, b: List<T>): List<T>;
+extern fn concat<T>(a: List<T>, b: List<T>): List<T>;
 /// `list` with `item` added at the end.
-pub extern fn append<T>(list: List<T>, item: T): List<T>;
+extern fn append<T>(list: List<T>, item: T): List<T>;
 /// True if the list has no elements.
-pub extern fn is_empty<T>(list: List<T>): Bool;
+extern fn is_empty<T>(list: List<T>): Bool;
 /// The last element, if any.
-pub extern fn last<T>(list: List<T>): Option<T>;
+extern fn last<T>(list: List<T>): Option<T>;
 /// The elements in reverse order.
-pub extern fn reverse<T>(list: List<T>): List<T>;
+extern fn reverse<T>(list: List<T>): List<T>;
 /// The elements sorted ascending (numbers and strings compare; anything
 /// else keeps its order).
-pub extern fn sort<T>(list: List<T>): List<T>;
+extern fn sort<T>(list: List<T>): List<T>;
 /// The elements in [start, end). Out-of-range bounds clamp.
-pub extern fn slice<T>(list: List<T>, start: Number, end: Number): List<T>;
-
-/// The first element, if any. A pure alias of `head` — one native, two
-/// spellings.
-pub fn first<T>(list: List<T>): Option<T> {
-    head(list)
-}
+extern fn slice<T>(list: List<T>, start: Number, end: Number): List<T>;
 
 fn map_from<T, U>(list: List<T>, f: (T) -> U, i: Number, acc: List<U>): List<U> {
     match get(list, i) {
@@ -81,16 +76,6 @@ fn all_from<T>(list: List<T>, pred: (T) -> Bool, i: Number): Bool {
     match get(list, i) {
         Some(item) => pred(item) && all_from(list, pred, i + 1),
         None => true,
-    }
-}
-
-// The numbers start..end (end exclusive): range(1, 4) == [1, 2, 3]. Kept as a
-// free function because it takes no receiver, so it has no method form.
-pub fn range(start: Number, end: Number): List<Number> {
-    if start >= end {
-        []
-    } else {
-        concat([start], range(start + 1, end))
     }
 }
 
@@ -156,10 +141,19 @@ impl<T> List<T> {
     }
 }
 
-// Sum of a list of numbers. A concrete-instantiation inherent impl: it
-// attaches `sum` only to `List<Number>`, and coexists with the generic
+// Number- and receiver-less operations. A concrete-instantiation inherent
+// impl: these attach only to `List<Number>`, and coexist with the generic
 // `impl<T> List<T>` above.
 impl List<Number> {
+    // The numbers start..end (end exclusive): List::range(1, 4) == [1, 2, 3].
+    // An associated constructor: it takes no receiver, so it has no `self`.
+    fn range(start: Number, end: Number): List<Number> {
+        if start >= end {
+            []
+        } else {
+            concat([start], List::range(start + 1, end))
+        }
+    }
     fn sum(self): Number {
         self.fold(0, (acc: Number, x: Number) => acc + x)
     }

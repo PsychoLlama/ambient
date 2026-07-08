@@ -2,10 +2,11 @@
 //
 // `Map<K, V>` is an engine-provided persistent map. The low-level operations
 // are `extern fn` declarations — signatures owned here, implementations bound
-// by the engine (`natives/core/collections.rs`). Every operation is
-// persistent: mutators return a new map. The operations with a `Map` receiver
-// are exposed as inherent methods (`map.get(k)`, `map.insert(k, v)`, ...), the
-// canonical core API; `empty` has no receiver, so it stays a free function.
+// by the engine (`natives/core/collections.rs`). They are module-private.
+// Every operation is persistent: mutators return a new map. The whole public
+// surface is the inherent `impl Map<K, V>` below: receiver methods
+// (`map.get(k)`, `map.insert(k, v)`, ...) plus the associated constructor
+// `Map::empty()` (no receiver).
 
 // `Map<K, V>` is an engine-provided container: its values are built in Rust
 // (the `extern fn`s below), but user code may name the type. The `unique(...)`
@@ -14,26 +15,30 @@
 pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF06) struct Map<K, V>;
 
 /// A map with no entries.
-pub extern fn empty<K, V>(): Map<K, V>;
+extern fn empty<K, V>(): Map<K, V>;
 /// The value at `key`, if any.
-pub extern fn get<K, V>(map: Map<K, V>, key: K): Option<V>;
+extern fn get<K, V>(map: Map<K, V>, key: K): Option<V>;
 /// `map` with `key` set to `value` (replacing any existing entry).
-pub extern fn insert<K, V>(map: Map<K, V>, key: K, value: V): Map<K, V>;
+extern fn insert<K, V>(map: Map<K, V>, key: K, value: V): Map<K, V>;
 /// `map` without `key` (unchanged if absent).
-pub extern fn remove<K, V>(map: Map<K, V>, key: K): Map<K, V>;
+extern fn remove<K, V>(map: Map<K, V>, key: K): Map<K, V>;
 /// True if `key` has an entry.
-pub extern fn contains<K, V>(map: Map<K, V>, key: K): Bool;
+extern fn contains<K, V>(map: Map<K, V>, key: K): Bool;
 /// Number of entries.
-pub extern fn length<K, V>(map: Map<K, V>): Number;
+extern fn length<K, V>(map: Map<K, V>): Number;
 /// Every key, as a list.
-pub extern fn keys<K, V>(map: Map<K, V>): List<K>;
+extern fn keys<K, V>(map: Map<K, V>): List<K>;
 /// Every value, as a list.
-pub extern fn values<K, V>(map: Map<K, V>): List<V>;
+extern fn values<K, V>(map: Map<K, V>): List<V>;
 
 // Method forms over the externs: `map.get(k)`, `map.insert(k, v)`, ... The
 // inherent impl attaches these to the type itself; these methods are the
 // canonical core API.
 impl<K, V> Map<K, V> {
+    // A map with no entries.
+    fn empty(): Map<K, V> {
+        empty()
+    }
     // The value at `key`, if any.
     fn get(self, key: K): Option<V> {
         get(self, key)

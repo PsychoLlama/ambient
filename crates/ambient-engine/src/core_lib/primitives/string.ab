@@ -1,12 +1,12 @@
 // Core library: utilities for the String type.
 //
 // The low-level operations are `extern fn` declarations — signatures owned
-// here, implementations bound by the engine (`natives/core/string.rs`). The
-// public string API is exposed as inherent methods (`s.length()`,
-// `s.to_upper()`, ...), the canonical core surface, each delegating to an
-// extern. The exceptions with no single `String` receiver stay module
-// functions: `from_number`/`from_bool` build a string from another type,
-// and `join` flattens a `List<String>`.
+// here, implementations bound by the engine (`natives/core/string.rs`). They
+// are module-private: the whole public string API lives on the inherent
+// `impl String` below, whether receiver methods (`s.length()`, `s.to_upper()`,
+// ...) or the associated functions with no single `String` receiver
+// (`String::from_number`/`String::from_bool` build a string from another type,
+// `String::join` flattens a `List<String>`).
 
 // `String` is an engine-provided primitive: user code may name it and pattern
 // on its literals, but the value has no source constructor (`String {}` is
@@ -16,51 +16,56 @@
 pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF03) struct String;
 
 /// Number of characters in the string.
-pub extern fn length(value: String): Number;
+extern fn length(value: String): Number;
 /// `a` and `b` joined end to end. Also the target of string interpolation:
 /// `"${x}"` desugars to `concat`/`core::convert::to_string` calls.
-pub extern fn concat(a: String, b: String): String;
+extern fn concat(a: String, b: String): String;
 /// True if `needle` appears anywhere in `value`.
-pub extern fn contains(value: String, needle: String): Bool;
+extern fn contains(value: String, needle: String): Bool;
 /// Split `value` on every occurrence of `sep`.
-pub extern fn split(value: String, sep: String): List<String>;
+extern fn split(value: String, sep: String): List<String>;
 /// Join `parts` with `sep` between elements.
-pub extern fn join(parts: List<String>, sep: String): String;
+extern fn join(parts: List<String>, sep: String): String;
 /// Strip leading and trailing whitespace.
-pub extern fn trim(value: String): String;
+extern fn trim(value: String): String;
 /// The characters in `[start, end)`.
-pub extern fn slice(value: String, start: Number, end: Number): String;
+extern fn slice(value: String, start: Number, end: Number): String;
 /// The characters as a list of single-character strings.
-pub extern fn chars(value: String): List<String>;
+extern fn chars(value: String): List<String>;
 /// Replace every occurrence of `from` with `to`.
-pub extern fn replace(value: String, from: String, to: String): String;
+extern fn replace(value: String, from: String, to: String): String;
 /// True if `value` begins with `prefix`.
-pub extern fn starts_with(value: String, prefix: String): Bool;
+extern fn starts_with(value: String, prefix: String): Bool;
 /// True if `value` ends with `suffix`.
-pub extern fn ends_with(value: String, suffix: String): Bool;
+extern fn ends_with(value: String, suffix: String): Bool;
 /// Upper-case the string.
-pub extern fn to_upper(value: String): String;
+extern fn to_upper(value: String): String;
 /// Lower-case the string.
-pub extern fn to_lower(value: String): String;
+extern fn to_lower(value: String): String;
 /// Index of the first occurrence of `needle`, if any.
-pub extern fn index_of(value: String, needle: String): Option<Number>;
+extern fn index_of(value: String, needle: String): Option<Number>;
 /// Repeat the string `count` times.
-pub extern fn repeat(value: String, count: Number): String;
+extern fn repeat(value: String, count: Number): String;
 /// Reverse the string.
-pub extern fn reverse(value: String): String;
+extern fn reverse(value: String): String;
 
-pub fn from_number(n: Number): String {
-    core::convert::to_string(n)
-}
-
-pub fn from_bool(b: Bool): String {
-    if b { "true" } else { "false" }
-}
-
-// Method forms: `s.length()`, `s.to_upper()`, ... The inherent impl attaches
-// these to the type itself; these methods (over the externs above) are the
-// canonical core API.
+// Method forms: `s.length()`, `s.to_upper()`, ... plus the associated
+// functions with no `String` receiver (`String::join`, `String::from_number`,
+// `String::from_bool`). The inherent impl attaches these to the type itself;
+// these (over the externs above) are the canonical core API.
 impl String {
+    // Join `parts` with `sep` between elements.
+    fn join(parts: List<String>, sep: String): String {
+        join(parts, sep)
+    }
+    // Build a string from a number.
+    fn from_number(n: Number): String {
+        core::convert::to_string(n)
+    }
+    // Build a string from a bool.
+    fn from_bool(b: Bool): String {
+        if b { "true" } else { "false" }
+    }
     // Number of characters in the string.
     fn length(self): Number {
         length(self)
