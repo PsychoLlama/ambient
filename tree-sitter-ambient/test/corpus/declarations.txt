@@ -75,6 +75,38 @@ fn read_file(path: string): string
           (identifier))))))
 
 ================================================================================
+Extern function
+================================================================================
+
+extern fn sqrt(x: number): number;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (extern_function_definition
+    name: (identifier)
+    (parameter_list
+      (parameter
+        name: (identifier)
+        type: (identifier)))
+    return_type: (identifier)))
+
+================================================================================
+Public extern function
+================================================================================
+
+pub extern fn now(): number;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (extern_function_definition
+    (visibility)
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)))
+
+================================================================================
 Const definition
 ================================================================================
 

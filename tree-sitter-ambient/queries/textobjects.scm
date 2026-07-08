@@ -9,6 +9,9 @@
 (function_definition
   body: (block) @function.inner) @function.outer
 
+; Extern function declarations (body-less host-provided signatures)
+(extern_function_definition) @function.outer
+
 ; Ability methods (function signatures in ability definitions)
 (ability_method) @function.outer
 
