@@ -166,10 +166,17 @@ impl Store {
         &self.natives
     }
 
-    /// Check if a function exists in the store.
+    /// Check if a hash resolves to code or data in the store: a function,
+    /// a `const` value object, or a native (extern fn). A dependency edge
+    /// can point at any of the three, so presence checks
+    /// ([`Self::missing_dependencies`], the Execute ability's
+    /// `has_function`) must cover them all — a native reported "missing"
+    /// would make a remote client re-ship it forever.
     #[must_use]
     pub fn contains(&self, hash: &blake3::Hash) -> bool {
         self.functions.contains_key(hash)
+            || self.values.contains_key(hash)
+            || self.natives.contains_key(hash)
     }
 
     /// Get all function hashes in the store.
