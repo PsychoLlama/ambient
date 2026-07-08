@@ -7,7 +7,7 @@
 // inline paths such as `core::primitives::number::sqrt` walk through a
 // registered namespace.
 
-pub use self::string;
-pub use self::number;
-pub use self::bool;
-pub use self::binary;
+pub use self::string::String;
+pub use self::number::Number;
+pub use self::bool::Bool;
+pub use self::binary::Binary;
