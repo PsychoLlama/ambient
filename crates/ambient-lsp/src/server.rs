@@ -1124,7 +1124,7 @@ fn format_ability_method_signature(m: &ambient_engine::ast::AbilityMethod) -> St
     let params: Vec<String> = m
         .params
         .iter()
-        .map(|(n, t)| format!("{n}: {}", format_type(t)))
+        .map(|p| format!("{}: {}", p.name, format_type(p.declared_ty())))
         .collect();
     format!("fn({}) -> {}", params.join(", "), format_type(&m.ret_ty))
 }

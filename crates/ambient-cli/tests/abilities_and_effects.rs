@@ -12,7 +12,7 @@ use tempfile::TempDir;
 fn test_user_ability_inline_handler() {
     CliTest::new(
         r#"
-        ability Greeter {
+        unique(AB000000-0000-0000-0000-000000000001) ability Greeter {
             fn greet(name: String): String;
         }
 
@@ -40,7 +40,7 @@ fn test_user_ability_handler_value_and_generic_method() {
     // on cloned AST nodes.
     CliTest::new(
         r#"
-        ability Picker {
+        unique(AB000000-0000-0000-0000-000000000002) ability Picker {
             fn pick<T>(a: T, b: T): T;
             fn label(): String;
         }
@@ -66,7 +66,7 @@ fn test_user_ability_handler_value_and_generic_method() {
 fn test_user_ability_unhandled_is_runtime_error() {
     CliTest::new(
         r#"
-        ability Missing {
+        unique(AB000000-0000-0000-0000-000000000003) ability Missing {
             fn gone(): String;
         }
 
@@ -82,7 +82,7 @@ fn test_user_ability_unhandled_is_runtime_error() {
 fn test_user_ability_unknown_method_is_type_error() {
     CliTest::new(
         r#"
-        ability Greeter {
+        unique(AB000000-0000-0000-0000-000000000004) ability Greeter {
             fn greet(name: String): String;
         }
 
@@ -98,7 +98,7 @@ fn test_user_ability_unknown_method_is_type_error() {
 fn test_user_ability_wrong_arg_type_is_type_error() {
     CliTest::new(
         r#"
-        ability Greeter {
+        unique(AB000000-0000-0000-0000-000000000005) ability Greeter {
             fn greet(name: String): String;
         }
 
@@ -114,7 +114,7 @@ fn test_user_ability_wrong_arg_type_is_type_error() {
 fn test_user_ability_unknown_dependency_is_error() {
     CliTest::new(
         r"
-        ability Loud with NoSuchAbility {
+        unique(AB000000-0000-0000-0000-000000000006) ability Loud with NoSuchAbility {
             fn shout(msg: String): ();
         }
 
@@ -132,7 +132,7 @@ fn test_suspend_form_is_removed() {
     // is now a parse error.
     CliTest::new(
         r#"
-        ability Greeter {
+        unique(AB000000-0000-0000-0000-000000000007) ability Greeter {
             fn greet(name: String): String;
         }
 
@@ -201,7 +201,7 @@ fn test_execute_run_with_shipped_handler() {
     // the ability; the shipped handler answers it.
     CliTest::new(
         r"
-        ability Oracle {
+        unique(AB000000-0000-0000-0000-000000000008) ability Oracle {
             fn answer(): Number;
         }
 
@@ -226,7 +226,7 @@ fn test_handler_methods_intrinsic() {
     // hashes so clients can ship the handler's code alongside a function.
     CliTest::new(
         r"
-        ability Oracle {
+        unique(AB000000-0000-0000-0000-000000000009) ability Oracle {
             fn answer(): Number;
         }
 
@@ -273,7 +273,7 @@ fn test_resume_restores_locals() {
     // base pointers, so the resumed frames read the wrong stack slots.
     CliTest::new(
         r#"
-        ability Oracle {
+        unique(AB000000-0000-0000-0000-00000000000A) ability Oracle {
             fn ask(q: String): Number;
         }
 
@@ -300,7 +300,7 @@ fn test_handle_multi_perform_with_capturing_arm() {
     // The arm also captures a local from the enclosing scope.
     CliTest::new(
         r"
-        ability Counter {
+        unique(AB000000-0000-0000-0000-00000000000B) ability Counter {
             fn next(): Number;
         }
 
@@ -345,7 +345,7 @@ fn test_exception_unwinds_through_inner_handle() {
     // uninstalled afterwards.
     CliTest::new(
         r#"
-        ability Ping {
+        unique(AB000000-0000-0000-0000-00000000000C) ability Ping {
             fn ping(): Number;
         }
 

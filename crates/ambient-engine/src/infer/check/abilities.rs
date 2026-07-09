@@ -248,7 +248,7 @@ fn resolve_ability_def(
         let params: Vec<Type> = method
             .params
             .iter()
-            .map(|(_, ty)| infer.resolve_holes(&substitute_type_params(ty, &param_map)))
+            .map(|p| infer.resolve_holes(&substitute_type_params(p.declared_ty(), &param_map)))
             .collect();
         let ret = infer.resolve_holes(&substitute_type_params(&method.ret_ty, &param_map));
 
@@ -285,7 +285,7 @@ fn resolve_ability_def(
         methods.push(DynMethod {
             id: idx as u16,
             name: Arc::clone(&method.name),
-            param_names: method.params.iter().map(|(n, _)| Arc::clone(n)).collect(),
+            param_names: method.params.iter().map(|p| Arc::clone(&p.name)).collect(),
             params,
             ret,
             quantified,

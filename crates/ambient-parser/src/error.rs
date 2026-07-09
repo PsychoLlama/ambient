@@ -148,6 +148,11 @@ pub enum ParseErrorKind {
     /// is no body to infer from, so the full signature is mandatory.
     ExternFnParamRequiresType(String),
 
+    /// An `ability` was declared without the mandatory `unique(<uuid>)`
+    /// prefix. Abilities are nominal like enums: the uuid is the identity,
+    /// so renames and moves never change it.
+    AbilityRequiresUnique,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Name resolution errors
     // ─────────────────────────────────────────────────────────────────────────
@@ -224,6 +229,11 @@ impl fmt::Display for ParseErrorKind {
                 f,
                 "extern fn parameter `{name}` requires a type annotation \
                  (there is no body to infer it from)"
+            ),
+            Self::AbilityRequiresUnique => write!(
+                f,
+                "ability declarations require a `unique(<uuid>)` prefix \
+                 (e.g. `unique(A1B2C3D4-0000-0000-0000-000000000001) ability Console {{ ... }}`)"
             ),
 
             Self::UndefinedName(name) => write!(f, "undefined name '{name}'"),

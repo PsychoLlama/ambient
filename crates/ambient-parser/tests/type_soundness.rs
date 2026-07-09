@@ -59,7 +59,7 @@ fn assert_err_containing(source: &str, needle: &str) {
 fn trait_impl_method_performing_ability_is_rejected() {
     assert_err_containing(
         &r"
-        ability Printer {
+        unique(AB000000-0000-0000-0000-000000000018) ability Printer {
           fn print(msg: String): ();
         }
 
@@ -161,7 +161,7 @@ fn handler_arm_param_usable_at_declared_type() {
 fn resume_value_must_match_method_return_type() {
     assert_err_containing(
         &r"
-        ability Reader {
+        unique(AB000000-0000-0000-0000-000000000019) ability Reader {
           fn read(): Number;
         }
 
@@ -182,7 +182,7 @@ fn resume_value_must_match_method_return_type() {
 fn resume_with_correct_type_is_accepted() {
     assert_ok(
         &r"
-        ability Reader {
+        unique(AB000000-0000-0000-0000-00000000001A) ability Reader {
           fn read(): Number;
         }
 
@@ -205,7 +205,7 @@ fn resume_with_correct_type_is_accepted() {
 fn resume_expression_takes_handle_result_type() {
     assert_ok(
         &r"
-        ability Reader {
+        unique(AB000000-0000-0000-0000-00000000001B) ability Reader {
           fn read(): Number;
         }
 
@@ -246,10 +246,10 @@ fn resume_outside_handler_is_rejected() {
 fn handler_arm_effects_flow_to_enclosing_function() {
     assert_err_containing(
         &r"
-        ability Reader {
+        unique(AB000000-0000-0000-0000-00000000001C) ability Reader {
           fn read(): Number;
         }
-        ability Printer {
+        unique(AB000000-0000-0000-0000-00000000001D) ability Printer {
           fn print(msg: String): ();
         }
 
@@ -283,7 +283,7 @@ fn handler_arm_effects_flow_to_enclosing_function() {
 fn handle_discharges_effects_of_functions_declared_later() {
     assert_ok(
         &r"
-        ability Reader {
+        unique(AB000000-0000-0000-0000-00000000001E) ability Reader {
           fn read(): Number;
         }
 
@@ -305,10 +305,10 @@ fn handle_discharges_effects_of_functions_declared_later() {
 fn handle_does_not_discharge_unhandled_abilities() {
     assert_err_containing(
         &r"
-        ability Reader {
+        unique(AB000000-0000-0000-0000-00000000001F) ability Reader {
           fn read(): Number;
         }
-        ability Printer {
+        unique(AB000000-0000-0000-0000-000000000020) ability Printer {
           fn print(msg: String): ();
         }
 
@@ -337,7 +337,7 @@ fn handle_does_not_discharge_unhandled_abilities() {
 fn handler_value_non_resume_arm_must_match_handle_result() {
     assert_err_containing(
         &r"
-        ability Reader {
+        unique(AB000000-0000-0000-0000-000000000021) ability Reader {
           fn read(): Number;
         }
 
@@ -361,7 +361,7 @@ fn handler_value_non_resume_arm_must_match_handle_result() {
 fn resuming_handler_value_is_answer_polymorphic() {
     assert_ok(
         &r"
-        ability Ask {
+        unique(AB000000-0000-0000-0000-000000000022) ability Ask {
           fn ask(): Number;
         }
 
@@ -391,10 +391,10 @@ fn resuming_handler_value_is_answer_polymorphic() {
 fn multi_ability_inline_brace_is_accepted() {
     assert_ok(
         &r"
-        ability Reader {
+        unique(AB000000-0000-0000-0000-000000000023) ability Reader {
           fn read(): Number;
         }
-        ability Printer {
+        unique(AB000000-0000-0000-0000-000000000024) ability Printer {
           fn print(msg: String): ();
         }
 
@@ -417,10 +417,10 @@ fn multi_ability_inline_brace_is_accepted() {
 fn multi_ability_handler_value_is_rejected() {
     assert_err_containing(
         &r"
-        ability Reader {
+        unique(AB000000-0000-0000-0000-000000000025) ability Reader {
           fn read(): Number;
         }
-        ability Printer {
+        unique(AB000000-0000-0000-0000-000000000026) ability Printer {
           fn print(msg: String): ();
         }
 
@@ -444,7 +444,7 @@ fn handler_annotation_ability_obeys_namespace_policy() {
     let program = |ability_ref: &str| {
         format!(
             r"
-            ability Reader {{
+            unique(AB000000-0000-0000-0000-000000000027) ability Reader {{
               fn read(): Number;
             }}
 
@@ -495,7 +495,7 @@ fn builtin_perform_arguments_are_checked() {
 fn perform_arguments_are_checked() {
     assert_err_containing(
         &r"
-        ability Printer {
+        unique(AB000000-0000-0000-0000-000000000028) ability Printer {
           fn print(msg: String): ();
         }
 
@@ -520,7 +520,7 @@ fn perform_arguments_are_checked() {
 fn sandbox_body_effects_flow_to_enclosing_function() {
     assert_err_containing(
         &r"
-        ability Printer {
+        unique(AB000000-0000-0000-0000-000000000029) ability Printer {
           fn print(msg: String): ();
         }
 
@@ -542,10 +542,10 @@ fn sandbox_body_effects_flow_to_enclosing_function() {
 fn sandbox_restriction_applies_to_functions_declared_later() {
     assert_err_containing(
         &r"
-        ability Reader {
+        unique(AB000000-0000-0000-0000-00000000002A) ability Reader {
           fn read(): Number;
         }
-        ability Printer {
+        unique(AB000000-0000-0000-0000-00000000002B) ability Printer {
           fn print(msg: String): ();
         }
 
@@ -569,7 +569,7 @@ fn sandbox_restriction_applies_to_functions_declared_later() {
 fn sandbox_with_allowed_abilities_is_accepted() {
     assert_ok(
         &r"
-        ability Reader {
+        unique(AB000000-0000-0000-0000-00000000002C) ability Reader {
           fn read(): Number;
         }
 

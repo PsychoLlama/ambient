@@ -36,7 +36,7 @@ impl Parser<'_> {
                     TokenKind::Enum => CstItemKind::Enum(self.parse_enum(true, None)?),
                     TokenKind::Unique => self.parse_unique_item(true, false)?,
                     TokenKind::Extern => self.parse_extern_item(true)?,
-                    TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(true)?),
+                    TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(true, None)?),
                     TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def(true)?),
                     _ => {
                         return Err(ParseError::new(
@@ -56,7 +56,7 @@ impl Parser<'_> {
             TokenKind::Enum => CstItemKind::Enum(self.parse_enum(false, None)?),
             TokenKind::Unique => self.parse_unique_item(false, false)?,
             TokenKind::Extern => self.parse_extern_item(false)?,
-            TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(false)?),
+            TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(false, None)?),
             TokenKind::Use => CstItemKind::Use(self.parse_use(false)?),
             TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def(false)?),
             TokenKind::Impl => CstItemKind::Impl(self.parse_impl_def()?),
@@ -253,19 +253,22 @@ impl Parser<'_> {
             TokenKind::Struct => Ok(CstItemKind::Struct(
                 self.parse_struct_def(is_public, unique_id, is_extern)?,
             )),
-            TokenKind::Enum if is_extern => Err(ParseError::new(
+            TokenKind::Enum | TokenKind::Ability if is_extern => Err(ParseError::new(
                 ParseErrorKind::Expected {
                     expected:
                         "`struct` after `extern unique(...)` (`extern` applies to `struct` only)"
                             .into(),
-                    found: "enum".into(),
+                    found: format!("{:?}", self.current_kind()),
                 },
                 self.current().span,
             )),
             TokenKind::Enum => Ok(CstItemKind::Enum(self.parse_enum(is_public, unique_id)?)),
+            TokenKind::Ability => Ok(CstItemKind::Ability(
+                self.parse_ability_def(is_public, unique_id)?,
+            )),
             other => Err(ParseError::new(
                 ParseErrorKind::Expected {
-                    expected: "`struct` or `enum` after `unique(...)`".into(),
+                    expected: "`struct`, `enum`, or `ability` after `unique(...)`".into(),
                     found: format!("{other:?}"),
                 },
                 self.current().span,
@@ -460,7 +463,11 @@ impl Parser<'_> {
         })
     }
 
-    fn parse_ability_def(&mut self, is_public: bool) -> Result<CstAbilityDef, ParseError> {
+    fn parse_ability_def(
+        &mut self,
+        is_public: bool,
+        unique_id: Option<Arc<str>>,
+    ) -> Result<CstAbilityDef, ParseError> {
         self.expect(TokenKind::Ability)?;
         let name = self.parse_ident()?;
 
@@ -490,6 +497,7 @@ impl Parser<'_> {
             name,
             dependencies,
             methods,
+            unique_id,
         })
     }
 
@@ -526,13 +534,24 @@ impl Parser<'_> {
         self.expect(TokenKind::RParen)?;
         self.expect(TokenKind::Colon)?;
         let ret_ty = self.parse_type()?;
-        let end = self.expect(TokenKind::Semi)?.span.end;
+
+        // A block is the method's default implementation; a `;` leaves it
+        // abstract (rejected later everywhere but the Exception carve-out).
+        let (body, end) = if self.check(TokenKind::LBrace) {
+            let body = self.parse_block_expr()?;
+            let end = body.span.end;
+            (Some(body), end)
+        } else {
+            let end = self.expect(TokenKind::Semi)?.span.end;
+            (None, end)
+        };
 
         Ok(CstAbilityMethod {
             name,
             type_params,
             params,
             ret_ty,
+            body,
             span: Span::new(start, end),
         })
     }

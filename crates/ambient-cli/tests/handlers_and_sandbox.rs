@@ -72,7 +72,7 @@ fn test_handler_value_with_inline() {
 fn test_handler_value_override_last_wins() {
     CliTest::new(
         r#"
-        ability Choice {
+        unique(AB000000-0000-0000-0000-00000000000D) ability Choice {
           fn pick(): Number;
         }
 
@@ -99,7 +99,7 @@ fn test_handler_value_override_last_wins() {
 fn test_handler_value_captures_outer_variable() {
     CliTest::new(
         r#"
-        ability Choice {
+        unique(AB000000-0000-0000-0000-00000000000E) ability Choice {
           fn pick(): Number;
         }
 
@@ -126,7 +126,7 @@ fn test_handler_value_captures_outer_variable() {
 fn test_handler_value_multi_arm_captures() {
     CliTest::new(
         r#"
-        ability Pair {
+        unique(AB000000-0000-0000-0000-00000000000F) ability Pair {
           fn left(): Number;
           fn right(): Number;
         }
@@ -160,7 +160,7 @@ fn test_handler_value_multi_arm_captures() {
 fn test_inline_multi_method_dispatch() {
     CliTest::new(
         r#"
-        ability Pair {
+        unique(AB000000-0000-0000-0000-000000000010) ability Pair {
           fn left(): Number;
           fn right(): Number;
         }
@@ -325,7 +325,7 @@ fn test_local_ability_shadows_platform_name() {
     // platform ability stays reachable through its prefix.
     CliTest::new(
         r#"
-        ability Stdio {
+        unique(AB000000-0000-0000-0000-000000000011) ability Stdio {
             fn shout(message: String): String;
         }
 

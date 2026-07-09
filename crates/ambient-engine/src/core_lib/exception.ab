@@ -11,7 +11,7 @@
 // this declaration reproduces byte-for-byte the id the VM anchors its
 // throw/unwind path on (`ambient_core::exception::ability_id()`): a single
 // method `throw`, taking a `String`, returning `!` (never).
-pub ability Exception {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000001) ability Exception {
   /// Raise an error message, unwinding to the nearest Exception handler.
   fn throw(message: String): !;
 }

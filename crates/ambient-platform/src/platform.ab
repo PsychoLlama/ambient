@@ -27,7 +27,7 @@ use core::time::Duration;
 // namespaced dynamics regardless of visibility.
 
 /// Standard input/output streams of the host process.
-pub ability Stdio {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000002) ability Stdio {
   /// Write a line to stdout.
   fn out(message: String): ();
   /// Write a line to stderr.
@@ -38,7 +38,7 @@ pub ability Stdio {
 }
 
 /// Wall-clock time.
-pub ability Time {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000003) ability Time {
   /// Milliseconds since the Unix epoch.
   fn now(): Number;
   /// Block for the given duration.
@@ -46,7 +46,7 @@ pub ability Time {
 }
 
 /// Non-deterministic random numbers.
-pub ability Random {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000004) ability Random {
   /// A random number in `[0, 1)`.
   fn seed(): Number;
   /// A random integer in `[0, max)`.
@@ -55,7 +55,7 @@ pub ability Random {
 
 /// Leveled diagnostic logging. Its output is emitted through
 /// `core::system::Stdio`, so a handler for `Stdio` also captures log lines.
-pub ability Log with core::system::Stdio {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000005) ability Log with core::system::Stdio {
   fn debug(message: String): ();
   fn info(message: String): ();
   fn warn(message: String): ();
@@ -63,7 +63,7 @@ pub ability Log with core::system::Stdio {
 }
 
 /// File system access at scripting-language granularity.
-pub ability FileSystem {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000006) ability FileSystem {
   /// Read a file as UTF-8 text.
   fn read(path: String): String;
   /// Create or truncate a file with the given text.
@@ -83,7 +83,7 @@ pub ability FileSystem {
 }
 
 /// TCP networking. Listeners and connections are numeric handles.
-pub ability Network {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000007) ability Network {
   /// Bind a listener on a `(host, port)` endpoint like `("127.0.0.1", 8080)`.
   fn listen(endpoint: (String, Number)): Number;
   /// Block until a client connects; returns a connection handle.
@@ -111,7 +111,7 @@ pub ability Network {
 /// effect-polymorphic function parameters; the runtime checks their
 /// arity at spawn time (init takes no parameters, handler takes
 /// state and message).
-pub ability Process {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000008) ability Process {
   /// Spawn a named process; returns its pid. During a deploy pass this
   /// is a declaration: an existing live name is rebound (state kept)
   /// instead of respawned. Outside a deploy pass, spawning a live name
@@ -132,7 +132,7 @@ pub ability Process {
 
 /// The host process's environment: variables, arguments, working
 /// directory, and OS process id.
-pub ability Env {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000009) ability Env {
   /// The value of an environment variable, or None if unset.
   fn var(name: String): Option<String>;
   /// Every environment variable as (name, value) pairs.
@@ -150,7 +150,7 @@ pub ability Env {
 
 /// Content-addressed remote execution: run functions by hash in an
 /// isolated VM whose capabilities the host decides.
-pub ability Execute {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000A) ability Execute {
   /// Whether the local store has the function.
   fn has_function(hash: String): Bool;
   /// Hashes of everything the function transitively calls.

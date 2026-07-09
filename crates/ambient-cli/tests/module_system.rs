@@ -274,7 +274,7 @@ fn abilities_perform_and_handle_across_modules() {
     let dir = package(&[
         (
             "effects.ab",
-            "pub ability Counter {\n  fn next(): Number;\n}\n",
+            "pub unique(AB000000-0000-0000-0000-000000000012) ability Counter {\n  fn next(): Number;\n}\n",
         ),
         (
             "main.ab",
@@ -300,7 +300,7 @@ fn qualified_handler_arms_match_imported_performs() {
     let dir = package(&[
         (
             "effects.ab",
-            "pub ability Counter {\n  fn next(): Number;\n}\n",
+            "pub unique(AB000000-0000-0000-0000-000000000013) ability Counter {\n  fn next(): Number;\n}\n",
         ),
         (
             "worker.ab",

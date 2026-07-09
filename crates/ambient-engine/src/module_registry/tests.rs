@@ -78,6 +78,7 @@ fn make_ability(name: &str, is_public: bool) -> Item {
             is_public,
             dependencies: vec![],
             methods: vec![],
+            uuid: uuid::Uuid::from_u128(0xA1B2_C3D4),
             resolved_id: None,
         }),
         Span::default(),

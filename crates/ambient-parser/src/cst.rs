@@ -417,9 +417,15 @@ pub struct CstAbilityDef {
     pub dependencies: Vec<CstQualifiedName>,
     /// Methods.
     pub methods: Vec<CstAbilityMethod>,
+    /// Nominal identity from the `unique(<uuid>)` prefix. Abilities are
+    /// nominal like enums; lowering rejects a missing prefix.
+    pub unique_id: Option<Arc<str>>,
 }
 
-/// An ability method signature.
+/// An ability method: a signature plus its default implementation (the body
+/// that runs when a perform reaches no handler). The body is `None` only
+/// during error recovery or for the `Exception` carve-out; the checker
+/// rejects a missing body everywhere else.
 #[derive(Debug, Clone)]
 pub struct CstAbilityMethod {
     /// Method name.
@@ -430,6 +436,8 @@ pub struct CstAbilityMethod {
     pub params: Vec<(CstIdent, CstTypeExpr)>,
     /// Return type.
     pub ret_ty: CstTypeExpr,
+    /// Default implementation body (`None` for a `;`-terminated signature).
+    pub body: Option<CstExpr>,
     /// Source span.
     pub span: Span,
 }

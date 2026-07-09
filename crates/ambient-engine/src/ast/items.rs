@@ -274,6 +274,10 @@ pub struct EnumVariant {
 }
 
 /// An ability definition.
+///
+/// Abilities are nominal, like enums: the `unique(<uuid>)` prefix is the
+/// ability's identity, so renaming or moving the declaration never changes
+/// it, and two same-shaped abilities in different modules stay distinct.
 #[derive(Debug, Clone)]
 pub struct AbilityDef {
     /// Ability name.
@@ -286,23 +290,33 @@ pub struct AbilityDef {
     pub dependencies: Vec<QualifiedName>,
     /// Methods defined by this ability.
     pub methods: Vec<AbilityMethod>,
-    /// Content-addressed identity, computed during type checking from the
-    /// resolved method signatures. `None` until the module is checked; the
-    /// compiler reads it rather than re-deriving the hash.
+    /// Nominal identity from the mandatory `unique(<uuid>)` prefix.
+    pub uuid: Uuid,
+    /// The uuid-derived identity, written back during type checking; the
+    /// compiler reads it rather than re-deriving.
     pub resolved_id: Option<crate::types::AbilityId>,
 }
 
-/// An ability method signature.
+/// An ability method: a signature plus its default implementation — the
+/// body that runs when a perform reaches no handler. The body compiles to
+/// an ordinary content-addressed function, and its hash is folded into the
+/// method's identity (see `ambient_core::MethodKey`), so two same-signature
+/// methods with different behavior are distinct methods.
 #[derive(Debug, Clone)]
 pub struct AbilityMethod {
     /// Method name.
     pub name: Arc<str>,
     /// Type parameters (generics).
     pub type_params: Vec<TypeParam>,
-    /// Parameters.
-    pub params: Vec<(Arc<str>, Type)>,
+    /// Parameters. Every parameter carries a declared type (enforced in
+    /// lowering); the binding IDs bind the default body's scope.
+    pub params: Vec<Param>,
     /// Return type.
     pub ret_ty: Type,
+    /// Default implementation. `None` only for the `Exception` carve-out
+    /// (its unhandled behavior is the VM's uncaught-exception path); the
+    /// checker rejects a missing body everywhere else.
+    pub body: Option<Expr>,
     /// Source location.
     pub span: Span,
 }

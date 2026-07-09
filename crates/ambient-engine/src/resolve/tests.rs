@@ -371,6 +371,7 @@ fn same_module_ability_reference_resolves_to_its_fqn() {
             is_public: true,
             dependencies: vec![],
             methods: vec![],
+            uuid: uuid::Uuid::from_u128(0xA1B2_C3D4),
             resolved_id: None,
         }),
         Span::default(),

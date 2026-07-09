@@ -882,6 +882,17 @@ impl HandlerLiteralMethod {
 }
 
 impl Param {
+    /// The declared type annotation, or `Type::Hole` when absent.
+    ///
+    /// Ability method parameters always carry an annotation (lowering
+    /// enforces it); this keeps consumers of those signatures total without
+    /// unwrapping.
+    #[must_use]
+    pub fn declared_ty(&self) -> &Type {
+        static HOLE: Type = Type::Hole;
+        self.ty.as_ref().unwrap_or(&HOLE)
+    }
+
     /// Create a new parameter.
     #[must_use]
     pub fn new(id: BindingId, name: impl Into<Arc<str>>) -> Self {

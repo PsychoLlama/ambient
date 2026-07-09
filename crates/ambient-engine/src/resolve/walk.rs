@@ -54,8 +54,10 @@ impl Resolver<'_> {
                 }
                 for method in &mut a.methods {
                     self.push_type_params(&method.type_params);
-                    for (_, ty) in &mut method.params {
-                        self.resolve_type(ty);
+                    for param in &mut method.params {
+                        if let Some(ty) = param.ty.as_mut() {
+                            self.resolve_type(ty);
+                        }
                     }
                     self.resolve_type(&mut method.ret_ty);
                     self.pop_type_params();

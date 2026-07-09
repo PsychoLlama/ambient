@@ -25,9 +25,16 @@ fn method(
             .collect(),
         params: params
             .iter()
-            .map(|(name, ty)| (Arc::from(*name), ty.clone()))
+            .enumerate()
+            .map(|(i, (name, ty))| crate::ast::Param {
+                id: i as crate::ast::BindingId,
+                name: Arc::from(*name),
+                ty: Some(ty.clone()),
+                span: span(),
+            })
             .collect(),
         ret_ty,
+        body: None,
         span: span(),
     }
 }
@@ -43,6 +50,7 @@ fn ability_module(name: &str, methods: Vec<crate::ast::AbilityMethod>) -> crate:
                 is_public: true,
                 dependencies: vec![],
                 methods,
+                uuid: uuid::Uuid::from_u128(0xA1B2_C3D4),
                 resolved_id: None,
             }),
             span: span(),

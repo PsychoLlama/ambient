@@ -35,7 +35,7 @@ pub(super) fn lower_item_impl(
         CstItemKind::Struct(s) => ItemKind::Struct(lower_struct_def(s)?),
         CstItemKind::TypeAlias(t) => ItemKind::TypeAlias(lower_type_alias(t)?),
         CstItemKind::Enum(e) => ItemKind::Enum(lower_enum(e)?),
-        CstItemKind::Ability(a) => ItemKind::Ability(lower_ability_def(a)?),
+        CstItemKind::Ability(a) => ItemKind::Ability(lower_ability_def(ctx, a)?),
         CstItemKind::Use(u) => {
             // A use tree flattens to one item per imported leaf.
             return Ok(lower_use(u)?
@@ -308,7 +308,24 @@ fn lower_enum(e: &CstEnumDef) -> Result<EnumDef, ParseError> {
     })
 }
 
-fn lower_ability_def(a: &CstAbilityDef) -> Result<AbilityDef, ParseError> {
+fn lower_ability_def(
+    ctx: &mut LoweringContext,
+    a: &CstAbilityDef,
+) -> Result<AbilityDef, ParseError> {
+    // Abilities are nominal, like enums: the `unique(<uuid>)` prefix *is*
+    // the identity, so renaming or moving the declaration never changes it.
+    let uuid = match &a.unique_id {
+        Some(s) => Uuid::parse_str(s).map_err(|err| {
+            ParseError::new(ParseErrorKind::InvalidUuid(err.to_string()), a.name.span)
+        })?,
+        None => {
+            return Err(ParseError::new(
+                ParseErrorKind::AbilityRequiresUnique,
+                a.name.span,
+            ));
+        }
+    };
+
     let dependencies = a.dependencies.iter().map(lower_qualified_name).collect();
 
     let methods = a
@@ -324,22 +341,36 @@ fn lower_ability_def(a: &CstAbilityDef) -> Result<AbilityDef, ParseError> {
                 })
                 .collect();
 
+            // A method signature is an interface other code compiles
+            // against, so every parameter carries a declared type — there
+            // may be no body to infer from at a handler arm.
             let params = m
                 .params
                 .iter()
                 .map(|(name, ty)| {
                     let lowered_ty = lower_type(ty)?;
-                    Ok((name.name.clone(), lowered_ty))
+                    Ok(Param {
+                        id: ctx.fresh_binding(),
+                        name: name.name.clone(),
+                        ty: Some(lowered_ty),
+                        span: name.span,
+                    })
                 })
                 .collect::<Result<Vec<_>, ParseError>>()?;
 
             let ret_ty = lower_type(&m.ret_ty)?;
+            let body = m
+                .body
+                .as_ref()
+                .map(|body| lower_expression(ctx, body))
+                .transpose()?;
 
             Ok(AbilityMethod {
                 name: m.name.name.clone(),
                 type_params,
                 params,
                 ret_ty,
+                body,
                 span: m.span,
             })
         })
@@ -351,6 +382,7 @@ fn lower_ability_def(a: &CstAbilityDef) -> Result<AbilityDef, ParseError> {
         is_public: a.is_public,
         dependencies,
         methods,
+        uuid,
         resolved_id: None,
     })
 }

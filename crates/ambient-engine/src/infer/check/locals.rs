@@ -794,8 +794,8 @@ fn check_declared_types(
                 for m in &a.methods {
                     let known = type_param_set(&m.type_params);
                     let s = (m.span.start, m.span.end);
-                    for (_, pty) in &m.params {
-                        report_undefined_types(infer, pty, s, &known, errors);
+                    for p in &m.params {
+                        report_undefined_types(infer, p.declared_ty(), s, &known, errors);
                     }
                     report_undefined_types(infer, &m.ret_ty, s, &known, errors);
                 }
