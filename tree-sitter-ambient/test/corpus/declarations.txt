@@ -228,13 +228,78 @@ use some_library::mod::{a, b};
 
 (source_file
   (use_declaration
-    (use_path
-      (identifier)
-      (identifier)
+    (use_tree
+      path: (use_path
+        (identifier)
+        (identifier))
       (use_group
-        (identifier_list
-          (identifier)
-          (identifier))))))
+        (use_tree
+          path: (use_path
+            (identifier)))
+        (use_tree
+          path: (use_path
+            (identifier)))))))
+
+================================================================================
+Nested use tree with alias and glob
+================================================================================
+
+use pkg::{
+    math_utils::{abs, max as largest},
+    geometry::*,
+};
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (use_declaration
+    (use_tree
+      path: (use_path
+        (identifier))
+      (use_group
+        (use_tree
+          path: (use_path
+            (identifier))
+          (use_group
+            (use_tree
+              path: (use_path
+                (identifier)))
+            (use_tree
+              path: (use_path
+                (identifier))
+              alias: (identifier))))
+        (use_tree
+          path: (use_path
+            (identifier)))))))
+
+================================================================================
+Block-scoped use statement
+================================================================================
+
+fn f(): Number {
+  use core::convert::parse_number;
+  parse_number("4")
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (use_declaration
+        (use_tree
+          path: (use_path
+            (identifier)
+            (identifier)
+            (identifier))))
+      (call_expression
+        (identifier)
+        (argument_list
+          (string
+            (string_content)))))))
 
 ================================================================================
 Struct definition with unique
@@ -404,12 +469,14 @@ pub use pkg::option::{Option};
 (source_file
   (use_declaration
     (visibility)
-    (use_path
-      (identifier)
-      (identifier)
+    (use_tree
+      path: (use_path
+        (identifier)
+        (identifier))
       (use_group
-        (identifier_list
-          (identifier))))))
+        (use_tree
+          path: (use_path
+            (identifier)))))))
 
 ================================================================================
 Public const and ability

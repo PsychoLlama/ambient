@@ -146,3 +146,46 @@ fn test(): number {
     body: (block
       (sandbox_expression
         (block (number))))))
+
+================================================================================
+Fully-qualified handler arm as a value
+================================================================================
+
+fn f(): Number {
+  let h = {
+    core::system::Stdio::out(msg) => resume(())
+  };
+  with h handle g()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (let_statement
+        pattern: (identifier)
+        value: (handler_literal
+          (handler_method
+            ability: (scoped_identifier
+              path: (scoped_identifier
+                path: (identifier)
+                name: (identifier))
+              name: (identifier))
+            method: (identifier)
+            (parameter_list
+              (parameter
+                name: (identifier)))
+            (call_expression
+              (identifier)
+              (argument_list
+                (unit))))))
+      (with_handle_expression
+        (handler_list
+          (identifier))
+        body: (call_expression
+          (identifier)
+          (argument_list))))))

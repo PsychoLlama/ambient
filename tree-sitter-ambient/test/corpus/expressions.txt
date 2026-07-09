@@ -398,3 +398,28 @@ fn test(): number {
     return_type: (identifier)
     body: (block
       (member_expression (identifier) (identifier)))))
+
+================================================================================
+Trailing comma in call arguments
+================================================================================
+
+fn f(): String {
+  concat(
+    a,
+    b,
+  )
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (call_expression
+        (identifier)
+        (argument_list
+          (identifier)
+          (identifier))))))

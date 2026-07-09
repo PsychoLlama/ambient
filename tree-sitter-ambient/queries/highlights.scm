@@ -14,6 +14,7 @@
   "impl"
   "for"
   "use"
+  "as"
   "with"
   "handle"
   "sandbox"
@@ -82,6 +83,13 @@
 
 (handler_method
   ability: (identifier) @type
+  method: (identifier) @function.method)
+
+; Fully-qualified handler arm (`core::system::Stdio::out(...) => ...`): the
+; final path segment is the ability name.
+(handler_method
+  ability: (scoped_identifier
+    name: (identifier) @type)
   method: (identifier) @function.method)
 
 ; Traits and impls

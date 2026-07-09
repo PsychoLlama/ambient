@@ -48,6 +48,10 @@ module.exports = grammar({
     [$.variant_pattern, $._pattern],
     // Match guard with () could be lambda params or unit
     [$.lambda_parameters, $.unit],
+    // `use a::b::…`: after each segment a `::` could extend the path or
+    // introduce a `::{group}` / `::*` tail — the token after `::` decides,
+    // so keep both readings alive under GLR.
+    [$.use_path],
   ],
 
   rules: {
@@ -242,16 +246,35 @@ module.exports = grammar({
         "}"
       ),
 
-    use_declaration: ($) => seq(optional($.visibility), "use", $.use_path, ";"),
+    // Rust-style use trees: a path may end in `::*` (glob), `::{ ... }` (a
+    // nestable brace group), or `as alias`. Path-root keywords (`pkg`,
+    // `core`, `self`, `super`) are ordinary identifiers to the grammar; the
+    // compiler validates their placement during lowering.
+    use_declaration: ($) => seq(optional($.visibility), "use", $.use_tree, ";"),
 
-    use_path: ($) =>
-      seq(
-        $.identifier,
-        repeat(seq("::", $.identifier)),
-        optional(choice(seq("::", "*"), seq("::", $.use_group)))
+    use_tree: ($) =>
+      choice(
+        $.use_group,
+        seq(
+          field("path", $.use_path),
+          optional(
+            choice(
+              seq("::", "*"),
+              seq("::", $.use_group),
+              seq("as", field("alias", $.identifier))
+            )
+          )
+        )
       ),
 
-    use_group: ($) => seq("{", $.identifier_list, "}"),
+    use_path: ($) => seq($.identifier, repeat(seq("::", $.identifier))),
+
+    use_group: ($) =>
+      seq(
+        "{",
+        optional(seq($.use_tree, repeat(seq(",", $.use_tree)), optional(","))),
+        "}"
+      ),
 
     // ─────────────────────────────────────────────────────────────────────────
     // Parameters and Types
@@ -342,7 +365,6 @@ module.exports = grammar({
 
     _type_list: ($) => seq($._type, repeat(seq(",", $._type))),
 
-    identifier_list: ($) => seq($.identifier, repeat(seq(",", $.identifier))),
 
     // ─────────────────────────────────────────────────────────────────────────
     // Expressions
@@ -406,7 +428,7 @@ module.exports = grammar({
     argument_list: ($) =>
       seq(
         "(",
-        optional(seq($._expression, repeat(seq(",", $._expression)))),
+        optional(seq($._expression, repeat(seq(",", $._expression)), optional(","))),
         ")"
       ),
 
@@ -493,7 +515,9 @@ module.exports = grammar({
 
     block: ($) => seq("{", repeat($._statement), optional($._expression), "}"),
 
-    _statement: ($) => choice($.let_statement, $.expression_statement),
+    // A block may open with `use` imports scoped to the rest of the block.
+    _statement: ($) =>
+      choice($.let_statement, $.use_declaration, $.expression_statement),
 
     let_statement: ($) =>
       seq(
@@ -570,7 +594,9 @@ module.exports = grammar({
       prec(
         PREC.MEMBER,
         seq(
-          field("ability", $.identifier),
+          // The ability may be bare (`Stdio`) or fully-qualified
+          // (`core::system::Stdio`); the trailing `::method` is split off.
+          field("ability", choice($.identifier, $.scoped_identifier)),
           "::",
           field("method", $.identifier),
           $.parameter_list,
