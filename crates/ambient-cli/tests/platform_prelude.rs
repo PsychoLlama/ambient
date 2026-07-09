@@ -180,6 +180,20 @@ fn signature_hashes_are_byte_stable() {
         SignatureHash::new(&["string", "var0"], "var1"),
         "Execute::run<T, R> must render position-canonical type variables"
     );
+
+    // `Time::wait(duration: Duration): ()`. `Duration` is a cross-module
+    // nominal (`core::time::Duration`): an ability signature resolves before
+    // the module's alias table is populated, so it stays an unresolved
+    // `Named` with no uuid and renders by its name — the documented,
+    // byte-stable fallback of the uuid-based nominal rendering. (A uuid would
+    // be rename-stable, but this path never resolves one to render.)
+    let time = prelude.get("Time").expect("Time");
+    let wait = time.method("wait").expect("Time::wait");
+    assert_eq!(
+        wait.signature,
+        SignatureHash::new(&["named:Duration"], "unit"),
+        "Time::wait must render an unresolved cross-module nominal by name"
+    );
 }
 
 /// `Exception` is declared in Ambient source (`core::exception`) rather than

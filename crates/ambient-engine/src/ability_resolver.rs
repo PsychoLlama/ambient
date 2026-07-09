@@ -389,8 +389,17 @@ impl Default for AbilityResolver {
 /// appearance within one renderer instance; use one renderer per method
 /// signature so numbering is signature-local.
 ///
-/// Nominal types render by name only: their UUIDs are freshly generated
-/// per compilation and would break hash determinism.
+/// Uuid-carrying nominal types (declared enums, opaque-generic containers,
+/// `extern` structs) render by their **uuid** (`named:<uuid>`,
+/// `nominal:<uuid>:...`): the uuid is the type's stable identity, so
+/// renaming the type never moves a method's hash. Primitives stay bare
+/// words and structural types (tuples, records, functions) render by
+/// shape. A name that resolved to no uuid — a cross-module nominal like
+/// `Duration` that stays an unresolved `Named` because ability signatures
+/// resolve before the module's alias table is populated, and
+/// type-parameter references — falls back to `named:<name>`. That fallback
+/// is byte-stable (the same name renders the same way on every path) but
+/// is *not* rename-stable, the documented limit of the uuid scheme.
 #[derive(Debug, Default)]
 pub struct CanonicalTypeRenderer {
     vars: HashMap<crate::types::TypeVarId, u32>,
@@ -446,11 +455,19 @@ impl CanonicalTypeRenderer {
                 format!("list<{}>", self.render(&named.args[0]))
             }
             Type::Named(named) => {
+                // A resolved nominal head renders by its uuid so renaming the
+                // type is hash-stable; an unresolved name (cross-module
+                // `Duration`, type-parameter references) falls back to the
+                // name — byte-stable across paths, but not rename-stable.
+                let head = match named.uuid {
+                    Some(uuid) => format!("named:{uuid}"),
+                    None => format!("named:{}", named.name),
+                };
                 if named.args.is_empty() {
-                    format!("named:{}", named.name)
+                    head
                 } else {
                     let args: Vec<String> = named.args.iter().map(|a| self.render(a)).collect();
-                    format!("named:{}<{}>", named.name, args.join(", "))
+                    format!("{head}<{}>", args.join(", "))
                 }
             }
             Type::Tuple(elems) => {
@@ -481,11 +498,11 @@ impl CanonicalTypeRenderer {
                 format!("forall({})", self.render(&forall.body))
             }
             Type::Nominal(nominal) => {
+                // A nominal always carries a uuid — its stable identity — so
+                // render by it (the `name` is a human-facing label only,
+                // and renaming it must not move the hash).
                 let inner = self.render(&nominal.inner);
-                match &nominal.name {
-                    Some(name) => format!("nominal:{name}:{inner}"),
-                    None => format!("nominal:{inner}"),
-                }
+                format!("nominal:{}:{inner}", nominal.uuid)
             }
             Type::AbilityValue(av) => {
                 let result = self.render(&av.result);

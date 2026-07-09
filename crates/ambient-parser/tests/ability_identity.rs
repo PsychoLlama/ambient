@@ -95,6 +95,36 @@ fn renaming_a_method_moves_no_hashes() {
 }
 
 #[test]
+fn renaming_a_type_in_a_signature_moves_no_hashes() {
+    // A method's canonical signature renders uuid-carrying nominal types by
+    // their uuid, not their name. So renaming a *type* mentioned in an
+    // ability signature — its `unique(...)` identity unchanged — re-keys
+    // nothing, the same rename-stability that renaming the ability or its
+    // methods already guarantees.
+    let source = |type_name: &str| {
+        format!(
+            r"
+            unique(AB100000-0000-0000-0000-000000000008) enum {type_name} {{ On, Off }}
+            unique(AB100000-0000-0000-0000-000000000009) ability Switch {{
+              fn flip(state: {type_name}): Number {{ 4 }}
+            }}
+            fn consult(state: {type_name}): Number with Switch {{
+              Switch::flip!(state)
+            }}
+            "
+        )
+    };
+    let original = compile(&source("Toggle"));
+    let renamed = compile(&source("Lever"));
+
+    assert_eq!(
+        caller_hash(&original, "consult"),
+        caller_hash(&renamed, "consult"),
+        "renaming a type used in an ability signature must not move a perform site's hash"
+    );
+}
+
+#[test]
 fn same_shape_different_uuid_is_a_different_ability() {
     let source = |uuid: &str| {
         format!(
