@@ -248,15 +248,15 @@ impl Infer {
             handler_env.insert_mono(param.id, param.name.clone(), param_ty);
         }
 
-        // A `!`-returning method (Exception::throw) has no statically
-        // knowable resume type: the host can raise it at any perform
-        // site, and resuming substitutes a value for the failing call.
-        let value_ty = match self.apply(&ret_ty) {
-            Type::Never => None,
-            ret => Some(ret),
-        };
+        // `resume(v)` always feeds the method's declared return type — no
+        // exceptions. `Exception::throw` returns `!` (never), which nothing
+        // unifies with, so an Exception arm is catch-only: resuming a throw
+        // is a type error, not a way to substitute a value for a failing
+        // call. Fallible host operations return `Result` and are matched on
+        // instead of resumed. (Previously a `!` return made resume
+        // unconstrained; that resume-with-substitute escape hatch is gone.)
         self.resume_contexts.push(crate::infer::ResumeContext {
-            value_ty,
+            value_ty: Some(self.apply(&ret_ty)),
             result_ty: Some(result_ty.clone()),
         });
         let handler_result = self.infer_expr(&handler_env, &mut handler.body);

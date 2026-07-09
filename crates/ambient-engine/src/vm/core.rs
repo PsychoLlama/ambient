@@ -299,10 +299,14 @@ impl Vm {
             // A native raising an exception behaves exactly like
             // `Exception.throw!` at the call site: the caller's frames are
             // intact, so the nearest in-language Exception handler catches
-            // it (and may even `resume` with a substitute for the failed
-            // operation's result). This is how effectful platform natives
-            // report operational failures (missing file, refused
-            // connection) without killing the VM.
+            // it. This is *not* how fallible operations report failure —
+            // those (missing file, refused connection) return an in-language
+            // `Result::Err` value instead. This channel is reserved for hard
+            // faults a native can still detect at runtime: an unwired
+            // capability (`... is not wired`) or a control error like
+            // spawning a live process name. Exception arms are catch-only
+            // now, so such a throw cannot be resumed with a substitute — it
+            // is caught-and-continued or surfaces uncaught.
             Err(VmError::Exception(error)) => self.raise_exception(error),
             Err(other) => Err(other),
         }

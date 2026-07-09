@@ -228,8 +228,10 @@ pub enum VmError {
 impl VmError {
     /// Construct a catchable exception carrying a string error message.
     ///
-    /// This is the common case for host handlers reporting fallible-operation
-    /// failures (file not found, connection refused, ...).
+    /// Used by natives to report a *hard fault* — an unwired capability or a
+    /// runtime control error. Fallible operations (file not found, connection
+    /// refused, ...) do not use this: they return an in-language `Result::Err`
+    /// value (see `into_result` in `ambient-platform`).
     #[must_use]
     pub fn exception(message: impl Into<String>) -> Self {
         Self::Exception(Value::string(message))

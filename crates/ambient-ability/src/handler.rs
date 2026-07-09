@@ -16,9 +16,11 @@ use crate::value::{SuspendedAbility, Value};
 /// - `Err(VmError::Exception(value))` raises a *catchable* language-level
 ///   exception at the perform site — the VM performs `Exception.throw(value)`
 ///   there, so the calling program's nearest `handle` block for Exception
-///   catches it. Use [`VmError::exception`] for the common string-message
-///   case. This is how fallible operations (file not found, connection
-///   refused, ...) should report failure.
+///   catches it (catch-only: Exception arms cannot resume). Use
+///   [`VmError::exception`] for the common string-message case. This is for
+///   hard faults — an unwired capability, a runtime control error — *not*
+///   fallible operations: those (file not found, connection refused, ...)
+///   return an in-language `Result::Err` value instead.
 /// - Any other `VmError` is a fatal engine error that aborts execution.
 ///
 /// # Example
