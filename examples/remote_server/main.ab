@@ -23,16 +23,29 @@ fn endpoint(): (String, Number) with Env {
     (host, port)
 }
 
+/// Unwrap a fallible handle, turning an `Err` into a fatal throw at the
+/// application boundary — a failed bind or accept should abort the server,
+/// not continue with an invalid handle.
+fn need(result: Result<Number, String>): Number with Exception {
+    match result {
+        Ok(value) => value,
+        Err(msg) => {
+            Exception::throw!(msg);
+            0 - 1
+        }
+    }
+}
+
 /// Entry point that starts the server.
-pub fn run(): () with Stdio, Network, Execute, Env {
+pub fn run(): () with Stdio, Network, Execute, Env, Exception {
     let addr = endpoint();
     Stdio::out!("Server: listening on ".concat(addr.0).concat(":").concat(core::convert::to_string(addr.1)).concat("..."));
-    let listener = Network::listen!(addr);
+    let listener = need(Network::listen!(addr));
 
     Stdio::out!("Server: waiting for connection...");
-    let conn = Network::accept!(listener);
+    let conn = need(Network::accept!(listener));
 
-    let peer = Network::peer_addr!(conn);
+    let peer = Network::peer_addr!(conn).unwrap_or("unknown");
     Stdio::out!("Server: client connected from ".concat(peer));
 
     // Handle the remote execution request
@@ -49,7 +62,7 @@ pub fn run(): () with Stdio, Network, Execute, Env {
 
 /// Serve a remote execution request.
 fn serve_request(conn: Number): () with Stdio, Network, Execute {
-    let bytes = Network::receive!(conn);
+    let bytes = Network::receive!(conn).unwrap_or(Binary::from([]));
 
     if bytes.length() == 0 {
         Stdio::out!("Server: connection closed")
@@ -100,7 +113,7 @@ fn request_function(conn: Number, hash: String): () with Stdio, Network, Execute
     Network::send!(conn, msg);
 
     // Receive Provide message
-    let response = Network::receive!(conn);
+    let response = Network::receive!(conn).unwrap_or(Binary::from([]));
     let msg_type = response.get(0).unwrap_or(0);
 
     if msg_type == 3 {

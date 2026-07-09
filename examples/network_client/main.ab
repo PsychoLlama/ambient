@@ -8,12 +8,27 @@
 
 use core::system::{Stdio, Network};
 
-/// Entry point that connects to a server and sends messages.
-pub fn run(): () with Stdio, Network {
-    Stdio::out!("Client: connecting to 127.0.0.1:9000...");
-    let conn = Network::connect!(("127.0.0.1", 9000));
+/// Unwrap a fallible handle, turning an `Err` into a fatal throw at the
+/// application boundary — a setup failure (e.g. connection refused) should
+/// abort the client, not continue with an invalid handle.
+fn need(result: Result<Number, String>): Number with Exception {
+    match result {
+        Ok(value) => value,
+        Err(msg) => {
+            Exception::throw!(msg);
+            0 - 1
+        }
+    }
+}
 
-    let local = Network::local_addr!(conn);
+/// Entry point that connects to a server and sends messages.
+pub fn run(): () with Stdio, Network, Exception {
+    Stdio::out!("Client: connecting to 127.0.0.1:9000...");
+    // Fallible Network ops return `Result<T, String>`; a failed connect is
+    // fatal here (via `need`), so the process exits non-zero.
+    let conn = need(Network::connect!(("127.0.0.1", 9000)));
+
+    let local = Network::local_addr!(conn).unwrap_or("unknown");
     Stdio::out!("Client: connected from ".concat(local));
 
     // Send a message as Binary
@@ -21,8 +36,8 @@ pub fn run(): () with Stdio, Network {
     Stdio::out!("Client: sending ".concat(core::convert::to_string(message.length()).concat(" bytes...")));
     Network::send!(conn, message);
 
-    // Receive the echo
-    let response = Network::receive!(conn);
+    // Receive the echo (a receive error reads as an empty response).
+    let response = Network::receive!(conn).unwrap_or(Binary::from([]));
     Stdio::out!("Client: received ".concat(core::convert::to_string(response.length()).concat(" bytes back")));
 
     // Send empty message to signal quit

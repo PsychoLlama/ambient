@@ -177,18 +177,21 @@ Handler arms are fully typed against the ability's declared interface:
   expression's result type.
 - An arm body's own effects (performs outside the handled body) count
   against the enclosing function, like any other code.
-- Exception is special: `throw` returns `!`, and the host raises it at
-  arbitrary perform sites (see "Host failures are catchable exceptions"),
-  so the value passed to `resume` in an Exception arm is deliberately
-  unconstrained — it substitutes for the _failing call's_ result, whose
-  type is unknowable at the arm.
+- Exception is **catch-only**: `throw` returns `!` (never), which nothing
+  unifies with, so an Exception arm cannot `resume` — it yields a value
+  directly (catch-and-continue). There is no way to substitute a value for
+  a failing call and continue; fallible host operations return `Result`
+  and are matched on instead (see "Fallible host operations return
+  Result").
 
 ## Handlers as Values
 
 ```ambient
+// `read`/`write` are fallible, so `resume` feeds their `Result` return
+// type; `exists` is infallible (`Bool`).
 let mock_fs: Handler<FileSystem> = {
-  FileSystem::read(path) => resume("mock content"),
-  FileSystem::write(path, content) => resume(()),
+  FileSystem::read(path) => resume(Ok("mock content")),
+  FileSystem::write(path, content) => resume(Ok(())),
   FileSystem::exists(path) => resume(true),
 };
 
@@ -334,27 +337,40 @@ fn safe_parse(s: String): Option<Number> {
 An uncaught throw halts the program with `uncaught exception: <value>`,
 carrying the actual thrown value.
 
-### Host failures are catchable exceptions
+### Fallible host operations return Result
 
-Fallible host operations (file not found, connection refused, ...) do not
-return `Result` values and do not kill the VM: the native implementation
-raises a catchable exception _at the call site_, inside the ability's
-default implementation. The calling program catches it like any
-in-language throw. Because the Exception handler receives the
-continuation of the failed call, it can even `resume` with a substitute
-value, and the IO caller continues as if the operation had succeeded
-(note: this resume-with-substitute behavior is slated for removal in
-favor of plain `Result` returns on fallible APIs):
+Fallible host operations (file not found, connection refused, ...) return
+a `Result<T, String>`: the native yields an in-language `Result::Err(message)`
+value the caller matches on, exactly like any other data. They do not
+raise exceptions and do not kill the VM.
 
 ```ambient
 fn fetch_or_default(): Number with core::system::Network {
-  with { Exception::throw(msg) => resume(0 - 1) }  // substitute connection id
-    handle core::system::Network::connect!(("10.0.0.1", 9))
+  match core::system::Network::connect!(("10.0.0.1", 9)) {
+    Ok(conn) => conn,
+    Err(msg) => 0 - 1,          // substitute connection id
+  }
 }
 ```
 
+The migrated platform methods — `FileSystem::read`/`write`/`list`/... ,
+every `Network` method, `Stdio::read`, and `Env::cwd` — carry `Result`
+return types in `platform.ab`; their default implementations forward the
+`Result` the native produces. Infallible operations keep their bare types
+(`FileSystem::exists` returns `Bool`, `Stdio::out` returns `()`).
+
+Two things still travel the catchable `Exception` channel, and both are
+hard failures — nothing resumes them:
+
+- An **unwired capability**: performing an ability whose native is bound
+  to the "not wired" stub (e.g. an ungranted ability in an isolated
+  Execute VM) throws `... is not wired`, surfacing uncaught unless a
+  program deliberately handles it.
+- A **control error** a native can only detect at runtime, like spawning
+  a live process name outside a deploy pass.
+
 Engine-level faults (stack overflow, type errors in bytecode, arity
-mismatches) remain fatal `VmError`s - they indicate bugs, not conditions
+mismatches) remain fatal `VmError`s — they indicate bugs, not conditions
 programs should handle.
 
 Current limits: `Exception` is not generic yet (`throw` takes a string;
@@ -368,11 +384,11 @@ statement position but not as the value of a typed expression.
 lookup that may find nothing returns `Option`, a parser that produces a
 structured error returns `Result`. They are values you match on.
 
-_Operational failure_ - the file was deleted, the peer hung up - is not
-data the caller asked for; it is an interruption of an effect, and it
-travels through the effect system as an Exception. No builtin ability
-returns `Result` to signal failure. This keeps IO signatures honest
-(`FileSystem.read` returns `String`, not `Result<String, _>`) while `handle`
-gives callers strictly more power than matching: they can substitute a
-fallback for the failing call and continue, not just observe the error
-after the fact.
+_Operational failure_ — the file was deleted, the peer hung up — is also
+modeled as data: a fallible platform method returns `Result<T, String>`
+(`FileSystem::read` returns `Result<String, String>`), and the caller
+matches on `Ok`/`Err` like any other value. Exceptions are reserved for
+_faults_ the program should not routinely recover from — an unwired
+capability or a runtime control error — and are catch-only: a handler can
+observe the failure and continue past the `handle` expression, but cannot
+resume the failing operation with a substitute value.

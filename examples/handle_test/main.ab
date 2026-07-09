@@ -19,13 +19,17 @@ fn test_simple_handle(): Number {
 }
 
 /// Tests handle expression with multiple handlers.
+///
+/// `Exception` is catch-only: `throw` returns `!`, so an Exception arm
+/// cannot `resume` — it yields a value directly (here a sentinel that
+/// never fires, since `simple_function` does not throw).
 fn test_multiple_handlers(): Number {
   with {
     Stdio::out(msg) => {
       resume(())
     },
     Exception::throw(e) => {
-      resume(())
+      0 - 1
     }
   } handle simple_function()
 }

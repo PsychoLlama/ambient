@@ -34,7 +34,9 @@ fn test_handler_value_multiple() {
 
         fn test_multiple_handlers(): Number {
             let handler1 = { core::system::Stdio::out(msg) => resume(()) };
-            let handler2 = { Exception::throw(err) => resume(()) };
+            // Exception is catch-only (throw returns !), so its arm yields a
+            // value directly rather than resuming; it never fires here.
+            let handler2 = { Exception::throw(err) => 0 - 1 };
             with handler1, handler2 handle simple_function()
         }
 
@@ -54,7 +56,7 @@ fn test_handler_value_with_inline() {
             let mock_console = { core::system::Stdio::out(msg) => resume(()) };
             with mock_console, {
                 Exception::throw(err) => {
-                    resume(())
+                    0 - 1
                 }
             } handle simple_function()
         }

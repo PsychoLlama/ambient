@@ -33,13 +33,26 @@ fn endpoint(): (String, Number) with Env {
     (host, port)
 }
 
+/// Unwrap a fallible handle, turning an `Err` into a fatal throw at the
+/// application boundary — a failed connect should abort the client, not
+/// continue with an invalid handle.
+fn need(result: Result<Number, String>): Number with Exception {
+    match result {
+        Ok(value) => value,
+        Err(msg) => {
+            Exception::throw!(msg);
+            0 - 1
+        }
+    }
+}
+
 /// Entry point that connects to server and executes a function remotely.
-pub fn run(): () with Stdio, Network, Execute, Env {
+pub fn run(): () with Stdio, Network, Execute, Env, Exception {
     let addr = endpoint();
     Stdio::out!("Client: connecting to ".concat(addr.0).concat(":").concat(core::convert::to_string(addr.1)).concat("..."));
-    let conn = Network::connect!(addr);
+    let conn = need(Network::connect!(addr));
 
-    let local = Network::local_addr!(conn);
+    let local = Network::local_addr!(conn).unwrap_or("unknown");
     Stdio::out!("Client: connected from ".concat(local));
 
     // The value we want to double remotely
@@ -82,7 +95,7 @@ fn send_and_receive<A>(conn: Number, arg: A, thunk: (A) -> Number with Log, Stdi
 
 /// Handle server response.
 fn handle_response<A>(conn: Number, thunk: (A) -> Number with Log, Stdio): Number with Stdio, Network, Execute {
-    let response = Network::receive!(conn);
+    let response = Network::receive!(conn).unwrap_or(Binary::from([]));
 
     if response.length() == 0 {
         Stdio::out!("Client: connection closed");

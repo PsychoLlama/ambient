@@ -43,7 +43,7 @@ const ENV_PROGRAM: &str = r#"pub fn run(): () with core::system::Env, core::syst
   core::system::Stdio::out!("arg2 " + args.get(2).unwrap_or("?"));
   core::system::Stdio::out!("var " + core::system::Env::var!("AMBIENT_ENV_IT").unwrap_or("unset"));
   core::system::Stdio::out!("missing " + core::system::Env::var!("AMBIENT_ENV_ABSENT").unwrap_or("unset"));
-  core::system::Stdio::out!("cwdlen " + core::convert::to_string(core::system::Env::cwd!().length()));
+  core::system::Stdio::out!("cwdlen " + core::convert::to_string(core::system::Env::cwd!().unwrap_or("").length()));
   core::system::Stdio::out!("pid " + core::convert::to_string(core::system::Env::pid!()));
 }
 "#;

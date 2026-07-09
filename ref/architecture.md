@@ -169,14 +169,16 @@ and Future Work below for where this is headed.
 ## Error Handling
 
 Errors are abilities: `Exception::throw!` raises, and the nearest enclosing
-`with ... handle` for Exception catches (catch-and-continue). Fallible host
-operations currently raise a catchable `Exception` at the call site rather
-than returning `Result` (the resume-with-substitute part of that pattern is
-slated for removal in favor of plain `Result` returns on fallible APIs).
-`Option`/`Result` remain ordinary data types for domain modeling.
+`with ... handle` for Exception catches (catch-and-continue). Exception is
+**catch-only** — `throw` returns `!`, so a handler arm cannot `resume` a
+failing operation with a substitute value. Fallible host operations return
+`Result<T, String>` (`FileSystem::read`, every `Network` method, ...) and
+are matched on like ordinary data; only unwired capabilities and runtime
+control errors still travel the catchable `Exception` channel, as hard
+failures. `Option`/`Result` remain ordinary data types for domain modeling.
 
 See **[Error Handling in abilities.md](abilities.md#error-handling)** for the
-full treatment, including host failures as exceptions and the
+full treatment, including fallible host operations returning `Result` and the
 Option/Result-vs-exceptions distinction.
 
 ## Type Inference Rules

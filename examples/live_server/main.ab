@@ -37,15 +37,28 @@ fn on_hit(total: Number, n: Number): Number with Stdio {
 
 // ─── acceptor: one reduction per accepted connection ────────────────────
 
-fn acceptor_init(): Number with Network, Stdio, Process {
-  let listener = Network::listen!(("127.0.0.1", 7777));
+/// Unwrap a fallible handle, turning an `Err` into a fatal throw at the
+/// application boundary — a failed bind or accept should crash the process,
+/// not continue with an invalid handle.
+fn need(result: Result<Number, String>): Number with Exception {
+  match result {
+    Ok(value) => value,
+    Err(msg) => {
+      Exception::throw!(msg);
+      0 - 1
+    }
+  }
+}
+
+fn acceptor_init(): Number with Network, Stdio, Process, Exception {
+  let listener = need(Network::listen!(("127.0.0.1", 7777)));
   Stdio::out!("live_server listening on 127.0.0.1:7777");
   Process::send!(Process::self_pid!(), "accept");
   listener
 }
 
-fn acceptor(listener: Number, msg: String): Number with Network, Process {
-  let conn = Network::accept!(listener);
+fn acceptor(listener: Number, msg: String): Number with Network, Process, Exception {
+  let conn = need(Network::accept!(listener));
   let name = "conn-" + core::convert::to_string(conn);
   Process::spawn!(name, () => {
     Process::send!(Process::self_pid!(), "next");
@@ -63,13 +76,11 @@ fn serve_conn(
 ): { conn: Number, hits: Number }
   with Network, Process
 {
-  let data = with {
-    Exception::throw(e) => Binary::from([])
-  } handle Network::receive!(state.conn);
+  // Fallible Network ops return `Result`; a receive error reads as an
+  // empty message, which winds the connection down.
+  let data = Network::receive!(state.conn).unwrap_or(Binary::from([]));
   if data.length() == 0 {
-    with {
-      Exception::throw(e) => ()
-    } handle Network::close!(state.conn);
+    Network::close!(state.conn);
     Process::exit!();
     state
   } else {

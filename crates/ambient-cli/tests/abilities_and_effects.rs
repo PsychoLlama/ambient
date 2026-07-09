@@ -420,46 +420,25 @@ fn test_uncaught_exception_reports_value() {
 }
 
 #[test]
-fn test_host_raised_exception_is_catchable() {
-    // A failing host operation (network connect to a closed port) raises
-    // a catchable exception instead of aborting the VM.
+fn test_host_operation_failure_is_an_err_value() {
+    // A failing host operation (network connect to a closed port) returns
+    // an in-language `Result::Err` value the caller matches on — it does
+    // not raise a catchable exception or abort the VM.
     CliTest::new(
         r#"
         fn try_connect(): String with core::system::Network {
-            let conn = core::system::Network::connect!(("127.0.0.1", 9));
-            "connected"
+            match core::system::Network::connect!(("127.0.0.1", 9)) {
+                Ok(conn) => "connected",
+                Err(msg) => "failed",
+            }
         }
 
         pub fn run(): String with core::system::Network {
-            with {
-                Exception::throw(msg) => "failed"
-            } handle try_connect()
+            try_connect()
         }
         "#,
     )
     .expect_output("failed");
-}
-
-#[test]
-fn test_host_raised_exception_resume_substitute() {
-    // The Exception handler receives the continuation of the failed host
-    // call, so it can resume with a substitute value: try_connect
-    // continues executing after the failed connect.
-    CliTest::new(
-        r#"
-        fn try_connect(): Number with core::system::Network {
-            let conn = core::system::Network::connect!(("127.0.0.1", 9));
-            conn + 1000
-        }
-
-        pub fn run(): Number with core::system::Network {
-            with {
-                Exception::throw(msg) => resume(0 - 1)
-            } handle try_connect()
-        }
-        "#,
-    )
-    .expect_output("999");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -474,7 +453,7 @@ fn test_fs_write_read_roundtrip() {
         r#"
         pub fn run(): String with core::system::FileSystem {{
             core::system::FileSystem::write!("{path}", "hello from ambient");
-            core::system::FileSystem::read!("{path}")
+            core::system::FileSystem::read!("{path}").unwrap_or("read failed")
         }}
         "#,
         path = path.display()
@@ -483,19 +462,20 @@ fn test_fs_write_read_roundtrip() {
 }
 
 #[test]
-fn test_fs_read_missing_file_is_catchable_exception() {
-    // A failing filesystem operation raises a catchable exception instead
-    // of aborting the VM.
+fn test_fs_read_missing_file_is_an_err_value() {
+    // A failing filesystem operation returns an in-language `Result::Err`
+    // value the caller matches on, instead of aborting the VM.
     CliTest::new(
         r#"
         fn try_read(): String with core::system::FileSystem {
-            core::system::FileSystem::read!("/nonexistent/ambient_fs_test/missing.txt")
+            match core::system::FileSystem::read!("/nonexistent/ambient_fs_test/missing.txt") {
+                Ok(content) => content,
+                Err(msg) => "caught",
+            }
         }
 
         pub fn run(): String with core::system::FileSystem {
-            with {
-                Exception::throw(msg) => "caught"
-            } handle try_read()
+            try_read()
         }
         "#,
     )
@@ -528,7 +508,10 @@ fn test_fs_list_returns_written_entries() {
         pub fn run(): Number with core::system::FileSystem {{
             core::system::FileSystem::write!("{base}/a.txt", "1");
             core::system::FileSystem::write!("{base}/b.txt", "2");
-            core::system::FileSystem::list!("{base}").length()
+            match core::system::FileSystem::list!("{base}") {{
+                Ok(entries) => entries.length(),
+                Err(msg) => 0,
+            }}
         }}
         "#
     ))

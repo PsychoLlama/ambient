@@ -7,15 +7,30 @@
 
 use core::system::{Stdio, Network};
 
+/// Unwrap a fallible handle, turning an `Err` into a fatal throw at the
+/// application boundary — a failed bind or accept should abort the server,
+/// not continue with an invalid handle.
+fn need(result: Result<Number, String>): Number with Exception {
+    match result {
+        Ok(value) => value,
+        Err(msg) => {
+            Exception::throw!(msg);
+            0 - 1
+        }
+    }
+}
+
 /// Entry point that starts a TCP server and echoes messages.
-pub fn run(): () with Stdio, Network {
+pub fn run(): () with Stdio, Network, Exception {
     Stdio::out!("Server: binding to 127.0.0.1:9000...");
-    let listener = Network::listen!(("127.0.0.1", 9000));
+    // Fallible Network ops return `Result<T, String>`; a failed bind/accept
+    // is fatal here (via `need`).
+    let listener = need(Network::listen!(("127.0.0.1", 9000)));
 
     Stdio::out!("Server: waiting for connection...");
-    let conn = Network::accept!(listener);
+    let conn = need(Network::accept!(listener));
 
-    let peer = Network::peer_addr!(conn);
+    let peer = Network::peer_addr!(conn).unwrap_or("unknown");
     Stdio::out!("Server: client connected from ".concat(peer));
 
     // Echo loop: receive message, send it back
@@ -29,7 +44,8 @@ pub fn run(): () with Stdio, Network {
 
 /// Echo messages back to the client until an empty message is received.
 fn echo_loop(conn: Number): () with Stdio, Network {
-    let msg = Network::receive!(conn);
+    // A receive error reads as an empty message, which ends the loop.
+    let msg = Network::receive!(conn).unwrap_or(Binary::from([]));
     let len = msg.length();
 
     if len > 0 {
