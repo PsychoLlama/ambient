@@ -10,14 +10,26 @@
 //!
 //! Two layers of bindings:
 //!
-//! - [`stub_natives`] binds every extern to a stub that raises a
-//!   catchable exception. It satisfies the build-time native contract
+//! - [`stub_natives`] binds every extern to a stub that raises a loud
+//!   "not wired" exception. It satisfies the build-time native contract
 //!   (every declaration bound, with the arity and uuid the compiler
-//!   encodes) for compile-only paths.
+//!   encodes) for compile-only paths. A missing capability is a
+//!   configuration fault, not a recoverable operation, so the stub is a
+//!   hard failure — it surfaces uncaught unless a program deliberately
+//!   installs an Exception handler around the perform.
 //! - The granular `*_natives` constructors ([`stdio_natives`],
 //!   [`fs_natives`], ...) carry real implementations. Runtime hosts
 //!   register them per VM — implementations are uuid-keyed, so later
 //!   registration overwrites the stubs.
+//!
+//! # Fallible operations
+//!
+//! Operational failures on fallible platform operations (a missing file,
+//! a refused connection) are **not** raised as exceptions: those methods
+//! declare `Result<T, String>` return types, and their natives return an
+//! in-language `Err(message)` value via [`into_result`] instead. Only
+//! genuine faults — argument-type mismatches (programmer errors) and
+//! unwired capabilities — still travel the [`VmError::Exception`] channel.
 //!
 //! Core abilities that the language depends on (like Exception) are
 //! defined in `ambient-core` instead.
@@ -359,14 +371,21 @@ pub(crate) fn bind(registry: &mut NativeRegistry, name: &str, func: NativeFn) {
     );
 }
 
-/// Every platform extern bound to a stub that raises a catchable
-/// exception naming the missing capability.
+/// Every platform extern bound to a stub that raises a loud exception
+/// naming the missing capability.
 ///
 /// This is the compile-time half of the contract: builds need every
 /// declared extern bound (uuid + arity) to encode native objects, whether
 /// or not the running host wires the capability. Runtime hosts register
 /// the real `*_natives` sets on their VMs; implementations are
 /// uuid-keyed, so the real ones win.
+///
+/// An unwired capability is a configuration fault, not a fallible
+/// operation, so the stub raises through the [`VmError::Exception`]
+/// channel rather than returning an in-language `Err`: it surfaces
+/// uncaught (`platform capability ... is not wired`) unless a program
+/// deliberately handles it, exactly how an ungranted ability fails loudly
+/// in an isolated Execute VM.
 #[must_use]
 pub fn stub_natives() -> NativeRegistry {
     let mut registry = NativeRegistry::new();
@@ -478,6 +497,31 @@ pub(crate) fn extract_host_port(args: &[Value]) -> Result<(String, u16), VmError
     Ok((host, port))
 }
 
+/// Adapt a fallible native into an in-language `Result` value.
+///
+/// This is how fallible platform operations return `Result<T, String>` to
+/// Ambient instead of raising a catchable exception:
+///
+/// - `Ok(value)` becomes `Result::Ok(value)`.
+/// - `Err(VmError::Exception(message))` — an *operational* failure (missing
+///   file, refused connection, invalid endpoint) — becomes
+///   `Result::Err(message)`, ordinary data the caller matches on.
+/// - `Err(fatal)` — a *programmer* error (argument-type or arity mismatch)
+///   — stays a fatal [`VmError`], because a mistyped call is a bug the
+///   checker should have caught, not a condition to recover from.
+///
+/// Native bodies therefore keep their natural shape (`Ok(bare_value)` on
+/// success, `Err(VmError::exception(...))` on operational failure), and
+/// wrapping the whole body in `into_result` is the only change needed to
+/// migrate a method to a `Result` return.
+pub(crate) fn into_result(outcome: Result<Value, VmError>) -> Result<Value, VmError> {
+    match outcome {
+        Ok(value) => Ok(Value::ok(value)),
+        Err(VmError::Exception(message)) => Ok(Value::err(message)),
+        Err(fatal) => Err(fatal),
+    }
+}
+
 /// Extract bytes from a Binary value.
 pub(crate) fn extract_bytes(value: &Value) -> Result<Vec<u8>, VmError> {
     match value {
@@ -556,14 +600,21 @@ mod tests {
     }
 
     #[test]
-    fn stubs_raise_catchable_exceptions() {
+    fn stubs_raise_not_wired_exceptions() {
+        // An unwired capability is a hard failure on the exception channel
+        // (surfaces uncaught), not an in-language `Result::Err`.
         let stubs = stub_natives();
         let func = stubs
             .impl_for(&native_uuid("network_listen"))
             .expect("stub bound");
         match func(vec![]) {
-            Err(VmError::Exception(_)) => {}
-            other => panic!("expected catchable exception, got {other:?}"),
+            Err(VmError::Exception(Value::String(msg))) => {
+                assert!(
+                    msg.contains("not wired"),
+                    "stub must name the missing capability, got {msg:?}"
+                );
+            }
+            other => panic!("expected a not-wired exception, got {other:?}"),
         }
     }
 

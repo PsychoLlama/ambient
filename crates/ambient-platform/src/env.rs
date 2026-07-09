@@ -11,17 +11,18 @@
 //!
 //! A missing variable is `None`, not an exception: absence is normal
 //! data (matching the "no `Result`/exception for domain absence" rule in
-//! `ref/architecture.md`). `env_cwd` raises a catchable
-//! [`VmError::exception`] when the working directory can't be read.
-//! Argument-type mismatches are programmer errors and remain fatal type
-//! errors.
+//! `ref/architecture.md`). `env_cwd` is fallible and returns
+//! `Result<string, string>`: an unreadable working directory becomes a
+//! `Result::Err(message)` value (via [`crate::into_result`]), not a raised
+//! exception. Argument-type mismatches are programmer errors and remain
+//! fatal type errors.
 
 use std::sync::Arc;
 
 use ambient_ability::{Value, VmError};
 use ambient_engine::natives::NativeRegistry;
 
-use crate::{bind, extract_string};
+use crate::{bind, extract_string, into_result};
 
 /// `env_var(name: string) -> Option<string>` (None if unset)
 fn var(args: &[Value]) -> Result<Value, VmError> {
@@ -115,7 +116,7 @@ pub fn env_natives(argv: Arc<Vec<String>>) -> NativeRegistry {
     bind(
         &mut registry,
         "env_cwd",
-        Arc::new(|args: Vec<Value>| cwd(&args)),
+        Arc::new(|args: Vec<Value>| into_result(cwd(&args))),
     );
     bind(
         &mut registry,
@@ -176,10 +177,24 @@ mod tests {
 
     #[test]
     fn cwd_returns_a_non_empty_string() {
+        // The raw `cwd` fn returns a bare string; the `into_result` wrapping
+        // into `Result<string, string>` happens at the binding site.
         let result = cwd(&[]).unwrap();
         match result {
             Value::String(s) => assert!(!s.is_empty()),
             other => panic!("expected string, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bound_cwd_wraps_success_in_ok() {
+        let registry = env_natives(Arc::new(vec![]));
+        let func = registry
+            .impl_for(&crate::native_uuid("env_cwd"))
+            .expect("env_cwd bound");
+        match func(vec![]).unwrap() {
+            Value::Enum(e) if e.is_variant_named("Ok") => {}
+            other => panic!("expected Result::Ok value, got {other:?}"),
         }
     }
 

@@ -145,11 +145,11 @@ fn pid_returns_the_process_id() {
 #[test]
 fn cwd_returns_a_non_empty_string() {
     let compiled = compile(
-        r"
+        r#"
         pub fn run(): String with core::system::Env {
-          core::system::Env::cwd!()
+          core::system::Env::cwd!().unwrap_or("")
         }
-        ",
+        "#,
     );
 
     let result = run(

@@ -6,18 +6,20 @@
 //!
 //! # Errors
 //!
-//! Fallible operations raise **catchable exceptions** (via
-//! [`VmError::exception`]), so Ambient code can recover with
-//! `handle ... { Exception.throw(msg) => ... }`. `fs_exists` is infallible
-//! and returns `false` when the path can't be inspected. Argument-type
-//! mismatches are programmer errors and remain fatal type errors.
+//! Fallible operations return an in-language `Result<T, String>`: the
+//! native's operational failure (`Err(VmError::exception(...))`) is
+//! converted to a `Result::Err(message)` value by [`crate::into_result`],
+//! so Ambient code recovers with `match ... { Ok(v) => ..., Err(e) => ... }`.
+//! `fs_exists` is infallible and returns `false` when the path can't be
+//! inspected. Argument-type mismatches are programmer errors and remain
+//! fatal type errors.
 
 use std::sync::Arc;
 
 use ambient_ability::{Value, VmError};
 use ambient_engine::natives::NativeRegistry;
 
-use crate::bind;
+use crate::{bind, into_result};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Argument extraction helpers
@@ -132,23 +134,25 @@ pub fn fs_natives() -> NativeRegistry {
     bind(
         &mut registry,
         "fs_read",
-        Arc::new(|args: Vec<Value>| read(&args)),
+        Arc::new(|args: Vec<Value>| into_result(read(&args))),
     );
     bind(
         &mut registry,
         "fs_write",
-        Arc::new(|args: Vec<Value>| write(&args)),
+        Arc::new(|args: Vec<Value>| into_result(write(&args))),
     );
     bind(
         &mut registry,
         "fs_read_binary",
-        Arc::new(|args: Vec<Value>| read_binary(&args)),
+        Arc::new(|args: Vec<Value>| into_result(read_binary(&args))),
     );
     bind(
         &mut registry,
         "fs_write_binary",
-        Arc::new(|args: Vec<Value>| write_binary(&args)),
+        Arc::new(|args: Vec<Value>| into_result(write_binary(&args))),
     );
+    // `exists` is infallible (unreadable paths are `false`), so it returns a
+    // bare `Bool`, not a `Result`.
     bind(
         &mut registry,
         "fs_exists",
@@ -157,17 +161,17 @@ pub fn fs_natives() -> NativeRegistry {
     bind(
         &mut registry,
         "fs_list",
-        Arc::new(|args: Vec<Value>| list(&args)),
+        Arc::new(|args: Vec<Value>| into_result(list(&args))),
     );
     bind(
         &mut registry,
         "fs_remove",
-        Arc::new(|args: Vec<Value>| remove(&args)),
+        Arc::new(|args: Vec<Value>| into_result(remove(&args))),
     );
     bind(
         &mut registry,
         "fs_create_dir",
-        Arc::new(|args: Vec<Value>| create_dir(&args)),
+        Arc::new(|args: Vec<Value>| into_result(create_dir(&args))),
     );
     registry
 }
@@ -183,6 +187,8 @@ mod tests {
 
     #[test]
     fn test_fs_write_read_roundtrip() {
+        // The raw `read`/`write`/`remove` fns return bare values; the
+        // `into_result` wrapping into `Result` happens at the binding site.
         let path = temp_path("roundtrip.txt");
         let path_str = path.to_string_lossy().into_owned();
 
@@ -201,18 +207,47 @@ mod tests {
     }
 
     #[test]
-    fn test_fs_read_missing_file_is_catchable_exception() {
+    fn test_fs_read_missing_file_is_err_value() {
+        // A missing file is an operational failure: the bound native returns
+        // an in-language `Result::Err(message)`, not a raised exception.
         let path = temp_path("does_not_exist.txt");
-        let result = read(&[Value::string(path.to_string_lossy())]);
-        match result {
-            Err(VmError::Exception(_)) => {}
-            other => panic!("expected catchable exception, got {other:?}"),
+        let bound = fs_natives()
+            .impl_for(&crate::native_uuid("fs_read"))
+            .expect("fs_read bound");
+        match bound(vec![Value::string(path.to_string_lossy())]) {
+            Ok(Value::Enum(e)) if e.is_variant_named("Err") => {}
+            other => panic!("expected Result::Err value, got {other:?}"),
         }
     }
 
     #[test]
+    fn test_fs_read_wraps_success_in_ok() {
+        let path = temp_path("ok_wrap.txt");
+        let path_str = path.to_string_lossy().into_owned();
+        write(&[Value::string(&*path_str), Value::string("wrapped")]).unwrap();
+        let bound = fs_natives()
+            .impl_for(&crate::native_uuid("fs_read"))
+            .expect("fs_read bound");
+        assert_eq!(
+            bound(vec![Value::string(&*path_str)]).unwrap(),
+            Value::ok(Value::string("wrapped"))
+        );
+        remove(&[Value::string(&*path_str)]).unwrap();
+    }
+
+    #[test]
     fn test_fs_type_mismatch_is_type_error() {
+        // A mistyped argument is a programmer error: it stays a fatal
+        // `VmError` even through `into_result` (bound form below).
         let result = read(&[Value::Number(42.0)]);
         assert!(matches!(result, Err(VmError::TypeErrorOwned { .. })));
+
+        let bound = fs_natives()
+            .impl_for(&crate::native_uuid("fs_read"))
+            .expect("fs_read bound");
+        assert!(matches!(
+            bound(vec![Value::Number(42.0)]),
+            Err(VmError::TypeErrorOwned { .. })
+        ));
     }
 }

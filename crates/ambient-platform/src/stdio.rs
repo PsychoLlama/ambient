@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use ambient_ability::{Value, VmError, format_value};
 use ambient_engine::natives::NativeRegistry;
 
-use crate::bind;
+use crate::{bind, into_result};
 
 /// The output half of stdio: a pair of line sinks for stdout and stderr.
 ///
@@ -108,15 +108,18 @@ pub fn stdio_natives(sink: StdioSink, config: StdioConfig) -> NativeRegistry {
         }),
     );
 
+    // `read` is fallible (a genuine stdin IO error) and returns
+    // `Result<string, string>`; end of input is `Ok("")`, not an error.
     let read_handler = config.read_handler;
     bind(
         &mut registry,
         "stdio_read",
         Arc::new(move |_args: Vec<Value>| {
-            if let Some(ref handler) = read_handler {
-                return Ok(Value::string(handler().unwrap_or_default()));
-            }
-            read_stdin_line()
+            into_result(if let Some(ref handler) = read_handler {
+                Ok(Value::string(handler().unwrap_or_default()))
+            } else {
+                read_stdin_line()
+            })
         }),
     );
 
@@ -226,7 +229,9 @@ mod tests {
             },
         );
 
+        // `read` returns `Result<string, string>`: a successful line is
+        // `Ok(line)`.
         let result = call(&registry, "stdio_read", vec![]);
-        assert_eq!(result, Ok(Value::string("typed line")));
+        assert_eq!(result, Ok(Value::ok(Value::string("typed line"))));
     }
 }

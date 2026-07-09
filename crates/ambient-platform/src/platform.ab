@@ -13,9 +13,11 @@
 //! them directly, so the only path to a platform effect is performing the
 //! ability — which the effect system tracks and handlers can intercept.
 //!
-//! Operational failures (missing files, refused connections, ...) do not
-//! return `Result`: natives raise catchable `Exception`s at the call
-//! site. Engine faults remain fatal.
+//! Fallible operations (missing files, refused connections, ...) return a
+//! `Result<T, String>`: the native yields a `Result::Err(message)` value
+//! the caller matches on. Only unwired capabilities and engine faults
+//! (argument-type mismatches) still travel the catchable `Exception`
+//! channel, and both are hard failures — nothing resumes them.
 
 // `Time::wait` takes a span of time as a `core::time::Duration` rather than
 // a bare millisecond count.
@@ -34,8 +36,8 @@ use core::time::Duration;
 extern fn stdio_out(message: String): ();
 /// Write a line to stderr.
 extern fn stdio_err(message: String): ();
-/// Read a line from stdin (empty string at end of input).
-extern fn stdio_read(): String;
+/// Read a line from stdin (empty string at end of input; `Err` on IO error).
+extern fn stdio_read(): Result<String, String>;
 
 /// Standard input/output streams of the host process.
 pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000002) ability Stdio {
@@ -47,9 +49,9 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000002) ability Stdio {
   fn err(message: String): () {
     stdio_err(message)
   }
-  /// Read a line from stdin, without the trailing newline. Returns the
-  /// empty string at end of input.
-  fn read(): String {
+  /// Read a line from stdin, without the trailing newline. Returns
+  /// `Ok("")` at end of input, `Err(message)` on an IO error.
+  fn read(): Result<String, String> {
     stdio_read()
   }
 }
@@ -107,38 +109,38 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000005) ability Log with core::system::
 }
 
 /// Read a file as UTF-8 text.
-extern fn fs_read(path: String): String;
+extern fn fs_read(path: String): Result<String, String>;
 /// Create or truncate a file with the given text.
-extern fn fs_write(path: String, content: String): ();
+extern fn fs_write(path: String, content: String): Result<(), String>;
 /// Read a file as raw bytes.
-extern fn fs_read_binary(path: String): Binary;
+extern fn fs_read_binary(path: String): Result<Binary, String>;
 /// Create or truncate a file with the given bytes.
-extern fn fs_write_binary(path: String, data: Binary): ();
+extern fn fs_write_binary(path: String, data: Binary): Result<(), String>;
 /// Whether the path exists.
 extern fn fs_exists(path: String): Bool;
 /// Sorted entry names of a directory.
-extern fn fs_list(path: String): List<String>;
+extern fn fs_list(path: String): Result<List<String>, String>;
 /// Remove a file or empty directory.
-extern fn fs_remove(path: String): ();
+extern fn fs_remove(path: String): Result<(), String>;
 /// Create a directory and any missing parents.
-extern fn fs_create_dir(path: String): ();
+extern fn fs_create_dir(path: String): Result<(), String>;
 
 /// File system access at scripting-language granularity.
 pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000006) ability FileSystem {
-  /// Read a file as UTF-8 text.
-  fn read(path: String): String {
+  /// Read a file as UTF-8 text. `Err` if the file is missing or unreadable.
+  fn read(path: String): Result<String, String> {
     fs_read(path)
   }
   /// Create or truncate a file with the given text.
-  fn write(path: String, content: String): () {
+  fn write(path: String, content: String): Result<(), String> {
     fs_write(path, content)
   }
   /// Read a file as raw bytes.
-  fn read_binary(path: String): Binary {
+  fn read_binary(path: String): Result<Binary, String> {
     fs_read_binary(path)
   }
   /// Create or truncate a file with the given bytes.
-  fn write_binary(path: String, data: Binary): () {
+  fn write_binary(path: String, data: Binary): Result<(), String> {
     fs_write_binary(path, data)
   }
   /// Whether the path exists (infallible: unreadable paths are `false`).
@@ -146,74 +148,74 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000006) ability FileSystem {
     fs_exists(path)
   }
   /// Sorted entry names of a directory.
-  fn list(path: String): List<String> {
+  fn list(path: String): Result<List<String>, String> {
     fs_list(path)
   }
   /// Remove a file or empty directory.
-  fn remove(path: String): () {
+  fn remove(path: String): Result<(), String> {
     fs_remove(path)
   }
   /// Create a directory and any missing parents.
-  fn create_dir(path: String): () {
+  fn create_dir(path: String): Result<(), String> {
     fs_create_dir(path)
   }
 }
 
 /// Bind a listener on a `(host, port)` endpoint.
-extern fn network_listen(endpoint: (String, Number)): Number;
+extern fn network_listen(endpoint: (String, Number)): Result<Number, String>;
 /// Block until a client connects; returns a connection handle.
-extern fn network_accept(listener: Number): Number;
+extern fn network_accept(listener: Number): Result<Number, String>;
 /// Close a listener.
-extern fn network_close_listener(listener: Number): ();
+extern fn network_close_listener(listener: Number): Result<(), String>;
 /// Connect to a remote `(host, port)` endpoint.
-extern fn network_connect(endpoint: (String, Number)): Number;
+extern fn network_connect(endpoint: (String, Number)): Result<Number, String>;
 /// Close a connection.
-extern fn network_close(connection: Number): ();
+extern fn network_close(connection: Number): Result<(), String>;
 /// Send bytes over a connection.
-extern fn network_send(connection: Number, data: Binary): ();
+extern fn network_send(connection: Number, data: Binary): Result<(), String>;
 /// Block until bytes arrive on a connection.
-extern fn network_receive(connection: Number): Binary;
+extern fn network_receive(connection: Number): Result<Binary, String>;
 /// The local address of a connection.
-extern fn network_local_addr(connection: Number): String;
+extern fn network_local_addr(connection: Number): Result<String, String>;
 /// The remote address of a connection.
-extern fn network_peer_addr(connection: Number): String;
+extern fn network_peer_addr(connection: Number): Result<String, String>;
 
 /// TCP networking. Listeners and connections are numeric handles.
 pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000007) ability Network {
   /// Bind a listener on a `(host, port)` endpoint like `("127.0.0.1", 8080)`.
-  fn listen(endpoint: (String, Number)): Number {
+  fn listen(endpoint: (String, Number)): Result<Number, String> {
     network_listen(endpoint)
   }
   /// Block until a client connects; returns a connection handle.
-  fn accept(listener: Number): Number {
+  fn accept(listener: Number): Result<Number, String> {
     network_accept(listener)
   }
   /// Close a listener.
-  fn close_listener(listener: Number): () {
+  fn close_listener(listener: Number): Result<(), String> {
     network_close_listener(listener)
   }
   /// Connect to a remote `(host, port)` endpoint; returns a connection handle.
-  fn connect(endpoint: (String, Number)): Number {
+  fn connect(endpoint: (String, Number)): Result<Number, String> {
     network_connect(endpoint)
   }
   /// Close a connection.
-  fn close(connection: Number): () {
+  fn close(connection: Number): Result<(), String> {
     network_close(connection)
   }
   /// Send bytes over a connection.
-  fn send(connection: Number, data: Binary): () {
+  fn send(connection: Number, data: Binary): Result<(), String> {
     network_send(connection, data)
   }
   /// Block until bytes arrive on a connection.
-  fn receive(connection: Number): Binary {
+  fn receive(connection: Number): Result<Binary, String> {
     network_receive(connection)
   }
   /// The local address of a connection.
-  fn local_addr(connection: Number): String {
+  fn local_addr(connection: Number): Result<String, String> {
     network_local_addr(connection)
   }
   /// The remote address of a connection.
-  fn peer_addr(connection: Number): String {
+  fn peer_addr(connection: Number): Result<String, String> {
     network_peer_addr(connection)
   }
 }
@@ -277,8 +279,8 @@ extern fn env_vars(): List<(String, String)>;
 extern fn env_set(name: String, value: String): ();
 /// The program's arguments.
 extern fn env_args(): List<String>;
-/// The current working directory.
-extern fn env_cwd(): String;
+/// The current working directory (`Err` if it can't be read).
+extern fn env_cwd(): Result<String, String>;
 /// The OS process id.
 extern fn env_pid(): Number;
 
@@ -302,8 +304,8 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000009) ability Env {
   fn args(): List<String> {
     env_args()
   }
-  /// The current working directory.
-  fn cwd(): String {
+  /// The current working directory (`Err` if it can't be read).
+  fn cwd(): Result<String, String> {
     env_cwd()
   }
   /// The OS process id.
