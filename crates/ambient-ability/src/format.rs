@@ -85,6 +85,14 @@ fn format_value_impl(value: &Value, mode: FormatMode) -> String {
                 format!("<ability {hex}>")
             }
         }
+        Value::AbilityMethodRef(m) => {
+            let hex = m.method_key().short_hex();
+            if color {
+                format!("{}<ability method {hex}>{}", colors::DIM, colors::RESET)
+            } else {
+                format!("<ability method {hex}>")
+            }
+        }
         Value::SuspendedAbility(ability) => format_suspended_ability(ability, color),
         Value::Continuation(_) => format_continuation(color),
         Value::Closure(closure) => format_closure(closure, color),
@@ -203,16 +211,16 @@ fn format_function_ref(hash: &blake3::Hash, color: bool) -> String {
 
 fn format_suspended_ability(ability: &crate::value::SuspendedAbility, color: bool) -> String {
     let ability_id = ability.ability_id.short_hex();
-    let method_id = ability.method_id;
+    let method = ability.method.short_hex();
     let arg_count = ability.args.len();
     if color {
         format!(
-            "{}<ability {ability_id}:{method_id} with {arg_count} args>{}",
+            "{}<ability {ability_id}:{method} with {arg_count} args>{}",
             colors::DIM,
             colors::RESET
         )
     } else {
-        format!("<ability {ability_id}:{method_id} with {arg_count} args>")
+        format!("<ability {ability_id}:{method} with {arg_count} args>")
     }
 }
 

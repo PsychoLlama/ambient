@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::bytecode::{BytecodeBuilder, Opcode};
-use crate::test_utils::{Capture, FunctionBuilder, VmTest};
+use crate::test_utils::{FunctionBuilder, VmTest};
 use crate::value::Value;
 use std::sync::Arc;
 
@@ -590,65 +590,60 @@ fn test_fibonacci_values() {
 // Milestone 2: Abilities and Handlers
 // =========================================================================
 
-/// Distinct, recognizable synthetic `AbilityId`s for tests.
-const ABILITY_CONSOLE: crate::types::AbilityId = crate::types::AbilityId::from_bytes([1; 32]);
-const ABILITY_MATH: crate::types::AbilityId = crate::types::AbilityId::from_bytes([2; 32]);
-const METHOD_PRINT: u16 = 0;
-const METHOD_DOUBLE: u16 = 0;
-const METHOD_ADD_TEN: u16 = 1;
+use crate::test_utils::test_method_ref;
+
+/// A default implementation `fn(x) { x * 2 }` under a stable test hash.
+fn doubling_impl() -> crate::bytecode::CompiledFunction {
+    FunctionBuilder::new("test::double_impl")
+        .with_locals(1)
+        .with_params(1)
+        .load_local(0)
+        .push(2.0)
+        .mul()
+        .build()
+}
 
 #[test]
 fn test_suspend_creates_ability_value() {
+    let method = test_method_ref(1, 0, None);
+    let expected_key = method.method_key();
+    let expected_id = method.ability_id;
     VmTest::new()
         .push(42.0)
-        .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
-        .expect_suspended(|ability| {
-            assert_eq!(ability.ability_id, ABILITY_CONSOLE);
-            assert_eq!(ability.method_id, METHOD_PRINT);
+        .suspend(&method, 1)
+        .expect_suspended(move |ability| {
+            assert_eq!(ability.ability_id, expected_id);
+            assert_eq!(ability.method, expected_key);
             assert_eq!(ability.args.len(), 1);
             assert_eq!(ability.args[0], Value::Number(42.0));
         });
 }
 
 #[test]
-fn test_host_handler_called() {
-    let capture = Capture::<f64>::new();
-    let log = capture.clone_inner();
+fn test_unhandled_perform_runs_default_impl() {
+    // No handler in scope: the perform calls the method's default
+    // implementation as a plain function with the suspended arguments.
+    let implementation = doubling_impl();
+    let method = test_method_ref(2, 0, Some(implementation.hash));
 
     VmTest::new()
-        .push(42.0)
-        .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
-        .perform()
-        .with_host_handler(ABILITY_CONSOLE, METHOD_PRINT, move |ability| {
-            if let Value::Number(n) = &ability.args[0] {
-                log.lock().expect("lock").push(*n);
-            }
-            Ok(Value::Unit)
-        })
-        .expect_unit();
-
-    capture.assert_eq(&[42.0]);
-}
-
-#[test]
-fn test_host_handler_returns_value() {
-    VmTest::new()
+        .with_function(implementation)
         .push(21.0)
-        .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+        .suspend(&method, 1)
         .perform()
-        .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
-            if let Value::Number(n) = &ability.args[0] {
-                Ok(Value::Number(n * 2.0))
-            } else {
-                Ok(Value::Unit)
-            }
-        })
         .expect_number(42.0);
 }
 
 #[test]
-fn test_bytecode_handler_overrides_host_handler() {
-    // Host handler would return 999.0, but bytecode handler should win with 42.0
+fn test_bytecode_handler_overrides_default_impl() {
+    // The default impl would return 999.0, but an installed handler wins.
+    let implementation = FunctionBuilder::new("test::default_999")
+        .with_params(1)
+        .with_locals(1)
+        .push(999.0)
+        .build();
+    let method = test_method_ref(2, 0, Some(implementation.hash));
+
     let handler = FunctionBuilder::new("test::override_handler")
         .with_locals(2)
         .with_params(2)
@@ -659,28 +654,57 @@ fn test_bytecode_handler_overrides_host_handler() {
     let handler_hash = handler.hash;
 
     VmTest::new()
+        .with_function(implementation)
         .with_function(handler)
-        .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |_ability| {
-            // This should NOT be called - bytecode handler takes priority
-            Ok(Value::Number(999.0))
-        })
-        .handle(ABILITY_MATH, METHOD_DOUBLE, handler_hash)
+        .handle(&method, handler_hash)
         .push(5.0)
-        .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+        .suspend(&method, 1)
         .perform()
         .unhandle()
-        .expect_number(42.0); // Bytecode handler wins, not host handler's 999.0
+        .expect_number(42.0);
 }
 
 #[test]
-fn test_unhandled_ability_error() {
+fn test_uncovered_method_falls_through_to_default_impl() {
+    // A handler covering method A must not swallow a perform of method B
+    // on the same ability: B falls through and runs its default impl.
+    let implementation = doubling_impl();
+    let method_a = test_method_ref(2, 0, Some(implementation.hash));
+    let method_b = test_method_ref(2, 1, Some(implementation.hash));
+
+    let handler = FunctionBuilder::new("test::a_handler")
+        .with_locals(2)
+        .with_params(2)
+        .load_local(0)
+        .push(1000.0)
+        .resume()
+        .build();
+    let handler_hash = handler.hash;
+
+    VmTest::new()
+        .with_function(implementation)
+        .with_function(handler)
+        .handle(&method_a, handler_hash)
+        .push(21.0)
+        .suspend(&method_b, 1)
+        .perform()
+        .unhandle()
+        .expect_number(42.0);
+}
+
+#[test]
+fn test_unhandled_abstract_method_errors() {
+    // An abstract method (no default implementation) with no handler in
+    // scope is a hard error. Only `Exception::throw` is abstract in
+    // practice, but the VM rule is general.
+    let method = test_method_ref(1, 0, None);
     VmTest::new()
         .push(42.0)
-        .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
+        .suspend(&method, 1)
         .perform()
         .expect_error(VmError::UnhandledAbility {
-            ability_id: ABILITY_CONSOLE,
-            method_id: METHOD_PRINT,
+            ability_id: method.ability_id,
+            method: method.method_key(),
         });
 }
 
@@ -695,12 +719,13 @@ fn test_bytecode_handler_simple_resume() {
         .resume()
         .build();
     let handler_hash = handler.hash;
+    let method = test_method_ref(2, 0, None);
 
     VmTest::new()
         .with_function(handler)
-        .handle(ABILITY_MATH, METHOD_DOUBLE, handler_hash)
+        .handle(&method, handler_hash)
         .push(5.0)
-        .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+        .suspend(&method, 1)
         .perform()
         .unhandle()
         .expect_number(42.0);
@@ -717,15 +742,38 @@ fn test_single_shot_enforcement() {
         .resume()
         .build();
     let handler_hash = handler.hash;
+    let method = test_method_ref(2, 0, None);
 
     VmTest::new()
         .with_function(handler)
-        .handle(ABILITY_MATH, METHOD_DOUBLE, handler_hash)
+        .handle(&method, handler_hash)
         .push(5.0)
-        .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+        .suspend(&method, 1)
         .perform()
         .unhandle()
         .expect_number(1.0);
+}
+
+#[test]
+fn test_multiple_ability_calls() {
+    // Three performs in a row, each landing on the default impl.
+    let implementation = doubling_impl();
+    let method = test_method_ref(1, 0, Some(implementation.hash));
+
+    VmTest::new()
+        .with_function(implementation)
+        .push(1.0)
+        .suspend(&method, 1)
+        .perform()
+        .pop()
+        .push(2.0)
+        .suspend(&method, 1)
+        .perform()
+        .pop()
+        .push(3.0)
+        .suspend(&method, 1)
+        .perform()
+        .expect_number(6.0);
 }
 
 #[test]
@@ -736,90 +784,60 @@ fn test_perform_expected_type_error() {
         .expect_error(VmError::ExpectedSuspendedAbility { got: "Number" });
 }
 
-#[test]
-fn test_multiple_ability_calls() {
-    let capture = Capture::<f64>::new();
-    let log = capture.clone_inner();
-
-    VmTest::new()
-        .push(1.0)
-        .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
-        .perform()
-        .pop()
-        .push(2.0)
-        .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
-        .perform()
-        .pop()
-        .push(3.0)
-        .suspend(ABILITY_CONSOLE, METHOD_PRINT, 1)
-        .perform()
-        .with_host_handler(ABILITY_CONSOLE, METHOD_PRINT, move |ability| {
-            if let Value::Number(n) = &ability.args[0] {
-                log.lock().expect("lock").push(*n);
-            }
-            Ok(Value::Unit)
-        })
-        .expect_unit();
-
-    capture.assert_eq(&[1.0, 2.0, 3.0]);
-}
-
-#[test]
-fn test_ability_with_multiple_args() {
-    VmTest::new()
-        .push(10.0)
-        .push(32.0)
-        .suspend(ABILITY_MATH, METHOD_ADD_TEN, 2)
-        .perform()
-        .with_host_handler(ABILITY_MATH, METHOD_ADD_TEN, |ability| {
-            if ability.args.len() >= 2
-                && let (Value::Number(a), Value::Number(b)) = (&ability.args[0], &ability.args[1])
-            {
-                return Ok(Value::Number(a + b));
-            }
-            Ok(Value::Unit)
-        })
-        .expect_number(42.0);
-}
-
 // =========================================================================
 // Milestone 3: Abilities as Values
 // =========================================================================
 
 #[test]
-fn test_ability_stored_in_variable() {
-    let capture = Capture::<u32>::new();
-    let count = capture.clone_inner();
+fn test_ability_with_multiple_args() {
+    // Default impl `fn(a, b) { a + b }`.
+    let implementation = FunctionBuilder::new("test::add_impl")
+        .with_locals(2)
+        .with_params(2)
+        .load_local(0)
+        .load_local(1)
+        .add()
+        .build();
+    let method = test_method_ref(2, 1, Some(implementation.hash));
 
     VmTest::new()
+        .with_function(implementation)
+        .push(10.0)
+        .push(32.0)
+        .suspend(&method, 2)
+        .perform()
+        .expect_number(42.0);
+}
+
+#[test]
+fn test_ability_stored_in_variable() {
+    let implementation = doubling_impl();
+    let method = test_method_ref(2, 0, Some(implementation.hash));
+
+    VmTest::new()
+        .with_function(implementation)
         .with_locals(1)
         .push(21.0)
-        .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+        .suspend(&method, 1)
         .store_local(0)
         .pop()
         .push(999.0)
         .pop()
         .load_local(0)
         .perform()
-        .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, move |ability| {
-            count.lock().expect("lock").push(1);
-            if let Value::Number(n) = &ability.args[0] {
-                Ok(Value::Number(n * 2.0))
-            } else {
-                Ok(Value::Unit)
-            }
-        })
         .expect_number(42.0);
-
-    capture.assert_eq(&[1]);
 }
 
 #[test]
 fn test_ability_stored_in_tuple() {
+    let implementation = doubling_impl();
+    let method = test_method_ref(2, 0, Some(implementation.hash));
+
     VmTest::new()
+        .with_function(implementation)
         .with_locals(1)
         .push(21.0)
-        .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+        .suspend(&method, 1)
         .push_str("label")
         .make_tuple(2)
         .store_local(0)
@@ -827,19 +845,14 @@ fn test_ability_stored_in_tuple() {
         .load_local(0)
         .tuple_get(0)
         .perform()
-        .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
-            if let Value::Number(n) = &ability.args[0] {
-                Ok(Value::Number(n * 2.0))
-            } else {
-                Ok(Value::Unit)
-            }
-        })
         .expect_number(42.0);
 }
 
 #[test]
 fn test_ability_passed_to_function() {
     // perform_ability(op) = op!
+    let implementation = doubling_impl();
+    let method = test_method_ref(2, 0, Some(implementation.hash));
     let perform_fn = FunctionBuilder::new("test::perform_ability")
         .with_locals(1)
         .with_params(1)
@@ -849,55 +862,47 @@ fn test_ability_passed_to_function() {
     let perform_hash = perform_fn.hash;
 
     VmTest::new()
+        .with_function(implementation)
         .with_function(perform_fn)
         .push(21.0)
-        .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+        .suspend(&method, 1)
         .call_func(perform_hash, 1)
-        .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
-            if let Value::Number(n) = &ability.args[0] {
-                Ok(Value::Number(n * 2.0))
-            } else {
-                Ok(Value::Unit)
-            }
-        })
         .expect_number(42.0);
 }
 
 #[test]
 fn test_multiple_abilities_different_order() {
     // op1 = double(10), op2 = double(21), perform op2
+    let implementation = doubling_impl();
+    let method = test_method_ref(2, 0, Some(implementation.hash));
+
     VmTest::new()
+        .with_function(implementation)
         .with_locals(2)
         .push(10.0)
-        .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+        .suspend(&method, 1)
         .store_local(0)
         .pop()
         .push(21.0)
-        .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+        .suspend(&method, 1)
         .store_local(1)
         .pop()
         .load_local(1)
         .perform()
-        .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
-            if let Value::Number(n) = &ability.args[0] {
-                Ok(Value::Number(n * 2.0))
-            } else {
-                Ok(Value::Unit)
-            }
-        })
         .expect_number(42.0);
 }
 
 #[test]
 fn test_ability_equality() {
+    let method = test_method_ref(2, 0, None);
     VmTest::new()
         .with_locals(2)
         .push(42.0)
-        .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+        .suspend(&method, 1)
         .store_local(0)
         .pop()
         .push(42.0)
-        .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+        .suspend(&method, 1)
         .store_local(1)
         .pop()
         .load_local(0)
@@ -909,16 +914,19 @@ fn test_ability_equality() {
 #[test]
 fn test_ability_returned_from_function() {
     // create_double_op(n) = Math.double(n) (no perform)
+    let implementation = doubling_impl();
+    let method = test_method_ref(2, 0, Some(implementation.hash));
     let creator_fn = FunctionBuilder::new("test::create_double_op")
         .with_locals(1)
         .with_params(1)
         .load_local(0)
-        .suspend(ABILITY_MATH, METHOD_DOUBLE, 1)
+        .suspend(&method, 1)
         .build();
     let creator_hash = creator_fn.hash;
 
     VmTest::new()
         .with_locals(1)
+        .with_function(implementation)
         .with_function(creator_fn)
         .push(21.0)
         .call_func(creator_hash, 1)
@@ -926,25 +934,13 @@ fn test_ability_returned_from_function() {
         .pop()
         .load_local(0)
         .perform()
-        .with_host_handler(ABILITY_MATH, METHOD_DOUBLE, |ability| {
-            if let Value::Number(n) = &ability.args[0] {
-                Ok(Value::Number(n * 2.0))
-            } else {
-                Ok(Value::Unit)
-            }
-        })
         .expect_number(42.0);
 }
 
-/// Synthetic ability identity for the `MakeHandler` tests: the opcode only
-/// carries an ability id and method slots, so no resolved interface is
-/// needed.
-const ABILITY_HANDLER_TEST: crate::types::AbilityId = crate::types::AbilityId::from_bytes([42; 32]);
-const HANDLER_METHOD_A: u16 = 0;
-const HANDLER_METHOD_B: u16 = 1;
-
 #[test]
 fn test_make_handler_creates_handler_value() {
+    let method_a = test_method_ref(42, 0, None);
+
     // Create a simple handler method function that returns unit.
     let mut handler_builder = BytecodeBuilder::new();
     handler_builder.emit_const(Value::Unit);
@@ -956,7 +952,7 @@ fn test_make_handler_creates_handler_value() {
     let mut builder = BytecodeBuilder::new();
 
     // Emit MakeHandler: 1 method, 0 captures.
-    builder.emit_make_handler(ABILITY_HANDLER_TEST, &[(HANDLER_METHOD_A, handler_hash)], 0);
+    builder.emit_make_handler(method_a.ability_id, &[(method_a.clone(), handler_hash)], 0);
 
     // Return the handler value.
     builder.emit(Opcode::Return);
@@ -973,8 +969,8 @@ fn test_make_handler_creates_handler_value() {
     // Should return a handler value.
     assert!(result.is_ok(), "Should succeed: {result:?}");
     if let Ok(Value::Handler(handler)) = result {
-        assert_eq!(handler.ability_id, ABILITY_HANDLER_TEST);
-        assert!(handler.handles_method(HANDLER_METHOD_A));
+        assert_eq!(handler.ability_id, method_a.ability_id);
+        assert!(handler.handles_method(method_a.method_key()));
         assert_eq!(handler.methods.len(), 1);
     } else {
         panic!("Expected Handler value, got {result:?}");
@@ -983,6 +979,9 @@ fn test_make_handler_creates_handler_value() {
 
 #[test]
 fn test_make_handler_with_multiple_methods() {
+    let method_a = test_method_ref(42, 0, None);
+    let method_b = test_method_ref(42, 1, None);
+
     // Create handler method functions.
     let mut first_builder = BytecodeBuilder::new();
     first_builder.emit_const(Value::Unit);
@@ -999,10 +998,10 @@ fn test_make_handler_with_multiple_methods() {
     // Create main function that makes a handler with 2 methods.
     let mut builder = BytecodeBuilder::new();
     builder.emit_make_handler(
-        ABILITY_HANDLER_TEST,
+        method_a.ability_id,
         &[
-            (HANDLER_METHOD_A, first_hash),
-            (HANDLER_METHOD_B, second_hash),
+            (method_a.clone(), first_hash),
+            (method_b.clone(), second_hash),
         ],
         0,
     );
@@ -1020,9 +1019,9 @@ fn test_make_handler_with_multiple_methods() {
 
     assert!(result.is_ok(), "Should succeed: {result:?}");
     if let Ok(Value::Handler(handler)) = result {
-        assert_eq!(handler.ability_id, ABILITY_HANDLER_TEST);
-        assert!(handler.handles_method(HANDLER_METHOD_A));
-        assert!(handler.handles_method(HANDLER_METHOD_B));
+        assert_eq!(handler.ability_id, method_a.ability_id);
+        assert!(handler.handles_method(method_a.method_key()));
+        assert!(handler.handles_method(method_b.method_key()));
         assert_eq!(handler.methods.len(), 2);
     } else {
         panic!("Expected Handler value, got {result:?}");

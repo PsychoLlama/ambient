@@ -42,11 +42,11 @@ impl Vm {
     /// Handle the Suspend opcode: create a suspended ability value.
     ///
     /// Pops `arg_count` arguments from the stack and creates a `SuspendedAbility`
-    /// value that can later be performed.
+    /// value that can later be performed. The method's identity is derived
+    /// from the constant-pool reference here, once per perform.
     pub(super) fn op_suspend(
         &mut self,
-        ability_id: ambient_core::AbilityId,
-        method_id: u16,
+        method_ref: &ambient_ability::AbilityMethodRef,
         arg_count: u8,
     ) -> Result<(), VmError> {
         let mut args = Vec::with_capacity(arg_count as usize);
@@ -55,7 +55,12 @@ impl Vm {
         }
         args.reverse();
         self.stack
-            .push(Value::suspended_ability(ability_id, method_id, args));
+            .push(Value::SuspendedAbility(Arc::new(SuspendedAbility {
+                ability_id: method_ref.ability_id,
+                method: method_ref.method_key(),
+                impl_fn: method_ref.impl_fn,
+                args,
+            })));
         Ok(())
     }
 
@@ -63,9 +68,11 @@ impl Vm {
     ///
     /// This is the core of the ability system. It:
     /// 1. Pops the suspended ability from the stack
-    /// 2. Looks for a bytecode handler (user-installed handlers take priority)
-    /// 3. Falls back to host handlers if no bytecode handler is found
-    /// 4. For bytecode handlers, captures the continuation and calls the handler
+    /// 2. Dispatches to the innermost handler covering the *method*
+    ///    (handlers that cover the ability but not this method fall
+    ///    through to outer handlers — "last wins" is per method)
+    /// 3. With no handler in scope, calls the method's default
+    ///    implementation as a plain function call
     pub(super) fn op_perform(&mut self) -> Result<(), VmError> {
         let ability = match self.pop()? {
             Value::SuspendedAbility(a) => a,
@@ -76,39 +83,35 @@ impl Vm {
             }
         };
 
-        // Check for a bytecode handler on the handler stack
-        let handler_idx = self
-            .handlers
-            .iter()
-            .rposition(|h| h.ability_id == ability.ability_id);
+        // Innermost handler that covers this method. Handlers install
+        // per-ability, but a handler value need not cover every method;
+        // an uncovered method falls through to the next handler out.
+        let handler_idx = self.handlers.iter().rposition(|h| {
+            h.ability_id == ability.ability_id && h.handler.handles_method(ability.method)
+        });
 
         if let Some(idx) = handler_idx {
             self.perform_with_bytecode_handler(idx, ability)?;
-        } else if let Some(handler) = self
-            .host_handlers
-            .get(&(ability.ability_id, ability.method_id))
-        {
-            // Fall back to host handler
-            match handler(&ability) {
-                Ok(result) => self.stack.push(result),
-                // A host handler raising an exception behaves exactly like
-                // `Exception.throw!` at the perform site: the caller's frames
-                // are intact, so the nearest in-language Exception handler
-                // catches it (and may even `resume` the continuation with a
-                // substitute value for the failed operation).
-                Err(VmError::Exception(error)) => self.raise_exception(error)?,
-                Err(other) => return Err(other),
-            }
         } else if ability.ability_id == ambient_core::exception::ability_id() {
-            // Exception is core language semantics, not a host capability:
-            // a throw with no handler in scope is an uncaught exception
-            // carrying the thrown value, regardless of host registration.
+            // Exception is core language semantics: `throw` is the one
+            // abstract ability method, and an unhandled throw is an
+            // uncaught exception carrying the thrown value.
             let error = ability.args.first().cloned().unwrap_or(Value::Unit);
             return Err(VmError::Exception(error));
+        } else if let Some(impl_fn) = ability.impl_fn {
+            // Unhandled perform: run the method's default implementation
+            // as an ordinary call at the perform site. Its own performs
+            // dispatch against the handlers in scope here, and its return
+            // value is the perform's value — no continuation is captured.
+            let arg_count = ability.args.len() as u8;
+            for arg in &ability.args {
+                self.stack.push(arg.clone());
+            }
+            self.push_frame(&impl_fn, arg_count)?;
         } else {
             return Err(VmError::UnhandledAbility {
                 ability_id: ability.ability_id,
-                method_id: ability.method_id,
+                method: ability.method,
             });
         }
 
@@ -123,17 +126,19 @@ impl Vm {
     /// exception is uncaught and surfaces as [`VmError::Exception`].
     pub(super) fn raise_exception(&mut self, error: Value) -> Result<(), VmError> {
         let ability_id = ambient_core::exception::ability_id();
+        let throw_key = ambient_core::exception::throw_method_key();
         let Some(idx) = self
             .handlers
             .iter()
-            .rposition(|h| h.ability_id == ability_id)
+            .rposition(|h| h.ability_id == ability_id && h.handler.handles_method(throw_key))
         else {
             return Err(VmError::Exception(error));
         };
 
         let throw = Arc::new(SuspendedAbility {
             ability_id,
-            method_id: ambient_core::exception::METHOD_THROW,
+            method: throw_key,
+            impl_fn: None,
             args: vec![error],
         });
         self.perform_with_bytecode_handler(idx, throw)
@@ -152,13 +157,14 @@ impl Vm {
         let fired = self.handlers[handler_idx].clone();
 
         // Dispatch to the fired handler's arm for this method, with the
-        // handler value's shared capture environment.
-        let (arm_func, arm_captures) = match fired.handler.get_method(ability.method_id) {
+        // handler value's shared capture environment. The perform path only
+        // fires a handler that covers the method, so a miss here is a bug.
+        let (arm_func, arm_captures) = match fired.handler.get_method(ability.method) {
             Some(func) => (func, fired.handler.captures.clone()),
             None => {
                 return Err(VmError::UnhandledAbility {
                     ability_id: ability.ability_id,
-                    method_id: ability.method_id,
+                    method: ability.method,
                 });
             }
         };

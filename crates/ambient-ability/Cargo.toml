@@ -8,3 +8,4 @@ description = "Core types for authoring Ambient abilities"
 ambient-core.workspace = true
 blake3.workspace = true
 serde = { workspace = true, features = ["rc"] }
+uuid.workspace = true

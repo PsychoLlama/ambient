@@ -71,9 +71,36 @@ pub(super) fn register_abilities(
             continue;
         };
 
+        // Every ability method carries a default implementation — the
+        // behavior of an unhandled perform. The one carve-out is the
+        // reserved Exception declaration: `throw` returns `!`, and its
+        // unhandled behavior is the VM's own uncaught-exception path,
+        // which no in-language body could express.
+        if def.uuid != ambient_core::exception::EXCEPTION_UUID {
+            for method in &def.methods {
+                if method.body.is_none() {
+                    errors.push(Box::new(TypeError::new(
+                        TypeErrorKind::InvalidDeclaration {
+                            message: format!(
+                                "ability method `{}::{}` needs a default implementation: \
+                                 the body is what an unhandled perform runs \
+                                 (`fn {}(...): T {{ ... }}`)",
+                                def.name, method.name, method.name
+                            ),
+                        },
+                        (method.span.start, method.span.end),
+                    )));
+                }
+            }
+        }
+
         let dyn_ab = resolve_ability_def(infer, def, errors);
-        // The compiler reads the identity back from the AST.
+        // The compiler reads the identity and per-method signature hashes
+        // back from the AST.
         def.resolved_id = Some(dyn_ab.id);
+        for (method, resolved_method) in def.methods.iter_mut().zip(&dyn_ab.methods) {
+            method.resolved_signature = Some(resolved_method.signature);
+        }
         infer.ability_resolver.register_dynamic(dyn_ab);
         if let Some(ability) = infer.ability_resolver.get_dynamic(&def.name) {
             resolved.push(Arc::clone(ability));
@@ -170,17 +197,6 @@ pub(super) fn seed_namespaced_ability_dynamics(
         }
     }
 }
-/// Resolve one `ability` declaration into a content-addressed
-/// [`DynAbility`], recording its transitive dependencies in the ability
-/// registry.
-///
-/// Shared by the local path ([`register_abilities`], which additionally
-/// writes the identity back into the AST and registers it *bare*) and the
-/// cross-module import path ([`build_import_env`], which registers the
-/// result bare from a foreign module's declaration). The identity is
-/// recomputed deterministically from the canonical interface, so a foreign
-/// import matches the origin module's own registration without touching the
-/// (immutable) foreign AST's `resolved_id`.
 /// Find a residual bare primitive name (`Bool`/`Number`/`String`/`Binary`)
 /// anywhere in `ty` — an argument-less, uuid-less `Named` whose name is a
 /// primitive. Recurses into type arguments so a nested `List<String>` is
@@ -200,12 +216,24 @@ fn residual_primitive_name(ty: &Type) -> Option<&str> {
     }
 }
 
+/// Resolve one `ability` declaration into a [`DynAbility`], recording its
+/// transitive dependencies in the ability registry.
+///
+/// Shared by the local path ([`register_abilities`], which additionally
+/// writes the identity and per-method signature hashes back into the AST
+/// and registers it *bare*) and the cross-module import path
+/// ([`build_import_env`], which registers the result bare from a foreign
+/// module's declaration). The identity is the declaration uuid, and the
+/// canonical signature renderings are deterministic, so a foreign import
+/// matches the origin module's own registration without touching the
+/// (immutable) foreign AST.
 fn resolve_ability_def(
     infer: &mut Infer,
     def: &crate::ast::AbilityDef,
     errors: &mut Vec<BoxedTypeError>,
 ) -> crate::ability_resolver::DynAbility {
     use crate::ability_resolver::{CanonicalTypeRenderer, DynAbility, DynMethod};
+    use ambient_core::SignatureHash;
 
     // Resolve dependencies first: they must already be known. The
     // namespace policy applies here too: `ability Log with
@@ -219,9 +247,7 @@ fn resolve_ability_def(
     }
 
     let mut methods = Vec::new();
-    let mut canonical = Vec::new();
-    #[allow(clippy::cast_possible_truncation)]
-    for (idx, method) in def.methods.iter().enumerate() {
+    for method in &def.methods {
         // Type parameters become quantified variables, substituted
         // into the declared types.
         let mut param_map = HashMap::new();
@@ -280,19 +306,21 @@ fn resolve_ability_def(
         let mut renderer = CanonicalTypeRenderer::new();
         let canon_params: Vec<String> = params.iter().map(|p| renderer.render(p)).collect();
         let canon_ret = renderer.render(&ret);
-        canonical.push((Arc::clone(&method.name), canon_params, canon_ret));
 
         methods.push(DynMethod {
-            id: idx as u16,
             name: Arc::clone(&method.name),
             param_names: method.params.iter().map(|p| Arc::clone(&p.name)).collect(),
             params,
             ret,
             quantified,
+            signature: SignatureHash::new(&canon_params, &canon_ret),
+            has_impl: method.body.is_some(),
         });
     }
 
-    let id = DynAbility::hash_from_canonical(&def.name, &canonical);
+    // Nominal identity: the declaration uuid is the ability, so renames
+    // and moves never change it and same-shaped declarations never unify.
+    let id = crate::types::AbilityId::from_uuid(&def.uuid);
 
     // Record dependencies so `require_ability` pulls them transitively.
     if !dependencies.is_empty() {
@@ -308,6 +336,7 @@ fn resolve_ability_def(
 
     DynAbility {
         id,
+        uuid: def.uuid,
         name: Arc::clone(&def.name),
         methods,
         dependencies,
@@ -351,8 +380,11 @@ pub fn resolve_ability_declarations(
             continue;
         };
         let dyn_ab = resolve_ability_def(&mut infer, def, &mut errors);
-        // The compiler reads the identity back from the AST.
+        // The compiler reads the identity and signatures back from the AST.
         def.resolved_id = Some(dyn_ab.id);
+        for (method, resolved_method) in def.methods.iter_mut().zip(&dyn_ab.methods) {
+            method.resolved_signature = Some(resolved_method.signature);
+        }
         let core_system = crate::fqn::ModuleId::core_system();
         infer
             .ability_resolver

@@ -1,59 +1,50 @@
-//! `Env` ability - the host process's environment.
+//! `Env` natives - the host process's environment.
 //!
 //! Variables, arguments, working directory, and OS process id. All but
-//! `args` read (or mutate) live OS state directly and need no captured
-//! configuration; `args` returns argv threaded in from the CLI at
+//! `env_args` read (or mutate) live OS state directly and need no captured
+//! configuration; `env_args` returns argv threaded in from the CLI at
 //! startup, because the OS process arguments are not the program's
 //! logical arguments (the CLI composes them: program path at index 0,
 //! then the user args after `--`).
-//!
-//! # API
-//!
-//! - `var(name: string) -> Option<string>` - a variable's value (None if unset)
-//! - `vars() -> List<(string, string)>` - every variable as (name, value) pairs
-//! - `set(name: string, value: string) -> ()` - set/overwrite a variable
-//! - `args() -> List<string>` - the captured argv (index 0 is the program path)
-//! - `cwd() -> string` - the current working directory
-//! - `pid() -> number` - the OS process id
 //!
 //! # Errors
 //!
 //! A missing variable is `None`, not an exception: absence is normal
 //! data (matching the "no `Result`/exception for domain absence" rule in
-//! `ref/architecture.md`). `cwd` raises a catchable [`VmError::exception`]
-//! when the working directory can't be read. Argument-type mismatches are
-//! programmer errors and remain fatal type errors.
+//! `ref/architecture.md`). `env_cwd` raises a catchable
+//! [`VmError::exception`] when the working directory can't be read.
+//! Argument-type mismatches are programmer errors and remain fatal type
+//! errors.
 
 use std::sync::Arc;
 
-use ambient_ability::{SuspendedAbility, Value, VmError};
-use ambient_engine::ability_resolver::AbilityInterface;
-use ambient_engine::vm::Vm;
+use ambient_ability::{Value, VmError};
+use ambient_engine::natives::NativeRegistry;
 
-use crate::{extract_string, require};
+use crate::{bind, extract_string};
 
-/// `Env.var(name: string) -> Option<string>` (None if unset)
-fn var(ability: &SuspendedAbility) -> Result<Value, VmError> {
-    let name = extract_string(&ability.args)?;
+/// `env_var(name: string) -> Option<string>` (None if unset)
+fn var(args: &[Value]) -> Result<Value, VmError> {
+    let name = extract_string(args)?;
     Ok(match std::env::var(&name) {
         Ok(value) => Value::some(Value::string(value)),
         Err(_) => Value::none(),
     })
 }
 
-/// `Env.vars() -> List<(string, string)>`
+/// `env_vars() -> List<(string, string)>`
 #[allow(clippy::unnecessary_wraps)]
-fn vars(_ability: &SuspendedAbility) -> Result<Value, VmError> {
+fn vars(_args: &[Value]) -> Result<Value, VmError> {
     let pairs = std::env::vars()
         .map(|(k, v)| Value::tuple(vec![Value::string(k), Value::string(v)]))
         .collect();
     Ok(Value::list(pairs))
 }
 
-/// `Env.set(name: string, value: string) -> ()` (process-global, best-effort)
-fn set(ability: &SuspendedAbility) -> Result<Value, VmError> {
-    let name = extract_string(&ability.args)?;
-    let value = match ability.args.get(1) {
+/// `env_set(name: string, value: string) -> ()` (process-global, best-effort)
+fn set(args: &[Value]) -> Result<Value, VmError> {
+    let name = extract_string(args)?;
+    let value = match args.get(1) {
         Some(Value::String(s)) => s.as_ref().clone(),
         other => {
             return Err(VmError::TypeErrorOwned {
@@ -76,59 +67,67 @@ fn set(ability: &SuspendedAbility) -> Result<Value, VmError> {
     Ok(Value::Unit)
 }
 
-/// `Env.cwd() -> string` (raises if the working directory can't be read)
-fn cwd(_ability: &SuspendedAbility) -> Result<Value, VmError> {
+/// `env_cwd() -> string` (raises if the working directory can't be read)
+fn cwd(_args: &[Value]) -> Result<Value, VmError> {
     let dir = std::env::current_dir().map_err(|e| VmError::exception(format!("Env.cwd: {e}")))?;
     Ok(Value::string(dir.to_string_lossy().into_owned()))
 }
 
-/// `Env.pid() -> number` (the OS process id)
+/// `env_pid() -> number` (the OS process id)
 #[allow(clippy::unnecessary_wraps)]
-fn pid(_ability: &SuspendedAbility) -> Result<Value, VmError> {
+fn pid(_args: &[Value]) -> Result<Value, VmError> {
     Ok(Value::Number(f64::from(std::process::id())))
 }
 
-/// Register the `Env` ability handlers on a VM.
+/// The `Env` native implementations.
 ///
-/// `var`/`vars`/`set`/`cwd`/`pid` read or mutate the OS live; `args`
-/// returns the captured `argv` (the CLI's program path at index 0
-/// followed by the user args). The REPL and tests pass an empty `argv`.
-///
-/// # Panics
-///
-/// Panics if the resolved interface is missing an expected method — the
-/// bindings interface and this handler set have drifted.
-pub fn register_env(vm: &mut Vm, ability: &AbilityInterface, argv: Arc<Vec<String>>) {
-    vm.register_host_handler(ability.id, require(ability, "var"), Box::new(var));
-    vm.register_host_handler(ability.id, require(ability, "vars"), Box::new(vars));
-    vm.register_host_handler(ability.id, require(ability, "set"), Box::new(set));
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "args"),
-        Box::new(move |_ability: &SuspendedAbility| {
+/// `env_var`/`env_vars`/`env_set`/`env_cwd`/`env_pid` read or mutate the
+/// OS live; `env_args` returns the captured `argv` (the CLI's program
+/// path at index 0 followed by the user args). The REPL and tests pass
+/// an empty `argv`.
+#[must_use]
+pub fn env_natives(argv: Arc<Vec<String>>) -> NativeRegistry {
+    let mut registry = NativeRegistry::new();
+    bind(
+        &mut registry,
+        "env_var",
+        Arc::new(|args: Vec<Value>| var(&args)),
+    );
+    bind(
+        &mut registry,
+        "env_vars",
+        Arc::new(|args: Vec<Value>| vars(&args)),
+    );
+    bind(
+        &mut registry,
+        "env_set",
+        Arc::new(|args: Vec<Value>| set(&args)),
+    );
+    bind(
+        &mut registry,
+        "env_args",
+        Arc::new(move |_args: Vec<Value>| {
             Ok(Value::list(
                 argv.iter().cloned().map(Value::string).collect(),
             ))
         }),
     );
-    vm.register_host_handler(ability.id, require(ability, "cwd"), Box::new(cwd));
-    vm.register_host_handler(ability.id, require(ability, "pid"), Box::new(pid));
+    bind(
+        &mut registry,
+        "env_cwd",
+        Arc::new(|args: Vec<Value>| cwd(&args)),
+    );
+    bind(
+        &mut registry,
+        "env_pid",
+        Arc::new(|args: Vec<Value>| pid(&args)),
+    );
+    registry
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ambient_core::AbilityId;
-
-    type Handler = fn(&SuspendedAbility) -> Result<Value, VmError>;
-
-    fn call(handler: Handler, args: Vec<Value>) -> Result<Value, VmError> {
-        handler(&SuspendedAbility {
-            ability_id: AbilityId::from_bytes([6; 32]),
-            method_id: 0,
-            args,
-        })
-    }
 
     #[test]
     fn var_reads_a_set_variable_as_some() {
@@ -137,7 +136,7 @@ mod tests {
         unsafe {
             std::env::set_var(&key, "hello");
         }
-        let result = call(var, vec![Value::string(&*key)]).unwrap();
+        let result = var(&[Value::string(&*key)]).unwrap();
         assert_eq!(result, Value::some(Value::string("hello")));
     }
 
@@ -148,28 +147,28 @@ mod tests {
         unsafe {
             std::env::remove_var(&key);
         }
-        let result = call(var, vec![Value::string(&*key)]).unwrap();
+        let result = var(&[Value::string(&*key)]).unwrap();
         assert_eq!(result, Value::none());
     }
 
     #[test]
     fn set_then_var_roundtrips() {
         let key = format!("AMBIENT_ENV_UNIT_SET_{}", std::process::id());
-        let result = call(set, vec![Value::string(&*key), Value::string("world")]).unwrap();
+        let result = set(&[Value::string(&*key), Value::string("world")]).unwrap();
         assert_eq!(result, Value::Unit);
-        let result = call(var, vec![Value::string(&*key)]).unwrap();
+        let result = var(&[Value::string(&*key)]).unwrap();
         assert_eq!(result, Value::some(Value::string("world")));
     }
 
     #[test]
     fn var_type_mismatch_is_type_error() {
-        let result = call(var, vec![Value::Number(1.0)]);
+        let result = var(&[Value::Number(1.0)]);
         assert!(matches!(result, Err(VmError::TypeErrorOwned { .. })));
     }
 
     #[test]
     fn pid_matches_the_process() {
-        let result = call(pid, vec![]).unwrap();
+        let result = pid(&[]).unwrap();
         #[allow(clippy::cast_precision_loss)]
         let expected = Value::Number(f64::from(std::process::id()));
         assert_eq!(result, expected);
@@ -177,10 +176,23 @@ mod tests {
 
     #[test]
     fn cwd_returns_a_non_empty_string() {
-        let result = call(cwd, vec![]).unwrap();
+        let result = cwd(&[]).unwrap();
         match result {
             Value::String(s) => assert!(!s.is_empty()),
             other => panic!("expected string, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn args_returns_the_captured_argv() {
+        let registry = env_natives(Arc::new(vec!["prog".into(), "a".into()]));
+        let func = registry
+            .impl_for(&crate::native_uuid("env_args"))
+            .expect("env_args bound");
+        let result = func(vec![]).unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![Value::string("prog"), Value::string("a")])
+        );
     }
 }

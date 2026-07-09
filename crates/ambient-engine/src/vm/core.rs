@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ambient_ability::{HostHandler, RuntimeError, StackTraceFrame, Value, VmError};
+use ambient_ability::{RuntimeError, StackTraceFrame, Value, VmError};
 use ambient_core::AbilityId;
 
 use crate::bytecode::{CompiledFunction, Opcode};
@@ -60,10 +60,6 @@ pub struct Vm {
     /// Re-installed after each `call`/`call_closure` state reset.
     pub(super) base_handlers: Vec<Arc<ambient_ability::HandlerValue>>,
 
-    /// Host-provided ability handlers (for abilities like Stdio, Filesystem).
-    /// Maps `(ability_id, method_id)` to handler functions.
-    pub(super) host_handlers: HashMap<(AbilityId, u16), HostHandler>,
-
     /// Content-addressed function store.
     pub(super) functions: HashMap<blake3::Hash, Arc<CompiledFunction>>,
 
@@ -106,7 +102,6 @@ impl Vm {
             stack: Vec::with_capacity(256),
             frames: Vec::with_capacity(64),
             handlers: Vec::with_capacity(16),
-            host_handlers: HashMap::new(),
             base_handlers: Vec::new(),
             functions: HashMap::new(),
             values: HashMap::new(),
@@ -164,19 +159,6 @@ impl Vm {
     /// onto a live VM (the process runtime does this on every deploy).
     pub fn load_function_shared(&mut self, func: Arc<CompiledFunction>) {
         self.functions.insert(func.hash, func);
-    }
-
-    /// Register a host-provided ability handler.
-    ///
-    /// Host handlers are called synchronously when an ability is performed
-    /// and no bytecode handler is installed.
-    pub fn register_host_handler(
-        &mut self,
-        ability_id: AbilityId,
-        method_id: u16,
-        handler: HostHandler,
-    ) {
-        self.host_handlers.insert((ability_id, method_id), handler);
     }
 
     /// Install a first-class handler value at the base of the VM.
@@ -309,9 +291,21 @@ impl Vm {
             .clone();
         let split = self.stack.len() - arg_count as usize;
         let args = self.stack.split_off(split);
-        let result = func(args)?;
-        self.stack.push(result);
-        Ok(())
+        match func(args) {
+            Ok(result) => {
+                self.stack.push(result);
+                Ok(())
+            }
+            // A native raising an exception behaves exactly like
+            // `Exception.throw!` at the call site: the caller's frames are
+            // intact, so the nearest in-language Exception handler catches
+            // it (and may even `resume` with a substitute for the failed
+            // operation's result). This is how effectful platform natives
+            // report operational failures (missing file, refused
+            // connection) without killing the VM.
+            Err(VmError::Exception(error)) => self.raise_exception(error),
+            Err(other) => Err(other),
+        }
     }
 
     /// Push a new call frame for a closure call with captured environment.

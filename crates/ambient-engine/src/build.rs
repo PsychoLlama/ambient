@@ -50,17 +50,16 @@ pub type ParseFn = fn(&str) -> Result<Module, ParseFailure>;
 /// Knobs for a package build.
 #[derive(Default)]
 pub struct BuildOptions<'a> {
-    /// Source of the embedder's `core::system` declaration module (ability
-    /// bindings interface). Empty disables platform registration.
+    /// Source of the embedder's `core::system` module (the platform
+    /// bindings interface). Empty disables platform registration. The
+    /// module compiles like any core module — its ability method bodies
+    /// are the default implementations unhandled performs run — so its
+    /// `extern fn` declarations must be bound by [`Self::natives`].
     pub platform_source: &'a str,
-    /// Embedder-resolved prelude abilities for the compiler (host binding
-    /// identities). The type checker resolves abilities through the
-    /// registry; this is the compiler's separate concern.
-    pub prelude_abilities: &'a [Arc<crate::ability_resolver::DynAbility>],
-    /// Embedder native bindings for `extern fn` declarations in *user*
-    /// modules (core's own bindings attach automatically). The build
-    /// enforces the full contract: every declaration bound, every binding
-    /// declared.
+    /// Embedder native bindings for `extern fn` declarations in the
+    /// platform and *user* modules (core's own bindings attach
+    /// automatically). The build enforces the full contract: every
+    /// declaration bound, every binding declared.
     pub natives: Option<&'a crate::natives::NativeRegistry>,
     /// Optional callback for reporting per-module progress.
     pub progress: Option<ProgressCallback<'a>>,
@@ -195,18 +194,18 @@ pub fn build_package(
         compile_core_modules(&mut registry, &mut module_function_hashes, parse_str)?;
     all_compiled.merge(&core_compiled);
 
-    // Register the embedder-supplied `core::system` declaration module so
+    // Register and compile the embedder-supplied `core::system` module so
     // its abilities are in scope fully-qualified (`core::system::Network`)
-    // and importable (`use core::system::Network;`). Declaration-only:
-    // never compiled.
+    // and importable (`use core::system::Network;`), and its default
+    // implementations exist for perform sites to link against.
     if !options.platform_source.is_empty() {
-        crate::core_library::register_declaration_module(
+        let platform_compiled = compile_system_module(
             &mut registry,
-            &["core", "system"],
+            &mut module_function_hashes,
             options.platform_source,
             parse_str,
-        )
-        .map_err(|(module, error)| BuildError::Compile { module, error })?;
+        )?;
+        all_compiled.merge(&platform_compiled);
     }
 
     // Register every package module, then canonicalize. Resolution needs
@@ -282,7 +281,6 @@ pub fn build_package(
             &module_path,
             &registry,
             linking_table(&module_function_hashes, &registry),
-            options.prelude_abilities,
         )?;
 
         // Record this module's function hashes for dependents, keyed by
@@ -560,6 +558,80 @@ pub fn compile_core_modules(
     Ok(merged)
 }
 
+/// Register and compile the embedder's `core::system` module (the
+/// platform bindings interface).
+///
+/// The module is ordinary Ambient source: `unique(<uuid>)`-prefixed
+/// ability declarations whose method bodies (the default implementations
+/// unhandled performs run) call the module's own private `extern fn`s.
+/// It checks and compiles exactly like a core module; the caller must
+/// have merged the platform's native bindings into the registry first, or
+/// the extern pre-pass fails loudly.
+///
+/// # Errors
+///
+/// Returns an error if the source fails to parse, check, or compile —
+/// bugs in the embedder's interface, not user error.
+#[allow(clippy::implicit_hasher)]
+pub fn compile_system_module(
+    registry: &mut ModuleRegistry,
+    module_function_hashes: &mut HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>>,
+    source: &str,
+    parse: impl Fn(&str) -> Result<Module, String>,
+) -> Result<CompiledModule, BuildError> {
+    let path = crate::core_library::register_declaration_module(
+        registry,
+        &["core", "system"],
+        source,
+        parse,
+    )
+    .map_err(|(module, error)| BuildError::Compile { module, error })?;
+
+    let ast = registry
+        .get(&path)
+        .map(|info| (*info.module).clone())
+        .ok_or_else(|| BuildError::PackageOpen(format!("module {path} vanished")))?;
+
+    let check_result = crate::infer::check_module_with_registry(ast, &path, registry);
+    if !check_result.is_ok() {
+        let joined = check_result
+            .errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(BuildError::Compile {
+            module: path.to_string(),
+            error: joined,
+        });
+    }
+
+    let compiled = crate::compiler::compile_module_with_options(
+        &check_result.module,
+        crate::compiler::CompileOptions {
+            imported_hashes: Some(linking_table(module_function_hashes, registry)),
+            env: ModuleEnv::new(registry, &path),
+            ..crate::compiler::CompileOptions::default()
+        },
+    )
+    .map_err(|e| BuildError::Compile {
+        module: path.to_string(),
+        error: e.to_string(),
+    })?;
+
+    let mut func_hashes = HashMap::new();
+    for (name, hash) in &compiled.function_names {
+        func_hashes.insert(Arc::clone(name), *hash);
+    }
+
+    let mut compiled = compiled;
+    compiled.function_names = qualify_names(&compiled.function_names, &path, registry);
+    compiled.const_names = qualify_names(&compiled.const_names, &path, registry);
+    module_function_hashes.insert(path, func_hashes);
+
+    Ok(compiled)
+}
+
 /// Load a single module from a package.
 fn load_module(
     pkg: &Package,
@@ -595,7 +667,6 @@ fn compile_loaded_module_with_registry(
     module_path: &ModulePath,
     registry: &ModuleRegistry,
     imported_hashes: HashMap<NameKey, blake3::Hash>,
-    prelude_abilities: &[Arc<crate::ability_resolver::DynAbility>],
 ) -> Result<CompiledModule, BuildError> {
     let check_result =
         crate::infer::check_module_with_registry(loaded.ast.clone(), module_path, registry);
@@ -616,7 +687,6 @@ fn compile_loaded_module_with_registry(
             source: Some(&loaded.source),
             source_file: Some(&source_file),
             imported_hashes: Some(imported_hashes),
-            prelude_abilities,
             env: ModuleEnv::new(registry, module_path),
         },
     )
@@ -657,7 +727,6 @@ pub fn compile_session_module(
     path: &ModulePath,
     source: &str,
     imported_hashes: HashMap<NameKey, blake3::Hash>,
-    prelude_abilities: &[Arc<crate::ability_resolver::DynAbility>],
 ) -> Result<CompiledModule, BuildError> {
     let check_result = crate::infer::check_module_with_registry(module.clone(), path, registry);
 
@@ -677,7 +746,6 @@ pub fn compile_session_module(
             source: Some(source),
             source_file: Some(&source_file),
             imported_hashes: Some(imported_hashes),
-            prelude_abilities,
             env: ModuleEnv::new(registry, path),
         },
     )

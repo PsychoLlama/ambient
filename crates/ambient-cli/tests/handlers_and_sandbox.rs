@@ -73,7 +73,7 @@ fn test_handler_value_override_last_wins() {
     CliTest::new(
         r#"
         unique(AB000000-0000-0000-0000-00000000000D) ability Choice {
-          fn pick(): Number;
+          fn pick(): Number { 0 }
         }
 
         fn body(): Number with Choice {
@@ -100,7 +100,7 @@ fn test_handler_value_captures_outer_variable() {
     CliTest::new(
         r#"
         unique(AB000000-0000-0000-0000-00000000000E) ability Choice {
-          fn pick(): Number;
+          fn pick(): Number { 0 }
         }
 
         fn body(): Number with Choice {
@@ -127,8 +127,8 @@ fn test_handler_value_multi_arm_captures() {
     CliTest::new(
         r#"
         unique(AB000000-0000-0000-0000-00000000000F) ability Pair {
-          fn left(): Number;
-          fn right(): Number;
+          fn left(): Number { 1 }
+          fn right(): Number { 2 }
         }
 
         fn body(): Number with Pair {
@@ -161,8 +161,8 @@ fn test_inline_multi_method_dispatch() {
     CliTest::new(
         r#"
         unique(AB000000-0000-0000-0000-000000000010) ability Pair {
-          fn left(): Number;
-          fn right(): Number;
+          fn left(): Number { 1 }
+          fn right(): Number { 2 }
         }
 
         fn body(): Number with Pair {
@@ -326,7 +326,7 @@ fn test_local_ability_shadows_platform_name() {
     CliTest::new(
         r#"
         unique(AB000000-0000-0000-0000-000000000011) ability Stdio {
-            fn shout(message: String): String;
+            fn shout(message: String): String { message }
         }
 
         fn noise(): String with Stdio {

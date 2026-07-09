@@ -258,14 +258,16 @@ mod tests {
     fn printer_ability(byte: u8) -> crate::ability_resolver::DynAbility {
         crate::ability_resolver::DynAbility {
             id: aid(byte),
+            uuid: uuid::Uuid::from_u128(u128::from(byte)),
             name: Arc::from("Printer"),
             methods: vec![crate::ability_resolver::DynMethod {
-                id: 0,
                 name: Arc::from("go"),
                 param_names: vec![],
                 params: vec![Type::string()],
                 ret: Type::Unit,
                 quantified: vec![],
+                signature: ambient_core::SignatureHash::new(&["string"], "unit"),
+                has_impl: true,
             }],
             dependencies: vec![],
         }

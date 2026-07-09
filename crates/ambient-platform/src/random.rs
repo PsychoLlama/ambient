@@ -1,13 +1,12 @@
-//! Random ability - for random number generation.
+//! Random natives - for random number generation.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ambient_ability::{SuspendedAbility, Value, VmError};
-use ambient_engine::ability_resolver::AbilityInterface;
-use ambient_engine::vm::Vm;
+use ambient_ability::{Value, VmError};
+use ambient_engine::natives::NativeRegistry;
 
-use crate::require;
+use crate::bind;
 
 // Simple xorshift64 PRNG state - good enough for most purposes.
 // Seeded from system time on first use.
@@ -42,21 +41,20 @@ fn next_random() -> f64 {
     result
 }
 
-/// `Random.seed()` -> a random number between 0.0 and 1.0.
-// Handlers match the `HostHandler` signature, so the `Result` stays even
-// where a handler cannot fail.
+/// `random_seed()` -> a random number between 0.0 and 1.0.
+// Natives return `Result`, so the wrap stays even where one cannot fail.
 #[allow(clippy::unnecessary_wraps)]
-fn seed(_ability: &SuspendedAbility) -> Result<Value, VmError> {
+fn seed(_args: &[Value]) -> Result<Value, VmError> {
     Ok(Value::Number(next_random()))
 }
 
-/// `Random.in_range(range)` -> a random number in the given range.
+/// `random_in_range(range)` -> a random number in the given range.
 ///
 /// The range is expected as a record `{ start: number, end: number }`;
 /// a plain number is treated as an exclusive upper bound.
 #[allow(clippy::unnecessary_wraps)]
-fn in_range(ability: &SuspendedAbility) -> Result<Value, VmError> {
-    if let Some(Value::Record(fields)) = ability.args.first() {
+fn in_range(args: &[Value]) -> Result<Value, VmError> {
+    if let Some(Value::Record(fields)) = args.first() {
         let start = fields
             .get(&Arc::from("start"))
             .and_then(|v| match v {
@@ -76,8 +74,7 @@ fn in_range(ability: &SuspendedAbility) -> Result<Value, VmError> {
         Ok(Value::Number(start + random * (end - start)))
     } else {
         // If not a record, treat as single number for upper bound
-        let upper = ability
-            .args
+        let upper = args
             .first()
             .and_then(|v| match v {
                 Value::Number(n) => Some(*n),
@@ -88,38 +85,33 @@ fn in_range(ability: &SuspendedAbility) -> Result<Value, VmError> {
     }
 }
 
-/// Register the Random ability handlers on a VM.
-///
-/// Provides `seed()` for random 0.0-1.0 and `in_range(range)` for random
-/// in range.
-///
-/// # Panics
-///
-/// Panics if the resolved interface is missing an expected method — the
-/// bindings interface and this handler set have drifted.
-pub fn register_random(vm: &mut Vm, ability: &AbilityInterface) {
-    vm.register_host_handler(ability.id, require(ability, "seed"), Box::new(seed));
-    vm.register_host_handler(ability.id, require(ability, "in_range"), Box::new(in_range));
+/// The `Random` native implementations: `random_seed` and
+/// `random_in_range`.
+#[must_use]
+pub fn random_natives() -> NativeRegistry {
+    let mut registry = NativeRegistry::new();
+    bind(
+        &mut registry,
+        "random_seed",
+        Arc::new(|args: Vec<Value>| seed(&args)),
+    );
+    bind(
+        &mut registry,
+        "random_in_range",
+        Arc::new(|args: Vec<Value>| in_range(&args)),
+    );
+    registry
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ambient_core::AbilityId;
-
-    fn suspended(args: Vec<Value>) -> SuspendedAbility {
-        SuspendedAbility {
-            ability_id: AbilityId::from_bytes([3; 32]),
-            method_id: 0,
-            args,
-        }
-    }
 
     #[test]
     fn test_random_seed_returns_number_in_range() {
         // Call multiple times to verify range
         for _ in 0..10 {
-            let result = seed(&suspended(vec![]));
+            let result = seed(&[]);
             assert!(result.is_ok());
 
             if let Value::Number(n) = result.unwrap() {
@@ -132,7 +124,7 @@ mod tests {
 
     #[test]
     fn test_random_in_range_with_number() {
-        let result = in_range(&suspended(vec![Value::Number(100.0)]));
+        let result = in_range(&[Value::Number(100.0)]);
         assert!(result.is_ok());
 
         if let Value::Number(n) = result.unwrap() {
@@ -146,7 +138,7 @@ mod tests {
     fn test_random_produces_different_values() {
         let mut values = std::collections::HashSet::new();
         for _ in 0..100 {
-            if let Ok(Value::Number(n)) = seed(&suspended(vec![])) {
+            if let Ok(Value::Number(n)) = seed(&[]) {
                 values.insert(n.to_bits());
             }
         }

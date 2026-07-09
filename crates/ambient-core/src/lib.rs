@@ -7,29 +7,20 @@
 //! Host-provided capabilities like Stdio, Time, and File operations are
 //! defined in `ambient-platform` instead, as they are environment-specific.
 
-mod canonical;
-mod descriptor;
 pub mod exception;
 mod identity;
 
 use std::fmt;
 
-pub use canonical::{
-    CanonicalType, CanonicalTypeFactory, RawMethod, hash_interface, hash_interface_raw,
-};
-pub use descriptor::{
-    AbilityDescriptor, AbilityProvider, MethodDescriptor, MethodSignature, TypeFactory,
-};
 pub use identity::{MethodKey, SignatureHash};
 
-/// Content-addressed ability identity.
+/// Nominal ability identity, derived from the declaration uuid.
 ///
-/// An ability is identified by the blake3 hash of its canonical interface:
-/// its name plus the ordered list of method names and canonicalized
-/// signatures (see [`hash_interface`]). Two engines that compute the same
-/// `AbilityId` agree on exactly what the ability's methods mean, which is
-/// what allows handlers and suspended ability calls to travel between
-/// engine instances.
+/// An ability *is* its `unique(<uuid>)` prefix ([`Self::from_uuid`]): two
+/// engines that see the same uuid agree on which ability is meant, and
+/// per-method agreement (signatures and behavior) is carried separately
+/// by [`MethodKey`]. This is what allows handlers and suspended ability
+/// calls to travel between engine instances.
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
@@ -109,13 +100,6 @@ impl fmt::Display for AbilityId {
         f.write_str(&self.to_hex())
     }
 }
-
-/// Method ID type alias.
-///
-/// Methods are identified by their declaration index within the ability.
-/// Because the ability's `AbilityId` commits to the full ordered method
-/// list, `(AbilityId, MethodId)` is globally unambiguous.
-pub type MethodId = u16;
 
 #[cfg(test)]
 mod ability_id_tests {

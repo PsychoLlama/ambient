@@ -224,14 +224,16 @@ fn infer_with_test_prelude() -> Infer {
         &crate::fqn::ModuleId::core_system(),
         DynAbility {
             id: crate::types::AbilityId::from_bytes([7; 32]),
+            uuid: uuid::Uuid::from_u128(7),
             name: "Printer".into(),
             methods: vec![DynMethod {
-                id: 0,
                 name: "go".into(),
                 param_names: vec![],
                 params: vec![Type::string()],
                 ret: Type::Unit,
                 quantified: vec![],
+                signature: ambient_core::SignatureHash::new(&["string"], "unit"),
+                has_impl: true,
             }],
             dependencies: vec![],
         },
@@ -240,23 +242,26 @@ fn infer_with_test_prelude() -> Infer {
         &crate::fqn::ModuleId::core_system(),
         DynAbility {
             id: crate::types::AbilityId::from_bytes([8; 32]),
+            uuid: uuid::Uuid::from_u128(8),
             name: "Clock".into(),
             methods: vec![
                 DynMethod {
-                    id: 0,
                     name: "now".into(),
                     param_names: vec![],
                     params: vec![],
                     ret: Type::number(),
                     quantified: vec![],
+                    signature: ambient_core::SignatureHash::new(&[] as &[&str], "number"),
+                    has_impl: true,
                 },
                 DynMethod {
-                    id: 1,
                     name: "wait".into(),
                     param_names: vec![],
                     params: vec![Type::number()],
                     ret: Type::Unit,
                     quantified: vec![],
+                    signature: ambient_core::SignatureHash::new(&["number"], "unit"),
+                    has_impl: true,
                 },
             ],
             dependencies: vec![],
@@ -333,14 +338,16 @@ fn test_handler_literal_exception_throw() {
     // its content-addressed identity so the bare reference resolves.
     infer.ability_resolver.register_dynamic(DynAbility {
         id: ambient_core::exception::ability_id(),
+        uuid: ambient_core::exception::EXCEPTION_UUID,
         name: "Exception".into(),
         methods: vec![DynMethod {
-            id: ambient_core::exception::METHOD_THROW,
             name: "throw".into(),
             param_names: vec!["message".into()],
             params: vec![Type::string()],
             ret: Type::Never,
             quantified: vec![],
+            signature: ambient_core::exception::throw_signature(),
+            has_impl: false,
         }],
         dependencies: vec![],
     });

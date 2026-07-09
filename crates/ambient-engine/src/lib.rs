@@ -41,8 +41,9 @@ pub use ambient_ability::{HostHandler, SuspendedAbility, Value, VmError};
 /// Value types re-exported from ambient-ability.
 pub mod value {
     pub use ambient_ability::{
-        CapturedFrame, Closure, Continuation, EnumValue, HandlerValue, MapValue, ModuleExport,
-        ModuleExportKind, ModuleMemberRef, ModuleValue, SetValue, SuspendedAbility, Value,
+        AbilityMethodRef, CapturedFrame, Closure, Continuation, EnumValue, HandlerValue, MapValue,
+        ModuleExport, ModuleExportKind, ModuleMemberRef, ModuleValue, SetValue, SuspendedAbility,
+        Value,
     };
 }
 

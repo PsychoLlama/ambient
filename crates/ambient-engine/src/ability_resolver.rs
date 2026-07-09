@@ -9,20 +9,22 @@
 
 use crate::fqn::ModuleId;
 use crate::types::Type;
-use ambient_core::{AbilityId, MethodId, RawMethod, TypeFactory, hash_interface_raw};
+use ambient_core::{AbilityId, SignatureHash};
 use std::collections::HashMap;
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// One method of a module-declared ability, with resolved types.
 ///
-/// The method's ID is its declaration index. `params`/`ret` are the
-/// declared types with type parameters substituted for quantified type
-/// variables (listed in `quantified`); call sites instantiate fresh
-/// variables for them.
+/// `params`/`ret` are the declared types with type parameters substituted
+/// for quantified type variables (listed in `quantified`); call sites
+/// instantiate fresh variables for them. `signature` is the canonical
+/// rendering's hash — one of the inputs to the method's
+/// [`MethodKey`](ambient_core::MethodKey); the other (the default
+/// implementation's content hash) exists only after compilation, so the
+/// key itself is derived by the compiler and VM, never stored here.
 #[derive(Debug, Clone)]
 pub struct DynMethod {
-    /// Declaration index within the ability.
-    pub id: MethodId,
     /// Method name as written in source.
     pub name: Arc<str>,
     /// Declared parameter names, parallel to `params` (for tooling:
@@ -34,6 +36,11 @@ pub struct DynMethod {
     pub ret: Type,
     /// Type variable IDs standing in for the method's type parameters.
     pub quantified: Vec<crate::types::TypeVarId>,
+    /// Hash of the canonical signature rendering.
+    pub signature: SignatureHash,
+    /// Whether the method carries a default implementation. `false` only
+    /// for the abstract `Exception::throw` carve-out.
+    pub has_impl: bool,
 }
 
 /// One ability method's full signature. For tooling: completions, hover,
@@ -53,85 +60,28 @@ pub struct MethodSignatureInfo {
 /// A module-declared ability: interface data resolved from source.
 ///
 /// Plain data built by the type checker from `ability` declarations; the
-/// identity is the content hash of the canonical interface.
+/// identity is derived from the declaration's `unique(<uuid>)` prefix, so
+/// it is stable under renames and moves and never collides with another
+/// declaration's.
 #[derive(Debug, Clone)]
 pub struct DynAbility {
-    /// Content-addressed identity of the interface.
+    /// The uuid-derived identity ([`AbilityId::from_uuid`]).
     pub id: AbilityId,
+    /// The declaration uuid the identity derives from.
+    pub uuid: Uuid,
     /// Ability name as written in source.
     pub name: Arc<str>,
-    /// Methods in declaration order (method ID = declaration index).
+    /// Methods in declaration order.
     pub methods: Vec<DynMethod>,
     /// Resolved identities of `with`-dependencies.
     pub dependencies: Vec<AbilityId>,
 }
 
 impl DynAbility {
-    /// Compute the interface identity from canonical signature renderings.
-    ///
-    /// `canonical_methods` must contain, per method, the canonical string
-    /// forms of its parameter and return types (see
-    /// [`canonical_type_string`]).
-    #[must_use]
-    pub fn hash_from_canonical(
-        name: &str,
-        canonical_methods: &[(Arc<str>, Vec<String>, String)],
-    ) -> AbilityId {
-        #[allow(clippy::cast_possible_truncation)]
-        let raw: Vec<RawMethod> = canonical_methods
-            .iter()
-            .enumerate()
-            .map(|(idx, (name, params, ret))| RawMethod {
-                id: idx as u16,
-                name: name.to_string(),
-                params: params.clone(),
-                ret: ret.clone(),
-            })
-            .collect();
-        hash_interface_raw(name, &raw)
-    }
-
     /// Look up a method by name.
     #[must_use]
     pub fn method(&self, name: &str) -> Option<&DynMethod> {
         self.methods.iter().find(|m| m.name.as_ref() == name)
-    }
-}
-
-/// A plain-data view of a resolved ability interface: its
-/// content-addressed identity plus method-name → method-id mapping.
-///
-/// Unlike [`DynAbility`] this is `Send + Sync` (no types), so host
-/// binding code — including capability-grant closures that outlive the
-/// current thread — can carry it around freely.
-#[derive(Debug, Clone)]
-pub struct AbilityInterface {
-    /// Content-addressed identity of the interface.
-    pub id: AbilityId,
-    methods: Vec<(Arc<str>, MethodId)>,
-}
-
-impl AbilityInterface {
-    /// Method ID for a method name.
-    #[must_use]
-    pub fn method_id(&self, name: &str) -> Option<MethodId> {
-        self.methods
-            .iter()
-            .find(|(n, _)| n.as_ref() == name)
-            .map(|(_, id)| *id)
-    }
-}
-
-impl From<&DynAbility> for AbilityInterface {
-    fn from(ability: &DynAbility) -> Self {
-        Self {
-            id: ability.id,
-            methods: ability
-                .methods
-                .iter()
-                .map(|m| (Arc::clone(&m.name), m.id))
-                .collect(),
-        }
     }
 }
 
@@ -340,35 +290,6 @@ impl AbilityResolver {
         self.dynamic_by_id
             .get(&id)
             .map(|dynamic| dynamic.name.as_ref())
-    }
-
-    /// Look up a method by ability name and method name.
-    #[must_use]
-    pub fn get_method(
-        &self,
-        ability_name: &str,
-        method_name: &str,
-    ) -> Option<(AbilityId, MethodId)> {
-        if let Some(dynamic) = self.dynamic_by_name.get(ability_name) {
-            let method = dynamic.method(method_name)?;
-            return Some((dynamic.id, method.id));
-        }
-        let dynamic = self.namespaced_dynamic_by_bare_name(ability_name)?;
-        let method = dynamic.method(method_name)?;
-        Some((dynamic.id, method.id))
-    }
-
-    /// Look up a method by ability ID and method name.
-    #[must_use]
-    pub fn get_method_by_ability_id(
-        &self,
-        ability_id: AbilityId,
-        method_name: &str,
-    ) -> Option<MethodId> {
-        self.dynamic_by_id
-            .get(&ability_id)
-            .and_then(|dynamic| dynamic.method(method_name))
-            .map(|m| m.id)
     }
 
     /// Get all method signatures for an ability. For tooling: completions,
@@ -622,46 +543,6 @@ impl CanonicalTypeRenderer {
     }
 }
 
-/// Type factory implementation for the engine's Type.
-pub struct EngineTypeFactory;
-
-impl TypeFactory<Type> for EngineTypeFactory {
-    fn unit(&self) -> Type {
-        Type::Unit
-    }
-
-    fn bool(&self) -> Type {
-        Type::bool()
-    }
-
-    fn number(&self) -> Type {
-        Type::number()
-    }
-
-    fn string(&self) -> Type {
-        Type::string()
-    }
-
-    fn binary(&self) -> Type {
-        Type::binary()
-    }
-
-    fn never(&self) -> Type {
-        Type::Never
-    }
-
-    fn type_var(&self) -> Type {
-        // For type variables, we return a Hole which will be instantiated
-        // during type inference. This is a simplification - in a full
-        // implementation we'd track a counter.
-        Type::Hole
-    }
-
-    fn list(&self, element: Type) -> Type {
-        Type::list(element)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -669,14 +550,16 @@ mod tests {
     fn dyn_ability(name: &str, byte: u8) -> DynAbility {
         DynAbility {
             id: AbilityId::from_bytes([byte; 32]),
+            uuid: Uuid::from_u128(u128::from(byte)),
             name: Arc::from(name),
             methods: vec![DynMethod {
-                id: 0,
                 name: Arc::from("go"),
                 param_names: vec![],
                 params: vec![Type::string()],
                 ret: Type::Unit,
                 quantified: vec![],
+                signature: ambient_core::SignatureHash::new(&["string"], "unit"),
+                has_impl: true,
             }],
             dependencies: vec![],
         }
@@ -725,10 +608,6 @@ mod tests {
         assert_eq!(
             resolver.name_to_id("Printer"),
             Some(AbilityId::from_bytes([7; 32]))
-        );
-        assert_eq!(
-            resolver.get_method("Printer", "go"),
-            Some((AbilityId::from_bytes([7; 32]), 0))
         );
         assert!(resolver.has_method("Printer", "go"));
 

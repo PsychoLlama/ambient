@@ -20,13 +20,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 
-use ambient_ability::{SuspendedAbility, Value, VmError};
-use ambient_engine::ability_resolver::AbilityInterface;
+use ambient_ability::{Value, VmError};
 use ambient_engine::bytecode::CompiledFunction;
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::vm::Vm;
 
-use crate::require;
+use crate::native_uuid;
 
 /// A code generation: every compiled function of a build, plus the
 /// content-addressed `const` value objects those functions reference.
@@ -73,9 +72,9 @@ pub fn functions_from_module(compiled: &CompiledModule) -> Functions {
     })
 }
 
-/// Builds a base VM for a process: platform host handlers registered
+/// Builds a base VM for a process: platform natives registered
 /// (Stdio, Network, ...), no code loaded. The runtime layers the code
-/// generation and the Process ability on top.
+/// generation and its own per-process `process_*` natives on top.
 pub type VmFactory = Arc<dyn Fn() -> Vm + Send + Sync>;
 
 /// Observable lifecycle events, for the embedder to log.
@@ -105,10 +104,8 @@ pub type EventSink = Arc<dyn Fn(&ProcessEvent) + Send + Sync>;
 
 /// Configuration for a [`ProcessRuntime`].
 pub struct ProcessRuntimeConfig {
-    /// Base VM builder (platform handlers, no code).
+    /// Base VM builder (platform natives, no code).
     pub vm_factory: VmFactory,
-    /// The resolved `Process` ability interface from the platform prelude.
-    pub interface: AbilityInterface,
     /// Lifecycle event sink.
     pub events: EventSink,
 }
@@ -194,7 +191,6 @@ pub struct ProcessRuntime {
     /// Signaled whenever a process exits (for [`Self::wait_all`]).
     exited: Condvar,
     vm_factory: VmFactory,
-    interface: AbilityInterface,
     events: EventSink,
 }
 
@@ -226,7 +222,6 @@ impl ProcessRuntime {
             }),
             exited: Condvar::new(),
             vm_factory: config.vm_factory,
-            interface: config.interface,
             events: config.events,
         })
     }
@@ -379,8 +374,9 @@ impl ProcessRuntime {
         self.inner.lock().unwrap()
     }
 
-    /// Build a VM wired for `ctx`: base platform handlers from the
-    /// factory, the given generation loaded, Process ability bound.
+    /// Build a VM wired for `ctx`: base platform natives from the
+    /// factory, the given generation loaded, the `process_*` natives
+    /// bound to this runtime and identity.
     fn build_vm(self: &Arc<Self>, functions: &Functions, ctx: &ProcessContext) -> Vm {
         let mut vm = (self.vm_factory)();
         for func in functions.functions.values() {
@@ -392,7 +388,7 @@ impl ProcessRuntime {
         for (hash, (uuid, param_count)) in &functions.natives {
             vm.load_native(*hash, *uuid, *param_count);
         }
-        register_process(&mut vm, &self.interface, self, ctx);
+        install_process_natives(&mut vm, self, ctx);
         vm
     }
 
@@ -686,22 +682,19 @@ fn process_main(
     }
 }
 
-/// Register the Process ability handlers on a VM for a given identity.
+/// Install the `process_*` native implementations on a VM for a given
+/// identity. These overwrite the stubs (implementations are uuid-keyed):
+/// the runtime's per-VM closures are what make `spawn`'s deploy semantics
+/// and `self_pid`/`exit` identity-dependent.
 #[allow(clippy::too_many_lines)]
-fn register_process(
-    vm: &mut Vm,
-    ability: &AbilityInterface,
-    runtime: &Arc<ProcessRuntime>,
-    ctx: &ProcessContext,
-) {
-    // Process.spawn(name, init, handler) -> pid
+fn install_process_natives(vm: &mut Vm, runtime: &Arc<ProcessRuntime>, ctx: &ProcessContext) {
+    // process_spawn(name, init, handler) -> pid
     let rt = Arc::clone(runtime);
     let spawn_ctx = ctx.clone();
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "spawn"),
-        Box::new(move |perform: &SuspendedAbility| {
-            let name = match perform.args.first() {
+    vm.register_native_impl(
+        native_uuid("process_spawn"),
+        Arc::new(move |args: Vec<Value>| {
+            let name = match args.first() {
                 Some(Value::String(s)) => s.to_string(),
                 other => {
                     return Err(VmError::exception(format!(
@@ -710,13 +703,11 @@ fn register_process(
                     )));
                 }
             };
-            let init = perform
-                .args
+            let init = args
                 .get(1)
                 .cloned()
                 .ok_or_else(|| VmError::exception("Process.spawn: missing init argument"))?;
-            let handler = perform
-                .args
+            let handler = args
                 .get(2)
                 .cloned()
                 .ok_or_else(|| VmError::exception("Process.spawn: missing handler argument"))?;
@@ -726,13 +717,12 @@ fn register_process(
         }),
     );
 
-    // Process.send(pid, msg) -> ()
+    // process_send(pid, msg) -> ()
     let rt = Arc::clone(runtime);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "send"),
-        Box::new(move |perform: &SuspendedAbility| {
-            let pid = match perform.args.first() {
+    vm.register_native_impl(
+        native_uuid("process_send"),
+        Arc::new(move |args: Vec<Value>| {
+            let pid = match args.first() {
                 Some(Value::Number(n)) => *n,
                 other => {
                     return Err(VmError::exception(format!(
@@ -741,20 +731,19 @@ fn register_process(
                     )));
                 }
             };
-            let msg = perform.args.get(1).cloned().unwrap_or(Value::Unit);
+            let msg = args.get(1).cloned().unwrap_or(Value::Unit);
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             rt.send_user(pid as u64, msg);
             Ok(Value::Unit)
         }),
     );
 
-    // Process.send_named(name, msg) -> ()
+    // process_send_named(name, msg) -> ()
     let rt = Arc::clone(runtime);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "send_named"),
-        Box::new(move |perform: &SuspendedAbility| {
-            let name = match perform.args.first() {
+    vm.register_native_impl(
+        native_uuid("process_send_named"),
+        Arc::new(move |args: Vec<Value>| {
+            let name = match args.first() {
                 Some(Value::String(s)) => s.to_string(),
                 other => {
                     return Err(VmError::exception(format!(
@@ -763,7 +752,7 @@ fn register_process(
                     )));
                 }
             };
-            let msg = perform.args.get(1).cloned().unwrap_or(Value::Unit);
+            let msg = args.get(1).cloned().unwrap_or(Value::Unit);
             if let Some(pid) = rt.whereis(&name) {
                 rt.send_user(pid, msg);
             }
@@ -771,24 +760,22 @@ fn register_process(
         }),
     );
 
-    // Process.self_pid() -> pid (0 outside any process)
+    // process_self_pid() -> pid (0 outside any process)
     let pid = ctx.pid;
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "self_pid"),
-        Box::new(move |_perform: &SuspendedAbility| {
+    vm.register_native_impl(
+        native_uuid("process_self_pid"),
+        Arc::new(move |_args: Vec<Value>| {
             #[allow(clippy::cast_precision_loss)]
             Ok(Value::Number(pid as f64))
         }),
     );
 
-    // Process.whereis(name) -> pid (0 if none)
+    // process_whereis(name) -> pid (0 if none)
     let rt = Arc::clone(runtime);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "whereis"),
-        Box::new(move |perform: &SuspendedAbility| {
-            let name = match perform.args.first() {
+    vm.register_native_impl(
+        native_uuid("process_whereis"),
+        Arc::new(move |args: Vec<Value>| {
+            let name = match args.first() {
                 Some(Value::String(s)) => s.to_string(),
                 other => {
                     return Err(VmError::exception(format!(
@@ -802,12 +789,11 @@ fn register_process(
         }),
     );
 
-    // Process.exit() -> () — stop the calling process after this reduction.
+    // process_exit() -> () — stop the calling process after this reduction.
     let exit_cell = ctx.cell.clone();
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "exit"),
-        Box::new(move |_perform: &SuspendedAbility| match &exit_cell {
+    vm.register_native_impl(
+        native_uuid("process_exit"),
+        Arc::new(move |_args: Vec<Value>| match &exit_cell {
             Some(cell) => {
                 cell.stop.store(true, Ordering::SeqCst);
                 Ok(Value::Unit)

@@ -68,6 +68,79 @@ pub(super) fn check_function_body(
         }
     });
 }
+/// Type-check every default implementation of one ability declaration
+/// (Phase 3).
+///
+/// A method body is an ordinary function body: parameters bind at their
+/// declared types, the result unifies with the declared return type, and
+/// the method's type parameters are rigid inside it. Its *allowed* effects
+/// are exactly the ability's declared `with`-dependencies (none means
+/// pure) — recorded as a deferred subset check like inherent methods. That
+/// rule is also what makes method identity well-founded: a body can never
+/// perform its own ability (the ability is not in its own dependency row),
+/// so a method's implementation hash never depends on itself.
+pub(super) fn check_ability_method_bodies(
+    infer: &mut Infer,
+    def: &mut crate::ast::AbilityDef,
+    env: &TypeEnv,
+    errors: &mut Vec<BoxedTypeError>,
+    deferred: &mut Vec<DeferredAbilityCheck>,
+) {
+    for method in &mut def.methods {
+        let Some(body) = method.body.as_mut() else {
+            // Body-less methods are either the Exception carve-out or
+            // already reported by `register_abilities`.
+            continue;
+        };
+        infer.reset_abilities();
+
+        let rigid: Vec<Arc<str>> = method
+            .type_params
+            .iter()
+            .map(|tp| Arc::clone(&tp.name))
+            .collect();
+        infer.with_rigid_params(rigid, |infer| {
+            let mut method_env = env.extend();
+            let expected_ret = resolve_erroring(infer, &method.ret_ty);
+
+            for param in &method.params {
+                let param_ty = match &param.ty {
+                    Some(ty) => resolve_erroring(infer, ty),
+                    None => infer.fresh(),
+                };
+                method_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
+            }
+
+            match infer.infer_expr(&method_env, body) {
+                Ok(body_ty) => {
+                    let span = (body.span.start, body.span.end);
+                    if let Err(e) = infer.unify(&expected_ret, &body_ty, span) {
+                        errors.push(e.with_context(format!(
+                            "in ability method `{}::{}`: default implementation \
+                             must return the declared type",
+                            def.name, method.name
+                        )));
+                    }
+                    deferred.push(DeferredAbilityCheck {
+                        context: format!(
+                            "default implementation of `{}::{}`",
+                            def.name, method.name
+                        ),
+                        declared: def.dependencies.clone(),
+                        inferred: infer.current_abilities().clone(),
+                        span: method.span,
+                    });
+                }
+                Err(e) => {
+                    errors.push(e.with_context(format!(
+                        "in ability method `{}::{}`",
+                        def.name, method.name
+                    )));
+                }
+            }
+        });
+    }
+}
 /// Check one `const` body: enforce that the initializer is a literal and
 /// that its type matches the annotation.
 pub(super) fn check_const_body(

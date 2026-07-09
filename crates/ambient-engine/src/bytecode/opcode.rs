@@ -146,8 +146,7 @@ pub enum Opcode {
     // Abilities (Milestone 2)
     // ─────────────────────────────────────────────────────────────────────────
     /// Create a suspended ability value from arguments on the stack.
-    /// Operand: u16 (ability ID)
-    /// Operand: u16 (method ID)
+    /// Operand: u16 (constant pool index of the ability-method reference)
     /// Operand: u8 (argument count)
     ///
     /// Pops `arg_count` arguments from the stack and creates a `SuspendedAbility` value.
@@ -208,16 +207,16 @@ pub enum Opcode {
     // Handler literals (Milestone 13)
     // ─────────────────────────────────────────────────────────────────────────
     /// Create a handler value from method implementations.
-    /// Operand: u16 (ability ID)
+    /// Operand: u16 (constant pool index of the ability reference)
     /// Operand: u8 (method count)
     /// Operand: u8 (capture count - values to capture from stack)
     ///
     /// Following the operands, `method_count` pairs of:
-    ///   - u16 (method ID)
-    ///   - u16 (constant pool index for function hash)
+    ///   - u16 (constant pool index of the arm's ability-method reference)
+    ///   - u16 (constant pool index for the arm's function hash)
     ///
     /// Pops `capture_count` values from the stack (captures), then pushes
-    /// a `HandlerValue` containing the ability ID, methods map, and captures.
+    /// a `HandlerValue` keyed by derived method keys.
     MakeHandler = 0xB0,
 
     /// Install a handler from a `HandlerValue` on the stack.

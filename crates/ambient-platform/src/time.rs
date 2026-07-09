@@ -1,16 +1,16 @@
-//! Time ability - for time-related operations.
+//! Time natives - for time-related operations.
 
-use ambient_ability::{SuspendedAbility, Value, VmError};
-use ambient_engine::ability_resolver::AbilityInterface;
-use ambient_engine::vm::Vm;
+use std::sync::Arc;
 
-use crate::require;
+use ambient_ability::{Value, VmError};
+use ambient_engine::natives::NativeRegistry;
 
-/// `Time.now()` -> current timestamp in milliseconds since the Unix epoch.
-// Handlers match the `HostHandler` signature, so the `Result` stays even
-// where a handler cannot fail.
+use crate::bind;
+
+/// `time_now()` -> current timestamp in milliseconds since the Unix epoch.
+// Natives return `Result`, so the wrap stays even where one cannot fail.
 #[allow(clippy::unnecessary_wraps)]
-fn now(_ability: &SuspendedAbility) -> Result<Value, VmError> {
+fn now(_args: &[Value]) -> Result<Value, VmError> {
     use std::time::{SystemTime, UNIX_EPOCH};
     // Precision loss is acceptable for timestamps (won't exceed 52 bits for centuries)
     #[allow(clippy::cast_precision_loss)]
@@ -20,14 +20,14 @@ fn now(_ability: &SuspendedAbility) -> Result<Value, VmError> {
     Ok(Value::Number(now))
 }
 
-/// `Time.wait(duration)` -> sleeps for the given `core::time::Duration`.
+/// `time_wait(duration)` -> sleeps for the given `core::time::Duration`.
 ///
 /// The argument is a `Duration` record — whole `secs` plus a subsecond
 /// `nanos` remainder, mirroring the in-language type — not a bare
 /// millisecond count. A missing or malformed record sleeps for zero.
 #[allow(clippy::unnecessary_wraps)]
-fn wait(ability: &SuspendedAbility) -> Result<Value, VmError> {
-    if let Some(duration) = ability.args.first().and_then(duration_from_value) {
+fn wait(args: &[Value]) -> Result<Value, VmError> {
+    if let Some(duration) = args.first().and_then(duration_from_value) {
         std::thread::sleep(duration);
     }
     Ok(Value::Unit)
@@ -57,32 +57,26 @@ fn duration_from_value(value: &Value) -> Option<std::time::Duration> {
     Some(std::time::Duration::new(secs, nanos))
 }
 
-/// Register the Time ability handlers on a VM.
-///
-/// Provides `now()` for getting current timestamp and `wait(ms)` for
-/// sleeping.
-///
-/// # Panics
-///
-/// Panics if the resolved interface is missing an expected method — the
-/// bindings interface and this handler set have drifted.
-pub fn register_time(vm: &mut Vm, ability: &AbilityInterface) {
-    vm.register_host_handler(ability.id, require(ability, "now"), Box::new(now));
-    vm.register_host_handler(ability.id, require(ability, "wait"), Box::new(wait));
+/// The `Time` native implementations: `time_now` and `time_wait`.
+#[must_use]
+pub fn time_natives() -> NativeRegistry {
+    let mut registry = NativeRegistry::new();
+    bind(
+        &mut registry,
+        "time_now",
+        Arc::new(|args: Vec<Value>| now(&args)),
+    );
+    bind(
+        &mut registry,
+        "time_wait",
+        Arc::new(|args: Vec<Value>| wait(&args)),
+    );
+    registry
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ambient_core::AbilityId;
-
-    fn suspended(args: Vec<Value>) -> SuspendedAbility {
-        SuspendedAbility {
-            ability_id: AbilityId::from_bytes([2; 32]),
-            method_id: 0,
-            args,
-        }
-    }
 
     /// A `core::time::Duration` value, the way the in-language type stores it.
     fn duration(secs: f64, nanos: f64) -> Value {
@@ -94,7 +88,7 @@ mod tests {
 
     #[test]
     fn test_time_now_returns_positive_number() {
-        let result = now(&suspended(vec![]));
+        let result = now(&[]);
         assert!(result.is_ok());
 
         if let Value::Number(ms) = result.unwrap() {
@@ -110,7 +104,7 @@ mod tests {
     #[test]
     fn test_time_wait_returns_unit() {
         // Wait for 1 millisecond (1e6 nanos).
-        let result = wait(&suspended(vec![duration(0.0, 1_000_000.0)]));
+        let result = wait(&[duration(0.0, 1_000_000.0)]);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Value::Unit);
     }
@@ -119,7 +113,7 @@ mod tests {
     fn test_time_wait_handles_negative_duration() {
         // A record with negative components describes a duration before the
         // zero point; it clamps to zero rather than erroring.
-        let result = wait(&suspended(vec![duration(-1.0, -100.0)]));
+        let result = wait(&[duration(-1.0, -100.0)]);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Value::Unit);
     }
@@ -128,7 +122,7 @@ mod tests {
     fn test_time_wait_ignores_non_record_argument() {
         // A bare number is no longer a valid duration; treat it as zero-wait
         // instead of panicking.
-        let result = wait(&suspended(vec![Value::Number(5.0)]));
+        let result = wait(&[Value::Number(5.0)]);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Value::Unit);
     }

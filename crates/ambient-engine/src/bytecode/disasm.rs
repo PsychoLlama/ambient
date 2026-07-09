@@ -22,8 +22,6 @@ enum Operands {
     I16,
     /// u16 followed by u8 (e.g. `Call`: constant index + arg count).
     U16U8,
-    /// u16, u16, u8 (`Suspend`: ability constant index, method, arg count).
-    U16U16U8,
     /// u16, u16, u16, u8 (`MakeEnum`).
     U16U16U16U8,
     /// `MakeHandler`: u16 ability constant index, u8 method count,
@@ -52,8 +50,7 @@ fn operands(op: Opcode) -> Operands {
             Operands::U8
         }
 
-        O::Call | O::MakeClosure => Operands::U16U8,
-        O::Suspend => Operands::U16U16U8,
+        O::Call | O::MakeClosure | O::Suspend => Operands::U16U8,
         O::MakeEnum => Operands::U16U16U16U8,
         O::MakeHandler => Operands::Handler,
 
@@ -73,6 +70,7 @@ fn format_constant(value: &Value) -> String {
             format!("const {}", &hex.as_str()[..12])
         }
         Value::AbilityRef(id) => format!("ability {}", id.short_hex()),
+        Value::AbilityMethodRef(m) => format!("method {}", m.method_key().short_hex()),
         Value::String(s) => {
             let s = s.as_str();
             if s.chars().count() > 40 {
@@ -181,16 +179,12 @@ fn instruction_detail(
             None => TRUNCATED.to_string(),
         },
         Operands::U16U8 => match (cur.u16(), cur.u8()) {
-            (Some(a), Some(b)) if op == Opcode::Call || op == Opcode::MakeClosure => {
+            (Some(a), Some(b))
+                if op == Opcode::Call || op == Opcode::MakeClosure || op == Opcode::Suspend =>
+            {
                 format!(" {}, n={b}", const_at(a))
             }
             (Some(a), Some(b)) => format!(" {a}, {b}"),
-            _ => TRUNCATED.to_string(),
-        },
-        Operands::U16U16U8 => match (cur.u16(), cur.u16(), cur.u8()) {
-            (Some(a), Some(b), Some(c)) => {
-                format!(" ability={}, method={b}, n={c}", const_at(a))
-            }
             _ => TRUNCATED.to_string(),
         },
         Operands::U16U16U16U8 => match (cur.u16(), cur.u16(), cur.u16(), cur.u8()) {

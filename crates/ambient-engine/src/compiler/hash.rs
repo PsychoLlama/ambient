@@ -93,6 +93,7 @@ fn internal_error(message: &'static str) -> CompileError {
 ///
 /// Returns an error if a constant pool contains values that cannot be
 /// content-addressed, or on internal inconsistencies.
+#[allow(clippy::too_many_lines)] // one linear finalization pipeline
 pub(super) fn finalize_module_hashes(
     compiled_functions: Vec<(Arc<str>, CompiledFunction, bool)>,
     lambdas: Vec<(blake3::Hash, Arc<str>, CompiledFunction)>,
@@ -124,14 +125,27 @@ pub(super) fn finalize_module_hashes(
         nodes.iter().enumerate().map(|(i, n)| (n.temp, i)).collect();
 
     // Call graph over node indices, from constant-pool function references.
+    // An ability-method reference's implementation hash is an edge like a
+    // call: the perform site's final constant (and derived MethodKey)
+    // depends on the impl's final hash, so the impl must finalize first.
     let mut graph: HashMap<usize, Vec<usize>> = HashMap::new();
     for (i, node) in nodes.iter().enumerate() {
         let mut edges = Vec::new();
         for constant in &node.func.constants {
-            if let Value::FunctionRef(h) = constant
-                && let Some(&j) = local.get(h)
-            {
-                edges.push(j);
+            match constant {
+                Value::FunctionRef(h) => {
+                    if let Some(&j) = local.get(h) {
+                        edges.push(j);
+                    }
+                }
+                Value::AbilityMethodRef(m) => {
+                    if let Some(h) = &m.impl_fn
+                        && let Some(&j) = local.get(h)
+                    {
+                        edges.push(j);
+                    }
+                }
+                _ => {}
             }
         }
         graph.insert(i, edges);
@@ -188,10 +202,22 @@ pub(super) fn finalize_module_hashes(
 
         let mut func = node.func.clone();
         for constant in &mut func.constants {
-            if let Value::FunctionRef(h) = constant
-                && let Some(j) = local.get(h)
-            {
-                *h = final_hashes[j];
+            match constant {
+                Value::FunctionRef(h) => {
+                    if let Some(j) = local.get(h) {
+                        *h = final_hashes[j];
+                    }
+                }
+                Value::AbilityMethodRef(m) => {
+                    if let Some(h) = m.impl_fn
+                        && let Some(j) = local.get(&h)
+                    {
+                        let mut updated = (**m).clone();
+                        updated.impl_fn = Some(final_hashes[j]);
+                        *m = std::sync::Arc::new(updated);
+                    }
+                }
+                _ => {}
             }
         }
         func.dependencies = func
@@ -344,6 +370,7 @@ fn build_substitution(
             .iter()
             .filter_map(|c| match c {
                 Value::FunctionRef(h) => Some(*h),
+                Value::AbilityMethodRef(m) => m.impl_fn,
                 _ => None,
             })
             .chain(func.dependencies.iter().copied());

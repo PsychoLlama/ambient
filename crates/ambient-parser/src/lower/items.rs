@@ -371,6 +371,7 @@ fn lower_ability_def(
                 params,
                 ret_ty,
                 body,
+                resolved_signature: None,
                 span: m.span,
             })
         })

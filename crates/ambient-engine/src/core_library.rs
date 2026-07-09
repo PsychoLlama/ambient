@@ -233,14 +233,15 @@ pub fn register_core_modules(
     Ok(paths)
 }
 
-/// Parse a declaration-only module (e.g. the `platform` ability bindings
+/// Parse an embedder-supplied module (e.g. the platform bindings
 /// interface) and register it at a reserved module path.
 ///
 /// This is the general mechanism behind treating an embedder-supplied
-/// module — one containing only declarations, no bodies — as a first-class
-/// importable root such as `platform`. Kept parameterized by source string
-/// and parse closure so the engine takes no dependency on any particular
-/// embedder crate (e.g. `ambient-platform`); the caller supplies both.
+/// module as a first-class importable root such as `core::system`. Kept
+/// parameterized by source string and parse closure so the engine takes no
+/// dependency on any particular embedder crate (e.g. `ambient-platform`);
+/// the caller supplies both. Checking-only paths (analysis) stop here;
+/// compiling paths continue through `build::compile_system_module`.
 ///
 /// # Errors
 ///

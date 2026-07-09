@@ -37,8 +37,8 @@ use super::env::TypeEnv;
 use super::error::{BoxedTypeError, TypeError, TypeErrorKind};
 
 use bodies::{
-    DeferredAbilityCheck, check_const_body, check_function_body, enforce_ability_subset,
-    enforce_declared_abilities,
+    DeferredAbilityCheck, check_ability_method_bodies, check_const_body, check_function_body,
+    enforce_ability_subset, enforce_declared_abilities,
 };
 use foreign::register_cross_module;
 use impls::check_impls;
@@ -229,6 +229,19 @@ fn check_module_core(
 
         if let crate::ast::ItemKind::Const(const_def) = &mut item.kind {
             check_const_body(&mut infer, &env, const_def, &mut errors);
+        }
+
+        // Ability default implementations check like inherent methods:
+        // bodies now, declared-dependency (effect-row) enforcement deferred
+        // to phase 4.
+        if let crate::ast::ItemKind::Ability(def) = &mut item.kind {
+            check_ability_method_bodies(
+                &mut infer,
+                def,
+                &env,
+                &mut errors,
+                &mut deferred_method_abilities,
+            );
         }
     }
 

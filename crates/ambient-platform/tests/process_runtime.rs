@@ -9,9 +9,8 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use ambient_engine::ability_resolver::{AbilityInterface, DynAbility};
 use ambient_engine::compiler::{CompileOptions, CompiledModule, compile_module_with_options};
-use ambient_engine::infer::{check_module_with_registry, resolve_ability_declarations};
+use ambient_engine::infer::check_module_with_registry;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::value::Value;
@@ -19,43 +18,18 @@ use ambient_engine::vm::Vm;
 use ambient_platform::process::{
     DeployOutcome, ProcessEvent, ProcessRuntime, ProcessRuntimeConfig, functions_from_module,
 };
-use ambient_platform::register_stdio_with_collector;
+use ambient_platform::stdio_natives_with_collector;
 
-/// Resolve the platform bindings interface (fresh per call; the
-/// resolved types are not `Send`).
-fn platform_prelude() -> Vec<Arc<DynAbility>> {
-    // Parse-only core registry: seeds the primitive nominals ability
-    // resolution hashes against, so ids match the CLI's.
-    let mut registry = ambient_engine::module_registry::ModuleRegistry::new();
-    ambient_engine::core_library::register_core_modules(&mut registry, |s| {
-        ambient_parser::parse(s).map_err(|e| e.to_string())
-    })
-    .expect("core modules parse");
-    let mut module = ambient_parser::parse(ambient_platform::ABILITY_DECLARATIONS)
-        .expect("platform declarations parse");
-    let (abilities, errors) = resolve_ability_declarations(&mut module, &registry);
-    assert!(errors.is_empty(), "platform declarations resolve");
-    abilities
-}
-
-fn interface(prelude: &[Arc<DynAbility>], name: &str) -> AbilityInterface {
-    prelude
-        .iter()
-        .find(|a| a.name.as_ref() == name)
-        .map(|a| AbilityInterface::from(&**a))
-        .unwrap_or_else(|| panic!("prelude has `{name}`"))
-}
-
-/// Compile a test program against a core + platform registry — the same
-/// world `ambient run` checks against.
+/// Compile a test program against a core + compiled `core::system`
+/// registry — the same world `ambient run` checks against.
 ///
 /// The programs name `core::system::*` abilities, `core::convert::to_string`,
-/// and the primitives (`Number`/`String`) fully qualified or bare. Core
-/// compiles for real (its functions — extern fns included — link by hash,
-/// so the program needs core's linking table and its compiled functions
-/// merged into the deployable module).
+/// and the primitives (`Number`/`String`) fully qualified or bare. Core and
+/// `core::system` compile for real (their functions — the ability default
+/// implementations included — link by hash, so the program needs their
+/// linking table and their compiled functions merged into the deployable
+/// module).
 fn compile(src: &str) -> CompiledModule {
-    let prelude = platform_prelude();
     let module = ambient_parser::parse(src).expect("test program parses");
 
     let mut registry = ModuleRegistry::new();
@@ -66,13 +40,17 @@ fn compile(src: &str) -> CompiledModule {
         |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
     )
     .expect("core modules compile");
-    ambient_engine::core_library::register_declaration_module(
+    // The build-time native contract needs every platform extern bound.
+    registry
+        .natives_mut()
+        .merge(&ambient_platform::stub_natives());
+    let platform_compiled = ambient_engine::build::compile_system_module(
         &mut registry,
-        &["core", "system"],
-        ambient_platform::ABILITY_DECLARATIONS,
+        &mut module_function_hashes,
+        ambient_platform::PLATFORM_SOURCE,
         |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
     )
-    .expect("core::system registers");
+    .expect("core::system compiles");
     let path = ModulePath::root();
     registry.register(&path, Arc::new(module.clone()));
 
@@ -95,14 +73,15 @@ fn compile(src: &str) -> CompiledModule {
                 &module_function_hashes,
                 &registry,
             )),
-            prelude_abilities: &prelude,
             env: ambient_engine::module_env::ModuleEnv::new(&registry, &path),
         },
     )
     .expect("test program compiles");
 
-    // The deployable module is the program plus the core it links against.
+    // The deployable module is the program plus the core and platform
+    // modules it links against.
     let mut merged = core_compiled;
+    merged.merge(&platform_compiled);
     merged.merge(&compiled);
     merged
 }
@@ -115,17 +94,16 @@ struct TestHost {
 
 impl TestHost {
     fn new() -> Self {
-        let prelude = platform_prelude();
-        let stdio = interface(&prelude, "Stdio");
-        let process = interface(&prelude, "Process");
-
         let output: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
         let collector = Arc::clone(&output);
         let vm_factory = Arc::new(move || {
             let mut vm = Vm::new();
-            register_stdio_with_collector(&mut vm, &stdio, Arc::clone(&collector));
+            // Stubs first so every platform extern is bound; the real
+            // collector-backed Stdio natives overwrite theirs (uuid-keyed).
+            vm.register_natives(&ambient_platform::stub_natives());
+            vm.register_natives(&stdio_natives_with_collector(Arc::clone(&collector)));
             vm
         });
 
@@ -147,7 +125,6 @@ impl TestHost {
         let runtime = ProcessRuntime::new(
             ProcessRuntimeConfig {
                 vm_factory,
-                interface: process,
                 events: sink,
             },
             Arc::new(ambient_platform::process::Generation::default()),

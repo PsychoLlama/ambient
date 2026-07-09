@@ -1,31 +1,32 @@
-//! Execute ability for server-side function execution.
+//! Execute natives for server-side function execution.
 //!
-//! This ability enables a server to execute functions by their
-//! content-addressed hash, supporting the remote execution protocol.
-//!
-//! # API
-//!
-//! - `has_function(hash: string) -> bool` - Check if function exists
-//! - `get_dependencies(hash: string) -> List<string>` - Get function dependencies
-//! - `load_functions(data: Binary) -> ()` - Load portable functions
-//! - `run<T, R>(hash: string, args: T) -> R` - Execute function by hash
-//! - `get_functions(hashes: List<string>) -> Binary` - Ship functions with dependencies
-//! - `run_with<T, U, R>(hash: string, args: T, handler: U) -> R` - Execute with a
-//!   handler value installed at the base of the isolated VM
+//! Enables a server to execute functions by their content-addressed hash,
+//! supporting the remote execution protocol. Executed code runs in an
+//! **isolated VM**: a fresh `Vm::new()` carries only the engine's core
+//! natives (pure value transformations), so the platform capabilities an
+//! executed function can reach are exactly what the host's grants closure
+//! registers — that closure is the capability boundary.
 
 use std::sync::{Arc, Mutex};
 
-use ambient_ability::{SuspendedAbility, Value, VmError};
-use ambient_engine::ability_resolver::AbilityInterface;
+use ambient_ability::{Value, VmError};
+use ambient_engine::natives::NativeRegistry;
 use ambient_engine::store::Store;
 use ambient_engine::vm::Vm;
 
-use crate::{extract_bytes, extract_string, require};
+use crate::{bind, extract_bytes, extract_string};
 
 /// Callback that grants abilities to an isolated execution VM.
+///
+/// Called on every fresh isolated VM before executed code runs. Under the
+/// nominal-ability model an unhandled perform runs the ability's default
+/// implementation, whose extern calls dispatch against the VM's native
+/// table — so granting a capability means registering its natives
+/// (`exec_vm.register_natives(&stdio_natives(...))`). An ungranted
+/// capability fails loudly at the call (`UnboundNative`).
 pub type ExecuteGrants = Arc<dyn Fn(&mut Vm) + Send + Sync>;
 
-/// Configuration for the Execute ability.
+/// Configuration for the Execute natives.
 ///
 /// Execute enables server-side function execution by content-addressed hash.
 pub struct ExecuteConfig {
@@ -33,39 +34,37 @@ pub struct ExecuteConfig {
     pub store: Arc<Mutex<Store>>,
 
     /// Host policy for what executed code may do: called on every fresh
-    /// isolated VM to register granted host handlers (e.g. Stdio). With
-    /// no grants, remote code runs pure — any perform that reaches the
-    /// host is an unhandled-ability error. The remote must provide all
-    /// ability handlers; nothing proxies back to the caller.
+    /// isolated VM to register granted natives (e.g. Stdio's). With no
+    /// grants, remote code runs pure — any platform extern it reaches is
+    /// an unbound-native error. The remote must provide all capabilities;
+    /// nothing proxies back to the caller.
     pub grants: Option<ExecuteGrants>,
 }
 
-/// Register the Execute ability handlers on a VM.
+/// The `Execute` native implementations.
 ///
 /// Provides server-side function execution:
-/// - `has_function(hash)` - Check if function exists
-/// - `get_dependencies(hash)` - Get function dependencies
-/// - `load_functions(data)` - Load functions from serialized data
-/// - `run(hash, args)` - Execute function by hash
-/// - `get_functions(hashes)` - Serialize functions for shipping
-/// - `run_with(hash, args, handler)` - Execute with a shipped handler installed
-///
-/// # Panics
-///
-/// Panics if the resolved interface is missing an expected method — the
-/// bindings interface and this handler set have drifted.
+/// - `execute_has_function(hash)` - Check if function exists
+/// - `execute_get_dependencies(hash)` - Get function dependencies
+/// - `execute_load_functions(data)` - Load functions from serialized data
+/// - `execute_run(hash, args)` - Execute function by hash
+/// - `execute_get_functions(hashes)` - Serialize functions for shipping
+/// - `execute_run_with(hash, args, handler)` - Execute with a shipped
+///   handler installed
+#[must_use]
 #[allow(clippy::too_many_lines)]
-pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: ExecuteConfig) {
+pub fn execute_natives(config: ExecuteConfig) -> NativeRegistry {
+    let mut registry = NativeRegistry::new();
     let store = config.store;
     let grants = config.grants;
 
-    // Execute.has_function(hash: string) -> bool
+    // execute_has_function(hash: string) -> bool
     let store_clone = Arc::clone(&store);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "has_function"),
-        Box::new(move |ability: &SuspendedAbility| {
-            let hash_str = extract_string(&ability.args)?;
+    bind(
+        &mut registry,
+        "execute_has_function",
+        Arc::new(move |args: Vec<Value>| {
+            let hash_str = extract_string(&args)?;
             let hash = parse_hash(&hash_str)
                 .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
 
@@ -74,13 +73,13 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
         }),
     );
 
-    // Execute.get_dependencies(hash: string) -> List<string>
+    // execute_get_dependencies(hash: string) -> List<string>
     let store_clone = Arc::clone(&store);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "get_dependencies"),
-        Box::new(move |ability: &SuspendedAbility| {
-            let hash_str = extract_string(&ability.args)?;
+    bind(
+        &mut registry,
+        "execute_get_dependencies",
+        Arc::new(move |args: Vec<Value>| {
+            let hash_str = extract_string(&args)?;
             let hash = parse_hash(&hash_str)
                 .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
 
@@ -94,13 +93,13 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
         }),
     );
 
-    // Execute.load_functions(data: Binary) -> ()
+    // execute_load_functions(data: Binary) -> ()
     let store_clone = Arc::clone(&store);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "load_functions"),
-        Box::new(move |ability: &SuspendedAbility| {
-            let data = match ability.args.first() {
+    bind(
+        &mut registry,
+        "execute_load_functions",
+        Arc::new(move |args: Vec<Value>| {
+            let data = match args.first() {
                 Some(v) => extract_bytes(v)?,
                 None => {
                     return Err(VmError::TypeErrorOwned {
@@ -120,24 +119,23 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
         }),
     );
 
-    // Execute.run(hash: string, args: T) -> R
-    // Executes a function by its content-addressed hash with the given argument.
-    // This creates a new VM instance, loads the function and its dependencies,
-    // and executes it in isolation.
+    // execute_run(hash: string, args: T) -> R
+    // Executes a function by its content-addressed hash with the given
+    // argument, in a fresh isolated VM.
     let store_clone = Arc::clone(&store);
     let grants_clone = grants.clone();
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "run"),
-        Box::new(move |ability: &SuspendedAbility| {
-            if ability.args.len() < 2 {
+    bind(
+        &mut registry,
+        "execute_run",
+        Arc::new(move |args: Vec<Value>| {
+            if args.len() < 2 {
                 return Err(VmError::TypeErrorOwned {
                     expected: "2 arguments (hash, args)".to_string(),
-                    got: format!("{} arguments", ability.args.len()),
+                    got: format!("{} arguments", args.len()),
                 });
             }
 
-            let hash_str = match &ability.args[0] {
+            let hash_str = match &args[0] {
                 Value::String(s) => s.to_string(),
                 other => {
                     return Err(VmError::TypeErrorOwned {
@@ -147,7 +145,7 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                 }
             };
 
-            let arg = ability.args[1].clone();
+            let arg = args[1].clone();
 
             // Parse the hash
             let hash = parse_hash(&hash_str)
@@ -161,7 +159,7 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
             drop(store);
 
             // Create a new VM for isolated execution, with whatever
-            // abilities the host granted.
+            // capabilities the host granted.
             let mut exec_vm = Vm::new();
             if let Some(grants) = &grants_clone {
                 grants(&mut exec_vm);
@@ -178,8 +176,9 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
                 exec_vm.load_value(*value_hash, value.clone());
             }
             // Load native (extern fn) objects; implementations come from
-            // the executing host's own bindings (installed in `Vm::new`),
-            // so an unknown uuid fails loudly at the call.
+            // the executing host's own bindings (core natives from
+            // `Vm::new`, platform natives from the grants closure), so an
+            // unknown uuid fails loudly at the call.
             for (native_hash, (uuid, param_count)) in subset.natives() {
                 exec_vm.load_native(*native_hash, *uuid, *param_count);
             }
@@ -189,82 +188,13 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
         }),
     );
 
-    // Execute.run_with(hash: string, args: T, handler: Handler<A>) -> R
-    // Like run, but installs the handler value at the base of the isolated
-    // VM first, so the executed function's performs dispatch to handler
-    // code that shipped with it. The handler's method functions (and their
-    // dependencies) are loaded from the store alongside the target.
+    // execute_get_functions(hashes: List<string>) -> Binary
     let store_clone = Arc::clone(&store);
-    let grants_clone2 = grants.clone();
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "run_with"),
-        Box::new(move |ability: &SuspendedAbility| {
-            if ability.args.len() < 3 {
-                return Err(VmError::TypeErrorOwned {
-                    expected: "3 arguments (hash, args, handler)".to_string(),
-                    got: format!("{} arguments", ability.args.len()),
-                });
-            }
-
-            let hash_str = match &ability.args[0] {
-                Value::String(s) => s.to_string(),
-                other => {
-                    return Err(VmError::TypeErrorOwned {
-                        expected: "String".to_string(),
-                        got: other.type_name().to_string(),
-                    });
-                }
-            };
-            let arg = ability.args[1].clone();
-            let handler_value = match &ability.args[2] {
-                Value::Handler(h) => Arc::clone(h),
-                other => {
-                    return Err(VmError::TypeErrorOwned {
-                        expected: "handler".to_string(),
-                        got: other.type_name().to_string(),
-                    });
-                }
-            };
-
-            let hash = parse_hash(&hash_str)
-                .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
-
-            let store = store_clone.lock().map_err(|_| VmError::LockPoisoned)?;
-            let mut subset = store.extract_with_dependencies(&hash);
-            for method_hash in handler_value.methods.values() {
-                subset.merge(&store.extract_with_dependencies(method_hash));
-            }
-            drop(store);
-
-            let mut exec_vm = Vm::new();
-            if let Some(grants) = &grants_clone2 {
-                grants(&mut exec_vm);
-            }
-            for func_hash in subset.hashes() {
-                if let Some(func) = subset.get(&func_hash) {
-                    exec_vm.load_function(func.as_ref().clone());
-                }
-            }
-            for (value_hash, value) in subset.values() {
-                exec_vm.load_value(*value_hash, value.clone());
-            }
-            for (native_hash, (uuid, param_count)) in subset.natives() {
-                exec_vm.load_native(*native_hash, *uuid, *param_count);
-            }
-
-            exec_vm.install_base_handler(handler_value);
-            exec_vm.call(&hash, vec![arg])
-        }),
-    );
-
-    // Execute.get_functions(hashes: List<string>) -> Binary
-    let store_clone = Arc::clone(&store);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "get_functions"),
-        Box::new(move |ability: &SuspendedAbility| {
-            let hashes = match ability.args.first() {
+    bind(
+        &mut registry,
+        "execute_get_functions",
+        Arc::new(move |args: Vec<Value>| {
+            let hashes = match args.first() {
                 Some(Value::List(list)) => list.clone(),
                 Some(other) => {
                     return Err(VmError::TypeErrorOwned {
@@ -311,6 +241,77 @@ pub fn register_execute(vm: &mut Vm, ability: &AbilityInterface, config: Execute
             Ok(Value::binary(bytes))
         }),
     );
+
+    // execute_run_with(hash: string, args: T, handler: Handler<A>) -> R
+    // Like execute_run, but installs the handler value at the base of the
+    // isolated VM first, so the executed function's performs dispatch to
+    // handler code that shipped with it. The handler's method functions
+    // (and their dependencies) are loaded from the store alongside the
+    // target.
+    let grants_clone2 = grants.clone();
+    bind(
+        &mut registry,
+        "execute_run_with",
+        Arc::new(move |args: Vec<Value>| {
+            if args.len() < 3 {
+                return Err(VmError::TypeErrorOwned {
+                    expected: "3 arguments (hash, args, handler)".to_string(),
+                    got: format!("{} arguments", args.len()),
+                });
+            }
+
+            let hash_str = match &args[0] {
+                Value::String(s) => s.to_string(),
+                other => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "String".to_string(),
+                        got: other.type_name().to_string(),
+                    });
+                }
+            };
+            let arg = args[1].clone();
+            let handler_value = match &args[2] {
+                Value::Handler(h) => Arc::clone(h),
+                other => {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "handler".to_string(),
+                        got: other.type_name().to_string(),
+                    });
+                }
+            };
+
+            let hash = parse_hash(&hash_str)
+                .map_err(|e| VmError::IoError(format!("invalid hash: {e}")))?;
+
+            let store = store.lock().map_err(|_| VmError::LockPoisoned)?;
+            let mut subset = store.extract_with_dependencies(&hash);
+            for method_hash in handler_value.methods.values() {
+                subset.merge(&store.extract_with_dependencies(method_hash));
+            }
+            drop(store);
+
+            let mut exec_vm = Vm::new();
+            if let Some(grants) = &grants_clone2 {
+                grants(&mut exec_vm);
+            }
+            for func_hash in subset.hashes() {
+                if let Some(func) = subset.get(&func_hash) {
+                    exec_vm.load_function(func.as_ref().clone());
+                }
+            }
+            for (value_hash, value) in subset.values() {
+                exec_vm.load_value(*value_hash, value.clone());
+            }
+            for (native_hash, (uuid, param_count)) in subset.natives() {
+                exec_vm.load_native(*native_hash, *uuid, *param_count);
+            }
+
+            exec_vm.install_base_handler(handler_value);
+            exec_vm.call(&hash, vec![arg])
+        }),
+    );
+
+    registry
 }
 
 /// Parse a hex-encoded hash string.

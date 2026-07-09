@@ -78,14 +78,17 @@ fn test_natives() -> NativeRegistry {
     natives
 }
 
-/// Build a package with the test natives bound.
+/// Build a package with the test natives bound (plus the platform stubs,
+/// which satisfy `core::system`'s own extern contract).
 fn build(dir: &TempDir, natives: &NativeRegistry) -> Result<BuildResult, BuildError> {
+    let mut with_stubs = ambient_platform::stub_natives();
+    with_stubs.merge(natives);
     build_package(
         dir.path(),
         parse_source,
         &BuildOptions {
-            platform_source: ambient_platform::ABILITY_DECLARATIONS,
-            natives: Some(natives),
+            platform_source: ambient_platform::PLATFORM_SOURCE,
+            natives: Some(&with_stubs),
             ..Default::default()
         },
     )

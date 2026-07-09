@@ -317,6 +317,10 @@ pub struct AbilityMethod {
     /// (its unhandled behavior is the VM's uncaught-exception path); the
     /// checker rejects a missing body everywhere else.
     pub body: Option<Expr>,
+    /// Hash of the canonical signature rendering, written back during type
+    /// checking (like `AbilityDef::resolved_id`); the compiler reads it to
+    /// derive the method's `MethodKey` rather than re-rendering types.
+    pub resolved_signature: Option<ambient_core::SignatureHash>,
     /// Source location.
     pub span: Span,
 }

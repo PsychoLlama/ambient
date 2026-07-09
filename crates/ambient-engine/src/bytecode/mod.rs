@@ -249,10 +249,26 @@ fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
             hasher.update(&[TYPE_OBJECT_REF]);
             hasher.update(h.as_bytes());
         }
+        Value::AbilityMethodRef(m) => {
+            const TYPE_ABILITY_METHOD_REF: u8 = 20;
+            hasher.update(&[TYPE_ABILITY_METHOD_REF]);
+            hasher.update(m.ability_id.as_bytes());
+            hasher.update(m.ability_uuid.as_bytes());
+            hasher.update(m.signature.as_bytes());
+            match &m.impl_fn {
+                Some(h) => {
+                    hasher.update(&[1]);
+                    hasher.update(h.as_bytes());
+                }
+                None => {
+                    hasher.update(&[0]);
+                }
+            }
+        }
         Value::SuspendedAbility(ability) => {
             hasher.update(&[TYPE_SUSPENDED_ABILITY]);
             hasher.update(ability.ability_id.as_bytes());
-            hasher.update(&ability.method_id.to_le_bytes());
+            hasher.update(ability.method.as_bytes());
             hasher.update(&(ability.args.len() as u32).to_le_bytes());
             for arg in &ability.args {
                 hash_value(hasher, arg);
@@ -280,8 +296,8 @@ fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
             let mut methods: Vec<_> = handler.methods.iter().collect();
             methods.sort_by_key(|(k, _)| *k);
             hasher.update(&(methods.len() as u32).to_le_bytes());
-            for (method_id, func_hash) in methods {
-                hasher.update(&method_id.to_le_bytes());
+            for (method, func_hash) in methods {
+                hasher.update(method.as_bytes());
                 hasher.update(func_hash.as_bytes());
             }
             // Hash captures

@@ -14,10 +14,9 @@ ability.
 
 ## Native functions (`extern fn`)
 
-The other half of the host boundary. Abilities are for _effects_; a pure
-host operation — UTF-8 string length, f64 square root, persistent-map
-insert — is an **extern fn**: a body-less signature declared in Ambient
-source, implemented by the host.
+The host boundary. A host operation — UTF-8 string length, f64 square
+root, persistent-map insert, a stdout write — is an **extern fn**: a
+body-less signature declared in Ambient source, implemented by the host.
 
 ```ambient
 /// Number of characters in the string.
@@ -42,8 +41,17 @@ binding must name a declaration. A remote host that receives code calling
 a native it does not implement fails loudly at the call
 (`UnboundNative`, naming the UUID) — never a silent misbehavior.
 
-Extern fns are pure by construction: no `with` clause, no VM access, no
-ability channel. Anything effectful belongs to an ability.
+Extern fns take no `with` clause, no VM access, and no ability channel —
+in the type system they are effect-free. Core's natives really are pure
+value transformations. Effectful host operations exist too (the platform's
+`stdio_out`, `fs_read`, ...), but they are module-private to
+`core::system`, so the only code that can call them is that module's
+ability method bodies — the default implementations of `Stdio`,
+`FileSystem`, and friends. Effect _tracking_ therefore lives entirely at
+the ability layer: user code can only reach an effectful native through a
+perform, which the checker accounts for. Anything effectful belongs to an
+ability; an effectful extern fn is its implementation detail, guarded by
+visibility.
 
 The engine's own bindings for `core` live in
 `crates/ambient-engine/src/natives/core/` under the reserved UUID block

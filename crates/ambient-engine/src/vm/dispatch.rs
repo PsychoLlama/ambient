@@ -287,20 +287,19 @@ impl Vm {
                 // See vm/abilities.rs for the implementation of these operations.
                 // ─────────────────────────────────────────────────────────────
                 Opcode::Suspend => {
-                    let ability_idx = self.read_u16()?;
-                    let method_id = self.read_u16()?;
+                    let method_idx = self.read_u16()?;
                     let arg_count = self.read_u8()?;
-                    let ability_id = match self.get_constant(ability_idx)? {
-                        Value::AbilityRef(id) => id,
+                    let method_ref = match self.get_constant(method_idx)? {
+                        Value::AbilityMethodRef(m) => m,
                         other => {
                             return Err(VmError::TypeError {
-                                expected: "ability",
+                                expected: "ability method",
                                 got: other.type_name(),
                                 operation: "suspend",
                             });
                         }
                     };
-                    self.op_suspend(ability_id, method_id, arg_count)?;
+                    self.op_suspend(&method_ref, arg_count)?;
                 }
 
                 Opcode::Perform => {
@@ -419,12 +418,24 @@ impl Vm {
                     };
                     let capture_count = self.read_u8()?;
 
-                    // Read method mappings.
+                    // Read method mappings: each arm names its method through
+                    // an ability-method constant, keyed by derived MethodKey.
                     let mut methods =
                         std::collections::HashMap::with_capacity(method_count as usize);
                     for _ in 0..method_count {
-                        let method_id = self.read_u16()?;
+                        let method_idx = self.read_u16()?;
                         let func_idx = self.read_u16()?;
+
+                        let method_key = match self.get_constant(method_idx)? {
+                            Value::AbilityMethodRef(m) => m.method_key(),
+                            other => {
+                                return Err(VmError::TypeError {
+                                    expected: "ability method",
+                                    got: other.type_name(),
+                                    operation: "make_handler",
+                                });
+                            }
+                        };
 
                         // Get the function hash from the constant pool.
                         let func_hash = match self.get_constant(func_idx)? {
@@ -438,7 +449,7 @@ impl Vm {
                             }
                         };
 
-                        methods.insert(method_id, func_hash);
+                        methods.insert(method_key, func_hash);
                     }
 
                     // Pop captured values from the stack (in reverse order).

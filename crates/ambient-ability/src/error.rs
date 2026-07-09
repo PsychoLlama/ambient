@@ -178,10 +178,11 @@ pub enum VmError {
     /// Wrong number of arguments to function.
     ArityMismatch { expected: u8, got: u8 },
 
-    /// No handler found for an ability.
+    /// No handler found for an ability method (and no default
+    /// implementation to fall back to).
     UnhandledAbility {
         ability_id: ambient_core::AbilityId,
-        method_id: u16,
+        method: ambient_core::MethodKey,
     },
 
     /// Tried to resume an already-resumed continuation (single-shot violation).
@@ -274,14 +275,12 @@ impl std::fmt::Display for VmError {
                     "arity mismatch: expected {expected} arguments, got {got}"
                 )
             }
-            Self::UnhandledAbility {
-                ability_id,
-                method_id,
-            } => {
+            Self::UnhandledAbility { ability_id, method } => {
                 write!(
                     f,
-                    "unhandled ability: ability {}, method {method_id}",
-                    ability_id.short_hex()
+                    "unhandled ability: ability {}, method {}",
+                    ability_id.short_hex(),
+                    method.short_hex()
                 )
             }
             Self::ContinuationAlreadyResumed => {
@@ -408,11 +407,11 @@ mod tests {
     fn test_vm_error_display_unhandled_ability() {
         let err = VmError::UnhandledAbility {
             ability_id: ambient_core::AbilityId::from_bytes([0xab; 32]),
-            method_id: 2,
+            method: ambient_core::MethodKey::from_bytes([0x02; 32]),
         };
         assert_eq!(
             format!("{err}"),
-            "unhandled ability: ability abababababab, method 2"
+            "unhandled ability: ability abababababab, method 020202020202"
         );
     }
 

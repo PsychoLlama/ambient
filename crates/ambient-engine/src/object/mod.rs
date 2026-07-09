@@ -57,6 +57,7 @@
 //!           1 u8 | index u32        (internal to the group)
 //! constant: 0 unit | 1 bool u8 | 2 number f64-bits | 3 string (u32, utf8)
 //!           4 bytes (u32, raw) | 5 ref | 6 ability [32] | 7 value-ref [32]
+//!           8 ability-method: ability [32] | uuid [16] | sig [32] | has_impl u8 | ref?
 //! ```
 //!
 //! Decoding rejects trailing bytes and unknown tags, so decode∘encode is the
@@ -89,7 +90,14 @@ pub const OBJECT_MAGIC: [u8; 4] = *b"ABOB";
 /// without a version bump — the addition is purely new (no existing kind's
 /// bytes or meaning changed, so no existing hash moved), and older engines
 /// reject the unknown kind tag rather than misreading it.
-pub const OBJECT_VERSION: u8 = 3;
+///
+/// v4: abilities are nominal. Constant pools carry ability-method
+/// references (tag 8: ability id, declaration uuid, canonical signature
+/// hash, and the default implementation's ref), and the `Suspend`
+/// instruction's operands changed from (ability const, method u16, argc)
+/// to (method const, argc) — bytecode from earlier versions decodes
+/// differently and must not be executed.
+pub const OBJECT_VERSION: u8 = 4;
 
 const KIND_PLAIN: u8 = 0;
 const KIND_GROUP: u8 = 1;
@@ -108,6 +116,7 @@ const CONST_BYTES: u8 = 4;
 const CONST_REF: u8 = 5;
 const CONST_ABILITY: u8 = 6;
 const CONST_VALUEREF: u8 = 7;
+const CONST_ABILITY_METHOD: u8 = 8;
 
 /// A reference to another function, from inside an object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,6 +144,19 @@ pub enum ObjectConstant {
     /// Value objects are leaves, so this is always an external final hash —
     /// never an internal group index.
     ValueRef(blake3::Hash),
+    /// One ability method, as perform sites and handler arms reference it:
+    /// the uuid-derived ability id, the declaration uuid and canonical
+    /// signature hash (the `MethodKey` inputs), and the default
+    /// implementation's function reference (`None` only for the abstract
+    /// `Exception::throw`). The implementation is an [`ObjectRef`] like any
+    /// callee, so a method whose impl lands in the same recursive group
+    /// encodes by member index.
+    AbilityMethod {
+        ability: ambient_core::AbilityId,
+        uuid: uuid::Uuid,
+        signature: ambient_core::SignatureHash,
+        impl_fn: Option<ObjectRef>,
+    },
 }
 
 /// The body of one function inside an object.
@@ -494,6 +516,12 @@ pub fn constant_from_value(
         // references as internal/external.
         Value::ObjectRef(h) => ObjectConstant::ValueRef(*h),
         Value::AbilityRef(id) => ObjectConstant::Ability(*id),
+        Value::AbilityMethodRef(m) => ObjectConstant::AbilityMethod {
+            ability: m.ability_id,
+            uuid: m.ability_uuid,
+            signature: m.signature,
+            impl_fn: m.impl_fn.as_ref().map(resolve),
+        },
         Value::Tuple(_) => return Err(ObjectError::UnsupportedConstant("tuple")),
         Value::Record(_) => return Err(ObjectError::UnsupportedConstant("record")),
         Value::List(_) => return Err(ObjectError::UnsupportedConstant("list")),
@@ -558,6 +586,17 @@ fn to_compiled(
         .map(|c| {
             Ok(match c {
                 ObjectConstant::Ref(r) => Value::FunctionRef(resolve(r)?),
+                ObjectConstant::AbilityMethod {
+                    ability,
+                    uuid,
+                    signature,
+                    impl_fn,
+                } => Value::AbilityMethodRef(Arc::new(crate::value::AbilityMethodRef {
+                    ability_id: *ability,
+                    ability_uuid: *uuid,
+                    signature: *signature,
+                    impl_fn: impl_fn.as_ref().map(&resolve).transpose()?,
+                })),
                 other => constant_to_value(other),
             })
         })
@@ -594,6 +633,21 @@ fn constant_to_value(constant: &ObjectConstant) -> Value {
         ObjectConstant::Binary(b) => Value::binary(b.clone()),
         ObjectConstant::Ref(ObjectRef::External(h)) => Value::FunctionRef(*h),
         ObjectConstant::Ability(id) => Value::AbilityRef(*id),
+        ObjectConstant::AbilityMethod {
+            ability,
+            uuid,
+            signature,
+            impl_fn,
+        } => Value::AbilityMethodRef(Arc::new(crate::value::AbilityMethodRef {
+            ability_id: *ability,
+            ability_uuid: *uuid,
+            signature: *signature,
+            impl_fn: match impl_fn {
+                Some(ObjectRef::External(h)) => Some(*h),
+                // Internal refs are resolved by `to_compiled` before this.
+                Some(ObjectRef::Internal(_)) | None => None,
+            },
+        })),
         ObjectConstant::ValueRef(h) => Value::ObjectRef(*h),
         // A plain `Unit`, or an internal ref — which has no meaning outside a
         // group and cannot occur in a leaf value object — is the inert Unit.
@@ -620,7 +674,10 @@ fn func_has_internal_refs(func: &ObjectFunction) -> bool {
     let is_internal = |r: &ObjectRef| matches!(r, ObjectRef::Internal(_));
     func.dependencies.iter().any(is_internal)
         || func.constants.iter().any(|c| match c {
-            ObjectConstant::Ref(r) => is_internal(r),
+            ObjectConstant::Ref(r)
+            | ObjectConstant::AbilityMethod {
+                impl_fn: Some(r), ..
+            } => is_internal(r),
             _ => false,
         })
 }
@@ -637,8 +694,12 @@ fn check_internal_refs(func: &ObjectFunction, member_count: u32) -> Result<(), O
         check(dep)?;
     }
     for constant in &func.constants {
-        if let ObjectConstant::Ref(r) = constant {
-            check(r)?;
+        match constant {
+            ObjectConstant::Ref(r)
+            | ObjectConstant::AbilityMethod {
+                impl_fn: Some(r), ..
+            } => check(r)?,
+            _ => {}
         }
     }
     Ok(())
@@ -695,6 +756,24 @@ fn encode_constant(out: &mut Vec<u8>, constant: &ObjectConstant) {
         ObjectConstant::ValueRef(h) => {
             out.push(CONST_VALUEREF);
             out.extend_from_slice(h.as_bytes());
+        }
+        ObjectConstant::AbilityMethod {
+            ability,
+            uuid,
+            signature,
+            impl_fn,
+        } => {
+            out.push(CONST_ABILITY_METHOD);
+            out.extend_from_slice(ability.as_bytes());
+            out.extend_from_slice(uuid.as_bytes());
+            out.extend_from_slice(signature.as_bytes());
+            match impl_fn {
+                Some(r) => {
+                    out.push(1);
+                    encode_ref(out, r);
+                }
+                None => out.push(0),
+            }
         }
     }
 }
@@ -806,6 +885,25 @@ fn decode_constant(r: &mut Reader<'_>) -> Result<ObjectConstant, ObjectError> {
             let mut bytes = [0u8; 32];
             bytes.copy_from_slice(r.take(32)?);
             ObjectConstant::ValueRef(blake3::Hash::from_bytes(bytes))
+        }
+        CONST_ABILITY_METHOD => {
+            let mut ability = [0u8; 32];
+            ability.copy_from_slice(r.take(32)?);
+            let mut uuid_bytes = [0u8; 16];
+            uuid_bytes.copy_from_slice(r.take(16)?);
+            let mut sig = [0u8; 32];
+            sig.copy_from_slice(r.take(32)?);
+            let impl_fn = match r.u8()? {
+                0 => None,
+                1 => Some(decode_ref(r)?),
+                t => return Err(ObjectError::BadTag(t)),
+            };
+            ObjectConstant::AbilityMethod {
+                ability: ambient_core::AbilityId::from_bytes(ability),
+                uuid: uuid::Uuid::from_bytes(uuid_bytes),
+                signature: ambient_core::SignatureHash::from_bytes(sig),
+                impl_fn,
+            }
         }
         t => return Err(ObjectError::BadTag(t)),
     })

@@ -1,105 +1,41 @@
-//! Network ability for TCP client/server operations.
+//! Network natives for TCP client/server operations.
 //!
-//! This module provides general-purpose networking primitives with
-//! message-oriented I/O: low-level socket operations that can be used for
-//! any protocol.
+//! General-purpose networking primitives with message-oriented I/O:
+//! low-level socket operations that can be used for any protocol.
+//! Listener and connection handles are plain numbers, valid in any VM
+//! registered against the same [`NetworkState`] — an acceptor can hand a
+//! connection to a spawned worker by sending its handle in a message.
 //!
-//! # API
+//! # Errors
 //!
-//! ## Server Operations
-//! - `listen(endpoint: (string, number)) -> ListenerId` - Bind TCP listener
-//! - `accept(listener: ListenerId) -> ConnectionId` - Accept incoming connection
-//! - `close_listener(listener: ListenerId) -> ()` - Stop accepting connections
-//!
-//! ## Client Operations
-//! - `connect(endpoint: (string, number)) -> ConnectionId` - Connect to remote server
-//! - `close(conn: ConnectionId) -> ()` - Close connection
-//!
-//! ## Message I/O (length-prefixed)
-//! - `send(conn: ConnectionId, data: Binary) -> ()` - Send message
-//! - `receive(conn: ConnectionId) -> Binary` - Receive message
-//!
-//! ## Connection Info
-//! - `local_addr(conn: ConnectionId) -> string` - Get local address
-//! - `peer_addr(conn: ConnectionId) -> string` - Get peer address
-//!
-//! # Example
-//!
-//! Server:
-//! ```ambient
-//! let listener = Network.listen!(("127.0.0.1", 8080));
-//! let conn = Network.accept!(listener);
-//! let msg = Network.receive!(conn);
-//! Network.send!(conn, process(msg));
-//! Network.close!(conn);
-//! ```
-//!
-//! Client:
-//! ```ambient
-//! let conn = Network.connect!(("127.0.0.1", 8080));
-//! Network.send!(conn, my_request);
-//! let response = Network.receive!(conn);
-//! Network.close!(conn);
-//! ```
+//! Operational failures (refused connections, closed handles, ...) raise
+//! catchable exceptions; argument-type mismatches remain fatal type
+//! errors.
 
 use std::sync::Arc;
 
-use ambient_ability::{SuspendedAbility, Value, VmError};
-use ambient_engine::ability_resolver::AbilityInterface;
-use ambient_engine::vm::Vm;
-use tokio::runtime::Handle as RuntimeHandle;
+use ambient_ability::{Value, VmError};
+use ambient_engine::natives::NativeRegistry;
 
 use crate::network_state::NetworkState;
-use crate::{extract_bytes, extract_host_port, extract_number, require};
+use crate::{bind, extract_bytes, extract_host_port, extract_number};
 
-/// Configuration for the Network ability.
-pub struct NetworkConfig {
-    /// Tokio runtime handle for async operations.
-    pub runtime: RuntimeHandle,
-}
+/// The `Network` native implementations, bound against shared state.
+///
+/// The process runtime hands every process VM the same [`NetworkState`],
+/// so handles cross process boundaries freely.
+#[must_use]
+#[allow(clippy::needless_pass_by_value, clippy::too_many_lines)]
+pub fn network_natives(state: Arc<NetworkState>) -> NativeRegistry {
+    let mut registry = NativeRegistry::new();
 
-/// Register the Network ability handlers on a VM with private state.
-///
-/// Provides low-level TCP networking operations:
-/// - `listen((host, port))` - Bind TCP listener
-/// - `accept(listener)` - Accept connection
-/// - `close_listener(listener)` - Close listener
-/// - `connect((host, port))` - Connect to server
-/// - `close(conn)` - Close connection
-/// - `send(conn, data)` - Send length-prefixed message
-/// - `receive(conn)` - Receive length-prefixed message
-/// - `local_addr(conn)` - Get local address
-/// - `peer_addr(conn)` - Get peer address
-///
-/// # Panics
-///
-/// Panics if the resolved interface is missing an expected method — the
-/// bindings interface and this handler set have drifted.
-pub fn register_network(vm: &mut Vm, ability: &AbilityInterface, config: NetworkConfig) {
-    let state = Arc::new(NetworkState::new(config.runtime));
-    register_network_shared(vm, ability, state);
-}
-
-/// Register the Network ability handlers against shared state.
-///
-/// The process runtime registers every process VM against one
-/// [`NetworkState`], so listener/connection handles are plain numbers
-/// valid in any process — an acceptor can hand a connection to a
-/// spawned worker by sending its handle in a message.
-///
-/// # Panics
-///
-/// Panics if the resolved interface is missing an expected method — the
-/// bindings interface and this handler set have drifted.
-#[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
-pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: Arc<NetworkState>) {
-    // Network.listen(endpoint: (string, number)) -> ListenerId (number handle)
+    // network_listen(endpoint: (string, number)) -> ListenerId (number handle)
     let state_clone = Arc::clone(&state);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "listen"),
-        Box::new(move |ability: &SuspendedAbility| {
-            let (host, port) = extract_host_port(&ability.args)?;
+    bind(
+        &mut registry,
+        "network_listen",
+        Arc::new(move |args: Vec<Value>| {
+            let (host, port) = extract_host_port(&args)?;
             let id = state_clone
                 .listen(&host, port)
                 .map_err(|e| VmError::exception(format!("Network.listen: {e}")))?;
@@ -108,14 +44,14 @@ pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: A
         }),
     );
 
-    // Network.accept(listener: number) -> ConnectionId (number handle)
+    // network_accept(listener: number) -> ConnectionId (number handle)
     let state_clone = Arc::clone(&state);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "accept"),
-        Box::new(move |ability: &SuspendedAbility| {
+    bind(
+        &mut registry,
+        "network_accept",
+        Arc::new(move |args: Vec<Value>| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let listener_id = extract_number(&ability.args)? as u64;
+            let listener_id = extract_number(&args)? as u64;
             let id = state_clone
                 .accept(listener_id)
                 .map_err(|e| VmError::exception(format!("Network.accept: {e}")))?;
@@ -124,14 +60,14 @@ pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: A
         }),
     );
 
-    // Network.close_listener(listener: number) -> ()
+    // network_close_listener(listener: number) -> ()
     let state_clone = Arc::clone(&state);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "close_listener"),
-        Box::new(move |ability: &SuspendedAbility| {
+    bind(
+        &mut registry,
+        "network_close_listener",
+        Arc::new(move |args: Vec<Value>| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let listener_id = extract_number(&ability.args)? as u64;
+            let listener_id = extract_number(&args)? as u64;
             state_clone
                 .close_listener(listener_id)
                 .map_err(|e| VmError::exception(format!("Network.close_listener: {e}")))?;
@@ -139,13 +75,13 @@ pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: A
         }),
     );
 
-    // Network.connect(endpoint: (string, number)) -> ConnectionId (number handle)
+    // network_connect(endpoint: (string, number)) -> ConnectionId (number handle)
     let state_clone = Arc::clone(&state);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "connect"),
-        Box::new(move |ability: &SuspendedAbility| {
-            let (host, port) = extract_host_port(&ability.args)?;
+    bind(
+        &mut registry,
+        "network_connect",
+        Arc::new(move |args: Vec<Value>| {
+            let (host, port) = extract_host_port(&args)?;
             let id = state_clone
                 .connect(&host, port)
                 .map_err(|e| VmError::exception(format!("Network.connect: {e}")))?;
@@ -154,14 +90,14 @@ pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: A
         }),
     );
 
-    // Network.close(conn: number) -> ()
+    // network_close(conn: number) -> ()
     let state_clone = Arc::clone(&state);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "close"),
-        Box::new(move |ability: &SuspendedAbility| {
+    bind(
+        &mut registry,
+        "network_close",
+        Arc::new(move |args: Vec<Value>| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let conn_id = extract_number(&ability.args)? as u64;
+            let conn_id = extract_number(&args)? as u64;
             state_clone
                 .close(conn_id)
                 .map_err(|e| VmError::exception(format!("Network.close: {e}")))?;
@@ -169,21 +105,21 @@ pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: A
         }),
     );
 
-    // Network.send(conn: number, data: Binary) -> ()
+    // network_send(conn: number, data: Binary) -> ()
     let state_clone = Arc::clone(&state);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "send"),
-        Box::new(move |ability: &SuspendedAbility| {
-            if ability.args.len() < 2 {
+    bind(
+        &mut registry,
+        "network_send",
+        Arc::new(move |args: Vec<Value>| {
+            if args.len() < 2 {
                 return Err(VmError::TypeErrorOwned {
                     expected: "2 arguments".to_string(),
-                    got: format!("{} arguments", ability.args.len()),
+                    got: format!("{} arguments", args.len()),
                 });
             }
 
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let conn_id = match &ability.args[0] {
+            let conn_id = match &args[0] {
                 Value::Number(n) => *n as u64,
                 other => {
                     return Err(VmError::TypeErrorOwned {
@@ -193,7 +129,7 @@ pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: A
                 }
             };
 
-            let data = extract_bytes(&ability.args[1])?;
+            let data = extract_bytes(&args[1])?;
 
             state_clone
                 .send(conn_id, &data)
@@ -202,14 +138,14 @@ pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: A
         }),
     );
 
-    // Network.receive(conn: number) -> Binary
+    // network_receive(conn: number) -> Binary
     let state_clone = Arc::clone(&state);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "receive"),
-        Box::new(move |ability: &SuspendedAbility| {
+    bind(
+        &mut registry,
+        "network_receive",
+        Arc::new(move |args: Vec<Value>| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let conn_id = extract_number(&ability.args)? as u64;
+            let conn_id = extract_number(&args)? as u64;
 
             let data = state_clone
                 .receive(conn_id)
@@ -219,14 +155,14 @@ pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: A
         }),
     );
 
-    // Network.local_addr(conn: number) -> string
+    // network_local_addr(conn: number) -> string
     let state_clone = Arc::clone(&state);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "local_addr"),
-        Box::new(move |ability: &SuspendedAbility| {
+    bind(
+        &mut registry,
+        "network_local_addr",
+        Arc::new(move |args: Vec<Value>| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let conn_id = extract_number(&ability.args)? as u64;
+            let conn_id = extract_number(&args)? as u64;
 
             let addr = state_clone
                 .local_addr(conn_id)
@@ -235,19 +171,20 @@ pub fn register_network_shared(vm: &mut Vm, ability: &AbilityInterface, state: A
         }),
     );
 
-    // Network.peer_addr(conn: number) -> string
-    let state_clone = Arc::clone(&state);
-    vm.register_host_handler(
-        ability.id,
-        require(ability, "peer_addr"),
-        Box::new(move |ability: &SuspendedAbility| {
+    // network_peer_addr(conn: number) -> string
+    bind(
+        &mut registry,
+        "network_peer_addr",
+        Arc::new(move |args: Vec<Value>| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let conn_id = extract_number(&ability.args)? as u64;
+            let conn_id = extract_number(&args)? as u64;
 
-            let addr = state_clone
+            let addr = state
                 .peer_addr(conn_id)
                 .map_err(|e| VmError::exception(format!("Network.peer_addr: {e}")))?;
             Ok(Value::string(addr))
         }),
     );
+
+    registry
 }

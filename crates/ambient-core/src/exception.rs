@@ -6,146 +6,82 @@
 //!
 //! Exception is declared in Ambient source (`core::exception`, re-exported
 //! from the prelude) like any other ability; it is not an engine builtin.
-//! What lives here is only its *identity*: the content hash of its canonical
-//! interface, which the VM's throw/unwind path keys on. The in-language
-//! declaration reproduces this exact hash, so the two never drift.
+//! What lives here is only its *identity*: the reserved declaration uuid,
+//! the uuid-derived [`AbilityId`] the VM's throw/unwind path keys on, and
+//! the [`MethodKey`] of `throw`. The in-language declaration reproduces
+//! these exactly, so the two never drift.
+//!
+//! `throw` is the language's one **abstract** ability method — a signature
+//! with no default implementation. Every other ability method carries a
+//! body (the behavior of an unhandled perform); an unhandled `throw` is
+//! the VM's own uncaught-exception path, which no in-language body could
+//! express (`throw` returns `!`).
 
 use std::sync::OnceLock;
 
+use uuid::Uuid;
+
 use crate::AbilityId;
-use crate::canonical::hash_interface;
-use crate::descriptor::MethodDescriptor;
+use crate::identity::{MethodKey, SignatureHash};
 
-/// Method ID for `throw`.
-pub const METHOD_THROW: u16 = 0x0000;
+/// The Exception ability's reserved declaration uuid — the first slot of
+/// the reserved ability-identity block (`FFFFFFFF-FFFF-FFFF-FFFD-…`).
+/// `core_lib/exception.ab` carries exactly this uuid; a golden test pins
+/// the two together.
+pub const EXCEPTION_UUID: Uuid = Uuid::from_u128(0xFFFF_FFFF_FFFF_FFFF_FFFD_0000_0000_0001);
 
-/// The Exception ability's method set, instantiated for any type system.
-///
-/// This is the single source of truth for the interface: both the
-/// content-addressed [`ability_id`] and the engine-facing descriptor are
-/// derived from it.
-fn methods<T: Clone + 'static>() -> Vec<MethodDescriptor<T>> {
-    vec![MethodDescriptor::new(
-        METHOD_THROW,
-        ExceptionAbility::METHOD_THROW_NAME,
-        1,
-        |f| vec![f.string()], // Error message is a string
-        |f| f.never(),        // throw never returns
-    )]
-}
-
-/// The content-addressed identity of the Exception ability.
+/// The uuid-derived identity of the Exception ability.
 #[must_use]
 pub fn ability_id() -> AbilityId {
     static ID: OnceLock<AbilityId> = OnceLock::new();
-    *ID.get_or_init(|| hash_interface(ExceptionAbility::NAME, &methods()))
+    *ID.get_or_init(|| AbilityId::from_uuid(&EXCEPTION_UUID))
 }
 
-/// Marker type for the Exception ability: a home for its identity
-/// constants (name, method id, content-addressed [`ability_id`]).
-#[derive(Clone, Copy)]
-pub struct ExceptionAbility;
-
-impl ExceptionAbility {
-    /// Method ID for throw.
-    pub const METHOD_THROW: u16 = METHOD_THROW;
-
-    /// Ability name.
-    pub const NAME: &'static str = "Exception";
-
-    /// Method name for throw.
-    pub const METHOD_THROW_NAME: &'static str = "throw";
-
-    /// The content-addressed identity of the Exception ability.
-    #[must_use]
-    pub fn ability_id() -> AbilityId {
-        ability_id()
-    }
+/// The canonical signature of `throw`: `(string) -> never`.
+#[must_use]
+pub fn throw_signature() -> SignatureHash {
+    SignatureHash::new(&["string"], "never")
 }
+
+/// The content-addressed identity of `Exception::throw`.
+///
+/// Derived with no implementation hash (the abstract carve-out): the VM's
+/// `raise_exception` path and compiled `Exception::throw!` sites both key
+/// on exactly this value.
+#[must_use]
+pub fn throw_method_key() -> MethodKey {
+    static KEY: OnceLock<MethodKey> = OnceLock::new();
+    *KEY.get_or_init(|| MethodKey::derive(&EXCEPTION_UUID, &throw_signature(), None))
+}
+
+/// Ability name.
+pub const NAME: &str = "Exception";
+
+/// Method name for throw.
+pub const METHOD_THROW_NAME: &str = "throw";
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::descriptor::TypeFactory;
 
-    // Simple test type for testing
-    #[derive(Clone, Debug, PartialEq)]
-    enum TestType {
-        Unit,
-        Bool,
-        Number,
-        String,
-        Binary,
-        Never,
-        Var(u32),
-        List(Box<TestType>),
-    }
-
-    struct TestTypeFactory {
-        next_var: std::cell::Cell<u32>,
-    }
-
-    impl TestTypeFactory {
-        fn new() -> Self {
-            Self {
-                next_var: std::cell::Cell::new(0),
-            }
-        }
-    }
-
-    impl TypeFactory<TestType> for TestTypeFactory {
-        fn unit(&self) -> TestType {
-            TestType::Unit
-        }
-        fn bool(&self) -> TestType {
-            TestType::Bool
-        }
-        fn number(&self) -> TestType {
-            TestType::Number
-        }
-        fn string(&self) -> TestType {
-            TestType::String
-        }
-        fn binary(&self) -> TestType {
-            TestType::Binary
-        }
-        fn never(&self) -> TestType {
-            TestType::Never
-        }
-        fn type_var(&self) -> TestType {
-            let id = self.next_var.get();
-            self.next_var.set(id + 1);
-            TestType::Var(id)
-        }
-        fn list(&self, element: TestType) -> TestType {
-            TestType::List(Box::new(element))
-        }
+    #[test]
+    fn exception_uuid_is_the_reserved_slot() {
+        assert_eq!(
+            EXCEPTION_UUID.to_string(),
+            "ffffffff-ffff-ffff-fffd-000000000001"
+        );
     }
 
     #[test]
-    fn test_exception_ability_id_stable() {
-        assert_eq!(ExceptionAbility::ability_id(), ability_id());
-        assert_eq!(ExceptionAbility::METHOD_THROW, 0x0000);
-    }
-
-    /// The canonical interface the [`ability_id`] hash — and the
-    /// in-language `core::exception::Exception` declaration that must
-    /// reproduce it — commits to: a single method `throw(string): never`.
-    #[test]
-    fn test_exception_interface_shape() {
-        let factory = TestTypeFactory::new();
-        let methods = methods::<TestType>();
-
-        assert_eq!(methods.len(), 1);
-        let throw = &methods[0];
-        assert_eq!(throw.id, METHOD_THROW);
-        assert_eq!(throw.name, "throw");
-        assert_eq!(throw.signature.param_count, 1);
-
-        let params = (throw.signature.param_types)(&factory);
-        assert_eq!(params, vec![TestType::String]);
-
-        let ret = (throw.signature.return_type)(&factory);
-        assert_eq!(ret, TestType::Never);
+    fn anchors_are_stable() {
+        assert_eq!(ability_id(), AbilityId::from_uuid(&EXCEPTION_UUID));
+        assert_eq!(
+            throw_method_key(),
+            MethodKey::derive(
+                &EXCEPTION_UUID,
+                &SignatureHash::new(&["string"], "never"),
+                None
+            )
+        );
     }
 }

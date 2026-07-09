@@ -69,14 +69,15 @@ pub(super) fn load_compiled(path: &Path) -> Result<CompiledModule> {
 /// and adds the run-specific concern: persisting the build to the
 /// package-local content-addressed store.
 pub(super) fn compile_package(path: &Path) -> Result<CompiledModule> {
-    let prelude = super::platform_prelude()?;
+    // Stub natives satisfy the extern contract at build time (real
+    // implementations are registered per VM by the runtime host).
+    let stubs = ambient_platform::stub_natives();
     let result = ambient_engine::build::build_package(
         path,
         super::parse_source,
         &BuildOptions {
-            platform_source: ambient_platform::ABILITY_DECLARATIONS,
-            prelude_abilities: &prelude,
-            natives: None,
+            platform_source: ambient_platform::PLATFORM_SOURCE,
+            natives: Some(&stubs),
             progress: None,
         },
     )

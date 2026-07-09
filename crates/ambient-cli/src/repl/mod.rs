@@ -29,7 +29,6 @@ use editor::ExternalEditorHandler;
 
 use ambient_analysis::Diagnostic;
 use ambient_analysis::package::AnalysisPackage;
-use ambient_engine::ability_resolver::DynAbility;
 use ambient_engine::ast::{Item, ItemKind};
 use ambient_engine::build::{BuildOptions, compile_session_module};
 use ambient_engine::compiler::CompiledModule;
@@ -41,8 +40,8 @@ use ambient_engine::value::{ModuleExport, ModuleExportKind, ModuleMemberRef, Mod
 use ambient_parser::ReplInput;
 use ambient_platform::process::{EventSink, ProcessEvent};
 
+use crate::commands::core_context;
 use crate::commands::host::RuntimeHost;
-use crate::commands::{core_context, platform_prelude};
 use crate::diagnostic::report_build_error;
 
 /// The module path all session definitions accumulate into.
@@ -184,8 +183,6 @@ struct ReplSession {
     /// The canonical [`NameKey`] linking table for `base`, resolving the
     /// session module's cross-module calls.
     imported_hashes: HashMap<NameKey, blake3::Hash>,
-    /// Resolved platform prelude abilities for the compiler.
-    prelude: Vec<Arc<DynAbility>>,
     /// Monotonic counter naming synthetic expression entry functions.
     entry_counter: u64,
     /// The runtime host that executes entries with the full platform set.
@@ -198,9 +195,8 @@ impl ReplSession {
     fn new(project_dir: &Path) -> Result<Self> {
         let repl_path = ModulePath::from_str_segments(&[REPL_MODULE])
             .ok_or_else(|| anyhow!("invalid repl module path"))?;
-        let prelude = platform_prelude()?;
         let project_root = find_project_root(project_dir);
-        let (package, base, imported_hashes) = build_base(project_root.as_deref(), &prelude)?;
+        let (package, base, imported_hashes) = build_base(project_root.as_deref())?;
         // The REPL has no program args; `Env::args!()` is empty.
         let host = RuntimeHost::new(noop_event_sink(), Vec::new())?;
 
@@ -211,7 +207,6 @@ impl ReplSession {
             project_root,
             base,
             imported_hashes,
-            prelude,
             entry_counter: 0,
             host,
         })
@@ -219,8 +214,7 @@ impl ReplSession {
 
     /// Reset all session definitions and rebuild the base + host from scratch.
     fn clear(&mut self) -> Result<()> {
-        let (package, base, imported_hashes) =
-            build_base(self.project_root.as_deref(), &self.prelude)?;
+        let (package, base, imported_hashes) = build_base(self.project_root.as_deref())?;
         self.entries.clear();
         self.package = package;
         self.base = base;
@@ -386,7 +380,6 @@ impl ReplSession {
             &self.repl_path,
             trial_source,
             self.imported_hashes.clone(),
-            &self.prelude,
         )
         .map_err(report_build_error)
     }
@@ -440,7 +433,6 @@ fn noop_event_sink() -> EventSink {
 /// just the core library and the package is an empty in-memory shell.
 fn build_base(
     project_root: Option<&Path>,
-    prelude: &[Arc<DynAbility>],
 ) -> Result<(
     AnalysisPackage,
     CompiledModule,
@@ -448,13 +440,13 @@ fn build_base(
 )> {
     match project_root {
         Some(root) => {
+            let stubs = ambient_platform::stub_natives();
             let result = ambient_engine::build::build_package(
                 root,
                 crate::commands::parse_source,
                 &BuildOptions {
-                    platform_source: ambient_platform::ABILITY_DECLARATIONS,
-                    prelude_abilities: prelude,
-                    natives: None,
+                    platform_source: ambient_platform::PLATFORM_SOURCE,
+                    natives: Some(&stubs),
                     progress: None,
                 },
             )

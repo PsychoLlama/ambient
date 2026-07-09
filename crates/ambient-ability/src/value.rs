@@ -4,7 +4,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ambient_core::AbilityId;
+use ambient_core::{AbilityId, MethodKey};
+
+pub use crate::method::{AbilityMethodRef, Closure, HandlerValue, SuspendedAbility};
 use serde::{Deserialize, Serialize};
 
 /// Represents a runtime value in the language.
@@ -51,15 +53,22 @@ pub enum Value {
     /// function ref.
     ObjectRef(blake3::Hash),
 
-    /// Reference to a content-addressed ability interface.
+    /// Reference to a nominal ability identity.
     ///
-    /// Appears in compiled constant pools: `Suspend`/`Handle`/`MakeHandler`
-    /// name the ability they target through one of these.
+    /// Appears in compiled constant pools: `MakeHandler` names the ability
+    /// a handler covers through one of these.
     AbilityRef(AbilityId),
+
+    /// Reference to one ability method, in compiled constant pools:
+    /// `Suspend` names the method it performs — and `MakeHandler` the
+    /// method each arm covers — through one of these. Carries everything a
+    /// [`MethodKey`](ambient_core::MethodKey) derives from, plus the
+    /// default implementation's hash for the unhandled-perform path.
+    AbilityMethodRef(Arc<AbilityMethodRef>),
 
     /// A suspended ability operation that can be performed later.
     ///
-    /// Contains the ability ID, method ID, and arguments.
+    /// Contains the ability ID, method key, and arguments.
     SuspendedAbility(Arc<SuspendedAbility>),
 
     /// A captured continuation that can be resumed (single-shot).
@@ -495,147 +504,6 @@ impl ModuleExport {
     }
 }
 
-/// A suspended ability operation waiting to be performed.
-///
-/// This type is fully serializable, allowing ability values to be stored,
-/// transmitted, and executed remotely.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SuspendedAbility {
-    /// The content-addressed identity of the ability being invoked.
-    pub ability_id: AbilityId,
-
-    /// The method being called on the ability (e.g., "read", "print").
-    pub method_id: u16,
-
-    /// The arguments to pass to the ability method.
-    pub args: Vec<Value>,
-}
-
-impl SuspendedAbility {
-    /// Create a new suspended ability.
-    #[must_use]
-    pub fn new(ability_id: AbilityId, method_id: u16, args: Vec<Value>) -> Self {
-        Self {
-            ability_id,
-            method_id,
-            args,
-        }
-    }
-}
-
-/// A closure combining a function with its captured environment.
-///
-/// Closures are created when lambda expressions capture variables from
-/// their surrounding scope. The environment contains the captured values.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Closure {
-    /// The content-addressed hash of the function (lambda body).
-    pub function_hash: blake3::Hash,
-
-    /// The captured environment: values of free variables at closure creation time.
-    /// The order matches the capture order during compilation.
-    pub environment: Vec<Value>,
-}
-
-impl Closure {
-    /// Create a new closure.
-    #[must_use]
-    pub fn new(function_hash: blake3::Hash, environment: Vec<Value>) -> Self {
-        Self {
-            function_hash,
-            environment,
-        }
-    }
-}
-
-/// A first-class handler value that can handle an ability.
-///
-/// Handler values are created using handler literal syntax:
-/// ```ambient
-/// let mock_fs: Handler<FileSystem> = {
-///   FileSystem::read(path) => resume("mock content"),
-///   FileSystem::write(path, content) => resume(()),
-///   FileSystem::exists(path) => resume(true),
-/// };
-/// ```
-///
-/// They can be composed with other handlers and used in handle expressions.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HandlerValue {
-    /// The content-addressed identity of the ability this handler handles.
-    pub ability_id: AbilityId,
-
-    /// Method implementations: `method_id` -> function hash that implements the handler.
-    /// Each handler function receives implicit parameters: (continuation, `suspended_ability`)
-    /// and can extract ability arguments from the suspended ability.
-    pub methods: HashMap<u16, blake3::Hash>,
-
-    /// Optional captured environment for closures within the handler.
-    /// If handler methods capture variables from their surrounding scope,
-    /// those values are stored here.
-    pub captures: Vec<Value>,
-}
-
-impl HandlerValue {
-    /// Create a new handler value.
-    #[must_use]
-    pub fn new(ability_id: AbilityId, methods: HashMap<u16, blake3::Hash>) -> Self {
-        Self {
-            ability_id,
-            methods,
-            captures: Vec::new(),
-        }
-    }
-
-    /// Create a new handler value with captured environment.
-    #[must_use]
-    pub fn with_captures(
-        ability_id: AbilityId,
-        methods: HashMap<u16, blake3::Hash>,
-        captures: Vec<Value>,
-    ) -> Self {
-        Self {
-            ability_id,
-            methods,
-            captures,
-        }
-    }
-
-    /// Get the handler function for a specific method.
-    #[must_use]
-    pub fn get_method(&self, method_id: u16) -> Option<blake3::Hash> {
-        self.methods.get(&method_id).copied()
-    }
-
-    /// Check if this handler handles a specific method.
-    #[must_use]
-    pub fn handles_method(&self, method_id: u16) -> bool {
-        self.methods.contains_key(&method_id)
-    }
-
-    /// Compose this handler with another, with `other` taking precedence.
-    /// Both handlers must handle the same ability.
-    #[must_use]
-    pub fn compose(&self, other: &Self) -> Option<Self> {
-        if self.ability_id != other.ability_id {
-            return None;
-        }
-
-        let mut methods = self.methods.clone();
-        methods.extend(other.methods.iter().map(|(k, v)| (*k, *v)));
-
-        // Combine captures from both handlers
-        let mut captures = self.captures.clone();
-        captures.extend(other.captures.iter().cloned());
-
-        Some(Self {
-            ability_id: self.ability_id,
-            methods,
-            captures,
-        })
-    }
-}
-
 /// A captured continuation representing suspended computation.
 ///
 /// Everything inside is *relative to the continuation's base*: the base
@@ -767,6 +635,7 @@ impl Value {
             Self::FunctionRef(_) => "function",
             Self::ObjectRef(_) => "object",
             Self::AbilityRef(_) => "ability",
+            Self::AbilityMethodRef(_) => "ability_method",
             Self::SuspendedAbility(_) => "suspended_ability",
             Self::Continuation(_) => "continuation",
             Self::Closure(_) => "closure",
@@ -788,8 +657,8 @@ impl Value {
 
     /// Create a new suspended ability value.
     #[must_use]
-    pub fn suspended_ability(ability_id: AbilityId, method_id: u16, args: Vec<Value>) -> Self {
-        Self::SuspendedAbility(Arc::new(SuspendedAbility::new(ability_id, method_id, args)))
+    pub fn suspended_ability(ability_id: AbilityId, method: MethodKey, args: Vec<Value>) -> Self {
+        Self::SuspendedAbility(Arc::new(SuspendedAbility::new(ability_id, method, args)))
     }
 
     /// Create a new continuation value.
@@ -810,7 +679,7 @@ impl Value {
 
     /// Create a new handler value.
     #[must_use]
-    pub fn handler(ability_id: AbilityId, methods: HashMap<u16, blake3::Hash>) -> Self {
+    pub fn handler(ability_id: AbilityId, methods: HashMap<MethodKey, blake3::Hash>) -> Self {
         Self::Handler(Arc::new(HandlerValue::new(ability_id, methods)))
     }
 
@@ -818,7 +687,7 @@ impl Value {
     #[must_use]
     pub fn handler_with_captures(
         ability_id: AbilityId,
-        methods: HashMap<u16, blake3::Hash>,
+        methods: HashMap<MethodKey, blake3::Hash>,
         captures: Vec<Value>,
     ) -> Self {
         Self::Handler(Arc::new(HandlerValue::with_captures(
@@ -958,7 +827,7 @@ impl PartialEq for Value {
             (Self::AbilityRef(a), Self::AbilityRef(b)) => a == b,
             // Suspended abilities are equal if they have the same ability/method/args
             (Self::SuspendedAbility(a), Self::SuspendedAbility(b)) => {
-                a.ability_id == b.ability_id && a.method_id == b.method_id && a.args == b.args
+                a.ability_id == b.ability_id && a.method == b.method && a.args == b.args
             }
             // Continuations are identity-compared (same Arc)
             (Self::Continuation(a), Self::Continuation(b)) => Arc::ptr_eq(a, b),
@@ -1188,9 +1057,10 @@ mod tests {
     #[test]
     fn test_suspended_ability() {
         let id = AbilityId::from_bytes([7; 32]);
-        let ability = SuspendedAbility::new(id, 2, vec![Value::Number(42.0)]);
+        let method = MethodKey::from_bytes([2; 32]);
+        let ability = SuspendedAbility::new(id, method, vec![Value::Number(42.0)]);
         assert_eq!(ability.ability_id, id);
-        assert_eq!(ability.method_id, 2);
+        assert_eq!(ability.method, method);
         assert_eq!(ability.args.len(), 1);
     }
 
@@ -1206,33 +1076,35 @@ mod tests {
 
     #[test]
     fn test_handler_value_methods() {
+        let key = |b: u8| MethodKey::from_bytes([b; 32]);
         let mut methods = HashMap::new();
-        methods.insert(0u16, blake3::hash(b"test"));
+        methods.insert(key(0), blake3::hash(b"test"));
         let id = AbilityId::from_bytes([7; 32]);
         let handler = HandlerValue::new(id, methods);
 
         assert_eq!(handler.ability_id, id);
-        assert!(handler.handles_method(0));
-        assert!(!handler.handles_method(1));
-        assert!(handler.get_method(0).is_some());
-        assert!(handler.get_method(1).is_none());
+        assert!(handler.handles_method(key(0)));
+        assert!(!handler.handles_method(key(1)));
+        assert!(handler.get_method(key(0)).is_some());
+        assert!(handler.get_method(key(1)).is_none());
     }
 
     #[test]
     fn test_handler_value_compose() {
+        let key = |b: u8| MethodKey::from_bytes([b; 32]);
         let mut methods1 = HashMap::new();
-        methods1.insert(0u16, blake3::hash(b"method0"));
+        methods1.insert(key(0), blake3::hash(b"method0"));
         let handler1 = HandlerValue::new(AbilityId::from_bytes([7; 32]), methods1);
 
         let mut methods2 = HashMap::new();
-        methods2.insert(1u16, blake3::hash(b"method1"));
+        methods2.insert(key(1), blake3::hash(b"method1"));
         let handler2 = HandlerValue::new(AbilityId::from_bytes([7; 32]), methods2);
 
         let composed = handler1.compose(&handler2);
         assert!(composed.is_some());
         let composed = composed.expect("compose should succeed");
-        assert!(composed.handles_method(0));
-        assert!(composed.handles_method(1));
+        assert!(composed.handles_method(key(0)));
+        assert!(composed.handles_method(key(1)));
     }
 
     #[test]

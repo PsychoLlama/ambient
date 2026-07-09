@@ -6,51 +6,86 @@ Abilities are the mechanism for controlled side effects.
 
 ## Ability Identity
 
-An ability is identified by the **blake3 hash of its canonical
-interface**: its name plus the ordered list of method names and
-canonicalized signatures (type variables numbered by first occurrence,
-so `<T>(T) -> U` encodes identically everywhere). Every ability hashes
-through the same scheme (`ambient-core/src/canonical.rs`) — the platform
-builtins are ordinary in-language declarations, not a special case.
+Abilities are **nominal**, exactly like enums and structs: the mandatory
+`unique(<uuid>)` prefix _is_ the ability's identity
+(`AbilityId::from_uuid`). Renaming an ability, renaming its methods, or
+moving the declaration to another module never changes it, and two
+same-shaped abilities with different uuids never unify — the same rules
+`unique(...)` gives every other nominal type.
 
-This is the same trick the language plays for functions, and it is what
-makes abilities portable: compiled bytecode references abilities by hash
-through the constant pool, so a function's content hash commits to the
-exact interface of every ability it performs, and two engines that
-compute the same ability hash agree on what performing it means. Change
-a method name, an argument type, or the ability's name and it is a
-different ability.
+A **method's** identity is a `MethodKey`: the blake3 hash of the ability
+uuid, the method's canonical signature (type variables numbered by first
+occurrence, so `<T>(T) -> U` encodes identically everywhere), and the
+content hash of its **default implementation**. Two things are deliberate
+here:
+
+- The method _name_ is excluded — renaming a method never moves its key.
+- The default implementation is included — two same-signature methods in
+  one ability stay distinct as long as their bodies differ (`Stdio::out`
+  calls `extern fn stdio_out`, `Stdio::err` calls `stdio_err`), and
+  changing a method's behavior re-keys it loudly instead of silently
+  binding old callers to new semantics.
+
+Dispatch keys on `(AbilityId, MethodKey)`: compiled bytecode references
+each performed method through the constant pool (uuid, signature, and
+implementation hash), so a function's content hash commits to the exact
+identity _and behavior_ of every ability method it performs, and a
+handler matches a perform only if both sides derived the same key. That
+is what makes remote execution sound: a function compiled against
+version N of an ability cannot silently dispatch against a handler
+compiled for version N+1.
 
 ## Declaring Abilities
 
-Modules declare abilities with `ability`; the type checker resolves the
-signatures, computes the interface hash, and the declaration behaves
-exactly like a builtin from then on (effect rows, `handle`, handler
-values, generic methods):
+Modules declare abilities with `unique(<uuid>) ability`. Every method
+carries a **default implementation**: the body that runs — as an ordinary
+function call at the perform site — when no handler is in scope. The
+type checker verifies each body against the declared signature, and its
+allowed effects are exactly the ability's declared `with`-dependencies
+(none means the body is pure). A body can therefore never perform its own
+ability, which is also what keeps method identity well-founded: an
+implementation hash never depends on itself.
 
 ```ambient
-ability FileSystem {
-  fn read(path: String): String;
-  fn write(path: String, content: String): ();
-  fn exists(path: String): Bool;
+// Default implementations bottom out in extern fns (the pure host
+// boundary) or plain values.
+extern fn read_file(path: String): String;
+
+unique(A1B2C3D4-0000-0000-0000-000000000001) ability FileSystem {
+  fn read(path: String): String {
+    read_file(path)
+  }
+  fn exists(path: String): Bool {
+    false                        // conservative default
+  }
 }
 
-ability Picker {
-  fn pick<T>(a: T, b: T): T;   // generic methods instantiate per call
+unique(A1B2C3D4-0000-0000-0000-000000000002) ability Picker {
+  fn pick<T>(a: T, b: T): T {    // generic methods instantiate per call
+    a
+  }
 }
 
-// Abilities can depend on other abilities: performing Log also
-// requires Stdio in the effect row.
-ability Log with Stdio {
-  fn info(message: String): ();
+// Abilities can depend on other abilities: the dependency row is what
+// the default bodies may perform, and performing Log also requires
+// Stdio in the caller's effect row.
+unique(A1B2C3D4-0000-0000-0000-000000000003) ability Log with core::system::Stdio {
+  fn info(message: String): () {
+    core::system::Stdio::out!("info: ${message}")
+  }
 }
 ```
 
+Because the default implementation is an ordinary content-addressed
+function, it ships in packs like any code: a perform site depends on its
+methods' implementations, so remote code always carries its fallback
+behavior with it.
+
 The platform abilities (Stdio, FileSystem, Network, ...) are themselves plain
-`ability` declarations — see "The `core::system` module" below. User abilities
-are handled in-language (`with ... handle` expressions or handler values); a performed
-ability with no handler in scope — in-language or host — is a runtime
-error. Abilities import across modules like any other item: `use
+`ability` declarations — see "The `core::system` module" below. Handlers
+override defaults: `with ... handle` expressions and handler values
+intercept a perform before the default implementation runs. Abilities
+import across modules like any other item: `use
 pkg::b::SomeAbility;` (and `use core::system::Network;`) brings the ability into
 scope under its bare name, and every ability is also reachable fully
 qualified with no import (`with pkg::b::SomeAbility`,
@@ -176,11 +211,13 @@ allowed only _directly inline_ in a `with` list, never as a `let`-bound
 handler value.
 
 Handlers in a `with` list install **left-to-right**, so a later handler
-wins over an earlier one for the same method ("last wins"). Above,
-`with mock_fs, { FileSystem::read(path) => resume("intercepted") }`
+wins over an earlier one for the same method ("last wins" is
+_per method_: a handler that does not cover a method is transparent to
+it). Above, `with mock_fs, { FileSystem::read(path) => resume("intercepted") }`
 installs `mock_fs` first and the inline override second, so
 `FileSystem::read` resolves to the override while `write`/`exists` still
-fall through to `mock_fs`.
+fall through to `mock_fs`. A method no handler covers falls all the way
+through to its default implementation.
 
 ## Sandboxing
 
@@ -219,8 +256,8 @@ fully-qualified (`core::system::FileSystem::read!`,
 `with core::system::FileSystem`, `core::system::FileSystem::read(path) => ...`,
 `sandbox with core::system::Log`) with no `use`, and importable by name
 (`use core::system::FileSystem;`) to use bare — exactly like `core::` items.
-Because ability identity is the content-addressed interface hash, a bare
-imported `FileSystem` and a qualified `core::system::FileSystem` share one
+Because ability identity is the declaration uuid, a bare imported
+`FileSystem` and a qualified `core::system::FileSystem` share one
 `AbilityId`, so handlers, effect rows, and linking unify with no special
 casing.
 
@@ -235,28 +272,34 @@ and the general cross-module bridge (`build_import_env`) registers an
 imported ability as a bare dynamic — the same code path any
 `use pkg::b::SomeAbility;` takes.
 
-An embedder still wires the **host binding** half:
+The host binding half is the ordinary `extern fn` mechanism — there is no
+separate ability-handler channel anymore:
 
-1. Parse the declarations and resolve them
-   (`resolve_ability_declarations`) into content-addressed interfaces, and
-   register the `core::system` module in the registry
-   (`register_declaration_module`) so the naming layer resolves it.
-2. Pass the resolved interfaces in `CompileOptions::prelude_abilities` for
-   compilation. Type checking no longer needs an embedder ability resolver:
-   performs resolve against the seeded `core::system` module, the same path
-   user-declared abilities take.
-3. Bind host handlers **by method name** against the resolved
-   interfaces (`AbilityInterface`: identity plus name→method-id map) via
-   `vm.register_host_handler(id, method_id, handler)`.
+1. The platform module's ability method bodies (its default
+   implementations) call module-private `extern fn`s
+   (`stdio_out`, `fs_read`, ...). The module **compiles** like any core
+   module (`build::compile_system_module`), so those bodies are ordinary
+   content-addressed functions that perform sites link against.
+2. The embedder binds each extern fn's implementation in a
+   `NativeRegistry` under a stable uuid (`BuildOptions::natives` at
+   compile time; `Vm::register_natives` at runtime). The uuid — not the
+   name — is the binding's identity, so renames re-key loudly and never
+   move a hash.
+3. An unhandled perform runs the default implementation, whose extern
+   call dispatches to the bound native. A VM without that binding fails
+   the call loudly (`UnboundNative`) — which is exactly how capability
+   granting works for isolated Execute VMs: granting an ability means
+   registering its natives.
 
 `ambient-platform` is one such embedder, packaged as a library: it ships
-`platform.ab` plus native handler sets (std::fs, TCP via tokio, ...) and
-registration functions (`register_defaults`, `register_network`,
-`register_execute`). The engine crate does not depend on it — another
-crate can use the engine the same way with entirely different
-declarations and bindings. Because handlers bind by name at wiring time,
-editing a declaration re-keys everything consistently; there is no
-second copy of the interface to fall out of sync.
+`platform.ab` plus native implementations (std::fs, TCP via tokio, ...)
+exposed as `NativeRegistry` constructors (`stdio_natives`,
+`network_natives`, `execute_natives`, ... plus contract-satisfying
+`stub_natives` for compile-only paths). The engine crate does not depend
+on it — another crate can use the engine the same way with entirely
+different declarations and bindings. Effectful natives stay unreachable
+from user code by ordinary visibility: the extern fns are module-private
+to `core::system`, so its ability bodies are their only callers.
 
 ## Error Handling
 
@@ -268,8 +311,11 @@ E` clause transforms the body's value on _normal_ completion only; arms
 bypass it.
 
 ```ambient
-ability Exception {
-  fn throw(error: String): !;  // ! = never returns normally
+// The one abstract ability method in the language: `throw` returns `!`,
+// and its unhandled behavior is the VM's own uncaught-exception path,
+// which no in-language default implementation could express.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000001) ability Exception {
+  fn throw(error: String): !;
 }
 
 fn parse_int(s: String): Number with Exception {
@@ -291,12 +337,14 @@ carrying the actual thrown value.
 ### Host failures are catchable exceptions
 
 Fallible host operations (file not found, connection refused, ...) do not
-return `Result` values and do not kill the VM: the host handler raises
-`Exception.throw(message)` _at the perform site_. The calling program
-catches it like any in-language throw. Because the Exception handler
-receives the continuation of the failed call, it can even `resume` with a
-substitute value, and the IO caller continues as if the operation had
-succeeded:
+return `Result` values and do not kill the VM: the native implementation
+raises a catchable exception _at the call site_, inside the ability's
+default implementation. The calling program catches it like any
+in-language throw. Because the Exception handler receives the
+continuation of the failed call, it can even `resume` with a substitute
+value, and the IO caller continues as if the operation had succeeded
+(note: this resume-with-substitute behavior is slated for removal in
+favor of plain `Result` returns on fallible APIs):
 
 ```ambient
 fn fetch_or_default(): Number with core::system::Network {

@@ -198,7 +198,7 @@ fn build_core_platform_registry() -> ModuleRegistry {
     let _ = ambient_engine::core_library::register_declaration_module(
         &mut registry,
         &["core", "system"],
-        ambient_platform::ABILITY_DECLARATIONS,
+        ambient_platform::PLATFORM_SOURCE,
         |source| ambient_parser::parse(source).map_err(|e| e.to_string()),
     );
 
@@ -303,7 +303,7 @@ pub fn platform_prelude_resolver() -> AbilityResolver {
         resolver.register_dynamic_in_namespace(&fqn.module, (*ability).clone());
     }
     // The platform bindings, under the `core::system` namespace.
-    if let Ok(mut module) = ambient_parser::parse(ambient_platform::ABILITY_DECLARATIONS) {
+    if let Ok(mut module) = ambient_parser::parse(ambient_platform::PLATFORM_SOURCE) {
         let (abilities, _errors) =
             ambient_engine::infer::resolve_ability_declarations(&mut module, &registry);
         for ability in abilities {

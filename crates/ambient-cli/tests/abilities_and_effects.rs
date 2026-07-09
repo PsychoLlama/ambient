@@ -13,7 +13,7 @@ fn test_user_ability_inline_handler() {
     CliTest::new(
         r#"
         unique(AB000000-0000-0000-0000-000000000001) ability Greeter {
-            fn greet(name: String): String;
+            fn greet(name: String): String { name }
         }
 
         fn hello(): String with Greeter {
@@ -41,8 +41,8 @@ fn test_user_ability_handler_value_and_generic_method() {
     CliTest::new(
         r#"
         unique(AB000000-0000-0000-0000-000000000002) ability Picker {
-            fn pick<T>(a: T, b: T): T;
-            fn label(): String;
+            fn pick<T>(a: T, b: T): T { a }
+            fn label(): String { "" }
         }
 
         fn choose(): Number with Picker {
@@ -63,11 +63,13 @@ fn test_user_ability_handler_value_and_generic_method() {
 }
 
 #[test]
-fn test_user_ability_unhandled_is_runtime_error() {
+fn test_user_ability_unhandled_runs_default_implementation() {
+    // No handler in scope: the perform runs the method's default
+    // implementation — that body is exactly what "unhandled" means now.
     CliTest::new(
         r#"
         unique(AB000000-0000-0000-0000-000000000003) ability Missing {
-            fn gone(): String;
+            fn gone(): String { "the default" }
         }
 
         pub fn run(): String with Missing {
@@ -75,7 +77,27 @@ fn test_user_ability_unhandled_is_runtime_error() {
         }
         "#,
     )
-    .expect_error("unhandled ability");
+    .expect_output("the default");
+}
+
+#[test]
+fn test_same_signature_same_body_methods_are_rejected() {
+    // Method identity is (uuid, signature, implementation) — names are
+    // excluded. Two methods that agree on all three would be one method at
+    // runtime (handler arms silently merge), so the compiler rejects them.
+    CliTest::new(
+        r"
+        unique(AB000000-0000-0000-0000-00000000001A) ability Twins {
+            fn first(): Number { 0 }
+            fn second(): Number { 0 }
+        }
+
+        pub fn run(): Number with Twins {
+            Twins::first!()
+        }
+        ",
+    )
+    .expect_error("identical default implementation");
 }
 
 #[test]
@@ -83,7 +105,7 @@ fn test_user_ability_unknown_method_is_type_error() {
     CliTest::new(
         r#"
         unique(AB000000-0000-0000-0000-000000000004) ability Greeter {
-            fn greet(name: String): String;
+            fn greet(name: String): String { name }
         }
 
         pub fn run(): String with Greeter {
@@ -99,7 +121,7 @@ fn test_user_ability_wrong_arg_type_is_type_error() {
     CliTest::new(
         r#"
         unique(AB000000-0000-0000-0000-000000000005) ability Greeter {
-            fn greet(name: String): String;
+            fn greet(name: String): String { name }
         }
 
         pub fn run(): String with Greeter {
@@ -115,7 +137,7 @@ fn test_user_ability_unknown_dependency_is_error() {
     CliTest::new(
         r"
         unique(AB000000-0000-0000-0000-000000000006) ability Loud with NoSuchAbility {
-            fn shout(msg: String): ();
+            fn shout(msg: String): () { () }
         }
 
         pub fn run(): Number {
@@ -133,7 +155,7 @@ fn test_suspend_form_is_removed() {
     CliTest::new(
         r#"
         unique(AB000000-0000-0000-0000-000000000007) ability Greeter {
-            fn greet(name: String): String;
+            fn greet(name: String): String { name }
         }
 
         pub fn run(): Number {
@@ -173,8 +195,9 @@ fn test_execute_run_with_granted_ability() {
 
 #[test]
 fn test_execute_run_ungranted_ability_is_unhandled() {
-    // Network is NOT granted to executed code: performing it inside an
-    // isolated VM is an unhandled-ability error, not a silent escape.
+    // Network is NOT granted to executed code: its default implementation
+    // runs in the isolated VM, but the extern it calls is bound to a stub
+    // that raises "not wired" — a loud failure, not a silent escape.
     CliTest::new(
         r#"
         fn phone_home(x: Number): Number with core::system::Network {
@@ -189,7 +212,7 @@ fn test_execute_run_ungranted_ability_is_unhandled() {
         }
         "#,
     )
-    .expect_error("unhandled ability");
+    .expect_error("not wired");
 }
 
 #[test]
@@ -202,7 +225,7 @@ fn test_execute_run_with_shipped_handler() {
     CliTest::new(
         r"
         unique(AB000000-0000-0000-0000-000000000008) ability Oracle {
-            fn answer(): Number;
+            fn answer(): Number { 0 }
         }
 
         fn consult(x: Number): Number with Oracle {
@@ -227,7 +250,7 @@ fn test_handler_methods_intrinsic() {
     CliTest::new(
         r"
         unique(AB000000-0000-0000-0000-000000000009) ability Oracle {
-            fn answer(): Number;
+            fn answer(): Number { 0 }
         }
 
         pub fn run(): Number {
@@ -274,7 +297,7 @@ fn test_resume_restores_locals() {
     CliTest::new(
         r#"
         unique(AB000000-0000-0000-0000-00000000000A) ability Oracle {
-            fn ask(q: String): Number;
+            fn ask(q: String): Number { 0 }
         }
 
         fn asker(): Number with Oracle {
@@ -301,7 +324,7 @@ fn test_handle_multi_perform_with_capturing_arm() {
     CliTest::new(
         r"
         unique(AB000000-0000-0000-0000-00000000000B) ability Counter {
-            fn next(): Number;
+            fn next(): Number { 0 }
         }
 
         fn count_three(): Number with Counter {
@@ -346,7 +369,7 @@ fn test_exception_unwinds_through_inner_handle() {
     CliTest::new(
         r#"
         unique(AB000000-0000-0000-0000-00000000000C) ability Ping {
-            fn ping(): Number;
+            fn ping(): Number { 0 }
         }
 
         fn inner(): Number with Ping, Exception {
@@ -568,9 +591,9 @@ fn test_core_time_duration() {
 
 #[test]
 fn test_execute_run_fs_is_not_granted() {
-    // FileSystem is NOT granted to executed code: only Stdio/Log are. A shipped
-    // function that touches the filesystem is an unhandled-ability error,
-    // not a silent escape.
+    // FileSystem is NOT granted to executed code: only Stdio (and Log
+    // through it) is. A shipped function that touches the filesystem hits
+    // the ungranted stub and fails loudly, not a silent escape.
     CliTest::new(
         r#"
         fn sneaky(x: Number): Number with core::system::FileSystem {
@@ -585,5 +608,5 @@ fn test_execute_run_fs_is_not_granted() {
         }
         "#,
     )
-    .expect_error("unhandled ability");
+    .expect_error("not wired");
 }

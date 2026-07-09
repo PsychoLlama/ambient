@@ -8,14 +8,61 @@ use std::sync::Arc;
 
 use crate::ast::{Expr, HandlerLiteralMethod, Lambda};
 use crate::bytecode::{CompiledFunction, Opcode};
+use crate::fqn::NameKey;
 use crate::types::AbilityId;
+use crate::value::AbilityMethodRef;
 
+use super::context::CompiledAbilityInfo;
 use super::error::{CompileError, CompileErrorKind};
 use super::{FunctionCompiler, ModuleContext, compile_expr};
 
-/// A handler's method table (`method_id` → compiled-function hash) paired
+/// A handler's method table (method reference → arm-function hash) paired
 /// with the ordered captures its installer must push before `MakeHandler`.
-type HandlerMethods = (Vec<(u16, blake3::Hash)>, Vec<(Arc<str>, u16)>);
+type HandlerMethods = (Vec<(AbilityMethodRef, blake3::Hash)>, Vec<(Arc<str>, u16)>);
+
+/// Build the constant-pool reference for one ability method: the identity
+/// inputs from the checker plus the default implementation's hash, looked
+/// up under the method's dispatch symbol (`<uuid>::<method>`). Local
+/// implementations resolve to their temporary hash (finalization rewrites
+/// it); foreign ones arrive final through the linking table.
+fn resolve_method_ref(
+    function_hashes: &std::collections::HashMap<NameKey, blake3::Hash>,
+    info: &CompiledAbilityInfo,
+    method_name: &str,
+    span: (u32, u32),
+) -> Result<AbilityMethodRef, CompileError> {
+    let method = info.method(method_name).ok_or_else(|| {
+        CompileError::new(
+            CompileErrorKind::Unsupported {
+                feature: format!("unknown method `{method_name}` for ability id {}", info.id),
+            },
+            span,
+        )
+    })?;
+    let impl_fn = if method.has_impl {
+        let symbol = info.impl_symbol(method_name);
+        let hash = function_hashes
+            .get(&NameKey::Bare(Arc::clone(&symbol)))
+            .copied()
+            .ok_or_else(|| {
+                CompileError::new(
+                    CompileErrorKind::Internal {
+                        message: "ability method implementation not in the linking table",
+                    },
+                    span,
+                )
+            })?;
+        Some(hash)
+    } else {
+        None
+    };
+    Ok(AbilityMethodRef {
+        ability_id: info.id,
+        ability_uuid: info.uuid,
+        signature: method.signature,
+        impl_fn,
+    })
+}
 
 /// Compile a lambda expression.
 ///
@@ -283,28 +330,28 @@ pub(super) fn compile_ability_call(
         compile_expr(fc, arg, ctx)?;
     }
 
-    // Get ability and method IDs. Every ability — locals, foreign, and
+    // Resolve the method reference. Every ability — locals, foreign, and
     // prelude (including `Exception`) — resolves through the context; the
-    // identities come from the type checker.
+    // identities come from the type checker, the implementation hash from
+    // the same name→hash table calls link through.
     let ability_name = &ability_call.ability.name;
     let method_name = &ability_call.method;
+    let span = (ability_call.span.start, ability_call.span.end);
 
-    let (ability_id, method_id) = ctx
-        .resolve_ability(&ability_call.ability)
-        .and_then(|info| info.method_id(method_name).map(|m| (info.id, m)))
-        .ok_or_else(|| {
-            CompileError::new(
-                CompileErrorKind::UnknownAbilityMethod {
-                    ability: Arc::clone(ability_name),
-                    method: Arc::clone(method_name),
-                },
-                (ability_call.span.start, ability_call.span.end),
-            )
-        })?;
+    let info = ctx.resolve_ability(&ability_call.ability).ok_or_else(|| {
+        CompileError::new(
+            CompileErrorKind::UnknownAbilityMethod {
+                ability: Arc::clone(ability_name),
+                method: Arc::clone(method_name),
+            },
+            span,
+        )
+    })?;
+    let method_ref = resolve_method_ref(&fc.function_hashes, info, method_name, span)?;
 
     // Emit suspend instruction (packages the args), then perform.
     fc.builder
-        .emit_suspend(ability_id, method_id, ability_call.args.len() as u8);
+        .emit_suspend(method_ref, ability_call.args.len() as u8);
     fc.builder.emit(Opcode::Perform);
 
     Ok(())
@@ -389,12 +436,9 @@ fn compile_handler_methods(
     span: (u32, u32),
     ctx: &mut ModuleContext,
 ) -> Result<HandlerMethods, CompileError> {
-    let dynamic = ctx
+    let info = ctx
         .ability_by_id(ability_id)
-        .map(|(name, info)| (Arc::clone(name), info.clone()));
-    let ability_name = dynamic
-        .as_ref()
-        .map(|(name, _)| name.to_string())
+        .map(|(name, info)| (Arc::clone(name), info.clone()))
         .ok_or_else(|| {
             CompileError::new(
                 CompileErrorKind::Unsupported {
@@ -403,29 +447,30 @@ fn compile_handler_methods(
                 span,
             )
         })?;
+    let (ability_name, info) = info;
 
-    let mut method_hashes: Vec<(u16, blake3::Hash)> = Vec::new();
+    let mut method_hashes: Vec<(AbilityMethodRef, blake3::Hash)> = Vec::new();
     let mut shared_captures: HashMap<Arc<str>, u16> = HashMap::new();
 
     for method in methods {
-        let method_id = dynamic
-            .as_ref()
-            .and_then(|(_, info)| info.method_id(&method.method))
-            .ok_or_else(|| {
-                CompileError::new(
-                    CompileErrorKind::Unsupported {
-                        feature: format!(
-                            "unknown method `{}` for ability `{}`",
-                            method.method, ability_name
-                        ),
-                    },
-                    (method.span.start, method.span.end),
-                )
-            })?;
+        let arm_span = (method.span.start, method.span.end);
+        let method_ref = resolve_method_ref(&fc.function_hashes, &info, &method.method, arm_span)
+            .map_err(|e| match e.kind {
+            CompileErrorKind::Unsupported { .. } => CompileError::new(
+                CompileErrorKind::Unsupported {
+                    feature: format!(
+                        "unknown method `{}` for ability `{}`",
+                        method.method, ability_name
+                    ),
+                },
+                arm_span,
+            ),
+            _ => e,
+        })?;
 
         let (func, captures) = compile_handler_method(fc, method, &shared_captures, ctx)?;
         let final_hash = ctx.register_lambda(func);
-        method_hashes.push((method_id, final_hash));
+        method_hashes.push((method_ref, final_hash));
         // The arm was seeded with `shared_captures` and only appends, so
         // its map is the grown superset — adopt it for the next arm.
         shared_captures = captures;

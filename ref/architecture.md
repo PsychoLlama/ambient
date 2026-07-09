@@ -128,16 +128,23 @@ dispatch, coherence, and content-addressing survive live upgrade.
 
 ## Abilities
 
-Abilities are the mechanism for controlled side effects, identified by the
-blake3 hash of their canonical interface. Functions declare the abilities
-they perform with a `with` clause; `with ... handle` installs handlers using
-single-shot delimited continuations. The platform abilities (Stdio,
-FileSystem, Network, ...) are ordinary in-language declarations under
-`core::system`, bound to host handlers by the embedder.
+Abilities are the mechanism for controlled side effects. They are
+**nominal**, like enums and structs: a mandatory `unique(<uuid>)` prefix is
+the ability's identity, so renaming or moving a declaration never changes
+it and two same-shaped abilities never collide. Each method carries a
+mandatory **default implementation** — the body an unhandled perform runs —
+and the method's identity is a content hash of the ability uuid, the
+canonical signature, and that implementation (never the method's name).
+Functions declare the abilities they perform with a `with` clause;
+`with ... handle` installs handlers using single-shot delimited
+continuations. The platform abilities (Stdio, FileSystem, Network, ...) are
+ordinary in-language declarations under `core::system` whose default
+implementations call the platform's `extern fn`s.
 
 See **[abilities.md](abilities.md)** for ability identity, declaring and
-performing abilities, ability polymorphism, handlers as values, sandboxing,
-the `core::system` host-binding split, and error handling.
+performing abilities, default implementations, ability polymorphism,
+handlers as values, sandboxing, the `core::system` host-binding split, and
+error handling.
 
 ## Concurrency
 
@@ -247,10 +254,11 @@ Stack-based VM with:
 A function's hash is the blake3 of its **canonical object encoding**
 (`crates/ambient-engine/src/object.rs`). The encoding covers the bytecode,
 the constant pool (with call sites resolved to the final hashes of their
-callees, and abilities resolved to their interface hashes), arity/locals
+callees, and each perform site's ability-method reference — the ability
+uuid, canonical signature, and default-implementation hash), arity/locals
 metadata, and the dependency list — so the hash pins the implementation,
-every transitive dependency, _and_ the exact interface of every ability
-the function performs. One encoding serves as
+every transitive dependency, _and_ the exact identity and behavior of
+every ability method the function performs. One encoding serves as
 the unit of hashing, storage, and network transfer, which makes every object
 self-verifying: re-hash the bytes and compare.
 

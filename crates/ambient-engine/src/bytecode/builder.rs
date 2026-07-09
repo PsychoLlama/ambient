@@ -160,14 +160,21 @@ impl BytecodeBuilder {
 
     /// Emit a Suspend instruction to create a suspended ability value.
     ///
-    /// The ability's content hash goes through the constant pool; the
-    /// operand is the pool index, keeping the instruction compact while the
-    /// compiled bytes still commit to the full ability identity.
-    pub fn emit_suspend(&mut self, ability_id: AbilityId, method_id: u16, arg_count: u8) {
-        let idx = self.add_constant(Value::AbilityRef(ability_id));
+    /// The method reference goes through the constant pool; the operand is
+    /// the pool index, keeping the instruction compact while the compiled
+    /// bytes still commit to the full method identity — ability uuid,
+    /// canonical signature, and default implementation. The implementation
+    /// is tracked as a dependency so an unhandled perform can always load
+    /// it (and packs ship it).
+    pub fn emit_suspend(&mut self, method: crate::value::AbilityMethodRef, arg_count: u8) {
+        if let Some(impl_fn) = method.impl_fn
+            && !self.dependencies.contains(&impl_fn)
+        {
+            self.dependencies.push(impl_fn);
+        }
+        let idx = self.add_constant(Value::AbilityMethodRef(std::sync::Arc::new(method)));
         self.code.push(Opcode::Suspend as u8);
         self.code.extend_from_slice(&idx.to_le_bytes());
-        self.code.extend_from_slice(&method_id.to_le_bytes());
         self.code.push(arg_count);
     }
 
@@ -196,15 +203,17 @@ impl BytecodeBuilder {
 
     /// Emit a `MakeHandler` instruction.
     ///
-    /// Creates a handler value from method implementations.
-    /// Methods is a list of (`method_id`, `function_hash`) pairs.
+    /// Creates a handler value from method implementations. Each arm names
+    /// its method through an ability-method constant (the runtime keys the
+    /// handler table by the derived `MethodKey`) and its implementation
+    /// through a function constant.
     pub fn emit_make_handler(
         &mut self,
         ability_id: AbilityId,
-        methods: &[(u16, blake3::Hash)],
+        methods: &[(crate::value::AbilityMethodRef, blake3::Hash)],
         capture_count: u8,
     ) {
-        // Track method functions as dependencies
+        // Track arm functions as dependencies
         for (_, func_hash) in methods {
             if !self.dependencies.contains(func_hash) {
                 self.dependencies.push(*func_hash);
@@ -218,9 +227,11 @@ impl BytecodeBuilder {
         self.code.push(capture_count);
 
         // Emit method mappings
-        for (method_id, func_hash) in methods {
+        for (method, func_hash) in methods {
+            let method_idx =
+                self.add_constant(Value::AbilityMethodRef(std::sync::Arc::new(method.clone())));
             let idx = self.add_constant(Value::FunctionRef(*func_hash));
-            self.code.extend_from_slice(&method_id.to_le_bytes());
+            self.code.extend_from_slice(&method_idx.to_le_bytes());
             self.code.extend_from_slice(&idx.to_le_bytes());
         }
     }

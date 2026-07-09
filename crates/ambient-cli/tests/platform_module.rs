@@ -24,7 +24,7 @@ fn base_registry() -> ModuleRegistry {
     ambient_engine::core_library::register_declaration_module(
         &mut registry,
         &["core", "system"],
-        ambient_platform::ABILITY_DECLARATIONS,
+        ambient_platform::PLATFORM_SOURCE,
         |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
     )
     .expect("platform module registers");
@@ -76,7 +76,10 @@ fn cross_module_user_ability_import() {
     // The general bridge: a user package ability imported by name from a
     // sibling module works bare, exactly like `platform`.
     let mut registry = base_registry();
-    let b = ambient_parser::parse("pub unique(AB000000-0000-0000-0000-000000000014) ability Greet { fn hello(): (); }").expect("b parses");
+    let b = ambient_parser::parse(
+        "pub unique(AB000000-0000-0000-0000-000000000014) ability Greet { fn hello(): () { () } }",
+    )
+    .expect("b parses");
     let b_path = ModulePath::from_str_segments(&["b"]).unwrap();
     registry.register(&b_path, Arc::new(b));
 
@@ -124,7 +127,7 @@ fn local_ability_shadows_imported_platform() {
     // qualified. Both spellings type-check.
     let errors = check_errors(
         "use core::system::Stdio;\n\
-         unique(AB000000-0000-0000-0000-000000000015) ability Stdio { fn out(msg: String): (); }\n\
+         unique(AB000000-0000-0000-0000-000000000015) ability Stdio { fn out(msg: String): () { () } }\n\
          fn local(): () with Stdio { Stdio::out!(\"hi\") }\n\
          fn plat(): () with core::system::Stdio { core::system::Stdio::out!(\"hi\") }",
     );

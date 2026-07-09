@@ -7,24 +7,24 @@
 //! thin drivers over [`RuntimeHost::deploy`]: `run` deploys once and
 //! waits for the process tree to finish; `dev` deploys again on every
 //! code change.
+//!
+//! Wiring is native registration, uuid-keyed: stubs first (every platform
+//! extern answers with a catchable "not wired" exception), then the real
+//! implementation sets, which overwrite the stubs they cover. Process
+//! natives are installed per process VM by the [`ProcessRuntime`] itself.
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 
 use ambient_engine::compiler::CompiledModule;
+use ambient_engine::natives::NativeRegistry;
 use ambient_engine::store::Store;
 use ambient_engine::vm::Vm;
 use ambient_platform::process::{
     DeployOutcome, EventSink, ProcessRuntime, ProcessRuntimeConfig, functions_from_module,
 };
-use ambient_platform::{
-    ExecuteConfig, LogConfig, NetworkState, StdioConfig, StdioSink, register_env, register_execute,
-    register_fs, register_log, register_network_shared, register_random, register_stdio,
-    register_time,
-};
-
-use super::{platform_prelude, prelude_interface};
+use ambient_platform::{ExecuteConfig, NetworkState, StdioConfig, StdioSink};
 
 /// Long-lived platform state plus the process runtime.
 pub struct RuntimeHost {
@@ -36,70 +36,65 @@ pub struct RuntimeHost {
 }
 
 impl RuntimeHost {
-    /// Build the host: resolve the platform prelude, share one network
-    /// table and one store across every future VM, and start an (empty)
-    /// process runtime.
+    /// Build the host: share one network table and one store across every
+    /// future VM, and start an (empty) process runtime.
     ///
     /// `program_args` become `core::system::Env::args!()` for every VM
     /// this host builds (`ambient run` composes the program path plus the
     /// trailing args; `ambient dev` passes an empty vec — program args
     /// have no coherent meaning across reconciliation re-deploys).
     pub fn new(events: EventSink, program_args: Vec<String>) -> Result<Self> {
-        let tokio = tokio::runtime::Runtime::new().context("failed to create async runtime")?;
-        let prelude = platform_prelude()?;
-
-        let stdio = prelude_interface(&prelude, "Stdio")?;
-        let time = prelude_interface(&prelude, "Time")?;
-        let random = prelude_interface(&prelude, "Random")?;
-        let log = prelude_interface(&prelude, "Log")?;
-        let fs = prelude_interface(&prelude, "FileSystem")?;
-        let network = prelude_interface(&prelude, "Network")?;
-        let execute = prelude_interface(&prelude, "Execute")?;
-        let process = prelude_interface(&prelude, "Process")?;
-        let env = prelude_interface(&prelude, "Env")?;
+        let tokio = tokio::runtime::Runtime::new()
+            .map_err(|e| anyhow::anyhow!("failed to create async runtime: {e}"))?;
 
         let network_state = Arc::new(NetworkState::new(tokio.handle().clone()));
         let store = Arc::new(std::sync::Mutex::new(Store::new()));
         let argv = Arc::new(program_args);
 
-        // Log shares Stdio's output sink, so both stream to the same
-        // stdout for every VM this host builds.
+        // Log's default implementations perform Stdio, so both stream to
+        // the same stdout for every VM this host builds.
         let sink = StdioSink::default();
 
-        // Every process VM gets the full platform set. Executed-by-hash
-        // code (Execute ability) stays restricted to Stdio + Log, as
-        // before.
+        // Host policy for executed-by-hash code (Execute ability): shipped
+        // code may print (Stdio, and Log through it) but gets no
+        // FileSystem, Network, Time, Random, or recursive Execute — their
+        // performs run the default implementations, whose extern calls
+        // land on the stubs and raise catchable "not wired" exceptions.
         let exec_grants = {
-            let stdio = stdio.clone();
-            let log = log.clone();
             let sink = sink.clone();
             Arc::new(move |exec_vm: &mut Vm| {
-                register_stdio(exec_vm, &stdio, sink.clone(), StdioConfig::default());
-                register_log(exec_vm, &log, LogConfig::default(), sink.clone());
+                exec_vm.register_natives(&ambient_platform::stub_natives());
+                exec_vm.register_natives(&ambient_platform::stdio_natives(
+                    sink.clone(),
+                    StdioConfig::default(),
+                ));
             })
         };
 
-        let factory_store = Arc::clone(&store);
+        // One registry set, built once; each VM registration is
+        // uuid-keyed, so the real sets overwrite the stubs they cover.
+        let mut sets: Vec<NativeRegistry> = vec![
+            ambient_platform::stub_natives(),
+            ambient_platform::stdio_natives(sink, StdioConfig::default()),
+            ambient_platform::time_natives(),
+            ambient_platform::random_natives(),
+            ambient_platform::fs_natives(),
+            ambient_platform::env_natives(Arc::clone(&argv)),
+            ambient_platform::network_natives(Arc::clone(&network_state)),
+        ];
+        sets.push(ambient_platform::execute_natives(ExecuteConfig {
+            store: Arc::clone(&store),
+            grants: Some(exec_grants as _),
+        }));
+        let sets = Arc::new(sets);
+
         let factory = {
-            let network_state = Arc::clone(&network_state);
-            let argv = Arc::clone(&argv);
+            let sets = Arc::clone(&sets);
             Arc::new(move || {
                 let mut vm = Vm::new();
-                register_stdio(&mut vm, &stdio, sink.clone(), StdioConfig::default());
-                register_time(&mut vm, &time);
-                register_random(&mut vm, &random);
-                register_log(&mut vm, &log, LogConfig::default(), sink.clone());
-                register_fs(&mut vm, &fs);
-                register_env(&mut vm, &env, Arc::clone(&argv));
-                register_network_shared(&mut vm, &network, Arc::clone(&network_state));
-                register_execute(
-                    &mut vm,
-                    &execute,
-                    ExecuteConfig {
-                        store: Arc::clone(&factory_store),
-                        grants: Some(Arc::clone(&exec_grants) as _),
-                    },
-                );
+                for set in sets.iter() {
+                    vm.register_natives(set);
+                }
                 vm
             })
         };
@@ -107,7 +102,6 @@ impl RuntimeHost {
         let runtime = ProcessRuntime::new(
             ProcessRuntimeConfig {
                 vm_factory: factory,
-                interface: process,
                 events,
             },
             Arc::new(ambient_platform::process::Generation::default()),
@@ -125,9 +119,9 @@ impl RuntimeHost {
     pub fn deploy(&self, compiled: &CompiledModule, entry: &str) -> Result<DeployOutcome> {
         // Function names in the merged build carry their full canonical
         // qualifier (`workspace::<pkg>::main::run`). Resolve `entry` in order:
-        // an exact key; else any key ending in `::{entry}`, which lets a
-        // friendly bare form (`run`) or a partially-qualified one
-        // (`repl::__repl_entry_1`) name a fully-qualified function; else, for
+        // an exact key; else any *module-path* key ending in `::{entry}` —
+        // uuid-rooted dispatch symbols (`<uuid>::run`, e.g. Execute's own
+        // method impl) are never entry points and are skipped; else, for
         // the default entry, the structurally-captured entry point.
         let suffix = format!("::{entry}");
         let entry_hash = compiled
@@ -137,7 +131,7 @@ impl RuntimeHost {
                 compiled
                     .function_names
                     .iter()
-                    .find(|(name, _)| name.ends_with(&suffix))
+                    .find(|(name, _)| name.ends_with(&suffix) && !is_dispatch_symbol(name))
                     .map(|(_, hash)| hash)
             })
             .or_else(|| {
@@ -164,4 +158,13 @@ impl RuntimeHost {
     pub fn runtime(&self) -> &Arc<ProcessRuntime> {
         &self.runtime
     }
+}
+
+/// Whether a store name is a content dispatch symbol (`<uuid>::method` for
+/// ability default implementations and nominal-type methods) rather than a
+/// module-qualified function name.
+fn is_dispatch_symbol(name: &str) -> bool {
+    name.split("::")
+        .next()
+        .is_some_and(|head| uuid::Uuid::parse_str(head).is_ok())
 }

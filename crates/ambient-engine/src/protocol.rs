@@ -46,7 +46,7 @@ enum SerializableValue {
     AbilityRef(String),
     Handler {
         ability: String,
-        methods: Vec<(u16, String)>,
+        methods: Vec<(String, String)>,
         captures: Vec<SerializableValue>,
     },
 }
@@ -100,12 +100,12 @@ impl SerializableValue {
             Value::FunctionRef(hash) => SerializableValue::FunctionRef(hash.to_string()),
             Value::AbilityRef(id) => SerializableValue::AbilityRef(id.to_hex()),
             Value::Handler(h) => {
-                let mut methods: Vec<(u16, String)> = h
+                let mut methods: Vec<(String, String)> = h
                     .methods
                     .iter()
-                    .map(|(id, hash)| (*id, hash.to_hex().to_string()))
+                    .map(|(key, hash)| (key.to_hex(), hash.to_hex().to_string()))
                     .collect();
-                methods.sort_by_key(|(id, _)| *id);
+                methods.sort();
                 SerializableValue::Handler {
                     ability: h.ability_id.to_hex(),
                     methods,
@@ -117,6 +117,7 @@ impl SerializableValue {
                 }
             }
             Value::ObjectRef(_) => return Err("object reference"),
+            Value::AbilityMethodRef(_) => return Err("ability method reference"),
             Value::Closure(_) => return Err("closure"),
             Value::SuspendedAbility(_) => return Err("suspended ability"),
             Value::Continuation(_) => return Err("continuation"),
@@ -181,8 +182,9 @@ impl From<SerializableValue> for Value {
                     .unwrap_or_else(|| ambient_core::AbilityId::from_bytes([0u8; 32]));
                 let methods = methods
                     .into_iter()
-                    .filter_map(|(id, hex)| {
-                        blake3::Hash::from_hex(&hex).ok().map(|hash| (id, hash))
+                    .filter_map(|(key_hex, hex)| {
+                        let key = method_key_from_hex(&key_hex)?;
+                        blake3::Hash::from_hex(&hex).ok().map(|hash| (key, hash))
                     })
                     .collect();
                 let captures = captures.into_iter().map(Value::from).collect();
@@ -192,6 +194,23 @@ impl From<SerializableValue> for Value {
             }
         }
     }
+}
+
+/// Parse a 64-character hex method key.
+fn method_key_from_hex(hex: &str) -> Option<ambient_core::MethodKey> {
+    if hex.len() != 64 {
+        return None;
+    }
+    let mut bytes = [0u8; 32];
+    for (i, chunk) in hex.as_bytes().chunks_exact(2).enumerate() {
+        let hi = (chunk[0] as char).to_digit(16)?;
+        let lo = (chunk[1] as char).to_digit(16)?;
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            bytes[i] = ((hi << 4) | lo) as u8;
+        }
+    }
+    Some(ambient_core::MethodKey::from_bytes(bytes))
 }
 
 /// Serialize a Value to bytes using bincode.

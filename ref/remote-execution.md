@@ -29,9 +29,12 @@ two ways:
 - **Shipped handlers** (`Execute.run_with(hash, arg, handler)`): a
   first-class handler value travels with the call — its methods are
   content-addressed functions, shipped in packs like any code — and is
-  installed at the base of the isolated VM. Ability hashes make this
-  sound: handler and perform match only if both sides computed the same
-  interface hash. `core::protocol::handler_methods(h)` exposes a handler's
+  installed at the base of the isolated VM. Method keys make this sound:
+  handler and perform match only if both sides derived the same key, which
+  means the same ability uuid, the same canonical signature, and the same
+  default implementation — a function compiled against version N of an
+  ability can never silently dispatch against a handler compiled for
+  version N+1. `core::protocol::handler_methods(h)` exposes a handler's
   method hashes so clients can ship its code.
 
 Values cross via `core::protocol::serialize_value`/`deserialize_value`

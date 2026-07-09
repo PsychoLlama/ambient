@@ -60,6 +60,15 @@ impl Resolver<'_> {
                         }
                     }
                     self.resolve_type(&mut method.ret_ty);
+                    // The default implementation is an ordinary body: its
+                    // references canonicalize exactly like a function's.
+                    if let Some(body) = &mut method.body {
+                        self.push_scope(
+                            method.params.iter().map(|p| Arc::clone(&p.name)).collect(),
+                        );
+                        self.resolve_expr(body);
+                        self.pop_scope();
+                    }
                     self.pop_type_params();
                 }
             }

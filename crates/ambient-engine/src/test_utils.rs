@@ -31,8 +31,26 @@ use std::sync::Arc;
 
 use crate::bytecode::{BytecodeBuilder, CompiledFunction, Opcode};
 use crate::types::AbilityId;
-use crate::value::{SuspendedAbility, Value};
-use crate::vm::{HostHandler, Vm, VmError};
+use crate::value::{AbilityMethodRef, SuspendedAbility, Value};
+use crate::vm::{Vm, VmError};
+
+/// A synthetic ability-method reference for VM tests: recognizable
+/// identity bytes, no relation to any real declaration. `impl_fn` is the
+/// default implementation an unhandled perform calls (load it as an aux
+/// function), or `None` for an abstract method.
+#[must_use]
+pub fn test_method_ref(
+    ability_byte: u8,
+    method_byte: u8,
+    impl_fn: Option<blake3::Hash>,
+) -> AbilityMethodRef {
+    AbilityMethodRef {
+        ability_id: AbilityId::from_bytes([ability_byte; 32]),
+        ability_uuid: uuid::Uuid::from_u128(u128::from(ability_byte)),
+        signature: ambient_core::SignatureHash::from_bytes([method_byte; 32]),
+        impl_fn,
+    }
+}
 
 /// A fluent test builder for VM tests.
 ///
@@ -43,7 +61,6 @@ pub struct VmTest {
     locals: u16,
     params: u8,
     aux_functions: Vec<CompiledFunction>,
-    host_handlers: Vec<(AbilityId, u16, HostHandler)>,
     call_args: Vec<Value>,
     predetermined_hash: Option<blake3::Hash>,
 }
@@ -63,7 +80,6 @@ impl VmTest {
             locals: 0,
             params: 0,
             aux_functions: Vec::new(),
-            host_handlers: Vec::new(),
             call_args: Vec::new(),
             predetermined_hash: None,
         }
@@ -357,8 +373,8 @@ impl VmTest {
 
     /// Create a suspended ability value.
     #[must_use]
-    pub fn suspend(mut self, ability_id: AbilityId, method_id: u16, arg_count: u8) -> Self {
-        self.builder.emit_suspend(ability_id, method_id, arg_count);
+    pub fn suspend(mut self, method: &AbilityMethodRef, arg_count: u8) -> Self {
+        self.builder.emit_suspend(method.clone(), arg_count);
         self
     }
 
@@ -373,17 +389,6 @@ impl VmTest {
     // Handlers
     // =========================================================================
 
-    /// Register a host handler.
-    #[must_use]
-    pub fn with_host_handler<F>(mut self, ability_id: AbilityId, method_id: u16, handler: F) -> Self
-    where
-        F: Fn(&SuspendedAbility) -> Result<Value, VmError> + Send + Sync + 'static,
-    {
-        self.host_handlers
-            .push((ability_id, method_id, Box::new(handler)));
-        self
-    }
-
     /// Install a bytecode handler for one method of an ability.
     ///
     /// The arm function is packaged into a capture-free single-method
@@ -391,14 +396,9 @@ impl VmTest {
     /// handler-install path. The current frame becomes the delimitation
     /// boundary.
     #[must_use]
-    pub fn handle(
-        mut self,
-        ability_id: AbilityId,
-        method_id: u16,
-        handler_hash: blake3::Hash,
-    ) -> Self {
+    pub fn handle(mut self, method: &AbilityMethodRef, handler_hash: blake3::Hash) -> Self {
         self.builder
-            .emit_make_handler(ability_id, &[(method_id, handler_hash)], 0);
+            .emit_make_handler(method.ability_id, &[(method.clone(), handler_hash)], 0);
         self.builder.emit_handle_with_value();
         self
     }
@@ -449,11 +449,6 @@ impl VmTest {
             vm.load_function(aux);
         }
         vm.load_function(func);
-
-        // Register host handlers
-        for (ability_id, method_id, handler) in self.host_handlers {
-            vm.register_host_handler(ability_id, method_id, handler);
-        }
 
         // Call and return result
         vm.call(&main_hash, self.call_args)
@@ -712,8 +707,8 @@ impl FunctionBuilder {
 
     /// Create a suspended ability.
     #[must_use]
-    pub fn suspend(mut self, ability_id: AbilityId, method_id: u16, arg_count: u8) -> Self {
-        self.builder.emit_suspend(ability_id, method_id, arg_count);
+    pub fn suspend(mut self, method: &AbilityMethodRef, arg_count: u8) -> Self {
+        self.builder.emit_suspend(method.clone(), arg_count);
         self
     }
 

@@ -24,7 +24,6 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 
-use ambient_engine::ability_resolver::{AbilityInterface, DynAbility};
 use ambient_engine::ast::Module;
 use ambient_engine::build::ParseFailure;
 use ambient_engine::compiler::CompiledModule;
@@ -47,44 +46,8 @@ pub fn parse_source(source: &str) -> Result<Module, ParseFailure> {
     })
 }
 
-/// The `platform` ability prelude: the bindings interface shipped by
-/// `ambient-platform`, resolved to content-addressed identities.
-///
-/// Resolution is cheap (one small declaration module), and the resolved
-/// types are `Rc`-based, so this is recomputed rather than cached in a
-/// static.
-pub fn platform_prelude() -> Result<Vec<Arc<DynAbility>>> {
-    // A parse-only core registry supplies the prelude, so ability resolution
-    // can seed the primitive nominals (`String`/`Number`/...) its signatures
-    // hash against. Parsing the small core sources is cheap — nothing is
-    // compiled — and keeps ability ids byte-stable through the module system.
-    let mut registry = ModuleRegistry::new();
-    ambient_engine::core_library::register_core_modules(&mut registry, |s| {
-        ambient_parser::parse(s).map_err(|e| e.to_string())
-    })
-    .map_err(|(module, e)| anyhow::anyhow!("core module `{module}` failed to parse: {e}"))?;
-
-    let mut module = ambient_parser::parse(ambient_platform::ABILITY_DECLARATIONS)
-        .map_err(|e| anyhow::anyhow!("platform bindings interface failed to parse: {e}"))?;
-    let (abilities, errors) =
-        ambient_engine::infer::resolve_ability_declarations(&mut module, &registry);
-    if let Some(error) = errors.first() {
-        bail!("platform bindings interface failed to resolve: {error}");
-    }
-    Ok(abilities)
-}
-
-/// The named ability's interface from the resolved platform prelude.
-pub fn prelude_interface(prelude: &[Arc<DynAbility>], name: &str) -> Result<AbilityInterface> {
-    prelude
-        .iter()
-        .find(|ability| ability.name.as_ref() == name)
-        .map(|ability| AbilityInterface::from(&**ability))
-        .ok_or_else(|| anyhow::anyhow!("platform prelude is missing the `{name}` ability"))
-}
-
 /// Core library context for single-file compilation: a registry with the
-/// core modules registered, their compiled functions, and the
+/// core and `core::system` modules registered and compiled, and the
 /// fully-qualified name→hash table user code links against.
 pub struct CoreContext {
     pub registry: ModuleRegistry,
@@ -97,23 +60,29 @@ pub struct CoreContext {
 pub fn core_context() -> Result<CoreContext> {
     let mut registry = ModuleRegistry::new();
     let mut module_function_hashes = HashMap::new();
-    let compiled = ambient_engine::build::compile_core_modules(
+    let mut compiled = ambient_engine::build::compile_core_modules(
         &mut registry,
         &mut module_function_hashes,
         |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
     )
     .map_err(|e| anyhow::anyhow!("core library failed to build: {e}"))?;
 
-    // Register the `core::system` declaration module so
-    // `core::system::Network` resolves fully-qualified and
-    // `use core::system::Network;` imports it.
-    ambient_engine::core_library::register_declaration_module(
+    // Compile the `core::system` module so `core::system::Network` resolves
+    // fully-qualified, `use core::system::Network;` imports it, and the
+    // abilities' default implementations exist for perform sites to link
+    // against. The stub natives satisfy the extern contract; runtime hosts
+    // overwrite the implementations per VM.
+    registry
+        .natives_mut()
+        .merge(&ambient_platform::stub_natives());
+    let platform = ambient_engine::build::compile_system_module(
         &mut registry,
-        &["core", "system"],
-        ambient_platform::ABILITY_DECLARATIONS,
+        &mut module_function_hashes,
+        ambient_platform::PLATFORM_SOURCE,
         |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
     )
-    .map_err(|(module, e)| anyhow::anyhow!("platform module `{module}` failed to build: {e}"))?;
+    .map_err(|e| anyhow::anyhow!("platform module failed to build: {e}"))?;
+    compiled.merge(&platform);
 
     let hashes = ambient_engine::build::linking_table(&module_function_hashes, &registry);
 
@@ -152,11 +121,10 @@ pub fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
     let main_path = ModulePath::root();
     core.registry.register(&main_path, Arc::new(module.clone()));
 
-    // Type check with the core and platform modules visible. `core_context`
-    // registered `platform`, so its namespaced abilities resolve through
-    // registry seeding. The prelude is still needed below for the *compiler*
-    // (host binding), a separate concern from type checking.
-    let prelude = platform_prelude()?;
+    // Type check with the core and platform modules visible: `core_context`
+    // compiled `core::system`, so its namespaced abilities resolve through
+    // registry seeding and their default implementations link like any
+    // other function.
     let check_result =
         ambient_engine::infer::check_module_with_registry(module, &main_path, &core.registry);
     if !check_result.is_ok() {
@@ -181,7 +149,6 @@ pub fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
             source: Some(source),
             source_file: Some(&source_file),
             imported_hashes: Some(core.hashes),
-            prelude_abilities: &prelude,
             env: ambient_engine::module_env::ModuleEnv::new(&core.registry, &main_path),
         },
     )

@@ -250,12 +250,6 @@ pub(super) struct ModuleContext {
     /// the compiler never re-derives interface hashes. Local declarations
     /// resolve bare, so this stays a bare-name table.
     pub(super) abilities: HashMap<Arc<str>, CompiledAbilityInfo>,
-    /// Prelude abilities (embedder-resolved declaration modules, e.g. the
-    /// platform bindings interface), kept apart from locals so a local
-    /// declaration and a namespaced prelude ability of the same name
-    /// resolve independently. Keyed by bare name (the `platform` module
-    /// never compiles, so it has no `Fqn` linking entry).
-    pub(super) prelude_abilities: HashMap<Arc<str>, CompiledAbilityInfo>,
     /// Foreign ability identities keyed by their [`Fqn`]; see
     /// [`CompileOptions::foreign_abilities`].
     pub(super) foreign_abilities: HashMap<Fqn, CompiledAbilityInfo>,
@@ -270,19 +264,38 @@ pub(super) struct ModuleContext {
 /// Compile-time info for one module-declared ability.
 #[derive(Debug, Clone)]
 pub(crate) struct CompiledAbilityInfo {
+    /// The uuid-derived identity.
     pub id: crate::types::AbilityId,
-    /// Method names in declaration order; a method's ID is its index.
-    pub methods: Vec<Arc<str>>,
+    /// The declaration uuid (a `MethodKey` input, and the root of every
+    /// method's impl-dispatch symbol `<uuid>::<method>`).
+    pub uuid: uuid::Uuid,
+    /// Methods in declaration order.
+    pub methods: Vec<CompiledMethodInfo>,
+}
+
+/// Compile-time info for one ability method.
+#[derive(Debug, Clone)]
+pub(crate) struct CompiledMethodInfo {
+    pub name: Arc<str>,
+    /// Canonical signature hash (a `MethodKey` input), from the checker.
+    pub signature: ambient_core::SignatureHash,
+    /// Whether a default implementation exists (`false` only for the
+    /// abstract `Exception::throw`).
+    pub has_impl: bool,
 }
 
 impl CompiledAbilityInfo {
-    /// Method ID (declaration index) for a method name.
-    pub(crate) fn method_id(&self, name: &str) -> Option<u16> {
-        #[allow(clippy::cast_possible_truncation)]
-        self.methods
-            .iter()
-            .position(|m| m.as_ref() == name)
-            .map(|idx| idx as u16)
+    /// Look up a method by name.
+    pub(crate) fn method(&self, name: &str) -> Option<&CompiledMethodInfo> {
+        self.methods.iter().find(|m| m.name.as_ref() == name)
+    }
+
+    /// The dispatch symbol a method's default implementation compiles
+    /// under: `<uuid>::<method>` — a content symbol like impl methods'
+    /// `<type-uuid>::<method>`, so it links by [`NameKey::Bare`]
+    /// everywhere and never collides with module-path names.
+    pub(crate) fn impl_symbol(&self, method: &str) -> Arc<str> {
+        Arc::from(format!("{}::{}", self.uuid, method))
     }
 }
 
@@ -290,6 +303,23 @@ impl CompiledAbilityInfo {
 /// rest of the cross-module channels in [`crate::module_env`]; re-exported
 /// here because the compiler is its primary consumer.
 pub use crate::module_env::VariantInfo;
+
+/// The compiler's view of a checker-resolved ability.
+fn compiled_info(ability: &crate::ability_resolver::DynAbility) -> CompiledAbilityInfo {
+    CompiledAbilityInfo {
+        id: ability.id,
+        uuid: ability.uuid,
+        methods: ability
+            .methods
+            .iter()
+            .map(|m| CompiledMethodInfo {
+                name: Arc::clone(&m.name),
+                signature: m.signature,
+                has_impl: m.has_impl,
+            })
+            .collect(),
+    }
+}
 
 impl ModuleContext {
     pub(super) fn new(module_id: Option<ModuleId>) -> Self {
@@ -307,7 +337,6 @@ impl ModuleContext {
             unit_structs: HashSet::new(),
             const_hashes: HashMap::new(),
             abilities: HashMap::new(),
-            prelude_abilities: HashMap::new(),
             foreign_abilities: HashMap::new(),
             module_id,
         }
@@ -331,65 +360,26 @@ impl ModuleContext {
         self.const_hashes.get(key).copied()
     }
 
-    /// Register prelude abilities (declaration modules resolved by the
-    /// embedder, e.g. the `platform` bindings interface) so ability calls
-    /// and handler literals compile against their content-hash
-    /// identities.
-    pub(super) fn register_prelude_abilities(
-        &mut self,
-        prelude: &[std::sync::Arc<crate::ability_resolver::DynAbility>],
-    ) {
-        for ability in prelude {
-            self.prelude_abilities.insert(
-                Arc::clone(&ability.name),
-                CompiledAbilityInfo {
-                    id: ability.id,
-                    methods: ability
-                        .methods
-                        .iter()
-                        .map(|m| Arc::clone(&m.name))
-                        .collect(),
-                },
-            );
-        }
-    }
-
-    /// Resolve an ability name against locals and the prelude.
-    ///
-    /// Mirrors the type checker's namespace policy (which already gated
-    /// correctness): namespace-qualified references name the prelude,
-    /// bare references name locals. Bare builtins (Exception) are not
-    /// here — callers fall back to the core-ability tables for those.
     /// Resolve an ability reference to its compile-time info.
     ///
-    /// Bare unresolved references are local declarations. Resolved or
-    /// path-qualified references try the canonical foreign channel first,
-    /// then the prelude (platform declarations, keyed by bare name — the
-    /// `platform` module never compiles, so it has no canonical entry).
+    /// A resolved reference names a same-module ability (its `Fqn`'s
+    /// module is ours — look it up bare in the local table) or a foreign
+    /// ability by its `Fqn` (`core::system` included: the platform module
+    /// compiles like any other, so its abilities arrive through the
+    /// ordinary foreign channel). A bare unresolved reference is a local
+    /// declaration — same-module abilities are never resolved to an `Fqn`.
     pub(super) fn resolve_ability(
         &self,
         ability: &crate::ast::QualifiedName,
     ) -> Option<&CompiledAbilityInfo> {
         match &ability.resolved {
-            // A resolved reference names a same-module ability (its `Fqn`'s
-            // module is ours — look it up bare in the local table), a
-            // foreign ability by its `Fqn`, or a platform prelude ability by
-            // bare name (the `platform` module never compiles, so it has no
-            // `Fqn` linking entry).
             Some(fqn) => self
                 .module_id
                 .as_ref()
                 .filter(|id| **id == fqn.module)
                 .and_then(|_| self.abilities.get(fqn.name()))
-                .or_else(|| self.foreign_abilities.get(fqn))
-                .or_else(|| self.prelude_abilities.get(ability.resolved_name())),
-            // A bare unresolved reference is a local declaration
-            // (same-module abilities are never resolved to an `Fqn`). A
-            // *path-qualified* unresolved reference means the resolve pass
-            // did not run (e.g. the platform-declaration compile path): it
-            // names a prelude ability by its spelled final segment.
-            None if ability.path.is_empty() => self.abilities.get(&ability.name),
-            None => self.prelude_abilities.get(&ability.name),
+                .or_else(|| self.foreign_abilities.get(fqn)),
+            None => self.abilities.get(&ability.name),
         }
     }
 
@@ -400,13 +390,8 @@ impl ModuleContext {
         foreign: &[(Fqn, std::sync::Arc<crate::ability_resolver::DynAbility>)],
     ) {
         for (fqn, dyn_ab) in foreign {
-            self.foreign_abilities.insert(
-                fqn.clone(),
-                CompiledAbilityInfo {
-                    id: dyn_ab.id,
-                    methods: dyn_ab.methods.iter().map(|m| Arc::clone(&m.name)).collect(),
-                },
-            );
+            self.foreign_abilities
+                .insert(fqn.clone(), compiled_info(dyn_ab));
         }
     }
 
@@ -423,11 +408,31 @@ impl ModuleContext {
                         (def.name_span.start, def.name_span.end),
                     ));
                 };
+                let methods = def
+                    .methods
+                    .iter()
+                    .map(|m| {
+                        let Some(signature) = m.resolved_signature else {
+                            return Err(CompileError::new(
+                                CompileErrorKind::Internal {
+                                    message: "ability method missing resolved signature",
+                                },
+                                (m.span.start, m.span.end),
+                            ));
+                        };
+                        Ok(CompiledMethodInfo {
+                            name: Arc::clone(&m.name),
+                            signature,
+                            has_impl: m.body.is_some(),
+                        })
+                    })
+                    .collect::<Result<Vec<_>, CompileError>>()?;
                 self.abilities.insert(
                     Arc::clone(&def.name),
                     CompiledAbilityInfo {
                         id,
-                        methods: def.methods.iter().map(|m| Arc::clone(&m.name)).collect(),
+                        uuid: def.uuid,
+                        methods,
                     },
                 );
             }
@@ -447,11 +452,6 @@ impl ModuleContext {
         self.abilities
             .iter()
             .find(|(_, info)| info.id == id)
-            .or_else(|| {
-                self.prelude_abilities
-                    .iter()
-                    .find(|(_, info)| info.id == id)
-            })
             .or_else(|| {
                 self.foreign_abilities
                     .iter()

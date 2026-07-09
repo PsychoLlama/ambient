@@ -27,7 +27,7 @@ fn method(
             .iter()
             .enumerate()
             .map(|(i, (name, ty))| crate::ast::Param {
-                id: i as crate::ast::BindingId,
+                id: crate::ast::BindingId::try_from(i).expect("test param count"),
                 name: Arc::from(*name),
                 ty: Some(ty.clone()),
                 span: span(),
@@ -35,6 +35,7 @@ fn method(
             .collect(),
         ret_ty,
         body: None,
+        resolved_signature: None,
         span: span(),
     }
 }
@@ -64,21 +65,19 @@ fn ty_param(name: &str) -> Type {
     Type::Named(crate::types::NamedType::new(Arc::from(name), vec![]))
 }
 
-/// An in-language declaration must hash to the same identity as a
-/// descriptor-style rendering of the interface (method IDs are
-/// declaration indices, signatures render through the canonical type
-/// grammar): this is what lets host handlers keyed against the
-/// resolved declarations serve performs compiled from them.
+/// An in-language declaration's identity is its uuid — not its name or
+/// shape — and each method's canonical signature hash is deterministic:
+/// same-signature methods share it, different signatures do not. This is
+/// what lets a foreign import recompute the exact identity the declaring
+/// module registered.
 #[test]
-fn declaration_hashing_matches_descriptor_hashing() {
-    use ambient_core::{MethodDescriptor, hash_interface};
-
+fn declaration_identity_is_the_uuid() {
     let mut module = ability_module(
         "Console",
         vec![
             method("print", &[], &[("message", Type::string())], Type::Unit),
             method("eprint", &[], &[("message", Type::string())], Type::Unit),
-            method("println", &[], &[("message", Type::string())], Type::Unit),
+            method("println", &[], &[("count", Type::number())], Type::Unit),
         ],
     );
 
@@ -89,127 +88,59 @@ fn declaration_hashing_matches_descriptor_hashing() {
     assert!(errors.is_empty());
     assert_eq!(abilities.len(), 1);
 
-    let expected = hash_interface(
-        "Console",
-        &[
-            MethodDescriptor::new(0, "print", 1, |f| vec![f.string()], |f| f.unit()),
-            MethodDescriptor::new(1, "eprint", 1, |f| vec![f.string()], |f| f.unit()),
-            MethodDescriptor::new(2, "println", 1, |f| vec![f.string()], |f| f.unit()),
-        ],
+    let console = &abilities[0];
+    assert_eq!(
+        console.id,
+        crate::types::AbilityId::from_uuid(&uuid::Uuid::from_u128(0xA1B2_C3D4))
+    );
+    assert_eq!(console.uuid, uuid::Uuid::from_u128(0xA1B2_C3D4));
+
+    // Same signature, different names: identical signature hashes — names
+    // never enter method identity (renames are free); the implementation
+    // hash is what distinguishes them at compile time.
+    let print_sig = console.method("print").map(|m| m.signature);
+    assert_eq!(print_sig, console.method("eprint").map(|m| m.signature));
+    assert_ne!(print_sig, console.method("println").map(|m| m.signature));
+    assert_eq!(
+        print_sig,
+        Some(ambient_core::SignatureHash::new(&["string"], "unit"))
     );
 
-    let console = &abilities[0];
-    assert_eq!(console.id, expected);
-    assert_eq!(console.method("print").map(|m| m.id), Some(0));
-    assert_eq!(console.method("eprint").map(|m| m.id), Some(1));
-    assert_eq!(console.method("println").map(|m| m.id), Some(2));
-
-    // The identity is also written back for the compiler.
+    // The identity and signatures are also written back for the compiler.
     let crate::ast::ItemKind::Ability(def) = &module.items[0].kind else {
         panic!("expected ability item");
     };
     assert_eq!(def.resolved_id, Some(console.id));
+    assert_eq!(def.methods[0].resolved_signature, print_sig);
 }
 
-/// Generic methods are the risky parity case: the descriptor renders
-/// each `type_var()` occurrence as an independent `varN`, so the
-/// declaration must use a distinct type parameter per position
-/// (`run<T, R>` — never one parameter in two positions).
+/// Generic methods canonicalize type variables by first occurrence per
+/// signature, so `run<T, R>(hash: String, args: T): R` renders identically
+/// regardless of what checked before it — signature hashes stay stable.
 #[test]
-fn generic_declaration_hashing_matches_descriptor_hashing() {
-    use ambient_core::{MethodDescriptor, hash_interface};
-
-    let list_of_string = Type::named("List", vec![Type::string()]);
+fn generic_signature_hashes_are_position_canonical() {
     let mut module = ability_module(
         "Execute",
-        vec![
-            method(
-                "has_function",
-                &[],
-                &[("hash", Type::string())],
-                Type::bool(),
-            ),
-            method(
-                "get_dependencies",
-                &[],
-                &[("hash", Type::string())],
-                list_of_string.clone(),
-            ),
-            method(
-                "load_functions",
-                &[],
-                &[("bundle", Type::binary())],
-                Type::Unit,
-            ),
-            method(
-                "run",
-                &["T", "R"],
-                &[("hash", Type::string()), ("args", ty_param("T"))],
-                ty_param("R"),
-            ),
-            method(
-                "get_functions",
-                &[],
-                &[("hashes", list_of_string)],
-                Type::binary(),
-            ),
-            method(
-                "run_with",
-                &["T", "U", "R"],
-                &[
-                    ("hash", Type::string()),
-                    ("args", ty_param("T")),
-                    ("handler", ty_param("U")),
-                ],
-                ty_param("R"),
-            ),
-        ],
+        vec![method(
+            "run",
+            &["T", "R"],
+            &[("hash", Type::string()), ("args", ty_param("T"))],
+            ty_param("R"),
+        )],
     );
 
     let (abilities, errors) =
         resolve_ability_declarations(&mut module, &crate::module_registry::ModuleRegistry::new());
     assert!(errors.is_empty());
 
-    let expected = hash_interface(
-        "Execute",
-        &[
-            MethodDescriptor::new(0, "has_function", 1, |f| vec![f.string()], |f| f.bool()),
-            MethodDescriptor::new(
-                1,
-                "get_dependencies",
-                1,
-                |f| vec![f.string()],
-                |f| f.list(f.string()),
-            ),
-            MethodDescriptor::new(2, "load_functions", 1, |f| vec![f.binary()], |f| f.unit()),
-            MethodDescriptor::new(
-                3,
-                "run",
-                2,
-                |f| vec![f.string(), f.type_var()],
-                |f| f.type_var(),
-            ),
-            MethodDescriptor::new(
-                4,
-                "get_functions",
-                1,
-                |f| vec![f.list(f.string())],
-                |f| f.binary(),
-            ),
-            MethodDescriptor::new(
-                5,
-                "run_with",
-                3,
-                |f| vec![f.string(), f.type_var(), f.type_var()],
-                |f| f.type_var(),
-            ),
-        ],
-    );
-
     let execute = &abilities[0];
-    assert_eq!(execute.id, expected);
-    assert_eq!(execute.method("run").map(|m| m.id), Some(3));
-    assert_eq!(execute.method("run_with").map(|m| m.id), Some(5));
+    assert_eq!(
+        execute.method("run").map(|m| m.signature),
+        Some(ambient_core::SignatureHash::new(
+            &["string", "var0"],
+            "var1"
+        ))
+    );
 }
 
 /// A module-level `const` must be in scope inside function bodies,

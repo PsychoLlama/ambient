@@ -51,14 +51,13 @@ fn compile_package_cmd(path: &Path) -> Result<()> {
         eprintln!("[{}/{}] Compiling {}", current, total, module);
     };
 
-    let prelude = super::platform_prelude()?;
+    let stubs = ambient_platform::stub_natives();
     let result = build_package(
         path,
         parse_source,
         &ambient_engine::build::BuildOptions {
-            platform_source: ambient_platform::ABILITY_DECLARATIONS,
-            prelude_abilities: &prelude,
-            natives: None,
+            platform_source: ambient_platform::PLATFORM_SOURCE,
+            natives: Some(&stubs),
             progress: Some(&progress_cb),
         },
     )

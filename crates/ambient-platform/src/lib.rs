@@ -1,10 +1,23 @@
 //! Platform abilities for the Ambient language.
 //!
 //! This crate is the native embedder layer over `ambient-engine`. It
-//! ships the platform bindings interface as in-language `ability`
-//! declarations ([`ABILITY_DECLARATIONS`]) and provides host handler
-//! implementations that bind against the *resolved* declarations by
-//! method name — there is no parallel Rust description of the interface.
+//! ships the platform bindings interface as in-language source
+//! ([`PLATFORM_SOURCE`]): nominal `ability` declarations whose method
+//! bodies — the default implementations unhandled performs run — call the
+//! module's private `extern fn`s. This crate binds each extern to a
+//! native implementation under a **pinned uuid** (reserved block
+//! `FFFFFFFF-FFFF-FFFF-FFFC-…`, one slot per extern, forever).
+//!
+//! Two layers of bindings:
+//!
+//! - [`stub_natives`] binds every extern to a stub that raises a
+//!   catchable exception. It satisfies the build-time native contract
+//!   (every declaration bound, with the arity and uuid the compiler
+//!   encodes) for compile-only paths.
+//! - The granular `*_natives` constructors ([`stdio_natives`],
+//!   [`fs_natives`], ...) carry real implementations. Runtime hosts
+//!   register them per VM — implementations are uuid-keyed, so later
+//!   registration overwrites the stubs.
 //!
 //! Core abilities that the language depends on (like Exception) are
 //! defined in `ambient-core` instead.
@@ -24,7 +37,6 @@
 pub mod env;
 pub mod execute;
 pub mod fs;
-pub mod log;
 pub mod network;
 pub mod network_state;
 pub mod process;
@@ -35,74 +47,348 @@ pub mod time;
 use std::sync::Arc;
 
 use ambient_ability::{Value, VmError};
-use ambient_engine::ability_resolver::{AbilityInterface, DynAbility};
-use ambient_engine::vm::Vm;
+use ambient_engine::module_path::ModulePath;
+use ambient_engine::natives::{NativeFn, NativeRegistry};
+use uuid::Uuid;
 
-/// The platform bindings interface, as in-language `ability` declarations.
+/// The platform bindings interface, as in-language source.
 ///
-/// This source is the single description of the native platform: an
-/// embedder parses it, resolves the declarations to content-addressed
-/// identities, registers them as the `platform` ability prelude for type
-/// checking and compilation, and binds host handlers against the same
-/// identities by method name (see the `register_*` functions in the
-/// sibling modules).
-pub const ABILITY_DECLARATIONS: &str = include_str!("platform.ab");
+/// An embedder registers and compiles this as the `core::system` module
+/// (`ambient_engine::build::compile_system_module`); the ability method
+/// bodies inside are the default implementations unhandled performs run,
+/// and their `extern fn` calls dispatch to the natives this crate binds.
+pub const PLATFORM_SOURCE: &str = include_str!("platform.ab");
 
-pub use env::register_env;
-pub use execute::{ExecuteConfig, ExecuteGrants, register_execute};
-pub use fs::register_fs;
-pub use log::{LogConfig, register_log};
-pub use network::{NetworkConfig, register_network, register_network_shared};
+pub use execute::{ExecuteConfig, ExecuteGrants, execute_natives};
+pub use fs::fs_natives;
+pub use network::network_natives;
 pub use network_state::NetworkState;
 pub use process::{
     DeployOutcome, EventSink, Functions, ProcessEvent, ProcessRuntime, ProcessRuntimeConfig,
     VmFactory, functions_from_module,
 };
-pub use random::register_random;
-pub use stdio::{StdioConfig, StdioSink, register_stdio, register_stdio_with_collector};
-pub use time::register_time;
+pub use random::random_natives;
+pub use stdio::{StdioConfig, StdioSink, stdio_natives, stdio_natives_with_collector};
+pub use time::time_natives;
 
-/// Method ID for a named method of the resolved bindings interface.
-///
-/// Panics if the declaration is missing the method — that means the
-/// bindings interface and this handler set have drifted.
-pub(crate) fn require(ability: &AbilityInterface, method: &str) -> u16 {
-    ability
-        .method_id(method)
-        .unwrap_or_else(|| panic!("platform bindings interface has no method `{method}`"))
+pub use env::env_natives;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The extern binding table
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// One `extern fn` declaration of `platform.ab`: its compile-time name,
+/// pinned uuid slot, and arity. The single source both [`stub_natives`]
+/// and the real constructors bind through, so they can never drift.
+#[derive(Clone, Copy)]
+pub(crate) struct ExternBinding {
+    pub name: &'static str,
+    /// Slot within the reserved `FFFFFFFF-FFFF-FFFF-FFFC-…` block.
+    pub slot: u128,
+    pub arity: u8,
 }
 
-/// Register the zero-config native abilities (`Stdio`, Time, Random,
-/// Log, `FileSystem`) with default settings against the resolved bindings
-/// interface. Network and Execute need external resources; register
-/// them separately.
-///
-/// `Log` shares `Stdio`'s output sink, so both stream to the same stdout.
+/// A pinned platform-native uuid from its block slot.
+#[must_use]
+pub(crate) const fn platform_uuid(slot: u128) -> Uuid {
+    Uuid::from_u128(0xFFFF_FFFF_FFFF_FFFF_FFFC_0000_0000_0000 + slot)
+}
+
+/// Every extern fn in `platform.ab`, in declaration order. Slots are
+/// pinned forever: never reuse or renumber one — changing an extern's
+/// semantics means minting a new slot (and a new name).
+pub(crate) const EXTERN_BINDINGS: &[ExternBinding] = &[
+    ExternBinding {
+        name: "stdio_out",
+        slot: 0x01,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "stdio_err",
+        slot: 0x02,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "stdio_read",
+        slot: 0x03,
+        arity: 0,
+    },
+    ExternBinding {
+        name: "time_now",
+        slot: 0x04,
+        arity: 0,
+    },
+    ExternBinding {
+        name: "time_wait",
+        slot: 0x05,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "random_seed",
+        slot: 0x06,
+        arity: 0,
+    },
+    ExternBinding {
+        name: "random_in_range",
+        slot: 0x07,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "fs_read",
+        slot: 0x08,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "fs_write",
+        slot: 0x09,
+        arity: 2,
+    },
+    ExternBinding {
+        name: "fs_read_binary",
+        slot: 0x0A,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "fs_write_binary",
+        slot: 0x0B,
+        arity: 2,
+    },
+    ExternBinding {
+        name: "fs_exists",
+        slot: 0x0C,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "fs_list",
+        slot: 0x0D,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "fs_remove",
+        slot: 0x0E,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "fs_create_dir",
+        slot: 0x0F,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "network_listen",
+        slot: 0x10,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "network_accept",
+        slot: 0x11,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "network_close_listener",
+        slot: 0x12,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "network_connect",
+        slot: 0x13,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "network_close",
+        slot: 0x14,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "network_send",
+        slot: 0x15,
+        arity: 2,
+    },
+    ExternBinding {
+        name: "network_receive",
+        slot: 0x16,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "network_local_addr",
+        slot: 0x17,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "network_peer_addr",
+        slot: 0x18,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "process_spawn",
+        slot: 0x19,
+        arity: 3,
+    },
+    ExternBinding {
+        name: "process_send",
+        slot: 0x1A,
+        arity: 2,
+    },
+    ExternBinding {
+        name: "process_send_named",
+        slot: 0x1B,
+        arity: 2,
+    },
+    ExternBinding {
+        name: "process_self_pid",
+        slot: 0x1C,
+        arity: 0,
+    },
+    ExternBinding {
+        name: "process_whereis",
+        slot: 0x1D,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "process_exit",
+        slot: 0x1E,
+        arity: 0,
+    },
+    ExternBinding {
+        name: "env_var",
+        slot: 0x1F,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "env_vars",
+        slot: 0x20,
+        arity: 0,
+    },
+    ExternBinding {
+        name: "env_set",
+        slot: 0x21,
+        arity: 2,
+    },
+    ExternBinding {
+        name: "env_args",
+        slot: 0x22,
+        arity: 0,
+    },
+    ExternBinding {
+        name: "env_cwd",
+        slot: 0x23,
+        arity: 0,
+    },
+    ExternBinding {
+        name: "env_pid",
+        slot: 0x24,
+        arity: 0,
+    },
+    ExternBinding {
+        name: "execute_has_function",
+        slot: 0x25,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "execute_get_dependencies",
+        slot: 0x26,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "execute_load_functions",
+        slot: 0x27,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "execute_run",
+        slot: 0x28,
+        arity: 2,
+    },
+    ExternBinding {
+        name: "execute_get_functions",
+        slot: 0x29,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "execute_run_with",
+        slot: 0x2A,
+        arity: 3,
+    },
+];
+
+/// The binding-table entry for an extern name.
 ///
 /// # Panics
 ///
-/// Panics if a prelude ability with one of those names is missing a
-/// method its handler set expects (the bindings interface and this
-/// crate have drifted).
-pub fn register_defaults(vm: &mut Vm, prelude: &[Arc<DynAbility>]) {
-    let sink = StdioSink::default();
-    for ability in prelude {
-        let interface = AbilityInterface::from(&**ability);
-        match ability.name.as_ref() {
-            "Stdio" => register_stdio(vm, &interface, sink.clone(), StdioConfig::default()),
-            "Time" => register_time(vm, &interface),
-            "Random" => register_random(vm, &interface),
-            "Log" => register_log(vm, &interface, LogConfig::default(), sink.clone()),
-            "FileSystem" => register_fs(vm, &interface),
-            // REPL/tests get a working ability with empty program args.
-            "Env" => register_env(vm, &interface, Arc::new(Vec::new())),
-            _ => {}
-        }
+/// Panics if the name is not in the table — a drift between a `*_natives`
+/// constructor and [`EXTERN_BINDINGS`], caught at wiring time.
+pub(crate) fn binding(name: &str) -> ExternBinding {
+    EXTERN_BINDINGS
+        .iter()
+        .copied()
+        .find(|b| b.name == name)
+        .unwrap_or_else(|| panic!("extern `{name}` is not in the platform binding table"))
+}
+
+/// The pinned uuid for an extern name (for per-VM implementation
+/// registration, e.g. the process runtime's per-process natives).
+///
+/// # Panics
+///
+/// Panics if the name is not in the table.
+#[must_use]
+pub fn native_uuid(name: &str) -> Uuid {
+    platform_uuid(binding(name).slot)
+}
+
+/// The `core::system` module path every binding attaches under.
+///
+/// # Panics
+///
+/// Never — the segments are non-empty by construction.
+#[must_use]
+pub(crate) fn system_module() -> ModulePath {
+    #[allow(clippy::unwrap_used)]
+    ModulePath::from_str_segments(&["core", "system"]).unwrap()
+}
+
+/// Register one named extern's implementation into a registry, with its
+/// pinned uuid and arity from the binding table.
+pub(crate) fn bind(registry: &mut NativeRegistry, name: &str, func: NativeFn) {
+    let binding = binding(name);
+    registry.register(
+        &system_module(),
+        name,
+        platform_uuid(binding.slot),
+        binding.arity,
+        func,
+    );
+}
+
+/// Every platform extern bound to a stub that raises a catchable
+/// exception naming the missing capability.
+///
+/// This is the compile-time half of the contract: builds need every
+/// declared extern bound (uuid + arity) to encode native objects, whether
+/// or not the running host wires the capability. Runtime hosts register
+/// the real `*_natives` sets on their VMs; implementations are
+/// uuid-keyed, so the real ones win.
+#[must_use]
+pub fn stub_natives() -> NativeRegistry {
+    let mut registry = NativeRegistry::new();
+    for binding in EXTERN_BINDINGS {
+        let name = binding.name;
+        registry.register(
+            &system_module(),
+            name,
+            platform_uuid(binding.slot),
+            binding.arity,
+            Arc::new(move |_args: Vec<Value>| {
+                Err(VmError::exception(format!(
+                    "platform capability `{name}` is not wired in this context"
+                )))
+            }),
+        );
     }
+    registry
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Argument extraction helpers shared by handler implementations
+// Argument extraction helpers shared by native implementations
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Extract a string from the first argument.
@@ -204,91 +490,81 @@ pub(crate) fn extract_bytes(value: &Value) -> Result<Vec<u8>, VmError> {
 }
 
 #[cfg(test)]
-pub(crate) mod test_support {
-    use std::sync::Arc;
-
-    use ambient_engine::ability_resolver::{AbilityInterface, DynAbility, DynMethod};
-    use ambient_engine::types::Type;
-
-    /// A hand-built interface: method IDs are declaration indices, which
-    /// is exactly what `resolve_ability_declarations` produces.
-    pub fn test_interface(name: &str, byte: u8, methods: &[&str]) -> AbilityInterface {
-        #[allow(clippy::cast_possible_truncation)]
-        let methods = methods
-            .iter()
-            .enumerate()
-            .map(|(idx, method)| DynMethod {
-                id: idx as u16,
-                name: Arc::from(*method),
-                param_names: vec![],
-                params: vec![],
-                ret: Type::Unit,
-                quantified: vec![],
-            })
-            .collect();
-        let ability = DynAbility {
-            id: ambient_core::AbilityId::from_bytes([byte; 32]),
-            name: Arc::from(name),
-            methods,
-            dependencies: vec![],
-        };
-        AbilityInterface::from(&ability)
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
-    use ambient_engine::bytecode::{BytecodeBuilder, Opcode};
 
-    /// `register_defaults` binds handlers against whatever identities the
-    /// prelude declarations resolved to, keyed by ability name.
+    /// Every extern in `platform.ab` appears in the binding table with a
+    /// unique, pinned slot — and vice versa. Slot assignments are content
+    /// identities: changing one silently rebinds already-compiled callers.
     #[test]
-    fn register_defaults_binds_by_ability_name() {
-        use ambient_engine::ability_resolver::DynMethod;
-        use ambient_engine::types::Type;
+    fn binding_table_matches_platform_source() {
+        let declared: Vec<&str> = PLATFORM_SOURCE
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                let rest = line.strip_prefix("extern fn ")?;
+                let name_end = rest.find(['(', '<'])?;
+                Some(&rest[..name_end])
+            })
+            .collect();
 
-        let time = DynAbility {
-            id: ambient_core::AbilityId::from_bytes([9; 32]),
-            name: Arc::from("Time"),
-            methods: vec![
-                DynMethod {
-                    id: 0,
-                    name: Arc::from("now"),
-                    param_names: vec![],
-                    params: vec![],
-                    ret: Type::number(),
-                    quantified: vec![],
-                },
-                DynMethod {
-                    id: 1,
-                    name: Arc::from("wait"),
-                    param_names: vec![Arc::from("duration")],
-                    params: vec![Type::number()],
-                    ret: Type::Unit,
-                    quantified: vec![],
-                },
-            ],
-            dependencies: vec![],
-        };
-        let prelude = vec![Arc::new(time)];
-
-        let mut vm = Vm::new();
-        register_defaults(&mut vm, &prelude);
-
-        let mut builder = BytecodeBuilder::new();
-        builder.emit_suspend(prelude[0].id, 0, 0);
-        builder.emit(Opcode::Perform);
-        builder.emit(Opcode::Return);
-        let func = builder.build(0, 0);
-        let hash = func.hash;
-        vm.load_function(func);
-
-        let result = vm.call(&hash, vec![]);
-        assert!(
-            matches!(result, Ok(Value::Number(n)) if n > 0.0),
-            "Time.now must dispatch to the bound handler: {result:?}"
+        let table: Vec<&str> = EXTERN_BINDINGS.iter().map(|b| b.name).collect();
+        assert_eq!(
+            declared, table,
+            "platform.ab extern declarations and EXTERN_BINDINGS must list \
+             the same names in the same order"
         );
+
+        let mut slots: Vec<u128> = EXTERN_BINDINGS.iter().map(|b| b.slot).collect();
+        slots.sort_unstable();
+        slots.dedup();
+        assert_eq!(slots.len(), EXTERN_BINDINGS.len(), "slots must be unique");
+    }
+
+    /// Golden pin: the uuid block and the first/last assignments never
+    /// move. (The full table is pinned structurally by the test above —
+    /// slots are data, so any renumbering shows up in review; this guards
+    /// the block arithmetic itself.)
+    #[test]
+    fn native_uuids_are_pinned() {
+        assert_eq!(
+            native_uuid("stdio_out").to_string(),
+            "ffffffff-ffff-ffff-fffc-000000000001"
+        );
+        assert_eq!(
+            native_uuid("execute_run_with").to_string(),
+            "ffffffff-ffff-ffff-fffc-00000000002a"
+        );
+        assert_eq!(
+            native_uuid("process_spawn").to_string(),
+            "ffffffff-ffff-ffff-fffc-000000000019"
+        );
+    }
+
+    #[test]
+    fn stub_natives_bind_every_extern() {
+        let stubs = stub_natives();
+        for binding in EXTERN_BINDINGS {
+            let key = stubs.key_for(&system_module(), binding.name);
+            assert_eq!(
+                key.map(|k| (k.uuid, k.arity)),
+                Some((platform_uuid(binding.slot), binding.arity)),
+                "stub for `{}`",
+                binding.name
+            );
+        }
+    }
+
+    #[test]
+    fn stubs_raise_catchable_exceptions() {
+        let stubs = stub_natives();
+        let func = stubs
+            .impl_for(&native_uuid("network_listen"))
+            .expect("stub bound");
+        match func(vec![]) {
+            Err(VmError::Exception(_)) => {}
+            other => panic!("expected catchable exception, got {other:?}"),
+        }
     }
 
     fn endpoint(host: &str, port: f64) -> Vec<Value> {

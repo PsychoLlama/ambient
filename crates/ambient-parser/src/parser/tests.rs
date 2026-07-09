@@ -349,7 +349,7 @@ fn test_parse_enum() {
 
 #[test]
 fn test_parse_ability_def() {
-    let source = "unique(AB000000-0000-0000-0000-000000000017) ability Console { fn print(message: String): (); }";
+    let source = "unique(AB000000-0000-0000-0000-000000000017) ability Console { fn print(message: String): () { () } }";
     let mut parser = Parser::new(source).unwrap();
     let module = parser.parse_module().expect("parse error");
     match &module.items[0].kind {

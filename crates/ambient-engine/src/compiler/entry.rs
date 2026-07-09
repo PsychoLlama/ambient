@@ -9,7 +9,7 @@ use super::error::{CompileError, CompileErrorKind};
 use super::expr::compile_expr;
 use super::hash::{compute_temporary_hash, finalize_const_values, finalize_module_hashes};
 use super::module_output::CompiledModule;
-use crate::ast::{FunctionDef, ImplDef, ImplMethod, ItemKind, Module};
+use crate::ast::{AbilityDef, AbilityMethod, FunctionDef, ImplDef, ImplMethod, ItemKind, Module};
 use crate::bytecode::{CompiledFunction, Opcode};
 use crate::fqn::{Fqn, ModuleId, NameKey};
 use crate::module_env::ModuleEnv;
@@ -61,9 +61,6 @@ pub struct CompileOptions<'a> {
     /// Unlike the [`ModuleEnv`] channels this is build-state (hashes of the
     /// modules compiled so far), not derivable from the registry alone.
     pub imported_hashes: Option<HashMap<NameKey, blake3::Hash>>,
-    /// Prelude abilities (embedder-resolved declaration modules, e.g. the
-    /// platform bindings interface). Local declarations shadow them.
-    pub prelude_abilities: &'a [std::sync::Arc<crate::ability_resolver::DynAbility>],
     /// The module's resolved view of the rest of the build: its identity,
     /// imported enums, and the foreign variant/unit-struct/const/ability
     /// channels. See [`ModuleEnv`] for what each channel carries.
@@ -199,7 +196,6 @@ fn compile_module_impl(
         source,
         source_file,
         imported_hashes,
-        prelude_abilities,
         env,
     } = options;
     let ModuleEnv {
@@ -313,6 +309,41 @@ fn compile_module_impl(
         })
         .collect();
 
+    // Ability default implementations compile as ordinary functions under
+    // their content dispatch symbols (`<ability-uuid>::<method>`), exactly
+    // like impl methods: perform sites resolve the symbol through the same
+    // name→hash table as regular calls, and hash finalization
+    // content-addresses them with everything else. The declaring module's
+    // exports carry them (the `::` keeps them `NameKey::Bare` in linking),
+    // so foreign perform sites link to them like any function.
+    let ability_methods: Vec<(&AbilityDef, &AbilityMethod, Arc<str>)> = module
+        .items
+        .iter()
+        .filter_map(|item| {
+            if let ItemKind::Ability(def) = &item.kind {
+                Some(
+                    def.methods
+                        .iter()
+                        .filter(|m| m.body.is_some())
+                        .map(move |m| {
+                            let symbol: Arc<str> = Arc::from(format!("{}::{}", def.uuid, m.name));
+                            (def, m, symbol)
+                        }),
+                )
+            } else {
+                None
+            }
+        })
+        .flatten()
+        .collect();
+
+    for (_, _, symbol) in &ability_methods {
+        temp_hashes.insert(
+            NameKey::Bare(Arc::clone(symbol)),
+            compute_temporary_hash(symbol),
+        );
+    }
+
     // Add temporary hashes for impl methods under their canonical symbols.
     // Impl methods are ordinary functions named by `types::impl_method_symbol`;
     // method-call sites resolve these symbols through the same name→hash table
@@ -358,7 +389,6 @@ fn compile_module_impl(
     // same way; a reference to either key emits a `LoadObject`.
     ctx.register_const_hashes(&local_const_hashes);
     ctx.register_const_hashes(&foreign_const_hashes);
-    ctx.register_prelude_abilities(prelude_abilities);
     ctx.register_foreign_abilities(&foreign_abilities);
     ctx.register_abilities(module)?;
 
@@ -395,6 +425,21 @@ fn compile_module_impl(
         compiled_functions.push((Arc::clone(symbol), compiled, false));
     }
 
+    // Compile ability default implementations as ordinary named functions.
+    for (def, method, symbol) in &ability_methods {
+        ctx.set_current_function(Arc::clone(symbol));
+        let compiled = compile_ability_method(
+            def,
+            method,
+            symbol,
+            &temp_hashes,
+            &mut ctx,
+            source,
+            source_file,
+        )?;
+        compiled_functions.push((Arc::clone(symbol), compiled, false));
+    }
+
     // Collect lambda info: (temp_hash, parent_name, compiled_func).
     let lambdas: Vec<(blake3::Hash, Arc<str>, CompiledFunction)> = ctx.lambdas;
     // Value objects for block-scoped consts, discovered while walking bodies.
@@ -419,6 +464,41 @@ fn compile_module_impl(
     for (name, hash) in native_names {
         module.function_names.entry(name).or_insert(hash);
     }
+
+    // A method's identity is (ability uuid, signature, implementation) —
+    // the name is deliberately excluded. Two methods of one ability with
+    // the same signature *and* the same default implementation would
+    // therefore derive one `MethodKey`: handler arms for them silently
+    // merge and performs become indistinguishable. Reject the ambiguity
+    // now that final implementation hashes exist.
+    {
+        let mut seen: HashMap<(uuid::Uuid, ambient_core::SignatureHash, blake3::Hash), Arc<str>> =
+            HashMap::new();
+        for (def, method, symbol) in &ability_methods {
+            let (Some(signature), Some(impl_hash)) = (
+                method.resolved_signature,
+                module.function_names.get(symbol.as_ref()),
+            ) else {
+                continue;
+            };
+            if let Some(previous) =
+                seen.insert((def.uuid, signature, *impl_hash), Arc::clone(&method.name))
+            {
+                return Err(CompileError::new(
+                    CompileErrorKind::Unsupported {
+                        feature: format!(
+                            "ability `{}` methods `{previous}` and `{}` share a signature \
+                             and an identical default implementation, so they would be one \
+                             method at runtime; make the implementations differ",
+                            def.name, method.name
+                        ),
+                    },
+                    (method.span.start, method.span.end),
+                ));
+            }
+        }
+    }
+
     Ok(module)
 }
 
@@ -484,6 +564,68 @@ pub(super) fn compile_function_with_hash(
         local_count: fc.next_local,
         param_count,
         dependencies,
+        debug_info,
+    })
+}
+
+/// Compile one ability method's default implementation as an ordinary
+/// function under its dispatch symbol. This is the function an unhandled
+/// perform calls, and its content hash is an input to the method's
+/// `MethodKey`.
+fn compile_ability_method(
+    def: &AbilityDef,
+    method: &AbilityMethod,
+    symbol: &Arc<str>,
+    function_hashes: &HashMap<NameKey, blake3::Hash>,
+    ctx: &mut ModuleContext,
+    source: Option<&str>,
+    source_file: Option<&str>,
+) -> Result<CompiledFunction, CompileError> {
+    let mut fc = FunctionCompiler::new(function_hashes.clone());
+
+    for param in &method.params {
+        fc.alloc_local_with_name(param.id, &param.name)?;
+    }
+
+    let Some(body) = &method.body else {
+        return Err(CompileError::new(
+            CompileErrorKind::Internal {
+                message: "ability method without a body reached compilation",
+            },
+            (method.span.start, method.span.end),
+        ));
+    };
+    compile_expr(&mut fc, body, ctx)?;
+    fc.builder.emit(Opcode::Return);
+
+    let hash = function_hashes[&NameKey::Bare(Arc::clone(symbol))];
+
+    let debug_info = if source.is_some() || source_file.is_some() {
+        let mut debug_info = fc.debug_info;
+        debug_info.function_name = Some(format!("{}::{}", def.name, method.name));
+        debug_info.source_file = source_file.map(String::from);
+        if let Some(src) = source {
+            for mapping in &mut debug_info.source_map {
+                let (line, col) = span_to_line_col(
+                    src,
+                    crate::ast::Span::new(mapping.source_start as u32, mapping.source_end as u32),
+                );
+                mapping.line = line;
+                mapping.column = col;
+            }
+        }
+        Some(debug_info)
+    } else {
+        None
+    };
+
+    Ok(CompiledFunction {
+        hash,
+        bytecode: fc.builder.bytecode().to_vec(),
+        constants: fc.builder.constants().to_vec(),
+        local_count: fc.next_local,
+        param_count: method.params.len() as u8,
+        dependencies: fc.builder.dependencies().to_vec(),
         debug_info,
     })
 }

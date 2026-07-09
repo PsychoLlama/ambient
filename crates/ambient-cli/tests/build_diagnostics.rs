@@ -41,11 +41,13 @@ fn build_package_type_error_is_structured_with_nonzero_span() {
     // `run` returns a number from a function declared to return a string.
     let dir = temp_package("pub fn run(): String { 42 }\n");
 
+    let stubs = ambient_platform::stub_natives();
     let Err(err) = build_package(
         dir.path(),
         parse_source,
         &ambient_engine::build::BuildOptions {
-            platform_source: ambient_platform::ABILITY_DECLARATIONS,
+            platform_source: ambient_platform::PLATFORM_SOURCE,
+            natives: Some(&stubs),
             ..Default::default()
         },
     ) else {
@@ -87,11 +89,13 @@ fn build_package_type_error_is_structured_with_nonzero_span() {
 fn build_package_parse_error_is_structured_with_span() {
     let dir = temp_package("pub fn run(): Number {\n  1 +\n}\n");
 
+    let stubs = ambient_platform::stub_natives();
     let Err(err) = build_package(
         dir.path(),
         parse_source,
         &ambient_engine::build::BuildOptions {
-            platform_source: ambient_platform::ABILITY_DECLARATIONS,
+            platform_source: ambient_platform::PLATFORM_SOURCE,
+            natives: Some(&stubs),
             ..Default::default()
         },
     ) else {

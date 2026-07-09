@@ -2,11 +2,10 @@
 //! truth for the native platform.
 //!
 //! Type checking and compilation resolve performs through the parsed
-//! declarations, and host handlers bind by method name against the same
-//! resolved interfaces (method IDs are declaration indices). These tests
-//! pin the shape of that contract: the declarations must resolve cleanly
-//! and expose the ability and method names the handler sets expect, in
-//! declaration order.
+//! declarations. These tests pin the shape of that contract: the
+//! declarations must resolve cleanly, expose the expected ability and
+//! method names, and keep their reserved uuids (the identities every
+//! compiled perform and shipped handler key on) byte-stable.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,7 +21,7 @@ fn resolved_prelude() -> HashMap<String, Arc<DynAbility>> {
     })
     .expect("core modules must parse");
 
-    let mut module = ambient_parser::parse(ambient_platform::ABILITY_DECLARATIONS)
+    let mut module = ambient_parser::parse(ambient_platform::PLATFORM_SOURCE)
         .expect("platform bindings interface must parse");
     let (abilities, errors) =
         ambient_engine::infer::resolve_ability_declarations(&mut module, &registry);
@@ -108,85 +107,88 @@ fn declarations_expose_the_expected_interfaces() {
              (method ID = declaration index)"
         );
 
-        for (index, method) in ability.methods.iter().enumerate() {
-            assert_eq!(
-                usize::from(method.id),
-                index,
-                "{name}.{} must get its declaration index as its method ID",
+        for method in &ability.methods {
+            assert!(
+                method.has_impl,
+                "{name}.{} must carry a default implementation",
                 method.name
             );
         }
     }
 }
 
-/// Ability IDs are load-bearing at runtime: host handlers bind by id, so a
-/// change to how the resolver seeds types (e.g. the primitive nominals it
-/// hashes against) must not shift a single id. Pin the content hash of every
-/// platform ability. If one of these changes, ability dispatch silently
-/// breaks against pre-existing hosts — treat it as a compatibility break, not
-/// a test to update. These are byte-identical before and after fully
-/// modularizing the primitives (Phase 3).
+/// Ability identities are load-bearing at runtime: compiled performs and
+/// shipped handlers key on the uuid-derived id, so the declarations must
+/// keep their reserved uuids (block `FFFFFFFF-FFFF-FFFF-FFFD-…`). If one of
+/// these changes, ability dispatch silently breaks against pre-existing
+/// code — treat it as a compatibility break, not a test to update.
 #[test]
-fn ability_ids_are_byte_stable() {
+fn ability_uuids_are_pinned() {
     let prelude = resolved_prelude();
 
-    let golden: [(&str, &str); 9] = [
-        (
-            "Env",
-            "1a40c537d00e9b63a4d9bb213f559b3c57310cd323c54f7c4e70b1039386feee",
-        ),
-        (
-            "Execute",
-            "b020b1a50fc352cb302d4484597de11765b8c0a47b50fa8b9fcfcc8de90192ad",
-        ),
-        (
-            "FileSystem",
-            "952de97b2d7cf66db1d0b0bfc07982e9da1732fd8ea2b05734ac051dc1af8dfc",
-        ),
-        (
-            "Log",
-            "9480648104346749133ec2a4a001a2cedf4ebc7c1ae9862ad4fbc9c951047d43",
-        ),
-        (
-            "Network",
-            "94c2e2eedb09e198c7e00be9c95eb850e54580c034f9734a20e4e2a2a1ba9d76",
-        ),
-        (
-            "Process",
-            "2c55c28bc25d83f66d415ca01b9811c95912830da92506a78ddb043d73f558ed",
-        ),
-        (
-            "Random",
-            "dc771566d8d699804bb1f37b07e76c9300aa43688bea2374f791c7841202b793",
-        ),
-        (
-            "Stdio",
-            "7b0924e9cfd5da0b1b7370f3362a7d0af588b39286fca79c1e77fd74e7539ac1",
-        ),
-        (
-            "Time",
-            "9716bd900489a788940d3a76c41a30fca3162384bfdf34156649122d5a4b734c",
-        ),
+    let reserved: [(&str, u128); 9] = [
+        ("Stdio", 0x2),
+        ("Time", 0x3),
+        ("Random", 0x4),
+        ("Log", 0x5),
+        ("FileSystem", 0x6),
+        ("Network", 0x7),
+        ("Process", 0x8),
+        ("Env", 0x9),
+        ("Execute", 0xA),
     ];
 
-    for (name, expected_hex) in golden {
+    for (name, slot) in reserved {
         let ability = prelude
             .get(name)
             .unwrap_or_else(|| panic!("platform.ab must declare {name}"));
+        let expected = uuid::Uuid::from_u128(0xFFFF_FFFF_FFFF_FFFF_FFFD_0000_0000_0000 + slot);
         assert_eq!(
-            ability.id.to_hex(),
-            expected_hex,
-            "{name}'s ability id must be byte-stable"
+            ability.uuid, expected,
+            "{name}'s reserved uuid must be pinned"
+        );
+        assert_eq!(
+            ability.id,
+            ambient_core::AbilityId::from_uuid(&expected),
+            "{name}'s ability id must derive from its uuid"
         );
     }
 }
 
+/// Canonical signature hashes are the second `MethodKey` input, so the
+/// rendering (via the seeded inference context) must stay byte-stable: a
+/// drift re-keys every platform method at once. Spot-pin a monomorphic and
+/// a generic signature.
+#[test]
+fn signature_hashes_are_byte_stable() {
+    use ambient_core::SignatureHash;
+
+    let prelude = resolved_prelude();
+
+    let stdio = prelude.get("Stdio").expect("Stdio");
+    let out = stdio.method("out").expect("Stdio::out");
+    assert_eq!(
+        out.signature,
+        SignatureHash::new(&["string"], "unit"),
+        "Stdio::out must render (string) -> unit"
+    );
+
+    let execute = prelude.get("Execute").expect("Execute");
+    let run = execute.method("run").expect("Execute::run");
+    assert_eq!(
+        run.signature,
+        SignatureHash::new(&["string", "var0"], "var1"),
+        "Execute::run<T, R> must render position-canonical type variables"
+    );
+}
+
 /// `Exception` is declared in Ambient source (`core::exception`) rather than
 /// as an engine builtin, but the VM's throw/unwind path still keys on the
-/// content hash `ambient_core::exception::ability_id()`. The declaration must
-/// therefore reproduce that id byte-for-byte — otherwise a `throw` compiles to
-/// a perform the VM no longer recognizes as an exception. Resolve it through
-/// the same path a real check uses and pin it to the VM's anchor.
+/// anchors in `ambient_core::exception` (the reserved uuid and the derived
+/// `throw` method key). The declaration must reproduce them byte-for-byte —
+/// otherwise a `throw` compiles to a perform the VM no longer recognizes as
+/// an exception. Resolve it through the same path a real check uses and pin
+/// it to the VM's anchors.
 #[test]
 fn declared_exception_reproduces_the_vm_anchor_id() {
     let mut registry = ambient_engine::module_registry::ModuleRegistry::new();
@@ -206,6 +208,17 @@ fn declared_exception_reproduces_the_vm_anchor_id() {
         ambient_core::exception::ability_id(),
         "core::exception::Exception must reproduce the VM's Exception id"
     );
+    assert_eq!(exception.uuid, ambient_core::exception::EXCEPTION_UUID);
     assert_eq!(exception.methods.len(), 1);
-    assert_eq!(exception.methods[0].name.as_ref(), "throw");
+    let throw = &exception.methods[0];
+    assert_eq!(throw.name.as_ref(), "throw");
+    assert!(
+        !throw.has_impl,
+        "`throw` is the one abstract ability method (unhandled = uncaught)"
+    );
+    assert_eq!(
+        ambient_core::MethodKey::derive(&exception.uuid, &throw.signature, None),
+        ambient_core::exception::throw_method_key(),
+        "the declared signature must reproduce the VM's throw method key"
+    );
 }
