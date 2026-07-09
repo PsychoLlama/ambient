@@ -7,3 +7,4 @@ description = "Core abilities and types for the Ambient language"
 [dependencies]
 blake3.workspace = true
 serde.workspace = true
+uuid.workspace = true

@@ -10,6 +10,7 @@
 mod canonical;
 mod descriptor;
 pub mod exception;
+mod identity;
 
 use std::fmt;
 
@@ -19,6 +20,7 @@ pub use canonical::{
 pub use descriptor::{
     AbilityDescriptor, AbilityProvider, MethodDescriptor, MethodSignature, TypeFactory,
 };
+pub use identity::{MethodKey, SignatureHash};
 
 /// Content-addressed ability identity.
 ///
@@ -34,6 +36,23 @@ pub use descriptor::{
 pub struct AbilityId([u8; 32]);
 
 impl AbilityId {
+    /// Derive an ability's identity from its declaration uuid.
+    ///
+    /// Abilities are nominal: the `unique(<uuid>)` prefix *is* the
+    /// identity, so renaming an ability, renaming its methods, or moving
+    /// the declaration to another module never changes its `AbilityId`,
+    /// and two same-shaped abilities with different uuids never collide.
+    /// The uuid is domain-hashed (rather than embedded) so an `AbilityId`
+    /// is the same shape as every other 32-byte identity and is never
+    /// parsed back into its inputs.
+    #[must_use]
+    pub fn from_uuid(uuid: &uuid::Uuid) -> Self {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"ambient/ability-id/v2");
+        hasher.update(uuid.as_bytes());
+        Self(*hasher.finalize().as_bytes())
+    }
+
     /// Construct an ability ID from raw hash bytes.
     #[must_use]
     pub const fn from_bytes(bytes: [u8; 32]) -> Self {
