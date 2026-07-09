@@ -150,7 +150,7 @@ error handling.
 
 All IO is blocking. There is no `Async` ability and no async/await-style
 primitives — this is intentional. A perform like `core::system::Network::receive!`
-simply blocks the calling code until the host handler returns.
+simply blocks the calling code until the native call returns.
 
 Concurrency comes from the Erlang-inspired **process model** (see
 [processes.md](processes.md)): named reducer processes with isolated state,
@@ -170,10 +170,10 @@ and Future Work below for where this is headed.
 
 Errors are abilities: `Exception::throw!` raises, and the nearest enclosing
 `with ... handle` for Exception catches (catch-and-continue). Fallible host
-operations raise a catchable `Exception` at the perform site rather than
-returning `Result`, so IO signatures stay honest and callers can substitute
-a fallback and resume. `Option`/`Result` remain ordinary data types for
-domain modeling.
+operations currently raise a catchable `Exception` at the call site rather
+than returning `Result` (the resume-with-substitute part of that pattern is
+slated for removal in favor of plain `Result` returns on fallible APIs).
+`Option`/`Result` remain ordinary data types for domain modeling.
 
 See **[Error Handling in abilities.md](abilities.md#error-handling)** for the
 full treatment, including host failures as exceptions and the
@@ -449,13 +449,13 @@ Roughly in priority order:
   helpers). Target roughly the granularity of Go's or Node's standard
   libraries. Generic trait bounds would unlock `contains`/`sort_by`.
 - **Cross-module ability imports.** The platform-bindings split is
-  done: platform abilities are pure in-language declarations
-  (`platform.ab`) embodied by host FFI, the engine crate knows only
-  Exception, and embedders wire declaration hashes to handlers by
-  method name. What remains is the general form: exporting an
-  `ability` from one user module and importing it in another (exports
-  carry the kind but consumers don't hydrate them yet), plus REPL
-  registration of user-declared abilities.
+  done: platform abilities are in-language declarations (`platform.ab`)
+  whose default implementations call module-private extern fns, the
+  engine crate knows only Exception, and embedders bind natives by
+  uuid. What remains is the general form: exporting an `ability` from
+  one user module and importing it in another (exports carry the kind
+  but consumers don't hydrate them yet), plus REPL registration of
+  user-declared abilities.
 - **Workspace mechanism (multi-package local development).** Resolve
   sibling packages by name, share a build directory, and compile
   independent packages in parallel. Lands before the package manager, and

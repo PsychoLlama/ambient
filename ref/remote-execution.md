@@ -20,12 +20,16 @@ ability handlers — nothing proxies back to the caller. Effects reach it
 two ways:
 
 - **Host grants** (`ExecuteConfig::grants`): the executing host decides
-  which host handlers each isolated VM gets. The CLI grants Stdio and
-  Log — shipped code can print/log on the executing host but has no
-  Network, Time, Random, or recursive Execute. Performing an ungranted
-  ability is a hard unhandled-ability error. This is the wasm-style
-  split: the engine is pure; hosts bind effectful capabilities to pure
-  ability interfaces, and different embeddings grant different sets.
+  which native implementations each isolated VM gets — granting an
+  ability means registering the natives its default implementations
+  call. The CLI grants Stdio (and Log through it, since Log's defaults
+  perform Stdio) — shipped code can print/log on the executing host but
+  has no FileSystem, Network, Time, Random, or recursive Execute:
+  ungranted performs run their default implementations into stub
+  natives that raise a loud, catchable "not wired" exception. This is
+  the wasm-style split: the engine is pure; hosts bind capabilities at
+  the extern-fn boundary, and different embeddings grant different
+  sets.
 - **Shipped handlers** (`Execute.run_with(hash, arg, handler)`): a
   first-class handler value travels with the call — its methods are
   content-addressed functions, shipped in packs like any code — and is
