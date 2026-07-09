@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::{Value, VmError};
 
 use super::{
-    NativeRegistry, arg, bind, list, module, number, slice_bound, string, type_error, usize_index,
+    NativeRegistry, arg, bind, list, module, number, slice_bound, type_error, usize_index,
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -123,26 +123,26 @@ fn map_empty(_args: Vec<Value>) -> Result<Value, VmError> {
 
 fn map_get(mut args: Vec<Value>) -> Result<Value, VmError> {
     let m = map_arg(&mut args, 0, "map_get")?;
-    let key = string(&mut args, 1, "map_get")?;
+    let key = arg(&mut args, 1);
     Ok(m.get(&key).cloned().map_or_else(Value::none, Value::some))
 }
 
 fn map_insert(mut args: Vec<Value>) -> Result<Value, VmError> {
     let m = map_arg(&mut args, 0, "map_insert")?;
-    let key = string(&mut args, 1, "map_insert")?;
+    let key = arg(&mut args, 1);
     let value = arg(&mut args, 2);
-    Ok(Value::Map(Arc::new(m.insert(&**key, value))))
+    Ok(Value::Map(Arc::new(m.insert(key, value))))
 }
 
 fn map_remove(mut args: Vec<Value>) -> Result<Value, VmError> {
     let m = map_arg(&mut args, 0, "map_remove")?;
-    let key = string(&mut args, 1, "map_remove")?;
+    let key = arg(&mut args, 1);
     Ok(Value::Map(Arc::new(m.remove(&key))))
 }
 
 fn map_contains(mut args: Vec<Value>) -> Result<Value, VmError> {
     let m = map_arg(&mut args, 0, "map_contains")?;
-    let key = string(&mut args, 1, "map_contains")?;
+    let key = arg(&mut args, 1);
     Ok(Value::Bool(m.contains_key(&key)))
 }
 
@@ -154,12 +154,7 @@ fn map_length(mut args: Vec<Value>) -> Result<Value, VmError> {
 
 fn map_keys(mut args: Vec<Value>) -> Result<Value, VmError> {
     let m = map_arg(&mut args, 0, "map_keys")?;
-    let keys: Vec<Value> = m
-        .keys()
-        .into_iter()
-        .map(|k| Value::String(Arc::new((*k).to_string())))
-        .collect();
-    Ok(Value::list(keys))
+    Ok(Value::list(m.keys()))
 }
 
 fn map_values(mut args: Vec<Value>) -> Result<Value, VmError> {

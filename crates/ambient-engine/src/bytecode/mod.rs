@@ -301,11 +301,10 @@ fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
         Value::Map(map) => {
             const TYPE_MAP: u8 = 12;
             hasher.update(&[TYPE_MAP]);
-            // BTreeMap is already sorted, so iteration order is deterministic
+            // Entries are in insertion order, so iteration is deterministic.
             hasher.update(&(map.entries.len() as u32).to_le_bytes());
             for (key, val) in &map.entries {
-                hasher.update(&(key.len() as u32).to_le_bytes());
-                hasher.update(key.as_bytes());
+                hash_value(hasher, key);
                 hash_value(hasher, val);
             }
         }

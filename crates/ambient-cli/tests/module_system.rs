@@ -915,6 +915,37 @@ pub fn set_len(s: Set<Number>): Number { s.length() }
 }
 
 #[test]
+fn map_and_set_keys_are_not_restricted_to_strings() {
+    // `Map<K, V>`/`Set<T>` are declared fully generic and the checker accepts
+    // any key type; the runtime must honor the same contract. A well-typed
+    // program keyed by `Number`, a tuple, and a record must *run*, not crash
+    // with "expected String". This is the regression that motivated the work:
+    // before, only string keys survived the native boundary.
+    let dir = package(&[(
+        "main.ab",
+        r#"pub fn run(): Number {
+  // Number keys: insert replaces in place, get/remove/keys all work.
+  let nums = Map::empty().insert(4, 1).insert(9, 2).insert(4, 10);
+  // Tuple key.
+  let tup = Map::empty().insert((1, 2), 100);
+  // Record key — equal by structure regardless of field order.
+  let rec = Map::empty().insert({ x: 1, y: 2 }, 1000);
+  // Set of Numbers round-trips through to_list, deduping on the way.
+  let set = Set::empty().insert(7).insert(7).insert(8);
+  nums.length()                                  // 2
+    + nums.get(4).unwrap_or(0)                   // 10
+    + tup.get((1, 2)).unwrap_or(0)               // 100
+    + rec.get({ y: 2, x: 1 }).unwrap_or(0)       // 1000
+    + set.to_list().sum()                        // 15
+    + set.length()                               // 2
+}
+"#,
+    )]);
+    // 2 + 10 + 100 + 1000 + 15 + 2 = 1129.
+    assert_eq!(run(dir.path()), "1129");
+}
+
+#[test]
 fn container_names_cannot_be_redeclared() {
     // The reserved-identity rule: resolution is scope-based, but declaring a
     // struct *named* `List` (without the reserved uuid, which only the core

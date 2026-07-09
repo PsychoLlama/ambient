@@ -84,8 +84,8 @@ pub enum Value {
     /// `List<T>`
     List(Arc<Vec<Value>>),
 
-    /// A map: key-value collection with string keys.
-    /// `Map<K, V>` where K is always string for now (simplifies hashing).
+    /// A map: key-value collection keyed by arbitrary values.
+    /// `Map<K, V>` - keys are compared by value equality, like `Set<T>`.
     Map(Arc<MapValue>),
 
     /// A set: collection of unique values.
@@ -115,58 +115,60 @@ pub struct ModuleMemberRef {
     pub kind: ModuleExportKind,
 }
 
-/// A map value with string keys.
-///
-/// Uses a `BTreeMap` internally for deterministic ordering during
-/// serialization and equality comparisons.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// A map value keyed by arbitrary values: keys compare by `Value::eq` (like
+/// `Set<T>`), so numbers, tuples, and records all work. Entries are a `Vec` in
+/// insertion order; `insert` replaces a key in place. There is no `Ord` here.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MapValue {
-    /// The key-value pairs, stored in a sorted map for deterministic ordering.
-    pub entries: std::collections::BTreeMap<Arc<str>, Value>,
+    /// The key-value pairs, in insertion order. Keys are unique by `Value::eq`.
+    pub entries: Vec<(Value, Value)>,
 }
 
 impl MapValue {
     /// Create a new empty map.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            entries: std::collections::BTreeMap::new(),
-        }
+        Self::default()
     }
 
-    /// Create a map from an iterator of key-value pairs.
-    pub fn from_entries(iter: impl IntoIterator<Item = (impl Into<Arc<str>>, Value)>) -> Self {
-        Self {
-            entries: iter.into_iter().map(|(k, v)| (k.into(), v)).collect(),
-        }
+    /// Create a map from key-value pairs; a later equal key replaces in place.
+    pub fn from_entries(iter: impl IntoIterator<Item = (Value, Value)>) -> Self {
+        iter.into_iter()
+            .fold(Self::new(), |map, (k, v)| map.insert(k, v))
     }
 
     /// Get a value by key.
     #[must_use]
-    pub fn get(&self, key: &str) -> Option<&Value> {
-        self.entries.get(key)
+    pub fn get(&self, key: &Value) -> Option<&Value> {
+        self.entries.iter().find(|(k, _)| k == key).map(|(_, v)| v)
     }
 
-    /// Insert a key-value pair, returning a new map.
+    /// Insert a key-value pair, returning a new map. An existing key keeps its
+    /// position and has only its value replaced.
     #[must_use]
-    pub fn insert(&self, key: impl Into<Arc<str>>, value: Value) -> Self {
+    pub fn insert(&self, key: Value, value: Value) -> Self {
         let mut entries = self.entries.clone();
-        entries.insert(key.into(), value);
+        if let Some(slot) = entries.iter_mut().find(|(k, _)| *k == key) {
+            slot.1 = value;
+        } else {
+            entries.push((key, value));
+        }
         Self { entries }
     }
 
     /// Remove a key, returning a new map.
     #[must_use]
-    pub fn remove(&self, key: &str) -> Self {
-        let mut entries = self.entries.clone();
-        entries.remove(key);
-        Self { entries }
+    pub fn remove(&self, key: &Value) -> Self {
+        let entries = self.entries.iter().filter(|(k, _)| k != key);
+        Self {
+            entries: entries.cloned().collect(),
+        }
     }
 
     /// Check if the map contains a key.
     #[must_use]
-    pub fn contains_key(&self, key: &str) -> bool {
-        self.entries.contains_key(key)
+    pub fn contains_key(&self, key: &Value) -> bool {
+        self.entries.iter().any(|(k, _)| k == key)
     }
 
     /// Get the number of entries.
@@ -181,22 +183,16 @@ impl MapValue {
         self.entries.is_empty()
     }
 
-    /// Get all keys as a list.
+    /// Get all keys as a list, in insertion order.
     #[must_use]
-    pub fn keys(&self) -> Vec<Arc<str>> {
-        self.entries.keys().cloned().collect()
+    pub fn keys(&self) -> Vec<Value> {
+        self.entries.iter().map(|(k, _)| k.clone()).collect()
     }
 
-    /// Get all values as a list.
+    /// Get all values as a list, in insertion order.
     #[must_use]
     pub fn values(&self) -> Vec<Value> {
-        self.entries.values().cloned().collect()
-    }
-}
-
-impl Default for MapValue {
-    fn default() -> Self {
-        Self::new()
+        self.entries.iter().map(|(_, v)| v.clone()).collect()
     }
 }
 
@@ -838,7 +834,7 @@ impl Value {
 
     /// Create a new map value from key-value pairs.
     #[must_use]
-    pub fn map(entries: impl IntoIterator<Item = (impl Into<Arc<str>>, Value)>) -> Self {
+    pub fn map(entries: impl IntoIterator<Item = (Value, Value)>) -> Self {
         Self::Map(Arc::new(MapValue::from_entries(entries)))
     }
 
@@ -1100,24 +1096,26 @@ mod tests {
 
     #[test]
     fn test_map_value_operations() {
-        let map = MapValue::new();
-        assert!(map.is_empty());
-        assert_eq!(map.len(), 0);
-
-        let map = map.insert("key1", Value::Number(1.0));
-        assert!(!map.is_empty());
-        assert_eq!(map.len(), 1);
-        assert!(map.contains_key("key1"));
-        assert_eq!(map.get("key1"), Some(&Value::Number(1.0)));
-
-        let map = map.insert("key2", Value::Number(2.0));
+        let (key1, key2) = (Value::string("key1"), Value::string("key2"));
+        let map = MapValue::new()
+            .insert(key1.clone(), Value::Number(1.0))
+            .insert(key2.clone(), Value::Number(2.0));
+        assert!(map.contains_key(&key1));
+        assert_eq!(map.get(&key1), Some(&Value::Number(1.0)));
         assert_eq!(map.len(), 2);
-        assert_eq!(map.keys().len(), 2);
-        assert_eq!(map.values().len(), 2);
 
-        let map = map.remove("key1");
-        assert_eq!(map.len(), 1);
-        assert!(!map.contains_key("key1"));
+        // Re-inserting an existing key replaces its value in place, not its slot.
+        let map = map.insert(key1.clone(), Value::Number(9.0));
+        assert_eq!(map.get(&key1), Some(&Value::Number(9.0)));
+        assert_eq!(map.keys(), vec![key1.clone(), key2.clone()]);
+
+        // A non-string key round-trips like any other value.
+        let map = map.insert(Value::Number(4.0), Value::Number(5.0));
+        assert_eq!(map.get(&Value::Number(4.0)), Some(&Value::Number(5.0)));
+
+        let map = map.remove(&key1);
+        assert_eq!(map.len(), 2);
+        assert!(!map.contains_key(&key1));
     }
 
     #[test]

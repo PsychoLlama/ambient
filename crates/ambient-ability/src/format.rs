@@ -257,11 +257,12 @@ fn format_map(map: &crate::value::MapValue, color: bool, mode: FormatMode) -> St
         .entries
         .iter()
         .map(|(k, v)| {
+            let k_str = format_value_impl(k, mode);
             let v_str = format_value_impl(v, mode);
             if color {
-                format!("{}{k}{}: {v_str}", colors::CYAN, colors::RESET)
+                format!("{}{k_str}{}: {v_str}", colors::CYAN, colors::RESET)
             } else {
-                format!("{k}: {v_str}")
+                format!("{k_str}: {v_str}")
             }
         })
         .collect();
