@@ -17,91 +17,125 @@ impl Resolver<'_> {
     pub(super) fn resolve(&mut self, module: &mut Module) {
         // Split the borrow: the resolver holds no reference into `module`.
         for item in &mut module.items {
-            match &mut item.kind {
-                ItemKind::Function(f) => {
-                    for ability in &mut f.abilities {
+            self.resolve_item(&mut item.kind);
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn resolve_item(&mut self, item: &mut ItemKind) {
+        match item {
+            ItemKind::Function(f) => {
+                self.push_type_params(&f.type_params);
+                for ability in &mut f.abilities {
+                    self.resolve_ability_ref(ability);
+                }
+                for param in &mut f.params {
+                    if let Some(ty) = &mut param.ty {
+                        self.resolve_type(ty);
+                    }
+                }
+                if let Some(ty) = &mut f.ret_ty {
+                    self.resolve_type(ty);
+                }
+                self.push_scope(f.params.iter().map(|p| Arc::clone(&p.name)).collect());
+                self.resolve_expr(&mut f.body);
+                self.pop_scope();
+                self.pop_type_params();
+            }
+            ItemKind::Const(c) => {
+                if let Some(ty) = &mut c.ty {
+                    self.resolve_type(ty);
+                }
+                self.resolve_expr(&mut c.value);
+            }
+            ItemKind::Ability(a) => {
+                for dep in &mut a.dependencies {
+                    self.resolve_ability_ref(dep);
+                }
+                for method in &mut a.methods {
+                    self.push_type_params(&method.type_params);
+                    for (_, ty) in &mut method.params {
+                        self.resolve_type(ty);
+                    }
+                    self.resolve_type(&mut method.ret_ty);
+                    self.pop_type_params();
+                }
+            }
+            ItemKind::Impl(imp) => {
+                // The block's own params (`impl<T> Foo<T>`) scope the
+                // `for` type and every method; each method's own params
+                // nest inside for that method's signature and body.
+                self.push_type_params(&imp.type_params);
+                self.resolve_type(&mut imp.for_type);
+                for method in &mut imp.methods {
+                    self.push_type_params(&method.type_params);
+                    for ability in &mut method.abilities {
                         self.resolve_ability_ref(ability);
                     }
-                    for param in &mut f.params {
+                    for param in &mut method.params {
                         if let Some(ty) = &mut param.ty {
                             self.resolve_type(ty);
                         }
                     }
-                    if let Some(ty) = &mut f.ret_ty {
+                    if let Some(ty) = &mut method.ret_ty {
                         self.resolve_type(ty);
                     }
-                    self.push_scope(f.params.iter().map(|p| Arc::clone(&p.name)).collect());
-                    self.resolve_expr(&mut f.body);
+                    let mut names: Vec<Arc<str>> =
+                        method.params.iter().map(|p| Arc::clone(&p.name)).collect();
+                    if method.has_self {
+                        names.push(Arc::from("self"));
+                    }
+                    self.push_scope(names);
+                    self.resolve_expr(&mut method.body);
                     self.pop_scope();
+                    self.pop_type_params();
                 }
-                ItemKind::Const(c) => {
-                    if let Some(ty) = &mut c.ty {
+                self.pop_type_params();
+            }
+            ItemKind::Struct(s) => {
+                self.push_type_params(&s.type_params);
+                self.resolve_type(&mut s.ty);
+                self.pop_type_params();
+            }
+            ItemKind::TypeAlias(t) => {
+                self.push_type_params(&t.type_params);
+                self.resolve_type(&mut t.ty);
+                self.pop_type_params();
+            }
+            ItemKind::Enum(e) => {
+                self.push_type_params(&e.type_params);
+                for variant in &mut e.variants {
+                    if let Some(payload) = &mut variant.payload {
+                        self.resolve_type(payload);
+                    }
+                }
+                self.pop_type_params();
+            }
+            ItemKind::Trait(t) => {
+                // Trait-level params (`trait Container<T>`) scope every
+                // method signature; each method's own params nest inside.
+                self.push_type_params(&t.type_params);
+                for method in &mut t.methods {
+                    self.push_type_params(&method.type_params);
+                    for (_, ty) in &mut method.params {
                         self.resolve_type(ty);
                     }
-                    self.resolve_expr(&mut c.value);
+                    self.resolve_type(&mut method.ret_ty);
+                    self.pop_type_params();
                 }
-                ItemKind::Ability(a) => {
-                    for dep in &mut a.dependencies {
-                        self.resolve_ability_ref(dep);
-                    }
-                    for method in &mut a.methods {
-                        for (_, ty) in &mut method.params {
-                            self.resolve_type(ty);
-                        }
-                        self.resolve_type(&mut method.ret_ty);
-                    }
-                }
-                ItemKind::Impl(imp) => {
-                    self.resolve_type(&mut imp.for_type);
-                    for method in &mut imp.methods {
-                        for ability in &mut method.abilities {
-                            self.resolve_ability_ref(ability);
-                        }
-                        for param in &mut method.params {
-                            if let Some(ty) = &mut param.ty {
-                                self.resolve_type(ty);
-                            }
-                        }
-                        if let Some(ty) = &mut method.ret_ty {
-                            self.resolve_type(ty);
-                        }
-                        let mut names: Vec<Arc<str>> =
-                            method.params.iter().map(|p| Arc::clone(&p.name)).collect();
-                        if method.has_self {
-                            names.push(Arc::from("self"));
-                        }
-                        self.push_scope(names);
-                        self.resolve_expr(&mut method.body);
-                        self.pop_scope();
-                    }
-                }
-                ItemKind::Struct(s) => self.resolve_type(&mut s.ty),
-                ItemKind::TypeAlias(t) => self.resolve_type(&mut t.ty),
-                ItemKind::Enum(e) => {
-                    for variant in &mut e.variants {
-                        if let Some(payload) = &mut variant.payload {
-                            self.resolve_type(payload);
-                        }
-                    }
-                }
-                ItemKind::Trait(t) => {
-                    for method in &mut t.methods {
-                        for (_, ty) in &mut method.params {
-                            self.resolve_type(ty);
-                        }
-                        self.resolve_type(&mut method.ret_ty);
-                    }
-                }
-                ItemKind::ExternFn(e) => {
-                    for param in &mut e.params {
-                        if let Some(ty) = &mut param.ty {
-                            self.resolve_type(ty);
-                        }
-                    }
-                    self.resolve_type(&mut e.ret_ty);
-                }
-                ItemKind::Use(_) => {}
+                self.pop_type_params();
             }
+            ItemKind::ExternFn(e) => {
+                self.push_type_params(&e.type_params);
+                for param in &mut e.params {
+                    if let Some(ty) = &mut param.ty {
+                        self.resolve_type(ty);
+                    }
+                }
+                self.resolve_type(&mut e.ret_ty);
+                self.pop_type_params();
+            }
+            ItemKind::Use(_) => {}
         }
     }
 
@@ -111,6 +145,15 @@ impl Resolver<'_> {
 
     fn pop_scope(&mut self) {
         self.locals.pop();
+    }
+
+    fn push_type_params(&mut self, params: &[crate::ast::TypeParam]) {
+        self.type_params
+            .push(params.iter().map(|p| Arc::clone(&p.name)).collect());
+    }
+
+    fn pop_type_params(&mut self) {
+        self.type_params.pop();
     }
 
     fn declare_local(&mut self, name: Arc<str>) {

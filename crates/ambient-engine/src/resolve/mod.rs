@@ -107,6 +107,12 @@ struct Resolver<'r> {
     /// Lexical scope stack of local binding names (params, lets, pattern
     /// bindings, handler params). Locals shadow everything.
     locals: Vec<Vec<Arc<str>>>,
+    /// Scope stack of in-scope type-parameter names (a declaration's
+    /// `<T, U>` generics), innermost last. A bare type head that names one
+    /// of these is a type parameter, not a nominal reference, and stays
+    /// bare — mirroring the checker's `rigid_params`. Nesting composes: an
+    /// impl block's params stay in scope for its methods' own params.
+    type_params: Vec<Vec<Arc<str>>>,
     /// Import overlays from block-scoped `use` statements, innermost
     /// last. Consulted before the module scope; popped with their block.
     overlays: Vec<ModuleScope>,
@@ -175,6 +181,7 @@ impl<'r> Resolver<'r> {
             module_types,
             module_abilities,
             locals: Vec::new(),
+            type_params: Vec::new(),
             overlays: Vec::new(),
             import_errors: Vec::new(),
             deps: BTreeSet::new(),
@@ -205,6 +212,15 @@ impl<'r> Resolver<'r> {
 
     fn is_local(&self, name: &str) -> bool {
         self.locals
+            .iter()
+            .any(|frame| frame.iter().any(|n| n.as_ref() == name))
+    }
+
+    /// Whether `name` is an in-scope type parameter of an enclosing
+    /// declaration. A bare type head naming one is a `Type::Param`, not a
+    /// nominal reference, so the resolve pass leaves it bare.
+    pub(super) fn is_type_param(&self, name: &str) -> bool {
+        self.type_params
             .iter()
             .any(|frame| frame.iter().any(|n| n.as_ref() == name))
     }

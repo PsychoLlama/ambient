@@ -1,9 +1,9 @@
 use super::*;
 use crate::ast::{
-    AbilityDef, ConstDef, EnumDef, EnumVariant, Expr, FunctionDef, Item, ItemKind, Module,
-    QualifiedName, Span,
+    AbilityDef, ConstDef, EnumDef, EnumVariant, Expr, FunctionDef, Item, ItemKind, Module, Param,
+    QualifiedName, Span, TypeParam,
 };
-use crate::types::Type;
+use crate::types::{NamedType, Type};
 
 fn func(name: &str, body: Expr, abilities: Vec<QualifiedName>) -> Item {
     Item::new(
@@ -19,6 +19,53 @@ fn func(name: &str, body: Expr, abilities: Vec<QualifiedName>) -> Item {
         }),
         Span::default(),
     )
+}
+
+/// A bare `Type::Named` head with no args and no stamped identity — the
+/// shape every unresolved nominal reference starts as.
+fn named(name: &str) -> Type {
+    Type::Named(NamedType {
+        name: Arc::from(name),
+        args: vec![],
+        uuid: None,
+    })
+}
+
+/// `pub fn <name><type_params>(x: <param_ty>) { unit }` — a generic
+/// function whose single parameter carries `param_ty` as its annotation.
+fn generic_func(name: &str, type_params: &[&str], param_ty: Type) -> Item {
+    Item::new(
+        ItemKind::Function(FunctionDef {
+            name: Arc::from(name),
+            name_span: Span::default(),
+            is_public: true,
+            type_params: type_params
+                .iter()
+                .map(|p| TypeParam {
+                    name: Arc::from(*p),
+                    span: Span::default(),
+                })
+                .collect(),
+            params: vec![Param {
+                id: 0,
+                name: Arc::from("x"),
+                ty: Some(param_ty),
+                span: Span::default(),
+            }],
+            ret_ty: None,
+            abilities: vec![],
+            body: Expr::unit(),
+        }),
+        Span::default(),
+    )
+}
+
+/// The annotated type of function `name`'s first parameter, after resolve.
+fn param_ty(module: &Module, name: &str) -> Option<Type> {
+    module.items.iter().find_map(|item| match &item.kind {
+        ItemKind::Function(f) if f.name.as_ref() == name => f.params[0].ty.clone(),
+        _ => None,
+    })
 }
 
 /// Resolve module `m` (single-package registry) and return it.
@@ -340,4 +387,23 @@ fn same_module_ability_reference_resolves_to_its_fqn() {
         _ => None,
     });
     assert_eq!(resolved, Some(registry.fqn(&path, &[Arc::from("A")])));
+}
+
+#[test]
+fn type_param_annotation_stays_bare() {
+    // `fn f<T>(x: T)` — the parameter annotation names the function's own
+    // type parameter, which has no nominal identity, so resolve leaves it
+    // a bare `Named{"T", uuid: None}` (the checker mints a `Type::Param`).
+    let (module, _registry, _path) = resolve_m(vec![generic_func("f", &["T"], named("T"))]);
+    assert_eq!(param_ty(&module, "f"), Some(named("T")));
+}
+
+#[test]
+fn type_param_shadowing_a_reserved_name_stays_bare() {
+    // `fn f<Number>(x: Number)` — the parameter shadows the primitive
+    // `Number`, so the annotation is the type parameter, not the primitive:
+    // it must stay bare (Phase 2's stamping keys off `is_type_param` first).
+    let (module, _registry, _path) =
+        resolve_m(vec![generic_func("f", &["Number"], named("Number"))]);
+    assert_eq!(param_ty(&module, "f"), Some(named("Number")));
 }
