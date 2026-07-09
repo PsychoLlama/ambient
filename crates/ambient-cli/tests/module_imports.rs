@@ -201,3 +201,114 @@ fn test_method_call_resolves_inside_perform_arguments() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("42"));
     drop(dir);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Same-named types and variants resolve to the right defining module.
+//
+// The resolve pass decides every nominal type head's and variant pattern's
+// identity, so a same-named local declaration never captures an imported one
+// (and vice versa), and a variant name shared by two enums never mis-dispatches.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_local_type_shadows_a_same_named_import() {
+    // The motivating bug (structural fix): a bare type head that could name
+    // either an imported type or a same-named local one resolves to the
+    // *local* declaration, exactly as a bare value reference does. `main`
+    // both imports `lib::Tag` and declares its own `Tag`; the bare annotation
+    // `Tag` on `f` resolves to the local enum, so the local `Local` variant
+    // satisfies it and the program runs.
+    let (dir, pkg) = temp_multi_package(&[
+        (
+            "lib.ab",
+            "pub unique(A1B2C3D4-0000-0000-0000-0000000000AA) enum Tag { Foreign }\n",
+        ),
+        (
+            "main.ab",
+            r"use pkg::lib::Tag;
+
+unique(A1B2C3D4-0000-0000-0000-0000000000BB) enum Tag { Local }
+
+// Bare `Tag` resolves to this module's own enum, not the import.
+pub fn f(t: Tag): Number { match t { Local => 1 } }
+
+pub fn run(): Number { f(Local) }
+",
+        ),
+    ]);
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("1"));
+    drop(dir);
+}
+
+#[test]
+fn test_foreign_value_does_not_satisfy_a_same_named_local_type() {
+    // The negative half: a value of the imported `lib::Tag` cannot flow into
+    // a parameter annotated with the bare (local) `Tag`, proving the bare
+    // head really resolved to the local nominal, not the imported one.
+    let (dir, pkg) = temp_multi_package(&[
+        (
+            "lib.ab",
+            "pub unique(A1B2C3D4-0000-0000-0000-0000000000AA) enum Tag { Foreign }\npub fn mk(): pkg::lib::Tag { Foreign }\n",
+        ),
+        (
+            "main.ab",
+            r"use pkg::lib;
+use pkg::lib::Tag;
+
+unique(A1B2C3D4-0000-0000-0000-0000000000BB) enum Tag { Local }
+pub fn f(t: Tag): Number { match t { Local => 1 } }
+pub fn run(): Number { f(pkg::lib::mk()) }
+",
+        ),
+    ]);
+    let output = ambient_cmd()
+        .arg("check")
+        .arg(&pkg)
+        .output()
+        .expect("check");
+    assert!(
+        !output.status.success(),
+        "a foreign value must not satisfy the same-named local type: {output:?}"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("Tag"),
+        "expected a type mismatch between the two Tag types: {output:?}"
+    );
+    drop(dir);
+}
+
+#[test]
+fn test_variant_pattern_binds_the_right_enum_despite_a_name_collision() {
+    // Two enums in different modules share a variant name `Val`. A `match` on
+    // the imported enum's value uses the module-qualified pattern `lib::Val`,
+    // which the resolve pass stamps with the imported variant's two-segment
+    // identity — so the checker binds the *imported* enum's variant by that
+    // identity and never confuses it with the local `Val`. (Previously the
+    // pattern's variant was looked up by bare name through a collision-prone
+    // reverse map.)
+    let (dir, pkg) = temp_multi_package(&[
+        (
+            "lib.ab",
+            "pub unique(A1B2C3D4-0000-0000-0000-0000000000AA) enum Wrap { Val(Number) }\npub fn wrapped(): pkg::lib::Wrap { Val(5) }\n",
+        ),
+        (
+            "main.ab",
+            r"use pkg::lib;
+
+unique(A1B2C3D4-0000-0000-0000-0000000000BB) enum Local { Val(Number) }
+
+pub fn run(): Number {
+  match pkg::lib::wrapped() {
+    lib::Val(n) => n
+  }
+}
+",
+        ),
+    ]);
+    let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
+    assert!(output.status.success(), "run failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("5"));
+    drop(dir);
+}

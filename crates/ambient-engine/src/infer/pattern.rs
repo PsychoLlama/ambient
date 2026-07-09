@@ -50,7 +50,22 @@ impl Infer {
             }
 
             PatternKind::Variant(variant_name, inner) => {
-                let Some((info, idx)) = self.enum_registry.resolve_variant(&variant_name.name)
+                // Resolved-first: the resolve pass stamps a variant pattern
+                // with its two-segment ident `Fqn(module, [Enum, Variant])`,
+                // so pick the enum by that ident's first segment and the
+                // variant by its second — a variant name shared by two enums
+                // never mis-dispatches. A registry-less check leaves
+                // `resolved` `None` and falls back to the bare-name reverse
+                // lookup (which the resolved path deliberately avoids).
+                let resolved = variant_name.resolved.as_ref().and_then(|fqn| {
+                    let enum_name = fqn.ident.first()?;
+                    let variant = fqn.ident.get(1)?;
+                    let info = self.enum_registry.get(enum_name)?;
+                    let idx = info.variants.iter().position(|v| v.name == *variant)?;
+                    Some((Arc::clone(info), idx))
+                });
+                let Some((info, idx)) =
+                    resolved.or_else(|| self.enum_registry.resolve_variant(&variant_name.name))
                 else {
                     return Err(type_error(
                         TypeErrorKind::UnknownVariant {

@@ -1,7 +1,7 @@
 use super::*;
 use crate::ast::{
-    AbilityDef, ConstDef, EnumDef, EnumVariant, Expr, FunctionDef, Item, ItemKind, Module, Param,
-    QualifiedName, Span, StructDef, TypeParam,
+    AbilityDef, ConstDef, EnumDef, EnumVariant, Expr, ExprKind, FunctionDef, Item, ItemKind,
+    MatchArm, Module, Param, Pattern, PatternKind, QualifiedName, Span, StructDef, TypeParam,
 };
 use crate::types::{NamedType, NominalType, RecordType, Type};
 
@@ -387,6 +387,39 @@ fn same_module_ability_reference_resolves_to_its_fqn() {
         _ => None,
     });
     assert_eq!(resolved, Some(registry.fqn(&path, &[Arc::from("A")])));
+}
+
+#[test]
+fn variant_pattern_resolves_to_two_segment_ident() {
+    // A match arm on a variant pattern is stamped with the same
+    // `Fqn(module, [Enum, Variant])` a constructor reference gets, so the
+    // checker can pick the enum and variant by identity rather than by a
+    // collision-prone bare-name reverse lookup.
+    let arm = MatchArm {
+        pattern: Pattern::variant("V", None),
+        guard: None,
+        body: Expr::unit(),
+    };
+    let body = Expr::match_expr(Expr::unit(), vec![arm]);
+    let items = vec![
+        enum_item("E", uuid::Uuid::from_u128(1)),
+        func("f", body, vec![]),
+    ];
+    let (module, registry, path) = resolve_m(items);
+    let resolved = module.items.iter().find_map(|item| match &item.kind {
+        ItemKind::Function(f) if f.name.as_ref() == "f" => match &f.body.kind {
+            ExprKind::Match(_, arms) => match &arms[0].pattern.kind {
+                PatternKind::Variant(name, _) => name.resolved.clone(),
+                _ => None,
+            },
+            _ => None,
+        },
+        _ => None,
+    });
+    assert_eq!(
+        resolved,
+        Some(registry.fqn(&path, &[Arc::from("E"), Arc::from("V")]))
+    );
 }
 
 /// A single-variant enum `<name>` with the given nominal uuid.

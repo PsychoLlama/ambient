@@ -156,6 +156,39 @@ impl Resolver<'_> {
         self.type_params.pop();
     }
 
+    /// Resolve the variant constructors named inside a match-arm pattern.
+    ///
+    /// A variant pattern (`Some(x)`, `shapes::Circle`) names a variant at a
+    /// pattern position exactly as a constructor expression names it at a
+    /// value position, so it goes through the *same* `resolve_value_ref`
+    /// machinery and lands on the same two-segment ident
+    /// `Fqn(module, [Enum, Variant])`. The checker then picks the enum and
+    /// variant by that `Fqn` rather than by a bare-name reverse lookup, so a
+    /// variant name shared by two enums never mis-dispatches. Binding names
+    /// inside the pattern are locals (handled by `collect_pattern_bindings`),
+    /// not references.
+    fn resolve_pattern(&mut self, pattern: &mut Pattern) {
+        match &mut pattern.kind {
+            PatternKind::Wildcard | PatternKind::Binding(..) | PatternKind::Literal(_) => {}
+            PatternKind::Tuple(elems) => {
+                for elem in elems {
+                    self.resolve_pattern(elem);
+                }
+            }
+            PatternKind::Record(fields) => {
+                for (_, field) in fields {
+                    self.resolve_pattern(field);
+                }
+            }
+            PatternKind::Variant(name, payload) => {
+                self.resolve_value_ref(name);
+                if let Some(payload) = payload {
+                    self.resolve_pattern(payload);
+                }
+            }
+        }
+    }
+
     fn declare_local(&mut self, name: Arc<str>) {
         if let Some(top) = self.locals.last_mut() {
             top.push(name);
@@ -259,6 +292,7 @@ impl Resolver<'_> {
             ExprKind::Match(scrutinee, arms) => {
                 self.resolve_expr(scrutinee);
                 for arm in arms {
+                    self.resolve_pattern(&mut arm.pattern);
                     let mut bindings = Vec::new();
                     collect_pattern_bindings(&arm.pattern, &mut bindings);
                     self.push_scope(bindings);
