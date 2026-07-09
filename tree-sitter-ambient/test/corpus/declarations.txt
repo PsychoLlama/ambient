@@ -179,10 +179,10 @@ Ability with dependency
 ================================================================================
 
 unique(D098767B-4093-4D5C-BA37-AD92AA7B5D99) ability Log
-  with Console
+  with core::system::Stdio
 {
   fn info(message: string): () {
-    Console::print(message)
+    core::system::Stdio::out(message)
   }
 }
 
@@ -194,8 +194,11 @@ unique(D098767B-4093-4D5C-BA37-AD92AA7B5D99) ability Log
       (uuid))
     name: (identifier)
     (ability_dependency
-      (identifier_list
-        (identifier)))
+      (scoped_identifier
+        path: (scoped_identifier
+          path: (identifier)
+          name: (identifier))
+        name: (identifier)))
     (ability_method
       name: (identifier)
       (parameter_list
@@ -206,7 +209,11 @@ unique(D098767B-4093-4D5C-BA37-AD92AA7B5D99) ability Log
       body: (block
         (call_expression
           (scoped_identifier
-            path: (identifier)
+            path: (scoped_identifier
+              path: (scoped_identifier
+                path: (identifier)
+                name: (identifier))
+              name: (identifier))
             name: (identifier))
           (argument_list
             (identifier)))))))

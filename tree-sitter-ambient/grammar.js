@@ -185,7 +185,10 @@ module.exports = grammar({
         "}"
       ),
 
-    ability_dependency: ($) => seq("with", $.identifier_list),
+    // Dependencies are abilities, so they take the same references as any
+    // other `with` clause — bare (`Stdio`) or fully-qualified
+    // (`core::system::Stdio`).
+    ability_dependency: ($) => seq("with", $._ability_list),
 
     ability_method: ($) =>
       seq(
@@ -272,7 +275,9 @@ module.exports = grammar({
     _ability_list: ($) =>
       prec.left(seq($._ability_ref, repeat(seq(",", $._ability_ref)))),
 
-    _ability_ref: ($) => choice($.identifier, "_"),
+    // An ability reference: bare (`Stdio`), fully-qualified
+    // (`core::system::Stdio`), or `_` (ability-polymorphic).
+    _ability_ref: ($) => choice($.identifier, $.scoped_identifier, "_"),
 
     _type: ($) =>
       choice(
