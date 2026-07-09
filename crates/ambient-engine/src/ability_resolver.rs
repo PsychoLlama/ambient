@@ -582,6 +582,16 @@ impl CanonicalTypeRenderer {
                 format!("named:{name}")
             }
             Type::Handler(handler) => format!("handler<{}>", handler.ability.to_hex()),
+            // `resolve_ability_def` resolves signatures before rendering, so
+            // the unresolved surface form never reaches interface hashing —
+            // a tripwire, not a live path.
+            Type::HandlerAnnotation(h) => {
+                debug_assert!(
+                    false,
+                    "HandlerAnnotation reached CanonicalTypeRenderer: {h:?}"
+                );
+                format!("handler<?{}>", h.ability)
+            }
         }
     }
 

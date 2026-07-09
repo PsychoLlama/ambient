@@ -137,6 +137,15 @@ pub enum Type {
     /// Represents a first-class handler that can handle ability `A`.
     Handler(HandlerType),
 
+    /// The unresolved surface form of a `Handler<A, R>` annotation — see
+    /// [`HandlerAnnotationType`]. `Handler` is type *syntax* (like function
+    /// arrows and tuples), not a nominal name: its first argument `A` is an
+    /// **ability** reference, not a type. The parser recognizes the form and
+    /// lowers it here; [`Infer::resolve_holes`](crate::infer::Infer::resolve_holes)
+    /// resolves `A` under the ability-namespace policy and rewrites this to
+    /// [`Type::Handler`]. It never survives type checking.
+    HandlerAnnotation(HandlerAnnotationType),
+
     // ─────────────────────────────────────────────────────────────────────────
     // Special types
     // ─────────────────────────────────────────────────────────────────────────
@@ -259,6 +268,20 @@ pub struct HandlerType {
     /// The answer type `R`: what an arm produces when it returns without
     /// resuming (== the handle expression's result type).
     pub answer: Box<Type>,
+}
+
+/// The unresolved surface form of `Handler<A, R>` — see
+/// [`Type::HandlerAnnotation`]. Holds the ability *reference* `A` (not yet an
+/// id) and the optional answer type `R`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandlerAnnotationType {
+    /// The ability reference `A` as written, `::`-joined if qualified
+    /// (`Stdio`, `core::system::Stdio`). Resolved through the ability
+    /// namespace, not the type namespace.
+    pub ability: Arc<str>,
+    /// The answer type `R`, or `None` when omitted (`Handler<A>` means "R
+    /// inferred"), in which case the checker mints a fresh variable.
+    pub answer: Option<Box<Type>>,
 }
 
 impl HandlerType {

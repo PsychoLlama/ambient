@@ -148,6 +148,23 @@ pub(super) fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
             ))
         }
 
+        // `Handler<A>` / `Handler<A, R>`: a dedicated node, not a nominal
+        // name. `A` is an ability reference (`::`-joined if qualified),
+        // resolved by the checker through the ability namespace; `R` the
+        // optional answer type.
+        CstTypeExprKind::Handler { ability, answer } => {
+            let answer = answer
+                .as_ref()
+                .map(|ty| lower_type(ty).map(Box::new))
+                .transpose()?;
+            Ok(Type::HandlerAnnotation(
+                ambient_engine::types::HandlerAnnotationType {
+                    ability: type_name_from_segments(ability),
+                    answer,
+                },
+            ))
+        }
+
         // The never type `!` lowers straight to `Type::Never` — the checker's
         // canonical bottom type. (An ability method returning `!`, such as
         // `Exception::throw`, must render `never` for its interface hash and

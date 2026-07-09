@@ -578,13 +578,13 @@ fn report_undefined_types(
     errors: &mut Vec<BoxedTypeError>,
 ) {
     match ty {
-        // `Handler<A>` / `Handler<A, R>`: the head is a builtin type
-        // constructor (`resolve_holes` lowers it to `Type::Handler`), and its
-        // first argument is an *ability* name resolved through the ability
-        // namespace — not a type, so it must not be flagged here. Only the
-        // optional answer type (`R`) is a real type annotation to check.
-        Type::Named(n) if n.name.as_ref() == "Handler" && matches!(n.args.len(), 1 | 2) => {
-            if let Some(answer) = n.args.get(1) {
+        // `Handler<A, R>`: a dedicated syntactic node whose `A` is an
+        // *ability* reference resolved through the ability namespace — not a
+        // type, so it must not be flagged here. Only the optional answer type
+        // (`R`) is a real type annotation to check. (Any bad ability
+        // reference is reported when `resolve_holes` resolves it.)
+        Type::HandlerAnnotation(h) => {
+            if let Some(answer) = &h.answer {
                 report_undefined_types(infer, answer, span, extra_known, errors);
             }
         }

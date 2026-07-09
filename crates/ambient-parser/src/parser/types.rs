@@ -45,6 +45,17 @@ impl Parser<'_> {
         let base = self.parse_qualified_name()?;
         let base_span = base.span;
 
+        // `Handler<A>` / `Handler<A, R>` is type syntax, not a nominal name:
+        // `A` is an ability reference, not a type. Recognize it here (like
+        // function arrows and tuples) so it never flows through the generic /
+        // name path as an identifier.
+        if base.segments.len() == 1
+            && base.segments[0].name.as_ref() == "Handler"
+            && self.check(TokenKind::Lt)
+        {
+            return self.parse_handler_type(start);
+        }
+
         let base_ty = CstTypeExpr {
             kind: CstTypeExprKind::Name(base),
             span: base_span,
@@ -79,6 +90,25 @@ impl Parser<'_> {
         }
 
         Ok(base_ty)
+    }
+
+    /// Parse the arguments of a `Handler<A>` / `Handler<A, R>` type. The
+    /// leading `Handler` name has been consumed; `self` is positioned at the
+    /// opening `<`. `A` is an ability reference (a qualified name), `R` an
+    /// optional answer type.
+    fn parse_handler_type(&mut self, start: u32) -> Result<CstTypeExpr, ParseError> {
+        self.expect(TokenKind::Lt)?;
+        let ability = self.parse_qualified_name()?;
+        let answer = if self.consume(TokenKind::Comma).is_some() {
+            Some(Box::new(self.parse_type()?))
+        } else {
+            None
+        };
+        let end = self.expect(TokenKind::Gt)?.span.end;
+        Ok(CstTypeExpr {
+            kind: CstTypeExprKind::Handler { ability, answer },
+            span: Span::new(start, end),
+        })
     }
 
     pub(super) fn parse_tuple_or_function_type(&mut self) -> Result<CstTypeExpr, ParseError> {

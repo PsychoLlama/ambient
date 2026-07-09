@@ -487,25 +487,25 @@ impl Infer {
                 let abilities = self.resolve_ability_annotation(&f.abilities);
                 Type::function_with_abilities(params, ret, abilities)
             }
-            Type::Named(n) => {
-                // A `Handler<A>` / `Handler<A, R>` annotation resolves to a
-                // first-class handler type: `A` is an ability name (resolved
-                // to its id under the same namespace policy every other
-                // ability position obeys), `R` is the answer type (a fresh
-                // var when omitted, so `Handler<A>` means "R inferred").
-                if n.name.as_ref() == "Handler"
-                    && matches!(n.args.len(), 1 | 2)
-                    && let Type::Named(ability) = &n.args[0]
-                    && let Some(ability_id) = self.resolve_annotated_ability(&ability.name)
-                {
-                    let answer = if n.args.len() == 2 {
-                        self.resolve_holes(&n.args[1])
-                    } else {
-                        self.fresh()
-                    };
-                    return Type::handler(ability_id, answer);
+            // A `Handler<A>` / `Handler<A, R>` annotation (parsed as its own
+            // syntactic node, never an identifier) resolves to a first-class
+            // handler type: `A` is an ability reference (resolved to its id
+            // under the same namespace policy every other ability position
+            // obeys), `R` the answer type (a fresh var when omitted, so
+            // `Handler<A>` means "R inferred"). A resolution failure has
+            // already recorded its diagnostic; yield `Error` to suppress
+            // cascades.
+            Type::HandlerAnnotation(h) => {
+                let answer = match &h.answer {
+                    Some(a) => self.resolve_holes(a),
+                    None => self.fresh(),
+                };
+                match self.resolve_annotated_ability(&h.ability) {
+                    Some(ability_id) => Type::handler(ability_id, answer),
+                    None => Type::Error,
                 }
-
+            }
+            Type::Named(n) => {
                 // A bare name rigid in the current body is a type parameter,
                 // not a nominal reference — mint a `Param`. Checked first so a
                 // parameter named like a primitive/alias still stays rigid, and

@@ -315,8 +315,16 @@ module.exports = grammar({
     ability_type: ($) =>
       seq("Ability", "<", $._type, ",", $.identifier, "!", ">"),
 
+    // `Handler` is type syntax, not a name: the first argument is an ability
+    // reference (bare or `::`-qualified), the optional second the answer type.
     handler_type: ($) =>
-      seq("Handler", "<", $.identifier, optional(seq(",", $._type)), ">"),
+      seq(
+        "Handler",
+        "<",
+        field("ability", choice($.identifier, $.scoped_identifier)),
+        optional(seq(",", field("answer", $._type))),
+        ">",
+      ),
 
     unit_type: ($) => seq("(", ")"),
 

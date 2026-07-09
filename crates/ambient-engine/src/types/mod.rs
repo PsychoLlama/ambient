@@ -49,8 +49,8 @@ pub type TraitId = u16;
 
 pub use abilities::{AbilityInfo, AbilityRegistry, AbilitySet};
 pub use core::{
-    AbilityValueType, ForallType, FunctionType, HandlerType, NamedType, NominalType, RecordType,
-    Type, TypeVarGen,
+    AbilityValueType, ForallType, FunctionType, HandlerAnnotationType, HandlerType, NamedType,
+    NominalType, RecordType, Type, TypeVarGen,
 };
 pub use primitives::{
     BINARY_UUID, BOOL_UUID, Container, LIST_UUID, MAP_UUID, NUMBER_UUID, OPTION_UUID, Primitive,

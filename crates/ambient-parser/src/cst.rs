@@ -309,6 +309,14 @@ pub enum CstTypeExprKind {
         ability_ty: Box<CstTypeExpr>,
     },
 
+    /// Handler value type: `Handler<A>` / `Handler<A, R>`. `Handler` is type
+    /// syntax, not a name: `ability` is an ability reference (resolved
+    /// through the ability namespace), `answer` the optional answer type `R`.
+    Handler {
+        ability: CstQualifiedName,
+        answer: Option<Box<CstTypeExpr>>,
+    },
+
     /// Never type: `!`.
     Never,
 

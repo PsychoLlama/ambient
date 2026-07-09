@@ -125,6 +125,13 @@ impl fmt::Display for Type {
                 write!(f, "Handler<#{}, {}>", handler.ability, handler.answer)
             }
 
+            // The unresolved surface form (pre-`resolve_holes`); shown as
+            // written, for diagnostics that render a raw annotation.
+            Self::HandlerAnnotation(h) => match &h.answer {
+                Some(answer) => write!(f, "Handler<{}, {answer}>", h.ability),
+                None => write!(f, "Handler<{}>", h.ability),
+            },
+
             Self::Forall(forall) => {
                 write!(f, "forall ")?;
                 for (i, var) in forall.vars.iter().enumerate() {
