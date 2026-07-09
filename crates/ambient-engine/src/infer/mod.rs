@@ -515,13 +515,18 @@ impl Infer {
                 let args = n.args.iter().map(|a| self.resolve_holes(a)).collect();
                 // Attach an enum's nominal identity so an annotation like
                 // `: Tree<number>` carries the same uuid the enum's
-                // constructors and patterns produce. This covers declared
-                // enums and the reserved-name prelude enums (`Option`/`Result`)
-                // alike, since both are registered with a canonical uuid.
-                // Skipped when the reference already carries a uuid (a
-                // qualified spelling the resolve pass canonicalized to a
-                // foreign enum): a same-named local enum must not re-key it,
-                // just as the opaque-generic arm below guards.
+                // constructors and patterns produce. This is the
+                // *registry-less fallback*: the resolve pass now stamps every
+                // in-scope bare and qualified nominal head (see
+                // `resolve/types.rs`), so on the registry path this arm fires
+                // only for what resolve leaves bare — a registry-less check
+                // (no resolve pass), the ability-id inference path, and the
+                // inner names of a substituted struct/alias body resolve did
+                // not recurse into. The `n.uuid.is_none()` guard keeps a
+                // resolve-stamped identity authoritative — a same-named local
+                // enum must not re-key a foreign one — and is *unconditional*
+                // (never gated on the module id), since the fallback paths are
+                // registry-less-shaped.
                 if n.uuid.is_none()
                     && let Some(info) = self.enum_registry.get(&n.name)
                 {
@@ -532,11 +537,13 @@ impl Infer {
                 // via the prelude, or any imported/local
                 // `extern unique(…) struct Foo<T>;`): the applied form is
                 // identity plus arguments, so `List<T>` dispatches by uuid
-                // like `Option<T>`. Skipped when the reference already
-                // carries a uuid (a qualified spelling the resolve pass
-                // canonicalized) — a same-named local must not re-key it.
-                // Arity mismatches are left to unification, which already
-                // treats argument count as part of a `Named`'s shape.
+                // like `Option<T>`. The registry-less fallback for opaque
+                // generics, mirroring the enum arm above: resolve stamps every
+                // in-scope head, so this fires only where resolve didn't run
+                // (or didn't recurse). The `n.uuid.is_none()` guard keeps a
+                // resolve-stamped identity authoritative. Arity mismatches are
+                // left to unification, which already treats argument count as
+                // part of a `Named`'s shape.
                 if n.uuid.is_none()
                     && let Some(AliasTarget::OpaqueGeneric { uuid, .. }) =
                         self.get_type_alias(&n.name)

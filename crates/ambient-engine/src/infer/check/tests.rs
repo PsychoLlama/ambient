@@ -257,3 +257,74 @@ fn module_const_is_in_scope_in_function_bodies() {
         result.errors
     );
 }
+
+#[test]
+fn registry_less_check_resolves_a_local_enum_by_bare_name() {
+    use crate::ast::{
+        EnumDef, EnumVariant, Expr, FunctionDef, Item, ItemKind, MatchArm, Module, Param, Pattern,
+    };
+
+    // `check_module` runs no resolve pass, so a bare enum annotation and a
+    // bare variant pattern arrive uuid-less and unresolved. This proves the
+    // checker's own bare-name discovery — the registry-less fallback the
+    // resolve pass supersedes on every real check — is still intact:
+    //
+    //   enum E { V }
+    //   fn f(x: E): Number { match x { V => 1 } }
+    //
+    // The parameter annotation `E` resolves through `resolve_holes`'s
+    // `enum_registry` stamp, and the pattern `V` through `resolve_variant`.
+    let module = Module {
+        name: Arc::from("test"),
+        doc: None,
+        items: vec![
+            Item::new(
+                ItemKind::Enum(EnumDef {
+                    name: Arc::from("E"),
+                    name_span: span(),
+                    is_public: false,
+                    type_params: vec![],
+                    variants: vec![EnumVariant {
+                        name: Arc::from("V"),
+                        payload: None,
+                        span: span(),
+                    }],
+                    uuid: uuid::Uuid::from_u128(0x5151),
+                }),
+                span(),
+            ),
+            Item::new(
+                ItemKind::Function(FunctionDef {
+                    name: Arc::from("f"),
+                    name_span: span(),
+                    is_public: false,
+                    type_params: vec![],
+                    params: vec![Param {
+                        id: 0,
+                        name: Arc::from("x"),
+                        ty: Some(Type::named_simple("E")),
+                        span: span(),
+                    }],
+                    ret_ty: Some(Type::number()),
+                    abilities: vec![],
+                    body: Expr::match_expr(
+                        Expr::name("x"),
+                        vec![MatchArm {
+                            pattern: Pattern::variant("V", None),
+                            guard: None,
+                            body: Expr::number(1.0),
+                        }],
+                    ),
+                }),
+                span(),
+            ),
+        ],
+    };
+
+    let result = check_module(module);
+    assert!(
+        result.errors.is_empty(),
+        "a registry-less check of a local enum annotation/pattern should type-check, got: {:?}",
+        result.errors
+    );
+}
