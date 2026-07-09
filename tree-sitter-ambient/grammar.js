@@ -168,9 +168,14 @@ module.exports = grammar({
         optional(seq("(", optional($._type_list), ")"))
       ),
 
+    // Abilities are nominal: the `unique(<uuid>)` prefix is the identity
+    // (mandatory, like `enum`; the lowering pass enforces it). Every method
+    // carries a default implementation body; only the reserved Exception
+    // carve-out stays abstract with a `;`.
     ability_definition: ($) =>
       seq(
         optional($.visibility),
+        optional($.unique_modifier),
         "ability",
         field("name", $.identifier),
         optional($.type_parameters),
@@ -190,7 +195,9 @@ module.exports = grammar({
         $.parameter_list,
         ":",
         field("return_type", $._type),
-        ";"
+        // A block is the method's default implementation; a `;` leaves it
+        // abstract (the Exception carve-out).
+        choice(field("body", $.block), ";")
       ),
 
     // Traits declare shared behavior as a set of method signatures. Method

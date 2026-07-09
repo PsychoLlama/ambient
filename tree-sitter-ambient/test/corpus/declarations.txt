@@ -148,14 +148,18 @@ enum Option<T> {
 Ability definition
 ================================================================================
 
-ability Console {
-  fn print(message: string): ();
+unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) ability Console {
+  fn print(message: string): () {
+    write(message)
+  }
 }
 
 --------------------------------------------------------------------------------
 
 (source_file
   (ability_definition
+    (unique_modifier
+      (uuid))
     name: (identifier)
     (ability_method
       name: (identifier)
@@ -163,22 +167,31 @@ ability Console {
         (parameter
           name: (identifier)
           type: (identifier)))
-      return_type: (unit_type))))
+      return_type: (unit_type)
+      body: (block
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier)))))))
 
 ================================================================================
 Ability with dependency
 ================================================================================
 
-ability Log
+unique(D098767B-4093-4D5C-BA37-AD92AA7B5D99) ability Log
   with Console
 {
-  fn info(message: string): ();
+  fn info(message: string): () {
+    Console::print(message)
+  }
 }
 
 --------------------------------------------------------------------------------
 
 (source_file
   (ability_definition
+    (unique_modifier
+      (uuid))
     name: (identifier)
     (ability_dependency
       (identifier_list
@@ -189,7 +202,14 @@ ability Log
         (parameter
           name: (identifier)
           type: (identifier)))
-      return_type: (unit_type))))
+      return_type: (unit_type)
+      body: (block
+        (call_expression
+          (scoped_identifier
+            path: (identifier)
+            name: (identifier))
+          (argument_list
+            (identifier)))))))
 
 ================================================================================
 Use declaration
@@ -390,8 +410,10 @@ Public const and ability
 
 pub const LIMIT: number = 10;
 
-pub ability Telemetry {
-  fn record(event: string): ();
+pub unique(D098767B-4093-4D5C-BA37-AD92AA7B5D9A) ability Telemetry {
+  fn record(event: string): () {
+    ()
+  }
 }
 
 --------------------------------------------------------------------------------
@@ -404,6 +426,8 @@ pub ability Telemetry {
     value: (number))
   (ability_definition
     (visibility)
+    (unique_modifier
+      (uuid))
     name: (identifier)
     (ability_method
       name: (identifier)
@@ -411,7 +435,33 @@ pub ability Telemetry {
         (parameter
           name: (identifier)
           type: (identifier)))
-      return_type: (unit_type))))
+      return_type: (unit_type)
+      body: (block
+        (unit)))))
+
+================================================================================
+Abstract ability method (Exception carve-out)
+================================================================================
+
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000001) ability Exception {
+  fn throw(message: String): !;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (ability_definition
+    (visibility)
+    (unique_modifier
+      (uuid))
+    name: (identifier)
+    (ability_method
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (identifier)))
+      return_type: (never_type))))
 
 ================================================================================
 Trait definition
