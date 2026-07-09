@@ -930,3 +930,60 @@ fn container_names_cannot_be_redeclared() {
         "expected a reserved-identity error, got:\n{output}"
     );
 }
+
+#[test]
+fn a_local_type_shadows_a_same_named_imported_type() {
+    // The motivating bug (structural fix): a bare type head that could
+    // name either an imported type or a same-named local one must resolve
+    // to the *local* declaration, exactly as a bare value reference does.
+    // `main` both imports `lib::Tag` and declares its own `Tag`; the bare
+    // annotation `Tag` on `f` resolves to the local enum, so the local
+    // `Local` variant satisfies it and the program runs.
+    let dir = package(&[
+        (
+            "lib.ab",
+            "pub unique(A1B2C3D4-0000-0000-0000-0000000000AA) enum Tag { Foreign }\n",
+        ),
+        (
+            "main.ab",
+            r"use pkg::lib::Tag;
+
+unique(A1B2C3D4-0000-0000-0000-0000000000BB) enum Tag { Local }
+
+// Bare `Tag` resolves to this module's own enum, not the import.
+pub fn f(t: Tag): Number { match t { Local => 1 } }
+
+pub fn run(): Number { f(Local) }
+",
+        ),
+    ]);
+    assert_eq!(run(dir.path()), "1");
+}
+
+#[test]
+fn a_foreign_value_does_not_satisfy_a_same_named_local_type() {
+    // The negative half: a value of the imported `lib::Tag` cannot flow
+    // into a parameter annotated with the bare (local) `Tag`, proving the
+    // bare head really resolved to the local nominal, not the imported one.
+    let dir = package(&[
+        (
+            "lib.ab",
+            "pub unique(A1B2C3D4-0000-0000-0000-0000000000AA) enum Tag { Foreign }\npub fn mk(): pkg::lib::Tag { Foreign }\n",
+        ),
+        (
+            "main.ab",
+            r"use pkg::lib;
+use pkg::lib::Tag;
+
+unique(A1B2C3D4-0000-0000-0000-0000000000BB) enum Tag { Local }
+pub fn f(t: Tag): Number { match t { Local => 1 } }
+pub fn run(): Number { f(pkg::lib::mk()) }
+",
+        ),
+    ]);
+    let output = check_fails(dir.path());
+    assert!(
+        output.contains("Tag"),
+        "expected a type mismatch between the two Tag types, got:\n{output}"
+    );
+}

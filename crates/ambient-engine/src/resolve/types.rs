@@ -1,10 +1,15 @@
-//! Canonicalizing type references: rewriting qualified type spellings
-//! inside `types::Type` values to the types they name.
+//! Canonicalizing type references: rewriting each type spelling inside a
+//! `types::Type` value — qualified (`pkg.shapes.Money`) or bare (`Color`,
+//! `List<T>`) — to the nominal type it names, the type-side twin of the
+//! value-reference resolution in `refs`. Deciding nominal type identity
+//! here means the checker no longer has to re-derive it by bare-name
+//! lookup on the registry path.
 
 use std::sync::Arc;
 
 use crate::ast::ItemKind;
 use crate::module_path::ModulePath;
+use crate::module_registry::Namespace;
 use crate::types::{NamedType, Type};
 
 use super::Resolver;
@@ -40,6 +45,7 @@ impl Resolver<'_> {
                 }
                 let name = Arc::clone(&n.name);
                 if !name.contains("::") {
+                    self.resolve_named_type_head(ty);
                     return;
                 }
                 let segments: Vec<Arc<str>> = name.split("::").map(Arc::from).collect();
@@ -90,6 +96,65 @@ impl Resolver<'_> {
             Type::Nominal(n) => self.resolve_type(&mut n.inner),
             Type::Forall(forall) => self.resolve_type(&mut forall.body),
             _ => {}
+        }
+    }
+
+    /// Resolve a *bare* (unqualified) `Type::Named` head to its nominal
+    /// identity, exactly as the qualified arm does for a dotted spelling
+    /// and as the resolve pass already does for every value reference. This
+    /// is the type-side twin of [`Resolver::resolve_value_ref`]: it decides
+    /// nominal type identity in the resolve pass so the checker never has to
+    /// re-derive it by bare-name lookup on the registry path.
+    ///
+    /// Precedence mirrors the checker (`resolve_holes`) and the value path:
+    ///
+    /// 1. an in-scope **type parameter** (`T` in `fn f<T>`) has no nominal
+    ///    identity — leave it bare; the checker mints a `Type::Param`
+    ///    (checked first, like `resolve_holes`),
+    /// 2. a **local** type (declared in the current module),
+    /// 3. an **imported or prelude** type (an explicit `use`, or the prelude
+    ///    tier — `String`, `List`, …), consulted through the same
+    ///    local→use→prelude precedence the value path obeys.
+    ///
+    /// The identity rewrite itself — stamp an enum/opaque-generic uuid,
+    /// substitute a non-generic struct/alias, leave generic forms bare — is
+    /// the shared [`Resolver::apply_named_type_from_module`]. Anything with
+    /// no defining item in scope (an unknown name, the reserved `Handler`
+    /// head, a generic-fielded struct, a generic alias) is left bare for the
+    /// checker to resolve or diagnose.
+    fn resolve_named_type_head(&mut self, ty: &mut Type) {
+        let Type::Named(n) = ty else {
+            return;
+        };
+        // 1. A type parameter is not a nominal reference — leave it bare.
+        if self.is_type_param(&n.name) {
+            return;
+        }
+        let name = Arc::clone(&n.name);
+        // 2. A local type resolves against the current module's own items.
+        if self.module_types.contains(&name) {
+            let module = self.current.clone();
+            self.apply_named_type_from_module(ty, &module, &name);
+            return;
+        }
+        // 3. An imported or prelude type resolves against its defining
+        // module.
+        //
+        // Unlike a value reference, a bare type reference does *not* add a
+        // compile-ordering edge. A value call must be linked against the
+        // callee's compiled body, so it depends on that module compiling
+        // first; a type only needs its defining module *registered* (which
+        // happens upfront, before any compilation), so its identity is
+        // available regardless of order. Adding a type edge here would
+        // manufacture spurious module cycles — e.g. core's `convert` returns
+        // `String` while `string` calls `convert::to_string`, a mutual
+        // reference that must not force a compile-order cycle. Genuine
+        // linking edges still come from the value path and from `use`
+        // imports (recorded in `resolve_module`).
+        if let Some(import) = self.scope_item(&name, Namespace::Type) {
+            let module = import.module.clone();
+            let item = Arc::clone(&import.name);
+            self.apply_named_type_from_module(ty, &module, &item);
         }
     }
 

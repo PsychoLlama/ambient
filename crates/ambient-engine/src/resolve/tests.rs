@@ -1,9 +1,9 @@
 use super::*;
 use crate::ast::{
     AbilityDef, ConstDef, EnumDef, EnumVariant, Expr, FunctionDef, Item, ItemKind, Module, Param,
-    QualifiedName, Span, TypeParam,
+    QualifiedName, Span, StructDef, TypeParam,
 };
-use crate::types::{NamedType, Type};
+use crate::types::{NamedType, NominalType, RecordType, Type};
 
 fn func(name: &str, body: Expr, abilities: Vec<QualifiedName>) -> Item {
     Item::new(
@@ -387,6 +387,186 @@ fn same_module_ability_reference_resolves_to_its_fqn() {
         _ => None,
     });
     assert_eq!(resolved, Some(registry.fqn(&path, &[Arc::from("A")])));
+}
+
+/// A single-variant enum `<name>` with the given nominal uuid.
+fn enum_item(name: &str, uuid: uuid::Uuid) -> Item {
+    Item::new(
+        ItemKind::Enum(EnumDef {
+            name: Arc::from(name),
+            name_span: Span::default(),
+            is_public: true,
+            type_params: vec![],
+            variants: vec![EnumVariant {
+                name: Arc::from("V"),
+                payload: None,
+                span: Span::default(),
+            }],
+            uuid,
+        }),
+        Span::default(),
+    )
+}
+
+/// A struct item with an explicit body, params, and identity.
+fn struct_item(
+    name: &str,
+    type_params: &[&str],
+    ty: Type,
+    unique_id: Option<uuid::Uuid>,
+    is_extern: bool,
+) -> Item {
+    Item::new(
+        ItemKind::Struct(StructDef {
+            name: Arc::from(name),
+            name_span: Span::default(),
+            is_public: true,
+            type_params: type_params
+                .iter()
+                .map(|p| TypeParam {
+                    name: Arc::from(*p),
+                    span: Span::default(),
+                })
+                .collect(),
+            ty,
+            unique_id,
+            is_extern,
+        }),
+        Span::default(),
+    )
+}
+
+/// The `Type::Nominal` empty-record body of a unit struct with `uuid`.
+fn unit_body(name: &str, uuid: uuid::Uuid) -> Type {
+    Type::Nominal(NominalType::new(
+        uuid,
+        Type::Record(RecordType::new(vec![])),
+        Some(name),
+    ))
+}
+
+#[test]
+fn local_enum_type_head_is_stamped() {
+    // `enum E { V }` + `fn f(x: E)` — the bare annotation `E` is stamped
+    // with the enum's nominal uuid, exactly what a qualified `pkg::m::E`
+    // spelling or the checker's `resolve_holes` produces.
+    let e_uuid = uuid::Uuid::from_u128(42);
+    let (module, _r, _p) = resolve_m(vec![
+        enum_item("E", e_uuid),
+        generic_func("f", &[], named("E")),
+    ]);
+    assert_eq!(
+        param_ty(&module, "f"),
+        Some(Type::Named(NamedType {
+            name: Arc::from("E"),
+            args: vec![],
+            uuid: Some(e_uuid),
+        }))
+    );
+}
+
+#[test]
+fn local_non_generic_struct_head_is_substituted() {
+    // A plain (non-`unique`) struct annotation expands to its record body.
+    let body = Type::record([("x", Type::number())]);
+    let (module, _r, _p) = resolve_m(vec![
+        struct_item("S", &[], body.clone(), None, false),
+        generic_func("f", &[], named("S")),
+    ]);
+    assert_eq!(param_ty(&module, "f"), Some(body));
+}
+
+#[test]
+fn local_unique_struct_head_substitutes_carrying_nominal_identity() {
+    // A `unique` struct's body is already wrapped in `Type::Nominal`, so
+    // substituting it carries the nominal identity to the use site.
+    let s_uuid = uuid::Uuid::from_u128(7);
+    let body = Type::Nominal(NominalType::new(
+        s_uuid,
+        Type::record([("v", Type::number())]),
+        Some("Id"),
+    ));
+    let (module, _r, _p) = resolve_m(vec![
+        struct_item("Id", &[], body.clone(), Some(s_uuid), false),
+        generic_func("f", &[], named("Id")),
+    ]);
+    assert_eq!(param_ty(&module, "f"), Some(body));
+}
+
+#[test]
+fn local_opaque_generic_head_is_stamped_with_args() {
+    // `extern unique(u) struct List<T>;` — an opaque generic head. The
+    // applied form `List<Thing>` keeps its written argument and gains the
+    // declaration's uuid; the (undeclared) argument `Thing` stays bare.
+    let list_uuid = uuid::Uuid::from_u128(9);
+    let list = struct_item(
+        "List",
+        &["T"],
+        unit_body("List", list_uuid),
+        Some(list_uuid),
+        true,
+    );
+    let arg = named("Thing");
+    let list_ref = Type::Named(NamedType {
+        name: Arc::from("List"),
+        args: vec![arg.clone()],
+        uuid: None,
+    });
+    let (module, _r, _p) = resolve_m(vec![list, generic_func("f", &[], list_ref)]);
+    assert_eq!(
+        param_ty(&module, "f"),
+        Some(Type::Named(NamedType {
+            name: Arc::from("List"),
+            args: vec![arg],
+            uuid: Some(list_uuid),
+        }))
+    );
+}
+
+#[test]
+fn imported_enum_type_head_is_stamped_from_defining_module() {
+    use crate::ast::{UseDef, UsePrefix};
+
+    // Module `defs` declares `enum Color { V }`; `main` imports it and
+    // annotates `fn f(x: Color)`. The bare `Color` resolves through the
+    // import to the defining module and is stamped with its uuid.
+    let color_uuid = uuid::Uuid::from_u128(55);
+    let defs = Module {
+        name: Arc::from("defs"),
+        doc: None,
+        items: vec![enum_item("Color", color_uuid)],
+    };
+    let use_color = Item::new(
+        ItemKind::Use(UseDef {
+            is_public: false,
+            prefix: UsePrefix::Pkg,
+            path: vec![
+                (Arc::from("defs"), Span::default()),
+                (Arc::from("Color"), Span::default()),
+            ],
+            alias: None,
+        }),
+        Span::default(),
+    );
+    let mut main = Module {
+        name: Arc::from("main"),
+        doc: None,
+        items: vec![use_color, generic_func("f", &[], named("Color"))],
+    };
+    let mut registry = ModuleRegistry::new();
+    let defs_path = ModulePath::from_str_segments(&["defs"]).unwrap();
+    let main_path = ModulePath::from_str_segments(&["main"]).unwrap();
+    registry.register(&defs_path, Arc::new(defs));
+    registry.register(&main_path, Arc::new(main.clone()));
+    resolve_module(&mut main, &main_path, &registry);
+    assert_eq!(
+        param_ty(&main, "f"),
+        Some(Type::Named(NamedType {
+            name: Arc::from("Color"),
+            args: vec![],
+            uuid: Some(color_uuid),
+        }))
+    );
 }
 
 #[test]
