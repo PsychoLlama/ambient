@@ -19,7 +19,6 @@ pub use canonical::{
 pub use descriptor::{
     AbilityDescriptor, AbilityProvider, MethodDescriptor, MethodSignature, TypeFactory,
 };
-pub use exception::{CoreAbilities, EXCEPTION};
 
 /// Content-addressed ability identity.
 ///

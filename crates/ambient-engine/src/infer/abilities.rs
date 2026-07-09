@@ -8,7 +8,6 @@
 use std::sync::Arc;
 
 use super::{Infer, InferResult, TypeErrorKind, type_error};
-use crate::ability_resolver::EngineTypeFactory;
 use crate::ast::QualifiedName;
 use crate::types::{AbilityId, AbilitySet, Type};
 
@@ -106,47 +105,34 @@ impl Infer {
         ability_id: AbilityId,
         method_name: &str,
     ) -> Option<(Vec<Type>, Type)> {
-        // Module-declared (dynamic) abilities carry fully resolved types.
-        if let Some(dynamic) = self.ability_resolver.get_dynamic_by_id(ability_id).cloned() {
-            let method = dynamic.method(method_name)?;
-            let mut subst = std::collections::HashMap::new();
-            for quantified in &method.quantified {
-                subst.insert(*quantified, self.fresh());
-            }
-            // `resolve_holes` re-attaches reserved enum identities from the
-            // checking context (see `lookup_dynamic_method`): the dynamic
-            // method's types were resolved without an enum registry, so
-            // prelude `Option`/`Result` arrive uuid-less and would miss
-            // inherent-method dispatch and unification against uuid-bearing
-            // values.
-            let params = method
-                .params
-                .iter()
-                .map(|p| self.resolve_holes(&p.substitute(&subst)))
-                .collect();
-            let ret = self.resolve_holes(&method.ret.substitute(&subst));
-            return Some((params, ret));
+        // Every ability is a module-declared (dynamic) ability carrying
+        // fully resolved types.
+        let dynamic = self
+            .ability_resolver
+            .get_dynamic_by_id(ability_id)
+            .cloned()?;
+        let method = dynamic.method(method_name)?;
+        let mut subst = std::collections::HashMap::new();
+        for quantified in &method.quantified {
+            subst.insert(*quantified, self.fresh());
         }
-
-        // Builtin descriptors construct types through the factory.
-        let factory = EngineTypeFactory;
-        let (params, ret) = {
-            let ability = self.ability_resolver.get_by_id(ability_id)?;
-            let method = ability.get_method(method_name)?;
-            (
-                (method.signature.param_types)(&factory),
-                (method.signature.return_type)(&factory),
-            )
-        };
-        let params = params.iter().map(|p| self.resolve_holes(p)).collect();
-        let ret = self.resolve_holes(&ret);
+        // `resolve_holes` re-attaches reserved enum identities from the
+        // checking context (see `lookup_dynamic_method`): the dynamic
+        // method's types were resolved without an enum registry, so
+        // prelude `Option`/`Result` arrive uuid-less and would miss
+        // inherent-method dispatch and unification against uuid-bearing
+        // values.
+        let params = method
+            .params
+            .iter()
+            .map(|p| self.resolve_holes(&p.substitute(&subst)))
+            .collect();
+        let ret = self.resolve_holes(&method.ret.substitute(&subst));
         Some((params, ret))
     }
 
-    /// Look up an ability method and return its ID, result type, and additional abilities to require.
-    ///
-    /// For builtin abilities, the additional abilities set is empty. For module-declared
-    /// abilities, it carries the ability's declared dependencies.
+    /// Look up an ability method and return its ID, result type, and
+    /// additional abilities to require (the ability's declared dependencies).
     ///
     /// # Errors
     ///
@@ -158,53 +144,30 @@ impl Infer {
         arg_tys: &[Type],
         span: (u32, u32),
     ) -> InferResult<(AbilityId, Type, AbilitySet)> {
-        let ability_name = &ability.name;
-
         // One policy for every position that names an ability: namespaced
-        // dynamics (ability preludes, e.g. the `platform` module) resolve
-        // only under their prefix, local declarations and builtins only
-        // bare, with locals shadowing both (mirroring how local enums
-        // shadow the prelude).
+        // dynamics (ability preludes, e.g. the `platform` module, and the
+        // prelude-injected `Exception`) resolve only under their declaring
+        // module's namespace, local declarations bare, with locals shadowing
+        // (mirroring how local enums shadow the prelude).
         let ability_id = self.resolve_ability_ref(ability, span)?;
 
-        // Dynamic abilities (local or namespaced) carry full declared
-        // signatures; they supersede any builtin descriptor registered
-        // under the same identity.
-        if let Some(dynamic) = self.ability_resolver.get_dynamic_by_id(ability_id).cloned() {
-            return self.lookup_dynamic_method(&dynamic, method_name, arg_tys, span);
-        }
-
-        // Builtin descriptors declare full signatures too (their type
-        // variables arrive as `Hole` and resolve to fresh inference
-        // variables); arguments are unified against the declared parameter
-        // types exactly like dynamic abilities — a perform like
-        // `Exception::throw!(42)` must not type-check.
-        let Some((params, result_ty)) = self.ability_method_signature(ability_id, method_name)
-        else {
-            return Err(type_error(
-                TypeErrorKind::UnknownAbilityMethod {
-                    ability: ability_name.clone(),
-                    method: method_name.into(),
-                },
-                span,
-            ));
-        };
-
-        if params.len() != arg_tys.len() {
-            return Err(type_error(
-                TypeErrorKind::ArityMismatch {
-                    expected: params.len(),
-                    actual: arg_tys.len(),
-                },
-                span,
-            ));
-        }
-        for (param, arg) in params.iter().zip(arg_tys) {
-            self.unify(param, arg, span)?;
-        }
-        let result_ty = self.apply(&result_ty);
-
-        Ok((ability_id, result_ty, AbilitySet::Empty))
+        // Every resolved ability is a dynamic carrying its full declared
+        // signature; arguments unify against the declared parameter types
+        // (so a perform like `Exception::throw!(42)` must not type-check).
+        let dynamic = self
+            .ability_resolver
+            .get_dynamic_by_id(ability_id)
+            .cloned()
+            .ok_or_else(|| {
+                type_error(
+                    TypeErrorKind::UnknownAbilityMethod {
+                        ability: Arc::clone(&ability.name),
+                        method: method_name.into(),
+                    },
+                    span,
+                )
+            })?;
+        self.lookup_dynamic_method(&dynamic, method_name, arg_tys, span)
     }
 
     /// Type-check a call to a module-declared ability method.
@@ -377,17 +340,14 @@ mod tests {
             printer_ability(7),
         );
 
-        // Exception is the only engine builtin; it resolves bare and may
-        // not be namespaced.
-        assert_eq!(
-            infer
-                .resolve_ability_ref(&QualifiedName::simple("Exception"), span())
-                .ok(),
-            Some(ambient_core::exception::ability_id())
-        );
+        // There are no engine builtins: an ability the resolver has never
+        // seen (registry-less, no prelude) is unknown, bare or qualified.
+        // `Exception` is a namespaced dynamic (`core::exception`) in a real
+        // check; its bare-yet-namespaced resolution is covered end-to-end by
+        // the CLI/integration tests.
         assert!(
             infer
-                .resolve_ability_ref(&platform_ability("Exception"), span())
+                .resolve_ability_ref(&QualifiedName::simple("Exception"), span())
                 .is_err()
         );
 

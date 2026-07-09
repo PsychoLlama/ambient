@@ -148,14 +148,12 @@ pub(super) fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
             ))
         }
 
-        CstTypeExprKind::Never => {
-            // Never type - represent as a named type for now
-            Ok(Type::Named(ambient_engine::types::NamedType {
-                name: "!".into(),
-                args: Vec::new(),
-                uuid: None,
-            }))
-        }
+        // The never type `!` lowers straight to `Type::Never` — the checker's
+        // canonical bottom type. (An ability method returning `!`, such as
+        // `Exception::throw`, must render `never` for its interface hash and
+        // must map to `None` resume-value type; a stringly `Named("!")` would
+        // do neither.)
+        CstTypeExprKind::Never => Ok(Type::Never),
 
         CstTypeExprKind::Infer => {
             // Inferred type - the type checker will fill this in

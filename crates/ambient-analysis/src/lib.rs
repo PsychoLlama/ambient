@@ -280,11 +280,12 @@ pub fn analyze_with_registry_and_resolver(
     }
 }
 
-/// An ability resolver with the platform bindings interface registered
-/// under the `core::system` namespace, mirroring how the CLI checks code.
+/// An ability resolver with the core abilities (`core::exception`) and the
+/// platform bindings interface (`core::system`) registered as namespaced
+/// dynamics, mirroring how the CLI checks code.
 #[must_use]
 pub fn platform_prelude_resolver() -> AbilityResolver {
-    let mut resolver = ambient_engine::ability_resolver::core_abilities();
+    let mut resolver = AbilityResolver::new();
     // A parse-only core registry supplies the prelude so ability resolution
     // seeds the primitive nominals it hashes against (see the CLI's
     // `platform_prelude`). Without it, ability ids would drift from the CLI's.
@@ -293,9 +294,16 @@ pub fn platform_prelude_resolver() -> AbilityResolver {
         ambient_parser::parse(s).map_err(|e| e.to_string())
     })
     .is_ok();
-    if registered
-        && let Ok(mut module) = ambient_parser::parse(ambient_platform::ABILITY_DECLARATIONS)
-    {
+    if !registered {
+        return resolver;
+    }
+    // Core's own `ability` declarations (`Exception`) — registered under
+    // their declaring module, exactly as a full check seeds them.
+    for (fqn, ability) in ambient_engine::infer::resolve_registry_abilities(&registry) {
+        resolver.register_dynamic_in_namespace(&fqn.module, (*ability).clone());
+    }
+    // The platform bindings, under the `core::system` namespace.
+    if let Ok(mut module) = ambient_parser::parse(ambient_platform::ABILITY_DECLARATIONS) {
         let (abilities, _errors) =
             ambient_engine::infer::resolve_ability_declarations(&mut module, &registry);
         for ability in abilities {

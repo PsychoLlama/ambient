@@ -8,7 +8,7 @@
 //! - Ability names and methods
 //! - Core library modules and functions
 
-use ambient_engine::ability_resolver::{AbilityResolver, EngineTypeFactory, MethodSignatureInfo};
+use ambient_engine::ability_resolver::{AbilityResolver, MethodSignatureInfo};
 use ambient_engine::ast::{Expr, ExprKind, FunctionDef, ItemKind, Module, Param, StmtKind};
 use ambient_engine::core_library::CoreLibrary;
 use ambient_engine::module_registry::ExportKind;
@@ -577,7 +577,7 @@ fn get_ability_method_completions(
     };
 
     resolver
-        .method_signatures(ability_id, &EngineTypeFactory)
+        .method_signatures(ability_id)
         .into_iter()
         .filter(|m| m.name.starts_with(prefix))
         .map(|m| {

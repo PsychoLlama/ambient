@@ -3,12 +3,18 @@
 //! The Exception ability is fundamental to the language's error handling
 //! semantics. It provides the `throw` method for raising errors that can
 //! be caught by handlers.
+//!
+//! Exception is declared in Ambient source (`core::exception`, re-exported
+//! from the prelude) like any other ability; it is not an engine builtin.
+//! What lives here is only its *identity*: the content hash of its canonical
+//! interface, which the VM's throw/unwind path keys on. The in-language
+//! declaration reproduces this exact hash, so the two never drift.
 
 use std::sync::OnceLock;
 
 use crate::AbilityId;
 use crate::canonical::hash_interface;
-use crate::descriptor::{AbilityDescriptor, AbilityProvider, MethodDescriptor, TypeFactory};
+use crate::descriptor::MethodDescriptor;
 
 /// Method ID for `throw`.
 pub const METHOD_THROW: u16 = 0x0000;
@@ -35,13 +41,8 @@ pub fn ability_id() -> AbilityId {
     *ID.get_or_init(|| hash_interface(ExceptionAbility::NAME, &methods()))
 }
 
-/// Exception ability descriptor constant.
-///
-/// Note: The actual type-aware descriptor is constructed by the engine
-/// using `CoreAbilities::new()`. This constant provides the names.
-pub const EXCEPTION: ExceptionAbility = ExceptionAbility;
-
-/// Marker type for the Exception ability.
+/// Marker type for the Exception ability: a home for its identity
+/// constants (name, method id, content-addressed [`ability_id`]).
 #[derive(Clone, Copy)]
 pub struct ExceptionAbility;
 
@@ -62,43 +63,10 @@ impl ExceptionAbility {
     }
 }
 
-/// Provider for core abilities (Exception, and future Map/List/etc).
-///
-/// This is parameterized by the type system's Type representation,
-/// allowing it to work with different type systems.
-pub struct CoreAbilities<T: 'static> {
-    abilities: Vec<AbilityDescriptor<T>>,
-}
-
-impl<T: Clone + 'static> CoreAbilities<T> {
-    /// Create a new core abilities provider.
-    ///
-    /// The type factory is used to construct type signatures for methods.
-    pub fn new(factory: &dyn TypeFactory<T>) -> Self {
-        let exception = AbilityDescriptor {
-            id: ability_id(),
-            name: ExceptionAbility::NAME,
-            methods: Box::leak(methods::<T>().into_boxed_slice()),
-        };
-
-        // Factory is used when getting types from signatures
-        let _ = factory;
-
-        Self {
-            abilities: vec![exception],
-        }
-    }
-}
-
-impl<T: Clone + 'static> AbilityProvider<T> for CoreAbilities<T> {
-    fn abilities(&self) -> &[AbilityDescriptor<T>] {
-        &self.abilities
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::descriptor::TypeFactory;
 
     // Simple test type for testing
     #[derive(Clone, Debug, PartialEq)]
@@ -160,40 +128,22 @@ mod tests {
         assert_eq!(ExceptionAbility::METHOD_THROW, 0x0000);
     }
 
+    /// The canonical interface the [`ability_id`] hash — and the
+    /// in-language `core::exception::Exception` declaration that must
+    /// reproduce it — commits to: a single method `throw(string): never`.
     #[test]
-    fn test_core_abilities_provider() {
+    fn test_exception_interface_shape() {
         let factory = TestTypeFactory::new();
-        let core = CoreAbilities::new(&factory);
+        let methods = methods::<TestType>();
 
-        assert_eq!(core.abilities().len(), 1);
-
-        let exception = core.get_ability("Exception");
-        assert!(exception.is_some());
-
-        let exception = exception.unwrap();
-        assert_eq!(exception.id, ability_id());
-        assert_eq!(exception.name, "Exception");
-        assert_eq!(exception.methods.len(), 1);
-
-        let throw = exception.get_method("throw");
-        assert!(throw.is_some());
-
-        let throw = throw.unwrap();
+        assert_eq!(methods.len(), 1);
+        let throw = &methods[0];
         assert_eq!(throw.id, METHOD_THROW);
+        assert_eq!(throw.name, "throw");
         assert_eq!(throw.signature.param_count, 1);
-    }
-
-    #[test]
-    fn test_method_signature_types() {
-        let factory = TestTypeFactory::new();
-        let core = CoreAbilities::new(&factory);
-
-        let exception = core.get_ability("Exception").unwrap();
-        let throw = exception.get_method("throw").unwrap();
 
         let params = (throw.signature.param_types)(&factory);
-        assert_eq!(params.len(), 1);
-        assert_eq!(params[0], TestType::String);
+        assert_eq!(params, vec![TestType::String]);
 
         let ret = (throw.signature.return_type)(&factory);
         assert_eq!(ret, TestType::Never);

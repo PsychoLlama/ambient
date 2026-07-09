@@ -1,0 +1,17 @@
+// Core library: the Exception ability.
+//
+// Exception is the language's error-signalling effect. `throw` raises a
+// message that unwinds to the nearest `handle { Exception::throw(e) => ... }`
+// block; with no handler in scope the exception is uncaught and surfaces as
+// an engine fault. Unlike the platform abilities (`core::system::*`), it is
+// re-exported onto the prelude (see `prelude.ab`), so it is in scope bare in
+// every module without an import — exactly like `Option`/`Result`.
+//
+// The ability's identity is the content hash of its canonical interface, so
+// this declaration reproduces byte-for-byte the id the VM anchors its
+// throw/unwind path on (`ambient_core::exception::ability_id()`): a single
+// method `throw`, taking a `String`, returning `!` (never).
+pub ability Exception {
+  /// Raise an error message, unwinding to the nearest Exception handler.
+  fn throw(message: String): !;
+}

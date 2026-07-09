@@ -324,7 +324,26 @@ fn test_handler_literal_prelude_ability() {
 
 #[test]
 fn test_handler_literal_exception_throw() {
+    use crate::ability_resolver::{DynAbility, DynMethod};
+
     let mut infer = Infer::new();
+    // `Exception` is a module-declared ability (`core::exception`,
+    // prelude-injected). A real check resolves the bare name through the
+    // prelude; here — registry-less — register it as a local dynamic under
+    // its content-addressed identity so the bare reference resolves.
+    infer.ability_resolver.register_dynamic(DynAbility {
+        id: ambient_core::exception::ability_id(),
+        name: "Exception".into(),
+        methods: vec![DynMethod {
+            id: ambient_core::exception::METHOD_THROW,
+            name: "throw".into(),
+            param_names: vec!["message".into()],
+            params: vec![Type::string()],
+            ret: Type::Never,
+            quantified: vec![],
+        }],
+        dependencies: vec![],
+    });
     let env = TypeEnv::new();
 
     // { Exception::throw(err) => () } — a non-resuming arm pins R to unit.

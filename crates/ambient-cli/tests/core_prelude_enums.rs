@@ -153,11 +153,30 @@ fn prelude_reexports_the_full_global_set() {
     exported.sort();
 
     let mut expected = vec![
-        "Option", "Some", "None", "Result", "Ok", "Err", "Bool", "Number", "String", "Binary",
+        "Option",
+        "Some",
+        "None",
+        "Result",
+        "Ok",
+        "Err",
+        "Bool",
+        "Number",
+        "String",
+        "Binary",
         // The generic containers.
-        "List", "Map", "Set",
+        "List",
+        "Map",
+        "Set",
+        // The language-level error-signalling ability.
+        "Exception",
         // Operator traits (`Default` is deliberately excluded from the prelude).
-        "Add", "Sub", "Mul", "Div", "Mod", "Eq", "Ord",
+        "Add",
+        "Sub",
+        "Mul",
+        "Div",
+        "Mod",
+        "Eq",
+        "Ord",
     ]
     .into_iter()
     .map(String::from)

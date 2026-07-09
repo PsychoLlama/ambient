@@ -24,6 +24,7 @@ serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [dev-dependencies]
+ambient-core.workspace = true
 tempfile.workspace = true
 uuid.workspace = true
 portable-pty = "0.8"

@@ -252,9 +252,9 @@ pub(super) fn compile_handle_expr(
 }
 
 /// Resolve the ability an inline handler arm covers, so a multi-ability
-/// brace can be grouped into one `HandlerValue` per ability. Locals,
-/// foreign, and prelude abilities resolve through the context; core
-/// builtins (Exception) fall back to the resolver.
+/// brace can be grouped into one `HandlerValue` per ability. Every ability
+/// — locals, foreign, and prelude (including `Exception`) — resolves
+/// through the context by its checker-assigned identity.
 fn resolve_arm_ability(
     ctx: &ModuleContext,
     method: &HandlerLiteralMethod,
@@ -262,7 +262,6 @@ fn resolve_arm_ability(
     let ability_name = &method.ability.name;
     ctx.resolve_ability(&method.ability)
         .map(|info| info.id)
-        .or_else(|| get_ability_id(ability_name))
         .ok_or_else(|| {
             CompileError::new(
                 CompileErrorKind::Unsupported {
@@ -284,16 +283,15 @@ pub(super) fn compile_ability_call(
         compile_expr(fc, arg, ctx)?;
     }
 
-    // Get ability and method IDs. Locals, foreign, and prelude abilities
-    // resolve through the context (identities come from the type
-    // checker); core builtins (Exception) fall back to the resolver.
+    // Get ability and method IDs. Every ability — locals, foreign, and
+    // prelude (including `Exception`) — resolves through the context; the
+    // identities come from the type checker.
     let ability_name = &ability_call.ability.name;
     let method_name = &ability_call.method;
 
     let (ability_id, method_id) = ctx
         .resolve_ability(&ability_call.ability)
         .and_then(|info| info.method_id(method_name).map(|m| (info.id, m)))
-        .or_else(|| get_ability_ids(ability_name, method_name))
         .ok_or_else(|| {
             CompileError::new(
                 CompileErrorKind::UnknownAbilityMethod {
@@ -397,7 +395,6 @@ fn compile_handler_methods(
     let ability_name = dynamic
         .as_ref()
         .map(|(name, _)| name.to_string())
-        .or_else(|| get_ability_name(ability_id))
         .ok_or_else(|| {
             CompileError::new(
                 CompileErrorKind::Unsupported {
@@ -414,7 +411,6 @@ fn compile_handler_methods(
         let method_id = dynamic
             .as_ref()
             .and_then(|(_, info)| info.method_id(&method.method))
-            .or_else(|| get_method_id_for_ability(ability_id, &method.method))
             .ok_or_else(|| {
                 CompileError::new(
                     CompileErrorKind::Unsupported {
@@ -482,37 +478,4 @@ fn compile_handler_method(
     // Handler receives 2 implicit params: continuation and suspended ability.
     let func = method_fc.builder.build(local_count, 2);
     Ok((func, method_fc.capture_names))
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Ability ID Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-// These consult the engine's builtin ability set, which is core-only
-// (Exception). Platform abilities resolve through the module context's
-// registered abilities (prelude + local declarations) before reaching
-// these fallbacks.
-
-/// Get ability and method IDs for a core ability.
-pub(super) fn get_ability_ids(ability: &str, method: &str) -> Option<(AbilityId, u16)> {
-    let resolver = crate::ability_resolver::core_abilities();
-    resolver.get_method(ability, method)
-}
-
-/// Get a core ability's ID.
-pub(super) fn get_ability_id(ability: &str) -> Option<AbilityId> {
-    let resolver = crate::ability_resolver::core_abilities();
-    resolver.name_to_id(ability)
-}
-
-/// Get a method ID from a core ability's ID and a method name.
-pub(super) fn get_method_id_for_ability(ability_id: AbilityId, method_name: &str) -> Option<u16> {
-    let resolver = crate::ability_resolver::core_abilities();
-    resolver.get_method_by_ability_id(ability_id, method_name)
-}
-
-/// Get a core ability's name from its ID.
-pub(super) fn get_ability_name(ability_id: AbilityId) -> Option<String> {
-    let resolver = crate::ability_resolver::core_abilities();
-    resolver.id_to_name(ability_id).map(String::from)
 }

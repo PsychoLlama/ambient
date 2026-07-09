@@ -180,3 +180,32 @@ fn ability_ids_are_byte_stable() {
         );
     }
 }
+
+/// `Exception` is declared in Ambient source (`core::exception`) rather than
+/// as an engine builtin, but the VM's throw/unwind path still keys on the
+/// content hash `ambient_core::exception::ability_id()`. The declaration must
+/// therefore reproduce that id byte-for-byte — otherwise a `throw` compiles to
+/// a perform the VM no longer recognizes as an exception. Resolve it through
+/// the same path a real check uses and pin it to the VM's anchor.
+#[test]
+fn declared_exception_reproduces_the_vm_anchor_id() {
+    let mut registry = ambient_engine::module_registry::ModuleRegistry::new();
+    ambient_engine::core_library::register_core_modules(&mut registry, |s| {
+        ambient_parser::parse(s).map_err(|e| e.to_string())
+    })
+    .expect("core modules must parse");
+
+    let exception = ambient_engine::infer::resolve_registry_abilities(&registry)
+        .into_iter()
+        .find(|(fqn, _)| fqn.name() == "Exception")
+        .map(|(_, ability)| ability)
+        .expect("core must declare `Exception`");
+
+    assert_eq!(
+        exception.id,
+        ambient_core::exception::ability_id(),
+        "core::exception::Exception must reproduce the VM's Exception id"
+    );
+    assert_eq!(exception.methods.len(), 1);
+    assert_eq!(exception.methods[0].name.as_ref(), "throw");
+}

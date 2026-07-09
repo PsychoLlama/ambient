@@ -232,16 +232,26 @@ impl Infer {
         self.workspace_name = name;
     }
 
-    /// Create a new inference context with standard abilities.
+    /// Create a new inference context with an empty ability resolver.
+    ///
+    /// No abilities are in scope: every ability — including the
+    /// language-level `Exception` — is a module-declared dynamic that
+    /// enters through the prelude (`core::exception`) or an `ability`
+    /// declaration, seeded from the registry during a cross-module check. A
+    /// registry-less check therefore starts without any abilities, mirroring
+    /// how it starts without `Option`/`Result`/the primitives.
     #[must_use]
     pub fn new() -> Self {
-        Self::with_parts(None, crate::ability_resolver::core_abilities())
+        Self::with_parts(None, crate::ability_resolver::AbilityResolver::new())
     }
 
     /// Create a new inference context with an ability registry.
     #[must_use]
     pub fn with_registry(registry: AbilityRegistry) -> Self {
-        Self::with_parts(Some(registry), crate::ability_resolver::core_abilities())
+        Self::with_parts(
+            Some(registry),
+            crate::ability_resolver::AbilityResolver::new(),
+        )
     }
 
     /// Create a new inference context with a custom ability resolver.

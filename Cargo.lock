@@ -26,6 +26,7 @@ name = "ambient-cli"
 version = "0.1.0"
 dependencies = [
  "ambient-analysis",
+ "ambient-core",
  "ambient-engine",
  "ambient-lsp",
  "ambient-parser",

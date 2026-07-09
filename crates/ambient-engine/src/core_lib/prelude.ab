@@ -27,3 +27,10 @@ pub use core::collections::{List, Map, Set};
 // always have them in scope. `Default` is deliberately omitted: it has no
 // desugaring hook and is reachable through `use core::traits::Default`.
 pub use core::traits::{Add, Sub, Mul, Div, Mod, Eq, Ord};
+
+// The `Exception` ability: the language's error-signalling effect. Like the
+// containers, its runtime semantics are engine-built (the VM's throw/unwind
+// path keys on its content-addressed id), but the name resolves through
+// scope like any other ability — bare here via the prelude, or
+// `core::exception::Exception` fully-qualified.
+pub use core::exception::Exception;

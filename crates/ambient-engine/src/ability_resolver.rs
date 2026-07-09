@@ -1,15 +1,15 @@
-//! Ability resolver for looking up abilities from registered providers.
+//! Ability resolver for looking up module-declared abilities.
 //!
-//! The `AbilityResolver` aggregates abilities from multiple providers (core, `core::system`,
-//! and any user-defined providers) and provides lookup methods for the type checker
-//! and compiler.
+//! The `AbilityResolver` aggregates the abilities in scope for a compile —
+//! local declarations and namespaced dynamics (ability preludes such as
+//! `core::system`, and the prelude-injected `core::exception`) — and provides
+//! lookup methods for the type checker and compiler. Every ability is
+//! content-addressed and resolved from an in-language `ability` declaration;
+//! there are no engine builtins.
 
 use crate::fqn::ModuleId;
 use crate::types::Type;
-use ambient_core::{
-    AbilityDescriptor, AbilityId, AbilityProvider, MethodId, RawMethod, TypeFactory,
-    hash_interface_raw,
-};
+use ambient_core::{AbilityId, MethodId, RawMethod, TypeFactory, hash_interface_raw};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -36,14 +36,13 @@ pub struct DynMethod {
     pub quantified: Vec<crate::types::TypeVarId>,
 }
 
-/// One ability method's full signature, uniform across dynamic abilities
-/// and builtin descriptors. For tooling: completions, hover, signature
-/// help.
+/// One ability method's full signature. For tooling: completions, hover,
+/// signature help.
 #[derive(Debug, Clone)]
 pub struct MethodSignatureInfo {
     /// Method name.
     pub name: Arc<str>,
-    /// Declared parameter names (empty for builtin descriptors).
+    /// Declared parameter names.
     pub param_names: Vec<Arc<str>>,
     /// Parameter types.
     pub params: Vec<Type>,
@@ -53,10 +52,8 @@ pub struct MethodSignatureInfo {
 
 /// A module-declared ability: interface data resolved from source.
 ///
-/// Unlike builtin [`AbilityDescriptor`]s (compile-time constants with
-/// factory-function signatures), these are plain data built by the type
-/// checker from `ability` declarations. Their identity is the same
-/// canonical interface hash builtins use.
+/// Plain data built by the type checker from `ability` declarations; the
+/// identity is the content hash of the canonical interface.
 #[derive(Debug, Clone)]
 pub struct DynAbility {
     /// Content-addressed identity of the interface.
@@ -138,26 +135,23 @@ impl From<&DynAbility> for AbilityInterface {
     }
 }
 
-/// Resolves ability lookups from registered providers.
+/// Resolves ability lookups from module-declared abilities.
 ///
 /// This is used by the type checker and compiler to look up ability and method
 /// information without hard-coding the ability definitions.
 ///
-/// Three populations live here: builtin descriptors (registered from
-/// providers/config), local module-declared dynamics, and namespaced
-/// dynamics (ability preludes such as `core::system`). Source references
-/// resolve through [`AbilityResolver::resolve_ref`], which enforces the
-/// namespace policy: namespaced dynamics require their prefix
-/// everywhere, locals and builtins are bare, and locals shadow both.
-/// The remaining name lookups are low-level (tooling/rendering) and
-/// prefer dynamics over builtins.
+/// Every ability is a module-declared dynamic — including the language-level
+/// `Exception`, which lives in `core::exception` and reaches every module
+/// through the prelude. Two populations live here: local dynamics (declared
+/// in the module being checked) and namespaced dynamics (declared elsewhere,
+/// keyed by their declaring module — ability preludes such as `core::system`,
+/// and `core::exception`). Source references resolve through
+/// [`AbilityResolver::resolve_ref`], which enforces the namespace policy: a
+/// reference resolves under the namespace its declaring module gives it, and
+/// local declarations resolve bare and shadow same-named namespaced ones. The
+/// remaining name lookups are low-level (tooling/rendering) where
+/// qualification may be absent.
 pub struct AbilityResolver {
-    /// Map from ability name to descriptor.
-    by_name: HashMap<Arc<str>, AbilityDescriptor<Type>>,
-
-    /// Map from ability ID to descriptor.
-    by_id: HashMap<AbilityId, AbilityDescriptor<Type>>,
-
     /// Module-declared abilities by name.
     dynamic_by_name: HashMap<Arc<str>, Arc<DynAbility>>,
 
@@ -203,8 +197,6 @@ impl AbilityResolver {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            by_name: HashMap::new(),
-            by_id: HashMap::new(),
             dynamic_by_name: HashMap::new(),
             dynamic_by_id: HashMap::new(),
             namespaced_by_name: HashMap::new(),
@@ -262,40 +254,21 @@ impl AbilityResolver {
         self.dynamic_by_id.get(&id)
     }
 
-    /// Register abilities from a provider.
-    pub fn register<P: AbilityProvider<Type>>(&mut self, provider: &P) {
-        for ability in provider.abilities() {
-            self.by_name
-                .insert(Arc::from(ability.name), ability.clone());
-            self.by_id.insert(ability.id, ability.clone());
-        }
-    }
-
-    /// Look up an ability by name.
-    #[must_use]
-    pub fn get_by_name(&self, name: &str) -> Option<&AbilityDescriptor<Type>> {
-        self.by_name.get(name)
-    }
-
-    /// Look up an ability by ID.
-    #[must_use]
-    pub fn get_by_id(&self, id: AbilityId) -> Option<&AbilityDescriptor<Type>> {
-        self.by_id.get(&id)
-    }
-
     /// Resolve an ability reference as written in source, enforcing the
     /// namespace policy. This is the single entry point for every source
     /// position that names an ability: performs, `with` clauses,
     /// effect-row annotations, handler arms, and sandbox clauses.
     ///
     /// The policy:
-    /// - A bare name resolves to a local (module-declared) dynamic first,
-    ///   then to a builtin descriptor (`Exception`). A bare name that
-    ///   belongs to a namespaced dynamic is an error: namespaced abilities
-    ///   must be written with their prefix (`core::system::Stdio`).
-    /// - A qualified name (`core::system::Stdio`) resolves only to the
-    ///   dynamic registered under exactly that namespace. Locals and
-    ///   builtins may not be spelled with a namespace.
+    /// - A bare name resolves to a local (module-declared) dynamic. A bare
+    ///   name that belongs to a namespaced dynamic is an error: namespaced
+    ///   abilities must be written with their prefix
+    ///   (`core::system::Stdio`). (A prelude-injected ability such as
+    ///   `Exception` is spelled bare but carries its declaring module's
+    ///   namespace after the resolve pass, so it takes the `Some` arm.)
+    /// - A qualified name (`core::system::Stdio`, `core::exception::Exception`)
+    ///   resolves only to the dynamic registered under exactly that
+    ///   namespace. Locals may not be spelled with a namespace.
     /// - A local dynamic that shadows a namespaced name keeps working
     ///   bare; the namespaced one stays reachable via its prefix.
     ///
@@ -319,10 +292,7 @@ impl AbilityResolver {
                         namespace: Arc::from(namespace.to_string()),
                     });
                 }
-                self.by_name
-                    .get(name)
-                    .map(|a| a.id)
-                    .ok_or(AbilityRefError::Unknown)
+                Err(AbilityRefError::Unknown)
             }
             Some(namespace) => {
                 if let Some(ability) = self.get_namespaced(namespace, name) {
@@ -343,19 +313,16 @@ impl AbilityResolver {
     /// Convert an ability name to its ID.
     ///
     /// This is a low-level bare-name lookup (local dynamics, then
-    /// namespaced dynamics, then builtin descriptors) for tooling and
-    /// rendering, where qualification may be absent. Source positions
-    /// that name abilities must go through [`Self::resolve_ref`], which
-    /// enforces the namespace policy.
+    /// namespaced dynamics) for tooling and rendering, where qualification
+    /// may be absent. Source positions that name abilities must go through
+    /// [`Self::resolve_ref`], which enforces the namespace policy.
     #[must_use]
     pub fn name_to_id(&self, name: &str) -> Option<AbilityId> {
         if let Some(dynamic) = self.dynamic_by_name.get(name) {
             return Some(dynamic.id);
         }
-        if let Some(dynamic) = self.namespaced_dynamic_by_bare_name(name) {
-            return Some(dynamic.id);
-        }
-        self.by_name.get(name).map(|a| a.id)
+        self.namespaced_dynamic_by_bare_name(name)
+            .map(|dynamic| dynamic.id)
     }
 
     /// The first namespaced dynamic answering to a bare name, if any
@@ -370,10 +337,9 @@ impl AbilityResolver {
     /// Convert an ability ID to its name.
     #[must_use]
     pub fn id_to_name(&self, id: AbilityId) -> Option<&str> {
-        if let Some(dynamic) = self.dynamic_by_id.get(&id) {
-            return Some(dynamic.name.as_ref());
-        }
-        self.by_id.get(&id).map(|a| a.name)
+        self.dynamic_by_id
+            .get(&id)
+            .map(|dynamic| dynamic.name.as_ref())
     }
 
     /// Look up a method by ability name and method name.
@@ -387,13 +353,9 @@ impl AbilityResolver {
             let method = dynamic.method(method_name)?;
             return Some((dynamic.id, method.id));
         }
-        if let Some(dynamic) = self.namespaced_dynamic_by_bare_name(ability_name) {
-            let method = dynamic.method(method_name)?;
-            return Some((dynamic.id, method.id));
-        }
-        let ability = self.by_name.get(ability_name)?;
-        let method = ability.get_method(method_name)?;
-        Some((ability.id, method.id))
+        let dynamic = self.namespaced_dynamic_by_bare_name(ability_name)?;
+        let method = dynamic.method(method_name)?;
+        Some((dynamic.id, method.id))
     }
 
     /// Look up a method by ability ID and method name.
@@ -403,56 +365,35 @@ impl AbilityResolver {
         ability_id: AbilityId,
         method_name: &str,
     ) -> Option<MethodId> {
-        if let Some(dynamic) = self.dynamic_by_id.get(&ability_id) {
-            return dynamic.method(method_name).map(|m| m.id);
-        }
-        let ability = self.by_id.get(&ability_id)?;
-        let method = ability.get_method(method_name)?;
-        Some(method.id)
+        self.dynamic_by_id
+            .get(&ability_id)
+            .and_then(|dynamic| dynamic.method(method_name))
+            .map(|m| m.id)
     }
 
-    /// Get all method signatures for an ability, uniformly across dynamic
-    /// abilities and builtin descriptors. Parameter names are empty for
-    /// descriptors (they don't declare them).
+    /// Get all method signatures for an ability. For tooling: completions,
+    /// hover, signature help.
     #[must_use]
-    pub fn method_signatures(
-        &self,
-        ability_id: AbilityId,
-        type_factory: &dyn TypeFactory<Type>,
-    ) -> Vec<MethodSignatureInfo> {
-        if let Some(dynamic) = self.dynamic_by_id.get(&ability_id) {
-            return dynamic
-                .methods
-                .iter()
-                .map(|m| MethodSignatureInfo {
-                    name: Arc::clone(&m.name),
-                    param_names: m.param_names.clone(),
-                    params: m.params.clone(),
-                    ret: m.ret.clone(),
-                })
-                .collect();
-        }
-
-        let Some(ability) = self.by_id.get(&ability_id) else {
+    pub fn method_signatures(&self, ability_id: AbilityId) -> Vec<MethodSignatureInfo> {
+        let Some(dynamic) = self.dynamic_by_id.get(&ability_id) else {
             return vec![];
         };
-
-        ability
+        dynamic
             .methods
             .iter()
             .map(|m| MethodSignatureInfo {
-                name: Arc::from(m.name),
-                param_names: Vec::new(),
-                params: (m.signature.param_types)(type_factory),
-                ret: (m.signature.return_type)(type_factory),
+                name: Arc::clone(&m.name),
+                param_names: m.param_names.clone(),
+                params: m.params.clone(),
+                ret: m.ret.clone(),
             })
             .collect()
     }
 
-    /// Every ability name spelled the way source must reference it:
-    /// local dynamics and builtin descriptors bare, namespaced dynamics
-    /// with their prefix (`core::system::Stdio`). Sorted and deduplicated.
-    /// Suitable for completions in `with` clauses and handler arms.
+    /// Every ability name spelled the way source must reference it: local
+    /// dynamics bare, namespaced dynamics with their prefix
+    /// (`core::system::Stdio`). Sorted and deduplicated. Suitable for
+    /// completions in `with` clauses and handler arms.
     #[must_use]
     pub fn ability_names(&self) -> Vec<Arc<str>> {
         let mut names: Vec<Arc<str>> = self
@@ -465,7 +406,6 @@ impl AbilityResolver {
                     .map(|(namespace, name)| Arc::from(format!("{namespace}::{name}"))),
             )
             // `namespace` renders via `ModuleId`'s `Display`.
-            .chain(self.by_name.keys().cloned())
             .collect();
         names.sort_unstable();
         names.dedup();
@@ -486,30 +426,15 @@ impl AbilityResolver {
         names
     }
 
-    /// Get an iterator over all registered abilities.
-    pub fn abilities(&self) -> impl Iterator<Item = &AbilityDescriptor<Type>> {
-        self.by_id.values()
-    }
-
-    /// Get the return type for a method.
-    ///
-    /// Returns the return type constructed using the provided type factory.
+    /// Get the declared return type for a method.
     #[must_use]
-    pub fn get_method_return_type(
-        &self,
-        ability_name: &str,
-        method_name: &str,
-        type_factory: &dyn TypeFactory<Type>,
-    ) -> Option<Type> {
+    pub fn get_method_return_type(&self, ability_name: &str, method_name: &str) -> Option<Type> {
         if let Some(dynamic) = self.dynamic_by_name.get(ability_name) {
             return dynamic.method(method_name).map(|m| m.ret.clone());
         }
-        if let Some(dynamic) = self.namespaced_dynamic_by_bare_name(ability_name) {
-            return dynamic.method(method_name).map(|m| m.ret.clone());
-        }
-        let ability = self.by_name.get(ability_name)?;
-        let method = ability.get_method(method_name)?;
-        Some((method.signature.return_type)(type_factory))
+        self.namespaced_dynamic_by_bare_name(ability_name)
+            .and_then(|dynamic| dynamic.method(method_name))
+            .map(|m| m.ret.clone())
     }
 
     /// Check if a method exists for an ability.
@@ -518,12 +443,8 @@ impl AbilityResolver {
         if let Some(dynamic) = self.dynamic_by_name.get(ability_name) {
             return dynamic.method(method_name).is_some();
         }
-        if let Some(dynamic) = self.namespaced_dynamic_by_bare_name(ability_name) {
-            return dynamic.method(method_name).is_some();
-        }
-        self.by_name
-            .get(ability_name)
-            .is_some_and(|a| a.get_method(method_name).is_some())
+        self.namespaced_dynamic_by_bare_name(ability_name)
+            .is_some_and(|dynamic| dynamic.method(method_name).is_some())
     }
 }
 
@@ -731,38 +652,9 @@ impl TypeFactory<Type> for EngineTypeFactory {
     }
 }
 
-/// Create an `AbilityResolver` with the language-level core abilities
-/// (Exception).
-///
-/// This is the engine's only builtin ability set. Platform abilities
-/// (Stdio, `FileSystem`, Network, ...) are not engine builtins: embedders
-/// resolve their declaration modules with
-/// [`crate::infer::resolve_ability_declarations`] and register the
-/// results as namespaced dynamics.
-#[must_use]
-pub fn core_abilities() -> AbilityResolver {
-    let factory = EngineTypeFactory;
-    let mut resolver = AbilityResolver::new();
-    let core = ambient_core::CoreAbilities::new(&factory);
-    resolver.register(&core);
-    resolver
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_core_abilities() {
-        let resolver = core_abilities();
-
-        // Exception is the engine's only builtin ability.
-        assert!(resolver.get_by_name("Exception").is_some());
-
-        // Platform abilities are not engine builtins.
-        assert!(resolver.get_by_name("Stdio").is_none());
-        assert!(resolver.get_by_name("FileSystem").is_none());
-    }
 
     fn dyn_ability(name: &str, byte: u8) -> DynAbility {
         DynAbility {
@@ -846,27 +738,19 @@ mod tests {
     }
 
     #[test]
-    fn resolve_ref_policy_for_locals_and_builtins() {
-        let mut resolver = core_abilities();
+    fn resolve_ref_policy_for_locals() {
+        let mut resolver = AbilityResolver::new();
         resolver.register_dynamic(dyn_ability("Printer", 9));
 
-        // Locals and the builtin Exception resolve bare.
+        // A local declaration resolves bare.
         assert_eq!(
             resolver.resolve_ref(None, "Printer"),
             Ok(AbilityId::from_bytes([9; 32]))
         );
-        assert_eq!(
-            resolver.resolve_ref(None, "Exception"),
-            Ok(ambient_core::exception::ability_id())
-        );
 
-        // Neither may be spelled with a namespace.
+        // A local may not be spelled with a namespace.
         assert_eq!(
             resolver.resolve_ref(Some(&ModuleId::core_system()), "Printer"),
-            Err(AbilityRefError::Unknown)
-        );
-        assert_eq!(
-            resolver.resolve_ref(Some(&ModuleId::core_system()), "Exception"),
             Err(AbilityRefError::Unknown)
         );
 
@@ -911,14 +795,13 @@ mod tests {
 
     #[test]
     fn ability_names_render_namespaced_qualified() {
-        let mut resolver = core_abilities();
+        let mut resolver = AbilityResolver::new();
         resolver.register_dynamic_in_namespace(&ModuleId::core_system(), dyn_ability("Printer", 7));
         resolver.register_dynamic(dyn_ability("Local", 9));
 
         let names = resolver.ability_names();
         assert!(names.iter().any(|n| n.as_ref() == "core::system::Printer"));
         assert!(names.iter().any(|n| n.as_ref() == "Local"));
-        assert!(names.iter().any(|n| n.as_ref() == "Exception"));
         assert!(!names.iter().any(|n| n.as_ref() == "Printer"));
     }
 }

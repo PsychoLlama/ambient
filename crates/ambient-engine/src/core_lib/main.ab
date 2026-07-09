@@ -18,3 +18,4 @@ pub use self::time;
 pub use self::traits;
 pub use self::option;
 pub use self::result;
+pub use self::exception;

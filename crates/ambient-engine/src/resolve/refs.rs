@@ -113,10 +113,10 @@ impl Resolver<'_> {
             return;
         }
         if name.path.is_empty() {
-            // The builtin `Exception` stays bare (it has no declaring
-            // module). A locally-declared ability resolves to its own
-            // `Fqn(current, [name])`; imported abilities canonicalize to
-            // their declaring module.
+            // A locally-declared ability resolves to its own
+            // `Fqn(current, [name])`; imported and prelude-injected
+            // abilities (including `Exception`, re-exported from
+            // `core::exception`) canonicalize to their declaring module.
             if self.module_abilities.contains(&name.name) {
                 let current = self.current;
                 name.resolved = Some(self.canonical(current, vec![Arc::clone(&name.name)]));

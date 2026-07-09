@@ -306,7 +306,9 @@ fn test_effect_row_annotation_requires_platform_namespace() {
 
 #[test]
 fn test_exception_may_not_be_namespaced() {
-    // Exception is a language builtin, never platform-qualified.
+    // Exception lives in `core::exception` (prelude-injected), not
+    // `core::system`: the wrong namespace is rejected, and the diagnostic
+    // points at the namespace that would work.
     CliTest::new(
         r#"
         pub fn run(): () with core::system::Exception {
@@ -314,7 +316,7 @@ fn test_exception_may_not_be_namespaced() {
         }
         "#,
     )
-    .expect_error("unknown ability");
+    .expect_error("core::exception::Exception");
 }
 
 #[test]
