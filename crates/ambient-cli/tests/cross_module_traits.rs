@@ -707,3 +707,69 @@ fn test_zero_parameter_lambda() {
     )
     .expect_output("56");
 }
+
+#[test]
+fn test_cross_module_bounded_generic() {
+    // A bounded generic function in one module, a type with the required
+    // impl in another, a caller in a third. The caller's check hydrates
+    // the foreign bounded scheme, solves the bound against the foreign
+    // impl, and links the dictionary's method symbols across the module
+    // boundary.
+    let (_dir, pkg) = temp_multi_package(&[
+        (
+            "search.ab",
+            r#"
+            pub fn either_equal<T: Eq>(target: T, a: T, b: T): Bool {
+                if target.eq(a) { true } else { target.eq(b) }
+            }
+            "#,
+        ),
+        (
+            "money.ab",
+            r#"
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00002222) struct Money { cents: Number }
+
+            impl Eq for Money {
+                fn eq(self, other: Money): Bool {
+                    self.cents == other.cents
+                }
+            }
+
+            pub fn make(cents: Number): Money {
+                Money { cents: cents }
+            }
+            "#,
+        ),
+        (
+            "main.ab",
+            r#"
+            use pkg::search::either_equal;
+            use pkg::money::make;
+
+            pub fn run(): Number {
+                let hit = either_equal(make(5), make(4), make(5));
+                let miss = either_equal(make(9), make(4), make(5));
+                let a = if hit { 1 } else { 0 };
+                let b = if miss { 10 } else { 100 };
+                a + b
+            }
+            "#,
+        ),
+    ]);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&pkg)
+        .output()
+        .expect("failed to run ambient");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("101"),
+        "expected 101 in output, got: {stdout}"
+    );
+}

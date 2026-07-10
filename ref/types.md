@@ -37,8 +37,9 @@ fn area(s: Shape): Number {
 // Nominal types (structurally identical but incompatible)
 unique(D098767B-4093-4D5C-BA37-AD92AA7B5D98) struct UserId { value: String }
 
-// Generics
+// Generics; type parameters take trait bounds (see traits.md)
 fn identity<T>(x: T): T { x }
+fn min_of<T: Ord>(a: T, b: T): T { if a < b { a } else { b } }
 ```
 
 ## Nominal Types

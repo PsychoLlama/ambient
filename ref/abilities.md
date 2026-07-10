@@ -25,6 +25,15 @@ here:
   calls `extern fn stdio_out`, `Stdio::err` calls `stdio_err`), and
   changing a method's behavior re-keys it loudly instead of silently
   binding old callers to new semantics.
+- Trait bounds on a method's type parameters (`fn pick_equal<T: Eq>`) are
+  part of the canonical signature (rendered by the _spelled_ trait name,
+  like unresolved cross-module nominals): adding or removing a bound
+  re-keys the method. At runtime the bound's dictionary rides as a hidden
+  trailing perform argument and the default implementation binds it — see
+  [Generic Constraints in traits.md](traits.md#generic-constraints).
+  Handler arms cannot cover a bounded method yet (they would not bind the
+  dictionary); the checker rejects such arms and the default
+  implementation handles the perform.
 
 Dispatch keys on `(AbilityId, MethodKey)`: compiled bytecode references
 each performed method through the constant pool (uuid, signature, and
@@ -68,6 +77,9 @@ unique(A1B2C3D4-0000-0000-0000-000000000001) ability FileSystem {
 unique(A1B2C3D4-0000-0000-0000-000000000002) ability Picker {
   fn pick<T>(a: T, b: T): T {    // generic methods instantiate per call
     a
+  }
+  fn pick_equal<T: Eq>(a: T, b: T): Bool {   // trait bounds work here too:
+    a.eq(b)                                  // same rules as any function
   }
 }
 

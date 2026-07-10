@@ -298,7 +298,7 @@ Invariants (pinned by `crates/ambient-parser/tests/content_addressing.rs`):
 - Renaming a non-recursive function never changes its hash.
 - Every compiled function is reproducible byte-for-byte from its object.
 - Impl methods are ordinary functions — trait methods named
-  `<type-uuid>::<Trait>::<method>`, inherent methods
+  `<type-uuid>::<trait-uuid>::<method>`, inherent methods
   `<type-identity>::<method>` — and obey all of the above.
 
 ### The Store
@@ -456,7 +456,11 @@ Roughly in priority order:
   item imports, qualified calls), and every native operation is now a
   declared `extern fn` — but the library itself is small (list/math/string
   helpers). Target roughly the granularity of Go's or Node's standard
-  libraries. Generic trait bounds would unlock `contains`/`sort_by`.
+  libraries. Generic trait bounds now exist (`fn f<T: Eq>` — see
+  [traits.md](traits.md#generic-constraints)) and already power
+  `List::contains`/`index_of`/`min`/`max`/`sorted`; the remaining blockers
+  are the bound-dispatch-inside-lambdas and conditional-impl gaps noted
+  there.
 - **Cross-module ability imports (done).** The platform-bindings split
   is done: platform abilities are in-language declarations
   (`platform.ab`) whose default implementations call module-private
@@ -489,8 +493,11 @@ Roughly in priority order:
   features that only matter if the process model wins — typed `spawn` via
   effect-polymorphic ability signatures, linking/monitors, supervision
   trees, receive timeouts — are contingent on that decision.
-- Generic traits, supertraits, trait bounds (`fn foo<T: Eq>(x: T)`) — only
-  if needed; traits exist to support polymorphic operators
+- Trait bounds (`fn foo<T: Eq>(x: T)`) are **done** — dictionary-passing,
+  uniform across functions, impl methods, and ability methods. Still open:
+  generic traits (`trait Container<T>`), supertraits, conditional impls as
+  dictionary sources, bound dispatch inside lambdas, and bounded generics
+  as first-class values.
 - Incremental compilation backed by the persisted store
 - WASM target
 - Package manager with a shared cache (stores are rsync-friendly by
