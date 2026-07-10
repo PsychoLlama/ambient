@@ -29,10 +29,10 @@ fn compile(src: &str) -> CompiledModule {
     registry
         .natives_mut()
         .merge(&ambient_platform::stub_natives());
-    let platform_compiled = ambient_engine::build::compile_system_module(
+    let platform_compiled = ambient_engine::build::compile_declaration_modules(
         &mut registry,
         &mut module_function_hashes,
-        ambient_platform::PLATFORM_SOURCE,
+        ambient_platform::platform_modules(),
         |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
     )
     .expect("core::system compiles");

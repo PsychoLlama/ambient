@@ -1,0 +1,24 @@
+//! Leveled diagnostic logging.
+
+/// Leveled diagnostic logging. The default implementations perform
+/// `core::system::stdio::Stdio`, so a handler for `Stdio` also captures log
+/// lines — and a handler for `Log` intercepts them before formatting.
+///
+/// `Stdio` is written by its canonical origin path (`core::system::stdio`,
+/// not the `core::system` re-export): `with` clauses and effect rows resolve
+/// an ability's namespace from the literal path they name, so the spelling
+/// must match the submodule the ability is declared in.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000005) ability Log with core::system::stdio::Stdio {
+  fn debug(message: String): () {
+    core::system::stdio::Stdio::out!("[DEBUG] ${message}")
+  }
+  fn info(message: String): () {
+    core::system::stdio::Stdio::out!("[INFO] ${message}")
+  }
+  fn warn(message: String): () {
+    core::system::stdio::Stdio::out!("[WARN] ${message}")
+  }
+  fn error(message: String): () {
+    core::system::stdio::Stdio::err!("[ERROR] ${message}")
+  }
+}

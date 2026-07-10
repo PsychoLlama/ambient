@@ -115,6 +115,7 @@ dependencies = [
  "ambient-parser",
  "blake3",
  "hex",
+ "include_dir",
  "tokio",
  "uuid",
 ]

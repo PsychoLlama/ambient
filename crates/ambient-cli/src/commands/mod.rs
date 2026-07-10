@@ -75,10 +75,10 @@ pub fn core_context() -> Result<CoreContext> {
     registry
         .natives_mut()
         .merge(&ambient_platform::stub_natives());
-    let platform = ambient_engine::build::compile_system_module(
+    let platform = ambient_engine::build::compile_declaration_modules(
         &mut registry,
         &mut module_function_hashes,
-        ambient_platform::PLATFORM_SOURCE,
+        ambient_platform::platform_modules(),
         |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
     )
     .map_err(|e| anyhow::anyhow!("platform module failed to build: {e}"))?;

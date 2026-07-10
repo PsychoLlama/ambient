@@ -21,13 +21,12 @@ fn base_registry() -> ModuleRegistry {
         ambient_parser::parse(s).map_err(|e| e.to_string())
     })
     .expect("core modules register");
-    ambient_engine::core_library::register_declaration_module(
+    ambient_engine::core_library::register_declaration_modules(
         &mut registry,
-        &["core", "system"],
-        ambient_platform::PLATFORM_SOURCE,
+        ambient_platform::platform_modules(),
         |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
     )
-    .expect("platform module registers");
+    .expect("platform modules register");
     registry
 }
 

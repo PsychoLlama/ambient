@@ -50,12 +50,13 @@ pub type ParseFn = fn(&str) -> Result<Module, ParseFailure>;
 /// Knobs for a package build.
 #[derive(Default)]
 pub struct BuildOptions<'a> {
-    /// Source of the embedder's `core::system` module (the platform
-    /// bindings interface). Empty disables platform registration. The
-    /// module compiles like any core module — its ability method bodies
-    /// are the default implementations unhandled performs run — so its
-    /// `extern fn` declarations must be bound by [`Self::natives`].
-    pub platform_source: &'a str,
+    /// The embedder's `core::system` declaration tree (the platform
+    /// bindings interface: the directory-module root plus its per-ability
+    /// submodules). Empty disables platform registration. Each module
+    /// compiles like a core module — its ability method bodies are the
+    /// default implementations unhandled performs run — so its `extern fn`
+    /// declarations must be bound by [`Self::natives`].
+    pub platform_modules: &'a [crate::core_library::DeclModule<'a>],
     /// Embedder native bindings for `extern fn` declarations in the
     /// platform and *user* modules (core's own bindings attach
     /// automatically). The build enforces the full contract: every
@@ -198,11 +199,11 @@ pub fn build_package(
     // its abilities are in scope fully-qualified (`core::system::Network`)
     // and importable (`use core::system::Network;`), and its default
     // implementations exist for perform sites to link against.
-    if !options.platform_source.is_empty() {
-        let platform_compiled = compile_system_module(
+    if !options.platform_modules.is_empty() {
+        let platform_compiled = compile_declaration_modules(
             &mut registry,
             &mut module_function_hashes,
-            options.platform_source,
+            options.platform_modules,
             parse_str,
         )?;
         all_compiled.merge(&platform_compiled);
@@ -458,15 +459,61 @@ pub fn compile_core_modules(
         },
     )?;
 
+    // Compile the registered core modules in dependency order, reusing the
+    // same resolve + topo-sort every module group shares.
+    compile_module_group(registry, module_function_hashes, &core_paths)
+}
+
+/// Register and compile an embedder-supplied declaration *tree* (e.g. the
+/// platform bindings interface: the `core::system` directory module plus
+/// its per-ability submodules).
+///
+/// Each module is ordinary Ambient source — `unique(<uuid>)`-prefixed
+/// ability declarations whose method bodies (the default implementations
+/// unhandled performs run) call each module's own private `extern fn`s.
+/// The tree checks and compiles exactly like the core library, in
+/// dependency order; the caller must have merged the platform's native
+/// bindings into the registry first, or the extern pre-pass fails loudly.
+///
+/// # Errors
+///
+/// Returns an error if a module fails to parse, check, or compile — bugs in
+/// the embedder's interface, not user error.
+#[allow(clippy::implicit_hasher)]
+pub fn compile_declaration_modules(
+    registry: &mut ModuleRegistry,
+    module_function_hashes: &mut HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>>,
+    modules: &[crate::core_library::DeclModule<'_>],
+    parse: impl Fn(&str) -> Result<Module, String>,
+) -> Result<CompiledModule, BuildError> {
+    let paths = crate::core_library::register_declaration_modules(registry, modules, parse)
+        .map_err(|(module, error)| BuildError::Compile { module, error })?;
+    compile_module_group(registry, module_function_hashes, &paths)
+}
+
+/// Resolve, order, check, and compile an already-registered set of module
+/// paths, recording their function hashes and returning the merged artifact.
+///
+/// Shared by [`compile_core_modules`] and [`compile_declaration_modules`]:
+/// both register a group of reserved-path modules and then need the same
+/// dependency-ordered compile as package modules get. Modules referenced
+/// only as dependencies (e.g. a platform module performing `core::time`)
+/// are already compiled and simply link through `module_function_hashes`.
+#[allow(clippy::implicit_hasher)]
+fn compile_module_group(
+    registry: &mut ModuleRegistry,
+    module_function_hashes: &mut HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>>,
+    paths: &[ModulePath],
+) -> Result<CompiledModule, BuildError> {
     // Compile in dependency order (dependencies first), reusing the same
     // resolve + topo-sort as package modules rather than a hardcoded list.
-    // Every core module is registered, so resolving each canonicalizes its
+    // Every module is registered, so resolving each canonicalizes its
     // cross-module references and yields its dependency set; the ASTs
     // themselves aren't rewritten here (the checker re-resolves, and
     // re-registering would drop the injected intrinsic exports).
     let mut deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut paths_by_key: BTreeMap<String, ModulePath> = BTreeMap::new();
-    for core_path in &core_paths {
+    for path in paths {
         // The prelude module is a pure re-export container (`pub use
         // core::option::{Some, None}`, ...). It is registered so its
         // re-exports can be injected into every scope, but it is never
@@ -474,38 +521,38 @@ pub fn compile_core_modules(
         // normal importable surface, and it contributes no functions. No
         // module ever depends on it (injection resolves to each name's
         // origin), so leaving it out of the order is sound.
-        if registry.prelude() == Some(core_path) {
+        if registry.prelude() == Some(path) {
             continue;
         }
         let mut ast = registry
-            .get(core_path)
+            .get(path)
             .map(|info| (*info.module).clone())
-            .ok_or_else(|| BuildError::PackageOpen(format!("core module {core_path} vanished")))?;
-        let outcome = crate::resolve::resolve_module(&mut ast, core_path, registry);
+            .ok_or_else(|| BuildError::PackageOpen(format!("module {path} vanished")))?;
+        let outcome = crate::resolve::resolve_module(&mut ast, path, registry);
         deps.insert(
-            core_path.to_string(),
+            path.to_string(),
             outcome.deps.iter().map(ToString::to_string).collect(),
         );
-        paths_by_key.insert(core_path.to_string(), core_path.clone());
+        paths_by_key.insert(path.to_string(), path.clone());
     }
-    let core_order = compilation_order(&deps);
+    let order = compilation_order(&deps);
 
     let mut merged = CompiledModule::new();
-    for core_key in core_order {
-        let core_path = paths_by_key
-            .get(&core_key)
+    for key in order {
+        let path = paths_by_key
+            .get(&key)
             .cloned()
-            .ok_or_else(|| BuildError::PackageOpen(format!("core module {core_key} vanished")))?;
+            .ok_or_else(|| BuildError::PackageOpen(format!("module {key} vanished")))?;
         let ast = registry
-            .get(&core_path)
+            .get(&path)
             .map(|info| info.module.clone())
-            .ok_or_else(|| BuildError::PackageOpen(format!("core module {core_path} vanished")))?;
+            .ok_or_else(|| BuildError::PackageOpen(format!("module {path} vanished")))?;
 
         let check_result =
-            crate::infer::check_module_with_registry((*ast).clone(), &core_path, registry);
+            crate::infer::check_module_with_registry((*ast).clone(), &path, registry);
         if !check_result.is_ok() {
-            // A core module failing to type-check is a compiler bug, not user
-            // error, so there is no user source to render against.
+            // A reserved-path module failing to type-check is a compiler bug,
+            // not user error, so there is no user source to render against.
             let joined = check_result
                 .errors
                 .iter()
@@ -513,7 +560,7 @@ pub fn compile_core_modules(
                 .collect::<Vec<_>>()
                 .join(", ");
             return Err(BuildError::Compile {
-                module: core_path.to_string(),
+                module: path.to_string(),
                 error: joined,
             });
         }
@@ -522,17 +569,17 @@ pub fn compile_core_modules(
             &check_result.module,
             crate::compiler::CompileOptions {
                 imported_hashes: Some(linking_table(module_function_hashes, registry)),
-                // Core modules compile with the same full view of the build
-                // a user module gets. In particular they construct prelude
-                // enums (`collections/List.ab` builds bare `Some`/`None`),
-                // which arrive via the prelude through `resolve_imports` —
-                // there is no hardcoded seed.
-                env: ModuleEnv::new(registry, &core_path),
+                // These modules compile with the same full view of the build
+                // a user module gets. In particular core modules construct
+                // prelude enums (`collections/List.ab` builds bare
+                // `Some`/`None`), which arrive via the prelude through
+                // `resolve_imports` — there is no hardcoded seed.
+                env: ModuleEnv::new(registry, &path),
                 ..crate::compiler::CompileOptions::default()
             },
         )
         .map_err(|e| BuildError::Compile {
-            module: core_path.to_string(),
+            module: path.to_string(),
             error: e.to_string(),
         })?;
 
@@ -541,95 +588,21 @@ pub fn compile_core_modules(
             func_hashes.insert(Arc::clone(name), *hash);
         }
 
-        // Core modules share plain names (`list::map`, `option::map`, ...).
-        // The merged artifact binds them fully qualified so they never
+        // Reserved-path modules share plain names (`list::map`, `option::map`,
+        // ...). The merged artifact binds them fully qualified so they never
         // collide with each other or with user functions. Impl-method
         // dispatch symbols are already globally unique and carry their own
         // `::` (`List::all`), so they pass through unqualified — qualifying
         // them again would produce a double-qualified `core::collections::list::all`.
         let mut compiled = compiled;
-        compiled.function_names = qualify_names(&compiled.function_names, &core_path, registry);
-        compiled.const_names = qualify_names(&compiled.const_names, &core_path, registry);
+        compiled.function_names = qualify_names(&compiled.function_names, &path, registry);
+        compiled.const_names = qualify_names(&compiled.const_names, &path, registry);
 
-        module_function_hashes.insert(core_path, func_hashes);
+        module_function_hashes.insert(path, func_hashes);
         merged.merge(&compiled);
     }
 
     Ok(merged)
-}
-
-/// Register and compile the embedder's `core::system` module (the
-/// platform bindings interface).
-///
-/// The module is ordinary Ambient source: `unique(<uuid>)`-prefixed
-/// ability declarations whose method bodies (the default implementations
-/// unhandled performs run) call the module's own private `extern fn`s.
-/// It checks and compiles exactly like a core module; the caller must
-/// have merged the platform's native bindings into the registry first, or
-/// the extern pre-pass fails loudly.
-///
-/// # Errors
-///
-/// Returns an error if the source fails to parse, check, or compile —
-/// bugs in the embedder's interface, not user error.
-#[allow(clippy::implicit_hasher)]
-pub fn compile_system_module(
-    registry: &mut ModuleRegistry,
-    module_function_hashes: &mut HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>>,
-    source: &str,
-    parse: impl Fn(&str) -> Result<Module, String>,
-) -> Result<CompiledModule, BuildError> {
-    let path = crate::core_library::register_declaration_module(
-        registry,
-        &["core", "system"],
-        source,
-        parse,
-    )
-    .map_err(|(module, error)| BuildError::Compile { module, error })?;
-
-    let ast = registry
-        .get(&path)
-        .map(|info| (*info.module).clone())
-        .ok_or_else(|| BuildError::PackageOpen(format!("module {path} vanished")))?;
-
-    let check_result = crate::infer::check_module_with_registry(ast, &path, registry);
-    if !check_result.is_ok() {
-        let joined = check_result
-            .errors
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(", ");
-        return Err(BuildError::Compile {
-            module: path.to_string(),
-            error: joined,
-        });
-    }
-
-    let compiled = crate::compiler::compile_module_with_options(
-        &check_result.module,
-        crate::compiler::CompileOptions {
-            imported_hashes: Some(linking_table(module_function_hashes, registry)),
-            env: ModuleEnv::new(registry, &path),
-            ..crate::compiler::CompileOptions::default()
-        },
-    )
-    .map_err(|e| BuildError::Compile {
-        module: path.to_string(),
-        error: e.to_string(),
-    })?;
-
-    let mut func_hashes = HashMap::new();
-    for (name, hash) in &compiled.function_names {
-        func_hashes.insert(Arc::clone(name), *hash);
-    }
-
-    let mut compiled = compiled;
-    compiled.function_names = qualify_names(&compiled.function_names, &path, registry);
-    compiled.const_names = qualify_names(&compiled.const_names, &path, registry);
-    module_function_hashes.insert(path, func_hashes);
-
-    Ok(compiled)
 }
 
 /// Load a single module from a package.

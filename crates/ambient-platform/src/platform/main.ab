@@ -1,0 +1,45 @@
+//! The platform bindings interface — the `core::system` module.
+//!
+//! `core::system` is a directory module: its shape is the `platform/`
+//! source tree. Each ability lives in the sibling file of the same theme
+//! (`stdio`, `time`, `random`, `log`, `fs`, `network`, `process`, `env`,
+//! `execute`) and is re-exported here, so `use core::system::Stdio;` and a
+//! fully-qualified `core::system::Stdio` both keep resolving through this
+//! directory module rather than a single flat file.
+//!
+//! Each ability is nominal — its `unique(<uuid>)` prefix is its identity —
+//! and every method body is the **default implementation**: the code an
+//! unhandled perform runs. The bodies call each module's private
+//! `extern fn`s, the host boundary; `ambient-platform` binds each one to a
+//! native implementation under a pinned uuid (reserved block
+//! `FFFFFFFF-FFFF-FFFF-FFFC-…`), so a method's content identity commits to
+//! exactly which host operation it performs.
+//!
+//! The extern fns are deliberately **not** `pub`: user code cannot call
+//! them directly, so the only path to a platform effect is performing the
+//! ability — which the effect system tracks and handlers can intercept.
+//!
+//! Fallible operations (missing files, refused connections, ...) return a
+//! `Result<T, String>`: the native yields a `Result::Err(message)` value
+//! the caller matches on. Only unwired capabilities and engine faults
+//! (argument-type mismatches) still travel the catchable `Exception`
+//! channel, and both are hard failures — nothing resumes them.
+//!
+//! Abilities are `pub` because `core::system` is an ordinary importable
+//! module: the registry only lets you `use` a public export
+//! (`lookup_symbol` rejects a non-`pub` symbol), so
+//! `use core::system::Network;` needs `pub ability Network` — exactly as the
+//! core library marks its surface with `pub fn` / `pub enum`. `pub` affects
+//! *only* the import path; fully-qualified use (`core::system::Stdio::out!`,
+//! `with core::system::Stdio`, handler arms, effect rows) resolves through
+//! the registry regardless.
+
+pub use self::stdio::Stdio;
+pub use self::time::Time;
+pub use self::random::Random;
+pub use self::log::Log;
+pub use self::fs::FileSystem;
+pub use self::network::Network;
+pub use self::process::Process;
+pub use self::env::Env;
+pub use self::execute::Execute;

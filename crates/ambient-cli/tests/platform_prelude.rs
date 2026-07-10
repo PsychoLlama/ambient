@@ -21,17 +21,21 @@ fn resolved_prelude() -> HashMap<String, Arc<DynAbility>> {
     })
     .expect("core modules must parse");
 
-    let mut module = ambient_parser::parse(ambient_platform::PLATFORM_SOURCE)
-        .expect("platform bindings interface must parse");
-    let (abilities, errors) =
-        ambient_engine::infer::resolve_ability_declarations(&mut module, &registry);
-    assert!(
-        errors.is_empty(),
-        "platform bindings interface must resolve: {errors:?}"
-    );
-    abilities
+    // The interface is a module tree now (one submodule per ability). Register
+    // the whole tree so cross-module references resolve (`Log` performs
+    // `core::system::Stdio`), then read the ability declarations back out of
+    // the registry — exactly how a real check discovers them.
+    ambient_engine::core_library::register_declaration_modules(
+        &mut registry,
+        ambient_platform::platform_modules(),
+        |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
+    )
+    .expect("platform modules must parse");
+
+    ambient_engine::infer::resolve_registry_abilities(&registry)
         .into_iter()
-        .map(|a| (a.name.to_string(), a))
+        .filter(|(fqn, _)| fqn.module.module_path_string().starts_with("core::system"))
+        .map(|(_, ability)| (ability.name.to_string(), ability))
         .collect()
 }
 

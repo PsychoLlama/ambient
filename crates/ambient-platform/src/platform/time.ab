@@ -1,0 +1,22 @@
+//! Wall-clock time.
+
+// `Time::wait` takes a span of time as a `core::time::Duration` rather than
+// a bare millisecond count.
+use core::time::Duration;
+
+/// Milliseconds since the Unix epoch.
+extern fn time_now(): Number;
+/// Block for the given duration.
+extern fn time_wait(duration: Duration): ();
+
+/// Wall-clock time.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000003) ability Time {
+  /// Milliseconds since the Unix epoch.
+  fn now(): Number {
+    time_now()
+  }
+  /// Block for the given duration.
+  fn wait(duration: Duration): () {
+    time_wait(duration)
+  }
+}

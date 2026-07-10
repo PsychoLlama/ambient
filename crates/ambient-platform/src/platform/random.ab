@@ -1,0 +1,18 @@
+//! Non-deterministic random numbers.
+
+/// A random number in `[0, 1)`.
+extern fn random_seed(): Number;
+/// A random integer in `[0, max)`.
+extern fn random_in_range(max: Number): Number;
+
+/// Non-deterministic random numbers.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000004) ability Random {
+  /// A random number in `[0, 1)`.
+  fn seed(): Number {
+    random_seed()
+  }
+  /// A random integer in `[0, max)`.
+  fn in_range(max: Number): Number {
+    random_in_range(max)
+  }
+}

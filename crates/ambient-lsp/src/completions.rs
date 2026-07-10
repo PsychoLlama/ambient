@@ -10,7 +10,6 @@
 
 use ambient_engine::ability_resolver::{AbilityResolver, MethodSignatureInfo};
 use ambient_engine::ast::{Expr, ExprKind, FunctionDef, ItemKind, Module, Param, StmtKind};
-use ambient_engine::core_library::CoreLibrary;
 use ambient_engine::module_registry::ExportKind;
 use ambient_parser::TokenKind;
 use lsp_types::{CompletionItem, CompletionItemKind, CompletionItemLabelDetails, InsertTextFormat};
@@ -18,6 +17,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::analysis::format_type;
+use crate::core_completions::{core_module_final_segment_matches, get_core_path_completions};
 
 /// A completion context containing information about the cursor position.
 #[derive(Debug)]
@@ -325,124 +325,6 @@ fn get_namespace_ability_completions(
             ..Default::default()
         })
         .collect()
-}
-
-/// The registry path of a core module named by its `core`-relative,
-/// `::`-qualified string (`collections::list` → `core::collections::list`;
-/// `""` → `core`).
-fn core_module_path(relative: &str) -> Option<ambient_engine::module_path::ModulePath> {
-    let mut segments: Vec<&str> = vec!["core"];
-    if !relative.is_empty() {
-        segments.extend(relative.split("::"));
-    }
-    ambient_engine::module_path::ModulePath::from_str_segments(&segments)
-}
-
-/// Whether `name` is the final segment of some registered core module
-/// (`List` matches `collections::list`). Drives the "bare alias of a core
-/// type-companion module" case in [`CompletionContext`].
-fn core_module_final_segment_matches(name: &str) -> bool {
-    CoreLibrary::available_modules()
-        .iter()
-        .any(|module| module.rsplit("::").next() == Some(name))
-}
-
-/// Complete a `core::…::` path. `scope` is the path relative to `core`
-/// (empty for `core::` itself).
-///
-/// The core hierarchy is arbitrary-depth and file-defined, so this is
-/// driven entirely by the registry (keeping the "LSP is a renderer"
-/// invariant — no LSP-private model of core):
-///
-/// - the next path segment for every child module and re-exported name
-///   (so a namespace like `core::` or `core::collections::` completes to
-///   its members), and
-/// - the target module's own public exports plus its intrinsics (so a leaf
-///   like `core::collections::list::` completes to its API).
-fn get_core_path_completions(scope: &str, prefix: &str) -> Vec<CompletionItem> {
-    let registry = ambient_analysis::core_platform_registry();
-    let Some(target) = core_module_path(scope) else {
-        return Vec::new();
-    };
-    let target_segments: Vec<&str> = target.segments().iter().map(AsRef::as_ref).collect();
-
-    let mut items = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-
-    // Child modules: any registered module one segment deeper than the
-    // target. These are the sub-namespaces and modules (`collections`,
-    // `List`, ...) reached by walking the path further.
-    let mut children: Vec<&str> = registry
-        .all_modules()
-        .filter_map(|info| {
-            let segments = info.path.segments();
-            (segments.len() == target_segments.len() + 1
-                && segments
-                    .iter()
-                    .zip(&target_segments)
-                    .all(|(seg, want)| seg.as_ref() == *want))
-            .then(|| segments.last().map(AsRef::as_ref))
-            .flatten()
-        })
-        .collect();
-    children.sort_unstable();
-    for child in children {
-        if child.starts_with(prefix) && seen.insert(child.to_string()) {
-            let qualified = if scope.is_empty() {
-                format!("core::{child}")
-            } else {
-                format!("core::{scope}::{child}")
-            };
-            items.push(CompletionItem {
-                label: child.to_string(),
-                kind: Some(CompletionItemKind::MODULE),
-                detail: Some(format!("core library module: {qualified}")),
-                documentation: registry
-                    .get(&target.child(child))
-                    .and_then(|info| info.module.doc.as_ref())
-                    .map(|doc| lsp_types::Documentation::String(doc.to_string())),
-                ..Default::default()
-            });
-        }
-    }
-
-    // The target module's own public exports (straight from the registry,
-    // so completion can never drift from what import resolution sees).
-    if let Some(info) = registry.get(&target) {
-        // Deterministic source order (export tables are hash maps).
-        let mut exports: Vec<_> = info.exports.values().filter(|e| e.is_public).collect();
-        exports.sort_by_key(|e| e.name_span.start);
-
-        for export in exports {
-            let (item_kind, detail) = match export.kind {
-                ExportKind::Function => (CompletionItemKind::FUNCTION, "function"),
-                ExportKind::Const => (CompletionItemKind::CONSTANT, "constant"),
-                ExportKind::Struct => (CompletionItemKind::STRUCT, "struct"),
-                ExportKind::TypeAlias => (CompletionItemKind::TYPE_PARAMETER, "type"),
-                ExportKind::Enum => (CompletionItemKind::ENUM, "enum"),
-                ExportKind::Trait => (CompletionItemKind::INTERFACE, "trait"),
-                ExportKind::Ability => (CompletionItemKind::INTERFACE, "ability"),
-                // Variant constructors complete through their enum (and
-                // the prelude ones need no qualification at all).
-                ExportKind::EnumVariant => continue,
-            };
-            let name = export.name.as_ref();
-            if name.starts_with(prefix) && seen.insert(name.to_string()) {
-                items.push(CompletionItem {
-                    label: name.to_string(),
-                    kind: Some(item_kind),
-                    detail: Some(format!("core::{scope}::{name} ({detail})")),
-                    documentation: export
-                        .doc
-                        .as_ref()
-                        .map(|d| lsp_types::Documentation::String(d.to_string())),
-                    ..Default::default()
-                });
-            }
-        }
-    }
-
-    items
 }
 
 /// Get completions for pkg module members from the registry's export

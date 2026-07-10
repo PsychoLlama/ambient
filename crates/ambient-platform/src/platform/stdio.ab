@@ -1,0 +1,25 @@
+//! Standard input/output streams of the host process.
+
+/// Write a line to stdout.
+extern fn stdio_out(message: String): ();
+/// Write a line to stderr.
+extern fn stdio_err(message: String): ();
+/// Read a line from stdin (empty string at end of input; `Err` on IO error).
+extern fn stdio_read(): Result<String, String>;
+
+/// Standard input/output streams of the host process.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000002) ability Stdio {
+  /// Write a line to stdout.
+  fn out(message: String): () {
+    stdio_out(message)
+  }
+  /// Write a line to stderr.
+  fn err(message: String): () {
+    stdio_err(message)
+  }
+  /// Read a line from stdin, without the trailing newline. Returns
+  /// `Ok("")` at end of input, `Err(message)` on an IO error.
+  fn read(): Result<String, String> {
+    stdio_read()
+  }
+}

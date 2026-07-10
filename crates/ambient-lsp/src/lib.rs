@@ -51,6 +51,7 @@
 mod analysis;
 mod completions;
 mod convert;
+mod core_completions;
 mod documents;
 mod hover_format;
 mod semantic_tokens;

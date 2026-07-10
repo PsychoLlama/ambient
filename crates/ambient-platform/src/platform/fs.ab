@@ -1,0 +1,54 @@
+//! File system access at scripting-language granularity.
+
+/// Read a file as UTF-8 text.
+extern fn fs_read(path: String): Result<String, String>;
+/// Create or truncate a file with the given text.
+extern fn fs_write(path: String, content: String): Result<(), String>;
+/// Read a file as raw bytes.
+extern fn fs_read_binary(path: String): Result<Binary, String>;
+/// Create or truncate a file with the given bytes.
+extern fn fs_write_binary(path: String, data: Binary): Result<(), String>;
+/// Whether the path exists.
+extern fn fs_exists(path: String): Bool;
+/// Sorted entry names of a directory.
+extern fn fs_list(path: String): Result<List<String>, String>;
+/// Remove a file or empty directory.
+extern fn fs_remove(path: String): Result<(), String>;
+/// Create a directory and any missing parents.
+extern fn fs_create_dir(path: String): Result<(), String>;
+
+/// File system access at scripting-language granularity.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000006) ability FileSystem {
+  /// Read a file as UTF-8 text. `Err` if the file is missing or unreadable.
+  fn read(path: String): Result<String, String> {
+    fs_read(path)
+  }
+  /// Create or truncate a file with the given text.
+  fn write(path: String, content: String): Result<(), String> {
+    fs_write(path, content)
+  }
+  /// Read a file as raw bytes.
+  fn read_binary(path: String): Result<Binary, String> {
+    fs_read_binary(path)
+  }
+  /// Create or truncate a file with the given bytes.
+  fn write_binary(path: String, data: Binary): Result<(), String> {
+    fs_write_binary(path, data)
+  }
+  /// Whether the path exists (infallible: unreadable paths are `false`).
+  fn exists(path: String): Bool {
+    fs_exists(path)
+  }
+  /// Sorted entry names of a directory.
+  fn list(path: String): Result<List<String>, String> {
+    fs_list(path)
+  }
+  /// Remove a file or empty directory.
+  fn remove(path: String): Result<(), String> {
+    fs_remove(path)
+  }
+  /// Create a directory and any missing parents.
+  fn create_dir(path: String): Result<(), String> {
+    fs_create_dir(path)
+  }
+}

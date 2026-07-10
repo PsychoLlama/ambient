@@ -195,10 +195,9 @@ fn build_core_platform_registry() -> ModuleRegistry {
         ambient_parser::parse(source).map_err(|e| e.to_string())
     });
 
-    let _ = ambient_engine::core_library::register_declaration_module(
+    let _ = ambient_engine::core_library::register_declaration_modules(
         &mut registry,
-        &["core", "system"],
-        ambient_platform::PLATFORM_SOURCE,
+        ambient_platform::platform_modules(),
         |source| ambient_parser::parse(source).map_err(|e| e.to_string()),
     );
 
@@ -302,15 +301,21 @@ pub fn platform_prelude_resolver() -> AbilityResolver {
     for (fqn, ability) in ambient_engine::infer::resolve_registry_abilities(&registry) {
         resolver.register_dynamic_in_namespace(&fqn.module, (*ability).clone());
     }
-    // The platform bindings, under the `core::system` namespace.
-    if let Ok(mut module) = ambient_parser::parse(ambient_platform::PLATFORM_SOURCE) {
-        let (abilities, _errors) =
-            ambient_engine::infer::resolve_ability_declarations(&mut module, &registry);
-        for ability in abilities {
-            resolver.register_dynamic_in_namespace(
-                &ambient_engine::fqn::ModuleId::core_system(),
-                (*ability).clone(),
-            );
+    // The platform bindings, under the `core::system` namespace. Each
+    // ability lives in its own submodule now (`core::system::stdio`, ...),
+    // but they are re-exported by `core::system`'s `main.ab` and spelled
+    // `core::system::Stdio` in user code, so the dynamic resolver keeps
+    // registering them under the `core::system` namespace.
+    for module in ambient_platform::platform_modules() {
+        if let Ok(mut parsed) = ambient_parser::parse(module.source) {
+            let (abilities, _errors) =
+                ambient_engine::infer::resolve_ability_declarations(&mut parsed, &registry);
+            for ability in abilities {
+                resolver.register_dynamic_in_namespace(
+                    &ambient_engine::fqn::ModuleId::core_system(),
+                    (*ability).clone(),
+                );
+            }
         }
     }
     resolver

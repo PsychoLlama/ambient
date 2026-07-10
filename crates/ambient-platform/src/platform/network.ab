@@ -1,0 +1,60 @@
+//! TCP networking. Listeners and connections are numeric handles.
+
+/// Bind a listener on a `(host, port)` endpoint.
+extern fn network_listen(endpoint: (String, Number)): Result<Number, String>;
+/// Block until a client connects; returns a connection handle.
+extern fn network_accept(listener: Number): Result<Number, String>;
+/// Close a listener.
+extern fn network_close_listener(listener: Number): Result<(), String>;
+/// Connect to a remote `(host, port)` endpoint.
+extern fn network_connect(endpoint: (String, Number)): Result<Number, String>;
+/// Close a connection.
+extern fn network_close(connection: Number): Result<(), String>;
+/// Send bytes over a connection.
+extern fn network_send(connection: Number, data: Binary): Result<(), String>;
+/// Block until bytes arrive on a connection.
+extern fn network_receive(connection: Number): Result<Binary, String>;
+/// The local address of a connection.
+extern fn network_local_addr(connection: Number): Result<String, String>;
+/// The remote address of a connection.
+extern fn network_peer_addr(connection: Number): Result<String, String>;
+
+/// TCP networking. Listeners and connections are numeric handles.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000007) ability Network {
+  /// Bind a listener on a `(host, port)` endpoint like `("127.0.0.1", 8080)`.
+  fn listen(endpoint: (String, Number)): Result<Number, String> {
+    network_listen(endpoint)
+  }
+  /// Block until a client connects; returns a connection handle.
+  fn accept(listener: Number): Result<Number, String> {
+    network_accept(listener)
+  }
+  /// Close a listener.
+  fn close_listener(listener: Number): Result<(), String> {
+    network_close_listener(listener)
+  }
+  /// Connect to a remote `(host, port)` endpoint; returns a connection handle.
+  fn connect(endpoint: (String, Number)): Result<Number, String> {
+    network_connect(endpoint)
+  }
+  /// Close a connection.
+  fn close(connection: Number): Result<(), String> {
+    network_close(connection)
+  }
+  /// Send bytes over a connection.
+  fn send(connection: Number, data: Binary): Result<(), String> {
+    network_send(connection, data)
+  }
+  /// Block until bytes arrive on a connection.
+  fn receive(connection: Number): Result<Binary, String> {
+    network_receive(connection)
+  }
+  /// The local address of a connection.
+  fn local_addr(connection: Number): Result<String, String> {
+    network_local_addr(connection)
+  }
+  /// The remote address of a connection.
+  fn peer_addr(connection: Number): Result<String, String> {
+    network_peer_addr(connection)
+  }
+}

@@ -56,7 +56,7 @@ fn compile_package_cmd(path: &Path) -> Result<()> {
         path,
         parse_source,
         &ambient_engine::build::BuildOptions {
-            platform_source: ambient_platform::PLATFORM_SOURCE,
+            platform_modules: ambient_platform::platform_modules(),
             natives: Some(&stubs),
             progress: Some(&progress_cb),
         },

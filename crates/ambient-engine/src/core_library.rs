@@ -266,6 +266,46 @@ pub fn register_declaration_module(
     Ok(path)
 }
 
+/// One embedder-supplied module of a declaration *tree* (e.g. the platform
+/// bindings interface, whose `core::system` root is a directory module with
+/// a per-ability submodule under it). The caller derives each `path` from
+/// its own source tree through the canonical file↔module mapping, so a
+/// declaration package's shape is defined by its files exactly as a core or
+/// user package is — not by a list in the engine.
+pub struct DeclModule<'a> {
+    /// The reserved module path (`core::system`, `core::system::stdio`, ...).
+    pub path: ModulePath,
+    /// The module source.
+    pub source: &'a str,
+    /// Whether it is a directory module (backed by a `main.ab`).
+    pub is_dir_module: bool,
+}
+
+/// Register a whole embedder-supplied declaration tree at once, each module
+/// under its reserved path. The plural counterpart of
+/// [`register_declaration_module`]: a directory-module root plus its
+/// submodules (`core::system` + `core::system::stdio`, ...) rather than a
+/// single flat module.
+///
+/// # Errors
+///
+/// Returns the offending module's path and parse error if a source fails to
+/// parse — a bug in the embedder's interface, not user error.
+#[allow(clippy::arc_with_non_send_sync)]
+pub fn register_declaration_modules(
+    registry: &mut crate::module_registry::ModuleRegistry,
+    modules: &[DeclModule<'_>],
+    parse: impl Fn(&str) -> Result<crate::ast::Module, String>,
+) -> Result<Vec<ModulePath>, (String, String)> {
+    let mut paths = Vec::with_capacity(modules.len());
+    for module in modules {
+        let ast = parse(module.source).map_err(|e| (module.path.to_string(), e))?;
+        registry.register_module(&module.path, Arc::new(ast), module.is_dir_module);
+        paths.push(module.path.clone());
+    }
+    Ok(paths)
+}
+
 /// Convert a path to a module name.
 fn path_to_name(path: &[Arc<str>]) -> String {
     path.iter()

@@ -9,6 +9,7 @@ ambient-ability.workspace = true
 ambient-core.workspace = true
 ambient-engine.workspace = true
 blake3.workspace = true
+include_dir.workspace = true
 hex.workspace = true
 uuid.workspace = true
 tokio = { workspace = true, features = ["net", "io-util", "rt-multi-thread", "macros", "sync"] }

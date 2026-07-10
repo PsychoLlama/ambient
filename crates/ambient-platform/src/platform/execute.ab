@@ -1,0 +1,43 @@
+//! Content-addressed remote execution.
+
+/// Whether the local store has the function.
+extern fn execute_has_function(hash: String): Bool;
+/// Hashes of everything the function transitively calls.
+extern fn execute_get_dependencies(hash: String): List<String>;
+/// Load a serialized function bundle into the store.
+extern fn execute_load_functions(bundle: Binary): ();
+/// Run a stored function with the given arguments.
+extern fn execute_run<T, R>(hash: String, args: T): R;
+/// Serialize functions (with dependencies) for shipping.
+extern fn execute_get_functions(hashes: List<String>): Binary;
+/// Run a stored function with a handler value installed.
+extern fn execute_run_with<T, U, R>(hash: String, args: T, handler: U): R;
+
+/// Content-addressed remote execution: run functions by hash in an
+/// isolated VM whose capabilities the host decides.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000A) ability Execute {
+  /// Whether the local store has the function.
+  fn has_function(hash: String): Bool {
+    execute_has_function(hash)
+  }
+  /// Hashes of everything the function transitively calls.
+  fn get_dependencies(hash: String): List<String> {
+    execute_get_dependencies(hash)
+  }
+  /// Load a serialized function bundle into the store.
+  fn load_functions(bundle: Binary): () {
+    execute_load_functions(bundle)
+  }
+  /// Run a stored function with the given arguments.
+  fn run<T, R>(hash: String, args: T): R {
+    execute_run(hash, args)
+  }
+  /// Serialize functions (with dependencies) for shipping.
+  fn get_functions(hashes: List<String>): Binary {
+    execute_get_functions(hashes)
+  }
+  /// Run a stored function with a handler value installed.
+  fn run_with<T, U, R>(hash: String, args: T, handler: U): R {
+    execute_run_with(hash, args, handler)
+  }
+}

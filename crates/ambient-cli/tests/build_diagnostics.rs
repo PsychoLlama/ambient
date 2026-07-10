@@ -46,7 +46,7 @@ fn build_package_type_error_is_structured_with_nonzero_span() {
         dir.path(),
         parse_source,
         &ambient_engine::build::BuildOptions {
-            platform_source: ambient_platform::PLATFORM_SOURCE,
+            platform_modules: ambient_platform::platform_modules(),
             natives: Some(&stubs),
             ..Default::default()
         },
@@ -94,7 +94,7 @@ fn build_package_parse_error_is_structured_with_span() {
         dir.path(),
         parse_source,
         &ambient_engine::build::BuildOptions {
-            platform_source: ambient_platform::PLATFORM_SOURCE,
+            platform_modules: ambient_platform::platform_modules(),
             natives: Some(&stubs),
             ..Default::default()
         },

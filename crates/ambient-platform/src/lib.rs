@@ -1,9 +1,10 @@
 //! Platform abilities for the Ambient language.
 //!
 //! This crate is the native embedder layer over `ambient-engine`. It
-//! ships the platform bindings interface as in-language source
-//! ([`PLATFORM_SOURCE`]): nominal `ability` declarations whose method
-//! bodies — the default implementations unhandled performs run — call the
+//! ships the platform bindings interface as an in-language source tree
+//! ([`platform_modules`]): the `core::system` directory module and one
+//! submodule per ability, nominal `ability` declarations whose method
+//! bodies — the default implementations unhandled performs run — call each
 //! module's private `extern fn`s. This crate binds each extern to a
 //! native implementation under a **pinned uuid** (reserved block
 //! `FFFFFFFF-FFFF-FFFF-FFFC-…`, one slot per extern, forever).
@@ -56,20 +57,82 @@ pub mod random;
 pub mod stdio;
 pub mod time;
 
-use std::sync::Arc;
+use std::path::Path;
+use std::sync::{Arc, OnceLock};
 
 use ambient_ability::{Value, VmError};
+use ambient_engine::core_library::DeclModule;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::natives::{NativeFn, NativeRegistry};
+use include_dir::{Dir, DirEntry, include_dir};
 use uuid::Uuid;
 
-/// The platform bindings interface, as in-language source.
+/// The platform bindings interface, as an in-language source tree.
 ///
-/// An embedder registers and compiles this as the `core::system` module
-/// (`ambient_engine::build::compile_system_module`); the ability method
-/// bodies inside are the default implementations unhandled performs run,
-/// and their `extern fn` calls dispatch to the natives this crate binds.
-pub const PLATFORM_SOURCE: &str = include_str!("platform.ab");
+/// `core::system` is a directory module: its shape is this `platform/` tree
+/// — a `main.ab` re-exporting one submodule per ability (`stdio`, `time`,
+/// `fs`, ...). An embedder registers and compiles it with
+/// [`ambient_engine::build::compile_declaration_modules`]; the ability
+/// method bodies inside are the default implementations unhandled performs
+/// run, and their `extern fn` calls dispatch to the natives this crate binds.
+static PLATFORM_LIB: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/src/platform");
+
+/// Every module of the platform bindings interface, each under its reserved
+/// `core::system::*` path, in a deterministic order (by module path). Pass
+/// this to [`ambient_engine::build::compile_declaration_modules`] or
+/// [`ambient_engine::core_library::register_declaration_modules`].
+#[must_use]
+pub fn platform_modules() -> &'static [DeclModule<'static>] {
+    static MODULES: OnceLock<Vec<DeclModule<'static>>> = OnceLock::new();
+    MODULES.get_or_init(|| {
+        let mut modules = Vec::new();
+        collect_platform_modules(&PLATFORM_LIB, &mut modules);
+        modules.sort_by_key(|module| module.path.to_string());
+        modules
+    })
+}
+
+/// Recursively gather the `.ab` files under `dir` into `out`, mapping each
+/// to its `core::system::*` module path.
+fn collect_platform_modules(dir: &'static Dir<'static>, out: &mut Vec<DeclModule<'static>>) {
+    for entry in dir.entries() {
+        match entry {
+            DirEntry::Dir(child) => collect_platform_modules(child, out),
+            DirEntry::File(file) => {
+                let path = file.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("ab") {
+                    continue;
+                }
+                let (Some((module_path, is_dir_module)), Some(source)) =
+                    (platform_module_path(path), file.contents_utf8())
+                else {
+                    continue;
+                };
+                out.push(DeclModule {
+                    path: module_path,
+                    source,
+                    is_dir_module,
+                });
+            }
+        }
+    }
+}
+
+/// The `core::system::*` module path (and directory-module flag) for a file
+/// path relative to `platform/`, derived through the canonical file↔module
+/// mapping so it never forks from how core and user packages map files.
+///
+/// The tree's own root `main.ab` is the `core::system` module itself — a
+/// directory module whose members are the per-ability submodules.
+fn platform_module_path(relative: &Path) -> Option<(ModulePath, bool)> {
+    let (relative_path, is_dir_module) = ModulePath::from_relative_file_path_with_kind(relative)?;
+    if relative_path == ModulePath::root() {
+        return Some((ModulePath::from_str_segments(&["core", "system"])?, true));
+    }
+    let mut segments: Vec<Arc<str>> = vec![Arc::from("core"), Arc::from("system")];
+    segments.extend(relative_path.segments().iter().cloned());
+    Some((ModulePath::from_segments(segments)?, is_dir_module))
+}
 
 pub use execute::{ExecuteConfig, ExecuteGrants, execute_natives};
 pub use fs::fs_natives;
@@ -89,12 +152,18 @@ pub use env::env_natives;
 // The extern binding table
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// One `extern fn` declaration of `platform.ab`: its compile-time name,
-/// pinned uuid slot, and arity. The single source both [`stub_natives`]
-/// and the real constructors bind through, so they can never drift.
+/// One `extern fn` declaration of the platform interface: its compile-time
+/// name, the ability submodule it is declared in (`core::system::<module>`,
+/// the [`NativeRegistry`] key), its pinned uuid slot, and arity. The single
+/// source both [`stub_natives`] and the real constructors bind through, so
+/// they can never drift.
 #[derive(Clone, Copy)]
 pub(crate) struct ExternBinding {
     pub name: &'static str,
+    /// The leaf of the declaring submodule path (`core::system::<module>`).
+    /// Each ability's `extern fn`s live in its own file now, so natives must
+    /// key under that submodule — not a flat `core::system`.
+    pub module: &'static str,
     /// Slot within the reserved `FFFFFFFF-FFFF-FFFF-FFFC-…` block.
     pub slot: u128,
     pub arity: u8,
@@ -106,217 +175,259 @@ pub(crate) const fn platform_uuid(slot: u128) -> Uuid {
     Uuid::from_u128(0xFFFF_FFFF_FFFF_FFFF_FFFC_0000_0000_0000 + slot)
 }
 
-/// Every extern fn in `platform.ab`, in declaration order. Slots are
-/// pinned forever: never reuse or renumber one — changing an extern's
-/// semantics means minting a new slot (and a new name).
+/// Every extern fn across the platform tree, keyed to its declaring
+/// submodule. Slots are pinned forever: never reuse or renumber one —
+/// changing an extern's semantics means minting a new slot (and a new name).
 pub(crate) const EXTERN_BINDINGS: &[ExternBinding] = &[
     ExternBinding {
         name: "stdio_out",
+        module: "stdio",
         slot: 0x01,
         arity: 1,
     },
     ExternBinding {
         name: "stdio_err",
+        module: "stdio",
         slot: 0x02,
         arity: 1,
     },
     ExternBinding {
         name: "stdio_read",
+        module: "stdio",
         slot: 0x03,
         arity: 0,
     },
     ExternBinding {
         name: "time_now",
+        module: "time",
         slot: 0x04,
         arity: 0,
     },
     ExternBinding {
         name: "time_wait",
+        module: "time",
         slot: 0x05,
         arity: 1,
     },
     ExternBinding {
         name: "random_seed",
+        module: "random",
         slot: 0x06,
         arity: 0,
     },
     ExternBinding {
         name: "random_in_range",
+        module: "random",
         slot: 0x07,
         arity: 1,
     },
     ExternBinding {
         name: "fs_read",
+        module: "fs",
         slot: 0x08,
         arity: 1,
     },
     ExternBinding {
         name: "fs_write",
+        module: "fs",
         slot: 0x09,
         arity: 2,
     },
     ExternBinding {
         name: "fs_read_binary",
+        module: "fs",
         slot: 0x0A,
         arity: 1,
     },
     ExternBinding {
         name: "fs_write_binary",
+        module: "fs",
         slot: 0x0B,
         arity: 2,
     },
     ExternBinding {
         name: "fs_exists",
+        module: "fs",
         slot: 0x0C,
         arity: 1,
     },
     ExternBinding {
         name: "fs_list",
+        module: "fs",
         slot: 0x0D,
         arity: 1,
     },
     ExternBinding {
         name: "fs_remove",
+        module: "fs",
         slot: 0x0E,
         arity: 1,
     },
     ExternBinding {
         name: "fs_create_dir",
+        module: "fs",
         slot: 0x0F,
         arity: 1,
     },
     ExternBinding {
         name: "network_listen",
+        module: "network",
         slot: 0x10,
         arity: 1,
     },
     ExternBinding {
         name: "network_accept",
+        module: "network",
         slot: 0x11,
         arity: 1,
     },
     ExternBinding {
         name: "network_close_listener",
+        module: "network",
         slot: 0x12,
         arity: 1,
     },
     ExternBinding {
         name: "network_connect",
+        module: "network",
         slot: 0x13,
         arity: 1,
     },
     ExternBinding {
         name: "network_close",
+        module: "network",
         slot: 0x14,
         arity: 1,
     },
     ExternBinding {
         name: "network_send",
+        module: "network",
         slot: 0x15,
         arity: 2,
     },
     ExternBinding {
         name: "network_receive",
+        module: "network",
         slot: 0x16,
         arity: 1,
     },
     ExternBinding {
         name: "network_local_addr",
+        module: "network",
         slot: 0x17,
         arity: 1,
     },
     ExternBinding {
         name: "network_peer_addr",
+        module: "network",
         slot: 0x18,
         arity: 1,
     },
     ExternBinding {
         name: "process_spawn",
+        module: "process",
         slot: 0x19,
         arity: 3,
     },
     ExternBinding {
         name: "process_send",
+        module: "process",
         slot: 0x1A,
         arity: 2,
     },
     ExternBinding {
         name: "process_send_named",
+        module: "process",
         slot: 0x1B,
         arity: 2,
     },
     ExternBinding {
         name: "process_self_pid",
+        module: "process",
         slot: 0x1C,
         arity: 0,
     },
     ExternBinding {
         name: "process_whereis",
+        module: "process",
         slot: 0x1D,
         arity: 1,
     },
     ExternBinding {
         name: "process_exit",
+        module: "process",
         slot: 0x1E,
         arity: 0,
     },
     ExternBinding {
         name: "env_var",
+        module: "env",
         slot: 0x1F,
         arity: 1,
     },
     ExternBinding {
         name: "env_vars",
+        module: "env",
         slot: 0x20,
         arity: 0,
     },
     ExternBinding {
         name: "env_set",
+        module: "env",
         slot: 0x21,
         arity: 2,
     },
     ExternBinding {
         name: "env_args",
+        module: "env",
         slot: 0x22,
         arity: 0,
     },
     ExternBinding {
         name: "env_cwd",
+        module: "env",
         slot: 0x23,
         arity: 0,
     },
     ExternBinding {
         name: "env_pid",
+        module: "env",
         slot: 0x24,
         arity: 0,
     },
     ExternBinding {
         name: "execute_has_function",
+        module: "execute",
         slot: 0x25,
         arity: 1,
     },
     ExternBinding {
         name: "execute_get_dependencies",
+        module: "execute",
         slot: 0x26,
         arity: 1,
     },
     ExternBinding {
         name: "execute_load_functions",
+        module: "execute",
         slot: 0x27,
         arity: 1,
     },
     ExternBinding {
         name: "execute_run",
+        module: "execute",
         slot: 0x28,
         arity: 2,
     },
     ExternBinding {
         name: "execute_get_functions",
+        module: "execute",
         slot: 0x29,
         arity: 1,
     },
     ExternBinding {
         name: "execute_run_with",
+        module: "execute",
         slot: 0x2A,
         arity: 3,
     },
@@ -347,23 +458,27 @@ pub fn native_uuid(name: &str) -> Uuid {
     platform_uuid(binding(name).slot)
 }
 
-/// The `core::system` module path every binding attaches under.
+/// The `core::system::<module>` path an extern's native attaches under —
+/// the ability submodule its `extern fn` is declared in. `ModuleEnv::new`
+/// looks natives up by the declaring module's path, so a stdio native must
+/// key under `core::system::stdio`, not a flat `core::system`.
 ///
 /// # Panics
 ///
 /// Never — the segments are non-empty by construction.
 #[must_use]
-pub(crate) fn system_module() -> ModulePath {
+pub(crate) fn extern_module(binding: ExternBinding) -> ModulePath {
     #[allow(clippy::unwrap_used)]
-    ModulePath::from_str_segments(&["core", "system"]).unwrap()
+    ModulePath::from_str_segments(&["core", "system", binding.module]).unwrap()
 }
 
 /// Register one named extern's implementation into a registry, with its
-/// pinned uuid and arity from the binding table.
+/// pinned uuid and arity from the binding table, under its declaring
+/// submodule path.
 pub(crate) fn bind(registry: &mut NativeRegistry, name: &str, func: NativeFn) {
     let binding = binding(name);
     registry.register(
-        &system_module(),
+        &extern_module(binding),
         name,
         platform_uuid(binding.slot),
         binding.arity,
@@ -392,7 +507,7 @@ pub fn stub_natives() -> NativeRegistry {
     for binding in EXTERN_BINDINGS {
         let name = binding.name;
         registry.register(
-            &system_module(),
+            &extern_module(*binding),
             name,
             platform_uuid(binding.slot),
             binding.arity,
@@ -537,26 +652,49 @@ pub(crate) fn extract_bytes(value: &Value) -> Result<Vec<u8>, VmError> {
 mod tests {
     use super::*;
 
-    /// Every extern in `platform.ab` appears in the binding table with a
-    /// unique, pinned slot — and vice versa. Slot assignments are content
-    /// identities: changing one silently rebinds already-compiled callers.
+    /// Every `extern fn` across the platform tree appears in the binding
+    /// table under its declaring submodule with a unique, pinned slot — and
+    /// vice versa. Slot assignments are content identities: changing one
+    /// silently rebinds already-compiled callers. The submodule must match
+    /// too: `ModuleEnv` keys natives by declaring module, so a wrong module
+    /// leaves an extern unbound at compile time.
     #[test]
     fn binding_table_matches_platform_source() {
-        let declared: Vec<&str> = PLATFORM_SOURCE
-            .lines()
-            .filter_map(|line| {
-                let line = line.trim();
-                let rest = line.strip_prefix("extern fn ")?;
-                let name_end = rest.find(['(', '<'])?;
-                Some(&rest[..name_end])
-            })
-            .collect();
+        use std::collections::BTreeMap;
 
-        let table: Vec<&str> = EXTERN_BINDINGS.iter().map(|b| b.name).collect();
+        // extern name -> declaring submodule leaf, gathered from the tree.
+        let mut declared: BTreeMap<&str, String> = BTreeMap::new();
+        for module in platform_modules() {
+            let leaf = module
+                .path
+                .segments()
+                .last()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            for line in module.source.lines() {
+                let line = line.trim();
+                let Some(rest) = line.strip_prefix("extern fn ") else {
+                    continue;
+                };
+                let Some(name_end) = rest.find(['(', '<']) else {
+                    continue;
+                };
+                let name = &rest[..name_end];
+                assert!(
+                    declared.insert(name, leaf.clone()).is_none(),
+                    "duplicate extern `{name}`"
+                );
+            }
+        }
+
+        let table: BTreeMap<&str, String> = EXTERN_BINDINGS
+            .iter()
+            .map(|b| (b.name, b.module.to_string()))
+            .collect();
         assert_eq!(
             declared, table,
-            "platform.ab extern declarations and EXTERN_BINDINGS must list \
-             the same names in the same order"
+            "the platform tree's `extern fn` declarations and EXTERN_BINDINGS \
+             must agree on the same names, each under its declaring submodule"
         );
 
         let mut slots: Vec<u128> = EXTERN_BINDINGS.iter().map(|b| b.slot).collect();
@@ -589,7 +727,7 @@ mod tests {
     fn stub_natives_bind_every_extern() {
         let stubs = stub_natives();
         for binding in EXTERN_BINDINGS {
-            let key = stubs.key_for(&system_module(), binding.name);
+            let key = stubs.key_for(&extern_module(*binding), binding.name);
             assert_eq!(
                 key.map(|k| (k.uuid, k.arity)),
                 Some((platform_uuid(binding.slot), binding.arity)),

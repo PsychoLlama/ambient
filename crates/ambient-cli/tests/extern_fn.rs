@@ -87,7 +87,7 @@ fn build(dir: &TempDir, natives: &NativeRegistry) -> Result<BuildResult, BuildEr
         dir.path(),
         parse_source,
         &BuildOptions {
-            platform_source: ambient_platform::PLATFORM_SOURCE,
+            platform_modules: ambient_platform::platform_modules(),
             natives: Some(&with_stubs),
             ..Default::default()
         },
