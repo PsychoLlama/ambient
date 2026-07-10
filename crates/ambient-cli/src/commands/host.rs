@@ -99,13 +99,10 @@ impl RuntimeHost {
             })
         };
 
-        let runtime = ProcessRuntime::new(
-            ProcessRuntimeConfig {
-                vm_factory: factory,
-                events,
-            },
-            Arc::new(ambient_platform::process::Generation::default()),
-        );
+        let runtime = ProcessRuntime::new(ProcessRuntimeConfig {
+            vm_factory: factory,
+            events,
+        });
 
         Ok(Self {
             _tokio: tokio,

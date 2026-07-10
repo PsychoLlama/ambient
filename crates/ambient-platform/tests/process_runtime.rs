@@ -122,13 +122,10 @@ impl TestHost {
             event_log.lock().expect("event lock").push(line);
         });
 
-        let runtime = ProcessRuntime::new(
-            ProcessRuntimeConfig {
-                vm_factory,
-                events: sink,
-            },
-            Arc::new(ambient_platform::process::Generation::default()),
-        );
+        let runtime = ProcessRuntime::new(ProcessRuntimeConfig {
+            vm_factory,
+            events: sink,
+        });
 
         Self {
             runtime,

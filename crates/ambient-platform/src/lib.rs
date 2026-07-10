@@ -47,6 +47,7 @@
 )]
 #![cfg_attr(not(test), deny(clippy::expect_used, clippy::unwrap_used))]
 
+pub mod deploy;
 pub mod env;
 pub mod execute;
 pub mod fs;
@@ -134,14 +135,15 @@ fn platform_module_path(relative: &Path) -> Option<(ModulePath, bool)> {
     Some((ModulePath::from_segments(segments)?, is_dir_module))
 }
 
+pub use deploy::{
+    Binding, DeployError, DeployReport, DeployRuntime, Functions, Generation, NameDiff, NameTable,
+    VmFactory, functions_from_module,
+};
 pub use execute::{ExecuteConfig, ExecuteGrants, execute_natives};
 pub use fs::fs_natives;
 pub use network::network_natives;
 pub use network_state::NetworkState;
-pub use process::{
-    DeployOutcome, EventSink, Functions, ProcessEvent, ProcessRuntime, ProcessRuntimeConfig,
-    VmFactory, functions_from_module,
-};
+pub use process::{DeployOutcome, EventSink, ProcessEvent, ProcessRuntime, ProcessRuntimeConfig};
 pub use random::random_natives;
 pub use stdio::{StdioConfig, StdioSink, stdio_natives, stdio_natives_with_collector};
 pub use time::time_natives;

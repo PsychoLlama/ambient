@@ -7,13 +7,15 @@
 //! makes hot code replacement well-defined (see `ref/processes.md`).
 //!
 //! Code arrives in **generations**: content-addressed function tables
-//! produced by compiling a package. A **deploy pass** runs an entry
-//! function against the live registry in reconcile mode — `spawn!`
-//! performs become declarations, diffed by content hash against the
-//! running processes. Changed reducers swap code at their next message
-//! boundary and keep their state; unchanged ones are untouched; removed
-//! ones stop; new ones start. Dynamic processes (spawned outside deploy
-//! passes) are pinned to their spawn-time code and never reconciled.
+//! produced by compiling a package. A **deploy pass** applies a generation
+//! through the deploy core ([`crate::deploy`]) — load, validate, swap the
+//! name table, run the entry — with the entry running against the live
+//! registry in reconcile mode: `spawn!` performs become declarations,
+//! diffed by content hash against the running processes. Changed reducers
+//! swap code at their next message boundary and keep their state;
+//! unchanged ones are untouched; removed ones stop; new ones start.
+//! Dynamic processes (spawned outside deploy passes) are pinned to their
+//! spawn-time code and never reconciled.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,61 +23,11 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 
 use ambient_ability::{Value, VmError};
-use ambient_engine::bytecode::CompiledFunction;
-use ambient_engine::compiler::CompiledModule;
 use ambient_engine::vm::Vm;
 
+use crate::deploy::{DeployRuntime, NameDiff};
+pub use crate::deploy::{Functions, Generation, VmFactory, functions_from_module};
 use crate::native_uuid;
-
-/// A code generation: every compiled function of a build, plus the
-/// content-addressed `const` value objects those functions reference.
-#[derive(Default)]
-pub struct Generation {
-    /// Function hash → runnable function.
-    pub functions: HashMap<blake3::Hash, Arc<CompiledFunction>>,
-    /// Value-object hash → the `const` value it holds.
-    pub values: HashMap<blake3::Hash, Value>,
-    /// Native-object hash → its `(uuid, param_count)` identity. Loaded so
-    /// calls to an extern fn dispatch to the host implementation registered
-    /// on the VM.
-    pub natives: HashMap<blake3::Hash, (uuid::Uuid, u8)>,
-}
-
-/// A shared code generation.
-pub type Functions = Arc<Generation>;
-
-/// Share a compiled module's functions and `const` value objects as a code
-/// generation.
-#[must_use]
-pub fn functions_from_module(compiled: &CompiledModule) -> Functions {
-    let functions = compiled
-        .functions
-        .iter()
-        .map(|(hash, func)| (*hash, Arc::new(func.clone())))
-        .collect();
-    // Value objects live in `objects`; pull out each one's `const` value.
-    let values = compiled
-        .objects
-        .iter()
-        .filter_map(|(hash, object)| Some((*hash, object.as_value()?)))
-        .collect();
-    // Native objects too: each carries an extern fn's (uuid, arity).
-    let natives = compiled
-        .objects
-        .iter()
-        .filter_map(|(hash, object)| Some((*hash, object.as_native()?)))
-        .collect();
-    Arc::new(Generation {
-        functions,
-        values,
-        natives,
-    })
-}
-
-/// Builds a base VM for a process: platform natives registered
-/// (Stdio, Network, ...), no code loaded. The runtime layers the code
-/// generation and its own per-process `process_*` natives on top.
-pub type VmFactory = Arc<dyn Fn() -> Vm + Send + Sync>;
 
 /// Observable lifecycle events, for the embedder to log.
 #[derive(Debug)]
@@ -122,6 +74,9 @@ pub struct DeployOutcome {
     pub stopped: Vec<Arc<str>>,
     /// Declared names left completely untouched (hash-identical).
     pub unchanged: usize,
+    /// The deploy core's exact name-table diff (item names, not process
+    /// names — the fields above describe the process registry).
+    pub names: NameDiff,
 }
 
 /// Consecutive reduction faults before a process is parked.
@@ -181,6 +136,9 @@ struct Inner {
     procs: HashMap<u64, ProcHandle>,
     names: HashMap<Arc<str>, u64>,
     next_pid: u64,
+    /// The most recently deployed generation. Staged (with the reducer
+    /// swap) when a deploy re-declares a live process, so the swap never
+    /// applies before its code is loaded in that process's VM.
     generation: Functions,
     reconcile: Option<ReconcileState>,
 }
@@ -190,7 +148,9 @@ pub struct ProcessRuntime {
     inner: Mutex<Inner>,
     /// Signaled whenever a process exits (for [`Self::wait_all`]).
     exited: Condvar,
-    vm_factory: VmFactory,
+    /// The deploy core: owns the loaded object stores and the atomic
+    /// name table; every process VM is built from it.
+    core: DeployRuntime,
     events: EventSink,
 }
 
@@ -209,31 +169,41 @@ impl ProcessContext {
 }
 
 impl ProcessRuntime {
-    /// Create a runtime with an initial (possibly empty) code generation.
+    /// Create a runtime with an empty deploy core (nothing loaded, no
+    /// names bound); the first [`Self::deploy`] starts the program.
     #[must_use]
-    pub fn new(config: ProcessRuntimeConfig, generation: Functions) -> Arc<Self> {
+    pub fn new(config: ProcessRuntimeConfig) -> Arc<Self> {
         Arc::new(Self {
             inner: Mutex::new(Inner {
                 procs: HashMap::new(),
                 names: HashMap::new(),
                 next_pid: 1,
-                generation,
+                generation: Arc::new(Generation::default()),
                 reconcile: None,
             }),
             exited: Condvar::new(),
-            vm_factory: config.vm_factory,
+            core: DeployRuntime::new(config.vm_factory),
             events: config.events,
         })
     }
 
-    /// Run a deploy pass: install `functions` as the current generation
-    /// and run `entry` in reconcile mode. This is both "start the
-    /// program" (first call, empty registry) and "live upgrade" (every
-    /// later call).
+    /// The deploy core this runtime is a client of (for name resolution
+    /// and inspection).
+    #[must_use]
+    pub fn deploy_core(&self) -> &DeployRuntime {
+        &self.core
+    }
+
+    /// Run a deploy pass: apply `functions` through the deploy core
+    /// (load, validate, swap the name table) and run `entry` in reconcile
+    /// mode. This is both "start the program" (first call, empty
+    /// registry) and "live upgrade" (every later call).
     ///
     /// # Errors
     ///
-    /// Returns the runtime error if the entry function faults. Spawns
+    /// Returns the validation report if the core rejects the generation
+    /// (nothing swapped, previous generation untouched), or the runtime
+    /// error if the entry function faults. In the fault case, spawns
     /// performed before the fault stay live; reconciliation (stopping
     /// undeclared processes, staging code loads) is skipped because the
     /// declaration is incomplete.
@@ -248,15 +218,17 @@ impl ProcessRuntime {
             inner.reconcile = Some(ReconcileState::default());
         }
 
-        let mut vm = self.build_vm(functions, &ProcessContext { pid: 0, cell: None });
-        let result = vm.call(entry, Vec::new());
+        let ctx = ProcessContext { pid: 0, cell: None };
+        let report = self.core.deploy(functions, entry, |vm| {
+            install_process_natives(vm, self, &ctx);
+        });
 
         let mut inner = self.lock();
         let reconcile = inner.reconcile.take().unwrap_or_default();
 
-        let value = match result {
-            Ok(value) => value,
-            Err(e) => return Err(vm.runtime_error(e).to_string()),
+        let report = match report {
+            Ok(report) => report,
+            Err(e) => return Err(e.to_string()),
         };
 
         // Stop root processes the entry no longer declares. Dynamic
@@ -299,11 +271,12 @@ impl ProcessRuntime {
         }
 
         Ok(DeployOutcome {
-            value,
+            value: report.value,
             started: reconcile.started,
             upgraded: reconcile.upgraded,
             stopped,
             unchanged: reconcile.unchanged,
+            names: report.names,
         })
     }
 
@@ -374,20 +347,11 @@ impl ProcessRuntime {
         self.inner.lock().unwrap()
     }
 
-    /// Build a VM wired for `ctx`: base platform natives from the
-    /// factory, the given generation loaded, the `process_*` natives
-    /// bound to this runtime and identity.
-    fn build_vm(self: &Arc<Self>, functions: &Functions, ctx: &ProcessContext) -> Vm {
-        let mut vm = (self.vm_factory)();
-        for func in functions.functions.values() {
-            vm.load_function_shared(Arc::clone(func));
-        }
-        for (hash, value) in &functions.values {
-            vm.load_value(*hash, value.clone());
-        }
-        for (hash, (uuid, param_count)) in &functions.natives {
-            vm.load_native(*hash, *uuid, *param_count);
-        }
+    /// Build a VM wired for `ctx`: the deploy core's view (base platform
+    /// natives plus every deployed generation) with the `process_*`
+    /// natives bound to this runtime and identity.
+    fn build_vm(self: &Arc<Self>, ctx: &ProcessContext) -> Vm {
+        let mut vm = self.core.build_vm();
         install_process_natives(&mut vm, self, ctx);
         vm
     }
@@ -405,9 +369,13 @@ impl ProcessRuntime {
         }
         let name: Arc<str> = Arc::from(name);
 
+        // Reducers may reference code from any deployed generation — old
+        // hashes stay resident in the core — so a pinned process can spawn
+        // with its own (superseded) refs.
+        require_function(&self.core, &init, 0, "init")?;
+        require_function(&self.core, &handler, 2, "handler")?;
+
         let mut inner = self.lock();
-        require_function(&inner.generation, &init, 0, "init")?;
-        require_function(&inner.generation, &handler, 2, "handler")?;
 
         // Deploy pass: an existing live name is a re-declaration.
         if ctx.is_deploy() && inner.reconcile.is_some() {
@@ -450,7 +418,6 @@ impl ProcessRuntime {
         inner.next_pid += 1;
         let (sender, receiver) = mpsc::channel();
         let cell = Arc::new(ProcCell::default());
-        let generation = Arc::clone(&inner.generation);
 
         inner.procs.insert(
             pid,
@@ -482,16 +449,7 @@ impl ProcessRuntime {
         let spawned = std::thread::Builder::new()
             .name(thread_name)
             .spawn(move || {
-                process_main(
-                    &runtime,
-                    pid,
-                    &name,
-                    init,
-                    handler,
-                    &receiver,
-                    &cell,
-                    &generation,
-                );
+                process_main(&runtime, pid, &name, init, handler, &receiver, &cell);
             });
         if let Err(e) = spawned {
             self.remove_process(pid);
@@ -528,9 +486,10 @@ fn stage(cell: &Arc<ProcCell>, generation: &Functions, swap: Option<(Value, Valu
     }
 }
 
-/// Check that a value is callable with the given arity in a generation.
+/// Check that a value is callable with the given arity in any deployed
+/// generation.
 fn require_function(
-    generation: &Functions,
+    core: &DeployRuntime,
     value: &Value,
     arity: u8,
     role: &str,
@@ -545,9 +504,9 @@ fn require_function(
             )));
         }
     };
-    let Some(func) = generation.functions.get(&hash) else {
+    let Some(func) = core.lookup_function(&hash) else {
         return Err(VmError::exception(format!(
-            "Process.spawn: {role} references unknown code (hash not in this build)"
+            "Process.spawn: {role} references unknown code (hash not deployed)"
         )));
     };
     if func.param_count != arity {
@@ -581,15 +540,11 @@ fn process_main(
     handler: Value,
     receiver: &Receiver<Envelope>,
     cell: &Arc<ProcCell>,
-    generation: &Functions,
 ) {
-    let mut vm = runtime.build_vm(
-        generation,
-        &ProcessContext {
-            pid,
-            cell: Some(Arc::clone(cell)),
-        },
-    );
+    let mut vm = runtime.build_vm(&ProcessContext {
+        pid,
+        cell: Some(Arc::clone(cell)),
+    });
     let mut init = init;
     let mut handler = handler;
 
