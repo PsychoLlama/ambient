@@ -409,3 +409,72 @@ fn test_non_literal_const_is_rejected() {
         .expect_prompt()
         .shutdown();
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Never (`!`) semantics through the REPL's own session/registry wiring
+// ─────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_throw_in_value_position_in_repl_function() {
+    // Bottom elimination through the REPL path: `Exception::throw!` returns
+    // `!`, which must unify with the `Number` the other branch produces —
+    // in a function defined on one turn and handled on a later one.
+    ReplTest::new()
+        .wait_ready()
+        .type_line(
+            "fn clamp(v: Number): Number with Exception { if (v > 0) { v + 1 } else { Exception::throw!(\"low\") } }",
+        )
+        .expect_output("Defined: clamp")
+        .clear_output()
+        .type_line("with { Exception::throw(msg) => 0 - 1 } handle clamp(41)")
+        .expect_output("42")
+        .clear_output()
+        .type_line("with { Exception::throw(msg) => 0 - 1 } handle clamp(0 - 5)")
+        .expect_output("-1")
+        .shutdown();
+}
+
+#[test]
+fn test_abstract_never_method_declared_and_performed_across_repl_turns() {
+    // A REPL-declared ability with an abstract `: !` method: the declaration
+    // commits without a default implementation, and its performs unwind to
+    // the handler installed on a later line.
+    ReplTest::new()
+        .wait_ready()
+        .type_line(
+            "unique(AB000000-0000-0000-0000-0000000000E5) ability Abort { fn abort(code: Number): !; }",
+        )
+        .expect_output("Defined: Abort")
+        .clear_output()
+        .type_line(
+            "fn work(x: Number): Number with Abort { if (x > 10) { Abort::abort!(x) } else { x * 2 } }",
+        )
+        .expect_output("Defined: work")
+        .clear_output()
+        .type_line("with { Abort::abort(code) => code } handle work(50)")
+        .expect_output("50")
+        .clear_output()
+        .type_line("with { Abort::abort(code) => code } handle work(3)")
+        .expect_output("6")
+        .shutdown();
+}
+
+#[test]
+fn test_resume_in_never_arm_is_rejected_in_repl() {
+    // The dedicated catch-only diagnostic surfaces through the REPL: a
+    // never-returning perform unwinds, so its arm cannot `resume`.
+    ReplTest::new()
+        .wait_ready()
+        .type_line(
+            "unique(AB000000-0000-0000-0000-0000000000E6) ability Halt { fn halt(code: Number): !; }",
+        )
+        .expect_output("Defined: Halt")
+        .clear_output()
+        .type_line("fn go3(): Number with Halt { Halt::halt!(1) }")
+        .expect_output("Defined: go3")
+        .clear_output()
+        .type_line("with { Halt::halt(code) => resume(code) } handle go3()")
+        .expect_error("cannot `resume` `Halt::halt`")
+        .expect_prompt()
+        .shutdown();
+}
