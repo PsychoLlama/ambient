@@ -54,6 +54,7 @@
 
 mod abilities;
 mod check;
+pub(crate) mod constraints;
 mod effects;
 pub mod enums;
 mod env;
@@ -143,6 +144,21 @@ pub struct Infer {
     /// around body checking and empty everywhere else (signature-scheme
     /// paths substitute to `Var` instead), so it never affects hashing.
     pub(crate) rigid_params: HashSet<Arc<str>>,
+
+    /// The enclosing item's dictionary parameters, in declaration order:
+    /// one `(param name, bound)` per hidden trailing dictionary the item
+    /// takes. Set alongside `rigid_params` while a bounded item's body is
+    /// checked; bound-method calls (`x.eq(y)` on `x: T`) and forwarded
+    /// constraints resolve their dictionary indices against this list.
+    pub(crate) current_bound_params: Vec<(Arc<str>, crate::types::TraitBound)>,
+
+    /// Bound constraints recorded when a bounded scheme was instantiated,
+    /// awaiting resolution once the enclosing body's inference settles the
+    /// instantiated variables. See [`constraints`].
+    pub(crate) pending_constraints: Vec<constraints::PendingConstraint>,
+
+    /// Fresh ids for [`crate::ast::Dicts::Pending`] groups.
+    pub(crate) next_dict_group: u32,
 }
 
 /// A deferred "the sandbox body may only use these abilities" check.
@@ -222,6 +238,9 @@ impl Infer {
             pending_sandbox_checks: Vec::new(),
             workspace_name: Arc::from(""),
             rigid_params: HashSet::new(),
+            current_bound_params: Vec::new(),
+            pending_constraints: Vec::new(),
+            next_dict_group: 0,
         }
     }
 
@@ -646,8 +665,30 @@ impl Infer {
 
     /// Instantiate a type scheme with fresh type variables.
     pub fn instantiate(&mut self, scheme: &Scheme) -> Type {
+        self.instantiate_parts(scheme).0
+    }
+
+    /// Instantiate a scheme, recording its trait bounds as pending
+    /// dictionary constraints and annotating the instantiating expression
+    /// (`dicts`). This is the entry every expression-level instantiation
+    /// uses; the plain [`instantiate`](Self::instantiate) is for schemes
+    /// that cannot carry bounds (locals, lambda generalization).
+    pub(crate) fn instantiate_bounded(
+        &mut self,
+        scheme: &Scheme,
+        span: (u32, u32),
+        dicts: &mut Option<crate::ast::Dicts>,
+    ) -> Type {
+        let (ty, type_subst) = self.instantiate_parts(scheme);
+        if !scheme.bounds.is_empty() {
+            *dicts = Some(self.record_bound_constraints(&scheme.bounds, &type_subst, span));
+        }
+        ty
+    }
+
+    fn instantiate_parts(&mut self, scheme: &Scheme) -> (Type, HashMap<TypeVarId, Type>) {
         if scheme.vars.is_empty() && scheme.ability_vars.is_empty() {
-            return scheme.ty.clone();
+            return (scheme.ty.clone(), HashMap::new());
         }
 
         let mut type_subst = HashMap::new();
@@ -660,7 +701,10 @@ impl Infer {
             ability_subst.insert(*var, self.fresh_ability_var());
         }
 
-        scheme.ty.substitute_all(&type_subst, &ability_subst)
+        (
+            scheme.ty.substitute_all(&type_subst, &ability_subst),
+            type_subst,
+        )
     }
 
     /// Generalize a type to a scheme by quantifying free variables

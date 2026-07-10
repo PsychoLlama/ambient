@@ -21,7 +21,9 @@
 
 use std::sync::Arc;
 
-use crate::ast::{BinaryOp, ConstDef, Expr, ExprKind, LetBinding, Stmt, StmtKind, UnaryOp};
+use crate::ast::{
+    BinaryOp, ConstDef, Expr, ExprKind, LetBinding, ResolvedMethod, Stmt, StmtKind, UnaryOp,
+};
 use crate::bytecode::Opcode;
 use crate::fqn::NameKey;
 use crate::value::Value;
@@ -135,7 +137,22 @@ pub(super) fn compile_expr(
                 fc.builder.emit_load_object(hash);
             } else if let Some(&hash) = fc.function_hashes.get(&key) {
                 // A bare identifier resolving to a function hash is a function
-                // reference - push it for later use.
+                // reference - push it for later use. A *bounded* generic has
+                // no value form yet: its dictionaries are supplied by call
+                // sites, and nothing would supply them here.
+                if matches!(&expr.dicts, Some(crate::ast::Dicts::Resolved(s)) if !s.is_empty())
+                    || matches!(&expr.dicts, Some(crate::ast::Dicts::Pending(_)))
+                {
+                    return Err(CompileError::new(
+                        CompileErrorKind::Unsupported {
+                            feature: format!(
+                                "using the bounded generic function `{var_name}` as a value \
+                                 (call it directly instead)"
+                            ),
+                        },
+                        (expr.span.start, expr.span.end),
+                    ));
+                }
                 fc.builder.emit_const(Value::FunctionRef(hash));
             } else if let Some(variant) = name
                 .resolved
@@ -263,23 +280,36 @@ pub(super) fn compile_expr(
                     fc.builder.patch_jump(jump);
                 }
                 _ => {
-                    compile_expr(fc, left, ctx)?;
-                    compile_expr(fc, right, ctx)?;
-
                     // Check if we have a resolved trait method for operator overloading
-                    if let Some(symbol) = resolved_op {
-                        // Operator is overloaded - call the trait method.
-                        let Some(&hash) =
-                            fc.function_hashes.get(&NameKey::Bare(Arc::clone(symbol)))
-                        else {
-                            return Err(CompileError::new(
-                                CompileErrorKind::UndefinedFunction {
-                                    name: Arc::clone(symbol),
-                                },
-                                (expr.span.start, expr.span.end),
-                            ));
-                        };
-                        fc.builder.emit_call(hash, 2);
+                    if let Some(resolved) = resolved_op {
+                        // Operator is overloaded — call the trait method:
+                        // directly by hash for a concrete impl, through the
+                        // enclosing function's dictionary for a bounded
+                        // type parameter.
+                        match resolved {
+                            ResolvedMethod::Symbol(symbol) => {
+                                compile_expr(fc, left, ctx)?;
+                                compile_expr(fc, right, ctx)?;
+                                let Some(&hash) =
+                                    fc.function_hashes.get(&NameKey::Bare(Arc::clone(symbol)))
+                                else {
+                                    return Err(CompileError::new(
+                                        CompileErrorKind::UndefinedFunction {
+                                            name: Arc::clone(symbol),
+                                        },
+                                        (expr.span.start, expr.span.end),
+                                    ));
+                                };
+                                fc.builder.emit_call(hash, 2);
+                            }
+                            ResolvedMethod::DictSlot { dict_index, slot } => {
+                                // Callee first (CallClosure convention).
+                                emit_dict_method(fc, *dict_index, *slot, expr.span)?;
+                                compile_expr(fc, left, ctx)?;
+                                compile_expr(fc, right, ctx)?;
+                                fc.builder.emit_call_closure(2);
+                            }
+                        }
 
                         // Adapt the trait method's result to the operator's
                         // semantics: `Eq.eq` provides `==` directly, `!=` is
@@ -301,6 +331,8 @@ pub(super) fn compile_expr(
                             _ => {}
                         }
                     } else {
+                        compile_expr(fc, left, ctx)?;
+                        compile_expr(fc, right, ctx)?;
                         // Built-in operator
                         let opcode = match op {
                             BinaryOp::Add => Opcode::Add,
@@ -390,8 +422,13 @@ pub(super) fn compile_expr(
                     for arg in args {
                         compile_expr(fc, arg, ctx)?;
                     }
+                    // A bounded generic callee takes its dictionaries as
+                    // hidden trailing arguments (annotated on the callee
+                    // reference by the checker).
+                    let dict_count = compile_dicts(fc, callee.dicts.as_ref(), callee.span)?;
                     let hash = fc.function_hashes[&key];
-                    fc.builder.emit_call(hash, args.len() as u8);
+                    #[allow(clippy::cast_possible_truncation)]
+                    fc.builder.emit_call(hash, (args.len() + dict_count) as u8);
                 } else if name.resolved.is_none()
                     && name.path.is_empty()
                     && (fc.get_local_by_name(&name.name).is_some()
@@ -532,40 +569,156 @@ pub(super) fn compile_expr(
             ..
         } => {
             // Method calls are compiled as regular function calls: type
-            // checking resolved the call to a canonical impl-method symbol,
-            // which we look up in the same name→hash table as ordinary calls.
-            let Some(symbol) = resolved_method else {
-                return Err(CompileError::new(
-                    CompileErrorKind::Internal {
-                        message: "method call missing resolved symbol",
-                    },
-                    (expr.span.start, expr.span.end),
-                ));
-            };
-            let Some(&hash) = fc.function_hashes.get(&NameKey::Bare(Arc::clone(symbol))) else {
-                return Err(CompileError::new(
-                    CompileErrorKind::UndefinedFunction {
-                        name: Arc::clone(symbol),
-                    },
-                    (expr.span.start, expr.span.end),
-                ));
-            };
+            // checking resolved the call to a canonical impl-method symbol
+            // (looked up in the same name→hash table as ordinary calls) or,
+            // for a bounded-type-parameter receiver, to a slot of one of
+            // this function's dictionary parameters.
+            match resolved_method {
+                Some(ResolvedMethod::Symbol(symbol)) => {
+                    let Some(&hash) = fc.function_hashes.get(&NameKey::Bare(Arc::clone(symbol)))
+                    else {
+                        return Err(CompileError::new(
+                            CompileErrorKind::UndefinedFunction {
+                                name: Arc::clone(symbol),
+                            },
+                            (expr.span.start, expr.span.end),
+                        ));
+                    };
 
-            // Compile receiver (self) as first argument
-            compile_expr(fc, receiver, ctx)?;
+                    // Compile receiver (self) as first argument
+                    compile_expr(fc, receiver, ctx)?;
 
-            // Compile other arguments
-            for arg in args {
-                compile_expr(fc, arg, ctx)?;
+                    // Compile other arguments
+                    for arg in args {
+                        compile_expr(fc, arg, ctx)?;
+                    }
+
+                    // A bounded method (e.g. `impl<T: Eq> List<T>` methods)
+                    // takes its dictionaries as hidden trailing arguments.
+                    let dict_count = compile_dicts(fc, expr.dicts.as_ref(), expr.span)?;
+
+                    // Emit call with arity = self + args + dictionaries
+                    #[allow(clippy::cast_possible_truncation)]
+                    let arity = (1 + args.len() + dict_count) as u8;
+                    fc.builder.emit_call(hash, arity);
+                }
+                Some(ResolvedMethod::DictSlot { dict_index, slot }) => {
+                    // Callee first (CallClosure convention): the bound
+                    // method function from the dictionary tuple.
+                    emit_dict_method(fc, *dict_index, *slot, expr.span)?;
+                    compile_expr(fc, receiver, ctx)?;
+                    for arg in args {
+                        compile_expr(fc, arg, ctx)?;
+                    }
+                    #[allow(clippy::cast_possible_truncation)]
+                    let arity = (1 + args.len()) as u8;
+                    fc.builder.emit_call_closure(arity);
+                }
+                None => {
+                    return Err(CompileError::new(
+                        CompileErrorKind::Internal {
+                            message: "method call missing resolved symbol",
+                        },
+                        (expr.span.start, expr.span.end),
+                    ));
+                }
             }
-
-            // Emit call with arity = self + args
-            #[allow(clippy::cast_possible_truncation)]
-            let arity = (1 + args.len()) as u8;
-            fc.builder.emit_call(hash, arity);
         }
     }
 
+    Ok(())
+}
+
+/// Push the dictionary arguments a call site's annotation demands, in
+/// order, returning how many were pushed. Each dictionary is either built
+/// from a concrete impl (a tuple of function references, hash-linked like
+/// any direct call) or forwarded from this function's own dictionary
+/// parameters.
+fn compile_dicts(
+    fc: &mut FunctionCompiler,
+    dicts: Option<&crate::ast::Dicts>,
+    span: crate::ast::Span,
+) -> Result<usize, CompileError> {
+    let sources = match dicts {
+        None => return Ok(0),
+        Some(crate::ast::Dicts::Resolved(sources)) => sources,
+        Some(crate::ast::Dicts::Pending(_)) => {
+            return Err(CompileError::new(
+                CompileErrorKind::Internal {
+                    message: "unsolved dictionary constraints reached compilation (checker bug)",
+                },
+                (span.start, span.end),
+            ));
+        }
+    };
+    for source in sources {
+        compile_dict_source(fc, source, span)?;
+    }
+    Ok(sources.len())
+}
+
+/// Push one dictionary value.
+fn compile_dict_source(
+    fc: &mut FunctionCompiler,
+    source: &crate::ast::DictSource,
+    span: crate::ast::Span,
+) -> Result<(), CompileError> {
+    match source {
+        crate::ast::DictSource::Impl { symbols } => {
+            for symbol in symbols {
+                let Some(&hash) = fc.function_hashes.get(&NameKey::Bare(Arc::clone(symbol))) else {
+                    return Err(CompileError::new(
+                        CompileErrorKind::UndefinedFunction {
+                            name: Arc::clone(symbol),
+                        },
+                        (span.start, span.end),
+                    ));
+                };
+                fc.builder.emit_const(Value::FunctionRef(hash));
+            }
+            #[allow(clippy::cast_possible_truncation)]
+            fc.builder.emit_u8(Opcode::MakeTuple, symbols.len() as u8);
+            Ok(())
+        }
+        crate::ast::DictSource::Param { dict_index } => {
+            let Some(&slot) = fc.dict_locals.get(*dict_index) else {
+                return Err(CompileError::new(
+                    CompileErrorKind::Unsupported {
+                        feature: "forwarding a trait-bound dictionary inside a lambda \
+                                  (call the bounded function from a named function instead)"
+                            .into(),
+                    },
+                    (span.start, span.end),
+                ));
+            };
+            fc.builder.emit_u16(Opcode::LoadLocal, slot);
+            Ok(())
+        }
+    }
+}
+
+/// Push a bound method (dictionary slot) as the callee for a
+/// `CallClosure`: load this function's `dict_index`-th dictionary
+/// parameter and take tuple slot `slot`.
+fn emit_dict_method(
+    fc: &mut FunctionCompiler,
+    dict_index: usize,
+    slot: usize,
+    span: crate::ast::Span,
+) -> Result<(), CompileError> {
+    let Some(&local) = fc.dict_locals.get(dict_index) else {
+        return Err(CompileError::new(
+            CompileErrorKind::Unsupported {
+                feature: "calling a trait-bound method inside a lambda \
+                          (move the call into a named function)"
+                    .into(),
+            },
+            (span.start, span.end),
+        ));
+    };
+    fc.builder.emit_u16(Opcode::LoadLocal, local);
+    #[allow(clippy::cast_possible_truncation)]
+    fc.builder.emit_u8(Opcode::TupleGet, slot as u8);
     Ok(())
 }
 

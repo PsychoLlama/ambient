@@ -95,7 +95,8 @@ fn check_single_impl(
     // The compiler registers method bodies under these symbols so they are
     // content-addressed like ordinary functions; call sites resolve the
     // symbol through the same name→hash table as regular calls.
-    let mut impl_record = crate::types::TraitImpl::new(trait_uuid, nominal_type.clone());
+    let mut impl_record = crate::types::TraitImpl::new(trait_uuid, nominal_type.clone())
+        .with_generic(!impl_def.type_params.is_empty());
     for method in &mut impl_def.methods {
         let symbol =
             crate::types::impl_method_symbol(&nominal_type.uuid, &trait_uuid, &method.name);
@@ -197,6 +198,11 @@ fn check_impl_methods(
                 errors.push(e.with_context(format!("in impl method `{}`", method.name)));
             }
         }
+
+        // A trait impl method body may call bounded generics at concrete
+        // types; solve those constraints against this body before the next
+        // one runs.
+        infer.finish_body_constraints(&mut method.body, errors);
     }
 }
 /// Check that all required trait methods are implemented.
@@ -302,8 +308,14 @@ pub(super) fn register_inherent_impls(
 
         let impl_type_params = impl_def.type_params.clone();
         for method in &mut impl_def.methods {
-            let scheme =
-                build_inherent_method_scheme(infer, &impl_type_params, method, &for_type, errors);
+            let scheme = build_inherent_method_scheme(
+                infer,
+                &impl_type_params,
+                method,
+                &for_type,
+                errors,
+                false,
+            );
             let symbol = inherent::inherent_method_symbol(&key, &method.name);
             let record = inherent::InherentMethod {
                 name: Arc::clone(&method.name),
@@ -338,6 +350,7 @@ pub(super) fn build_inherent_method_scheme(
     method: &crate::ast::ImplMethod,
     for_type: &Type,
     errors: &mut Vec<BoxedTypeError>,
+    lenient_bounds: bool,
 ) -> Scheme {
     // Quantified ids come from the shared generator so they can never
     // collide with inference variables allocated elsewhere.
@@ -379,11 +392,21 @@ pub(super) fn build_inherent_method_scheme(
 
     let abilities = resolve_declared_abilities(infer, &method.abilities, method.span, errors);
     let fn_ty = Type::function_with_abilities(params, ret, abilities);
-    if quantified.is_empty() {
+    let scheme = if quantified.is_empty() {
         Scheme::mono(fn_ty)
     } else {
         Scheme::poly(quantified, fn_ty)
-    }
+    };
+
+    // Bounds quantify with the scheme: the impl block's first (its bounds
+    // scope every method), then the method's own — the same combined order
+    // the compiler allocates the method's dictionary parameters in.
+    let combined: Vec<crate::ast::TypeParam> = impl_type_params
+        .iter()
+        .chain(method.type_params.iter())
+        .cloned()
+        .collect();
+    super::locals::attach_scheme_bounds(infer, scheme, &combined, &type_var_map, lenient_bounds)
 }
 /// Resolve a declared type from an inherent method signature: substitute
 /// `Self`, then the quantified type parameters, then expand aliases/holes.
@@ -441,6 +464,7 @@ fn check_inherent_impl_bodies(
         .iter()
         .map(|tp| Arc::clone(&tp.name))
         .collect();
+    let impl_type_params_ast = impl_def.type_params.clone();
 
     for method in &mut impl_def.methods {
         if method.resolved_symbol.is_none() {
@@ -456,50 +480,67 @@ fn check_inherent_impl_bodies(
             .cloned()
             .chain(method.type_params.iter().map(|tp| Arc::clone(&tp.name)))
             .collect();
+        // Bounds in the combined impl-then-method order — the same order
+        // the scheme quantified them and the compiler allocates the
+        // method's dictionary parameters. Unknown-trait errors were already
+        // reported when the scheme was built; swallow the duplicates here.
+        let combined_params: Vec<crate::ast::TypeParam> = impl_type_params_ast
+            .iter()
+            .chain(method.type_params.iter())
+            .cloned()
+            .collect();
+        let bounds = infer.resolve_bound_params(&combined_params, &mut Vec::new());
         infer.with_rigid_params(rigid, |infer| {
-            let for_type = infer.resolve_holes(&for_type_ast);
-            let mut func_env = env.extend();
+            infer.with_bound_params(bounds, |infer| {
+                let for_type = infer.resolve_holes(&for_type_ast);
+                let mut func_env = env.extend();
 
-            if method.has_self {
-                func_env.insert_mono(method.self_id, Arc::from("self"), for_type.clone());
-            }
-            for param in &method.params {
-                let param_ty = match &param.ty {
-                    Some(ty) => {
-                        let ty = substitute_self(ty, &for_type);
-                        resolve_erroring(infer, &ty)
-                    }
-                    None => infer.fresh(),
-                };
-                func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
-            }
-
-            let expected_ret = method.ret_ty.as_ref().map(|ty| {
-                let ty = substitute_self(ty, &for_type);
-                resolve_erroring(infer, &ty)
-            });
-
-            match infer.infer_expr(&func_env, &mut method.body) {
-                Ok(body_ty) => {
-                    if let Some(expected) = &expected_ret {
-                        let method_span = (method.span.start, method.span.end);
-                        if let Err(e) = infer.unify(expected, &body_ty, method_span) {
-                            errors.push(
-                                e.with_context(format!("in inherent method `{}`", method.name)),
-                            );
+                if method.has_self {
+                    func_env.insert_mono(method.self_id, Arc::from("self"), for_type.clone());
+                }
+                for param in &method.params {
+                    let param_ty = match &param.ty {
+                        Some(ty) => {
+                            let ty = substitute_self(ty, &for_type);
+                            resolve_erroring(infer, &ty)
                         }
+                        None => infer.fresh(),
+                    };
+                    func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
+                }
+
+                let expected_ret = method.ret_ty.as_ref().map(|ty| {
+                    let ty = substitute_self(ty, &for_type);
+                    resolve_erroring(infer, &ty)
+                });
+
+                match infer.infer_expr(&func_env, &mut method.body) {
+                    Ok(body_ty) => {
+                        if let Some(expected) = &expected_ret {
+                            let method_span = (method.span.start, method.span.end);
+                            if let Err(e) = infer.unify(expected, &body_ty, method_span) {
+                                errors.push(
+                                    e.with_context(format!("in inherent method `{}`", method.name)),
+                                );
+                            }
+                        }
+                        deferred.push(DeferredAbilityCheck {
+                            context: format!("inherent method `{}`", method.name),
+                            declared: method.abilities.clone(),
+                            inferred: infer.current_abilities().clone(),
+                            span: method.span,
+                        });
                     }
-                    deferred.push(DeferredAbilityCheck {
-                        context: format!("inherent method `{}`", method.name),
-                        declared: method.abilities.clone(),
-                        inferred: infer.current_abilities().clone(),
-                        span: method.span,
-                    });
+                    Err(e) => {
+                        errors
+                            .push(e.with_context(format!("in inherent method `{}`", method.name)));
+                    }
                 }
-                Err(e) => {
-                    errors.push(e.with_context(format!("in inherent method `{}`", method.name)));
-                }
-            }
+
+                // Solve the bound constraints this body recorded and finalize
+                // its dictionary annotations for the compiler.
+                infer.finish_body_constraints(&mut method.body, errors);
+            });
         });
     }
 }

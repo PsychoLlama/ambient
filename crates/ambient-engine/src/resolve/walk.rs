@@ -241,6 +241,7 @@ impl Resolver<'_> {
                         kind: ExprKind::Name(callee_name),
                         span: receiver.span,
                         ty: None,
+                        dicts: None,
                     };
                     ExprKind::Call(Box::new(callee), std::mem::take(args))
                 })

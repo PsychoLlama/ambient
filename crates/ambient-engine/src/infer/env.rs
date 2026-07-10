@@ -102,6 +102,12 @@ pub struct Scheme {
     pub vars: Vec<TypeVarId>,
     /// Quantified ability variables (Milestone 8).
     pub ability_vars: Vec<AbilityVarId>,
+    /// Trait bounds on the quantified variables, in declaration order
+    /// (`fn f<T: Eq + Ord, U: Eq>` → `[(T, Eq), (T, Ord), (U, Eq)]`).
+    /// This order *is* the dictionary-parameter order: the compiled
+    /// function takes one hidden trailing dictionary per entry, and call
+    /// sites supply them in the same order.
+    pub bounds: Vec<(TypeVarId, crate::types::TraitBound)>,
     /// The type body.
     pub ty: Type,
 }
@@ -113,6 +119,7 @@ impl Scheme {
         Self {
             vars: Vec::new(),
             ability_vars: Vec::new(),
+            bounds: Vec::new(),
             ty,
         }
     }
@@ -123,6 +130,7 @@ impl Scheme {
         Self {
             vars,
             ability_vars: Vec::new(),
+            bounds: Vec::new(),
             ty,
         }
     }
@@ -137,8 +145,16 @@ impl Scheme {
         Self {
             vars,
             ability_vars,
+            bounds: Vec::new(),
             ty,
         }
+    }
+
+    /// Attach trait bounds (dictionary-parameter order) to this scheme.
+    #[must_use]
+    pub fn with_bounds(mut self, bounds: Vec<(TypeVarId, crate::types::TraitBound)>) -> Self {
+        self.bounds = bounds;
+        self
     }
 }
 

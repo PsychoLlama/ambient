@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::ast::Expr;
+use crate::ast::{Dicts, Expr, ResolvedMethod};
 use crate::infer::error::BoxedTypeErrorExt;
 use crate::infer::{Infer, InferResult, TypeEnv, TypeErrorKind, type_error};
 use crate::types::Type;
@@ -13,7 +13,8 @@ impl Infer {
     /// Type-check a call to an inherent method against its instantiated
     /// scheme. `receiver_ty` is `Some` for dot calls (unified with parameter
     /// 0, which binds the impl's type parameters) and `None` for associated
-    /// `Type::method(...)` calls.
+    /// `Type::method(...)` calls. A bounded scheme (`impl<T: Eq> List<T>`)
+    /// records its dictionary constraints against `dicts`.
     #[allow(clippy::too_many_arguments)]
     fn infer_inherent_call(
         &mut self,
@@ -22,9 +23,10 @@ impl Infer {
         receiver_ty: Option<&Type>,
         args: &mut [Expr],
         span: (u32, u32),
-        resolved_method: &mut Option<Arc<str>>,
+        resolved_method: &mut Option<ResolvedMethod>,
+        dicts: &mut Option<Dicts>,
     ) -> InferResult<Type> {
-        let fn_ty = self.instantiate(&method.scheme);
+        let fn_ty = self.instantiate_bounded(&method.scheme, span, dicts);
         let Type::Function(f) = fn_ty else {
             return Err(type_error(TypeErrorKind::NotAFunction { ty: fn_ty }, span));
         };
@@ -67,7 +69,7 @@ impl Infer {
         let abilities = self.apply_abilities(&f.abilities);
         self.require_abilities(&abilities);
 
-        *resolved_method = Some(Arc::clone(&method.symbol));
+        *resolved_method = Some(ResolvedMethod::Symbol(Arc::clone(&method.symbol)));
         Ok(self.apply(&f.ret))
     }
 
@@ -87,6 +89,7 @@ impl Infer {
         method_name: &str,
         args: &mut [Expr],
         span: (u32, u32),
+        dicts: &mut Option<Dicts>,
     ) -> InferResult<Option<(Arc<str>, Type)>> {
         use crate::infer::inherent::ImplKey;
 
@@ -116,8 +119,11 @@ impl Infer {
         {
             let method = method.clone();
             let mut resolved = None;
-            let ret = self.infer_inherent_call(env, &method, None, args, span, &mut resolved)?;
-            return Ok(resolved.map(|symbol| (symbol, ret)));
+            let ret =
+                self.infer_inherent_call(env, &method, None, args, span, &mut resolved, dicts)?;
+            return Ok(resolved
+                .and_then(|r| r.as_symbol().cloned())
+                .map(|s| (s, ret)));
         }
 
         // The leading segment must name a nominal type.
@@ -173,10 +179,12 @@ impl Infer {
     /// Infer the type of a method call expression.
     ///
     /// Resolution order: inherent methods first (any type with an impl-key
-    /// identity — nominal, enum, built-in container, primitive), then trait
-    /// methods (nominal receivers only). Inherent methods shadow same-named
-    /// trait methods, so adding an inherent method is a deliberate, local
-    /// override — never silent ambiguity.
+    /// identity — nominal, enum, built-in container, primitive), then
+    /// bound methods (rigid type-parameter receivers dispatch through the
+    /// enclosing function's dictionary), then trait methods (nominal
+    /// receivers only). Inherent methods shadow same-named trait methods,
+    /// so adding an inherent method is a deliberate, local override —
+    /// never silent ambiguity.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn infer_method_call(
         &mut self,
@@ -185,7 +193,8 @@ impl Infer {
         method_name: &Arc<str>,
         method_span: crate::ast::Span,
         args: &mut [Expr],
-        resolved_method: &mut Option<Arc<str>>,
+        resolved_method: &mut Option<ResolvedMethod>,
+        dicts: &mut Option<Dicts>,
     ) -> InferResult<Type> {
         // Infer the receiver type
         let receiver_ty = self.infer_expr(env, receiver)?;
@@ -202,6 +211,22 @@ impl Infer {
                 env,
                 &method,
                 Some(&receiver_ty),
+                args,
+                span,
+                resolved_method,
+                dicts,
+            );
+        }
+
+        // A rigid type parameter dispatches through its bounds: `x.eq(y)`
+        // where `x: T` and `T: Eq` compiles as a slot access into the
+        // enclosing function's Eq dictionary for T.
+        if let Type::Param(param) = &receiver_ty {
+            return self.infer_bound_method_call(
+                env,
+                Arc::clone(param),
+                &receiver_ty,
+                method_name,
                 args,
                 span,
                 resolved_method,
@@ -252,7 +277,7 @@ impl Infer {
         let method_def = method_def.clone();
 
         // Store the resolved dispatch symbol for compilation
-        *resolved_method = Some(method_symbol);
+        *resolved_method = Some(ResolvedMethod::Symbol(method_symbol));
 
         // Infer argument types
         let mut arg_tys = Vec::new();
@@ -295,6 +320,126 @@ impl Infer {
 
         // Return the substituted return type
         Ok(substitute_self(&method_def.ret, &receiver_ty))
+    }
+
+    /// Type a method call whose receiver is a rigid type parameter: the
+    /// method must come from one of the parameter's declared bounds, and
+    /// dispatch is a dictionary-slot access on the enclosing function's
+    /// hidden dictionary parameter.
+    #[allow(clippy::too_many_arguments)]
+    fn infer_bound_method_call(
+        &mut self,
+        env: &TypeEnv,
+        param: Arc<str>,
+        receiver_ty: &Type,
+        method_name: &Arc<str>,
+        args: &mut [Expr],
+        span: (u32, u32),
+        resolved_method: &mut Option<ResolvedMethod>,
+    ) -> InferResult<Type> {
+        // Find the (unique) bound of this parameter that provides the
+        // method. Two bounds providing the same name is ambiguity, exactly
+        // like two trait impls.
+        let mut found: Option<(usize, crate::types::TraitBound)> = None;
+        let mut candidates: Vec<Arc<str>> = Vec::new();
+        for (dict_index, (name, bound)) in self.current_bound_params.iter().enumerate() {
+            if name != &param {
+                continue;
+            }
+            let provides = self
+                .trait_registry
+                .get_trait(bound.trait_uuid)
+                .is_some_and(|def| {
+                    def.methods
+                        .iter()
+                        .any(|m| m.name.as_ref() == method_name.as_ref() && m.has_self)
+                });
+            if provides {
+                candidates.push(Arc::clone(&bound.name));
+                if found.is_none() {
+                    found = Some((dict_index, bound.clone()));
+                }
+            }
+        }
+        if candidates.len() > 1 {
+            return Err(type_error(
+                TypeErrorKind::AmbiguousMethod {
+                    method: Arc::clone(method_name),
+                    ty: receiver_ty.clone(),
+                    candidates,
+                },
+                span,
+            ));
+        }
+        let Some((dict_index, bound)) = found else {
+            let bounds: Vec<Arc<str>> = self
+                .current_bound_params
+                .iter()
+                .filter(|(name, _)| name == &param)
+                .map(|(_, b)| Arc::clone(&b.name))
+                .collect();
+            return Err(type_error(
+                TypeErrorKind::MethodNotInBounds {
+                    method: Arc::clone(method_name),
+                    param,
+                    bounds,
+                },
+                span,
+            ));
+        };
+
+        // The borrow on the registry ends here; clone what we need.
+        let trait_def = self
+            .trait_registry
+            .get_trait(bound.trait_uuid)
+            .cloned()
+            .ok_or_else(|| {
+                type_error(
+                    TypeErrorKind::UnknownTrait {
+                        name: Arc::clone(&bound.name),
+                    },
+                    span,
+                )
+            })?;
+        let method_def = trait_def
+            .methods
+            .iter()
+            .find(|m| m.name.as_ref() == method_name.as_ref())
+            .cloned()
+            .ok_or_else(|| {
+                type_error(
+                    TypeErrorKind::MethodNotFound {
+                        method: Arc::clone(method_name),
+                        ty: receiver_ty.clone(),
+                    },
+                    span,
+                )
+            })?;
+        let slot = trait_def.dictionary_slot(method_name).unwrap_or_default();
+
+        // Type against the trait signature with Self = the parameter.
+        if args.len() != method_def.params.len() {
+            return Err(type_error(
+                TypeErrorKind::ArityMismatch {
+                    expected: method_def.params.len(),
+                    actual: args.len(),
+                },
+                span,
+            )
+            .with_context(format!("in method call `{}.{method_name}`", bound.name)));
+        }
+        for (i, (arg, param_ty)) in args.iter_mut().zip(method_def.params.iter()).enumerate() {
+            let arg_ty = self.infer_expr(env, arg)?;
+            let param_ty = substitute_self(param_ty, receiver_ty);
+            if let Err(e) = self.unify(&arg_ty, &param_ty, span) {
+                return Err(
+                    e.with_context(format!("in argument {} of method `{method_name}`", i + 1))
+                );
+            }
+        }
+
+        *resolved_method = Some(ResolvedMethod::DictSlot { dict_index, slot });
+        Ok(substitute_self(&method_def.ret, receiver_ty))
     }
 }
 

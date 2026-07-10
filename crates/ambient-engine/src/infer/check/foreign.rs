@@ -143,7 +143,17 @@ fn register_package_items(
         .collect();
 
     // Foreign types first: impl registration (loop 2) needs them resolvable.
-    // Trait defs already registered via `register_imported_traits`.
+    // Imported trait defs already registered via `register_imported_traits`;
+    // every *other* foreign trait registers by identity only (no bare name
+    // in scope), so foreign impls and the bounds of foreign signatures
+    // resolve even when this module never imported the trait.
+    for info in &foreign_modules {
+        for item in &info.module.items {
+            if let crate::ast::ItemKind::Trait(trait_def) = &item.kind {
+                super::locals::register_trait_def_unnamed(infer, trait_def);
+            }
+        }
+    }
     for info in &foreign_modules {
         // Foreign types register bare (transient, retracted later); their
         // *public* `Item(Fqn)` keys come from the loop just below, so the
@@ -192,7 +202,8 @@ fn register_foreign_impl(
         return;
     };
 
-    let mut impl_record = crate::types::TraitImpl::new(trait_uuid, nominal_type.clone());
+    let mut impl_record = crate::types::TraitImpl::new(trait_uuid, nominal_type.clone())
+        .with_generic(!impl_def.type_params.is_empty());
     for method in &impl_def.methods {
         let symbol =
             crate::types::impl_method_symbol(&nominal_type.uuid, &trait_uuid, &method.name);
@@ -231,8 +242,14 @@ fn register_foreign_inherent_impl(
         // Signature problems (e.g. a missing return type) are the defining
         // module's errors; swallow them here.
         let mut scratch = Vec::new();
-        let scheme =
-            build_inherent_method_scheme(infer, &impl_type_params, method, &for_type, &mut scratch);
+        let scheme = build_inherent_method_scheme(
+            infer,
+            &impl_type_params,
+            method,
+            &for_type,
+            &mut scratch,
+            true,
+        );
         let symbol = inherent::inherent_method_symbol(&key, &method.name);
         let record = inherent::InherentMethod {
             name: Arc::clone(&method.name),
@@ -505,7 +522,9 @@ fn get_symbol_scheme(
             {
                 // Foreign function: no ability inference — an absent
                 // `with` clause on an export means pure.
-                return Some(build_function_scheme(infer, func, false));
+                // Foreign signature: bound names resolve leniently (they were
+                // spelled in the defining module's scope).
+                return Some(build_function_scheme(infer, func, false, true));
             }
             // A foreign extern fn exports as a Function; its declared
             // signature is the whole contract (always pure).

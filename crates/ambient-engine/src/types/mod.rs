@@ -55,6 +55,6 @@ pub use primitives::{
 };
 pub use traits::{
     MethodLookup, ReservedTrait, TRAIT_ADD_UUID, TRAIT_DEFAULT_UUID, TRAIT_DIV_UUID, TRAIT_EQ_UUID,
-    TRAIT_MOD_UUID, TRAIT_MUL_UUID, TRAIT_ORD_UUID, TRAIT_SUB_UUID, TraitDef, TraitImpl,
-    TraitMethodDef, TraitRegistry, impl_method_symbol, uuid_to_source,
+    TRAIT_MOD_UUID, TRAIT_MUL_UUID, TRAIT_ORD_UUID, TRAIT_SUB_UUID, TraitBound, TraitDef,
+    TraitImpl, TraitMethodDef, TraitRegistry, impl_method_symbol, uuid_to_source,
 };

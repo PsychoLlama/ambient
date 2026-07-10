@@ -35,37 +35,44 @@ pub(super) fn check_function_body(
         .iter()
         .map(|tp| Arc::clone(&tp.name))
         .collect();
+    let bounds = infer.resolve_bound_params(&func.type_params, errors);
     infer.with_rigid_params(rigid, |infer| {
-        let mut func_env = env.extend();
-        let expected_ret_ty = func.ret_ty.clone().map(|ty| resolve_erroring(infer, &ty));
+        infer.with_bound_params(bounds, |infer| {
+            let mut func_env = env.extend();
+            let expected_ret_ty = func.ret_ty.clone().map(|ty| resolve_erroring(infer, &ty));
 
-        for param in &func.params {
-            let param_ty = match &param.ty {
-                Some(ty) => resolve_erroring(infer, ty),
-                None => infer.fresh(),
-            };
-            func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
-        }
+            for param in &func.params {
+                let param_ty = match &param.ty {
+                    Some(ty) => resolve_erroring(infer, ty),
+                    None => infer.fresh(),
+                };
+                func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
+            }
 
-        match infer.infer_expr(&func_env, &mut func.body) {
-            Ok(body_ty) => {
-                if let Some(ref expected) = expected_ret_ty {
-                    let span = (func.body.span.start, func.body.span.end);
-                    if let Err(e) = infer.unify(expected, &body_ty, span) {
-                        errors.push(e.with_context(format!(
-                            "in function `{}`: return type mismatch",
-                            func.name
-                        )));
+            match infer.infer_expr(&func_env, &mut func.body) {
+                Ok(body_ty) => {
+                    if let Some(ref expected) = expected_ret_ty {
+                        let span = (func.body.span.start, func.body.span.end);
+                        if let Err(e) = infer.unify(expected, &body_ty, span) {
+                            errors.push(e.with_context(format!(
+                                "in function `{}`: return type mismatch",
+                                func.name
+                            )));
+                        }
                     }
-                }
 
-                bind_inferred_abilities(infer, env, func, current_module_id);
-                inferred_abilities.push((idx, infer.current_abilities().clone()));
+                    bind_inferred_abilities(infer, env, func, current_module_id);
+                    inferred_abilities.push((idx, infer.current_abilities().clone()));
+                }
+                Err(e) => {
+                    errors.push(e.with_context(format!("in function `{}`", func.name)));
+                }
             }
-            Err(e) => {
-                errors.push(e.with_context(format!("in function `{}`", func.name)));
-            }
-        }
+
+            // Solve the bound constraints this body recorded and finalize
+            // its dictionary annotations for the compiler.
+            infer.finish_body_constraints(&mut func.body, errors);
+        });
     });
 }
 /// Type-check every default implementation of one ability declaration
@@ -138,6 +145,10 @@ pub(super) fn check_ability_method_bodies(
                     )));
                 }
             }
+
+            // Solve any bound constraints the default implementation
+            // recorded (calls to bounded generics at concrete types).
+            infer.finish_body_constraints(body, errors);
         });
     }
 }
@@ -184,6 +195,10 @@ pub(super) fn check_const_body(
             errors.push(e.with_context(format!("in constant `{}`", const_def.name)));
         }
     }
+
+    // Const initializers are literals, but drain constraints defensively so
+    // a checker bug can never leak one body's obligations into the next.
+    infer.finish_body_constraints(&mut const_def.value, errors);
 }
 /// Bind an unannotated private function's ability variable to its body's
 /// inferred effects, making the real effect set visible at call sites.

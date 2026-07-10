@@ -515,6 +515,33 @@ fn compile_module_impl(
     Ok(module)
 }
 
+/// Allocate the hidden trailing dictionary parameters a bounded item takes:
+/// one local per entry of [`crate::ast::dict_params`] — the same authority
+/// the checker orders scheme bounds and call-site dictionaries by, so slots
+/// and indices can never disagree. The locals have no `BindingId` (nothing
+/// in source names them); `fc.dict_locals` is how dictionary-slot dispatch
+/// and forwarding reach them.
+fn alloc_dict_locals(
+    fc: &mut FunctionCompiler,
+    type_params: &[crate::ast::TypeParam],
+) -> Result<(), CompileError> {
+    for (param, bound) in crate::ast::dict_params(type_params) {
+        let slot = fc.next_local;
+        if slot == u16::MAX {
+            return Err(CompileError::new(
+                CompileErrorKind::TooManyLocals {
+                    count: slot as usize + 1,
+                },
+                (0, 0),
+            ));
+        }
+        fc.next_local += 1;
+        fc.record_local_name(slot, &format!("<dict {param}: {bound}>"));
+        fc.dict_locals.push(slot);
+    }
+    Ok(())
+}
+
 /// Compile a function with pre-determined hash.
 pub(super) fn compile_function_with_hash(
     func: &FunctionDef,
@@ -530,13 +557,16 @@ pub(super) fn compile_function_with_hash(
         fc.alloc_local_with_name(param.id, &param.name)?;
     }
 
+    // Hidden trailing dictionary parameters, one per trait bound.
+    alloc_dict_locals(&mut fc, &func.type_params)?;
+
     // Compile the function body.
     compile_expr(&mut fc, &func.body, ctx)?;
 
     // Emit return instruction.
     fc.builder.emit(Opcode::Return);
 
-    let param_count = func.params.len() as u8;
+    let param_count = (func.params.len() + fc.dict_locals.len()) as u8;
 
     // Build with the pre-computed dependencies from the builder
     let bytecode = fc.builder.bytecode().to_vec();
@@ -674,6 +704,17 @@ fn compile_impl_method(
         fc.alloc_local_with_name(param.id, &param.name)?;
     }
 
+    // Hidden trailing dictionary parameters: the impl block's bounds first,
+    // then the method's own — the same combined order the checker built the
+    // method's scheme bounds in.
+    let combined_params: Vec<crate::ast::TypeParam> = impl_def
+        .type_params
+        .iter()
+        .chain(method.type_params.iter())
+        .cloned()
+        .collect();
+    alloc_dict_locals(&mut fc, &combined_params)?;
+
     // Compile the method body
     compile_expr(&mut fc, &method.body, ctx)?;
 
@@ -681,8 +722,10 @@ fn compile_impl_method(
     fc.builder.emit(Opcode::Return);
 
     // +1 for the self parameter on instance methods; associated methods
-    // (no `self`) take only their declared parameters.
-    let param_count = (method.params.len() + usize::from(method.has_self)) as u8;
+    // (no `self`) take only their declared parameters. Dictionary
+    // parameters count toward the arity: call sites push them.
+    let param_count =
+        (method.params.len() + usize::from(method.has_self) + fc.dict_locals.len()) as u8;
 
     let bytecode = fc.builder.bytecode().to_vec();
     let constants = fc.builder.constants().to_vec();

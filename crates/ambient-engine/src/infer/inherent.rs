@@ -69,6 +69,19 @@ pub fn inherent_method_symbol(key: &ImplKey, method: &str) -> Arc<str> {
     }
 }
 
+impl ImplKey {
+    /// The nominal identity behind this key, if it has one. Trait impls
+    /// register only against uuid-carrying types, so bound solving keys
+    /// off this.
+    #[must_use]
+    pub fn uuid(&self) -> Option<uuid::Uuid> {
+        match self {
+            Self::Nominal(uuid) => Some(*uuid),
+            Self::Named(_) => None,
+        }
+    }
+}
+
 /// Compute the impl-target key for a type, if the type can carry inherent
 /// methods. Structural types (records, tuples, functions) have no stable
 /// identity to attach methods to and return `None`.

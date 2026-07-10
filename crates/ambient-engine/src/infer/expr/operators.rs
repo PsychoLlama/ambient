@@ -3,7 +3,8 @@
 
 use std::sync::Arc;
 
-use crate::ast::{BinaryOp, Expr};
+use crate::ast::{BinaryOp, Expr, ResolvedMethod};
+use crate::infer::error::{TypeError, TypeErrorKind};
 use crate::infer::{Infer, InferResult, TypeEnv};
 use crate::types::{ReservedTrait, Type};
 
@@ -12,6 +13,8 @@ impl Infer {
     ///
     /// For primitive types, uses built-in operators.
     /// For nominal types, looks up the appropriate trait (Add, Eq, etc.).
+    /// For rigid type parameters, dispatches through a declared bound on
+    /// the reserved operator trait (`T: Ord` enables `<` on `T`).
     #[allow(clippy::too_many_arguments)]
     pub(super) fn infer_binary(
         &mut self,
@@ -19,7 +22,7 @@ impl Infer {
         op: BinaryOp,
         left: &mut Expr,
         right: &mut Expr,
-        resolved_op: &mut Option<Arc<str>>,
+        resolved_op: &mut Option<ResolvedMethod>,
         span: (u32, u32),
     ) -> InferResult<Type> {
         let left_ty = self.infer_expr(env, left)?;
@@ -48,11 +51,38 @@ impl Infer {
                 self.unify(&left_ty, &right_ty, span)?;
 
                 // Store the resolved dispatch symbol for compilation
-                *resolved_op = Some(symbol);
+                *resolved_op = Some(ResolvedMethod::Symbol(symbol));
 
                 // Return type depends on the operator category
                 return Ok(operator_return_type(op, &left_ty));
             }
+        }
+
+        // An operator on a rigid type parameter dispatches through the
+        // parameter's bound on the reserved operator trait: `a == b` with
+        // `a, b: T` requires `T: Eq` and compiles as a dictionary-slot
+        // call, exactly like `a.eq(b)` would.
+        if let Type::Param(param) = &left_ty
+            && let Some((op_trait, method_name)) = operator_trait(op)
+        {
+            let Some(dict_index) = self.bound_param_index(param, op_trait.uuid()) else {
+                return Err(Box::new(TypeError::new(
+                    TypeErrorKind::MissingParamBound {
+                        param: Arc::clone(param),
+                        trait_name: Arc::from(op_trait.name()),
+                    },
+                    span,
+                )));
+            };
+            let slot = self
+                .trait_registry
+                .get_trait(op_trait.uuid())
+                .and_then(|def| def.dictionary_slot(method_name))
+                .unwrap_or_default();
+
+            self.unify(&left_ty, &right_ty, span)?;
+            *resolved_op = Some(ResolvedMethod::DictSlot { dict_index, slot });
+            return Ok(operator_return_type(op, &left_ty));
         }
 
         // Built-in operators for primitive types

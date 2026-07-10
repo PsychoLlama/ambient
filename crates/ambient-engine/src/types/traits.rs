@@ -132,6 +132,16 @@ impl ReservedTrait {
 // Trait System Types
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// A resolved trait bound (`T: Eq`): the trait's identity plus its spelled
+/// name for diagnostics. Everything semantic keys off the uuid.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraitBound {
+    /// The bound trait's identity.
+    pub trait_uuid: Uuid,
+    /// The name the bound was written as (display only).
+    pub name: Arc<str>,
+}
+
 /// Definition of a trait.
 #[derive(Debug, Clone)]
 pub struct TraitDef {
@@ -226,6 +236,13 @@ pub struct TraitImpl {
     /// The type implementing the trait (must be nominal).
     pub implementing_type: NominalType,
 
+    /// Whether the impl block declares its own type parameters
+    /// (`impl<T> Show for Wrapper<T>`). A generic impl cannot yet serve as
+    /// a dictionary source — building its dictionary would mean closing
+    /// each method over the dictionaries *its* bounds demand — so bound
+    /// solving reports it unsupported instead of miscompiling.
+    pub is_generic: bool,
+
     /// Method dispatch symbols: method name -> canonical impl-method symbol.
     ///
     /// The symbol (see [`impl_method_symbol`]) names the compiled method
@@ -241,8 +258,16 @@ impl TraitImpl {
         Self {
             trait_uuid,
             implementing_type,
+            is_generic: false,
             methods: HashMap::new(),
         }
+    }
+
+    /// Mark this impl as generic (declared with its own type parameters).
+    #[must_use]
+    pub fn with_generic(mut self, is_generic: bool) -> Self {
+        self.is_generic = is_generic;
+        self
     }
 
     /// Add a method implementation.
@@ -322,6 +347,12 @@ pub struct TraitRegistry {
     /// Map from in-scope trait name to identity.
     name_to_uuid: HashMap<Arc<str>, Uuid>,
 
+    /// Every known trait per name, in-scope or not — the disambiguation
+    /// fallback for names that reach this check from *another* module's
+    /// signature (a foreign `fn f<T: Show>` hydrated here spells `Show` in
+    /// the defining module's scope, which this module may not share).
+    all_names: HashMap<Arc<str>, Vec<Uuid>>,
+
     /// Map from (trait uuid, nominal type UUID) to implementation.
     impls: HashMap<(Uuid, Uuid), TraitImpl>,
 }
@@ -336,15 +367,26 @@ impl TraitRegistry {
     /// Register a trait definition, binding its name in scope.
     pub fn register_trait(&mut self, def: TraitDef) {
         self.name_to_uuid.insert(def.name.clone(), def.uuid);
+        self.index_name(&def);
         self.traits.insert(def.uuid, def);
     }
 
-    /// Register a trait definition *without* binding its bare name — the
-    /// identity becomes resolvable ([`get_trait`](Self::get_trait)) but the
-    /// name does not enter scope. Used for foreign traits a module never
-    /// imported: their impls and bounds must still resolve by uuid.
+    /// Register a trait definition *without* binding its bare name in
+    /// scope — the identity resolves ([`get_trait`](Self::get_trait)) and
+    /// the name is indexed for the [`lookup_trait`](Self::lookup_trait)
+    /// fallback, but a local/imported trait of the same name still wins.
+    /// Used for foreign traits a module never imported: their impls and
+    /// the bounds of foreign signatures must still resolve.
     pub fn register_trait_unnamed(&mut self, def: TraitDef) {
+        self.index_name(&def);
         self.traits.entry(def.uuid).or_insert(def);
+    }
+
+    fn index_name(&mut self, def: &TraitDef) {
+        let entry = self.all_names.entry(def.name.clone()).or_default();
+        if !entry.contains(&def.uuid) {
+            entry.push(def.uuid);
+        }
     }
 
     /// Get trait definition by identity.
@@ -353,10 +395,32 @@ impl TraitRegistry {
         self.traits.get(&uuid)
     }
 
-    /// Look up an in-scope trait's identity by name.
+    /// Resolve an *in-scope* trait name to its identity: locals and
+    /// imports, later registrations shadowing earlier. This is the lookup
+    /// for everything spelled in the current module — impl headers, local
+    /// bounds — so trait definitions stay import-scoped (`Default` is
+    /// unavailable without `use core::traits::Default`).
     #[must_use]
     pub fn lookup_trait(&self, name: &str) -> Option<Uuid> {
         self.name_to_uuid.get(name).copied()
+    }
+
+    /// Resolve a trait name arriving through a *foreign* signature (`fn
+    /// f<T: Show>` hydrated from another module): the in-scope binding
+    /// first, then the build-global index when unambiguous. The name was
+    /// spelled in the defining module's scope, which this module need not
+    /// share, so scope alone would spuriously reject valid imports of
+    /// bounded functions. Two same-named traits in one build resolve only
+    /// through the in-scope binding.
+    #[must_use]
+    pub fn lookup_trait_lenient(&self, name: &str) -> Option<Uuid> {
+        if let Some(uuid) = self.name_to_uuid.get(name) {
+            return Some(*uuid);
+        }
+        match self.all_names.get(name).map(Vec::as_slice) {
+            Some([unique]) => Some(*unique),
+            _ => None,
+        }
     }
 
     /// Register a trait implementation.

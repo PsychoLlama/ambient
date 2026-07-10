@@ -246,6 +246,7 @@ fn shapes_and_ref(callee: QualifiedName) -> (Module, ModuleRegistry, ModulePath)
         kind: crate::ast::ExprKind::Name(callee),
         span: Span::default(),
         ty: None,
+        dicts: None,
     };
     let mut main = Module {
         name: Arc::from("main"),

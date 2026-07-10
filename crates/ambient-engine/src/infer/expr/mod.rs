@@ -26,6 +26,8 @@ mod tests;
 
 pub(super) use calls::substitute_self;
 
+use std::sync::Arc;
+
 use super::error::BoxedTypeErrorExt;
 use super::{Infer, InferResult, TypeEnv, TypeError, TypeErrorKind, type_error};
 use crate::ast::{Expr, ExprKind, StmtKind, UnaryOp};
@@ -44,7 +46,11 @@ impl Infer {
         // resolve pass (`crate::resolve`), which runs before checking.
 
         let span = (expr.span.start, expr.span.end);
-        let ty = match &mut expr.kind {
+        // Split borrows: several arms annotate `dicts` (the dictionary
+        // sources of a bounded-generic instantiation) while matching on
+        // `kind`.
+        let Expr { kind, dicts, .. } = &mut *expr;
+        let ty = match kind {
             ExprKind::Unit => Type::Unit,
             ExprKind::Bool(_) => Type::bool(),
             ExprKind::Number(_) => Type::number(),
@@ -73,7 +79,8 @@ impl Infer {
                         span,
                     )
                 })?;
-                self.instantiate(scheme)
+                let scheme = scheme.clone();
+                self.instantiate_bounded(&scheme, span, dicts)
             }
 
             ExprKind::Tuple(elems) => {
@@ -445,10 +452,21 @@ impl Infer {
                 // the callee to reference that symbol directly, so the
                 // compiler emits an ordinary call with no receiver.
                 let mut associated_ret = None;
-                if let ExprKind::Name(name) = &callee.kind
-                    && name.path.len() == 1
-                    && let Some((symbol, ret_ty)) =
-                        self.try_infer_associated_call(env, &name.path[0], &name.name, args, span)?
+                let associated_target = match &callee.kind {
+                    ExprKind::Name(name) if name.path.len() == 1 => {
+                        Some((Arc::clone(&name.path[0]), Arc::clone(&name.name)))
+                    }
+                    _ => None,
+                };
+                if let Some((type_name, method_name)) = associated_target
+                    && let Some((symbol, ret_ty)) = self.try_infer_associated_call(
+                        env,
+                        &type_name,
+                        &method_name,
+                        args,
+                        span,
+                        &mut callee.dicts,
+                    )?
                 {
                     if let ExprKind::Name(name) = &mut callee.kind {
                         name.path.clear();
@@ -533,9 +551,15 @@ impl Infer {
                 method_span,
                 args,
                 resolved_method,
-            } => {
-                self.infer_method_call(env, receiver, method, *method_span, args, resolved_method)?
-            }
+            } => self.infer_method_call(
+                env,
+                receiver,
+                method,
+                *method_span,
+                args,
+                resolved_method,
+                dicts,
+            )?,
         };
 
         // Bottom elimination: a never-typed expression adopts a fresh

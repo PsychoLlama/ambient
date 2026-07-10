@@ -48,6 +48,11 @@ pub(super) struct FunctionCompiler {
     /// position-independent and an enclosing const is visible in the closure.
     pub(super) block_consts: HashMap<Arc<str>, blake3::Hash>,
 
+    /// Local slots of this function's hidden dictionary parameters, in
+    /// declaration order (one per entry of [`crate::ast::dict_params`]).
+    /// `ResolvedMethod::DictSlot` and `DictSource::Param` index into this.
+    pub(super) dict_locals: Vec<u16>,
+
     /// Debug information being built.
     pub(super) debug_info: DebugInfo,
 }
@@ -66,6 +71,7 @@ impl FunctionCompiler {
             parent_locals: None,
             parent_local_names: None,
             block_consts: HashMap::new(),
+            dict_locals: Vec::new(),
             debug_info: DebugInfo::new(),
         }
     }
@@ -90,6 +96,7 @@ impl FunctionCompiler {
             // A lambda inherits the enclosing block consts in scope; each is a
             // bare `LoadObject` of a hash, so no capture slot is needed.
             block_consts: parent_block_consts,
+            dict_locals: Vec::new(),
             debug_info: DebugInfo::new(),
         }
     }

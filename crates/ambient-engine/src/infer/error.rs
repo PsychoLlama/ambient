@@ -247,6 +247,34 @@ pub enum TypeErrorKind {
     /// Cannot implement trait for non-nominal type.
     TraitOnStructuralType { trait_name: Arc<str>, ty: Type },
 
+    /// A bound `τ: Trait` failed: the type has no impl of the trait in the
+    /// build.
+    BoundNotSatisfied { ty: Type, trait_name: Arc<str> },
+
+    /// A generic body used a type parameter where a bound is required,
+    /// but the parameter doesn't declare that bound.
+    MissingParamBound {
+        param: Arc<str>,
+        trait_name: Arc<str>,
+    },
+
+    /// A bound resolved to a generic (conditional) impl, which cannot yet
+    /// serve as a dictionary source.
+    GenericImplAsDictionary { trait_name: Arc<str>, ty: Type },
+
+    /// A bounded generic item was referenced as a first-class value
+    /// (`let f = contains;`). Dictionaries are supplied at call sites, so
+    /// bounded generics must (for now) be called directly.
+    BoundedGenericAsValue { name: Arc<str> },
+
+    /// A method call on a rigid type parameter found no method of that
+    /// name in the parameter's bounds.
+    MethodNotInBounds {
+        method: Arc<str>,
+        param: Arc<str>,
+        bounds: Vec<Arc<str>>,
+    },
+
     /// A second impl of the same trait for the same type.
     DuplicateImpl { trait_name: Arc<str>, ty: Type },
 
@@ -529,6 +557,55 @@ impl std::fmt::Display for TypeErrorKind {
                     f,
                     "cannot implement trait `{trait_name}` for structural type `{ty}`; traits can only be implemented for nominal types"
                 )
+            }
+            Self::BoundNotSatisfied { ty, trait_name } => {
+                write!(
+                    f,
+                    "the trait bound `{ty}: {trait_name}` is not satisfied; \
+                     no `impl {trait_name} for {ty}` exists in this build"
+                )
+            }
+            Self::MissingParamBound { param, trait_name } => {
+                write!(
+                    f,
+                    "type parameter `{param}` does not declare the bound `{trait_name}` \
+                     required here; add it (`{param}: {trait_name}`)"
+                )
+            }
+            Self::GenericImplAsDictionary { trait_name, ty } => {
+                write!(
+                    f,
+                    "the impl of `{trait_name}` for `{ty}` is generic, which cannot yet \
+                     satisfy a trait bound; only non-generic impls can"
+                )
+            }
+            Self::BoundedGenericAsValue { name } => {
+                write!(
+                    f,
+                    "`{name}` has trait bounds, so it cannot be used as a first-class \
+                     value yet; call it directly instead"
+                )
+            }
+            Self::MethodNotInBounds {
+                method,
+                param,
+                bounds,
+            } => {
+                if bounds.is_empty() {
+                    write!(
+                        f,
+                        "no method `{method}` on type parameter `{param}`; \
+                         `{param}` declares no trait bounds, so no methods are callable on it"
+                    )
+                } else {
+                    let list: Vec<&str> = bounds.iter().map(AsRef::as_ref).collect();
+                    write!(
+                        f,
+                        "no method `{method}` on type parameter `{param}`; \
+                         its bounds ({}) do not provide it",
+                        list.join(", ")
+                    )
+                }
             }
             Self::ImplMethodSignatureMismatch {
                 trait_name,

@@ -386,7 +386,7 @@ fn collect_function_signatures(
             crate::ast::ItemKind::Function(func) => {
                 let binding_id = next_binding_id;
                 next_binding_id += 1;
-                let scheme = build_function_scheme(infer, func, true);
+                let scheme = build_function_scheme(infer, func, true, false);
                 bind_own_item(env, module_id, binding_id, &func.name, scheme);
             }
             crate::ast::ItemKind::ExternFn(def) => {
@@ -453,6 +453,7 @@ pub(super) fn build_function_scheme(
     infer: &mut Infer,
     func: &crate::ast::FunctionDef,
     infer_abilities: bool,
+    lenient_bounds: bool,
 ) -> Scheme {
     // Collect type variables from type parameters
     let mut type_var_map: HashMap<Arc<str>, TypeVarId> = HashMap::new();
@@ -518,10 +519,65 @@ pub(super) fn build_function_scheme(
 
     let fn_ty = Type::function_with_abilities(param_types, ret_ty, abilities);
 
-    if quantified_vars.is_empty() {
+    let scheme = if quantified_vars.is_empty() {
         Scheme::mono(fn_ty)
     } else {
         Scheme::poly(quantified_vars, fn_ty)
+    };
+    attach_scheme_bounds(
+        infer,
+        scheme,
+        &func.type_params,
+        &type_var_map,
+        lenient_bounds,
+    )
+}
+
+/// Attach an item's declared trait bounds to its scheme, resolving each
+/// bound name against the trait registry. The order comes from
+/// [`crate::ast::dict_params`] — the same authority the compiler allocates
+/// hidden dictionary parameters from. Unknown bound names report through
+/// `pending_errors`.
+pub(super) fn attach_scheme_bounds(
+    infer: &mut Infer,
+    scheme: Scheme,
+    type_params: &[crate::ast::TypeParam],
+    type_var_map: &HashMap<Arc<str>, TypeVarId>,
+    lenient: bool,
+) -> Scheme {
+    let mut bounds = Vec::new();
+    for (param, bound_name) in crate::ast::dict_params(type_params) {
+        let Some(&var) = type_var_map.get(&param) else {
+            continue;
+        };
+        let lookup = if lenient {
+            infer.trait_registry.lookup_trait_lenient(&bound_name)
+        } else {
+            infer.trait_registry.lookup_trait(&bound_name)
+        };
+        let Some(trait_uuid) = lookup else {
+            let span = type_params
+                .iter()
+                .find(|tp| tp.name == param)
+                .map_or((0, 0), |tp| (tp.span.start, tp.span.end));
+            infer.pending_errors.push(Box::new(TypeError::new(
+                TypeErrorKind::UnknownTrait { name: bound_name },
+                span,
+            )));
+            continue;
+        };
+        bounds.push((
+            var,
+            crate::types::TraitBound {
+                trait_uuid,
+                name: bound_name,
+            },
+        ));
+    }
+    if bounds.is_empty() {
+        scheme
+    } else {
+        scheme.with_bounds(bounds)
     }
 }
 /// Build a type scheme for an `extern fn` from its declared signature.

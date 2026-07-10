@@ -165,6 +165,30 @@ impl TypeParam {
     }
 }
 
+/// The dictionary-parameter list an item's type parameters imply: one
+/// `(param name, bound name)` per distinct bound, in declaration order.
+///
+/// This is the **single authority** on dictionary order and count. The
+/// checker resolves each entry to a trait identity and solves call-site
+/// constraints against the list; the compiler allocates one hidden trailing
+/// parameter per entry. Both derive from this function, so they can never
+/// disagree. Dedup is deliberately syntactic (`<T: Eq + Eq>` collapses; two
+/// differently-spelled names never do) — the compiler has no resolver, so
+/// the rule must not depend on resolution.
+#[must_use]
+pub fn dict_params(type_params: &[TypeParam]) -> Vec<(Arc<str>, Arc<str>)> {
+    let mut out: Vec<(Arc<str>, Arc<str>)> = Vec::new();
+    for tp in type_params {
+        for bound in &tp.bounds {
+            let entry = (Arc::clone(&tp.name), Arc::clone(&bound.name));
+            if !out.contains(&entry) {
+                out.push(entry);
+            }
+        }
+    }
+    out
+}
+
 /// A constant definition.
 #[derive(Debug, Clone)]
 pub struct ConstDef {
