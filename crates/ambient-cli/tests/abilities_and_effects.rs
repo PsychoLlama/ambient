@@ -206,6 +206,74 @@ fn test_user_ability_unknown_dependency_is_error() {
 }
 
 #[test]
+fn test_acyclic_ability_dependency_chain_is_allowed() {
+    // A linear `with` chain (Top → Mid → Base) is well-founded, so cycle
+    // detection must leave it alone even though every ability has a
+    // dependency.
+    CliTest::new(
+        r"
+        unique(AB000000-0000-0000-0000-00000000001A) ability Base {
+            fn base(): () { () }
+        }
+
+        unique(AB000000-0000-0000-0000-00000000001B) ability Mid with Base {
+            fn mid(): () { () }
+        }
+
+        unique(AB000000-0000-0000-0000-00000000001C) ability Top with Mid {
+            fn top(): () { () }
+        }
+
+        pub fn run(): Number {
+            7
+        }
+        ",
+    )
+    .expect_output("7");
+}
+
+#[test]
+fn test_ability_dependency_cycle_same_module() {
+    // Two abilities in one module that depend on each other through `with`.
+    // Method-key well-foundedness requires the dependency graph to be
+    // acyclic, so this is a first-class error naming the cycle — not the
+    // opaque unresolved-dependency failure declaration order used to give.
+    CliTest::new(
+        r"
+        unique(AB000000-0000-0000-0000-000000000010) ability Ping with Pong {
+            fn ping(): () { () }
+        }
+
+        unique(AB000000-0000-0000-0000-000000000011) ability Pong with Ping {
+            fn pong(): () { () }
+        }
+
+        pub fn run(): Number {
+            7
+        }
+        ",
+    )
+    .expect_error("ability dependency cycle");
+}
+
+#[test]
+fn test_ability_self_dependency_is_a_cycle() {
+    // The degenerate one-node cycle: an ability that depends on itself.
+    CliTest::new(
+        r"
+        unique(AB000000-0000-0000-0000-000000000012) ability Loop with Loop {
+            fn go(): () { () }
+        }
+
+        pub fn run(): Number {
+            7
+        }
+        ",
+    )
+    .expect_error("ability dependency cycle");
+}
+
+#[test]
 fn test_suspend_form_is_removed() {
     // The `~` suspend-call syntax was removed from the language; using it
     // is now a parse error.

@@ -141,6 +141,14 @@ pub enum TypeErrorKind {
     /// Unknown ability method.
     UnknownAbilityMethod { ability: Arc<str>, method: Arc<str> },
 
+    /// Two or more abilities depend on each other through their `with`
+    /// clauses, directly or transitively. The dependency graph must be
+    /// acyclic: a method's identity folds in the default-implementation
+    /// hashes of its declared dependencies, so a cycle would make a
+    /// method's key depend on itself. `cycle` names the loop, the same
+    /// ability at both ends (`A → B → A`).
+    AbilityDependencyCycle { cycle: Vec<Arc<str>> },
+
     /// Not a suspended ability value.
     NotAnAbilityValue { ty: Type },
 
@@ -344,6 +352,18 @@ impl std::fmt::Display for TypeErrorKind {
             }
             Self::UnknownAbilityMethod { ability, method } => {
                 write!(f, "unknown method `{method}` for ability `{ability}`")
+            }
+            Self::AbilityDependencyCycle { cycle } => {
+                let path = cycle
+                    .iter()
+                    .map(AsRef::as_ref)
+                    .collect::<Vec<_>>()
+                    .join(" → ");
+                write!(
+                    f,
+                    "ability dependency cycle: {path}. Abilities may not depend on \
+                     each other through `with`, directly or transitively"
+                )
             }
             Self::NotAnAbilityValue { ty } => {
                 write!(f, "expected a suspended ability value, found `{ty}`")

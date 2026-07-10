@@ -545,6 +545,42 @@ fn unresolved_alias_head_is_an_error() {
 }
 
 #[test]
+fn cross_module_ability_dependency_cycle_is_reported() {
+    // `a::Ay` depends on `b::Bee` and vice versa. Without dedicated
+    // detection this only ever surfaced as a module-cycle link failure that
+    // never mentioned the abilities; cycle detection reports it as an
+    // ability dependency cycle, at each participating declaration.
+    let dir = package(&[
+        (
+            "a.ab",
+            r"
+use pkg::b::Bee;
+
+pub unique(AB000000-0000-0000-0000-000000000020) ability Ay with Bee {
+    fn ay(): () { () }
+}
+",
+        ),
+        (
+            "b.ab",
+            r"
+use pkg::a::Ay;
+
+pub unique(AB000000-0000-0000-0000-000000000021) ability Bee with Ay {
+    fn bee(): () { () }
+}
+",
+        ),
+        ("main.ab", "pub fn run(): Number { 7 }\n"),
+    ]);
+    let out = check_fails(dir.path());
+    assert!(
+        out.contains("ability dependency cycle"),
+        "unexpected output:\n{out}"
+    );
+}
+
+#[test]
 fn reserved_root_module_names_are_rejected() {
     let dir = package(&[
         ("core.ab", "pub fn f(): Number { 1 }\n"),

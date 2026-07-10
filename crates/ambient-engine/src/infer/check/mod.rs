@@ -199,6 +199,17 @@ fn check_module_core(
         current_module_id.as_ref(),
     );
 
+    // Now that every ability — local and (in a registry) foreign — is
+    // registered with its resolved dependencies, reject `with` cycles: the
+    // method-key hash folds in each dependency's default implementation, so
+    // the dependency graph must be acyclic.
+    abilities::check_ability_dependency_cycles(
+        &module,
+        current_module_id.as_ref(),
+        cross_module.map(|(_, registry)| registry),
+        &mut errors,
+    );
+
     // Phase 2: impl blocks. Inherent method bodies record their inferred
     // abilities for deferred enforcement (like functions, phase 4).
     let mut deferred_method_abilities: Vec<DeferredAbilityCheck> = Vec::new();

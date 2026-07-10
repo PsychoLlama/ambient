@@ -1,12 +1,13 @@
 //! Ability seeding and resolution: prelude primitive aliases, namespaced
 //! dynamics, `ability` declarations, and the embedder entry points.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use crate::fqn::{Fqn, ModuleId};
 use crate::module_path::ModulePath;
 use crate::module_registry::ModuleRegistry;
-use crate::types::Type;
+use crate::types::{AbilityId, Type};
 
 use crate::infer::Infer;
 use crate::infer::error::{BoxedTypeError, TypeError, TypeErrorKind};
@@ -107,6 +108,167 @@ pub(super) fn register_abilities(
         }
     }
     resolved
+}
+/// Report `ability` declarations whose `with` dependencies form a cycle.
+///
+/// Method-key well-foundedness relies on the dependency graph being acyclic:
+/// a method's identity folds in the default-implementation hashes of the
+/// ability's declared dependencies, so a cycle would make a method's key
+/// depend on itself. A same-module cycle would otherwise slip through (the
+/// namespace seeding resolves forward references, so the mutual `with`
+/// clauses both resolve) and a cross-module one surfaces only as an opaque
+/// module-cycle link failure — neither says "your abilities depend on each
+/// other."
+///
+/// The graph is keyed by content identity ([`AbilityId::from_uuid`]) and
+/// built from resolved dependency [`Fqn`]s, so it is independent of item
+/// order and spans modules: every ability in the current module, plus —
+/// when checking inside a registry — every ability in every other module.
+/// A diagnostic is reported at each *local* ability that participates in a
+/// cycle (a foreign ability's cycle is reported when its own module is
+/// checked), naming the loop.
+pub(super) fn check_ability_dependency_cycles(
+    module: &crate::ast::Module,
+    current_module_id: Option<&ModuleId>,
+    registry: Option<&ModuleRegistry>,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    // Registry-less checks (single-file, some tests) never run the resolve
+    // pass, so dependencies carry no `Fqn` to key the graph on and no module
+    // identity to place nodes under; declaration-order resolution already
+    // rejects a forward/cyclic reference there.
+    let Some(current_module_id) = current_module_id else {
+        return;
+    };
+
+    // Nodes and edges of the ability dependency graph.
+    let mut id_by_fqn: HashMap<Fqn, AbilityId> = HashMap::new();
+    let mut name_by_id: HashMap<AbilityId, Arc<str>> = HashMap::new();
+    let mut deps_by_id: HashMap<AbilityId, Vec<Fqn>> = HashMap::new();
+
+    // Every *other* module's abilities (their resolved dependency `Fqn`s are
+    // stored on the registry's post-resolve ASTs), then the current module's
+    // — the freshest copy, and the one whose spans anchor diagnostics.
+    if let Some(registry) = registry {
+        for info in registry.all_modules() {
+            let module_id = registry.module_id(&info.path);
+            if &module_id == current_module_id {
+                continue;
+            }
+            ingest_ability_nodes(
+                &module_id,
+                &info.module,
+                &mut id_by_fqn,
+                &mut name_by_id,
+                &mut deps_by_id,
+            );
+        }
+    }
+    ingest_ability_nodes(
+        current_module_id,
+        module,
+        &mut id_by_fqn,
+        &mut name_by_id,
+        &mut deps_by_id,
+    );
+
+    for item in &module.items {
+        let crate::ast::ItemKind::Ability(def) = &item.kind else {
+            continue;
+        };
+        let start = AbilityId::from_uuid(&def.uuid);
+        let Some(cycle) = find_dependency_cycle(start, &id_by_fqn, &deps_by_id) else {
+            continue;
+        };
+        let names = cycle
+            .iter()
+            .map(|id| {
+                name_by_id
+                    .get(id)
+                    .cloned()
+                    .unwrap_or_else(|| Arc::from("<unknown>"))
+            })
+            .collect();
+        errors.push(Box::new(TypeError::new(
+            TypeErrorKind::AbilityDependencyCycle { cycle: names },
+            (def.name_span.start, def.name_span.end),
+        )));
+    }
+}
+
+/// Add a module's `ability` declarations to the dependency graph: each is a
+/// node keyed by its content identity, with edges to the resolved `Fqn`s of
+/// its `with` dependencies (unresolved dependencies carry no `Fqn` and are
+/// reported elsewhere).
+fn ingest_ability_nodes(
+    module_id: &ModuleId,
+    module: &crate::ast::Module,
+    id_by_fqn: &mut HashMap<Fqn, AbilityId>,
+    name_by_id: &mut HashMap<AbilityId, Arc<str>>,
+    deps_by_id: &mut HashMap<AbilityId, Vec<Fqn>>,
+) {
+    for item in &module.items {
+        let crate::ast::ItemKind::Ability(def) = &item.kind else {
+            continue;
+        };
+        let id = AbilityId::from_uuid(&def.uuid);
+        id_by_fqn.insert(Fqn::new(module_id.clone(), vec![Arc::clone(&def.name)]), id);
+        name_by_id.insert(id, Arc::clone(&def.name));
+        deps_by_id.insert(
+            id,
+            def.dependencies
+                .iter()
+                .filter_map(|dep| dep.resolved.clone())
+                .collect(),
+        );
+    }
+}
+
+/// Depth-first search for a dependency path from `start` back to itself.
+///
+/// Returns the cycle as `[start, …, start]` (naming the same ability at both
+/// ends) if `start` is reachable from itself, else `None`. `start` is
+/// checked at every edge before the visited set is consulted, so an
+/// unrelated cycle elsewhere in the graph neither hides `start`'s own cycle
+/// nor makes the search diverge.
+fn find_dependency_cycle(
+    start: AbilityId,
+    id_by_fqn: &HashMap<Fqn, AbilityId>,
+    deps_by_id: &HashMap<AbilityId, Vec<Fqn>>,
+) -> Option<Vec<AbilityId>> {
+    fn visit(
+        node: AbilityId,
+        start: AbilityId,
+        id_by_fqn: &HashMap<Fqn, AbilityId>,
+        deps_by_id: &HashMap<AbilityId, Vec<Fqn>>,
+        visited: &mut HashSet<AbilityId>,
+        path: &mut Vec<AbilityId>,
+    ) -> bool {
+        let Some(deps) = deps_by_id.get(&node) else {
+            return false;
+        };
+        for dep_fqn in deps {
+            let Some(&dep) = id_by_fqn.get(dep_fqn) else {
+                continue;
+            };
+            if dep == start {
+                path.push(start);
+                return true;
+            }
+            if visited.insert(dep) {
+                path.push(dep);
+                if visit(dep, start, id_by_fqn, deps_by_id, visited, path) {
+                    return true;
+                }
+                path.pop();
+            }
+        }
+        false
+    }
+
+    let mut visited = HashSet::new();
+    let mut path = vec![start];
+    visit(start, start, id_by_fqn, deps_by_id, &mut visited, &mut path).then_some(path)
 }
 /// Register a cross-module ability import (`use pkg::b::SomeAbility;`,
 /// `use core::system::Network;`) as a *bare* local dynamic, resolved from
