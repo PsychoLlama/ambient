@@ -64,4 +64,6 @@ pub use ambient_ability::{RuntimeError, StackTraceFrame, VmError};
 pub use core::Vm;
 
 #[cfg(test)]
+mod never_tests;
+#[cfg(test)]
 mod tests;

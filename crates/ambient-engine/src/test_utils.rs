@@ -49,6 +49,18 @@ pub fn test_method_ref(
         ability_uuid: uuid::Uuid::from_u128(u128::from(ability_byte)),
         signature: ambient_core::SignatureHash::from_bytes([method_byte; 32]),
         impl_fn,
+        never: false,
+    }
+}
+
+/// A synthetic reference to a never-returning (`: !`) ability method:
+/// performing it unwinds the delimited computation instead of capturing a
+/// continuation.
+#[must_use]
+pub fn test_never_method_ref(ability_byte: u8, method_byte: u8) -> AbilityMethodRef {
+    AbilityMethodRef {
+        never: true,
+        ..test_method_ref(ability_byte, method_byte, None)
     }
 }
 

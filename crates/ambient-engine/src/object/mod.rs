@@ -57,7 +57,7 @@
 //!           1 u8 | index u32        (internal to the group)
 //! constant: 0 unit | 1 bool u8 | 2 number f64-bits | 3 string (u32, utf8)
 //!           4 bytes (u32, raw) | 5 ref | 6 ability [32] | 7 value-ref [32]
-//!           8 ability-method: ability [32] | uuid [16] | sig [32] | has_impl u8 | ref?
+//!           8 ability-method: ability [32] | uuid [16] | sig [32] | never u8 | has_impl u8 | ref?
 //! ```
 //!
 //! Decoding rejects trailing bytes and unknown tags, so decode∘encode is the
@@ -97,7 +97,12 @@ pub const OBJECT_MAGIC: [u8; 4] = *b"ABOB";
 /// instruction's operands changed from (ability const, method u16, argc)
 /// to (method const, argc) — bytecode from earlier versions decodes
 /// differently and must not be executed.
-pub const OBJECT_VERSION: u8 = 4;
+///
+/// v5: ability-method references (tag 8) carry a `never` byte — whether
+/// the method returns `!`, so the VM unwinds a never-returning perform
+/// instead of capturing a continuation. Every function with a perform
+/// site re-hashes.
+pub const OBJECT_VERSION: u8 = 5;
 
 const KIND_PLAIN: u8 = 0;
 const KIND_GROUP: u8 = 1;
@@ -146,9 +151,11 @@ pub enum ObjectConstant {
     ValueRef(blake3::Hash),
     /// One ability method, as perform sites and handler arms reference it:
     /// the uuid-derived ability id, the declaration uuid and canonical
-    /// signature hash (the `MethodKey` inputs), and the default
-    /// implementation's function reference (`None` only for the abstract
-    /// `Exception::throw`). The implementation is an [`ObjectRef`] like any
+    /// signature hash (the `MethodKey` inputs), the default
+    /// implementation's function reference (`None` for abstract
+    /// never-returning methods, e.g. `Exception::throw`), and whether the
+    /// method returns `!` (performing it unwinds instead of capturing a
+    /// continuation). The implementation is an [`ObjectRef`] like any
     /// callee, so a method whose impl lands in the same recursive group
     /// encodes by member index.
     AbilityMethod {
@@ -156,6 +163,7 @@ pub enum ObjectConstant {
         uuid: uuid::Uuid,
         signature: ambient_core::SignatureHash,
         impl_fn: Option<ObjectRef>,
+        never: bool,
     },
 }
 
@@ -521,6 +529,7 @@ pub fn constant_from_value(
             uuid: m.ability_uuid,
             signature: m.signature,
             impl_fn: m.impl_fn.as_ref().map(resolve),
+            never: m.never,
         },
         Value::Tuple(_) => return Err(ObjectError::UnsupportedConstant("tuple")),
         Value::Record(_) => return Err(ObjectError::UnsupportedConstant("record")),
@@ -591,11 +600,13 @@ fn to_compiled(
                     uuid,
                     signature,
                     impl_fn,
+                    never,
                 } => Value::AbilityMethodRef(Arc::new(crate::value::AbilityMethodRef {
                     ability_id: *ability,
                     ability_uuid: *uuid,
                     signature: *signature,
                     impl_fn: impl_fn.as_ref().map(&resolve).transpose()?,
+                    never: *never,
                 })),
                 other => constant_to_value(other),
             })
@@ -640,6 +651,7 @@ fn constant_to_value(constant: &ObjectConstant) -> Value {
             uuid,
             signature,
             impl_fn,
+            never,
         } => Value::AbilityMethodRef(Arc::new(crate::value::AbilityMethodRef {
             ability_id: *ability,
             ability_uuid: *uuid,
@@ -649,6 +661,7 @@ fn constant_to_value(constant: &ObjectConstant) -> Value {
                 // Internal refs are resolved by `to_compiled` before this.
                 Some(ObjectRef::Internal(_)) | None => None,
             },
+            never: *never,
         })),
         ObjectConstant::ValueRef(h) => Value::ObjectRef(*h),
         // A plain `Unit`, or an internal ref — which has no meaning outside a
@@ -764,11 +777,13 @@ fn encode_constant(out: &mut Vec<u8>, constant: &ObjectConstant) {
             uuid,
             signature,
             impl_fn,
+            never,
         } => {
             out.push(CONST_ABILITY_METHOD);
             out.extend_from_slice(ability.as_bytes());
             out.extend_from_slice(uuid.as_bytes());
             out.extend_from_slice(signature.as_bytes());
+            out.push(u8::from(*never));
             match impl_fn {
                 Some(r) => {
                     out.push(1);
@@ -895,6 +910,11 @@ fn decode_constant(r: &mut Reader<'_>) -> Result<ObjectConstant, ObjectError> {
             uuid_bytes.copy_from_slice(r.take(16)?);
             let mut sig = [0u8; 32];
             sig.copy_from_slice(r.take(32)?);
+            let never = match r.u8()? {
+                0 => false,
+                1 => true,
+                t => return Err(ObjectError::BadTag(t)),
+            };
             let impl_fn = match r.u8()? {
                 0 => None,
                 1 => Some(decode_ref(r)?),
@@ -905,6 +925,7 @@ fn decode_constant(r: &mut Reader<'_>) -> Result<ObjectConstant, ObjectError> {
                 uuid: uuid::Uuid::from_bytes(uuid_bytes),
                 signature: ambient_core::SignatureHash::from_bytes(sig),
                 impl_fn,
+                never,
             }
         }
         t => return Err(ObjectError::BadTag(t)),

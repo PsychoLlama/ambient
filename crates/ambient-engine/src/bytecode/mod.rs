@@ -301,6 +301,7 @@ fn hash_value(hasher: &mut blake3::Hasher, value: &Value) {
             hasher.update(m.ability_id.as_bytes());
             hasher.update(m.ability_uuid.as_bytes());
             hasher.update(m.signature.as_bytes());
+            hasher.update(&[u8::from(m.never)]);
             match &m.impl_fn {
                 Some(h) => {
                     hasher.update(&[1]);

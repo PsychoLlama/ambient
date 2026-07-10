@@ -26,10 +26,18 @@ pub struct AbilityMethodRef {
     /// The method's canonical signature hash (a `MethodKey` input).
     pub signature: SignatureHash,
     /// Content hash of the method's default implementation — the function
-    /// an unhandled perform calls. `None` only for the abstract
-    /// `Exception::throw`, whose unhandled behavior is the VM's own
-    /// uncaught-exception path.
+    /// an unhandled perform calls. `None` for abstract methods: a method
+    /// returning `!` (never) may omit its body, in which case an unhandled
+    /// perform is a runtime fault (the VM's uncaught-exception path for
+    /// `Exception::throw`, an unhandled-ability error otherwise).
     pub impl_fn: Option<blake3::Hash>,
+    /// Whether the method returns `!` (never). A never-returning perform
+    /// unwinds: the VM discards the delimited continuation instead of
+    /// capturing it, and handler arms cannot `resume`. Denormalized from
+    /// the declared signature (whose canonical rendering — and therefore
+    /// the [`SignatureHash`] — already commits to the `never` return), so
+    /// it is *not* a [`MethodKey`] input.
+    pub never: bool,
 }
 
 impl AbilityMethodRef {
@@ -57,8 +65,15 @@ pub struct SuspendedAbility {
     pub method: MethodKey,
 
     /// Content hash of the method's default implementation, which an
-    /// unhandled perform calls (`None` for the `Exception` carve-out).
+    /// unhandled perform calls (`None` for abstract never-returning
+    /// methods, e.g. `Exception::throw`).
     pub impl_fn: Option<blake3::Hash>,
+
+    /// Whether the method returns `!` (never) — performing it unwinds to
+    /// the handler instead of capturing a continuation. Copied from the
+    /// perform site's [`AbilityMethodRef`].
+    #[serde(default)]
+    pub never: bool,
 
     /// The arguments to pass to the ability method.
     pub args: Vec<Value>,
@@ -72,6 +87,7 @@ impl SuspendedAbility {
             ability_id,
             method,
             impl_fn: None,
+            never: false,
             args,
         }
     }

@@ -61,6 +61,7 @@ fn resolve_method_ref(
         ability_uuid: info.uuid,
         signature: method.signature,
         impl_fn,
+        never: method.never,
     })
 }
 

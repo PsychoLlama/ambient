@@ -63,6 +63,7 @@ impl Vm {
                 ability_id: method_ref.ability_id,
                 method,
                 impl_fn: method_ref.impl_fn,
+                never: method_ref.never,
                 args,
             })));
         Ok(())
@@ -143,6 +144,7 @@ impl Vm {
             ability_id,
             method: throw_key,
             impl_fn: None,
+            never: true,
             args: vec![error],
         });
         self.perform_with_bytecode_handler(idx, throw)
@@ -216,7 +218,20 @@ impl Vm {
         // Call the arm in place of the boundary frame's call: its return
         // value (if it never resumes) lands exactly where the handle
         // expression's body thunk would have returned.
-        let continuation = Value::continuation(captured_stack, captured_frames, captured_handlers);
+        //
+        // A never-returning method (`: !`) unwinds instead: the delimited
+        // computation is discarded outright and no continuation exists.
+        // The arm's continuation slot gets an inert unit — the checker
+        // rejects `resume` in never arms, and `op_resume` on a non-
+        // continuation fails loudly if bytecode disagrees.
+        let continuation = if ability.never {
+            drop(captured_stack);
+            drop(captured_frames);
+            drop(captured_handlers);
+            Value::Unit
+        } else {
+            Value::continuation(captured_stack, captured_frames, captured_handlers)
+        };
         self.stack.push(continuation);
         self.stack.push(Value::SuspendedAbility(ability));
         self.push_frame_with_captures(&arm_func, 2, arm_captures)?;

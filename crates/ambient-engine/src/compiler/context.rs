@@ -279,9 +279,12 @@ pub(crate) struct CompiledMethodInfo {
     pub name: Arc<str>,
     /// Canonical signature hash (a `MethodKey` input), from the checker.
     pub signature: ambient_core::SignatureHash,
-    /// Whether a default implementation exists (`false` only for the
-    /// abstract `Exception::throw`).
+    /// Whether a default implementation exists (`false` only for abstract
+    /// never-returning methods, e.g. `Exception::throw`).
     pub has_impl: bool,
+    /// Whether the method returns `!` (never) — its performs unwind
+    /// instead of capturing a continuation.
+    pub never: bool,
 }
 
 impl CompiledAbilityInfo {
@@ -316,6 +319,7 @@ fn compiled_info(ability: &crate::ability_resolver::DynAbility) -> CompiledAbili
                 name: Arc::clone(&m.name),
                 signature: m.signature,
                 has_impl: m.has_impl,
+                never: matches!(m.ret, crate::types::Type::Never),
             })
             .collect(),
     }
@@ -424,6 +428,7 @@ impl ModuleContext {
                             name: Arc::clone(&m.name),
                             signature,
                             has_impl: m.body.is_some(),
+                            never: matches!(m.ret_ty, crate::types::Type::Never),
                         })
                     })
                     .collect::<Result<Vec<_>, CompileError>>()?;
