@@ -20,6 +20,7 @@ fn method(
             .iter()
             .map(|name| crate::ast::TypeParam {
                 name: Arc::from(*name),
+                bounds: Vec::new(),
                 span: span(),
             })
             .collect(),

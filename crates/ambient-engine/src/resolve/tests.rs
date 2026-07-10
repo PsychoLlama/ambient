@@ -43,6 +43,7 @@ fn generic_func(name: &str, type_params: &[&str], param_ty: Type) -> Item {
                 .iter()
                 .map(|p| TypeParam {
                     name: Arc::from(*p),
+                    bounds: Vec::new(),
                     span: Span::default(),
                 })
                 .collect(),
@@ -459,6 +460,7 @@ fn struct_item(
                 .iter()
                 .map(|p| TypeParam {
                     name: Arc::from(*p),
+                    bounds: Vec::new(),
                     span: Span::default(),
                 })
                 .collect(),

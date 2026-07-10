@@ -244,6 +244,8 @@ pub struct CstTypeParam {
     pub name: CstIdent,
     /// Whether this is an ability variable (has `!` suffix in declaration).
     pub is_ability: bool,
+    /// Trait bounds (`T: Eq + Ord`). Empty for an unbounded parameter.
+    pub bounds: Vec<CstQualifiedName>,
     /// Source span.
     pub span: Span,
 }

@@ -145,8 +145,24 @@ pub struct ExternFnDef {
 pub struct TypeParam {
     /// Parameter name.
     pub name: Arc<str>,
+    /// Trait bounds (`T: Eq + Ord`), as written. The checker resolves each
+    /// to a trait identity; an impl's `where` clauses fold into these at
+    /// lowering, so bounds have exactly one AST representation.
+    pub bounds: Vec<QualifiedName>,
     /// Source location.
     pub span: Span,
+}
+
+impl TypeParam {
+    /// An unbounded type parameter.
+    #[must_use]
+    pub fn plain(name: impl Into<Arc<str>>, span: Span) -> Self {
+        Self {
+            name: name.into(),
+            bounds: Vec::new(),
+            span,
+        }
+    }
 }
 
 /// A constant definition.
@@ -433,31 +449,22 @@ pub struct TraitMethod {
 
 /// A trait implementation or an inherent impl block.
 ///
-/// Syntax: `impl<T> Trait for Type where T: Bound { fn method(self, ...) { body } }`
-/// or, for inherent impls: `impl<T> Type { fn method(self, ...) { body } }`
+/// Syntax: `impl<T: Bound> Trait for Type { fn method(self, ...) { body } }`
+/// or, for inherent impls: `impl<T> Type { fn method(self, ...) { body } }`.
+/// A trailing `where T: Bound` clause is surface syntax only — lowering
+/// folds it into the matching parameter's [`TypeParam::bounds`].
 #[derive(Debug, Clone)]
 pub struct ImplDef {
-    /// Type parameters for generic impls.
+    /// Type parameters for generic impls (with their trait bounds).
     pub type_params: Vec<TypeParam>,
     /// The trait being implemented; `None` for an inherent impl.
     pub trait_name: Option<QualifiedName>,
     /// The type implementing the trait.
     pub for_type: Type,
-    /// Where clauses (type, trait bounds).
-    pub where_clauses: Vec<WhereClause>,
     /// Method implementations.
     pub methods: Vec<ImplMethod>,
     /// Source span.
     pub span: Span,
-}
-
-/// A where clause for trait bounds.
-#[derive(Debug, Clone)]
-pub struct WhereClause {
-    /// The type being constrained.
-    pub ty: Type,
-    /// Trait bounds.
-    pub bounds: Vec<QualifiedName>,
 }
 
 /// A method implementation in an impl block.

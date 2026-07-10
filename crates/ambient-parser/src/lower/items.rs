@@ -8,7 +8,7 @@ use uuid::Uuid;
 use ambient_engine::ast::{
     AbilityDef, AbilityMethod, ConstDef, EnumDef, EnumVariant, ExternFnDef, FunctionDef, ImplDef,
     ImplMethod, Item, ItemKind, Param, Span, StructDef, TraitDef, TraitMethod, TypeAliasDef,
-    TypeParam, UseDef, UsePrefix, WhereClause,
+    TypeParam, UseDef, UsePrefix,
 };
 use ambient_engine::types::{NominalType, Type};
 
@@ -21,6 +21,36 @@ use crate::cst::{
     CstTypeExprKind, CstUseDef, CstUseTree, CstUseTreeKind,
 };
 use crate::error::{ParseError, ParseErrorKind};
+
+/// Lower a type parameter, carrying its trait bounds (`T: Eq + Ord`).
+fn lower_type_param(tp: &crate::cst::CstTypeParam) -> TypeParam {
+    TypeParam {
+        name: tp.name.name.clone(),
+        bounds: tp.bounds.iter().map(lower_qualified_name).collect(),
+        span: tp.span,
+    }
+}
+
+/// Lower a type parameter in a position where trait bounds are meaningless
+/// (type declarations, which have no code to constrain, and `extern fn`s,
+/// which have no dictionary calling convention). A bound there is an error
+/// pointing at where bounds belong.
+fn lower_unbounded_type_param(
+    tp: &crate::cst::CstTypeParam,
+    context: &str,
+) -> Result<TypeParam, ParseError> {
+    if !tp.bounds.is_empty() {
+        return Err(ParseError::new(
+            ParseErrorKind::LoweringError(format!(
+                "trait bounds are not supported on {context}; \
+                 declare bounds on the functions, methods, and impl blocks \
+                 that use the type parameter"
+            )),
+            tp.span,
+        ));
+    }
+    Ok(lower_type_param(tp))
+}
 
 pub(super) fn lower_item_impl(
     ctx: &mut LoweringContext,
@@ -61,14 +91,7 @@ fn lower_function(
     ctx: &mut LoweringContext,
     f: &CstFunctionDef,
 ) -> Result<FunctionDef, ParseError> {
-    let type_params = f
-        .type_params
-        .iter()
-        .map(|tp| TypeParam {
-            name: tp.name.name.clone(),
-            span: tp.span,
-        })
-        .collect();
+    let type_params = f.type_params.iter().map(lower_type_param).collect();
 
     let params = f
         .params
@@ -104,11 +127,8 @@ fn lower_extern_fn(
     let type_params = e
         .type_params
         .iter()
-        .map(|tp| TypeParam {
-            name: tp.name.name.clone(),
-            span: tp.span,
-        })
-        .collect();
+        .map(|tp| lower_unbounded_type_param(tp, "`extern fn` type parameters"))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let params = e
         .params
@@ -163,11 +183,8 @@ pub(crate) fn lower_struct_def(s: &CstStructDef) -> Result<StructDef, ParseError
     let type_params = s
         .type_params
         .iter()
-        .map(|tp| TypeParam {
-            name: tp.name.name.clone(),
-            span: tp.span,
-        })
-        .collect();
+        .map(|tp| lower_unbounded_type_param(tp, "`struct` type parameters"))
+        .collect::<Result<Vec<_>, _>>()?;
 
     // Parse the UUID if this is a nominal (`unique(...)`) struct.
     let unique_id = s
@@ -242,11 +259,8 @@ fn lower_type_alias(t: &CstTypeAliasDef) -> Result<TypeAliasDef, ParseError> {
     let type_params = t
         .type_params
         .iter()
-        .map(|tp| TypeParam {
-            name: tp.name.name.clone(),
-            span: tp.span,
-        })
-        .collect();
+        .map(|tp| lower_unbounded_type_param(tp, "`type` alias parameters"))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let ty = lower_type(&t.ty)?;
 
@@ -279,11 +293,8 @@ fn lower_enum(e: &CstEnumDef) -> Result<EnumDef, ParseError> {
     let type_params = e
         .type_params
         .iter()
-        .map(|tp| TypeParam {
-            name: tp.name.name.clone(),
-            span: tp.span,
-        })
-        .collect();
+        .map(|tp| lower_unbounded_type_param(tp, "`enum` type parameters"))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let variants = e
         .variants
@@ -332,14 +343,7 @@ fn lower_ability_def(
         .methods
         .iter()
         .map(|m| {
-            let type_params = m
-                .type_params
-                .iter()
-                .map(|tp| TypeParam {
-                    name: tp.name.name.clone(),
-                    span: tp.span,
-                })
-                .collect();
+            let type_params = m.type_params.iter().map(lower_type_param).collect();
 
             // A method signature is an interface other code compiles
             // against, so every parameter carries a declared type — there
@@ -503,11 +507,8 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
     let type_params = t
         .type_params
         .iter()
-        .map(|tp| TypeParam {
-            name: tp.name.name.clone(),
-            span: tp.span,
-        })
-        .collect();
+        .map(|tp| lower_unbounded_type_param(tp, "trait-level type parameters"))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let supertraits = t.supertraits.iter().map(lower_qualified_name).collect();
 
@@ -515,14 +516,7 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
         .methods
         .iter()
         .map(|m| {
-            let method_type_params = m
-                .type_params
-                .iter()
-                .map(|tp| TypeParam {
-                    name: tp.name.name.clone(),
-                    span: tp.span,
-                })
-                .collect();
+            let method_type_params = m.type_params.iter().map(lower_type_param).collect();
 
             // Check if first param is self
             let (has_self, other_params) = if let Some(first) = m.params.first() {
@@ -576,40 +570,45 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
 }
 
 fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, ParseError> {
-    let type_params = i
-        .type_params
-        .iter()
-        .map(|tp| TypeParam {
-            name: tp.name.name.clone(),
-            span: tp.span,
-        })
-        .collect();
+    let mut type_params: Vec<TypeParam> = i.type_params.iter().map(lower_type_param).collect();
 
     let trait_name = i.trait_name.as_ref().map(lower_qualified_name);
     let for_type = lower_type(&i.for_type)?;
 
-    let where_clauses = i
-        .where_clauses
-        .iter()
-        .map(|wc| {
-            let ty = lower_type(&wc.ty)?;
-            let bounds = wc.bounds.iter().map(lower_qualified_name).collect();
-            Ok(WhereClause { ty, bounds })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    // `where T: Bound` is the trailing spelling of an inline bound: fold
+    // each clause into its type parameter so bounds have exactly one AST
+    // representation. The constrained type must be one of the impl's own
+    // parameters — there is nothing else in scope a clause could constrain.
+    for wc in &i.where_clauses {
+        let param_name = match &wc.ty.kind {
+            CstTypeExprKind::Name(name) if name.segments.len() == 1 => {
+                Some(name.segments[0].name.clone())
+            }
+            _ => None,
+        };
+        let target = param_name
+            .as_ref()
+            .and_then(|n| type_params.iter_mut().find(|tp| &tp.name == n));
+        let Some(target) = target else {
+            return Err(ParseError::new(
+                ParseErrorKind::LoweringError(
+                    "a `where` clause can only constrain one of the impl's own type parameters \
+                     (e.g. `impl<T> Wrapper<T> where T: Eq`)"
+                        .into(),
+                ),
+                wc.span,
+            ));
+        };
+        target
+            .bounds
+            .extend(wc.bounds.iter().map(lower_qualified_name));
+    }
 
     let methods = i
         .methods
         .iter()
         .map(|m| {
-            let method_type_params = m
-                .type_params
-                .iter()
-                .map(|tp| TypeParam {
-                    name: tp.name.name.clone(),
-                    span: tp.span,
-                })
-                .collect();
+            let method_type_params = m.type_params.iter().map(lower_type_param).collect();
 
             // Allocate self binding ID
             let self_id = ctx.fresh_binding();
@@ -663,7 +662,6 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
         type_params,
         trait_name,
         for_type,
-        where_clauses,
         methods,
         span: i.span,
     })

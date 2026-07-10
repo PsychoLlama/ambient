@@ -126,6 +126,10 @@ impl Parser<'_> {
         })
     }
 
+    /// Parse a `<...>` type-parameter list. Each parameter is a name
+    /// (`T`), an ability variable (`E!`), or a bounded parameter
+    /// (`T: Eq + Ord`) — trait bounds are `+`-separated qualified names,
+    /// exactly the `where` grammar inlined at the declaration site.
     fn parse_type_params(&mut self) -> Result<Vec<CstTypeParam>, ParseError> {
         self.expect(TokenKind::Lt)?;
         let mut params = Vec::new();
@@ -137,11 +141,24 @@ impl Parser<'_> {
 
             let name = self.parse_ident()?;
             let is_ability = self.consume(TokenKind::Bang).is_some();
-            let span = name.span;
+
+            let mut bounds = Vec::new();
+            if self.consume(TokenKind::Colon).is_some() {
+                loop {
+                    bounds.push(self.parse_qualified_name()?);
+                    if self.consume(TokenKind::Plus).is_none() {
+                        break;
+                    }
+                }
+            }
+
+            let end = bounds.last().map_or(name.span.end, |b| b.span.end);
+            let span = Span::new(name.span.start, end);
 
             params.push(CstTypeParam {
                 name,
                 is_ability,
+                bounds,
                 span,
             });
 

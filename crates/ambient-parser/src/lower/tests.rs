@@ -192,3 +192,93 @@ fn test_lower_lowercase_uuid_rejected() {
         ParseErrorKind::ExpectedUuid
     ));
 }
+
+#[test]
+fn test_lower_bounded_type_params() {
+    // `<T: Eq + Ord, U>` — bounds parse per parameter and lower to
+    // qualified names on the AST TypeParam.
+    let source = "fn max_of<T: Eq + Ord, U>(a: T, b: T, tag: U): T { a }";
+    let module = parse(source).expect("parse error");
+    match &module.items[0].kind {
+        ItemKind::Function(f) => {
+            assert_eq!(f.type_params.len(), 2);
+            let t = &f.type_params[0];
+            assert_eq!(&*t.name, "T");
+            let bounds: Vec<&str> = t.bounds.iter().map(|b| &*b.name).collect();
+            assert_eq!(bounds, ["Eq", "Ord"]);
+            assert!(f.type_params[1].bounds.is_empty());
+        }
+        _ => panic!("Expected function"),
+    }
+}
+
+#[test]
+fn test_lower_impl_where_clause_folds_into_bounds() {
+    // A trailing `where T: Eq` is the same declaration as `impl<T: Eq>`:
+    // lowering folds it into the parameter, so there is exactly one AST
+    // representation for bounds.
+    let source = r"
+        unique(A1B2C3D4-0000-0000-0000-000000000001) struct Box2 { v: Number }
+        impl<T> Box2 where T: Eq {
+            fn get(self): Number { self.v }
+        }
+    ";
+    let module = parse(source).expect("parse error");
+    match &module.items[1].kind {
+        ItemKind::Impl(i) => {
+            assert_eq!(i.type_params.len(), 1);
+            let bounds: Vec<&str> = i.type_params[0].bounds.iter().map(|b| &*b.name).collect();
+            assert_eq!(bounds, ["Eq"]);
+        }
+        _ => panic!("Expected impl"),
+    }
+}
+
+#[test]
+fn test_lower_where_clause_on_non_param_rejected() {
+    // `where` can only constrain the impl's own type parameters.
+    let source = r"
+        unique(A1B2C3D4-0000-0000-0000-000000000001) struct Box2 { v: Number }
+        impl<T> Box2 where Number: Eq {
+            fn get(self): Number { self.v }
+        }
+    ";
+    let result = parse(source);
+    assert!(matches!(
+        result.unwrap_err().kind,
+        ParseErrorKind::LoweringError(_)
+    ));
+}
+
+#[test]
+fn test_lower_bounds_on_struct_params_rejected() {
+    // Type declarations carry no code, so bounds there are meaningless.
+    let source = "unique(A1B2C3D4-0000-0000-0000-000000000001) struct Pair<T: Eq> { a: T, b: T }";
+    let result = parse(source);
+    assert!(matches!(
+        result.unwrap_err().kind,
+        ParseErrorKind::LoweringError(_)
+    ));
+}
+
+#[test]
+fn test_lower_bounds_on_extern_fn_rejected() {
+    // Natives have no dictionary calling convention.
+    let source = "extern fn find<T: Eq>(items: List<T>, needle: T): Bool;";
+    let result = parse(source);
+    assert!(matches!(
+        result.unwrap_err().kind,
+        ParseErrorKind::LoweringError(_)
+    ));
+}
+
+#[test]
+fn test_lower_trait_requires_unique() {
+    // Traits are nominal: a bare `trait` has no identity.
+    let source = "trait Show { fn show(self): String; }";
+    let result = parse(source);
+    assert!(matches!(
+        result.unwrap_err().kind,
+        ParseErrorKind::TraitRequiresUnique
+    ));
+}
