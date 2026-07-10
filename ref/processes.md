@@ -2,14 +2,17 @@
 
 Part of the [Ambient Language Reference](architecture.md).
 
-> **Status: experimental — may pivot.** This process model is our current
-> experiment for giving live code upgrade a well-defined unit of state to
-> hand off. Prototyping has shown it is _not_ a perfect fit: the
-> state-handoff contract is coarse, and a reducer/mailbox boundary may be
-> the wrong unit. We may pivot to a different design. Treat everything
-> below as the shape of one experiment, not a settled architecture. See
-> the "Formalizing live upgrades" entry in
-> [architecture.md](architecture.md#future-work) for where this is headed.
+> **Status: superseded as the upgrade design.** This process model was
+> the experiment for giving live code upgrade a well-defined unit of
+> state to hand off. Prototyping showed the reducer/mailbox boundary is
+> the wrong unit, and the design has pivoted:
+> **[live-upgrade.md](live-upgrade.md)** is now the live-upgrade design
+> and wins wherever the two documents disagree. This document remains as
+> the description of the implemented process runtime — parts of which
+> (the deploy pass, runtime-owned state, the shared handle table) the
+> new design generalizes and inherits — until the runtime catches up.
+> Whether a mailbox/reducer library survives as a concurrency story is
+> a separate, open decision.
 
 Ambient's unit of long-lived state is the **process**: a named, isolated
 reducer driven by a mailbox, in the spirit of Erlang's `gen_server`. The

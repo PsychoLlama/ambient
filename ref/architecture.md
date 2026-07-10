@@ -11,7 +11,8 @@ from each section:
 - [traits.md](traits.md) — traits, impls, operators, inherent impls, dispatch/coherence
 - [abilities.md](abilities.md) — abilities, handlers, sandboxing, `core::system`, error handling
 - [core-library.md](core-library.md) — core abilities and the standard function set
-- [processes.md](processes.md) — the (experimental) process model and live upgrade
+- [live-upgrade.md](live-upgrade.md) — live upgrade: generations, late-bound names, cells, drain (design)
+- [processes.md](processes.md) — the (superseded) process-model experiment
 - [remote-execution.md](remote-execution.md) — running code by hash on a remote
 
 ## Design Philosophy
@@ -477,22 +478,20 @@ Roughly in priority order:
   sibling packages by name, share a build directory, and compile
   independent packages in parallel. Lands before the package manager, and
   the `Fqn` scope machinery (`Workspace(pkg)`) is already shaped for it.
-- **Formalizing live upgrades.** Live, in-place code replacement is a
-  core goal, but the mechanism is still open research. The current
-  experiment is the Erlang-style process model ([processes.md](processes.md)):
-  a reducer/mailbox boundary as the unit of state to hand off, with
-  `ambient dev` re-running the entry function as a reconciliation pass.
-  Prototyping has shown this is **not a perfect fit** — the state-handoff
-  contract is coarse (a faulted reduction restarts from a fresh init) and
-  a process boundary may be the wrong unit — so we may pivot to a
-  different design. What needs formalizing regardless of the vehicle: the
-  deploy-pass/reconciliation model, an explicit state-migration contract
-  (today's default is "the new reducer consumes the old state or the
-  process restarts"), and an `Execute`-driven remote deploy path (live
-  upgrade over the network with the mechanics tested locally). Process
-  features that only matter if the process model wins — typed `spawn` via
-  effect-polymorphic ability signatures, linking/monitors, supervision
-  trees, receive timeouts — are contingent on that decision.
+- **Implementing live upgrades.** Live, in-place code replacement is a
+  core goal, and the design is settled:
+  **[live-upgrade.md](live-upgrade.md)** — upgrades as name rebindings
+  applied through deployable generations, with author-placed late-bound
+  points (the `Live` ability), runtime-owned state cells with an
+  explicit migration contract, drainable named tasks, and exact
+  generation retirement. It supersedes the Erlang-style process
+  experiment ([processes.md](processes.md)), inheriting its deploy-pass
+  /reconciliation model, runtime-owned state, and shared handle table
+  while dropping the mailbox/reducer boundary as the unit of upgrade.
+  None of it is implemented yet; the process runtime remains what runs
+  today. Process features that only matter if a mailbox/reducer
+  _library_ survives — typed `spawn`, linking/monitors, supervision
+  trees, receive timeouts — are contingent on that separate decision.
 - Trait bounds (`fn foo<T: Eq>(x: T)`) are **done** — dictionary-passing,
   uniform across functions, impl methods, and ability methods. Still open:
   generic traits (`trait Container<T>`), supertraits, conditional impls as
