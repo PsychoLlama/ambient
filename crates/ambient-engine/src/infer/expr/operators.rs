@@ -37,7 +37,14 @@ impl Infer {
         // etc.), never on whatever trait is lexically in scope under the
         // name — a user trait named `Add` can shadow the prelude's for
         // `use`/impl purposes, but it can never capture `+`.
+        //
+        // Primitives are exempt: their operators are always the builtins.
+        // Core *does* implement the operator traits for primitives, but
+        // those impls exist to serve as dictionary sources for bounded
+        // generics — their bodies are the builtin operators, so routing a
+        // concrete `1 + 2` through them would recurse forever.
         if let Type::Nominal(nominal) = &left_ty
+            && left_ty.as_primitive().is_none()
             && let Some((op_trait, method_name)) = operator_trait(op)
         {
             // Check if the type implements the reserved operator trait

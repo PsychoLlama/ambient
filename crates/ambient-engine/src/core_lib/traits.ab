@@ -52,3 +52,78 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0016) trait Ord {
 pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0017) trait Default {
     fn default(): Self;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Primitive impls
+//
+// The primitives implement the operator traits so they can satisfy trait
+// bounds: `fn min_of<T: Ord>(...)` works on Number because this module
+// provides the `Ord for Number` dictionary. Concrete operator uses on
+// primitives (`1 + 2`) never dispatch here — the checker routes them to the
+// builtin opcodes — so these bodies, which *use* those builtins, are only
+// ever reached through a dictionary.
+// ─────────────────────────────────────────────────────────────────────────────
+
+impl Eq for Number {
+    fn eq(self, other: Number): Bool {
+        self == other
+    }
+}
+
+impl Ord for Number {
+    fn cmp(self, other: Number): Number {
+        if self < other {
+            0 - 1
+        } else {
+            if self > other { 1 } else { 0 }
+        }
+    }
+}
+
+impl Add for Number {
+    fn add(self, other: Number): Number {
+        self + other
+    }
+}
+
+impl Sub for Number {
+    fn sub(self, other: Number): Number {
+        self - other
+    }
+}
+
+impl Mul for Number {
+    fn mul(self, other: Number): Number {
+        self * other
+    }
+}
+
+impl Div for Number {
+    fn div(self, other: Number): Number {
+        self / other
+    }
+}
+
+impl Mod for Number {
+    fn rem(self, other: Number): Number {
+        self % other
+    }
+}
+
+impl Eq for String {
+    fn eq(self, other: String): Bool {
+        self == other
+    }
+}
+
+impl Add for String {
+    fn add(self, other: String): String {
+        self + other
+    }
+}
+
+impl Eq for Bool {
+    fn eq(self, other: Bool): Bool {
+        self == other
+    }
+}

@@ -141,6 +141,106 @@ impl<T> List<T> {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Bounded methods: element-type trait bounds unlock equality- and
+// ordering-based operations. The helpers are ordinary bounded functions;
+// the impl blocks below merge with the unbounded `impl<T> List<T>` (one
+// definition per method name per type, whatever block it lives in).
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn contains_from<T: Eq>(list: List<T>, item: T, i: Number): Bool {
+    match get(list, i) {
+        Some(x) => {
+            if x.eq(item) { true } else { contains_from(list, item, i + 1) }
+        }
+        None => false,
+    }
+}
+
+fn index_of_from<T: Eq>(list: List<T>, item: T, i: Number): Option<Number> {
+    match get(list, i) {
+        Some(x) => {
+            if x.eq(item) { Some(i) } else { index_of_from(list, item, i + 1) }
+        }
+        None => None,
+    }
+}
+
+fn max_from<T: Ord>(list: List<T>, best: T, i: Number): T {
+    match get(list, i) {
+        Some(x) => max_from(list, if x.cmp(best) > 0 { x } else { best }, i + 1),
+        None => best,
+    }
+}
+
+fn min_from<T: Ord>(list: List<T>, best: T, i: Number): T {
+    match get(list, i) {
+        Some(x) => min_from(list, if x.cmp(best) < 0 { x } else { best }, i + 1),
+        None => best,
+    }
+}
+
+// Insert `item` before the first element it does not exceed (insertion
+// sort's inner step): scans from `i`, splicing with slice/concat.
+fn insert_sorted<T: Ord>(sorted: List<T>, item: T, i: Number): List<T> {
+    match get(sorted, i) {
+        Some(x) => {
+            if item.cmp(x) <= 0 {
+                concat(
+                    append(slice(sorted, 0, i), item),
+                    slice(sorted, i, length(sorted)),
+                )
+            } else {
+                insert_sorted(sorted, item, i + 1)
+            }
+        }
+        None => append(sorted, item),
+    }
+}
+
+fn sorted_from<T: Ord>(list: List<T>, i: Number, acc: List<T>): List<T> {
+    match get(list, i) {
+        Some(x) => sorted_from(list, i + 1, insert_sorted(acc, x, 0)),
+        None => acc,
+    }
+}
+
+// Equality-based operations: any element type with an `Eq` impl.
+impl<T: Eq> List<T> {
+    // True if any element equals `item` (by its Eq impl).
+    fn contains(self, item: T): Bool {
+        contains_from(self, item, 0)
+    }
+    // Index of the first element equal to `item`, if any.
+    fn index_of(self, item: T): Option<Number> {
+        index_of_from(self, item, 0)
+    }
+}
+
+// Ordering-based operations: any element type with an `Ord` impl. (The
+// unbounded `sort` above uses the native structural ordering, which only
+// meaningfully orders numbers and strings; `sorted` orders by `Ord::cmp`.)
+impl<T: Ord> List<T> {
+    // The largest element by `Ord::cmp`, if any.
+    fn max(self): Option<T> {
+        match head(self) {
+            Some(first) => Some(max_from(self, first, 1)),
+            None => None,
+        }
+    }
+    // The smallest element by `Ord::cmp`, if any.
+    fn min(self): Option<T> {
+        match head(self) {
+            Some(first) => Some(min_from(self, first, 1)),
+            None => None,
+        }
+    }
+    // The elements sorted ascending by `Ord::cmp` (stable insertion sort).
+    fn sorted(self): List<T> {
+        sorted_from(self, 0, [])
+    }
+}
+
 // Number- and receiver-less operations. A concrete-instantiation inherent
 // impl: these attach only to `List<Number>`, and coexist with the generic
 // `impl<T> List<T>` above.

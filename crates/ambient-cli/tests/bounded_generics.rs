@@ -308,3 +308,86 @@ fn handler_for_bounded_method_rejected() {
     ))
     .expect_error("not supported yet");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Core library methods unlocked by bounds
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn core_list_contains_numbers() {
+    CliTest::new(
+        r#"
+        fn run(): Bool {
+            [1, 2, 3].contains(2)
+        }
+    "#,
+    )
+    .expect_output("true");
+}
+
+#[test]
+fn core_list_contains_strings() {
+    CliTest::new(
+        r#"
+        fn run(): Bool {
+            if ["a", "b"].contains("c") { true } else { ["a", "b"].contains("b") }
+        }
+    "#,
+    )
+    .expect_output("true");
+}
+
+#[test]
+fn core_list_index_of_custom_type() {
+    CliTest::new(format!(
+        r#"
+        {MONEY}
+        fn run(): Number {{
+            let ms = [Money {{ cents: 1 }}, Money {{ cents: 5 }}, Money {{ cents: 9 }}];
+            match ms.index_of(Money {{ cents: 5 }}) {{
+                Some(i) => i,
+                None => 0 - 1,
+            }}
+        }}
+    "#
+    ))
+    .expect_output("1");
+}
+
+#[test]
+fn core_list_sorted_and_min_max() {
+    CliTest::new(format!(
+        r#"
+        {MONEY}
+        fn run(): Number {{
+            let ms = [Money {{ cents: 30 }}, Money {{ cents: 10 }}, Money {{ cents: 20 }}];
+            let sorted = ms.sorted();
+            let lowest = match ms.min() {{ Some(m) => m.cents, None => 0 }};
+            let highest = match ms.max() {{ Some(m) => m.cents, None => 0 }};
+            let first = match sorted.get(0) {{ Some(m) => m.cents, None => 0 }};
+            // 10 + 30 + 10 = 50
+            lowest + highest + first
+        }}
+    "#
+    ))
+    .expect_output("50");
+}
+
+#[test]
+fn primitive_operators_stay_builtin() {
+    // Concrete primitive operators keep their builtin semantics (the
+    // core impls exist only as dictionary sources), and bounded generics
+    // work on primitives through those impls.
+    CliTest::new(
+        r#"
+        fn min_of<T: Ord>(a: T, b: T): T {
+            if a < b { a } else { b }
+        }
+
+        fn run(): Number {
+            min_of(7, 3) + (2 * 4)
+        }
+    "#,
+    )
+    .expect_output("11");
+}
