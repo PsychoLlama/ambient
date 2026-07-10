@@ -44,9 +44,6 @@ pub type AbilityVarId = u32;
 /// canonical interface (re-exported from `ambient-core`).
 pub use ambient_core::AbilityId;
 
-/// A unique identifier for traits.
-pub type TraitId = u16;
-
 pub use abilities::{AbilityInfo, AbilityRegistry, AbilitySet};
 pub use core::{
     AbilityValueType, ForallType, FunctionType, HandlerAnnotationType, HandlerType, NamedType,
@@ -57,6 +54,7 @@ pub use primitives::{
     RESULT_UUID, SET_UUID, STRING_UUID,
 };
 pub use traits::{
-    MethodLookup, TraitDef, TraitImpl, TraitMethodDef, TraitRegistry, impl_method_symbol,
-    uuid_to_source,
+    MethodLookup, ReservedTrait, TRAIT_ADD_UUID, TRAIT_DEFAULT_UUID, TRAIT_DIV_UUID, TRAIT_EQ_UUID,
+    TRAIT_MOD_UUID, TRAIT_MUL_UUID, TRAIT_ORD_UUID, TRAIT_SUB_UUID, TraitDef, TraitImpl,
+    TraitMethodDef, TraitRegistry, impl_method_symbol, uuid_to_source,
 };

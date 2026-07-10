@@ -39,11 +39,11 @@ fn method_hash(module: &CompiledModule, fragment: &str) -> blake3::Hash {
 }
 
 const MONEY_MODULE: &str = r#"
-    trait Show {
+    unique(AAAAAAAA-BBBB-4CCC-8DDD-00000000000D) trait Show {
         fn show(self): Number;
     }
 
-    trait Scale {
+    unique(AAAAAAAA-BBBB-4CCC-8DDD-00000000000E) trait Scale {
         fn scale(self, factor: Number): Self;
     }
 
@@ -83,11 +83,11 @@ fn trait_declaration_order_does_not_affect_hashes() {
     // two impl blocks) are swapped. Declaration order must not leak into any
     // content hash.
     let reordered = r#"
-        trait Scale {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-00000000000E) trait Scale {
             fn scale(self, factor: Number): Self;
         }
 
-        trait Show {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-00000000000D) trait Show {
             fn show(self): Number;
         }
 
@@ -125,7 +125,7 @@ fn unrelated_declarations_do_not_affect_method_hashes() {
     // hashes of existing impl methods.
     let extended = format!(
         r#"
-        trait Unrelated {{
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000011) trait Unrelated {{
             fn noop(self): Number;
         }}
 
@@ -145,12 +145,12 @@ fn unrelated_declarations_do_not_affect_method_hashes() {
     let with_extras = compile(&extended);
 
     assert_eq!(
-        method_hash(&original, "Show::show"),
-        method_hash(&with_extras, "Show::show"),
+        method_hash(&original, "::show"),
+        method_hash(&with_extras, "::show"),
     );
     assert_eq!(
-        method_hash(&original, "Scale::scale"),
-        method_hash(&with_extras, "Scale::scale"),
+        method_hash(&original, "::scale"),
+        method_hash(&with_extras, "::scale"),
     );
 }
 
@@ -163,14 +163,14 @@ fn method_body_change_changes_hash() {
     let changed = compile(&modified);
 
     assert_ne!(
-        method_hash(&original, "Show::show"),
-        method_hash(&changed, "Show::show"),
+        method_hash(&original, "::show"),
+        method_hash(&changed, "::show"),
         "editing a method body must change its content hash"
     );
     // The untouched method keeps its hash.
     assert_eq!(
-        method_hash(&original, "Scale::scale"),
-        method_hash(&changed, "Scale::scale"),
+        method_hash(&original, "::scale"),
+        method_hash(&changed, "::scale"),
     );
 }
 
@@ -188,14 +188,14 @@ fn dependency_change_propagates_to_method_hash() {
     let changed = compile(&modified);
 
     assert_ne!(
-        method_hash(&original, "Show::show"),
-        method_hash(&changed, "Show::show"),
+        method_hash(&original, "::show"),
+        method_hash(&changed, "::show"),
         "changing a dependency must change the dependent method's hash"
     );
     // `Scale::scale` does not depend on tax_rate; its hash is stable.
     assert_eq!(
-        method_hash(&original, "Scale::scale"),
-        method_hash(&changed, "Scale::scale"),
+        method_hash(&original, "::scale"),
+        method_hash(&changed, "::scale"),
     );
 }
 
@@ -238,8 +238,8 @@ fn call_sites_reference_final_method_hashes() {
         .expect("run function exists");
     let run_fn = module.functions.get(run_hash).expect("run is stored");
 
-    let show = method_hash(&module, "Show::show");
-    let scale = method_hash(&module, "Scale::scale");
+    let show = method_hash(&module, "::show");
+    let scale = method_hash(&module, "::scale");
 
     assert!(
         run_fn.dependencies.contains(&scale),

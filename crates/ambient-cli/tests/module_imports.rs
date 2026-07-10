@@ -182,7 +182,7 @@ fn test_method_call_resolves_inside_perform_arguments() {
         r#"
         unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00001111) struct Point { x: Number }
 
-        trait Doubled {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000017) trait Doubled {
             fn doubled(self): Number;
         }
 

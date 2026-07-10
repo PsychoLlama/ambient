@@ -2,40 +2,46 @@
 //
 // Traits for operator overloading and common behaviors.
 // Implement these traits to enable operators on custom types.
+//
+// Traits are nominal: the `unique(<uuid>)` prefix is the identity that
+// bounds, impls, and operator dispatch key off. These declarations claim
+// the engine's reserved trait uuids (the `FFFF…-0010` block), so `+` always
+// dispatches through *this* `Add` no matter what is lexically in scope —
+// the engine validates the pairing, so these sources cannot drift.
 
 /// Trait for the `+` operator.
-pub trait Add {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0010) trait Add {
     fn add(self, other: Self): Self;
 }
 
 /// Trait for the `-` operator.
-pub trait Sub {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0011) trait Sub {
     fn sub(self, other: Self): Self;
 }
 
 /// Trait for the `*` operator.
-pub trait Mul {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0012) trait Mul {
     fn mul(self, other: Self): Self;
 }
 
 /// Trait for the `/` operator.
-pub trait Div {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0013) trait Div {
     fn div(self, other: Self): Self;
 }
 
 /// Trait for the `%` operator.
-pub trait Mod {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0014) trait Mod {
     fn rem(self, other: Self): Self;
 }
 
 /// Trait for equality comparison (`==`, `!=`).
-pub trait Eq {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0015) trait Eq {
     fn eq(self, other: Self): Bool;
 }
 
 /// Trait for ordering comparison (`<`, `>`, `<=`, `>=`).
 /// Returns -1 if self < other, 0 if equal, 1 if self > other.
-pub trait Ord {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0016) trait Ord {
     fn cmp(self, other: Self): Number;
 }
 
@@ -43,6 +49,6 @@ pub trait Ord {
 ///
 /// Unlike the operator traits, `default` takes no `self`: it is an
 /// associated function invoked as `Type::default()`.
-pub trait Default {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0017) trait Default {
     fn default(): Self;
 }

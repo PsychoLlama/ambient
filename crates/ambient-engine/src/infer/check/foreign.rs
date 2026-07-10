@@ -184,7 +184,7 @@ fn register_foreign_impl(
     trait_name: &crate::ast::QualifiedName,
     errors: &mut Vec<BoxedTypeError>,
 ) {
-    let Some(trait_id) = infer.trait_registry.lookup_trait(&trait_name.name) else {
+    let Some(trait_uuid) = infer.trait_registry.lookup_trait(&trait_name.name) else {
         return;
     };
     let for_type = infer.resolve_holes(&impl_def.for_type);
@@ -192,10 +192,10 @@ fn register_foreign_impl(
         return;
     };
 
-    let mut impl_record = crate::types::TraitImpl::new(trait_id, nominal_type.clone());
+    let mut impl_record = crate::types::TraitImpl::new(trait_uuid, nominal_type.clone());
     for method in &impl_def.methods {
         let symbol =
-            crate::types::impl_method_symbol(&nominal_type.uuid, &trait_name.name, &method.name);
+            crate::types::impl_method_symbol(&nominal_type.uuid, &trait_uuid, &method.name);
         impl_record.methods.insert(Arc::clone(&method.name), symbol);
     }
     if infer.trait_registry.register_impl(impl_record).is_some() {

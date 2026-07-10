@@ -153,6 +153,12 @@ pub enum ParseErrorKind {
     /// so renames and moves never change it.
     AbilityRequiresUnique,
 
+    /// A `trait` was declared without the mandatory `unique(<uuid>)` prefix.
+    /// Traits are nominal like enums and abilities: the uuid is the identity
+    /// that bounds, impls, and dispatch key off, so renames and moves never
+    /// change it and same-named traits never collide.
+    TraitRequiresUnique,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Name resolution errors
     // ─────────────────────────────────────────────────────────────────────────
@@ -234,6 +240,11 @@ impl fmt::Display for ParseErrorKind {
                 f,
                 "ability declarations require a `unique(<uuid>)` prefix \
                  (e.g. `unique(A1B2C3D4-0000-0000-0000-000000000001) ability Console {{ ... }}`)"
+            ),
+            Self::TraitRequiresUnique => write!(
+                f,
+                "trait declarations require a `unique(<uuid>)` prefix \
+                 (e.g. `unique(A1B2C3D4-0000-0000-0000-000000000001) trait Show {{ ... }}`)"
             ),
 
             Self::UndefinedName(name) => write!(f, "undefined name '{name}'"),

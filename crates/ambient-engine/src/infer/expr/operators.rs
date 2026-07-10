@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::ast::{BinaryOp, Expr};
 use crate::infer::{Infer, InferResult, TypeEnv};
-use crate::types::Type;
+use crate::types::{ReservedTrait, Type};
 
 impl Infer {
     /// Infer the type of a binary operation.
@@ -29,29 +29,29 @@ impl Infer {
         let left_ty = self.apply(&left_ty);
         let right_ty = self.apply(&right_ty);
 
-        // Check for operator overloading on nominal types
-        if let Type::Nominal(nominal) = &left_ty {
-            // Get the trait and method name for this operator
-            if let Some((trait_name, method_name)) = operator_trait(op) {
-                // Look up the trait
-                if let Some(trait_id) = self.trait_registry.lookup_trait(trait_name) {
-                    // Check if the type implements this trait
-                    let method_symbol = self
-                        .trait_registry
-                        .get_impl(trait_id, nominal.uuid)
-                        .and_then(|impl_| impl_.methods.get(method_name).cloned());
+        // Check for operator overloading on nominal types. Operators anchor
+        // on the *reserved identity* of the prelude trait (`TRAIT_ADD_UUID`
+        // etc.), never on whatever trait is lexically in scope under the
+        // name — a user trait named `Add` can shadow the prelude's for
+        // `use`/impl purposes, but it can never capture `+`.
+        if let Type::Nominal(nominal) = &left_ty
+            && let Some((op_trait, method_name)) = operator_trait(op)
+        {
+            // Check if the type implements the reserved operator trait
+            let method_symbol = self
+                .trait_registry
+                .get_impl(op_trait.uuid(), nominal.uuid)
+                .and_then(|impl_| impl_.methods.get(method_name).cloned());
 
-                    if let Some(symbol) = method_symbol {
-                        // Unify operands (both must be the same nominal type)
-                        self.unify(&left_ty, &right_ty, span)?;
+            if let Some(symbol) = method_symbol {
+                // Unify operands (both must be the same nominal type)
+                self.unify(&left_ty, &right_ty, span)?;
 
-                        // Store the resolved dispatch symbol for compilation
-                        *resolved_op = Some(symbol);
+                // Store the resolved dispatch symbol for compilation
+                *resolved_op = Some(symbol);
 
-                        // Return type depends on the operator category
-                        return Ok(operator_return_type(op, &left_ty));
-                    }
-                }
+                // Return type depends on the operator category
+                return Ok(operator_return_type(op, &left_ty));
             }
         }
 
@@ -92,17 +92,19 @@ impl Infer {
     }
 }
 
-/// Map binary operators to their corresponding trait and method names.
-/// Returns `(trait_name, method_name)` if the operator can be overloaded.
-fn operator_trait(op: BinaryOp) -> Option<(&'static str, &'static str)> {
+/// Map binary operators to their corresponding reserved trait and method
+/// name. Returns `(trait, method_name)` if the operator can be overloaded.
+pub(crate) fn operator_trait(op: BinaryOp) -> Option<(ReservedTrait, &'static str)> {
     match op {
-        BinaryOp::Add => Some(("Add", "add")),
-        BinaryOp::Sub => Some(("Sub", "sub")),
-        BinaryOp::Mul => Some(("Mul", "mul")),
-        BinaryOp::Div => Some(("Div", "div")),
-        BinaryOp::Mod => Some(("Mod", "rem")),
-        BinaryOp::Eq | BinaryOp::Ne => Some(("Eq", "eq")),
-        BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => Some(("Ord", "cmp")),
+        BinaryOp::Add => Some((ReservedTrait::Add, "add")),
+        BinaryOp::Sub => Some((ReservedTrait::Sub, "sub")),
+        BinaryOp::Mul => Some((ReservedTrait::Mul, "mul")),
+        BinaryOp::Div => Some((ReservedTrait::Div, "div")),
+        BinaryOp::Mod => Some((ReservedTrait::Mod, "rem")),
+        BinaryOp::Eq | BinaryOp::Ne => Some((ReservedTrait::Eq, "eq")),
+        BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+            Some((ReservedTrait::Ord, "cmp"))
+        }
         // Logical operators cannot be overloaded
         BinaryOp::And | BinaryOp::Or => None,
     }

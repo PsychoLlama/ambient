@@ -486,6 +486,20 @@ pub(super) fn lower_param(ctx: &mut LoweringContext, p: &CstParam) -> Result<Par
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
+    // Traits are nominal, like enums and abilities: the `unique(<uuid>)`
+    // prefix *is* the identity that bounds, impls, and dispatch key off.
+    let uuid = match &t.unique_id {
+        Some(s) => Uuid::parse_str(s).map_err(|err| {
+            ParseError::new(ParseErrorKind::InvalidUuid(err.to_string()), t.name.span)
+        })?,
+        None => {
+            return Err(ParseError::new(
+                ParseErrorKind::TraitRequiresUnique,
+                t.name.span,
+            ));
+        }
+    };
+
     let type_params = t
         .type_params
         .iter()
@@ -554,6 +568,7 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
         name: t.name.name.clone(),
         name_span: t.name.span,
         is_public: t.is_public,
+        uuid,
         type_params,
         supertraits,
         methods,

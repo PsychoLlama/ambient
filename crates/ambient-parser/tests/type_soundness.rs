@@ -63,7 +63,7 @@ fn trait_impl_method_performing_ability_is_rejected() {
           fn print(msg: String): () { () }
         }
 
-        trait Show {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000015) trait Show {
           fn show(self): String;
         }
 
@@ -91,7 +91,7 @@ fn trait_impl_method_performing_ability_is_rejected() {
 fn pure_trait_impl_method_is_accepted() {
     assert_ok(
         &r"
-        trait Show {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000016) trait Show {
           fn show(self): String;
         }
 

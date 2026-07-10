@@ -12,7 +12,7 @@ fn test_trait_definition_and_impl() {
     // Test trait definition and implementation for a nominal type
     CliTest::new(
         r#"
-        trait Show {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000001) trait Show {
             fn show(self): Number;
         }
 
@@ -38,7 +38,7 @@ fn test_trait_method_with_args() {
     // Test trait method that takes additional arguments
     CliTest::new(
         r#"
-        trait Scalable {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000002) trait Scalable {
             fn scale(self, factor: Number): Number;
         }
 
@@ -61,13 +61,12 @@ fn test_trait_method_with_args() {
 
 #[test]
 fn test_operator_overloading_add() {
-    // Test Add trait for operator overloading
+    // Test Add trait for operator overloading. `Add` is the prelude trait:
+    // operators anchor on the reserved core trait identities, so
+    // implementing the prelude `Add` — not a same-named local trait — is
+    // what enables `+`.
     CliTest::new(
         r#"
-        trait Add {
-            fn add(self, other: Self): Self;
-        }
-
         unique(A1B2C3D4-0000-0000-0000-000000000003) struct Money { cents: Number }
 
         impl Add for Money {
@@ -89,13 +88,10 @@ fn test_operator_overloading_add() {
 
 #[test]
 fn test_operator_overloading_eq() {
-    // Test Eq trait for equality comparison
+    // Test Eq trait for equality comparison (the prelude `Eq`, which is
+    // what `==` anchors on).
     CliTest::new(
         r#"
-        trait Eq {
-            fn eq(self, other: Self): Bool;
-        }
-
         unique(A1B2C3D4-0000-0000-0000-000000000004) struct Id { value: Number }
 
         impl Eq for Id {
@@ -199,7 +195,7 @@ fn test_associated_trait_method_with_argument() {
     // `Type::method(args)`.
     CliTest::new(
         r#"
-        trait FromNumber {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000005) trait FromNumber {
             fn from_number(n: Number): Self;
         }
 
@@ -494,7 +490,7 @@ fn test_inherent_method_shadows_trait_method() {
     // local override rather than an ambiguity error.
     CliTest::new(
         r#"
-        trait Doubler {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000006) trait Doubler {
             fn double(self): Self;
         }
 
@@ -592,11 +588,11 @@ fn test_multiple_traits_same_type() {
     // Test implementing multiple traits for the same type
     CliTest::new(
         r#"
-        trait Doubler {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000007) trait Doubler {
             fn double(self): Self;
         }
 
-        trait Tripler {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000008) trait Tripler {
             fn triple(self): Self;
         }
 
@@ -633,7 +629,7 @@ fn test_impl_method_calls_top_level_function() {
     // left as an unresolved temporary hash: UnknownFunction at runtime.)
     CliTest::new(
         r#"
-        trait Show {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000009) trait Show {
             fn show(self): Number;
         }
 
@@ -663,7 +659,7 @@ fn test_impl_method_with_lambda() {
     // lambdas were silently dropped.)
     CliTest::new(
         r#"
-        trait Transform {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-00000000000A) trait Transform {
             fn apply(self): Number;
         }
 
@@ -687,13 +683,9 @@ fn test_impl_method_with_lambda() {
 
 #[test]
 fn test_operator_overloading_ne() {
-    // `!=` must negate the Eq trait's `eq` result.
+    // `!=` must negate the prelude Eq trait's `eq` result.
     CliTest::new(
         r#"
-        trait Eq {
-            fn eq(self, other: Self): Bool;
-        }
-
         unique(A1B2C3D4-0000-0000-0000-000000000008) struct Id { value: Number }
 
         impl Eq for Id {
@@ -714,14 +706,10 @@ fn test_operator_overloading_ne() {
 
 #[test]
 fn test_operator_overloading_ordering() {
-    // `<`, `<=`, `>`, `>=` must compare the Ord trait's `cmp` result
-    // (-1/0/1) against zero rather than returning it directly.
+    // `<`, `<=`, `>`, `>=` must compare the prelude Ord trait's `cmp`
+    // result (-1/0/1) against zero rather than returning it directly.
     CliTest::new(
         r#"
-        trait Ord {
-            fn cmp(self, other: Self): Number;
-        }
-
         unique(A1B2C3D4-0000-0000-0000-000000000009) struct Money { cents: Number }
 
         impl Ord for Money {

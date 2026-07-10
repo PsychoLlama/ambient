@@ -27,7 +27,7 @@ fn test_cross_module_trait_dispatch() {
                 }
             }
 
-            pub trait Doubled {
+            pub unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000018) trait Doubled {
                 fn doubled(self): Number;
             }
 

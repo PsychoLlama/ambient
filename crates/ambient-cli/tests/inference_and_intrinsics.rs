@@ -60,7 +60,7 @@ fn test_duplicate_impl_is_error() {
     // second impl would collide in the content-addressed store.
     CliTest::new(
         r#"
-        trait Show {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000012) trait Show {
             fn show(self): Number;
         }
 
@@ -89,11 +89,11 @@ fn test_ambiguous_method_is_error() {
     // method named `render`; a bare method call cannot choose between them.
     CliTest::new(
         r#"
-        trait Html {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000013) trait Html {
             fn render(self): Number;
         }
 
-        trait Text {
+        unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000014) trait Text {
             fn render(self): Number;
         }
 

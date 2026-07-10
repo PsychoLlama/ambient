@@ -390,7 +390,7 @@ pub enum UsePrefix {
 
 /// A trait definition.
 ///
-/// Syntax: `trait Name<T> with Supertrait { fn method(self, ...): RetType; }`
+/// Syntax: `unique(<uuid>) trait Name<T> with Supertrait { fn method(self, ...): RetType; }`
 #[derive(Debug, Clone)]
 pub struct TraitDef {
     /// Trait name.
@@ -399,6 +399,11 @@ pub struct TraitDef {
     pub name_span: Span,
     /// Whether this trait is public.
     pub is_public: bool,
+    /// The trait's nominal identity, from the mandatory `unique(<uuid>)`
+    /// prefix. Bounds, impl coherence, and dispatch symbols key off this —
+    /// never the name — so renames and moves never change what a bound
+    /// means, and same-shaped traits in different modules never unify.
+    pub uuid: Uuid,
     /// Type parameters.
     pub type_params: Vec<TypeParam>,
     /// Supertraits that this trait requires.

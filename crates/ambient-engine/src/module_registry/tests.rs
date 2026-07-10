@@ -61,6 +61,7 @@ fn make_trait(name: &str, is_public: bool) -> Item {
             name: Arc::from(name),
             name_span: Span::default(),
             is_public,
+            uuid: uuid::Uuid::nil(),
             type_params: vec![],
             supertraits: vec![],
             methods: vec![],

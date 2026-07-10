@@ -220,13 +220,13 @@ impl Infer {
         };
 
         // Look up the method in the trait registry
-        let (trait_id, method_def, method_symbol) =
+        let (trait_uuid, method_def, method_symbol) =
             match self.trait_registry.find_method(nominal.uuid, method_name) {
                 crate::types::MethodLookup::Found {
-                    trait_id,
+                    trait_uuid,
                     method,
                     symbol,
-                } => (trait_id, method, symbol),
+                } => (trait_uuid, method, symbol),
                 crate::types::MethodLookup::NotFound => {
                     return Err(type_error(
                         TypeErrorKind::MethodNotFound {
@@ -266,7 +266,7 @@ impl Infer {
             // Get trait name for error message
             let trait_name = self
                 .trait_registry
-                .get_trait(trait_id)
+                .get_trait(trait_uuid)
                 .map_or_else(|| Arc::from("?"), |t| Arc::clone(&t.name));
             return Err(type_error(
                 TypeErrorKind::ArityMismatch {

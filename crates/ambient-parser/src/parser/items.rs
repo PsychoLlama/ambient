@@ -37,7 +37,7 @@ impl Parser<'_> {
                     TokenKind::Unique => self.parse_unique_item(true, false)?,
                     TokenKind::Extern => self.parse_extern_item(true)?,
                     TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(true, None)?),
-                    TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def(true)?),
+                    TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def(true, None)?),
                     _ => {
                         return Err(ParseError::new(
                             ParseErrorKind::Expected {
@@ -58,7 +58,7 @@ impl Parser<'_> {
             TokenKind::Extern => self.parse_extern_item(false)?,
             TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(false, None)?),
             TokenKind::Use => CstItemKind::Use(self.parse_use(false)?),
-            TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def(false)?),
+            TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def(false, None)?),
             TokenKind::Impl => CstItemKind::Impl(self.parse_impl_def()?),
             _ => {
                 return Err(ParseError::new(
@@ -266,9 +266,12 @@ impl Parser<'_> {
             TokenKind::Ability => Ok(CstItemKind::Ability(
                 self.parse_ability_def(is_public, unique_id)?,
             )),
+            TokenKind::Trait => Ok(CstItemKind::Trait(
+                self.parse_trait_def(is_public, unique_id)?,
+            )),
             other => Err(ParseError::new(
                 ParseErrorKind::Expected {
-                    expected: "`struct`, `enum`, or `ability` after `unique(...)`".into(),
+                    expected: "`struct`, `enum`, `ability`, or `trait` after `unique(...)`".into(),
                     found: format!("{other:?}"),
                 },
                 self.current().span,
@@ -560,8 +563,17 @@ impl Parser<'_> {
     // Trait parsing
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// Parse a trait definition: `trait Name<T> with Supertrait { fn method(self, ...): RetType; }`
-    fn parse_trait_def(&mut self, is_public: bool) -> Result<CstTraitDef, ParseError> {
+    /// Parse a trait definition:
+    /// `unique(<uuid>) trait Name<T> with Supertrait { fn method(self, ...): RetType; }`
+    ///
+    /// The `unique(...)` prefix was consumed by [`Self::parse_unique_item`]
+    /// and arrives as `unique_id`; a bare `trait` still parses (with `None`)
+    /// so lowering can report the mandatory-identity error precisely.
+    fn parse_trait_def(
+        &mut self,
+        is_public: bool,
+        unique_id: Option<Arc<str>>,
+    ) -> Result<CstTraitDef, ParseError> {
         let start = self.current().span.start;
         self.expect(TokenKind::Trait)?;
         let name = self.parse_ident()?;
@@ -595,6 +607,7 @@ impl Parser<'_> {
 
         Ok(CstTraitDef {
             is_public,
+            unique_id,
             name,
             type_params,
             supertraits,

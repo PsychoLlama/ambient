@@ -55,7 +55,7 @@ fn check_single_impl(
     let span = (item_span.start, item_span.end);
 
     // Look up the trait
-    let Some(trait_id) = infer.trait_registry.lookup_trait(&trait_name.name) else {
+    let Some(trait_uuid) = infer.trait_registry.lookup_trait(&trait_name.name) else {
         errors.push(Box::new(TypeError::new(
             TypeErrorKind::UnknownTrait {
                 name: Arc::clone(&trait_name.name),
@@ -79,7 +79,7 @@ fn check_single_impl(
     };
 
     // Get the trait definition to check method signatures
-    let Some(trait_def) = infer.trait_registry.get_trait(trait_id).cloned() else {
+    let Some(trait_def) = infer.trait_registry.get_trait(trait_uuid).cloned() else {
         return;
     };
 
@@ -95,10 +95,10 @@ fn check_single_impl(
     // The compiler registers method bodies under these symbols so they are
     // content-addressed like ordinary functions; call sites resolve the
     // symbol through the same name→hash table as regular calls.
-    let mut impl_record = crate::types::TraitImpl::new(trait_id, nominal_type.clone());
+    let mut impl_record = crate::types::TraitImpl::new(trait_uuid, nominal_type.clone());
     for method in &mut impl_def.methods {
         let symbol =
-            crate::types::impl_method_symbol(&nominal_type.uuid, &trait_name.name, &method.name);
+            crate::types::impl_method_symbol(&nominal_type.uuid, &trait_uuid, &method.name);
         impl_record
             .methods
             .insert(Arc::clone(&method.name), Arc::clone(&symbol));

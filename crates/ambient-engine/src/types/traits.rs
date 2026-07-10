@@ -1,12 +1,132 @@
 //! The trait system: definitions, implementations, coherence, and the
 //! impl-method dispatch symbols.
+//!
+//! Traits are **nominal**, exactly like enums, structs, and abilities: the
+//! mandatory `unique(<uuid>)` prefix is the trait's identity. Every table
+//! here keys off that uuid — never the name — so renaming a trait never
+//! changes what a bound or an impl means, and two same-shaped traits never
+//! unify. Names exist for display and for in-scope lookup only.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use uuid::Uuid;
 
-use super::{NominalType, TraitId, Type, TypeVarId};
+use super::{NominalType, Type};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reserved trait identities
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Canonical identity of the prelude `Add` trait (`core::traits::Add`).
+///
+/// The operator traits are ordinary declarations in `core::traits`, but the
+/// engine's operator desugar (`a + b` → `a.add(b)`) must name *the* trait an
+/// operator dispatches through, independent of what is lexically in scope —
+/// a user trait named `Add` must never capture `+`. These reserved uuids are
+/// that anchor, in the same `0xffff…` namespace as `Option`/`Result`
+/// ([`super::OPTION_UUID`]); the source declarations in `core_lib/traits.ab`
+/// claim them and are pinned by `validate_reserved_trait`, so the sources
+/// and the engine can never drift and no other module can hijack one.
+///
+/// Discriminators `0x0010`–`0x001f` are reserved for traits; see
+/// [`super::BOOL_UUID`] for how this namespace is allocated.
+pub const TRAIT_ADD_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0010);
+/// Canonical identity of the prelude `Sub` trait. See [`TRAIT_ADD_UUID`].
+pub const TRAIT_SUB_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0011);
+/// Canonical identity of the prelude `Mul` trait. See [`TRAIT_ADD_UUID`].
+pub const TRAIT_MUL_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0012);
+/// Canonical identity of the prelude `Div` trait. See [`TRAIT_ADD_UUID`].
+pub const TRAIT_DIV_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0013);
+/// Canonical identity of the prelude `Mod` trait. See [`TRAIT_ADD_UUID`].
+pub const TRAIT_MOD_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0014);
+/// Canonical identity of the prelude `Eq` trait. See [`TRAIT_ADD_UUID`].
+pub const TRAIT_EQ_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0015);
+/// Canonical identity of the prelude `Ord` trait. See [`TRAIT_ADD_UUID`].
+pub const TRAIT_ORD_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0016);
+/// Canonical identity of the `core::traits::Default` trait (not in the
+/// prelude — no operator desugars to it). See [`TRAIT_ADD_UUID`].
+pub const TRAIT_DEFAULT_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0017);
+
+/// A reserved core trait: name/uuid pairs for the declarations in
+/// `core_lib/traits.ab`, the trait analogue of [`super::Primitive`] /
+/// [`super::Container`]. `validate_reserved_trait` pins a declaration
+/// claiming either half to the canonical pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReservedTrait {
+    /// `Add` — the `+` operator.
+    Add,
+    /// `Sub` — the `-` operator.
+    Sub,
+    /// `Mul` — the `*` operator.
+    Mul,
+    /// `Div` — the `/` operator.
+    Div,
+    /// `Mod` — the `%` operator.
+    Mod,
+    /// `Eq` — the `==`/`!=` operators.
+    Eq,
+    /// `Ord` — the `<`/`<=`/`>`/`>=` operators.
+    Ord,
+    /// `Default` — no operator; standard-library convenience.
+    Default,
+}
+
+impl ReservedTrait {
+    /// Every reserved core trait.
+    pub const ALL: [Self; 8] = [
+        Self::Add,
+        Self::Sub,
+        Self::Mul,
+        Self::Div,
+        Self::Mod,
+        Self::Eq,
+        Self::Ord,
+        Self::Default,
+    ];
+
+    /// The reserved identity uuid for this trait.
+    #[must_use]
+    pub const fn uuid(self) -> Uuid {
+        match self {
+            Self::Add => TRAIT_ADD_UUID,
+            Self::Sub => TRAIT_SUB_UUID,
+            Self::Mul => TRAIT_MUL_UUID,
+            Self::Div => TRAIT_DIV_UUID,
+            Self::Mod => TRAIT_MOD_UUID,
+            Self::Eq => TRAIT_EQ_UUID,
+            Self::Ord => TRAIT_ORD_UUID,
+            Self::Default => TRAIT_DEFAULT_UUID,
+        }
+    }
+
+    /// The canonical trait name, as spelled in `core_lib/traits.ab`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Add => "Add",
+            Self::Sub => "Sub",
+            Self::Mul => "Mul",
+            Self::Div => "Div",
+            Self::Mod => "Mod",
+            Self::Eq => "Eq",
+            Self::Ord => "Ord",
+            Self::Default => "Default",
+        }
+    }
+
+    /// The reserved trait matching a uuid, if any.
+    #[must_use]
+    pub fn from_uuid(uuid: Uuid) -> Option<Self> {
+        Self::ALL.into_iter().find(|t| t.uuid() == uuid)
+    }
+
+    /// The reserved trait matching a canonical name, if any.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|t| t.name() == name)
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Trait System Types
@@ -15,40 +135,25 @@ use super::{NominalType, TraitId, Type, TypeVarId};
 /// Definition of a trait.
 #[derive(Debug, Clone)]
 pub struct TraitDef {
-    /// Unique trait identifier.
-    pub id: TraitId,
+    /// The trait's nominal identity (its `unique(<uuid>)` prefix).
+    pub uuid: Uuid,
 
-    /// Trait name for display purposes.
+    /// Trait name for display and in-scope lookup.
     pub name: Arc<str>,
 
-    /// Type parameters for generic traits.
-    pub type_params: Vec<TypeVarId>,
-
-    /// Methods defined by this trait.
+    /// Methods defined by this trait, in declaration order.
     pub methods: Vec<TraitMethodDef>,
-
-    /// Supertraits that must also be implemented.
-    pub supertraits: Vec<TraitId>,
 }
 
 impl TraitDef {
     /// Create a new trait definition.
     #[must_use]
-    pub fn new(id: TraitId, name: impl Into<Arc<str>>) -> Self {
+    pub fn new(uuid: Uuid, name: impl Into<Arc<str>>) -> Self {
         Self {
-            id,
+            uuid,
             name: name.into(),
-            type_params: Vec::new(),
             methods: Vec::new(),
-            supertraits: Vec::new(),
         }
-    }
-
-    /// Add a type parameter.
-    #[must_use]
-    pub fn with_type_param(mut self, var: TypeVarId) -> Self {
-        self.type_params.push(var);
-        self
     }
 
     /// Add a method.
@@ -58,11 +163,28 @@ impl TraitDef {
         self
     }
 
-    /// Add a supertrait.
+    /// The dictionary slot order for this trait: method indices sorted by
+    /// method name. A bounded generic function compiles bound-method calls
+    /// as tuple accesses into a dictionary argument, and call sites build
+    /// that tuple from a concrete impl — both sides derive the layout from
+    /// this one function, so they can never disagree within a build.
+    /// (Cross-build agreement is the content-addressing story: dictionary
+    /// construction and slot access are both *bytecode*, covered by the
+    /// caller's and callee's hashes.)
     #[must_use]
-    pub fn with_supertrait(mut self, trait_id: TraitId) -> Self {
-        self.supertraits.push(trait_id);
-        self
+    pub fn dictionary_order(&self) -> Vec<usize> {
+        let mut order: Vec<usize> = (0..self.methods.len()).collect();
+        order.sort_by(|&a, &b| self.methods[a].name.cmp(&self.methods[b].name));
+        order
+    }
+
+    /// The dictionary slot index of a method, by name. See
+    /// [`dictionary_order`](Self::dictionary_order).
+    #[must_use]
+    pub fn dictionary_slot(&self, method_name: &str) -> Option<usize> {
+        self.dictionary_order()
+            .into_iter()
+            .position(|idx| self.methods[idx].name.as_ref() == method_name)
     }
 }
 
@@ -98,8 +220,8 @@ impl TraitMethodDef {
 /// A registered trait implementation.
 #[derive(Debug, Clone)]
 pub struct TraitImpl {
-    /// The trait being implemented.
-    pub trait_id: TraitId,
+    /// The identity of the trait being implemented.
+    pub trait_uuid: Uuid,
 
     /// The type implementing the trait (must be nominal).
     pub implementing_type: NominalType,
@@ -115,9 +237,9 @@ pub struct TraitImpl {
 impl TraitImpl {
     /// Create a new trait implementation.
     #[must_use]
-    pub fn new(trait_id: TraitId, implementing_type: NominalType) -> Self {
+    pub fn new(trait_uuid: Uuid, implementing_type: NominalType) -> Self {
         Self {
-            trait_id,
+            trait_uuid,
             implementing_type,
             methods: HashMap::new(),
         }
@@ -135,14 +257,20 @@ impl TraitImpl {
 ///
 /// Impl methods are compiled as ordinary named functions under this symbol,
 /// so they flow through the same content-addressed hash finalization as any
-/// other function. The symbol is derived only from source-stable data (the
-/// nominal type's UUID and source-level names) — never from compilation-order
-/// artifacts like trait IDs — so it is deterministic across compilation
-/// contexts. The `::` separator cannot appear in module-qualified names
-/// (which use `.`), so these symbols never collide with user functions.
+/// other function. The symbol is derived only from source-stable identities —
+/// the implementing type's UUID, the trait's UUID, and the method name —
+/// never from names that can collide (two same-named traits implemented for
+/// one type must not share a symbol) or from compilation-order artifacts.
+/// The `::` separator cannot appear in module-qualified names (which use
+/// `.`), so these symbols never collide with user functions.
 #[must_use]
-pub fn impl_method_symbol(type_uuid: &Uuid, trait_name: &str, method_name: &str) -> Arc<str> {
-    format!("{}::{trait_name}::{method_name}", uuid_to_source(type_uuid)).into()
+pub fn impl_method_symbol(type_uuid: &Uuid, trait_uuid: &Uuid, method_name: &str) -> Arc<str> {
+    format!(
+        "{}::{}::{method_name}",
+        uuid_to_source(type_uuid),
+        uuid_to_source(trait_uuid)
+    )
+    .into()
 }
 
 /// Render a UUID in Ambient's canonical source form: uppercase, hyphenated.
@@ -150,8 +278,8 @@ pub fn impl_method_symbol(type_uuid: &Uuid, trait_name: &str, method_name: &str)
 /// UUID literals are written uppercase in source; the `uuid` crate otherwise
 /// renders them lowercase. Anywhere a UUID is shown to a user or embedded in a
 /// symbol name — `unique(...)` type display and the `<uuid>::method` /
-/// `<uuid>::<Trait>::<method>` symbols — goes through this so the rendered form
-/// matches the source syntax and round-trips.
+/// `<type-uuid>::<trait-uuid>::<method>` symbols — goes through this so the
+/// rendered form matches the source syntax and round-trips.
 #[must_use]
 pub fn uuid_to_source(uuid: &Uuid) -> String {
     uuid.hyphenated().to_string().to_uppercase()
@@ -164,8 +292,8 @@ pub enum MethodLookup<'a> {
     NotFound,
     /// Exactly one implementation provides the method.
     Found {
-        /// The trait providing the method.
-        trait_id: TraitId,
+        /// The identity of the trait providing the method.
+        trait_uuid: Uuid,
         /// The trait's method signature.
         method: &'a TraitMethodDef,
         /// The canonical dispatch symbol (see [`impl_method_symbol`]).
@@ -180,19 +308,22 @@ pub enum MethodLookup<'a> {
 }
 
 /// Registry of trait definitions and implementations.
+///
+/// Definitions are keyed by the trait's identity uuid; `name_to_uuid` is the
+/// in-scope lookup table (imports and locals register here, later
+/// registrations shadowing earlier ones — the same precedence every other
+/// name follows). Impls key on `(trait uuid, type uuid)`, the coherence
+/// granularity.
 #[derive(Debug, Clone, Default)]
 pub struct TraitRegistry {
-    /// Map from trait ID to trait definition.
-    traits: HashMap<TraitId, TraitDef>,
+    /// Map from trait identity to trait definition.
+    traits: HashMap<Uuid, TraitDef>,
 
-    /// Map from trait name to ID for lookup.
-    name_to_id: HashMap<Arc<str>, TraitId>,
+    /// Map from in-scope trait name to identity.
+    name_to_uuid: HashMap<Arc<str>, Uuid>,
 
-    /// Map from (trait ID, nominal type UUID) to implementation.
-    impls: HashMap<(TraitId, Uuid), TraitImpl>,
-
-    /// Next available trait ID.
-    next_id: TraitId,
+    /// Map from (trait uuid, nominal type UUID) to implementation.
+    impls: HashMap<(Uuid, Uuid), TraitImpl>,
 }
 
 impl TraitRegistry {
@@ -202,29 +333,30 @@ impl TraitRegistry {
         Self::default()
     }
 
-    /// Generate a fresh trait ID.
-    pub fn fresh_id(&mut self) -> TraitId {
-        let id = self.next_id;
-        self.next_id += 1;
-        id
-    }
-
-    /// Register a trait definition.
+    /// Register a trait definition, binding its name in scope.
     pub fn register_trait(&mut self, def: TraitDef) {
-        self.name_to_id.insert(def.name.clone(), def.id);
-        self.traits.insert(def.id, def);
+        self.name_to_uuid.insert(def.name.clone(), def.uuid);
+        self.traits.insert(def.uuid, def);
     }
 
-    /// Get trait definition by ID.
-    #[must_use]
-    pub fn get_trait(&self, id: TraitId) -> Option<&TraitDef> {
-        self.traits.get(&id)
+    /// Register a trait definition *without* binding its bare name — the
+    /// identity becomes resolvable ([`get_trait`](Self::get_trait)) but the
+    /// name does not enter scope. Used for foreign traits a module never
+    /// imported: their impls and bounds must still resolve by uuid.
+    pub fn register_trait_unnamed(&mut self, def: TraitDef) {
+        self.traits.entry(def.uuid).or_insert(def);
     }
 
-    /// Look up trait ID by name.
+    /// Get trait definition by identity.
     #[must_use]
-    pub fn lookup_trait(&self, name: &str) -> Option<TraitId> {
-        self.name_to_id.get(name).copied()
+    pub fn get_trait(&self, uuid: Uuid) -> Option<&TraitDef> {
+        self.traits.get(&uuid)
+    }
+
+    /// Look up an in-scope trait's identity by name.
+    #[must_use]
+    pub fn lookup_trait(&self, name: &str) -> Option<Uuid> {
+        self.name_to_uuid.get(name).copied()
     }
 
     /// Register a trait implementation.
@@ -233,20 +365,20 @@ impl TraitRegistry {
     /// `(trait, type)` pair, if any — a coherence violation the caller
     /// should report.
     pub fn register_impl(&mut self, impl_: TraitImpl) -> Option<TraitImpl> {
-        let key = (impl_.trait_id, impl_.implementing_type.uuid);
+        let key = (impl_.trait_uuid, impl_.implementing_type.uuid);
         self.impls.insert(key, impl_)
     }
 
     /// Get implementation for a trait and nominal type.
     #[must_use]
-    pub fn get_impl(&self, trait_id: TraitId, type_uuid: Uuid) -> Option<&TraitImpl> {
-        self.impls.get(&(trait_id, type_uuid))
+    pub fn get_impl(&self, trait_uuid: Uuid, type_uuid: Uuid) -> Option<&TraitImpl> {
+        self.impls.get(&(trait_uuid, type_uuid))
     }
 
     /// Find all implementations for a nominal type.
     ///
-    /// Sorted by trait ID so lookups are deterministic (the backing map has
-    /// arbitrary iteration order).
+    /// Sorted by trait uuid so lookups are deterministic (the backing map
+    /// has arbitrary iteration order).
     #[must_use]
     pub fn impls_for_type(&self, type_uuid: Uuid) -> Vec<&TraitImpl> {
         let mut impls: Vec<&TraitImpl> = self
@@ -255,23 +387,23 @@ impl TraitRegistry {
             .filter(|((_, uuid), _)| *uuid == type_uuid)
             .map(|(_, impl_)| impl_)
             .collect();
-        impls.sort_by_key(|impl_| impl_.trait_id);
+        impls.sort_by_key(|impl_| impl_.trait_uuid);
         impls
     }
 
     /// Find a method by name for a given nominal type.
     #[must_use]
     pub fn find_method(&self, type_uuid: Uuid, method_name: &str) -> MethodLookup<'_> {
-        let mut matches: Vec<(TraitId, &TraitMethodDef, Arc<str>)> = Vec::new();
+        let mut matches: Vec<(Uuid, &TraitMethodDef, Arc<str>)> = Vec::new();
         for impl_ in self.impls_for_type(type_uuid) {
             if let Some(symbol) = impl_.methods.get(method_name)
-                && let Some(trait_def) = self.get_trait(impl_.trait_id)
+                && let Some(trait_def) = self.get_trait(impl_.trait_uuid)
                 && let Some(method) = trait_def
                     .methods
                     .iter()
                     .find(|m| m.name.as_ref() == method_name)
             {
-                matches.push((impl_.trait_id, method, Arc::clone(symbol)));
+                matches.push((impl_.trait_uuid, method, Arc::clone(symbol)));
             }
         }
 
@@ -279,9 +411,9 @@ impl TraitRegistry {
             0 => MethodLookup::NotFound,
             1 => {
                 // Vec::swap_remove on a single-element vec cannot fail.
-                let (trait_id, method, symbol) = matches.swap_remove(0);
+                let (trait_uuid, method, symbol) = matches.swap_remove(0);
                 MethodLookup::Found {
-                    trait_id,
+                    trait_uuid,
                     method,
                     symbol,
                 }
@@ -297,7 +429,7 @@ impl TraitRegistry {
 
     /// Check if a type implements a trait.
     #[must_use]
-    pub fn implements(&self, type_uuid: Uuid, trait_id: TraitId) -> bool {
-        self.impls.contains_key(&(trait_id, type_uuid))
+    pub fn implements(&self, type_uuid: Uuid, trait_uuid: Uuid) -> bool {
+        self.impls.contains_key(&(trait_uuid, type_uuid))
     }
 }

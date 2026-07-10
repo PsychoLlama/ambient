@@ -13,17 +13,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A trait for types that can compute their magnitude/length.
-trait Magnitude {
+unique(AAAAAAAA-BBBB-4CCC-8DDD-000000000019) trait Magnitude {
     fn magnitude(self): Number;
 }
 
 /// A trait for types that can be scaled by a number.
-trait Scale {
+unique(AAAAAAAA-BBBB-4CCC-8DDD-00000000001A) trait Scale {
     fn scale(self, factor: Number): Self;
 }
 
 /// A trait for types that can be normalized to unit length.
-trait Normalize {
+unique(AAAAAAAA-BBBB-4CCC-8DDD-00000000001B) trait Normalize {
     fn normalize(self): Self;
 }
 

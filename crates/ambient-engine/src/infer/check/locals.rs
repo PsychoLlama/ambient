@@ -35,7 +35,7 @@ pub(super) fn register_local_declarations(
     // Unit structs are values too: each denotes a single value constructed by
     // its bare name (like a nullary variant), bound so `let o = Origin` checks.
     register_unit_struct_values(module, env, module_id);
-    register_traits(infer, module);
+    register_traits(infer, module, errors);
     register_enums(infer, module, env, errors, module_id);
     // ORDERING (load-bearing): `build_import_env` already registered
     // cross-module ability imports as bare dynamics; `register_abilities`
@@ -126,18 +126,111 @@ fn register_unit_struct_values(
     }
 }
 /// Register all trait definitions from a module into the trait registry.
-fn register_traits(infer: &mut Infer, module: &crate::ast::Module) {
+fn register_traits(
+    infer: &mut Infer,
+    module: &crate::ast::Module,
+    errors: &mut Vec<BoxedTypeError>,
+) {
     for item in &module.items {
         if let crate::ast::ItemKind::Trait(trait_def) = &item.kind {
+            // A declaration claiming a reserved trait uuid must *be* the
+            // canonical prelude trait — the same hijack guard reserved
+            // enums and primitives get.
+            if let Err(message) = validate_reserved_trait(trait_def) {
+                errors.push(Box::new(TypeError::new(
+                    TypeErrorKind::InvalidDeclaration { message },
+                    (trait_def.name_span.start, trait_def.name_span.end),
+                )));
+                continue;
+            }
             register_trait_def(infer, trait_def);
         }
     }
 }
-/// Register a single trait definition into the trait registry.
-pub(super) fn register_trait_def(infer: &mut Infer, trait_def: &crate::ast::TraitDef) {
-    let trait_id = infer.trait_registry.fresh_id();
 
-    // Build method definitions
+/// Validate a trait declaration against the reserved core trait identities.
+///
+/// The operator traits (and `Default`) are ordinary declarations in
+/// `core::traits`, but the engine's operator desugar anchors on their
+/// reserved uuids ([`crate::types::ReservedTrait`]). A declaration claiming
+/// one of those uuids must carry the canonical name and method shape, so the
+/// core sources cannot drift from the anchors and no other module can hijack
+/// an operator's dispatch identity.
+fn validate_reserved_trait(def: &crate::ast::TraitDef) -> Result<(), String> {
+    let Some(reserved) = crate::types::ReservedTrait::from_uuid(def.uuid) else {
+        return Ok(());
+    };
+
+    let mismatch = |what: &str| {
+        Err(format!(
+            "`unique({})` is the reserved identity of the core trait `{}`; \
+             a declaration using it must match the canonical shape exactly ({what})",
+            crate::types::uuid_to_source(&def.uuid),
+            reserved.name(),
+        ))
+    };
+
+    if def.name.as_ref() != reserved.name() {
+        return mismatch(&format!(
+            "expected name `{}`, found `{}`",
+            reserved.name(),
+            def.name
+        ));
+    }
+    let (method_name, has_self, param_count) = reserved_trait_method_shape(reserved);
+    let [method] = def.methods.as_slice() else {
+        return mismatch(&format!("expected exactly one method `{method_name}`"));
+    };
+    if method.name.as_ref() != method_name
+        || method.has_self != has_self
+        || method.params.len() != param_count
+    {
+        return mismatch(&format!(
+            "expected method `{method_name}` with {param_count} parameter(s){}",
+            if has_self { " and `self`" } else { "" }
+        ));
+    }
+    Ok(())
+}
+
+/// The canonical method shape of a reserved core trait:
+/// `(method name, takes self, non-self parameter count)`.
+fn reserved_trait_method_shape(
+    reserved: crate::types::ReservedTrait,
+) -> (&'static str, bool, usize) {
+    use crate::types::ReservedTrait as R;
+    match reserved {
+        R::Add => ("add", true, 1),
+        R::Sub => ("sub", true, 1),
+        R::Mul => ("mul", true, 1),
+        R::Div => ("div", true, 1),
+        R::Mod => ("rem", true, 1),
+        R::Eq => ("eq", true, 1),
+        R::Ord => ("cmp", true, 1),
+        R::Default => ("default", false, 0),
+    }
+}
+/// Register a single trait definition into the trait registry, binding its
+/// bare name in scope. The identity is the declaration's `unique(<uuid>)`
+/// prefix, so re-registering the same trait (an import seen from several
+/// modules) is idempotent.
+pub(super) fn register_trait_def(infer: &mut Infer, trait_def: &crate::ast::TraitDef) {
+    infer
+        .trait_registry
+        .register_trait(checked_trait_def(trait_def));
+}
+
+/// Register a trait definition by identity only — resolvable by uuid for
+/// impls and bounds, but its bare name does not enter scope. Used for
+/// foreign traits this module never imported.
+pub(super) fn register_trait_def_unnamed(infer: &mut Infer, trait_def: &crate::ast::TraitDef) {
+    infer
+        .trait_registry
+        .register_trait_unnamed(checked_trait_def(trait_def));
+}
+
+/// Convert an AST trait declaration to its checker form.
+fn checked_trait_def(trait_def: &crate::ast::TraitDef) -> TraitDef {
     let methods: Vec<TraitMethodDef> = trait_def
         .methods
         .iter()
@@ -151,16 +244,11 @@ pub(super) fn register_trait_def(infer: &mut Infer, trait_def: &crate::ast::Trai
         })
         .collect();
 
-    // Create and register the trait definition
-    let def = TraitDef {
-        id: trait_id,
+    TraitDef {
+        uuid: trait_def.uuid,
         name: Arc::clone(&trait_def.name),
-        type_params: Vec::new(), // TODO: Handle type params properly
         methods,
-        supertraits: Vec::new(), // TODO: Resolve supertrait references
-    };
-
-    infer.trait_registry.register_trait(def);
+    }
 }
 /// Validate every struct declaration against the reserved primitive specs.
 ///
