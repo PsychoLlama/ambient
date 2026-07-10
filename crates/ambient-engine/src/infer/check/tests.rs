@@ -267,3 +267,60 @@ fn registry_less_check_resolves_a_local_enum_by_bare_name() {
         result.errors
     );
 }
+
+/// `type Bottom = !;` used as an ability method's return type must behave
+/// exactly like a spelled `!`. A registry-backed check gets this from the
+/// resolve pass (which inlines non-generic aliases into the AST), but a
+/// registry-less check never runs resolve — the checker itself must derive
+/// never-ness from the *resolved* signature. Pins three things: the
+/// abstract carve-out applies (no "needs a default implementation" error),
+/// the AST return type is normalized to `Type::Never` (the compiler's
+/// unwind flag reads the AST), and the canonical signature hash is
+/// identical to the spelled-`!` form.
+#[test]
+fn alias_of_never_in_ability_signature_behaves_like_never() {
+    use crate::ast::{Item, ItemKind, TypeAliasDef};
+
+    let mut module = ability_module(
+        "Abort",
+        vec![method(
+            "abort",
+            &[],
+            &[("code", Type::number())],
+            Type::named_simple("Bottom"),
+        )],
+    );
+    module.items.insert(
+        0,
+        Item::new(
+            ItemKind::TypeAlias(TypeAliasDef {
+                name: Arc::from("Bottom"),
+                name_span: span(),
+                is_public: false,
+                type_params: vec![],
+                ty: Type::Never,
+            }),
+            span(),
+        ),
+    );
+    let result = check_module(module);
+    assert!(
+        result.errors.is_empty(),
+        "an abstract method returning an alias of `!` should check, got: {:?}",
+        result.errors
+    );
+
+    let ItemKind::Ability(def) = &result.module.items[1].kind else {
+        panic!("expected ability item");
+    };
+    assert!(
+        matches!(def.methods[0].ret_ty, Type::Never),
+        "return type should be normalized to `!`, got: {:?}",
+        def.methods[0].ret_ty
+    );
+    assert_eq!(
+        def.methods[0].resolved_signature,
+        Some(ambient_core::SignatureHash::new(&["number"], "never")),
+        "alias spelling must hash identically to a spelled `!`"
+    );
+}

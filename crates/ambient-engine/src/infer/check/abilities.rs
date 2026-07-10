@@ -72,12 +72,23 @@ pub(super) fn register_abilities(
             continue;
         };
 
+        let dyn_ab = resolve_ability_def(infer, def, errors);
+        // The compiler reads the identity and per-method signature hashes
+        // back from the AST.
+        def.resolved_id = Some(dyn_ab.id);
+        for (method, resolved_method) in def.methods.iter_mut().zip(&dyn_ab.methods) {
+            method.resolved_signature = Some(resolved_method.signature);
+            normalize_never_ret(method, resolved_method);
+        }
+
         // Every ability method carries a default implementation — the
         // behavior of an unhandled perform. The carve-out is
         // never-returning methods (`: !`): performing one unwinds to its
         // handler instead of resuming, so a declaration may leave the
         // unhandled case abstract — an unhandled perform is then a
         // runtime fault, exactly like the prelude's `Exception::throw`.
+        // Runs after resolution so an alias-spelled `!` (normalized above)
+        // counts as never.
         for method in &def.methods {
             if method.body.is_none() && !matches!(method.ret_ty, Type::Never) {
                 errors.push(Box::new(TypeError::new(
@@ -93,14 +104,6 @@ pub(super) fn register_abilities(
                     (method.span.start, method.span.end),
                 )));
             }
-        }
-
-        let dyn_ab = resolve_ability_def(infer, def, errors);
-        // The compiler reads the identity and per-method signature hashes
-        // back from the AST.
-        def.resolved_id = Some(dyn_ab.id);
-        for (method, resolved_method) in def.methods.iter_mut().zip(&dyn_ab.methods) {
-            method.resolved_signature = Some(resolved_method.signature);
         }
         infer.ability_resolver.register_dynamic(dyn_ab);
         if let Some(ability) = infer.ability_resolver.get_dynamic(&def.name) {
@@ -378,6 +381,30 @@ fn residual_primitive_name(ty: &Type) -> Option<&str> {
     }
 }
 
+/// Normalize a never return hidden behind a type alias (`type Bottom = !;`
+/// … `fn abort(…): Bottom;`) back into the AST as a spelled-out
+/// `Type::Never`.
+///
+/// Never-ness is a property of the *resolved* signature — the same view the
+/// canonical rendering hashes into the method's identity, where an alias of
+/// `!` already renders `never`. But two consumers read the raw AST type: the
+/// abstract-method check below and the compiler's never flag
+/// (`compiler/context.rs::register_abilities`), which decides unwind vs
+/// capture at runtime. In a registry-backed check the resolve pass has
+/// already inlined non-generic aliases, so the raw type matches; in a
+/// registry-less check (single file, tests) resolve never runs and the raw
+/// type would stay `Named("Bottom")` — silently giving the method capture
+/// semantics while its identity says `never`. Writing the resolved
+/// never-ness back keeps every consumer keyed off one derivation.
+fn normalize_never_ret(
+    method: &mut crate::ast::AbilityMethod,
+    resolved: &crate::ability_resolver::DynMethod,
+) {
+    if matches!(resolved.ret, Type::Never) {
+        method.ret_ty = Type::Never;
+    }
+}
+
 /// Resolve one `ability` declaration into a [`DynAbility`], recording its
 /// transitive dependencies in the ability registry.
 ///
@@ -547,6 +574,7 @@ pub fn resolve_ability_declarations(
         def.resolved_id = Some(dyn_ab.id);
         for (method, resolved_method) in def.methods.iter_mut().zip(&dyn_ab.methods) {
             method.resolved_signature = Some(resolved_method.signature);
+            normalize_never_ret(method, resolved_method);
         }
         let core_system = crate::fqn::ModuleId::core_system();
         infer

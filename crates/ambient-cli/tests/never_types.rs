@@ -286,6 +286,60 @@ fn test_never_arm_can_rethrow() {
 }
 
 #[test]
+fn test_alias_of_never_behaves_like_never() {
+    // `type Bottom = !;` in an ability signature is exactly a spelled `!`:
+    // the method may stay abstract, and its performs unwind.
+    CliTest::new(
+        r"
+        type Bottom = !;
+
+        unique(AB000000-0000-0000-0000-0000000000A7) ability Abort {
+            fn abort(code: Number): Bottom;
+        }
+
+        fn work(x: Number): Number with Abort {
+            if (x > 10) {
+                Abort::abort!(x)
+            }
+            x * 2
+        }
+
+        pub fn run(): Number {
+            let caught = with { Abort::abort(code) => code } handle work(50);
+            let passed = with { Abort::abort(code) => code } handle work(3);
+            caught + passed
+        }
+        ",
+    )
+    .expect_output("56");
+}
+
+#[test]
+fn test_resume_on_alias_of_never_is_rejected() {
+    CliTest::new(
+        r"
+        type Bottom = !;
+
+        unique(AB000000-0000-0000-0000-0000000000A8) ability Abort {
+            fn abort(code: Number): Bottom;
+        }
+
+        fn work(): Number with Abort {
+            Abort::abort!(1)
+        }
+
+        pub fn run(): Number {
+            with {
+                Abort::abort(code) => resume(code)
+            } handle work()
+        }
+        ",
+    )
+    .check()
+    .expect_error("cannot `resume` `Abort::abort`");
+}
+
+#[test]
 fn test_unhandled_abstract_never_method_is_a_runtime_fault() {
     // No handler and no default implementation: the perform is a fault,
     // like an uncaught exception.
