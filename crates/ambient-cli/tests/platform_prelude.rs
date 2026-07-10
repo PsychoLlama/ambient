@@ -232,7 +232,7 @@ fn declared_exception_reproduces_the_vm_anchor_id() {
     assert_eq!(throw.name.as_ref(), "throw");
     assert!(
         !throw.has_impl,
-        "`throw` is the one abstract ability method (unhandled = uncaught)"
+        "`throw` is abstract (never-returning; unhandled = uncaught)"
     );
     assert_eq!(
         ambient_core::MethodKey::derive(&exception.uuid, &throw.signature, None),
