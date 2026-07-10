@@ -303,6 +303,7 @@ pub fn build_package(
         let mut compiled = compiled;
         compiled.function_names = qualify_names(&compiled.function_names, &module_path, &registry);
         compiled.const_names = qualify_names(&compiled.const_names, &module_path, &registry);
+        compiled.signatures = qualify_names(&compiled.signatures, &module_path, &registry);
         all_compiled.merge(&compiled);
     }
 
@@ -565,7 +566,7 @@ fn compile_module_group(
             });
         }
 
-        let compiled = crate::compiler::compile_module_with_options(
+        let mut compiled = crate::compiler::compile_module_with_options(
             &check_result.module,
             crate::compiler::CompileOptions {
                 imported_hashes: Some(linking_table(module_function_hashes, registry)),
@@ -582,6 +583,7 @@ fn compile_module_group(
             module: path.to_string(),
             error: e.to_string(),
         })?;
+        compiled.signatures = check_result.signatures;
 
         let mut func_hashes = HashMap::new();
         for (name, hash) in &compiled.function_names {
@@ -594,9 +596,9 @@ fn compile_module_group(
         // dispatch symbols are already globally unique and carry their own
         // `::` (`List::all`), so they pass through unqualified — qualifying
         // them again would produce a double-qualified `core::collections::list::all`.
-        let mut compiled = compiled;
         compiled.function_names = qualify_names(&compiled.function_names, &path, registry);
         compiled.const_names = qualify_names(&compiled.const_names, &path, registry);
+        compiled.signatures = qualify_names(&compiled.signatures, &path, registry);
 
         module_function_hashes.insert(path, func_hashes);
         merged.merge(&compiled);
@@ -654,7 +656,7 @@ fn compile_loaded_module_with_registry(
     }
 
     let source_file = file_path.display().to_string();
-    let compiled = crate::compiler::compile_module_with_options(
+    let mut compiled = crate::compiler::compile_module_with_options(
         &check_result.module,
         crate::compiler::CompileOptions {
             source: Some(&loaded.source),
@@ -667,6 +669,7 @@ fn compile_loaded_module_with_registry(
         module: module_path.to_string(),
         error: e.to_string(),
     })?;
+    compiled.signatures = check_result.signatures;
 
     Ok(compiled)
 }
@@ -726,12 +729,14 @@ pub fn compile_session_module(
         module: path.to_string(),
         error: e.to_string(),
     })?;
+    compiled.signatures = check_result.signatures;
 
     // Qualify this module's function and const names with its path
     // (`repl::foo`), the canonical identity, so deploy-by-name resolves them.
     // Impl-method dispatch symbols are already globally unique and pass through.
     compiled.function_names = qualify_names(&compiled.function_names, path, registry);
     compiled.const_names = qualify_names(&compiled.const_names, path, registry);
+    compiled.signatures = qualify_names(&compiled.signatures, path, registry);
 
     let mut merged = base.clone();
     merged.merge(&compiled);
@@ -742,21 +747,21 @@ pub fn compile_session_module(
 /// the canonical identity, so store bindings never collide across modules.
 /// Names already carrying `::` (impl-method dispatch symbols like
 /// `<uuid>::Trait::method`, already globally unique) pass through untouched.
-/// Applied identically to function and const name maps.
-fn qualify_names(
-    names: &HashMap<Arc<str>, blake3::Hash>,
+/// Applied identically to function, const, and signature maps.
+fn qualify_names<V: Clone>(
+    names: &HashMap<Arc<str>, V>,
     path: &ModulePath,
     registry: &ModuleRegistry,
-) -> HashMap<Arc<str>, blake3::Hash> {
+) -> HashMap<Arc<str>, V> {
     names
         .iter()
-        .map(|(name, hash)| {
+        .map(|(name, value)| {
             let qualified: Arc<str> = if name.contains("::") {
                 Arc::clone(name)
             } else {
                 registry.fqn(path, &[Arc::clone(name)]).to_string().into()
             };
-            (qualified, *hash)
+            (qualified, value.clone())
         })
         .collect()
 }

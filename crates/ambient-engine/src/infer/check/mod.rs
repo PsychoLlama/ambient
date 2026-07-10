@@ -51,6 +51,13 @@ pub struct CheckResult {
     pub errors: Vec<BoxedTypeError>,
     /// The typed module (with types filled in on expressions).
     pub module: crate::ast::Module,
+    /// Canonical type signature of every named item (function, extern fn,
+    /// const), keyed by its bare name: the checked scheme with the final
+    /// substitution applied, rendered by [`CanonicalTypeRenderer`]. This is
+    /// the signature half of a deploy generation's name bindings
+    /// (`Fqn → (hash, canonical signature)`, see `ref/live-upgrade.md`) —
+    /// the rebinding rule compares these strings for equality.
+    pub signatures: std::collections::HashMap<std::sync::Arc<str>, std::sync::Arc<str>>,
 }
 
 impl CheckResult {
@@ -285,5 +292,59 @@ fn check_module_core(
     }
 
     errors.extend(infer.take_pending_errors());
-    CheckResult { errors, module }
+
+    // Every body is checked and the substitution is final: render each named
+    // item's canonical signature (an unannotated private function's inferred
+    // types are resolved by now, so the rendering reflects the checked type,
+    // not the pre-inference placeholder vars).
+    let signatures = render_item_signatures(&infer, &module, &env, current_module_id.as_ref());
+
+    CheckResult {
+        errors,
+        module,
+        signatures,
+    }
+}
+
+/// Render the canonical type signature of every named item from its checked
+/// scheme, final substitution applied.
+///
+/// The rendering reuses [`CanonicalTypeRenderer`] — the same authority
+/// ability method signatures hash through — so there is exactly one canonical
+/// type encoding: variables number by first occurrence (deterministic across
+/// compiles), nominal heads render by uuid (rename-stable), abilities render
+/// by sorted id. Trait bounds are interface, so they enter the rendering as a
+/// canonical `where` suffix in dictionary order (`crate::ast::dict_params`'s
+/// order, which [`Scheme::bounds`](super::env::Scheme) preserves), each bound
+/// keyed by its variable's occurrence number and the trait's nominal uuid.
+fn render_item_signatures(
+    infer: &Infer,
+    module: &crate::ast::Module,
+    env: &TypeEnv,
+    module_id: Option<&crate::fqn::ModuleId>,
+) -> std::collections::HashMap<std::sync::Arc<str>, std::sync::Arc<str>> {
+    use crate::ability_resolver::CanonicalTypeRenderer;
+    use std::fmt::Write;
+
+    let mut signatures = std::collections::HashMap::new();
+    for item in &module.items {
+        let name = match &item.kind {
+            crate::ast::ItemKind::Function(f) => &f.name,
+            crate::ast::ItemKind::ExternFn(f) => &f.name,
+            crate::ast::ItemKind::Const(c) => &c.name,
+            _ => continue,
+        };
+        let Some(scheme) = locals::own_item_scheme(env, module_id, name) else {
+            continue;
+        };
+        let ty = infer.apply(&scheme.ty);
+        let mut renderer = CanonicalTypeRenderer::new();
+        let mut sig = renderer.render(&ty);
+        for (var, bound) in &scheme.bounds {
+            let var = renderer.render(&crate::types::Type::Var(*var));
+            let _ = write!(sig, " where {var}: {}", bound.trait_uuid);
+        }
+        signatures.insert(std::sync::Arc::clone(name), std::sync::Arc::from(sig));
+    }
+    signatures
 }

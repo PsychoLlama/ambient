@@ -153,6 +153,7 @@ pub fn compile_source(source: &str, file: &Path) -> Result<CompiledModule> {
         },
     )
     .map_err(|e| anyhow::anyhow!("compile error at {}: {e}", file.display()))?;
+    compiled.signatures = check_result.signatures;
 
     compiled.merge(&core.compiled);
     Ok(compiled)

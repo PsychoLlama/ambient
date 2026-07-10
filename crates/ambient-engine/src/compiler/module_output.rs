@@ -23,6 +23,16 @@ pub struct CompiledModule {
     /// first-class named binding in the store's `names` index.
     pub const_names: HashMap<Arc<str>, blake3::Hash>,
 
+    /// Canonical type signature per named item, keyed like
+    /// [`Self::function_names`]/[`Self::const_names`] (bare at compile time,
+    /// qualified when a build merges modules). Rendered by the checker
+    /// ([`crate::infer::CheckResult::signatures`]) and attached at the
+    /// check+compile seams; the compiler itself never computes one. Dispatch
+    /// symbols (`<uuid>::method`) are content-addressed, not named items, so
+    /// they never appear here. This is the signature half of a deploy
+    /// generation's name bindings (see `ref/live-upgrade.md`).
+    pub signatures: HashMap<Arc<str>, Arc<str>>,
+
     /// Map from lambda hashes to their parent function names.
     /// Used for navigation: to find a lambda's source location,
     /// compile the parent and match by hash.
@@ -49,6 +59,7 @@ impl CompiledModule {
             functions: HashMap::new(),
             function_names: HashMap::new(),
             const_names: HashMap::new(),
+            signatures: HashMap::new(),
             lambda_parents: HashMap::new(),
             entry_point: None,
             objects: HashMap::new(),
@@ -84,6 +95,11 @@ impl CompiledModule {
         }
         for (name, hash) in &other.const_names {
             self.const_names.entry(Arc::clone(name)).or_insert(*hash);
+        }
+        for (name, sig) in &other.signatures {
+            self.signatures
+                .entry(Arc::clone(name))
+                .or_insert_with(|| Arc::clone(sig));
         }
         for (hash, parent) in &other.lambda_parents {
             self.lambda_parents
