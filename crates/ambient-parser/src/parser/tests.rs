@@ -5,7 +5,9 @@
 use ambient_engine::ast::Span;
 
 use super::Parser;
-use crate::cst::{CstBinaryOp, CstExprKind, CstIdent, CstItemKind, CstStructDef, CstUnaryOp};
+use crate::cst::{
+    CstBinaryOp, CstExpr, CstExprKind, CstIdent, CstItemKind, CstStmtKind, CstStructDef, CstUnaryOp,
+};
 
 #[test]
 fn test_parse_number() {
@@ -443,6 +445,107 @@ fn test_parse_block() {
         }
         _ => panic!("Expected block"),
     }
+}
+
+#[test]
+fn test_parse_block_bodied_expr_in_statement_position() {
+    // A block-bodied expression (`if`, `match`, …) followed by more code
+    // is a statement — no semicolon required, Rust-style.
+    let source = r"
+        {
+            if (x < 0) {
+                boom()
+            }
+            x * 2
+        }
+    ";
+    let mut parser = Parser::new(source).unwrap();
+    let expr = parser.parse_expression().expect("parse error");
+    match expr.kind {
+        CstExprKind::Block { stmts, result } => {
+            assert_eq!(stmts.len(), 1);
+            assert!(matches!(
+                stmts[0].kind,
+                CstStmtKind::Expr(CstExpr {
+                    kind: CstExprKind::If { .. },
+                    ..
+                })
+            ));
+            assert!(result.is_some());
+        }
+        _ => panic!("Expected block"),
+    }
+}
+
+#[test]
+fn test_parse_block_bodied_expr_in_final_position_is_the_result() {
+    // In final position the same expression is the block's result, not a
+    // statement.
+    let source = r"
+        {
+            if (x < 0) {
+                boom()
+            }
+        }
+    ";
+    let mut parser = Parser::new(source).unwrap();
+    let expr = parser.parse_expression().expect("parse error");
+    match expr.kind {
+        CstExprKind::Block { stmts, result } => {
+            assert!(stmts.is_empty());
+            assert!(matches!(
+                result.as_deref(),
+                Some(CstExpr {
+                    kind: CstExprKind::If { .. },
+                    ..
+                })
+            ));
+        }
+        _ => panic!("Expected block"),
+    }
+}
+
+#[test]
+fn test_parse_match_in_statement_position() {
+    let source = r"
+        {
+            match x {
+                0 => zero(),
+                _ => other(),
+            }
+            done()
+        }
+    ";
+    let mut parser = Parser::new(source).unwrap();
+    let expr = parser.parse_expression().expect("parse error");
+    match expr.kind {
+        CstExprKind::Block { stmts, result } => {
+            assert_eq!(stmts.len(), 1);
+            assert!(matches!(
+                stmts[0].kind,
+                CstStmtKind::Expr(CstExpr {
+                    kind: CstExprKind::Match { .. },
+                    ..
+                })
+            ));
+            assert!(result.is_some());
+        }
+        _ => panic!("Expected block"),
+    }
+}
+
+#[test]
+fn test_parse_non_block_expr_still_requires_semicolon() {
+    // The relaxation is scoped to block-bodied expressions: a plain call
+    // in statement position still needs its `;`.
+    let source = r"
+        {
+            boom()
+            x * 2
+        }
+    ";
+    let mut parser = Parser::new(source).unwrap();
+    assert!(parser.parse_expression().is_err());
 }
 
 #[test]

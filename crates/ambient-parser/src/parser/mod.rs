@@ -18,6 +18,7 @@
 // Allow expect() for internal invariants (e.g., segments.last() on non-empty vectors)
 #![allow(clippy::expect_used)]
 
+mod control;
 mod expr;
 mod items;
 mod patterns;

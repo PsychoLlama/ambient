@@ -82,12 +82,14 @@ fn test_throw_as_function_tail_value() {
 #[test]
 fn test_throw_in_if_without_else() {
     // An else-less `if` requires `()` from its branch; `!` adopts that too.
+    // The `if` stands in statement position with no semicolon — block-bodied
+    // expressions need none when more code follows.
     CliTest::new(
         r#"
         fn guard(x: Number): Number with Exception {
-            let checked = if (x < 0) {
+            if (x < 0) {
                 Exception::throw!("negative")
-            };
+            }
             x * 2
         }
 
