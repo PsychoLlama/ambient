@@ -269,6 +269,95 @@ fn test_cross_turn_use_and_ability_call() {
 }
 
 #[test]
+fn test_user_ability_declared_and_used_across_turns() {
+    // A user `ability` declared on one turn stays in scope for later turns:
+    // a function that performs it, then a handler that intercepts the perform,
+    // all resolve against the committed `repl` module.
+    ReplTest::new()
+        .wait_ready()
+        .type_line(
+            "unique(AB000000-0000-0000-0000-0000000000E1) ability Ping { fn ping(): Number { 7 } }",
+        )
+        .expect_output("Defined: Ping")
+        .clear_output()
+        .type_line("fn go(): Number with Ping { Ping::ping!() }")
+        .expect_output("Defined: go")
+        .clear_output()
+        .type_line("with { Ping::ping() => resume(99) } handle go()")
+        .expect_output("99")
+        .shutdown();
+}
+
+#[test]
+fn test_user_ability_default_impl_runs_unhandled() {
+    // An unhandled perform of a user-declared ability runs the method's default
+    // implementation — across turns and at the top level.
+    ReplTest::new()
+        .wait_ready()
+        .type_line(
+            "unique(AB000000-0000-0000-0000-0000000000E2) ability Pong { fn pong(): Number { 5 } }",
+        )
+        .expect_output("Defined: Pong")
+        .clear_output()
+        .type_line("fn go2(): Number with Pong { Pong::pong!() }")
+        .expect_output("Defined: go2")
+        .clear_output()
+        .type_line("go2()")
+        .expect_output("5")
+        .shutdown();
+}
+
+/// A one-file project whose `effects` module declares a `pub ability Ping`,
+/// for driving the REPL against a project-defined user ability.
+fn project_with_ping_ability(uuid: &str) -> tempfile::TempDir {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join("ambient.toml"),
+        "[package]\nname = \"probe\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.path().join("src")).unwrap();
+    std::fs::write(
+        dir.path().join("src/effects.ab"),
+        format!("pub unique({uuid}) ability Ping {{ fn ping(): Number {{ 7 }} }}\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("src/main.ab"),
+        "pub fn run(): Number { 0 }\n",
+    )
+    .unwrap();
+    dir
+}
+
+#[test]
+fn test_project_user_ability_imported_bare_in_repl() {
+    // Started inside a project, the REPL can `use pkg::effects::Ping;` and then
+    // perform/handle the imported user ability by its bare name.
+    let dir = project_with_ping_ability("AB000000-0000-0000-0000-0000000000F1");
+    ReplTest::with_project(dir.path())
+        .wait_ready()
+        .type_line("use pkg::effects::Ping;")
+        .clear_output()
+        .type_line("with { Ping::ping() => resume(3) } handle Ping::ping!()")
+        .expect_output("3")
+        .shutdown();
+}
+
+#[test]
+fn test_project_user_ability_fully_qualified_in_repl() {
+    // The same project ability is reachable fully-qualified with no `use`.
+    let dir = project_with_ping_ability("AB000000-0000-0000-0000-0000000000F2");
+    ReplTest::with_project(dir.path())
+        .wait_ready()
+        .type_line(
+            "with { pkg::effects::Ping::ping() => resume(4) } handle pkg::effects::Ping::ping!()",
+        )
+        .expect_output("4")
+        .shutdown();
+}
+
+#[test]
 fn test_type_error_is_reported() {
     // A return-type mismatch is caught by the real type checker.
     ReplTest::new()
