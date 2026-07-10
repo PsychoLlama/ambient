@@ -547,20 +547,29 @@ impl Infer {
         // declared `Never` with the body's adopted variable (binding it),
         // while a body producing a real value keeps its concrete type and
         // still fails to unify with `Never`.
-        let ty = self.adopt_never(ty);
+        //
+        // The expression's *recorded* type stays the honest pre-adoption
+        // `!`: the adopted variable belongs to the use site, and when
+        // nothing constrains it (`let x = Exception::throw!("boom");`) it
+        // would sit in `expr.ty` as an unbound variable — tooling reading
+        // the checked AST (hover) would render inference noise instead of
+        // the divergence the checker proved.
+        if self.is_never(&ty) {
+            expr.ty = Some(Type::Never);
+            return Ok(self.fresh());
+        }
         expr.ty = Some(ty.clone());
         Ok(ty)
     }
 
-    /// Replace a never type with a fresh inference variable (bottom
-    /// elimination — see the note at the end of [`Self::infer_expr`],
-    /// its only caller).
-    fn adopt_never(&mut self, ty: Type) -> Type {
-        let is_never = match &ty {
+    /// Whether a type is `!` — directly, or an inference variable already
+    /// bound to it (bottom elimination — see the note at the end of
+    /// [`Self::infer_expr`], its only caller).
+    fn is_never(&self, ty: &Type) -> bool {
+        match ty {
             Type::Never => true,
-            Type::Var(_) => matches!(self.apply(&ty), Type::Never),
+            Type::Var(_) => matches!(self.apply(ty), Type::Never),
             _ => false,
-        };
-        if is_never { self.fresh() } else { ty }
+        }
     }
 }

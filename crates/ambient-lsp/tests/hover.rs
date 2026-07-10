@@ -185,3 +185,18 @@ fn test_hover_on_type_alias_stays_type() {
         .expect_contains("type Meters = Number")
         .shutdown();
 }
+
+#[test]
+fn test_hover_on_unconstrained_throw_shows_never() {
+    // Bottom elimination hands the *use site* a fresh inference variable,
+    // but the expression's recorded type stays the pre-adoption `!`; when
+    // nothing constrains the variable (a bare `let` of a throw), hover must
+    // show the divergence, not inference-variable noise.
+    LspTest::new()
+        .with_source(
+            r#"fn foo(): Number with Exception { let x = Exception::throw!("boom")/*h*/; 1 }"#,
+        )
+        .hover_at("h")
+        .expect_type("```ambient\n!\n```")
+        .shutdown();
+}
