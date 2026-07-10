@@ -247,7 +247,7 @@ pub(super) struct ModuleContext {
     pub(super) const_hashes: HashMap<NameKey, blake3::Hash>,
     /// Module-declared abilities in scope: ability name → compile info.
     /// The identity comes from the type checker (`AbilityDef::resolved_id`);
-    /// the compiler never re-derives interface hashes. Local declarations
+    /// the compiler never re-derives these identities. Local declarations
     /// resolve bare, so this stays a bare-name table.
     pub(super) abilities: HashMap<Arc<str>, CompiledAbilityInfo>,
     /// Foreign ability identities keyed by their [`Fqn`]; see

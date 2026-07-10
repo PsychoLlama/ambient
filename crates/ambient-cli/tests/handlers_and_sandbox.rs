@@ -353,7 +353,7 @@ fn test_time_wait_accepts_duration() {
     // `core::system::Time::wait` takes a `core::time::Duration`. This exercises
     // the whole path: the ability signature references a core nominal type,
     // the checker unifies the caller's `Duration` against the signature's
-    // (unexpanded) reference, and the host handler decodes the record and
+    // (unexpanded) reference, and the native decodes the record and
     // sleeps. A successful numeric result proves compile *and* dispatch.
     CliTest::new(
         r#"

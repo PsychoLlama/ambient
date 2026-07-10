@@ -4,8 +4,9 @@
 //! expressions:
 //!
 //! - `Suspend` packages a method call's arguments into a suspended ability.
-//! - `Perform` executes it: bytecode handlers capture the delimited
-//!   continuation and run the handler arm; host handlers run synchronously.
+//! - `Perform` executes it: an in-scope bytecode handler captures the
+//!   delimited continuation and runs the handler arm; with no handler in
+//!   scope, the method's default implementation runs as a plain call.
 //! - `HandleWithValue` installs a `HandlerValue` that delimits the
 //!   *current frame* (the handle expression's body thunk). It is the sole
 //!   install path: inline `with` arms and first-class handler values both

@@ -60,7 +60,7 @@ mod abilities;
 mod core;
 mod dispatch;
 
-pub use ambient_ability::{HostHandler, RuntimeError, StackTraceFrame, VmError};
+pub use ambient_ability::{RuntimeError, StackTraceFrame, VmError};
 pub use core::Vm;
 
 #[cfg(test)]

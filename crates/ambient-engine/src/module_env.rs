@@ -61,9 +61,10 @@ pub struct ModuleEnv {
     /// module ships the (content-addressed, deduplicated) value object.
     pub foreign_const_hashes: HashMap<NameKey, blake3::Hash>,
     /// Every registered module's `ability` declarations resolved to their
-    /// content-addressed identities, keyed by [`Fqn`]. Identity is the
-    /// interface hash, so recomputing here matches the declaring module's
-    /// own registration exactly.
+    /// uuid-derived identities and method keys, keyed by [`Fqn`]. Identity
+    /// is the declaration uuid (and method keys derived from it plus the
+    /// canonical signatures), so recomputing here matches the declaring
+    /// module's own registration exactly.
     pub foreign_abilities: Vec<(Fqn, Arc<crate::ability_resolver::DynAbility>)>,
     /// The host's native bindings for *this* module's `extern fn`
     /// declarations, keyed by item name. The compiler builds each

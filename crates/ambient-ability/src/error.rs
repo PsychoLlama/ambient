@@ -208,14 +208,12 @@ pub enum VmError {
 
     /// A language-level exception.
     ///
-    /// This is the raise channel for host handlers: returning
-    /// `Err(VmError::Exception(value))` from a [`HostHandler`] makes the VM
-    /// perform `Exception.throw(value)` at the call site, where the nearest
-    /// in-language `handle { Exception.throw(e) => ... }` block catches it.
-    /// The variant only surfaces as a hard error when no Exception handler
-    /// is in scope — an uncaught exception.
-    ///
-    /// [`HostHandler`]: crate::HostHandler
+    /// This is the raise channel for natives: returning
+    /// `Err(VmError::Exception(value))` (see [`VmError::exception`]) makes
+    /// the VM perform `Exception.throw(value)` at the call site, where the
+    /// nearest in-language `handle { Exception.throw(e) => ... }` block
+    /// catches it. The variant only surfaces as a hard error when no
+    /// Exception handler is in scope — an uncaught exception.
     Exception(Value),
 
     /// I/O error (from Remote ability or other I/O operations).

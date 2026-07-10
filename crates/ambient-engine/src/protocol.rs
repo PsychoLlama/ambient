@@ -7,7 +7,7 @@
 //! `examples/remote_server`); there is no Rust-side message layer.
 //!
 //! Function references cross as content hashes; handler values cross as
-//! (ability hash, method-id → function-hash) tables, with the code itself
+//! (ability id, method key → function-hash) tables, with the code itself
 //! shipped separately in canonical packs. Values whose meaning cannot
 //! survive the wire (closures with live environments, continuations,
 //! maps/sets, modules) are a hard error, never silently degraded.

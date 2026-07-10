@@ -380,11 +380,11 @@ impl Default for AbilityResolver {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Renders engine [`Type`]s into the canonical string grammar that ability
-/// interface hashing uses (see `ambient_core::canonical`).
+/// method-signature hashing uses (see `ambient_core::canonical`).
 ///
 /// Primitives match `CanonicalTypeFactory` exactly ("unit", "number",
 /// "list<...>", ...), so a builtin descriptor and an in-language
-/// declaration of the same monomorphic interface hash identically. Type
+/// declaration of the same monomorphic signature hash identically. Type
 /// variables (and each `Hole` occurrence) are numbered by first
 /// appearance within one renderer instance; use one renderer per method
 /// signature so numbering is signature-local.
@@ -510,8 +510,8 @@ impl CanonicalTypeRenderer {
                 format!("ability<{result}, {{{abilities}}}>")
             }
             // A rigid type parameter renders byte-identically to the
-            // unresolved `Named{args:[]}` it replaced (`named:T`), so ability
-            // interface hashes are invariant even if a `Param` were to reach a
+            // unresolved `Named{args:[]}` it replaced (`named:T`), so method
+            // signature hashes are invariant even if a `Param` were to reach a
             // renderer. It shouldn't: signature schemes substitute type
             // parameters to `Var` before rendering (see `resolve_ability_def`),
             // so this arm is a defensive tripwire, not a live path.
@@ -521,7 +521,7 @@ impl CanonicalTypeRenderer {
             }
             Type::Handler(handler) => format!("handler<{}>", handler.ability.to_hex()),
             // `resolve_ability_def` resolves signatures before rendering, so
-            // the unresolved surface form never reaches interface hashing —
+            // the unresolved surface form never reaches signature hashing —
             // a tripwire, not a live path.
             Type::HandlerAnnotation(h) => {
                 debug_assert!(

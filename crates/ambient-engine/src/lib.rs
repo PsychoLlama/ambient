@@ -36,7 +36,7 @@ pub mod types;
 pub mod vm;
 
 // Re-export core types from ambient-ability for backward compatibility
-pub use ambient_ability::{HostHandler, SuspendedAbility, Value, VmError};
+pub use ambient_ability::{SuspendedAbility, Value, VmError};
 
 /// Value types re-exported from ambient-ability.
 pub mod value {

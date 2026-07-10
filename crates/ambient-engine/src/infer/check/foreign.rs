@@ -39,7 +39,7 @@ pub(super) fn register_cross_module(
     // `String`/`Number` and containers like `List<String>`), and it runs
     // before `register_package_items` populates the general alias table.
     // Without this, such a name in an ability signature would resolve bare
-    // and corrupt the ability hash — the same reason
+    // and corrupt the ability's method signature hashes — the same reason
     // `resolve_ability_declarations` seeds them. Only the prelude's `extern`
     // structs are seeded here; every other type still resolves at its use
     // site once the full alias table is built below.

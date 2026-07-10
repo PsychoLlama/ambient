@@ -5,18 +5,14 @@
 //! - [`Value`] - Runtime values that abilities work with
 //! - [`SuspendedAbility`] - Represents a suspended ability operation
 //! - [`VmError`] - Errors that abilities can return
-//! - [`HostHandler`] - The function type for ability method implementations
 //!
 //! # Example
 //!
 //! ```ignore
-//! use ambient_ability::{format_value, HostHandler, Value};
+//! use ambient_ability::{format_value, Value};
 //!
-//! let print_handler: HostHandler = Box::new(|ability| {
-//!     let message = ability.args.first().cloned().unwrap_or(Value::Unit);
-//!     println!("{}", format_value(&message));
-//!     Ok(Value::Unit)
-//! });
+//! let rendered = format_value(&Value::string("hello"));
+//! assert_eq!(rendered, "\"hello\"");
 //! ```
 
 #![warn(clippy::print_stdout, clippy::print_stderr)]
@@ -32,13 +28,11 @@
 
 mod error;
 mod format;
-mod handler;
 mod method;
 mod value;
 
 pub use error::{RuntimeError, StackTraceFrame, VmError};
 pub use format::{format_value, format_value_colored, format_value_display};
-pub use handler::HostHandler;
 pub use method::{AbilityMethodRef, Closure, HandlerValue, SuspendedAbility};
 pub use value::{
     CapturedFrame, CapturedHandler, Continuation, EnumValue, MapValue, ModuleExport,

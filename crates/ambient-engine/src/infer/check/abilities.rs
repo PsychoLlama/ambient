@@ -21,7 +21,7 @@ use super::locals::substitute_type_params;
 /// Ability resolution runs on an `Infer::new()` with no import processing, so
 /// `resolve_holes` has no way to turn a bare primitive or container name in a
 /// signature into its uuid-carrying form — which the canonical renderer needs,
-/// or the ability hash drifts. This threads exactly the prelude's `extern`
+/// or the method signature hashes drift. This threads exactly the prelude's `extern`
 /// structs in through the module system
 /// ([`ModuleRegistry::prelude_struct_defs`]), registered by the same
 /// [`AliasTarget::of_struct`] rule as every other channel, leaving every
@@ -33,15 +33,15 @@ pub(super) fn seed_prelude_struct_aliases(infer: &mut Infer, registry: &ModuleRe
     }
 }
 
-/// The inference context every ability-id-computing path starts from: a
-/// fresh `Infer` with the prelude's `extern` struct types seeded and
+/// The inference context every method-signature-rendering path starts from:
+/// a fresh `Infer` with the prelude's `extern` struct types seeded and
 /// nothing else.
 ///
-/// Ability identity is the hash of the canonically rendered interface, so
-/// every path that computes one must resolve type names identically.
-/// Constructing the context here — instead of each entry point remembering
-/// to seed — makes a fourth path that forgets impossible to write by
-/// copying an existing one.
+/// A method's signature hash — the second input to its `MethodKey` — is the
+/// hash of the canonically rendered signature, so every path that renders
+/// one must resolve type names identically. Constructing the context here —
+/// instead of each entry point remembering to seed — makes a fourth path
+/// that forgets impossible to write by copying an existing one.
 fn ability_id_infer(registry: &ModuleRegistry) -> Infer {
     let mut infer = Infer::new();
     seed_prelude_struct_aliases(&mut infer, registry);
@@ -51,11 +51,11 @@ fn ability_id_infer(registry: &ModuleRegistry) -> Infer {
 ///
 /// Each declaration's method signatures are resolved (type parameters
 /// become quantified type variables, aliases expand), rendered to
-/// canonical form, and hashed into the ability's content-addressed
-/// identity. The resulting [`DynAbility`] joins the resolver so
-/// perform/suspend/handle and `with` clauses see it exactly like a
-/// builtin; the computed identity is stored back into the AST for the
-/// compiler.
+/// canonical form, and hashed into each method's `MethodKey`; the
+/// ability's own identity is its declaration uuid. The resulting
+/// [`DynAbility`] joins the resolver so perform/suspend/handle and `with`
+/// clauses see it exactly like a builtin; the resolved identities are
+/// stored back into the AST for the compiler.
 ///
 /// Declared dependencies (a local `ability B with A`) resolve against
 /// abilities already known to the resolver — builtins or dynamics
@@ -312,8 +312,8 @@ pub(super) fn register_imported_ability(
 /// reference to `<declaring module>::<Ability>`, and this seeding is what
 /// makes that namespace resolvable — on every checking path that has a
 /// registry (single-file, package, and LSP). Because ability identity is
-/// the content-addressed interface hash, seeding is deterministic and a
-/// bare local registration of the same declaration unifies with it.
+/// the declaration's uuid, seeding is deterministic and a bare local
+/// registration of the same declaration unifies with it (same uuid, same id).
 ///
 /// Every module seeds — including the current one, whose declarations
 /// *also* register bare in `register_abilities` (locals stay bare;
@@ -442,7 +442,7 @@ fn resolve_ability_def(
 
         // Tripwire: a primitive that stayed a bare `Named` (uuid-less, no
         // args) after `resolve_holes` would render `named:String` and
-        // silently corrupt this ability's hash — the exact regression that
+        // silently corrupt this ability's method signature hashes — the exact regression that
         // deleting the `Primitive::from_name` shortcut could reintroduce if
         // the prelude primitives ever stop being seeded. Fail loudly instead
         // of hashing wrong. (Non-primitive names like `Duration` legitimately
@@ -454,7 +454,7 @@ fn resolve_ability_def(
                         message: format!(
                             "primitive `{name}` in ability `{}` resolved to a bare name; \
                              the prelude primitive nominals were not seeded — this would \
-                             corrupt the ability hash",
+                             corrupt the ability's method signature hashes",
                             def.name
                         ),
                     },
@@ -510,8 +510,9 @@ fn resolve_ability_def(
 /// This is the entry point for **ability preludes**: an embedder parses a
 /// module containing only `ability` declarations (e.g. the platform
 /// bindings interface), resolves them here, and registers the results as
-/// namespaced dynamics on the resolver it threads into checking — and as
-/// the identity/method-id source when binding host handlers on the VM.
+/// namespaced dynamics on the resolver it threads into checking — the
+/// uuid-derived identity and method-key source for resolving performs and
+/// handlers against those abilities.
 ///
 /// Each declaration's `resolved_id` is written back into the AST, exactly
 /// as during a full module check.
@@ -523,9 +524,9 @@ pub fn resolve_ability_declarations(
     Vec<BoxedTypeError>,
 ) {
     // A primitive named in an ability signature must resolve to its
-    // uuid-carrying type or the rendering (and so the ability hash) drifts;
-    // `ability_id_infer` seeds exactly that and nothing else, so
-    // `Duration`/`Option` stay byte-identical to before.
+    // uuid-carrying type or the rendering (and so the method signature
+    // hashes) drifts; `ability_id_infer` seeds exactly that and nothing
+    // else, so `Duration`/`Option` stay byte-identical to before.
     let mut infer = ability_id_infer(registry);
     let mut errors = Vec::new();
 
@@ -561,13 +562,15 @@ pub fn resolve_ability_declarations(
     (abilities, errors)
 }
 /// Resolve every registered module's `ability` declarations to their
-/// content-addressed identities, keyed by their [`Fqn`](crate::fqn::Fqn).
+/// uuid-derived identities and method keys, keyed by their
+/// [`Fqn`](crate::fqn::Fqn).
 ///
 /// The build hands this to the compiler as its foreign-ability channel:
 /// performs and handler arms that the resolve pass canonicalized to a
-/// foreign module need the interface identity and method order, which no
-/// name→hash table carries. Identity is deterministic (the interface
-/// hash), so recomputing here matches the declaring module's own
+/// foreign module need the ability identity, method order, and method keys,
+/// which no name→hash table carries. Identity is deterministic (the
+/// declaration uuid, and method keys derived from it plus the canonical
+/// signatures), so recomputing here matches the declaring module's own
 /// registration exactly. Cross-module dependency resolution failures are
 /// ignored — they don't affect identity and are reported when the
 /// declaring module checks.

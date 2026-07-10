@@ -167,7 +167,7 @@ pub(super) fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
 
         // The never type `!` lowers straight to `Type::Never` — the checker's
         // canonical bottom type. (An ability method returning `!`, such as
-        // `Exception::throw`, must render `never` for its interface hash and
+        // `Exception::throw`, must render `never` for its signature hash and
         // must map to `None` resume-value type; a stringly `Named("!")` would
         // do neither.)
         CstTypeExprKind::Never => Ok(Type::Never),
