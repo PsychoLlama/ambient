@@ -450,14 +450,18 @@ Roughly in priority order:
   declared `extern fn` — but the library itself is small (list/math/string
   helpers). Target roughly the granularity of Go's or Node's standard
   libraries. Generic trait bounds would unlock `contains`/`sort_by`.
-- **Cross-module ability imports.** The platform-bindings split is
-  done: platform abilities are in-language declarations (`platform.ab`)
-  whose default implementations call module-private extern fns, the
-  engine crate knows only Exception, and embedders bind natives by
-  uuid. What remains is the general form: exporting an `ability` from
-  one user module and importing it in another (exports carry the kind
-  but consumers don't hydrate them yet), plus REPL registration of
-  user-declared abilities.
+- **Cross-module ability imports (done).** The platform-bindings split
+  is done: platform abilities are in-language declarations
+  (`platform.ab`) whose default implementations call module-private
+  extern fns, the engine crate knows only Exception, and embedders bind
+  natives by uuid. The general form is done too: exporting an `ability`
+  from one user module and importing it in another works end-to-end
+  through checker, compiler, and VM — bare import, fully-qualified use,
+  default implementations, dependency (`with`) rows, re-exports, and
+  nominal-typed method signatures all cross the module boundary. The
+  REPL registers `core::system` and every project module, and honours an
+  `ability` declared in one turn and used in a later one
+  (`crates/ambient-cli/tests/module_system.rs`, `repl_tests.rs`).
 - **Workspace mechanism (multi-package local development).** Resolve
   sibling packages by name, share a build directory, and compile
   independent packages in parallel. Lands before the package manager, and

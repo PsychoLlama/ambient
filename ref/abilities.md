@@ -90,8 +90,9 @@ pkg::b::SomeAbility;` (and `use core::system::Network;`) brings the ability into
 scope under its bare name, and every ability is also reachable fully
 qualified with no import (`with pkg::b::SomeAbility`,
 `pkg::b::SomeAbility::method!(…)`) — the same rule as every other item.
-Current limit: the REPL does not yet register `core::system` as a module, so
-bare `use core::system::…` there is a follow-up.
+This holds in the REPL too: it registers `core::system` and every project
+module, so `use core::system::…` and `use pkg::b::SomeAbility;` work there,
+as does an `ability` declared in one REPL turn and used in a later one.
 
 ## Using Abilities
 
