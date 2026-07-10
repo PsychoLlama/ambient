@@ -162,16 +162,16 @@ pub(crate) struct PendingSandboxCheck {
 #[derive(Debug, Clone)]
 pub(crate) struct ResumeContext {
     /// Type of the value `resume` feeds to the continuation — the ability
-    /// method's return type. `None` when unconstrainable: a method
-    /// returning `!` (Exception's `throw`) can be raised by the host at
-    /// any perform site, so the continuation's expected value is
-    /// statically unknowable (resuming substitutes a value for the
-    /// *failing call*, not for `throw` itself).
+    /// method's return type.
     pub value_ty: Option<Type>,
     /// Type of the `resume(...)` expression itself: the handle
     /// expression's result. `None` inside handler literals, where the
     /// eventual handle site is unknown.
     pub result_ty: Option<Type>,
+    /// `Some((ability, method))` when the handled method returns `!`
+    /// (never): the perform site unwinds, no continuation exists, and any
+    /// `resume` in the arm is reported with a dedicated diagnostic.
+    pub never_method: Option<(Arc<str>, Arc<str>)>,
 }
 
 /// A deferred "subtract handled abilities from this body's effects".

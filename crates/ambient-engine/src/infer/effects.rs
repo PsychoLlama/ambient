@@ -249,15 +249,18 @@ impl Infer {
         }
 
         // `resume(v)` always feeds the method's declared return type — no
-        // exceptions. `Exception::throw` returns `!` (never), which nothing
-        // unifies with, so an Exception arm is catch-only: resuming a throw
-        // is a type error, not a way to substitute a value for a failing
-        // call. Fallible host operations return `Result` and are matched on
-        // instead of resumed. (Previously a `!` return made resume
-        // unconstrained; that resume-with-substitute escape hatch is gone.)
+        // exceptions. A method returning `!` (never) has no continuation at
+        // all: the perform site unwinds, so its arms are catch-only and any
+        // `resume` gets a dedicated diagnostic. There is no way to
+        // substitute a value for a failing call and continue; fallible host
+        // operations return `Result` and are matched on instead.
+        let ret_ty = self.apply(&ret_ty);
+        let never_method = matches!(ret_ty, Type::Never)
+            .then(|| (handler.ability.name.clone(), handler.method.clone()));
         self.resume_contexts.push(crate::infer::ResumeContext {
-            value_ty: Some(self.apply(&ret_ty)),
+            value_ty: Some(ret_ty),
             result_ty: Some(result_ty.clone()),
+            never_method,
         });
         let handler_result = self.infer_expr(&handler_env, &mut handler.body);
         self.resume_contexts.pop();

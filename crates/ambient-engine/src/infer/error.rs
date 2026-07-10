@@ -183,6 +183,10 @@ pub enum TypeErrorKind {
     /// `resume` used outside a handler arm.
     ResumeOutsideHandler,
 
+    /// `resume` used in a handler arm for a method that returns `!` —
+    /// there is no continuation to feed, the perform site unwinds.
+    ResumeNeverMethod { ability: Arc<str>, method: Arc<str> },
+
     // ─────────────────────────────────────────────────────────────────────────
     // Sandbox errors (Milestone 14)
     // ─────────────────────────────────────────────────────────────────────────
@@ -419,6 +423,14 @@ impl std::fmt::Display for TypeErrorKind {
                     f,
                     "`resume` is only meaningful inside a handler arm, where it \
                      continues the suspended computation"
+                )
+            }
+            Self::ResumeNeverMethod { ability, method } => {
+                write!(
+                    f,
+                    "cannot `resume` `{ability}::{method}`: it returns `!` (never), \
+                     so the perform site unwinds and there is nothing to resume — \
+                     yield a value from the arm instead"
                 )
             }
             Self::SandboxAbilityViolation { ability, allowed } => {

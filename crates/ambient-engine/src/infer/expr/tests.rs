@@ -703,3 +703,112 @@ fn test_error_wrong_argument_count() {
         );
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Never (`!`) semantics: bottom elimination and catch-only arms
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// An `Infer` with the prelude `Exception` registered as a bare dynamic
+/// (a real check resolves it through the prelude; these tests are
+/// registry-less).
+fn infer_with_exception() -> Infer {
+    use crate::ability_resolver::{DynAbility, DynMethod};
+    let mut infer = Infer::new();
+    infer.ability_resolver.register_dynamic(DynAbility {
+        id: ambient_core::exception::ability_id(),
+        uuid: ambient_core::exception::EXCEPTION_UUID,
+        name: "Exception".into(),
+        methods: vec![DynMethod {
+            name: "throw".into(),
+            param_names: vec!["message".into()],
+            params: vec![Type::string()],
+            ret: Type::Never,
+            quantified: vec![],
+            signature: ambient_core::exception::throw_signature(),
+            has_impl: false,
+        }],
+        dependencies: vec![],
+    });
+    infer
+}
+
+/// A `Exception::throw!(msg)` perform expression.
+fn throw_expr(msg: &str) -> Expr {
+    Expr::new(
+        ExprKind::Perform(crate::ast::AbilityCall {
+            ability: crate::ast::QualifiedName::simple("Exception"),
+            method: "throw".into(),
+            args: vec![Expr::string(msg)],
+            span: crate::ast::Span::default(),
+        }),
+        crate::ast::Span::default(),
+    )
+}
+
+#[test]
+fn test_never_perform_adopts_the_other_branch_type() {
+    // The motivating example: a throwing branch must unify with the
+    // concrete type the other branch produces — in either order.
+    let mut infer = infer_with_exception();
+    let env = TypeEnv::new();
+
+    let mut expr = Expr::if_then_else(
+        Expr::bool(true),
+        Expr::number(1.0),
+        Some(throw_expr("too low")),
+    );
+    let ty = infer.infer_expr(&env, &mut expr).unwrap();
+    assert_eq!(infer.apply(&ty), Type::number());
+
+    let mut flipped = Expr::if_then_else(
+        Expr::bool(true),
+        throw_expr("too low"),
+        Some(Expr::number(1.0)),
+    );
+    let ty = infer.infer_expr(&env, &mut flipped).unwrap();
+    assert_eq!(infer.apply(&ty), Type::number());
+}
+
+#[test]
+fn test_never_perform_satisfies_a_declared_never() {
+    // Bottom elimination must not break bottom introduction: a `!`-typed
+    // producer still checks against a declared `!` (the adopted variable
+    // binds to `Never`), while a real value never does.
+    let mut infer = infer_with_exception();
+    let env = TypeEnv::new();
+
+    let mut diverges = throw_expr("boom");
+    let ty = infer.infer_expr(&env, &mut diverges).unwrap();
+    assert!(infer.unify(&Type::Never, &ty, (0, 0)).is_ok());
+
+    let mut value = Expr::number(42.0);
+    let ty = infer.infer_expr(&env, &mut value).unwrap();
+    assert!(
+        infer.unify(&Type::Never, &ty, (0, 0)).is_err(),
+        "a concrete value must not check against a declared `!`"
+    );
+}
+
+#[test]
+fn test_resume_in_never_arm_is_a_dedicated_error() {
+    // `throw` returns `!`: the perform site unwinds and no continuation
+    // exists, so `resume` in its arm is rejected outright — even when the
+    // resume argument is itself never-typed (which adoption would let
+    // through value unification).
+    let mut infer = infer_with_exception();
+    let env = TypeEnv::new();
+
+    let mut expr = Expr::handler_literal(vec![arm(
+        crate::ast::QualifiedName::simple("Exception"),
+        "throw",
+        vec![Param::new(1, "err")],
+        resume(throw_expr("rethrow")),
+    )]);
+
+    let err = infer.infer_expr(&env, &mut expr).unwrap_err();
+    assert!(
+        matches!(err.kind, TypeErrorKind::ResumeNeverMethod { .. }),
+        "expected ResumeNeverMethod, got {:?}",
+        err.kind
+    );
+}

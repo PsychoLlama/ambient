@@ -444,6 +444,7 @@ impl Infer {
                 // Resolve it to the canonical impl-method symbol and rewrite
                 // the callee to reference that symbol directly, so the
                 // compiler emits an ordinary call with no receiver.
+                let mut associated_ret = None;
                 if let ExprKind::Name(name) = &callee.kind
                     && name.path.len() == 1
                     && let Some((symbol, ret_ty)) =
@@ -453,28 +454,33 @@ impl Infer {
                         name.path.clear();
                         name.name = symbol;
                     }
-                    return Ok(ret_ty);
+                    associated_ret = Some(ret_ty);
                 }
 
-                let callee_ty = self.infer_expr(env, callee)?;
-                let mut arg_tys = Vec::with_capacity(args.len());
-                for arg in args {
-                    arg_tys.push(self.infer_expr(env, arg)?);
+                if let Some(ret_ty) = associated_ret {
+                    ret_ty
+                } else {
+                    let callee_ty = self.infer_expr(env, callee)?;
+                    let mut arg_tys = Vec::with_capacity(args.len());
+                    for arg in args {
+                        arg_tys.push(self.infer_expr(env, arg)?);
+                    }
+
+                    // Expect a function whose abilities are a fresh variable:
+                    // unification binds it to the callee's actual ability set
+                    // (Empty for pure functions), which the caller then
+                    // requires. This is what propagates effects across
+                    // function calls.
+                    let ret_ty = self.fresh();
+                    let ability_var = self.fresh_ability_var();
+                    let expected_fn_ty =
+                        Type::function_with_abilities(arg_tys, ret_ty.clone(), ability_var.clone());
+                    self.unify(&callee_ty, &expected_fn_ty, span)?;
+
+                    let callee_abilities = self.apply_abilities(&ability_var);
+                    self.require_abilities(&callee_abilities);
+                    self.apply(&ret_ty)
                 }
-
-                // Expect a function whose abilities are a fresh variable:
-                // unification binds it to the callee's actual ability set
-                // (Empty for pure functions), which the caller then requires.
-                // This is what propagates effects across function calls.
-                let ret_ty = self.fresh();
-                let ability_var = self.fresh_ability_var();
-                let expected_fn_ty =
-                    Type::function_with_abilities(arg_tys, ret_ty.clone(), ability_var.clone());
-                self.unify(&callee_ty, &expected_fn_ty, span)?;
-
-                let callee_abilities = self.apply_abilities(&ability_var);
-                self.require_abilities(&callee_abilities);
-                self.apply(&ret_ty)
             }
 
             // Effect expressions are handled by helper methods in effects.rs
@@ -493,6 +499,17 @@ impl Infer {
                 let Some(ctx) = self.resume_contexts.last().cloned() else {
                     return Err(type_error(TypeErrorKind::ResumeOutsideHandler, span));
                 };
+                // A never-returning method has no continuation — the
+                // perform site unwinds. Checked before the value unifies:
+                // never-typed resume arguments adopt fresh variables
+                // (bottom elimination), so unification alone would let
+                // `resume(rethrow!(...))` slip through.
+                if let Some((ability, method)) = ctx.never_method {
+                    return Err(type_error(
+                        TypeErrorKind::ResumeNeverMethod { ability, method },
+                        span,
+                    ));
+                }
                 if let Some(expected) = &ctx.value_ty {
                     self.unify(expected, &value_ty, span).map_err(|e| {
                         e.with_context("resume value must match the handled method's return type")
@@ -521,7 +538,29 @@ impl Infer {
             }
         };
 
+        // Bottom elimination: a never-typed expression adopts a fresh
+        // inference variable — the `∀a. a` encoding of divergence. The
+        // value can never exist, so the (unreachable) use site may assume
+        // any type: `if c { n } else { Exception::throw!("...") }` is a
+        // `Number`. `!` is only *introduced* by declared signatures, so
+        // annotations stay strict — checking `fn f(): !` unifies the
+        // declared `Never` with the body's adopted variable (binding it),
+        // while a body producing a real value keeps its concrete type and
+        // still fails to unify with `Never`.
+        let ty = self.adopt_never(ty);
         expr.ty = Some(ty.clone());
         Ok(ty)
+    }
+
+    /// Replace a never type with a fresh inference variable (bottom
+    /// elimination — see the note at the end of [`Self::infer_expr`],
+    /// its only caller).
+    fn adopt_never(&mut self, ty: Type) -> Type {
+        let is_never = match &ty {
+            Type::Never => true,
+            Type::Var(_) => matches!(self.apply(&ty), Type::Never),
+            _ => false,
+        };
+        if is_never { self.fresh() } else { ty }
     }
 }

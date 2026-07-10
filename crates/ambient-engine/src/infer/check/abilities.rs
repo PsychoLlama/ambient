@@ -73,25 +73,25 @@ pub(super) fn register_abilities(
         };
 
         // Every ability method carries a default implementation — the
-        // behavior of an unhandled perform. The one carve-out is the
-        // reserved Exception declaration: `throw` returns `!`, and its
-        // unhandled behavior is the VM's own uncaught-exception path,
-        // which no in-language body could express.
-        if def.uuid != ambient_core::exception::EXCEPTION_UUID {
-            for method in &def.methods {
-                if method.body.is_none() {
-                    errors.push(Box::new(TypeError::new(
-                        TypeErrorKind::InvalidDeclaration {
-                            message: format!(
-                                "ability method `{}::{}` needs a default implementation: \
-                                 the body is what an unhandled perform runs \
-                                 (`fn {}(...): T {{ ... }}`)",
-                                def.name, method.name, method.name
-                            ),
-                        },
-                        (method.span.start, method.span.end),
-                    )));
-                }
+        // behavior of an unhandled perform. The carve-out is
+        // never-returning methods (`: !`): performing one unwinds to its
+        // handler instead of resuming, so a declaration may leave the
+        // unhandled case abstract — an unhandled perform is then a
+        // runtime fault, exactly like the prelude's `Exception::throw`.
+        for method in &def.methods {
+            if method.body.is_none() && !matches!(method.ret_ty, Type::Never) {
+                errors.push(Box::new(TypeError::new(
+                    TypeErrorKind::InvalidDeclaration {
+                        message: format!(
+                            "ability method `{}::{}` needs a default implementation: \
+                             the body is what an unhandled perform runs \
+                             (`fn {}(...): T {{ ... }}`); only methods returning `!` \
+                             may stay abstract",
+                            def.name, method.name, method.name
+                        ),
+                    },
+                    (method.span.start, method.span.end),
+                )));
             }
         }
 
