@@ -26,17 +26,19 @@
 )]
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
+mod containers;
 mod error;
 mod format;
 mod method;
 mod value;
 
+pub use containers::{MapValue, SetValue};
 pub use error::{RuntimeError, StackTraceFrame, VmError};
 pub use format::{format_value, format_value_colored, format_value_display};
 pub use method::{AbilityMethodRef, Closure, HandlerValue, SuspendedAbility};
 pub use value::{
-    CapturedFrame, CapturedHandler, Continuation, EnumValue, MapValue, ModuleExport,
-    ModuleExportKind, ModuleMemberRef, ModuleValue, SetValue, Value,
+    CapturedFrame, CapturedHandler, Continuation, EnumValue, ModuleExport, ModuleExportKind,
+    ModuleMemberRef, ModuleValue, Value,
 };
 
 // Re-export commonly used types from ambient-core

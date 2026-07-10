@@ -58,14 +58,9 @@ impl Vm {
             args.push(self.pop()?);
         }
         args.reverse();
-        self.stack
-            .push(Value::SuspendedAbility(Arc::new(SuspendedAbility {
-                ability_id: method_ref.ability_id,
-                method,
-                impl_fn: method_ref.impl_fn,
-                never: method_ref.never,
-                args,
-            })));
+        self.stack.push(Value::SuspendedAbility(Arc::new(
+            SuspendedAbility::with_precomputed_key(method_ref, method, args),
+        )));
         Ok(())
     }
 

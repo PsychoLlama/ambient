@@ -80,14 +80,40 @@ pub struct SuspendedAbility {
 }
 
 impl SuspendedAbility {
-    /// Create a new suspended ability.
+    /// Create a suspended ability from a compiled method reference — the
+    /// constant-pool shape every perform site carries.
+    ///
+    /// This is the only constructor: identity, default implementation, and
+    /// the `never` unwind flag are all denormalized from the declaration,
+    /// so deriving them from the same [`AbilityMethodRef`] makes a
+    /// suspended value that disagrees with the declared signature
+    /// unrepresentable through this path. (A convenience constructor that
+    /// defaulted `never: false` would hand a host-built never method
+    /// capture semantics — a silent runtime divergence.)
     #[must_use]
-    pub fn new(ability_id: AbilityId, method: MethodKey, args: Vec<Value>) -> Self {
-        Self {
-            ability_id,
+    pub fn from_method_ref(method_ref: &AbilityMethodRef, args: Vec<Value>) -> Self {
+        Self::with_precomputed_key(method_ref, method_ref.method_key(), args)
+    }
+
+    /// [`Self::from_method_ref`] with the method key already derived from
+    /// this same `method_ref` — the VM precomputes keys at function-load
+    /// time so the perform path never re-hashes.
+    #[must_use]
+    pub fn with_precomputed_key(
+        method_ref: &AbilityMethodRef,
+        method: MethodKey,
+        args: Vec<Value>,
+    ) -> Self {
+        debug_assert_eq!(
             method,
-            impl_fn: None,
-            never: false,
+            method_ref.method_key(),
+            "precomputed method key must be derived from the same method ref"
+        );
+        Self {
+            ability_id: method_ref.ability_id,
+            method,
+            impl_fn: method_ref.impl_fn,
+            never: method_ref.never,
             args,
         }
     }

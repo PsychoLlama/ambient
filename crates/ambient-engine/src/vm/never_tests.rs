@@ -53,6 +53,27 @@ fn test_ordinary_perform_still_captures_a_continuation() {
 }
 
 #[test]
+fn test_host_constructed_suspended_never_value_unwinds() {
+    // A suspended value built host-side (not by the `Suspend` opcode) must
+    // carry the declaration's unwind semantics: the sole constructor
+    // derives `never` from the method reference, so performing it drops
+    // the delimited state exactly like a compiled perform site would.
+    let arm = continuation_echo_arm();
+    let arm_hash = arm.hash;
+    let method = test_never_method_ref(3, 0);
+    let suspended = Value::SuspendedAbility(std::sync::Arc::new(
+        ambient_ability::SuspendedAbility::from_method_ref(&method, vec![Value::Number(5.0)]),
+    ));
+
+    VmTest::new()
+        .with_function(arm)
+        .handle(&method, arm_hash)
+        .push_value(suspended)
+        .perform()
+        .expect_unit();
+}
+
+#[test]
 fn test_never_arm_value_is_the_completion_value() {
     // The arm's own value lands at the handle completion point; the
     // method's argument is still delivered through the suspended ability.

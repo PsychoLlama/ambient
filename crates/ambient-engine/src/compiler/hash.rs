@@ -255,6 +255,14 @@ pub(super) fn finalize_module_hashes(
             .map(|dep| local.get(dep).map_or(*dep, |j| final_hashes[j]))
             .collect();
         func.hash = final_hash;
+        // The relink above may have rewritten `impl_fn` inside
+        // `AbilityMethodRef` constants — a `MethodKey` input — so the
+        // derived-key cache must be rebuilt or it would keep keys hashed
+        // from the temp impl hashes (violating `method_keys`' "always
+        // agrees with `constants`" invariant, and disagreeing with a
+        // store-reloaded copy of this same function, which re-indexes
+        // from the final constants).
+        func.method_keys = crate::bytecode::CompiledFunction::index_method_keys(&func.constants);
 
         result.functions.insert(final_hash, func);
 
