@@ -35,6 +35,7 @@
 use std::sync::Arc;
 
 use ambient_ability::{CapturedFrame, CapturedHandler, SuspendedAbility, Value, VmError};
+use ambient_core::MethodKey;
 
 use super::core::{CallFrame, HandlerFrame, Vm};
 
@@ -42,11 +43,13 @@ impl Vm {
     /// Handle the Suspend opcode: create a suspended ability value.
     ///
     /// Pops `arg_count` arguments from the stack and creates a `SuspendedAbility`
-    /// value that can later be performed. The method's identity is derived
-    /// from the constant-pool reference here, once per perform.
+    /// value that can later be performed. The method's identity (`method`) is
+    /// the key precomputed for this constant at function-load time, so the
+    /// perform path never re-hashes it.
     pub(super) fn op_suspend(
         &mut self,
         method_ref: &ambient_ability::AbilityMethodRef,
+        method: MethodKey,
         arg_count: u8,
     ) -> Result<(), VmError> {
         let mut args = Vec::with_capacity(arg_count as usize);
@@ -57,7 +60,7 @@ impl Vm {
         self.stack
             .push(Value::SuspendedAbility(Arc::new(SuspendedAbility {
                 ability_id: method_ref.ability_id,
-                method: method_ref.method_key(),
+                method,
                 impl_fn: method_ref.impl_fn,
                 args,
             })));

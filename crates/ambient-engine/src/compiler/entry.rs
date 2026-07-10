@@ -558,6 +558,7 @@ pub(super) fn compile_function_with_hash(
     };
 
     Ok(CompiledFunction {
+        method_keys: CompiledFunction::index_method_keys(&constants),
         hash,
         bytecode,
         constants,
@@ -619,10 +620,12 @@ fn compile_ability_method(
         None
     };
 
+    let constants = fc.builder.constants().to_vec();
     Ok(CompiledFunction {
+        method_keys: CompiledFunction::index_method_keys(&constants),
         hash,
         bytecode: fc.builder.bytecode().to_vec(),
-        constants: fc.builder.constants().to_vec(),
+        constants,
         local_count: fc.next_local,
         param_count: method.params.len() as u8,
         dependencies: fc.builder.dependencies().to_vec(),
@@ -714,6 +717,7 @@ fn compile_impl_method(
     };
 
     Ok(CompiledFunction {
+        method_keys: CompiledFunction::index_method_keys(&constants),
         hash,
         bytecode,
         constants,

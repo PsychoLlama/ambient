@@ -299,7 +299,15 @@ impl Vm {
                             });
                         }
                     };
-                    self.op_suspend(&method_ref, arg_count)?;
+                    // Reuse the key derived once at load time; fall back to
+                    // deriving it only if the cache somehow lacks this
+                    // constant (it never should — same source of truth).
+                    let method_key = self
+                        .current_frame()?
+                        .function
+                        .method_key(method_idx)
+                        .unwrap_or_else(|| method_ref.method_key());
+                    self.op_suspend(&method_ref, method_key, arg_count)?;
                 }
 
                 Opcode::Perform => {
@@ -427,7 +435,11 @@ impl Vm {
                         let func_idx = self.read_u16()?;
 
                         let method_key = match self.get_constant(method_idx)? {
-                            Value::AbilityMethodRef(m) => m.method_key(),
+                            Value::AbilityMethodRef(m) => self
+                                .current_frame()?
+                                .function
+                                .method_key(method_idx)
+                                .unwrap_or_else(|| m.method_key()),
                             other => {
                                 return Err(VmError::TypeError {
                                     expected: "ability method",

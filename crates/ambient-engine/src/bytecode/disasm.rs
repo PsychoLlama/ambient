@@ -262,6 +262,7 @@ mod tests {
             param_count: 0,
             dependencies: vec![],
             debug_info: None,
+            method_keys: std::collections::HashMap::default(),
         };
         let listing = disassemble(&func);
         assert!(listing.contains("??"), "listing: {listing}");

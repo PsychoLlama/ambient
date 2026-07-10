@@ -608,6 +608,7 @@ fn to_compiled(
         .map(&resolve)
         .collect::<Result<Vec<_>, _>>()?;
 
+    let method_keys = CompiledFunction::index_method_keys(&constants);
     Ok(CompiledFunction {
         hash,
         bytecode: func.bytecode.clone(),
@@ -616,6 +617,7 @@ fn to_compiled(
         param_count: func.param_count,
         dependencies,
         debug_info: None,
+        method_keys,
     })
 }
 

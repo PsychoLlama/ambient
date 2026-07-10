@@ -25,6 +25,10 @@ pub use debug::{DebugInfo, SourceMapping};
 pub use disasm::disassemble;
 pub use opcode::Opcode;
 
+use std::collections::HashMap;
+
+use ambient_core::MethodKey;
+
 use crate::value::Value;
 
 /// A compiled function ready for execution.
@@ -54,6 +58,20 @@ pub struct CompiledFunction {
     /// It does NOT affect the function's content hash, so functions with
     /// and without debug info are considered equivalent.
     pub debug_info: Option<DebugInfo>,
+
+    /// Precomputed [`MethodKey`]s for every `AbilityMethodRef` constant,
+    /// keyed by its constant-pool index.
+    ///
+    /// A [`MethodKey`] is a blake3 hash of an ability method's constant-pool
+    /// inputs; those inputs are fixed once the function is compiled, so the
+    /// key is derivable at load time rather than on every `Suspend`/perform
+    /// and `MakeHandler` arm. This is a derived, in-memory-only cache built
+    /// by [`Self::index_method_keys`] at every construction site — it is
+    /// NOT part of the function's identity: it is excluded from
+    /// [`Self::compute_hash`] and never encoded into the object store (see
+    /// `object::function_from_compiled`). It always agrees with `constants`
+    /// because it is rebuilt from them, never edited independently.
+    pub method_keys: HashMap<u16, MethodKey>,
 }
 
 impl CompiledFunction {
@@ -85,6 +103,7 @@ impl CompiledFunction {
             param_count,
             &dependencies,
         );
+        let method_keys = Self::index_method_keys(&constants);
         Self {
             hash,
             bytecode,
@@ -93,6 +112,7 @@ impl CompiledFunction {
             param_count,
             dependencies,
             debug_info: None,
+            method_keys,
         }
     }
 
@@ -113,6 +133,7 @@ impl CompiledFunction {
             param_count,
             &dependencies,
         );
+        let method_keys = Self::index_method_keys(&constants);
         Self {
             hash,
             bytecode,
@@ -121,6 +142,7 @@ impl CompiledFunction {
             param_count,
             dependencies,
             debug_info: Some(debug_info),
+            method_keys,
         }
     }
 
@@ -131,6 +153,30 @@ impl CompiledFunction {
     pub fn attach_debug_info(mut self, debug_info: DebugInfo) -> Self {
         self.debug_info = Some(debug_info);
         self
+    }
+
+    /// Look up the precomputed [`MethodKey`] for the constant at `idx`.
+    ///
+    /// Returns `Some` iff that constant is an `AbilityMethodRef` (every
+    /// `Suspend` / handler-arm site indexes one). The VM uses this to skip
+    /// re-hashing the key on the hot perform/install paths.
+    #[must_use]
+    pub fn method_key(&self, idx: u16) -> Option<MethodKey> {
+        self.method_keys.get(&idx).copied()
+    }
+
+    /// Derive the [`MethodKey`] of every `AbilityMethodRef` in a constant
+    /// pool, keyed by constant index. This is the sole builder of the
+    /// `method_keys` cache, so it can never drift from `constants`.
+    pub(crate) fn index_method_keys(constants: &[Value]) -> HashMap<u16, MethodKey> {
+        constants
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, value)| match value {
+                Value::AbilityMethodRef(m) => Some((idx as u16, m.method_key())),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Compute the content hash for this function.

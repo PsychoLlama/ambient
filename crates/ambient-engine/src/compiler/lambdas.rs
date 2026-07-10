@@ -103,6 +103,7 @@ pub(super) fn compile_lambda(
 
     // Create the CompiledFunction with a temporary hash.
     let temp_hash = ctx.next_lambda_hash();
+    let method_keys = CompiledFunction::index_method_keys(&constants);
     let compiled_func = CompiledFunction {
         hash: temp_hash,
         bytecode,
@@ -111,6 +112,7 @@ pub(super) fn compile_lambda(
         param_count,
         dependencies,
         debug_info: None,
+        method_keys,
     };
 
     // Get the captures in order (by name, since that's how ExprKind::Name captures work).
