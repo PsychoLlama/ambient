@@ -265,60 +265,8 @@ pub fn run(): Number { ANSWER + util::ANSWER + pkg::util::ANSWER }
     assert_eq!(run(dir.path()), "126");
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Abilities across modules
-// ─────────────────────────────────────────────────────────────────────────
-
-#[test]
-fn abilities_perform_and_handle_across_modules() {
-    let dir = package(&[
-        (
-            "effects.ab",
-            "pub unique(AB000000-0000-0000-0000-000000000012) ability Counter {\n  fn next(): Number { 0 }\n}\n",
-        ),
-        (
-            "main.ab",
-            r"
-use pkg::effects::Counter;
-
-fn tick(): Number with Counter { Counter::next!() }
-fn tock(): Number with pkg::effects::Counter { pkg::effects::Counter::next!() }
-
-pub fn run(): Number {
-  with {
-    Counter::next() => resume(5)
-  } handle tick() + tock()
-}
-",
-        ),
-    ]);
-    assert_eq!(run(dir.path()), "10");
-}
-
-#[test]
-fn qualified_handler_arms_match_imported_performs() {
-    let dir = package(&[
-        (
-            "effects.ab",
-            "pub unique(AB000000-0000-0000-0000-000000000013) ability Counter {\n  fn next(): Number { 0 }\n}\n",
-        ),
-        (
-            "worker.ab",
-            "use pkg::effects::Counter;\npub fn tick(): Number with Counter { Counter::next!() }\n",
-        ),
-        (
-            "main.ab",
-            r"
-pub fn run(): Number {
-  with {
-    pkg::effects::Counter::next() => resume(9)
-  } handle pkg::worker::tick()
-}
-",
-        ),
-    ]);
-    assert_eq!(run(dir.path()), "9");
-}
+// Abilities across modules live in `module_abilities.rs` (kept separate to
+// stay under the per-file line budget).
 
 // ─────────────────────────────────────────────────────────────────────────
 // Types across modules
