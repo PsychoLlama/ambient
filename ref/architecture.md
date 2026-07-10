@@ -135,6 +135,9 @@ it and two same-shaped abilities never collide. Each method carries a
 mandatory **default implementation** — the body an unhandled perform runs —
 and the method's identity is a content hash of the ability uuid, the
 canonical signature, and that implementation (never the method's name).
+The carve-out is never-returning methods (`: !`), which may stay abstract:
+performing one unwinds to the handler (no continuation is captured), so an
+unhandled abstract perform is a runtime fault.
 Functions declare the abilities they perform with a `with` clause;
 `with ... handle` installs handlers using single-shot delimited
 continuations. The platform abilities (Stdio, FileSystem, Network, ...) are
@@ -170,8 +173,12 @@ and Future Work below for where this is headed.
 
 Errors are abilities: `Exception::throw!` raises, and the nearest enclosing
 `with ... handle` for Exception catches (catch-and-continue). Exception is
-**catch-only** — `throw` returns `!`, so a handler arm cannot `resume` a
-failing operation with a substitute value. Fallible host operations return
+**catch-only** — `throw` returns `!` (never), so the perform site unwinds
+and a handler arm cannot `resume` a failing operation with a substitute
+value. A `!`-typed expression fits any context (bottom elimination:
+`if c { n } else { Exception::throw!("...") }` is a `Number`), and any
+user-declared ability method may return `!` for the same catch-only
+semantics. Fallible host operations return
 `Result<T, String>` (`FileSystem::read`, every `Network` method, ...) and
 are matched on like ordinary data; only unwired capabilities and runtime
 control errors still travel the catchable `Exception` channel, as hard

@@ -46,6 +46,11 @@ allowed effects are exactly the ability's declared `with`-dependencies
 ability, which is also what keeps method identity well-founded: an
 implementation hash never depends on itself.
 
+The carve-out is **never-returning methods** (`: !`), which may omit the
+body and stay abstract — an unhandled perform is then a runtime fault
+(the uncaught-exception path for `Exception::throw`, an
+unhandled-ability error otherwise). See "Never-returning methods" below.
+
 ```ambient
 // Default implementations bottom out in extern fns (the pure host
 // boundary) or plain values.
@@ -178,12 +183,41 @@ Handler arms are fully typed against the ability's declared interface:
   expression's result type.
 - An arm body's own effects (performs outside the handled body) count
   against the enclosing function, like any other code.
-- Exception is **catch-only**: `throw` returns `!` (never), which nothing
-  unifies with, so an Exception arm cannot `resume` — it yields a value
-  directly (catch-and-continue). There is no way to substitute a value for
-  a failing call and continue; fallible host operations return `Result`
-  and are matched on instead (see "Fallible host operations return
-  Result").
+- Arms for never-returning methods (`Exception::throw`, any method
+  declared `: !`) are **catch-only**: the perform site unwound, so there
+  is no continuation and `resume` is a dedicated type error — the arm
+  yields a value directly (catch-and-continue). There is no way to
+  substitute a value for a failing call and continue; fallible host
+  operations return `Result` and are matched on instead (see "Fallible
+  host operations return Result").
+
+## Never-returning methods
+
+A method declared `: !` never resumes its caller — performing it
+**unwinds**. Three things follow, and together they make `!` a
+first-class part of the ability system rather than an `Exception`
+special case:
+
+- **Checking**: a `!`-typed expression fits any context (bottom
+  elimination — the value can never exist, so the use site is
+  unreachable). `if (ok) { n } else { Exception::throw!("...") }` is a
+  `Number`, a throw can be a typed function's tail expression, a match
+  arm, or a `resume` argument's sibling. The encoding is `∀a. a`: the
+  perform adopts a fresh type variable. Introduction stays strict — only
+  declared signatures produce `!`, so `fn lie(): ! { 42 }` is still a
+  type mismatch.
+- **Runtime**: the VM discards the delimited computation at the perform
+  (stack segment, frames, and the handler entries delimiting them) and
+  runs the arm with no continuation — the arm's value lands at the
+  handle expression's completion point, exactly like a non-resuming arm,
+  but nothing was captured or retained.
+- **Declaration**: the method may omit its default implementation
+  (`fn abort(code: Number): !;`) — there is often nothing sensible for
+  an unhandled perform to run. An unhandled abstract perform is a
+  runtime fault: the uncaught-exception error for `Exception::throw`,
+  an unhandled-ability error for anything else. A never method may
+  still provide a body (e.g. one that translates into another never
+  ability it declares in its `with` row).
 
 ## Handlers as Values
 
@@ -375,9 +409,7 @@ mismatches) remain fatal `VmError`s — they indicate bugs, not conditions
 programs should handle.
 
 Current limits: `Exception` is not generic yet (`throw` takes a string;
-`Exception<E>` with an error trait bound is the planned evolution), and
-`!` (never) does not yet unify with other types, so `throw` works in
-statement position but not as the value of a typed expression.
+`Exception<E>` with an error trait bound is the planned evolution).
 
 ### Option/Result vs exceptions
 
