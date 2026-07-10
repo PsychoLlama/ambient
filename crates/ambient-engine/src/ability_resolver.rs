@@ -36,6 +36,14 @@ pub struct DynMethod {
     pub ret: Type,
     /// Type variable IDs standing in for the method's type parameters.
     pub quantified: Vec<crate::types::TypeVarId>,
+    /// Trait bounds on the method's type parameters, in dictionary order:
+    /// `(index into quantified, spelled trait name)` per bound. The name
+    /// resolves to a trait identity at perform sites (leniently — the
+    /// spelling comes from the declaring module's scope); the *canonical
+    /// signature* renders the spelled name, matching how unresolved
+    /// cross-module nominals hash (`named:Duration`), so an ability's
+    /// identity never depends on what is in scope where it is rendered.
+    pub bounds: Vec<(usize, Arc<str>)>,
     /// Hash of the canonical signature rendering.
     pub signature: SignatureHash,
     /// Whether the method carries a default implementation. `false` only
@@ -575,6 +583,7 @@ mod tests {
                 params: vec![Type::string()],
                 ret: Type::Unit,
                 quantified: vec![],
+                bounds: Vec::new(),
                 signature: ambient_core::SignatureHash::new(&["string"], "unit"),
                 has_impl: true,
             }],

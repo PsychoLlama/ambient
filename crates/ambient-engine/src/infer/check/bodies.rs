@@ -106,49 +106,52 @@ pub(super) fn check_ability_method_bodies(
             .iter()
             .map(|tp| Arc::clone(&tp.name))
             .collect();
+        let bounds = infer.resolve_bound_params(&method.type_params, errors);
         infer.with_rigid_params(rigid, |infer| {
-            let mut method_env = env.extend();
-            let expected_ret = resolve_erroring(infer, &method.ret_ty);
+            infer.with_bound_params(bounds, |infer| {
+                let mut method_env = env.extend();
+                let expected_ret = resolve_erroring(infer, &method.ret_ty);
 
-            for param in &method.params {
-                let param_ty = match &param.ty {
-                    Some(ty) => resolve_erroring(infer, ty),
-                    None => infer.fresh(),
-                };
-                method_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
-            }
+                for param in &method.params {
+                    let param_ty = match &param.ty {
+                        Some(ty) => resolve_erroring(infer, ty),
+                        None => infer.fresh(),
+                    };
+                    method_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
+                }
 
-            match infer.infer_expr(&method_env, body) {
-                Ok(body_ty) => {
-                    let span = (body.span.start, body.span.end);
-                    if let Err(e) = infer.unify(&expected_ret, &body_ty, span) {
-                        errors.push(e.with_context(format!(
-                            "in ability method `{}::{}`: default implementation \
+                match infer.infer_expr(&method_env, body) {
+                    Ok(body_ty) => {
+                        let span = (body.span.start, body.span.end);
+                        if let Err(e) = infer.unify(&expected_ret, &body_ty, span) {
+                            errors.push(e.with_context(format!(
+                                "in ability method `{}::{}`: default implementation \
                              must return the declared type",
+                                def.name, method.name
+                            )));
+                        }
+                        deferred.push(DeferredAbilityCheck {
+                            context: format!(
+                                "default implementation of `{}::{}`",
+                                def.name, method.name
+                            ),
+                            declared: def.dependencies.clone(),
+                            inferred: infer.current_abilities().clone(),
+                            span: method.span,
+                        });
+                    }
+                    Err(e) => {
+                        errors.push(e.with_context(format!(
+                            "in ability method `{}::{}`",
                             def.name, method.name
                         )));
                     }
-                    deferred.push(DeferredAbilityCheck {
-                        context: format!(
-                            "default implementation of `{}::{}`",
-                            def.name, method.name
-                        ),
-                        declared: def.dependencies.clone(),
-                        inferred: infer.current_abilities().clone(),
-                        span: method.span,
-                    });
                 }
-                Err(e) => {
-                    errors.push(e.with_context(format!(
-                        "in ability method `{}::{}`",
-                        def.name, method.name
-                    )));
-                }
-            }
 
-            // Solve any bound constraints the default implementation
-            // recorded (calls to bounded generics at concrete types).
-            infer.finish_body_constraints(body, errors);
+                // Solve any bound constraints the default implementation
+                // recorded (calls to bounded generics at concrete types).
+                infer.finish_body_constraints(body, errors);
+            });
         });
     }
 }

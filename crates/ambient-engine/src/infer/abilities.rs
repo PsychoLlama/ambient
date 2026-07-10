@@ -142,6 +142,7 @@ impl Infer {
         ability: &QualifiedName,
         method_name: &str,
         arg_tys: &[Type],
+        dicts: &mut Option<crate::ast::Dicts>,
         span: (u32, u32),
     ) -> InferResult<(AbilityId, Type, AbilitySet)> {
         // One policy for every position that names an ability: namespaced
@@ -167,7 +168,7 @@ impl Infer {
                     span,
                 )
             })?;
-        self.lookup_dynamic_method(&dynamic, method_name, arg_tys, span)
+        self.lookup_dynamic_method(&dynamic, method_name, arg_tys, dicts, span)
     }
 
     /// Type-check a call to a module-declared ability method.
@@ -183,6 +184,7 @@ impl Infer {
         dynamic: &crate::ability_resolver::DynAbility,
         method_name: &str,
         arg_tys: &[Type],
+        dicts: &mut Option<crate::ast::Dicts>,
         span: (u32, u32),
     ) -> InferResult<(AbilityId, Type, AbilitySet)> {
         let Some(method) = dynamic.method(method_name).cloned() else {
@@ -208,6 +210,34 @@ impl Infer {
         let mut subst = std::collections::HashMap::new();
         for quantified in &method.quantified {
             subst.insert(*quantified, self.fresh());
+        }
+
+        // A bounded method records its dictionary constraints against the
+        // perform expression. The bound names were spelled in the
+        // declaring module's scope, so they resolve leniently here.
+        if !method.bounds.is_empty() {
+            let mut resolved_bounds = Vec::with_capacity(method.bounds.len());
+            for (param_idx, bound_name) in &method.bounds {
+                let Some(trait_uuid) = self.trait_registry.lookup_trait_lenient(bound_name) else {
+                    return Err(type_error(
+                        TypeErrorKind::UnknownTrait {
+                            name: Arc::clone(bound_name),
+                        },
+                        span,
+                    ));
+                };
+                let Some(&var) = method.quantified.get(*param_idx) else {
+                    continue;
+                };
+                resolved_bounds.push((
+                    var,
+                    crate::types::TraitBound {
+                        trait_uuid,
+                        name: Arc::clone(bound_name),
+                    },
+                ));
+            }
+            *dicts = Some(self.record_bound_constraints(&resolved_bounds, &subst, span));
         }
 
         for (param, arg) in method.params.iter().zip(arg_tys) {
@@ -266,6 +296,7 @@ mod tests {
                 params: vec![Type::string()],
                 ret: Type::Unit,
                 quantified: vec![],
+                bounds: Vec::new(),
                 signature: ambient_core::SignatureHash::new(&["string"], "unit"),
                 has_impl: true,
             }],
@@ -285,20 +316,21 @@ mod tests {
 
         let qualified = QualifiedName::qualified(vec!["core", "system"], "Printer");
         let (id, ret, _) = infer
-            .lookup_ability_method(&qualified, "go", &[Type::string()], span())
+            .lookup_ability_method(&qualified, "go", &[Type::string()], &mut None, span())
             .expect("qualified perform should resolve");
         assert_eq!(id, aid(7));
         assert_eq!(ret, Type::Unit);
 
         // Declared signatures are enforced: wrong argument type fails.
-        let err = infer.lookup_ability_method(&qualified, "go", &[Type::number()], span());
+        let err =
+            infer.lookup_ability_method(&qualified, "go", &[Type::number()], &mut None, span());
         assert!(err.is_err(), "argument type mismatch should be rejected");
 
         // The wrong namespace does not resolve.
         let wrong = QualifiedName::qualified(vec!["other"], "Printer");
         assert!(
             infer
-                .lookup_ability_method(&wrong, "go", &[Type::string()], span())
+                .lookup_ability_method(&wrong, "go", &[Type::string()], &mut None, span())
                 .is_err()
         );
     }
@@ -416,7 +448,7 @@ mod tests {
 
         // A namespaced prelude ability performed bare should fail.
         let bare = QualifiedName::simple("Printer");
-        let result = infer.lookup_ability_method(&bare, "go", &[Type::string()], span());
+        let result = infer.lookup_ability_method(&bare, "go", &[Type::string()], &mut None, span());
         assert!(
             result.is_err(),
             "Printer without platform. prefix should fail"
@@ -424,7 +456,8 @@ mod tests {
 
         // The same perform with the namespace succeeds.
         let qualified = platform_ability("Printer");
-        let result = infer.lookup_ability_method(&qualified, "go", &[Type::string()], span());
+        let result =
+            infer.lookup_ability_method(&qualified, "go", &[Type::string()], &mut None, span());
         assert!(result.is_ok(), "core::system::Printer::go should succeed");
     }
 }

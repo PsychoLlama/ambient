@@ -502,7 +502,9 @@ impl Infer {
             }
 
             // Effect expressions are handled by helper methods in effects.rs
-            ExprKind::Perform(ability_call) => self.infer_perform(env, ability_call, span)?,
+            ExprKind::Perform(ability_call) => {
+                self.infer_perform(env, ability_call, dicts, span)?
+            }
 
             ExprKind::Handle(handle_expr) => self.infer_handle(env, handle_expr, span)?,
 

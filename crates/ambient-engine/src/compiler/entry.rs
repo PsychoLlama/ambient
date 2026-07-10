@@ -631,6 +631,11 @@ fn compile_ability_method(
         fc.alloc_local_with_name(param.id, &param.name)?;
     }
 
+    // Hidden trailing dictionary parameters, one per trait bound on the
+    // method's type parameters — perform sites push them after the
+    // declared arguments.
+    alloc_dict_locals(&mut fc, &method.type_params)?;
+
     let Some(body) = &method.body else {
         return Err(CompileError::new(
             CompileErrorKind::Internal {
@@ -670,7 +675,10 @@ fn compile_ability_method(
         bytecode: fc.builder.bytecode().to_vec(),
         constants,
         local_count: fc.next_local,
-        param_count: method.params.len() as u8,
+        // Dictionary parameters count toward the arity: perform sites push
+        // them after the declared arguments.
+        #[allow(clippy::cast_possible_truncation)]
+        param_count: (method.params.len() + fc.dict_locals.len()) as u8,
         dependencies: fc.builder.dependencies().to_vec(),
         debug_info,
     })

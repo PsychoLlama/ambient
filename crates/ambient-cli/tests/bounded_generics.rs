@@ -238,3 +238,73 @@ fn bounded_inherent_impl_method() {
     ))
     .expect_output("true");
 }
+
+#[test]
+fn bounded_ability_method_default_impl() {
+    // An ability method with a bound: the perform passes the dictionary as
+    // a hidden trailing argument, and the default implementation uses it.
+    CliTest::new(format!(
+        r#"
+        {MONEY}
+        unique(A1B2C3D4-0000-0000-0000-00000000BB10) ability Chooser {{
+            fn pick_equal<T: Eq>(a: T, b: T): Bool {{
+                a.eq(b)
+            }}
+        }}
+
+        fn run(): Bool with Chooser {{
+            Chooser::pick_equal!(Money {{ cents: 8 }}, Money {{ cents: 8 }})
+        }}
+    "#
+    ))
+    .expect_output("true");
+}
+
+#[test]
+fn bounded_ability_method_forwards_from_generic_caller() {
+    // A bounded generic function performing a bounded ability method
+    // forwards its own dictionary into the perform.
+    CliTest::new(format!(
+        r#"
+        {MONEY}
+        unique(A1B2C3D4-0000-0000-0000-00000000BB11) ability Chooser {{
+            fn pick_equal<T: Eq>(a: T, b: T): Bool {{
+                a.eq(b)
+            }}
+        }}
+
+        fn check<T: Eq>(a: T, b: T): Bool with Chooser {{
+            Chooser::pick_equal!(a, b)
+        }}
+
+        fn run(): Bool with Chooser {{
+            check(Money {{ cents: 3 }}, Money {{ cents: 4 }})
+        }}
+    "#
+    ))
+    .expect_output("false");
+}
+
+#[test]
+fn handler_for_bounded_method_rejected() {
+    // Handler arms for bounded methods don't bind the hidden dictionary
+    // arguments yet; covering one is a clear error rather than a runtime
+    // arity mismatch.
+    CliTest::new(format!(
+        r#"
+        {MONEY}
+        unique(A1B2C3D4-0000-0000-0000-00000000BB12) ability Chooser {{
+            fn pick_equal<T: Eq>(a: T, b: T): Bool {{
+                a.eq(b)
+            }}
+        }}
+
+        fn run(): Bool {{
+            with {{
+                Chooser::pick_equal(a, b) => resume(true)
+            }} handle Chooser::pick_equal!(Money {{ cents: 1 }}, Money {{ cents: 2 }})
+        }}
+    "#
+    ))
+    .expect_error("not supported yet");
+}

@@ -20,6 +20,7 @@ impl Infer {
         &mut self,
         env: &TypeEnv,
         ability_call: &mut AbilityCall,
+        dicts: &mut Option<crate::ast::Dicts>,
         span: (u32, u32),
     ) -> InferResult<Type> {
         // Infer types of arguments — on the real nodes, not clones:
@@ -31,11 +32,16 @@ impl Infer {
             arg_tys.push(self.infer_expr(env, arg)?);
         }
 
-        // Look up the ability and method to get return type and additional abilities
+        // Look up the ability and method to get return type and additional
+        // abilities. A bounded method (`fn pick<T: Eq>(...)`) records its
+        // dictionary constraints against this perform expression: the
+        // dictionaries ride as hidden trailing perform arguments, exactly
+        // like a bounded function call's.
         let (ability_id, result_ty, additional_abilities) = self.lookup_ability_method(
             &ability_call.ability,
             &ability_call.method,
             &arg_tys,
+            dicts,
             span,
         )?;
 
@@ -223,6 +229,26 @@ impl Infer {
                 handler_span,
             ));
         };
+
+        // A bounded method's perform carries hidden dictionary arguments;
+        // handler arms don't bind them yet, so covering such a method
+        // would receive the wrong argument list at runtime. Reject loudly
+        // — the perform still runs the (dictionary-aware) default
+        // implementation.
+        let has_bounds = self
+            .ability_resolver
+            .get_dynamic_by_id(ability_id)
+            .and_then(|d| d.method(&handler.method))
+            .is_some_and(|m| !m.bounds.is_empty());
+        if has_bounds {
+            return Err(type_error(
+                TypeErrorKind::HandlerForBoundedMethod {
+                    ability: handler.ability.name.clone(),
+                    method: handler.method.clone(),
+                },
+                handler_span,
+            ));
+        }
         if handler.params.len() != param_tys.len() {
             return Err(type_error(
                 TypeErrorKind::HandlerMethodArityMismatch {

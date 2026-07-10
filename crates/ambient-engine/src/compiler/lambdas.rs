@@ -326,12 +326,18 @@ fn resolve_arm_ability(
 pub(super) fn compile_ability_call(
     fc: &mut FunctionCompiler,
     ability_call: &crate::ast::AbilityCall,
+    dicts: Option<&crate::ast::Dicts>,
     ctx: &mut ModuleContext,
 ) -> Result<(), CompileError> {
     // Compile arguments.
     for arg in &ability_call.args {
         compile_expr(fc, arg, ctx)?;
     }
+
+    // A bounded method's dictionaries ride as hidden trailing perform
+    // arguments; the default implementation binds them as its own hidden
+    // trailing parameters.
+    let dict_count = super::expr::compile_dicts(fc, dicts, ability_call.span)?;
 
     // Resolve the method reference. Every ability — locals, foreign, and
     // prelude (including `Exception`) — resolves through the context; the
@@ -352,9 +358,11 @@ pub(super) fn compile_ability_call(
     })?;
     let method_ref = resolve_method_ref(&fc.function_hashes, info, method_name, span)?;
 
-    // Emit suspend instruction (packages the args), then perform.
+    // Emit suspend instruction (packages the args, dictionaries included),
+    // then perform.
+    #[allow(clippy::cast_possible_truncation)]
     fc.builder
-        .emit_suspend(method_ref, ability_call.args.len() as u8);
+        .emit_suspend(method_ref, (ability_call.args.len() + dict_count) as u8);
     fc.builder.emit(Opcode::Perform);
 
     Ok(())

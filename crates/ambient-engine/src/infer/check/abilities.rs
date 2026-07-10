@@ -490,11 +490,32 @@ fn resolve_ability_def(
             }
         }
 
+        // Trait bounds on the method's type parameters, in dictionary
+        // order, each keyed by the parameter's declaration index (stable
+        // under renames, independent of any resolver).
+        let bounds: Vec<(usize, Arc<str>)> = crate::ast::dict_params(&method.type_params)
+            .into_iter()
+            .filter_map(|(param, bound_name)| {
+                method
+                    .type_params
+                    .iter()
+                    .position(|tp| tp.name == param)
+                    .map(|idx| (idx, bound_name))
+            })
+            .collect();
+
         // One renderer per signature: variable numbering is
         // signature-local, by first occurrence.
         let mut renderer = CanonicalTypeRenderer::new();
-        let canon_params: Vec<String> = params.iter().map(|p| renderer.render(p)).collect();
+        let mut canon_params: Vec<String> = params.iter().map(|p| renderer.render(p)).collect();
         let canon_ret = renderer.render(&ret);
+        // Bounds enter the canonical signature as pseudo-parameters after
+        // the real ones (`bound:<param_index>:<TraitName>`): a bound is
+        // interface, so adding one re-keys the method loudly. A boundless
+        // method's rendering is byte-identical to before bounds existed.
+        for (idx, bound_name) in &bounds {
+            canon_params.push(format!("bound:{idx}:{bound_name}"));
+        }
 
         methods.push(DynMethod {
             name: Arc::clone(&method.name),
@@ -502,6 +523,7 @@ fn resolve_ability_def(
             params,
             ret,
             quantified,
+            bounds,
             signature: SignatureHash::new(&canon_params, &canon_ret),
             has_impl: method.body.is_some(),
         });

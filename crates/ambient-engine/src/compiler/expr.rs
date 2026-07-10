@@ -515,7 +515,7 @@ pub(super) fn compile_expr(
         // Abilities
         // ─────────────────────────────────────────────────────────────────────
         ExprKind::Perform(ability_call) => {
-            compile_ability_call(fc, ability_call, ctx)?;
+            compile_ability_call(fc, ability_call, expr.dicts.as_ref(), ctx)?;
         }
 
         ExprKind::Handle(handle_expr) => {
@@ -634,7 +634,7 @@ pub(super) fn compile_expr(
 /// from a concrete impl (a tuple of function references, hash-linked like
 /// any direct call) or forwarded from this function's own dictionary
 /// parameters.
-fn compile_dicts(
+pub(super) fn compile_dicts(
     fc: &mut FunctionCompiler,
     dicts: Option<&crate::ast::Dicts>,
     span: crate::ast::Span,
