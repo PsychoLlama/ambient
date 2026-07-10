@@ -95,6 +95,42 @@ fn renaming_a_method_moves_no_hashes() {
 }
 
 #[test]
+fn renaming_a_recursive_method_impl_moves_no_hashes() {
+    // The problematic shape: a method's default implementation is mutually
+    // recursive with a module function, so the impl lands in a recursive
+    // group object. Group members are ordered/identified by name, so the
+    // dispatch symbol `<uuid>::<method>` must not leak the method name into
+    // the group hash — else renaming the method would re-key the method.
+    //
+    // `tell`'s body calls `helper`, and `helper` performs (and locally
+    // handles) `Fortune::tell`, referencing the impl right back: impl and
+    // helper form one cycle.
+    let source = |method: &str| {
+        format!(
+            r"
+            unique(AB100000-0000-0000-0000-00000000000A) ability Fortune {{
+              fn {method}(): Number {{ helper() }}
+            }}
+            fn helper(): Number {{
+              with {{ Fortune::{method}() => resume(0) }} handle Fortune::{method}!()
+            }}
+            fn consult(): Number with Fortune {{
+              Fortune::{method}!()
+            }}
+            "
+        )
+    };
+    let original = compile(&source("tell"));
+    let renamed = compile(&source("divine"));
+
+    assert_eq!(
+        caller_hash(&original, "consult"),
+        caller_hash(&renamed, "consult"),
+        "renaming a method whose impl is in a recursive group must not move a perform site's hash"
+    );
+}
+
+#[test]
 fn renaming_a_type_in_a_signature_moves_no_hashes() {
     // A method's canonical signature renders uuid-carrying nominal types by
     // their uuid, not their name. So renaming a *type* mentioned in an

@@ -81,6 +81,63 @@ fn test_user_ability_unhandled_runs_default_implementation() {
 }
 
 #[test]
+fn test_recursive_default_implementation_runs() {
+    // A default implementation that is mutually recursive with a module
+    // function lands in a recursive group object. Beyond staying rename-stable
+    // (pinned by `ambient-parser`'s `ability_identity` tests), it must still
+    // execute: `run` performs `tell` unhandled → default impl calls `helper`
+    // → `helper` performs and locally handles `tell`, resuming with 0.
+    CliTest::new(
+        r#"
+        unique(AB000000-0000-0000-0000-00000000002B) ability Fortune {
+            fn tell(): Number { helper() }
+        }
+
+        fn helper(): Number {
+            with { Fortune::tell() => resume(0) } handle Fortune::tell!()
+        }
+
+        pub fn run(): Number with Fortune {
+            Fortune::tell!()
+        }
+        "#,
+    )
+    .expect_output("0");
+}
+
+#[test]
+fn test_two_methods_recursive_in_one_group_are_rejected() {
+    // A default implementation's rename-stable identity in a recursive group
+    // is the ability uuid alone (its method name must not leak into the group
+    // hash). When *two* of one ability's methods share a single recursive
+    // cycle they collide on that uuid, so their order — and derived hashes —
+    // would be ambiguous. The compiler rejects it and asks to break the cycle.
+    CliTest::new(
+        r"
+        unique(AB000000-0000-0000-0000-00000000002C) ability Fortune {
+            fn a(): Number { helper() }
+            fn b(): Number { let x = helper(); x }
+        }
+
+        fn helper(): Number {
+            with {
+                Fortune::a() => resume(0),
+                Fortune::b() => resume(0)
+            } handle {
+                let x = Fortune::a!();
+                Fortune::b!()
+            }
+        }
+
+        pub fn run(): Number with Fortune {
+            Fortune::a!()
+        }
+        ",
+    )
+    .expect_error("mutually recursive within one group");
+}
+
+#[test]
 fn test_same_signature_same_body_methods_are_rejected() {
     // Method identity is (uuid, signature, implementation) — names are
     // excluded. Two methods that agree on all three would be one method at

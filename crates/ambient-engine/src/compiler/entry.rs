@@ -445,8 +445,21 @@ fn compile_module_impl(
     // Value objects for block-scoped consts, discovered while walking bodies.
     let block_const_objects = ctx.const_objects;
 
+    // An ability default implementation compiles under the dispatch symbol
+    // `<ability-uuid>::<method>`, which carries the method name. If such an
+    // impl lands in a recursive group object, group members are identified
+    // by name — so the method name would leak into the group hash, hence the
+    // impl's content hash, hence its rename-stable `MethodKey`. Map each
+    // impl symbol to a rename-stable canonical group name (the ability uuid
+    // alone) so finalization identifies the member by uuid, not method name.
+    let ability_impl_group_names: HashMap<Arc<str>, Arc<str>> = ability_methods
+        .iter()
+        .map(|(def, _, symbol)| (Arc::clone(symbol), Arc::from(def.uuid.to_string())))
+        .collect();
+
     // Phase 3: Compute content-addressed hashes and finalize the module.
-    let mut module = finalize_module_hashes(compiled_functions, lambdas)?;
+    let mut module =
+        finalize_module_hashes(compiled_functions, lambdas, &ability_impl_group_names)?;
     // Fold in every const value object — module-level ones from the pre-pass
     // and block-scoped ones from the bodies. They ship and deduplicate
     // alongside function objects; a referencing function already records the

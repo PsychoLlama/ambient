@@ -23,6 +23,13 @@
 //! are part of their group's identity — members of a cycle are only
 //! distinguishable by name — so renaming a recursive function changes its
 //! hash. Renaming a non-recursive function never does.
+//!
+//! The one exception is an ability default implementation, which compiles
+//! under the dispatch symbol `<ability-uuid>::<method>`. Its `MethodKey` must
+//! be rename-stable, so it is ordered and encoded by a rename-stable group
+//! name (the ability uuid alone; see [`Node::group_name`]) rather than the
+//! method-name-bearing symbol. Two of one ability's methods colliding on that
+//! uuid inside a single cycle is a hard error.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -76,8 +83,17 @@ struct Node {
     /// Temporary (pre-finalization) hash: name-derived for named functions,
     /// counter-derived for lambdas.
     temp: blake3::Hash,
-    /// Source name; `None` for lambdas.
+    /// Source name; `None` for lambdas. This is the *linking* name (an
+    /// ability default implementation's is its `<uuid>::<method>` dispatch
+    /// symbol); it keys the module's `function_names` table.
     name: Option<Arc<str>>,
+    /// The rename-stable name used for recursive-group ordering and identity.
+    /// Equal to [`Self::name`] for ordinary functions, but for an ability
+    /// default implementation it is the ability uuid alone — the method name
+    /// is deliberately excluded so it never leaks into the group hash (and
+    /// thus the method's `MethodKey`). `None` for lambdas, exactly like
+    /// [`Self::name`].
+    group_name: Option<Arc<str>>,
     func: CompiledFunction,
     is_main: bool,
     lambda_parent: Option<Arc<str>>,
@@ -97,14 +113,26 @@ fn internal_error(message: &'static str) -> CompileError {
 pub(super) fn finalize_module_hashes(
     compiled_functions: Vec<(Arc<str>, CompiledFunction, bool)>,
     lambdas: Vec<(blake3::Hash, Arc<str>, CompiledFunction)>,
+    ability_impl_group_names: &HashMap<Arc<str>, Arc<str>>,
 ) -> Result<CompiledModule, CompileError> {
     // References to imported functions already carry final hashes and pass
     // through unchanged; only references to local temp hashes get rewritten.
     let mut nodes: Vec<Node> = Vec::new();
     for (name, func, is_main) in compiled_functions {
+        // An ability default implementation is identified in a recursive
+        // group by the ability uuid alone (its method name must not enter
+        // the group hash); every other named function is identified by its
+        // own name.
+        let group_name = Some(
+            ability_impl_group_names
+                .get(&name)
+                .cloned()
+                .unwrap_or_else(|| Arc::clone(&name)),
+        );
         nodes.push(Node {
             temp: func.hash,
             name: Some(name),
+            group_name,
             func,
             is_main,
             lambda_parent: None,
@@ -114,6 +142,7 @@ pub(super) fn finalize_module_hashes(
         nodes.push(Node {
             temp,
             name: None,
+            group_name: None,
             func,
             is_main: false,
             lambda_parent: Some(parent),
@@ -253,6 +282,31 @@ fn finalize_group(
 ) -> Result<(), CompileError> {
     let order = canonical_member_order(scc_members, member_set, nodes, local);
 
+    // Named members must have distinct canonical names, or their ordering —
+    // and thus their derived member hashes — is ambiguous. Ordinary function
+    // names are already unique within a module; the only way two named
+    // members collide is two default implementations of the *same* ability
+    // (both identified by the shared ability uuid) landing in one recursive
+    // group. Reject it rather than pick an arbitrary, unstable order.
+    let mut seen_names: HashSet<&str> = HashSet::new();
+    for &i in &order {
+        if let Some(name) = nodes[i].group_name.as_deref()
+            && !seen_names.insert(name)
+        {
+            return Err(CompileError::new(
+                CompileErrorKind::Unsupported {
+                    feature: format!(
+                        "two default implementations of ability `{name}` are mutually \
+                         recursive within one group, so their content identity is \
+                         ambiguous; break the recursion so at most one of the ability's \
+                         methods is part of each recursive cycle"
+                    ),
+                },
+                (0, 0),
+            ));
+        }
+    }
+
     let index_of: HashMap<usize, u32> = order
         .iter()
         .enumerate()
@@ -267,7 +321,10 @@ fn finalize_group(
         .iter()
         .map(|&i| {
             Ok(GroupMember {
-                name: nodes[i].name.as_ref().map(std::string::ToString::to_string),
+                name: nodes[i]
+                    .group_name
+                    .as_ref()
+                    .map(std::string::ToString::to_string),
                 function: function_from_compiled(&nodes[i].func, &|h| resolve_ref(&subst, h))
                     .map_err(|_| {
                         internal_error("constant pool value cannot be content-addressed")
@@ -304,11 +361,12 @@ fn finalize_group(
 
 /// Canonical member ordering for a recursive group.
 ///
-/// Named members first, sorted by name; then lambdas in the order they are
-/// first referenced while scanning already-ordered members' constant pools.
-/// Every lambda in a cycle is reachable from a named member of that cycle
-/// (lambdas cannot recurse by name), so this covers all members; a trailing
-/// temp-hash-ordered fallback guards against the impossible.
+/// Named members first, sorted by their rename-stable group name (see
+/// [`Node::group_name`]); then lambdas in the order they are first referenced
+/// while scanning already-ordered members' constant pools. Every lambda in a
+/// cycle is reachable from a named member of that cycle (lambdas cannot
+/// recurse by name), so this covers all members; a trailing temp-hash-ordered
+/// fallback guards against the impossible.
 fn canonical_member_order(
     scc_members: &[usize],
     member_set: &HashSet<usize>,
@@ -318,9 +376,9 @@ fn canonical_member_order(
     let mut order: Vec<usize> = scc_members
         .iter()
         .copied()
-        .filter(|&i| nodes[i].name.is_some())
+        .filter(|&i| nodes[i].group_name.is_some())
         .collect();
-    order.sort_by(|&a, &b| nodes[a].name.cmp(&nodes[b].name));
+    order.sort_by(|&a, &b| nodes[a].group_name.cmp(&nodes[b].group_name));
 
     let mut placed: HashSet<usize> = order.iter().copied().collect();
     let mut cursor = 0;
