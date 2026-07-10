@@ -23,13 +23,21 @@ pub use imports::{ImportError, ResolvedImport, ResolvedImports};
 pub use scope::{ItemImport, ModuleScope, Namespace};
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::ast::{ItemKind, Module, UsePrefix};
 use crate::fqn::{Fqn, ModuleId};
 use crate::module_path::{ImportPrefix, ModulePath, ResolutionError};
 
 use exports::{extract_exports, extract_re_exports};
+
+/// The foreign-ability channel every registry-backed compile needs: each
+/// registered module's `ability` declarations resolved to their uuid-derived
+/// identities and method keys, keyed by [`Fqn`]. Wrapped in an `Arc` so the
+/// registry's memoized table (see [`ModuleRegistry::foreign_abilities`]) is
+/// shared, not re-cloned, into every
+/// [`ModuleEnv`](crate::module_env::ModuleEnv).
+pub type ForeignAbilityTable = Arc<Vec<(Fqn, Arc<crate::ability_resolver::DynAbility>)>>;
 
 /// Error that can occur during module registry operations.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -92,7 +100,7 @@ pub struct ModuleInfo {
 /// The registry maintains a map from module paths to their exports,
 /// enabling cross-module name resolution. Cloning is cheap relative to
 /// building: module ASTs are shared through `Arc`.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ModuleRegistry {
     /// Map from module path string to module info.
     modules: HashMap<String, ModuleInfo>,
@@ -112,6 +120,36 @@ pub struct ModuleRegistry {
     /// embedders add their own via [`Self::register_natives`]. Compiles
     /// read it through [`crate::module_env::ModuleEnv`].
     natives: crate::natives::NativeRegistry,
+    /// Bumped on every mutation that can change the foreign-ability table —
+    /// module registration, the workspace name, the prelude, injected
+    /// exports. Guards [`Self::ability_cache`] so a stale memo can never be
+    /// served: the reader recomputes whenever the revision has moved.
+    ability_revision: u64,
+    /// Memoized [`Self::foreign_abilities`] table, tagged with the
+    /// [`Self::ability_revision`] it was computed at. Resolving abilities is
+    /// deterministic but O(modules), and every registry-backed compile needs
+    /// the whole table, so a per-module `ModuleEnv::new` would otherwise make
+    /// the build O(modules²). Interior-mutable so the read path stays
+    /// `&self`; each registry owns its cache (a clone starts empty — see the
+    /// manual [`Clone`] impl — so a diverging clone never reads a sibling's
+    /// table).
+    ability_cache: Mutex<Option<(u64, ForeignAbilityTable)>>,
+}
+
+impl Clone for ModuleRegistry {
+    fn clone(&self) -> Self {
+        Self {
+            modules: self.modules.clone(),
+            workspace_name: Arc::clone(&self.workspace_name),
+            prelude: self.prelude.clone(),
+            natives: self.natives.clone(),
+            ability_revision: self.ability_revision,
+            // A fresh, empty cache — never alias the source registry's memo,
+            // so a clone that later diverges can't read a stale table keyed
+            // to a revision that means something different here.
+            ability_cache: Mutex::new(None),
+        }
+    }
 }
 
 impl Default for ModuleRegistry {
@@ -121,6 +159,8 @@ impl Default for ModuleRegistry {
             workspace_name: Arc::from(""),
             prelude: None,
             natives: crate::natives::NativeRegistry::new(),
+            ability_revision: 0,
+            ability_cache: Mutex::new(None),
         }
     }
 }
@@ -137,12 +177,40 @@ impl ModuleRegistry {
     /// LSP, and store all mint identical identities.
     pub fn set_workspace_name(&mut self, name: impl Into<Arc<str>>) {
         self.workspace_name = name.into();
+        // Item `Fqn`s are scoped under this name, so every cached ability
+        // identity's key is now stale.
+        self.ability_revision += 1;
     }
 
     /// The host's native bindings for `extern fn` declarations.
     #[must_use]
     pub fn natives(&self) -> &crate::natives::NativeRegistry {
         &self.natives
+    }
+
+    /// The foreign-ability table for a registry-backed compile: every
+    /// registered module's `ability` declarations resolved to their
+    /// uuid-derived identities and method keys, keyed by [`Fqn`].
+    ///
+    /// Memoized against [`Self::ability_revision`]: resolution is
+    /// deterministic and O(modules), and every module's `ModuleEnv` needs the
+    /// full table, so recomputing per compile would make a build O(modules²).
+    /// The cache is revision-guarded, so any mutation that could change the
+    /// table forces a recompute rather than serving stale identities.
+    #[must_use]
+    pub fn foreign_abilities(&self) -> ForeignAbilityTable {
+        let mut cache = self
+            .ability_cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some((rev, table)) = cache.as_ref()
+            && *rev == self.ability_revision
+        {
+            return Arc::clone(table);
+        }
+        let table: ForeignAbilityTable = Arc::new(crate::infer::resolve_registry_abilities(self));
+        *cache = Some((self.ability_revision, Arc::clone(&table)));
+        table
     }
 
     /// Register native bindings (mutable access for the host wiring phase:
@@ -176,6 +244,10 @@ impl ModuleRegistry {
     /// this again from `build_package`.
     pub fn set_prelude(&mut self, prelude: ModulePath) {
         self.prelude = Some(prelude);
+        // Prelude injection feeds import resolution, which resolves the type
+        // names in ability method signatures — a signature change re-keys
+        // methods, so invalidate.
+        self.ability_revision += 1;
     }
 
     /// The prelude module, if injection is enabled.
@@ -227,6 +299,9 @@ impl ModuleRegistry {
 
         self.modules.insert(path.to_string(), info);
         self.register_namespace_ancestors(path);
+        // A newly registered (or replaced) module may add, change, or drop
+        // `ability` declarations.
+        self.ability_revision += 1;
     }
 
     /// Whether `path` names a directory module (backed by a `main.ab`).
@@ -274,6 +349,10 @@ impl ModuleRegistry {
     /// item of its module — `use core::primitives::number::sqrt;` must resolve exactly
     /// like a compiled function would.
     pub fn add_exports(&mut self, path: &ModulePath, exports: Vec<ExportInfo>) {
+        // Injected exports feed import resolution (the surface a signature's
+        // type names resolve against), so invalidate the ability memo to stay
+        // correctness-first even though today's intrinsics are functions.
+        self.ability_revision += 1;
         if let Some(info) = self.modules.get_mut(&path.to_string()) {
             for export in exports {
                 // Declared items win over injected ones: an intrinsic and a

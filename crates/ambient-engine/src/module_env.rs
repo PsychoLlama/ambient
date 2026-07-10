@@ -63,9 +63,11 @@ pub struct ModuleEnv {
     /// Every registered module's `ability` declarations resolved to their
     /// uuid-derived identities and method keys, keyed by [`Fqn`]. Identity
     /// is the declaration uuid (and method keys derived from it plus the
-    /// canonical signatures), so recomputing here matches the declaring
-    /// module's own registration exactly.
-    pub foreign_abilities: Vec<(Fqn, Arc<crate::ability_resolver::DynAbility>)>,
+    /// canonical signatures), so it matches the declaring module's own
+    /// registration exactly. Shared (not per-module) and identical across
+    /// every `ModuleEnv` in a build, so the registry memoizes it once — see
+    /// [`ModuleRegistry::foreign_abilities`].
+    pub foreign_abilities: crate::module_registry::ForeignAbilityTable,
     /// The host's native bindings for *this* module's `extern fn`
     /// declarations, keyed by item name. The compiler builds each
     /// declaration's [`Native` object](crate::object::StoredObject::Native)
@@ -146,7 +148,7 @@ impl ModuleEnv {
             foreign_enum_variants,
             foreign_unit_structs,
             foreign_const_hashes,
-            foreign_abilities: crate::infer::resolve_registry_abilities(registry),
+            foreign_abilities: registry.foreign_abilities(),
             extern_natives: registry.natives().keys_for_module(module_path),
         }
     }
