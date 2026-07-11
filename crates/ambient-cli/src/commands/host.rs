@@ -39,10 +39,14 @@ const TASK_DRAIN_DEADLINE: Duration = Duration::from_secs(5);
 /// What one deploy did, across both deploy clients.
 pub struct HostDeployOutcome {
     /// The process runtime's report (entry value, registry diff, name
-    /// diff).
+    /// diff, generation id, warnings).
     pub processes: DeployOutcome,
     /// The task registry's report.
     pub tasks: TaskReconcileOutcome,
+    /// The retirement trace run after the pass settled: which old
+    /// generations retired, which are still pinned and by what (see
+    /// `ref/live-upgrade.md`, "Retirement").
+    pub retirement: ambient_platform::retire::RetirementReport,
 }
 
 /// Long-lived platform state plus the process and task runtimes.
@@ -189,7 +193,15 @@ impl RuntimeHost {
         });
         let tasks = self.tasks.finish_reconcile(result.is_ok());
         let processes = result.map_err(|e| anyhow::anyhow!("{e}"))?;
-        Ok(HostDeployOutcome { processes, tasks })
+        // Trace retirement after the full pass (drains included): the
+        // report's reachable set is also the safety roots for purging
+        // the on-disk store while the system runs.
+        let retirement = self.runtime.deploy_core().retirement();
+        Ok(HostDeployOutcome {
+            processes,
+            tasks,
+            retirement,
+        })
     }
 
     /// The process runtime (for waiting / inspection).

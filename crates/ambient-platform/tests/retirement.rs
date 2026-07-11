@@ -351,6 +351,54 @@ fn an_uncovered_method_key_performed_by_old_code_warns() {
     );
 }
 
+/// The `store gc` integration and its safety contract: purging with the
+/// trace's reachable set as extra roots never removes an object the
+/// running system can still reach (a pinned old generation's code),
+/// while a *retired* generation's objects — nothing live, nothing
+/// names-rooted — are exactly what gets purged.
+#[test]
+fn disk_gc_keeps_pinned_objects_and_purges_retired_ones() {
+    let v2_src = HELD.replace("x + 1", "x + 2");
+    let v1 = compile(HELD);
+    let v2 = compile(&v2_src);
+    let helper_v1 = named_hash(&v1, "helper");
+    let helper_v2 = named_hash(&v2, "helper");
+
+    let dir = tempfile::tempdir().expect("temp dir");
+    let disk =
+        ambient_engine::disk_store::DiskStore::open(dir.path().join("store")).expect("open store");
+
+    let core = runtime();
+    deploy(&core, &v1);
+    disk.put_module(&v1).expect("persist v1");
+    deploy(&core, &v2);
+    disk.put_module(&v2).expect("persist v2");
+
+    // Generation 1 is pinned by the cell-held closure: gc with the
+    // trace's reachable set must keep its code even though the names
+    // index has moved on to generation 2.
+    let report = core.retirement();
+    assert!(report.retired.is_empty());
+    disk.gc(&report.reachable).expect("gc");
+    assert!(
+        disk.contains(&helper_v1),
+        "gc must never purge a hash the running system reaches"
+    );
+    assert!(disk.contains(&helper_v2));
+
+    // Drop the pin: generation 1 retires, and its unique objects are
+    // now exactly the garbage.
+    call(&core, &v2, "drop_held");
+    let report = core.retirement();
+    assert_eq!(report.newly_retired, vec![1]);
+    disk.gc(&report.reachable).expect("gc");
+    assert!(
+        !disk.contains(&helper_v1),
+        "a retired generation's unique objects are purgeable"
+    );
+    assert!(disk.contains(&helper_v2));
+}
+
 /// A name that is still bound is reachable through late-bound
 /// resolution even when no runtime value holds it: the current name
 /// table is itself a root, so the current generation is never reported

@@ -16,3 +16,4 @@ tokio = { workspace = true, features = ["net", "io-util", "rt-multi-thread", "ma
 
 [dev-dependencies]
 ambient-parser.workspace = true
+tempfile.workspace = true

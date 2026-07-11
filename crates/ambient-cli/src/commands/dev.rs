@@ -188,17 +188,64 @@ fn deploy_iteration(host: &RuntimeHost, path: &Path, entry: &str) {
                 parts.join(", ")
             };
             eprintln!(
-                "\x1b[1;32m[deployed]\x1b[0m {} (compile: {:?}, deploy: {:?})",
+                "\x1b[1;32m[deployed]\x1b[0m generation {}: {} (compile: {:?}, deploy: {:?})",
+                processes.generation,
                 summary,
                 compile_time,
                 deploy_start.elapsed()
             );
+            for warning in &processes.warnings {
+                eprintln!("\x1b[1;33m[warn]\x1b[0m {warning}");
+            }
+            report_retirement(&outcome.retirement);
+            gc_package_store(path, &outcome.retirement);
         }
         Err(e) => {
             eprintln!();
             eprintln!("\x1b[1;31m{e}\x1b[0m");
             eprintln!("{TAG} Keeping the previous build running.");
         }
+    }
+}
+
+/// Narrate the retirement trace: newly retired generations, and old
+/// generations still pinned (with the value that refuses to migrate —
+/// see `ref/live-upgrade.md`, "Retirement").
+fn report_retirement(report: &ambient_platform::retire::RetirementReport) {
+    for id in &report.newly_retired {
+        eprintln!("{TAG} generation {id} retired");
+    }
+    for generation in &report.pinned {
+        // One line per pinned generation; its first pin is the most
+        // direct holder (BFS provenance), which is the diagnosis.
+        if let Some(pin) = generation.pins.first() {
+            eprintln!(
+                "{TAG} generation {} pinned by {} ({})",
+                generation.id,
+                pin.root,
+                pin.describe()
+            );
+        }
+    }
+}
+
+/// Purge retired generations' objects from a package's on-disk store,
+/// keeping everything the running system can still reach (the trace's
+/// reachable set as extra gc roots, on top of the names index). Bare
+/// files and packs have no package store — nothing to do. Failures are
+/// warnings: the store is a rebuildable cache.
+fn gc_package_store(path: &Path, report: &ambient_platform::retire::RetirementReport) {
+    let store_path = path.join(".ambient").join("store");
+    if !store_path.is_dir() {
+        return;
+    }
+    match ambient_engine::disk_store::DiskStore::open(&store_path) {
+        Ok(store) => match store.gc(&report.reachable) {
+            Ok(0) => {}
+            Ok(removed) => eprintln!("{TAG} store gc: removed {removed} unreachable object(s)"),
+            Err(e) => eprintln!("{TAG} store gc failed: {e}"),
+        },
+        Err(e) => eprintln!("{TAG} store gc could not open the store: {e}"),
     }
 }
 

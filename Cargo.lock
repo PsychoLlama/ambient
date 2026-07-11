@@ -116,6 +116,7 @@ dependencies = [
  "blake3",
  "hex",
  "include_dir",
+ "tempfile",
  "tokio",
  "uuid",
 ]
