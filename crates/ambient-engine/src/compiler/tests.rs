@@ -1720,7 +1720,18 @@ fn pack_round_trip_preserves_const_names() {
     };
     let checked = crate::infer::check_module(module);
     assert!(checked.errors.is_empty(), "{:?}", checked.errors);
-    let compiled = compile_module(&checked.module).expect("compile");
+    let mut compiled = compile_module(&checked.module).expect("compile");
+    // Signatures are attached at the check+compile seam by callers, and
+    // migrations by `init_versioned` perform sites; stamp both here so the
+    // round-trip below covers the deploy-metadata sections of the pack.
+    compiled
+        .signatures
+        .insert(Arc::from("run"), Arc::from("() -> Number"));
+    compiled.migrations.push(crate::compiler::MigrationRecord {
+        cell: Arc::from("stats"),
+        old: Arc::from("StatsV1"),
+        new: Arc::from("Stats"),
+    });
 
     let restored = CompiledModule::from_pack(&compiled.to_pack()).expect("from_pack");
     assert_eq!(
@@ -1735,6 +1746,15 @@ fn pack_round_trip_preserves_const_names() {
     assert!(
         !restored.function_names.contains_key("ANSWER"),
         "a const must not be reconstructed as a function"
+    );
+    assert_eq!(
+        restored.signatures.get("run").map(AsRef::as_ref),
+        Some("() -> Number"),
+        "signatures should survive the pack round-trip"
+    );
+    assert_eq!(
+        restored.migrations, compiled.migrations,
+        "migration records should survive the pack round-trip"
     );
 }
 

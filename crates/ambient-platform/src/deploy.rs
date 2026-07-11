@@ -48,9 +48,8 @@ pub type VmFactory = Arc<dyn Fn() -> Vm + Send + Sync>;
 /// whose signature changed is retire-and-fresh, never a rebinding).
 ///
 /// The signature is `None` when the producing pipeline didn't render one
-/// (`.ambient` packs don't persist signatures yet; hand-assembled
-/// generations in tests). `None` never compares equal — not even to
-/// another `None` — so missing data always classifies as
+/// (hand-assembled generations in tests). `None` never compares equal —
+/// not even to another `None` — so missing data always classifies as
 /// retire-and-fresh, never as a silent rebinding.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Binding {

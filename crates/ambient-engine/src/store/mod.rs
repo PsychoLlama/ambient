@@ -38,7 +38,7 @@ use crate::value::Value;
 pub const PACK_MAGIC: [u8; 4] = *b"ABPK";
 
 /// Current pack encoding version.
-pub const PACK_VERSION: u8 = 1;
+pub const PACK_VERSION: u8 = 2;
 
 /// A content-addressed store for compiled functions.
 ///
@@ -253,9 +253,8 @@ impl Store {
         let mut hashes: Vec<&blake3::Hash> = self.objects.keys().collect();
         hashes.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
         let pack = Pack {
-            entry_point: None,
-            names: Vec::new(),
             objects: hashes.iter().map(|h| self.objects[*h].clone()).collect(),
+            ..Pack::default()
         };
         Ok(pack.encode())
     }
@@ -320,12 +319,11 @@ impl Store {
             }
         }
         let pack = Pack {
-            entry_point: None,
-            names: Vec::new(),
             objects: object_hashes
                 .iter()
                 .filter_map(|h| self.objects.get(h).cloned())
                 .collect(),
+            ..Pack::default()
         };
         Ok(pack.encode())
     }
@@ -425,23 +423,35 @@ impl Store {
 /// bindings — the unit of exchange between stores, over the wire, and the
 /// content of `.ambient` artifact files.
 ///
-/// Layout (integers little-endian):
+/// Layout (integers little-endian; a "string" is `len u32 | utf8`):
 ///
 /// ```text
 /// "ABPK" | version u8
 /// | has_entry u8 (0|1) | entry hash [32] (if has_entry)
-/// | name_count u32 | names: (hash [32] | len u32 | utf8)*
+/// | name_count u32 | names: (hash [32] | name string)*
+/// | signature_count u32 | signatures: (name string | signature string)*
+/// | migration_count u32 | migrations: (cell string | old string | new string)*
 /// | object_count u32 | objects: (len u32 | object bytes)*
 /// ```
 ///
 /// A wire pack (function shipping) carries no entry or names; an artifact
-/// pack carries both so the program is runnable by name.
+/// pack carries all of it so the program is runnable by name *and*
+/// deployable: the signatures are the rebinding rule's input (a deploy
+/// generation's `Binding.signature`), and the migrations are the
+/// statically-named `State::init_versioned` obligations pre-swap
+/// validation checks (see `ref/live-upgrade.md`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Pack {
     /// The program entry point, if this pack is a runnable artifact.
     pub entry_point: Option<blake3::Hash>,
     /// Name → function-hash bindings.
     pub names: Vec<(String, blake3::Hash)>,
+    /// Canonical type signature per named item (a subset of `names` —
+    /// producers that never rendered one omit the entry).
+    pub signatures: Vec<(String, String)>,
+    /// Statically-named `State::init_versioned` obligations the pack's
+    /// build declared.
+    pub migrations: Vec<crate::compiler::MigrationRecord>,
     /// The canonical objects.
     pub objects: Vec<StoredObject>,
 }
@@ -463,8 +473,18 @@ impl Pack {
         out.extend_from_slice(&(self.names.len() as u32).to_le_bytes());
         for (name, hash) in &self.names {
             out.extend_from_slice(hash.as_bytes());
-            out.extend_from_slice(&(name.len() as u32).to_le_bytes());
-            out.extend_from_slice(name.as_bytes());
+            write_string(&mut out, name);
+        }
+        out.extend_from_slice(&(self.signatures.len() as u32).to_le_bytes());
+        for (name, signature) in &self.signatures {
+            write_string(&mut out, name);
+            write_string(&mut out, signature);
+        }
+        out.extend_from_slice(&(self.migrations.len() as u32).to_le_bytes());
+        for migration in &self.migrations {
+            write_string(&mut out, &migration.cell);
+            write_string(&mut out, &migration.old);
+            write_string(&mut out, &migration.new);
         }
         out.extend_from_slice(&(self.objects.len() as u32).to_le_bytes());
         for object in &self.objects {
@@ -504,12 +524,29 @@ impl Pack {
         let mut names = Vec::with_capacity(name_count.min(r.remaining()));
         for _ in 0..name_count {
             let hash = r.hash()?;
-            let len = r.u32()? as usize;
-            let raw = r.take(len)?;
-            let name = std::str::from_utf8(raw)
-                .map_err(|_| StoreError::Deserialization("name is not UTF-8".to_string()))?
-                .to_string();
+            let name = r.string()?;
             names.push((name, hash));
+        }
+
+        let signature_count = r.u32()? as usize;
+        let mut signatures = Vec::with_capacity(signature_count.min(r.remaining()));
+        for _ in 0..signature_count {
+            let name = r.string()?;
+            let signature = r.string()?;
+            signatures.push((name, signature));
+        }
+
+        let migration_count = r.u32()? as usize;
+        let mut migrations = Vec::with_capacity(migration_count.min(r.remaining()));
+        for _ in 0..migration_count {
+            let cell = r.string()?;
+            let old = r.string()?;
+            let new = r.string()?;
+            migrations.push(crate::compiler::MigrationRecord {
+                cell: Arc::from(cell),
+                old: Arc::from(old),
+                new: Arc::from(new),
+            });
         }
 
         let object_count = r.u32()? as usize;
@@ -529,9 +566,17 @@ impl Pack {
         Ok(Self {
             entry_point,
             names,
+            signatures,
+            migrations,
             objects,
         })
     }
+}
+
+/// Append a length-prefixed UTF-8 string to a pack encoding.
+fn write_string(out: &mut Vec<u8>, s: &str) {
+    out.extend_from_slice(&(s.len() as u32).to_le_bytes());
+    out.extend_from_slice(s.as_bytes());
 }
 
 struct PackReader<'a> {
@@ -562,6 +607,14 @@ impl<'a> PackReader<'a> {
     fn u32(&mut self) -> Result<u32, StoreError> {
         let b = self.take(4)?;
         Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    }
+
+    fn string(&mut self) -> Result<String, StoreError> {
+        let len = self.u32()? as usize;
+        let raw = self.take(len)?;
+        std::str::from_utf8(raw)
+            .map(str::to_string)
+            .map_err(|_| StoreError::Deserialization("string is not UTF-8".to_string()))
     }
 
     fn hash(&mut self) -> Result<blake3::Hash, StoreError> {

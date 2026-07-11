@@ -55,7 +55,8 @@ pub struct CompiledModule {
     /// literal (see `ref/live-upgrade.md`, "Migration"). Deploy validation
     /// checks each against the live cell table *pre-swap*; sites with
     /// computed names cannot be listed here and validate at perform time
-    /// instead. Like `signatures`, these are not persisted in packs yet.
+    /// instead. Like `signatures`, these round-trip through artifact packs
+    /// so a shipped generation stays deployable.
     pub migrations: Vec<MigrationRecord>,
 }
 
@@ -156,6 +157,19 @@ impl CompiledModule {
             .collect();
         names.sort_by(|a, b| a.0.cmp(&b.0));
 
+        // Signatures ride along so a deployed pack's name bindings can
+        // rebind (the rule compares canonical signatures; a missing one
+        // never compares equal). Migrations likewise, so pre-swap deploy
+        // validation has its statically-named obligations.
+        let mut signatures: Vec<(String, String)> = self
+            .signatures
+            .iter()
+            .map(|(name, sig)| (name.to_string(), sig.to_string()))
+            .collect();
+        signatures.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut migrations = self.migrations.clone();
+        migrations.sort_by(|a, b| (&a.cell, &a.old, &a.new).cmp(&(&b.cell, &b.old, &b.new)));
+
         // Redirects are derived from groups, so packs never carry them.
         let mut object_hashes: Vec<&blake3::Hash> = self
             .objects
@@ -168,6 +182,8 @@ impl CompiledModule {
         crate::store::Pack {
             entry_point: self.entry_point,
             names,
+            signatures,
+            migrations,
             objects: object_hashes
                 .iter()
                 .map(|h| self.objects[*h].clone())
@@ -216,6 +232,13 @@ impl CompiledModule {
             }
             module.objects.insert(object_hash, object.clone());
         }
+
+        for (name, signature) in &pack.signatures {
+            module
+                .signatures
+                .insert(Arc::from(name.as_str()), Arc::from(signature.as_str()));
+        }
+        module.migrations = pack.migrations.clone();
 
         // Route each name to the right index by the kind of object it binds:
         // a `Value` object is a const, everything else a function.
