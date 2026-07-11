@@ -20,9 +20,9 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 /// Examples that require a live peer and are tested as pairs instead,
-/// plus long-lived services (`live_server`, `live_site`) that never
-/// exit and so can't be run as a one-shot smoke test. `live_site` is
-/// exercised under the dev loop in [`live_site_upgrades_under_the_dev_loop`].
+/// plus the long-lived service (`live_site`) that never exits and so
+/// can't be run as a one-shot smoke test. `live_site` is exercised
+/// under the dev loop in [`live_site_upgrades_under_the_dev_loop`].
 const PAIRED_EXAMPLES: &[&str] = &[
     "network_client",
     "network_server",
@@ -30,7 +30,6 @@ const PAIRED_EXAMPLES: &[&str] = &[
     "remote_server",
     "deploy_client",
     "deploy_server",
-    "live_server",
     "live_site",
 ];
 
