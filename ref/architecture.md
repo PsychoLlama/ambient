@@ -11,8 +11,7 @@ from each section:
 - [traits.md](traits.md) — traits, impls, operators, inherent impls, dispatch/coherence
 - [abilities.md](abilities.md) — abilities, handlers, sandboxing, `core::system`, error handling
 - [core-library.md](core-library.md) — core abilities and the standard function set
-- [live-upgrade.md](live-upgrade.md) — live upgrade: generations, late-bound names, cells, drain (design)
-- [processes.md](processes.md) — the (superseded) process-model experiment
+- [live-upgrade.md](live-upgrade.md) — live upgrade: generations, late-bound names, cells, tasks, drain
 - [remote-execution.md](remote-execution.md) — running code by hash on a remote
 
 ## Design Philosophy
@@ -156,19 +155,20 @@ All IO is blocking. There is no `Async` ability and no async/await-style
 primitives — this is intentional. A perform like `core::system::Network::receive!`
 simply blocks the calling code until the native call returns.
 
-Concurrency comes from the Erlang-inspired **process model** (see
-[processes.md](processes.md)): named reducer processes with isolated state,
-communicating by message passing through the `core::system::Process`
-ability. Each process runs on its own thread with its own VM, so a
-blocked process blocks only itself.
+Concurrency comes from **tasks** (see [live-upgrade.md](live-upgrade.md),
+"Tasks"): named, supervised, drainable loops declared through the
+`core::system::Task` ability. Each task runs on its own thread with its
+own VM, so a blocked task blocks only itself; the runtime-owned `State`
+cell table and network handle table are the only cross-task state.
+There are no mailboxes and no message passing — tasks coordinate
+through cells and sockets.
 
-This design is motivated by live-upgrade correctness — hot code
-replacement needs a well-defined unit of state to hand off, and a
-process mailbox/reducer boundary provides exactly that. It is, however,
-**experimental**: prototyping has shown it is not a perfect fit for live
-upgrades, and the design may yet pivot to a different unit of state.
-See [processes.md](processes.md) for the current model and its caveats,
-and Future Work below for where this is headed.
+This design is motivated by live-upgrade correctness: the runtime owns
+all long-lived state (cells) and re-resolves each task body's deployed
+name before every pass, so a deploy lands at well-defined boundaries
+with nothing to hand off. An earlier Erlang-style mailbox/reducer
+process model was prototyped for the same goal and retired — see
+[live-upgrade.md](live-upgrade.md), "Relation to the process model".
 
 ## Error Handling
 
@@ -207,7 +207,7 @@ Option/Result-vs-exceptions distinction.
 ## Core Library
 
 The core library ships as ordinary content-addressed Ambient modules. Core
-abilities (Time, Random, Stdio, Log, FileSystem, Process, Env, ...) are
+abilities (Time, Random, Stdio, Log, FileSystem, Task, Env, ...) are
 declared in the platform bindings interface; Option, Result, and List expose
 their combinators and predicates as inherent methods so pipelines read
 receiver-first.
@@ -354,9 +354,9 @@ Blocking IO on plain threads:
 
 1. A VM is single-threaded; ability handlers block until the host
    operation completes
-2. Concurrency is processes: each process owns a thread and a VM, and
-   the process runtime routes messages between them (see Concurrency
-   and [processes.md](processes.md))
+2. Concurrency is tasks: each task owns a thread and a VM, sharing only
+   the runtime-owned cell and handle tables (see Concurrency and
+   [live-upgrade.md](live-upgrade.md))
 
 ## Remote Execution
 
@@ -380,9 +380,9 @@ ambient store stats        # Inspect the package store (also: ls, show,
                            #   deps, verify, gc; show disassembles)
 ambient repl               # Interactive REPL
 ambient dev <pkg>          # Live-upgrade development: watches sources and
-                           #   hot-swaps changed processes, keeping state
-                           #   (falls back to rerun-on-change for programs
-                           #   that spawn no processes)
+                           #   deploys each change onto the running system
+                           #   (cells keep state, tasks pick up rebound
+                           #   names; plain rerun for task-less programs)
 ambient lsp                # Start the language server
 ```
 
@@ -478,20 +478,17 @@ Roughly in priority order:
   sibling packages by name, share a build directory, and compile
   independent packages in parallel. Lands before the package manager, and
   the `Fqn` scope machinery (`Workspace(pkg)`) is already shaped for it.
-- **Implementing live upgrades.** Live, in-place code replacement is a
-  core goal, and the design is settled:
+- **Live upgrades are implemented**:
   **[live-upgrade.md](live-upgrade.md)** — upgrades as name rebindings
   applied through deployable generations, with author-placed late-bound
   points (the `Live` ability), runtime-owned state cells with an
-  explicit migration contract, drainable named tasks, and exact
-  generation retirement. It supersedes the Erlang-style process
-  experiment ([processes.md](processes.md)), inheriting its deploy-pass
-  /reconciliation model, runtime-owned state, and shared handle table
-  while dropping the mailbox/reducer boundary as the unit of upgrade.
-  None of it is implemented yet; the process runtime remains what runs
-  today. Process features that only matter if a mailbox/reducer
-  _library_ survives — typed `spawn`, linking/monitors, supervision
-  trees, receive timeouts — are contingent on that separate decision.
+  explicit migration contract, drainable named tasks, exact generation
+  retirement, and three deploy frontends (the dev loop, the REPL, and
+  remote deploy over the `Deploy` ability). Still open: a tail-call (or
+  equivalent) story so a task's loop can be spelled in-language, typed
+  `latest`/task bodies (blocked on effect-polymorphic function
+  parameters in ability signatures), and snapshot groups for multi-read
+  consistency.
 - Trait bounds (`fn foo<T: Eq>(x: T)`) are **done** — dictionary-passing,
   uniform across functions, impl methods, and ability methods. Still open:
   generic traits (`trait Container<T>`), supertraits, conditional impls as

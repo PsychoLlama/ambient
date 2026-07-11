@@ -9,8 +9,8 @@ The authoritative declarations live in
 declares every core ability (Time, Random, Stdio, Log, FileSystem, Process,
 Env, Network, Execute) with doc comments on each method. See
 [abilities.md](abilities.md) for how those declarations become in-scope
-abilities, and [processes.md](processes.md) for the (experimental) `Process`
-ability.
+abilities, and [live-upgrade.md](live-upgrade.md) for the live-upgrade
+set (`Live`, `State`, `Task`, `Drain`, `Deploy`).
 
 ## Native functions (`extern fn`)
 

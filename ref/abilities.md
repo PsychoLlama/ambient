@@ -436,8 +436,8 @@ hard failures — nothing resumes them:
   to the "not wired" stub (e.g. an ungranted ability in an isolated
   Execute VM) throws `... is not wired`, surfacing uncaught unless a
   program deliberately handles it.
-- A **control error** a native can only detect at runtime, like spawning
-  a live process name outside a deploy pass.
+- A **control error** a native can only detect at runtime, like ensuring
+  a task with a body that is not a zero-parameter function.
 
 Engine-level faults (stack overflow, type errors in bytecode, arity
 mismatches) remain fatal `VmError`s — they indicate bugs, not conditions

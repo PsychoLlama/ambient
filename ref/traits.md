@@ -364,6 +364,6 @@ _invariant_ depends on impl behavior (say, a set ordered by `Ord::cmp`)
 can be built by one version and queried by another that compares
 differently. That hazard predates inherent impls — any trait impl edit
 plus surviving state can trigger it — and it is a state-handoff problem,
-owned by the (experimental) process model ([processes.md](processes.md)),
-not by the impl system. Coherence within one build plus hash-pinned
-dispatch across builds is the whole mechanical story.
+owned by the live-upgrade model ([live-upgrade.md](live-upgrade.md),
+"Migration"), not by the impl system. Coherence within one build plus
+hash-pinned dispatch across builds is the whole mechanical story.

@@ -2,22 +2,22 @@
 
 Part of the [Ambient Language Reference](architecture.md).
 
-> **Status: in progress.** This document supersedes the process model
-> ([processes.md](processes.md)) as the live-upgrade design; where the
-> two disagree about upgrades, this document wins. It is written
-> declaratively, as the target. Implemented so far: generations and the
-> deploy core (`crates/ambient-platform/src/deploy.rs`), the `Live`
-> ability with the same-signature rebinding rule, `State` cells with
-> adopt semantics (`crates/ambient-platform/src/state.rs`; the cell
-> table is owned by the deploy runtime and shared by every VM it
-> builds), the migration contract (`init_versioned` with
-> compiler-threaded fingerprints — see "Migration"), drain with
-> interruptible performs (`crates/ambient-platform/src/drain.rs`),
-> tasks (`crates/ambient-platform/src/task.rs`, reconciled beside the
-> process registry by one deploy pass — `examples/live_site` is the
-> working demonstration), retirement with the deploy diagnostics
+> **Status: implemented.** This document is the live-upgrade design; it
+> superseded (and has now fully replaced) the earlier Erlang-style
+> process-model experiment — see "Relation to the process model" for
+> what carried over. Implemented: generations and the deploy core
+> (`crates/ambient-platform/src/deploy.rs`), the `Live` ability with
+> the same-signature rebinding rule, `State` cells with adopt semantics
+> (`crates/ambient-platform/src/state.rs`; the cell table is owned by
+> the deploy runtime and shared by every VM it builds), the migration
+> contract (`init_versioned` with compiler-threaded fingerprints — see
+> "Migration"), drain with interruptible performs
+> (`crates/ambient-platform/src/drain.rs`), tasks
+> (`crates/ambient-platform/src/task.rs`, reconciled by one deploy
+> pass — `examples/live_site` is the working demonstration),
+> retirement with the deploy diagnostics
 > (`crates/ambient-platform/src/retire.rs`: the generation ledger, the
-> trace, the two warnings, and the dev loop's store gc), and the REPL
+> trace, the two warnings, and the dev loop's store gc), the REPL
 > as a deploy frontend (`crates/ambient-cli/src/repl/`: every turn is an
 > _incremental_ deploy — definitions validate-and-swap so a program
 > driven from the prompt live-upgrades, and nothing is stopped for
@@ -26,9 +26,7 @@ Part of the [Ambient Language Reference](architecture.md).
 > same core — packs carry signatures and migration obligations since
 > pack v2, and `examples/deploy_server` is the working demonstration;
 > see [remote-execution.md](remote-execution.md) for the trust
-> posture). The process model remains in the tree as a
-> concurrency experiment whose own future is decided separately (see
-> "Relation to the process model").
+> posture).
 
 ## The model
 
@@ -139,9 +137,9 @@ pub unique(…) ability Live {
   `latest!` read returns a hash-pinned ref whose entire subtree is
   internally consistent. Two separate reads may straddle a deploy; the
   convention is one `latest!` read per unit of work (per request, per
-  reduction, per tick), taken at the top. The `latest` is typed as a
-  bare generic for the same reason `Process::spawn`'s parameters are —
-  ability signatures cannot yet express effect-polymorphic function
+  tick), taken at the top. The `latest` is typed as a bare generic for
+  the same reason `Task::ensure`'s body parameter is — ability
+  signatures cannot yet express effect-polymorphic function
   parameters — and the runtime checks it received a function ref.
 
 The canonical loop idiom — Erlang's fully-qualified `?MODULE:loop(State)`
@@ -235,8 +233,8 @@ Two consequences fall out:
 
 ## Tasks
 
-A **task** is a named, supervised, drainable loop — much less than a
-process: no mailbox, no reducer contract, no message types.
+A **task** is a named, supervised, drainable loop — deliberately
+minimal: no mailbox, no reducer contract, no message types.
 
 ```ambient
 pub unique(…) ability Task {
@@ -252,13 +250,13 @@ pub unique(…) ability Task {
   drained (not killed).
 - The runtime never swaps a task's code. Tasks keep _themselves_ fresh
   by re-entering through `Live::latest!` — the loop idiom above — which
-  removes the staged-swap machinery the process reconciler needed.
-  A task whose loop recurses directly instead is pinned forever, and
-  deploy diagnostics say so.
+  is what removes any need for staged code swaps. A task whose loop
+  recurses directly instead is pinned forever, and deploy diagnostics
+  say so.
 - Each task runs on its own thread with its own VM; all IO stays
   blocking; the shared handle and cell tables are the only
-  cross-task state. Fault handling follows the process runtime's
-  precedent (restart on fault, park after a fault budget).
+  cross-task state. Fault handling: restart on fault, park after a
+  fault budget.
 
 Mechanics, as implemented: the language has no tail calls (and a
 bounded call depth), so the loop idiom above cannot yet be spelled in
@@ -398,8 +396,7 @@ while a hash it _alone_ still ships is reachable. Roots are gathered,
 not sampled from live VMs: the cell table, each registry's contribution
 (a task publishes the hash it resolved for the current pass — between
 boundaries its frames can hold only code reachable from that hash plus
-already-rooted values; a process publishes its reducers and its state
-as of the last reduction), and the current name table. The trace's BFS
+already-rooted values), and the current name table. The trace's BFS
 carries provenance, so a pin names its most direct holder. Retirement
 is **sticky**: unreachable code cannot come back into reach, so the
 transition is reported once and recorded forever. Consequences:
@@ -407,9 +404,6 @@ transition is reported once and recorded forever. Consequences:
 - A task's ensure-time body hash is a resolution key, not a root — a
   named task never pins the generation that ensured it. A closure body
   is the running code and does pin.
-- The one known hole is process mailboxes: a closure inside an
-  undelivered message is invisible until it is reduced into published
-  state. Tasks and cells have no such channel.
 - The dev loop gc's a package's `.ambient` store after each deploy with
   the trace's reachable set as extra roots, so a pinned old
   generation's objects survive on disk exactly as long as something
@@ -483,8 +477,17 @@ alongside the warnings.
 
 ## Relation to the process model
 
-Inherited from the experiment (see [processes.md](processes.md)),
-generalized out of it:
+This design grew out of a retired experiment: an Erlang-inspired
+process runtime — named reducers (`init: () -> State`,
+`handler: (State, Msg) -> State`) driven by mailboxes, one OS thread
+and VM per process, supervised restarts, and upgrade-as-staged-reducer-
+swap at message boundaries. Prototyping showed the mailbox/reducer
+boundary is the wrong unit of upgrade, and Phase 10 removed the runtime
+and its `Process` ability from the tree (the ability uuid slot
+`FFFD-…08` and extern slots `FFFC-…19`–`…1E` are retired, never to be
+reassigned).
+
+Inherited from the experiment, generalized out of it:
 
 - the **deploy pass / reconcile-by-name** loop (from the process
   registry to the whole name table);
@@ -495,9 +498,9 @@ generalized out of it:
 Dropped: the mailbox/reducer boundary as _the_ unit of upgrade, staged
 reducer swaps (self-upgrade through `latest!` replaces them), and the
 root/dynamic process split (tasks + pinned closures cover both cases
-without a mode). Whether a mailbox/reducer library survives as _a_
-concurrency story is a separate decision; if it does, it is an ordinary
-client of cells, tasks, and generations.
+without a mode). If a mailbox/reducer library is ever wanted as _a_
+concurrency convenience, it should be written as an ordinary client of
+cells, tasks, and generations — never as a second upgrade mechanism.
 
 ## Open questions
 
