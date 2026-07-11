@@ -177,10 +177,18 @@ fn a_closure_in_a_cell_pins_its_generation_until_dropped() {
         RootOrigin::Cell(Arc::from("held")),
         "provenance should name the holding cell"
     );
+    assert_eq!(
+        pin.describe(),
+        "`helper`",
+        "the first pin is the most directly named hash"
+    );
     assert!(
-        pin.describe().contains("closure of `make_held`"),
-        "the anonymous lambda should be labeled by its named ancestor, got {}",
-        pin.describe()
+        pinned
+            .pins
+            .iter()
+            .any(|pin| pin.describe() == "closure of `make_held`"),
+        "the anonymous lambda is labeled by its named ancestor: {:?}",
+        pinned.pins
     );
     assert!(
         report.reachable.contains(&pin.hash),
