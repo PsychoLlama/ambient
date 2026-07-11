@@ -238,7 +238,7 @@ impl CompiledModule {
                 .signatures
                 .insert(Arc::from(name.as_str()), Arc::from(signature.as_str()));
         }
-        module.migrations = pack.migrations.clone();
+        module.migrations.clone_from(&pack.migrations);
 
         // Route each name to the right index by the kind of object it binds:
         // a `Value` object is a const, everything else a function.

@@ -21,7 +21,12 @@ Part of the [Ambient Language Reference](architecture.md).
 > as a deploy frontend (`crates/ambient-cli/src/repl/`: every turn is an
 > _incremental_ deploy — definitions validate-and-swap so a program
 > driven from the prompt live-upgrades, and nothing is stopped for
-> being absent from a turn). The process model remains in the tree as a
+> being absent from a turn), and remote deploy (the `Deploy` ability:
+> a generation pack received over any transport is applied through the
+> same core — packs carry signatures and migration obligations since
+> pack v2, and `examples/deploy_server` is the working demonstration;
+> see [remote-execution.md](remote-execution.md) for the trust
+> posture). The process model remains in the tree as a
 > concurrency experiment whose own future is decided separately (see
 > "Relation to the process model").
 
@@ -91,9 +96,9 @@ A **deploy** applies a generation to a running system, in this order:
 Deploys are produced by frontends, and the runtime does not know which:
 the dev loop (`ambient dev`, from the file watcher), the REPL
 (redefining an Fqn produces a one-item generation), and remote deploy
-(the same pack shipped over `Execute` — see
-[remote-execution.md](remote-execution.md)). One mechanism, three
-producers.
+(the same pack received over the wire and applied via the `Deploy`
+ability — see [remote-execution.md](remote-execution.md)). One
+mechanism, three producers.
 
 ## The Live ability
 

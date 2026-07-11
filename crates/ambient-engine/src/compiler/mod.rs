@@ -68,4 +68,6 @@ const HANDLER_PARAM_CONTINUATION: &str = "__continuation";
 const HANDLER_PARAM_SUSPENDED_ABILITY: &str = "__suspended_ability";
 
 #[cfg(test)]
+mod const_tests;
+#[cfg(test)]
 mod tests;

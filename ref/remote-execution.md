@@ -46,3 +46,36 @@ Values cross via `core::protocol::serialize_value`/`deserialize_value`
 enums, function refs by hash, handler values by hash table). Closures,
 continuations, maps/sets, and modules do not cross; serializing one is a
 runtime error, never a silent `()`.
+
+## Remote deploy
+
+Execute runs shipped code in an **isolated** VM; the `Deploy` ability is
+the opposite move — a received generation pack replaces the running
+program itself (see [live-upgrade.md](live-upgrade.md)):
+
+```
+Sender                          Runtime
+  |-- generation pack ---------->|  Deploy::apply!(pack, entry)
+  |                              |    decode, recompute hashes
+  |                              |    load / validate / swap / reconcile
+  |<-- deploy report ------------|  (or Err: rejected, program untouched)
+```
+
+The pack is an `ambient compile -o` artifact — canonical objects plus
+name bindings, canonical signatures (the rebinding rule's input), and
+the build's statically-named migration obligations. The runtime applies
+it through the same deploy core as the dev loop and the REPL: a
+validation failure is the perform's `Err` value and the previous
+generation keeps running untouched. Like Execute, the transport is the
+program's own business — `examples/deploy_server` is a working server
+written on `Network` + `Deploy`, upgraded mid-conversation by its
+paired client.
+
+**Trust:** whoever can reach a `Deploy::apply!` perform owns the
+runtime — a generation pack is arbitrary code with the host's full
+capabilities. Hashes are recomputed from the received bytes (the
+standing pack rule: a tampered pack cannot smuggle code under a false
+hash), but there is no authentication or authorization beyond what the
+embedding program builds around the perform. This is a
+hobby-deployment posture: bind deploy listeners to loopback or guard
+the transport.
