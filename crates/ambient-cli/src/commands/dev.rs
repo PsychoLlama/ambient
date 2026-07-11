@@ -139,6 +139,15 @@ fn deploy_iteration(host: &RuntimeHost, path: &Path, entry: &str) {
             if outcome.unchanged > 0 {
                 parts.push(format!("{} unchanged", outcome.unchanged));
             }
+            if !outcome.names.retired.is_empty() {
+                // Signature-changed names never rebind: `Live::latest!`
+                // keeps resolving old refs to themselves until their
+                // callers upgrade (ref/live-upgrade.md, rebinding rule).
+                parts.push(format!(
+                    "signature changed, retired (not rebound): {}",
+                    outcome.names.retired.join(", ")
+                ));
+            }
             let summary = if parts.is_empty() {
                 if matches!(outcome.value, Value::Unit) {
                     "done".to_string()

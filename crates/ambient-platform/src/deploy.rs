@@ -12,7 +12,14 @@
 //!    the deploy here, with the previous name table untouched.
 //! 3. **Swap** the runtime-wide name table atomically. Readers hold an
 //!    immutable snapshot (`Arc`), so a resolution sees exactly one
-//!    generation's bindings — never a torn mixture.
+//!    generation's bindings — never a torn mixture. The swap applies the
+//!    **rebinding rule**: a name whose canonical signature changed (or is
+//!    missing on either side) is retire-and-fresh, never a rebinding —
+//!    `Live::latest` stops following the retired hashes, so old refs
+//!    resolve to themselves. Alongside the table lives its reverse map
+//!    (hash → deployed names), which is how `Live::latest!` maps a
+//!    compile-time ref to the current binding of the name it was deployed
+//!    under.
 //! 4. **Reconcile**: run the new entry function on a freshly built VM. The
 //!    caller wires the VM first (a hook), which is how a client like the
 //!    process runtime installs its own natives without this module knowing
@@ -23,10 +30,10 @@
 //! ([`crate::process`]) is its first client; future frontends (REPL,
 //! remote deploy) apply generations through the same operation.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, RwLock};
 
-use ambient_ability::Value;
+use ambient_ability::{Value, VmError};
 use ambient_engine::bytecode::CompiledFunction;
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::vm::Vm;
@@ -41,7 +48,10 @@ pub type VmFactory = Arc<dyn Fn() -> Vm + Send + Sync>;
 /// whose signature changed is retire-and-fresh, never a rebinding).
 ///
 /// The signature is `None` when the producing pipeline didn't render one
-/// (hand-assembled generations in tests); every real build attaches it.
+/// (`.ambient` packs don't persist signatures yet; hand-assembled
+/// generations in tests). `None` never compares equal — not even to
+/// another `None` — so missing data always classifies as
+/// retire-and-fresh, never as a silent rebinding.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Binding {
     /// Content hash of the bound object (function or const value).
@@ -129,11 +139,115 @@ pub fn is_dispatch_symbol(name: &str) -> bool {
 /// The runtime-wide name table: one immutable snapshot per deploy.
 pub type NameTable = HashMap<Arc<str>, Binding>;
 
+/// One deploy's name-resolution snapshot: the atomic table plus its
+/// reverse map. Both swap together, so a single read sees one
+/// generation's view of both directions.
+#[derive(Default)]
+struct NameState {
+    /// Fqn → current binding.
+    table: Arc<NameTable>,
+    /// Hash → every name it was deployed under and not retired from.
+    /// `Live::latest` resolves through this: old ref's hash → deployed
+    /// name → that name's *current* hash. Retire-and-fresh removes the
+    /// name's old hashes, so refs into a retired lineage resolve to
+    /// themselves.
+    reverse: HashMap<blake3::Hash, BTreeSet<Arc<str>>>,
+}
+
+/// Shared handle to the name state. Separately `Arc`ed so per-VM natives
+/// (the `live_latest` implementation) can capture it and outlive any one
+/// borrow of the [`DeployRuntime`].
+#[derive(Default)]
+struct NameResolver {
+    state: RwLock<Arc<NameState>>,
+}
+
+impl NameResolver {
+    /// An immutable snapshot: two lookups against one snapshot can never
+    /// straddle a deploy.
+    fn snapshot(&self) -> Arc<NameState> {
+        #[allow(clippy::unwrap_used)]
+        Arc::clone(&self.state.read().unwrap())
+    }
+
+    /// One `latest` read: the current hash of the name `hash` was deployed
+    /// under. Identity when the hash was never deployed under a name, when
+    /// its names left the table, or when it was deployed under several
+    /// names whose bindings have since diverged (no single answer exists —
+    /// resolving to itself is the only consistent choice).
+    fn latest(&self, hash: blake3::Hash) -> blake3::Hash {
+        let state = self.snapshot();
+        let Some(names) = state.reverse.get(&hash) else {
+            return hash;
+        };
+        let mut current = None;
+        for name in names {
+            let Some(binding) = state.table.get(name) else {
+                continue;
+            };
+            match current {
+                None => current = Some(binding.hash),
+                Some(hash) if hash == binding.hash => {}
+                Some(_) => return hash,
+            }
+        }
+        current.unwrap_or(hash)
+    }
+
+    /// The `live_latest` native: resolve a function ref to the current
+    /// binding of the name it was deployed under.
+    fn latest_native(&self, args: Vec<Value>) -> Result<Value, VmError> {
+        match function_arg(args)? {
+            Value::FunctionRef(hash) => Ok(Value::FunctionRef(self.latest(hash))),
+            // A closure is code fused to captured state; rebinding the code
+            // half under a kept environment is deliberately excluded
+            // (ref/live-upgrade.md), so it resolves to itself.
+            other => Ok(other),
+        }
+    }
+}
+
+/// Extract `live_latest`'s single argument and check it is
+/// function-shaped. The ability's parameter is a bare generic (the
+/// `Process::spawn` precedent — ability signatures cannot yet express
+/// effect-polymorphic function parameters), so the runtime enforces the
+/// contract instead of the checker.
+fn function_arg(args: Vec<Value>) -> Result<Value, VmError> {
+    let Some(value) = args.into_iter().next() else {
+        return Err(VmError::exception("Live.latest: missing function argument"));
+    };
+    match &value {
+        Value::FunctionRef(_) | Value::Closure(_) => Ok(value),
+        other => Err(VmError::exception(format!(
+            "Live.latest: expected a function, got {}",
+            other.type_name()
+        ))),
+    }
+}
+
+/// The identity `live_latest` — the *stub* for the `live_latest` extern,
+/// and the one deliberate deviation from "every stub raises not-wired":
+/// under plain `ambient run` (no deploy runtime installing the real
+/// resolution) `Live::latest!` must behave as identity so the program runs
+/// identically, minus liveness (ref/live-upgrade.md). It still enforces
+/// the function-shaped contract, so `run` and `dev` reject the same
+/// arguments.
+pub(crate) fn latest_identity(args: Vec<Value>) -> Result<Value, VmError> {
+    function_arg(args)
+}
+
 /// The exact name diff of one deploy, computed hash-against-hash.
 #[derive(Debug, Default)]
 pub struct NameDiff {
-    /// Names bound to a different hash than before, sorted.
+    /// Names bound to a different hash with the same canonical signature,
+    /// sorted. `Live::latest` follows these: the name's old hashes keep
+    /// resolving forward to the new binding.
     pub rebound: Vec<Arc<str>>,
+    /// Names whose canonical signature changed (or was missing on either
+    /// side), sorted. Retire-and-fresh, never a rebinding: the old binding
+    /// retired and the name entered the table fresh, so `latest` sites
+    /// keep resolving old refs to themselves until their callers upgrade.
+    pub retired: Vec<Arc<str>>,
     /// Names that entered the table fresh, sorted.
     pub added: Vec<Arc<str>>,
     /// Names bound to the identical hash (identical subtrees are skipped
@@ -191,9 +305,9 @@ pub struct DeployRuntime {
     vm_factory: VmFactory,
     /// Cumulative object stores. Additive: a deploy only ever inserts.
     loaded: Mutex<Loaded>,
-    /// The atomic name table. Swapped wholesale per deploy; readers clone
-    /// the `Arc` and resolve against an immutable snapshot.
-    names: RwLock<Arc<NameTable>>,
+    /// The atomic name table plus its reverse map. Swapped wholesale per
+    /// deploy; readers resolve against an immutable snapshot.
+    names: Arc<NameResolver>,
 }
 
 impl DeployRuntime {
@@ -203,7 +317,7 @@ impl DeployRuntime {
         Self {
             vm_factory,
             loaded: Mutex::new(Loaded::default()),
-            names: RwLock::new(Arc::new(NameTable::new())),
+            names: Arc::new(NameResolver::default()),
         }
     }
 
@@ -262,6 +376,14 @@ impl DeployRuntime {
     #[must_use]
     pub fn build_vm(&self) -> Vm {
         let mut vm = (self.vm_factory)();
+        // Install `Live::latest`'s real resolution (uuid-keyed, so it
+        // overwrites the factory's identity stub): hash → the name the ref
+        // was deployed under → that name's current hash.
+        let resolver = Arc::clone(&self.names);
+        vm.register_native_impl(
+            crate::native_uuid("live_latest"),
+            Arc::new(move |args| resolver.latest_native(args)),
+        );
         let loaded = self.lock_loaded();
         for func in loaded.functions.values() {
             vm.load_function_shared(Arc::clone(func));
@@ -295,6 +417,19 @@ impl DeployRuntime {
         self.name_table().get(name).cloned()
     }
 
+    /// One `Live::latest` read: the current hash of the name `hash` was
+    /// deployed under, or `hash` itself when it was never deployed under a
+    /// name (or its names have diverged). This is exactly what the
+    /// `live_latest` native returns inside a running program.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the name-table lock is poisoned.
+    #[must_use]
+    pub fn latest(&self, hash: &blake3::Hash) -> blake3::Hash {
+        self.names.latest(*hash)
+    }
+
     /// An immutable snapshot of the current name table. Two lookups against
     /// one snapshot can never straddle a deploy.
     ///
@@ -303,8 +438,7 @@ impl DeployRuntime {
     /// Panics if the name-table lock is poisoned.
     #[must_use]
     pub fn name_table(&self) -> Arc<NameTable> {
-        #[allow(clippy::unwrap_used)]
-        Arc::clone(&self.names.read().unwrap())
+        Arc::clone(&self.names.snapshot().table)
     }
 
     /// Merge a generation's objects into the cumulative stores.
@@ -358,28 +492,79 @@ impl DeployRuntime {
     /// The next table is the old one updated by the new bindings (a
     /// generation that omits a name leaves its old binding standing; a
     /// whole-build generation re-binds everything it still declares).
+    ///
+    /// This is where the **rebinding rule** applies: a changed name whose
+    /// canonical signature is identical is a rebinding — its old hashes
+    /// stay in the reverse map, resolving forward. A name whose signature
+    /// changed, or is missing on either side (a producer that never
+    /// rendered one — never a silent rebinding on missing data), is
+    /// retire-and-fresh: every hash of its lineage leaves the reverse map,
+    /// so old refs resolve to themselves.
     fn swap_names(&self, bindings: &HashMap<Arc<str>, Binding>) -> NameDiff {
         #[allow(clippy::unwrap_used)]
-        let mut names = self.names.write().unwrap();
+        let mut state = self.names.state.write().unwrap();
 
         let mut diff = NameDiff::default();
-        let mut next = (**names).clone();
+        let mut table = (*state.table).clone();
+        let mut reverse = state.reverse.clone();
         for (name, binding) in bindings {
-            match next.insert(Arc::clone(name), binding.clone()) {
-                Some(prev) if prev.hash == binding.hash => diff.unchanged += 1,
-                Some(_) => diff.rebound.push(Arc::clone(name)),
-                None => diff.added.push(Arc::clone(name)),
+            match table.get(name) {
+                Some(prev) if prev.hash == binding.hash => {
+                    diff.unchanged += 1;
+                    // Same hash means same behavior and same type: keep the
+                    // richer signature when this producer rendered none.
+                    if binding.signature.is_some() {
+                        table.insert(Arc::clone(name), binding.clone());
+                    }
+                }
+                Some(prev) => {
+                    if same_signature(prev, binding) {
+                        diff.rebound.push(Arc::clone(name));
+                    } else {
+                        diff.retired.push(Arc::clone(name));
+                        for names in reverse.values_mut() {
+                            names.remove(name);
+                        }
+                        reverse.retain(|_, names| !names.is_empty());
+                    }
+                    table.insert(Arc::clone(name), binding.clone());
+                }
+                None => {
+                    diff.added.push(Arc::clone(name));
+                    table.insert(Arc::clone(name), binding.clone());
+                }
             }
+            reverse
+                .entry(binding.hash)
+                .or_default()
+                .insert(Arc::clone(name));
         }
         diff.rebound.sort();
+        diff.retired.sort();
         diff.added.sort();
 
-        *names = Arc::new(next);
+        *state = Arc::new(NameState {
+            table: Arc::new(table),
+            reverse,
+        });
         diff
     }
 
     fn lock_loaded(&self) -> std::sync::MutexGuard<'_, Loaded> {
         #[allow(clippy::unwrap_used)]
         self.loaded.lock().unwrap()
+    }
+}
+
+/// The rebinding rule's comparison: both canonical signatures present and
+/// byte-equal. The rendering is deterministic (position-canonical type
+/// variables, uuid-keyed nominals, sorted ability rows — pinned by the
+/// engine's byte-stability goldens), so string equality is canonical-form
+/// equality. A renderer drift across versions fails safe: everything
+/// compares "changed" and retires, and old refs resolve to themselves.
+fn same_signature(prev: &Binding, next: &Binding) -> bool {
+    match (&prev.signature, &next.signature) {
+        (Some(prev), Some(next)) => prev == next,
+        _ => false,
     }
 }

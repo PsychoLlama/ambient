@@ -17,7 +17,8 @@
 //!   encodes) for compile-only paths. A missing capability is a
 //!   configuration fault, not a recoverable operation, so the stub is a
 //!   hard failure — it surfaces uncaught unless a program deliberately
-//!   installs an Exception handler around the perform.
+//!   installs an Exception handler around the perform. (One documented
+//!   deviation: `live_latest` stubs to identity — see [`stub_natives`].)
 //! - The granular `*_natives` constructors ([`stdio_natives`],
 //!   [`fs_natives`], ...) carry real implementations. Runtime hosts
 //!   register them per VM — implementations are uuid-keyed, so later
@@ -433,6 +434,12 @@ pub(crate) const EXTERN_BINDINGS: &[ExternBinding] = &[
         slot: 0x2A,
         arity: 3,
     },
+    ExternBinding {
+        name: "live_latest",
+        module: "live",
+        slot: 0x2B,
+        arity: 1,
+    },
 ];
 
 /// The binding-table entry for an extern name.
@@ -503,21 +510,31 @@ pub(crate) fn bind(registry: &mut NativeRegistry, name: &str, func: NativeFn) {
 /// uncaught (`platform capability ... is not wired`) unless a program
 /// deliberately handles it, exactly how an ungranted ability fails loudly
 /// in an isolated Execute VM.
+///
+/// One deliberate exception: `live_latest` stubs to *identity*, because
+/// `Live::latest!`'s contract is "the current binding, or `f` itself when
+/// no deploy runtime is present" — a VM without a deploy runtime is the
+/// no-runtime case, not a misconfiguration (see `ref/live-upgrade.md`).
 #[must_use]
 pub fn stub_natives() -> NativeRegistry {
     let mut registry = NativeRegistry::new();
     for binding in EXTERN_BINDINGS {
         let name = binding.name;
+        let func: NativeFn = if name == "live_latest" {
+            Arc::new(deploy::latest_identity)
+        } else {
+            Arc::new(move |_args: Vec<Value>| {
+                Err(VmError::exception(format!(
+                    "platform capability `{name}` is not wired in this context"
+                )))
+            })
+        };
         registry.register(
             &extern_module(*binding),
             name,
             platform_uuid(binding.slot),
             binding.arity,
-            Arc::new(move |_args: Vec<Value>| {
-                Err(VmError::exception(format!(
-                    "platform capability `{name}` is not wired in this context"
-                )))
-            }),
+            func,
         );
     }
     registry
@@ -723,6 +740,10 @@ mod tests {
             native_uuid("process_spawn").to_string(),
             "ffffffff-ffff-ffff-fffc-000000000019"
         );
+        assert_eq!(
+            native_uuid("live_latest").to_string(),
+            "ffffffff-ffff-ffff-fffc-00000000002b"
+        );
     }
 
     #[test]
@@ -755,6 +776,31 @@ mod tests {
                 );
             }
             other => panic!("expected a not-wired exception, got {other:?}"),
+        }
+    }
+
+    /// The one stub that must never raise: `Live::latest!` under plain
+    /// `ambient run` (no deploy runtime) is identity by design — but it
+    /// still enforces the function-shaped contract the real resolution
+    /// enforces, so `run` and `dev` reject the same programs.
+    #[test]
+    fn live_latest_stub_is_identity() {
+        let stubs = stub_natives();
+        let func = stubs
+            .impl_for(&native_uuid("live_latest"))
+            .expect("stub bound");
+
+        let hash = blake3::hash(b"some function");
+        match func(vec![Value::FunctionRef(hash)]) {
+            Ok(Value::FunctionRef(returned)) => assert_eq!(returned, hash),
+            other => panic!("expected the ref back unchanged, got {other:?}"),
+        }
+
+        match func(vec![Value::Number(3.0)]) {
+            Err(VmError::Exception(Value::String(msg))) => {
+                assert!(msg.contains("expected a function"), "got {msg:?}");
+            }
+            other => panic!("expected a function-contract exception, got {other:?}"),
         }
     }
 

@@ -64,7 +64,7 @@ fn compile(src: &str) -> CompiledModule {
             .map(std::string::ToString::to_string)
             .collect::<Vec<_>>()
     );
-    let compiled = compile_module_with_options(
+    let mut compiled = compile_module_with_options(
         &checked.module,
         CompileOptions {
             source: Some(src),
@@ -77,6 +77,10 @@ fn compile(src: &str) -> CompiledModule {
         },
     )
     .expect("test program compiles");
+    // Attach canonical signatures the way every real build seam does —
+    // without them the rebinding rule (conservatively) retires every
+    // changed name instead of rebinding it.
+    compiled.signatures = checked.signatures.clone();
 
     // The deployable module is the program plus the core and platform
     // modules it links against.
@@ -379,6 +383,58 @@ fn dynamic_processes_survive_deploys_untouched() {
     host.send("child", Value::Number(0.0));
     host.wait_for_output(|out| out.contains(&"child v1".to_string()));
     assert!(!host.output().contains(&"child v2".to_string()));
+}
+
+/// A reducer that re-enters through `Live::latest!` picks up new behavior
+/// across a deploy **without its own hash changing**: the reducer never
+/// references the target lexically (it arrives as a message), so v2
+/// reports it unchanged — yet the same old ref resolves to the rebound
+/// target.
+#[test]
+fn latest_gives_an_unchanged_reducer_fresh_behavior() {
+    let v1 = r#"
+        pub fn run(): () with core::system::Process {
+          let pid = core::system::Process::spawn!("worker", init, step);
+        }
+        fn init(): Number { 0 }
+        fn step(total: Number, f: () -> Number): Number with core::system::Live, core::system::Stdio {
+          let fresh = core::system::Live::latest!(f);
+          core::system::Stdio::out!("got " + core::convert::to_string(fresh()));
+          total
+        }
+        pub fn target(): Number { 1 }
+        "#;
+    // v2 differs only in `target`'s body — same canonical signature.
+    let v2 = v1.replace("{ 1 }", "{ 2 }");
+
+    let host = TestHost::new();
+    host.deploy(v1);
+
+    // The reducer receives v1's compile-time ref as a message value.
+    let target_v1 = *compile(v1)
+        .function_names
+        .get("target")
+        .expect("v1 defines target");
+    host.send("worker", Value::FunctionRef(target_v1));
+    host.wait_for_output(|out| out.contains(&"got 1".to_string()));
+
+    let outcome = host.deploy(&v2);
+    assert!(
+        outcome.upgraded.is_empty(),
+        "the reducer must be hash-identical across the deploy: {:?}",
+        outcome.upgraded
+    );
+    assert_eq!(outcome.unchanged, 1);
+    assert!(
+        outcome.names.rebound.contains(&Arc::from("target")),
+        "target must rebind (same signature): {:?}",
+        outcome.names
+    );
+
+    // The *same old ref* now resolves to the rebound target.
+    host.send("worker", Value::FunctionRef(target_v1));
+    host.wait_for_output(|out| out.contains(&"got 2".to_string()));
+    assert_eq!(host.output(), vec!["got 1", "got 2"]);
 }
 
 /// Spawning a live name outside a deploy pass raises a catchable

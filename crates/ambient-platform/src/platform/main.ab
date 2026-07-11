@@ -3,7 +3,7 @@
 //! `core::system` is a directory module: its shape is the `platform/`
 //! source tree. Each ability lives in the sibling file of the same theme
 //! (`stdio`, `time`, `random`, `log`, `fs`, `network`, `process`, `env`,
-//! `execute`) and is re-exported here, so `use core::system::Stdio;` and a
+//! `execute`, `live`) and is re-exported here, so `use core::system::Stdio;` and a
 //! fully-qualified `core::system::Stdio` both keep resolving through this
 //! directory module rather than a single flat file.
 //!
@@ -43,3 +43,4 @@ pub use self::network::Network;
 pub use self::process::Process;
 pub use self::env::Env;
 pub use self::execute::Execute;
+pub use self::live::Live;

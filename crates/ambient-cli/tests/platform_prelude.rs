@@ -43,7 +43,7 @@ fn resolved_prelude() -> HashMap<String, Arc<DynAbility>> {
 fn declarations_expose_the_expected_interfaces() {
     let prelude = resolved_prelude();
 
-    let expected: [(&str, &[&str]); 9] = [
+    let expected: [(&str, &[&str]); 10] = [
         ("Stdio", &["out", "err", "read"]),
         ("Time", &["now", "wait"]),
         ("Random", &["seed", "in_range"]),
@@ -91,12 +91,13 @@ fn declarations_expose_the_expected_interfaces() {
             ],
         ),
         ("Env", &["var", "vars", "set", "args", "cwd", "pid"]),
+        ("Live", &["latest"]),
     ];
 
     assert_eq!(
         prelude.len(),
         expected.len(),
-        "platform.ab must declare exactly the 9 platform abilities"
+        "platform.ab must declare exactly the 10 platform abilities"
     );
 
     for (name, methods) in expected {
@@ -130,7 +131,7 @@ fn declarations_expose_the_expected_interfaces() {
 fn ability_uuids_are_pinned() {
     let prelude = resolved_prelude();
 
-    let reserved: [(&str, u128); 9] = [
+    let reserved: [(&str, u128); 10] = [
         ("Stdio", 0x2),
         ("Time", 0x3),
         ("Random", 0x4),
@@ -140,6 +141,7 @@ fn ability_uuids_are_pinned() {
         ("Process", 0x8),
         ("Env", 0x9),
         ("Execute", 0xA),
+        ("Live", 0xB),
     ];
 
     for (name, slot) in reserved {

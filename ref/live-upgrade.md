@@ -2,13 +2,15 @@
 
 Part of the [Ambient Language Reference](architecture.md).
 
-> **Status: design.** This document supersedes the process model
+> **Status: in progress.** This document supersedes the process model
 > ([processes.md](processes.md)) as the live-upgrade design; where the
-> two disagree about upgrades, this document wins. Nothing below is
-> implemented yet — it is written declaratively, as the target. The
-> process model remains in the tree as a concurrency experiment whose
-> own future is decided separately (see "Relation to the process
-> model").
+> two disagree about upgrades, this document wins. It is written
+> declaratively, as the target. Implemented so far: generations and the
+> deploy core (`crates/ambient-platform/src/deploy.rs`) and the `Live`
+> ability with the same-signature rebinding rule; cells, tasks, drain,
+> and retirement remain design. The process model remains in the tree as
+> a concurrency experiment whose own future is decided separately (see
+> "Relation to the process model").
 
 ## The model
 

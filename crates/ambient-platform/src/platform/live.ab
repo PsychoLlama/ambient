@@ -1,0 +1,28 @@
+//! Late binding into the current deploy generation (see
+//! ref/live-upgrade.md, "The Live ability").
+
+/// The current binding of the name `f` was deployed under, or `f` itself
+/// when no deploy runtime is present. Uniquely among platform externs, the
+/// stub is *identity* rather than a not-wired fault: plain `ambient run`
+/// must behave exactly like the deployed program, minus liveness.
+extern fn live_latest<F>(f: F): F;
+
+/// Reading the current generation is a side effect — nondeterministic
+/// across time, exactly like `Random::next!` — so it is an ability.
+/// `with Live` in a signature says the code participates in hot
+/// replacement; a sandbox can deny it, and a test can handle it to pin a
+/// fake generation. `latest` is generic rather than function-typed
+/// because ability signatures cannot yet express effect-polymorphic
+/// function parameters (the `Process::spawn` precedent); the runtime
+/// checks it received a function ref.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000B) ability Live {
+  /// The current binding of the name `f` was deployed under: an ordinary
+  /// function ref whose entire subtree is internally consistent. A ref
+  /// never deployed under a name (a lambda, a synthetic symbol) resolves
+  /// to itself, as does every ref under plain `ambient run`. One read per
+  /// unit of work — per request, per reduction, per tick — is the
+  /// consistency convention.
+  fn latest<F>(f: F): F {
+    live_latest(f)
+  }
+}

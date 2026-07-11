@@ -314,9 +314,9 @@ function like any other code.
 
 Builtin abilities are not defined in engine code. The engine's only
 native ability is `Exception` (part of the language). Everything else —
-Stdio, Time, Random, Log, FileSystem, Network, Process, Execute — is declared once, in
-Ambient source, in the **platform bindings interface**
-(`crates/ambient-platform/src/platform.ab`).
+Stdio, Time, Random, Log, FileSystem, Network, Process, Execute, Live —
+is declared once, in Ambient source, in the **platform bindings
+interface** (`crates/ambient-platform/src/platform/`).
 
 `core::system` is an ordinary module under the reserved `core` root,
 resolved through the same `ModuleRegistry` machinery as any other

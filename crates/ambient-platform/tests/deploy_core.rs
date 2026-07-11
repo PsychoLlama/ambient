@@ -128,9 +128,12 @@ fn loading_is_additive_across_deploys() {
     assert_eq!(format!("{new:?}"), "Number(42.0)");
 }
 
-/// The deploy report's name diff is exact, hash against hash.
+/// The deploy report's name diff is exact, hash against hash. Hand-built
+/// bindings carry no signature, and missing data is never a silent
+/// rebinding: a changed hash without both signatures classifies as
+/// retire-and-fresh.
 #[test]
-fn diff_reports_added_rebound_and_unchanged() {
+fn diff_reports_added_retired_and_unchanged() {
     let compiled = compile(
         "pub fn run(): Number { 0 }
          pub fn one(): Number { 1 }
@@ -149,6 +152,7 @@ fn diff_reports_added_rebound_and_unchanged() {
         .expect("first deploy succeeds");
     assert_eq!(first.names.added, vec![Arc::from("a"), Arc::from("b")]);
     assert!(first.names.rebound.is_empty());
+    assert!(first.names.retired.is_empty());
     assert_eq!(first.names.unchanged, 0);
 
     let second = core
@@ -159,8 +163,137 @@ fn diff_reports_added_rebound_and_unchanged() {
         )
         .expect("second deploy succeeds");
     assert_eq!(second.names.added, vec![Arc::from("c")]);
-    assert_eq!(second.names.rebound, vec![Arc::from("b")]);
+    assert!(
+        second.names.rebound.is_empty(),
+        "a signatureless change must never report as a rebinding"
+    );
+    assert_eq!(second.names.retired, vec![Arc::from("b")]);
     assert_eq!(second.names.unchanged, 1);
+
+    // And `latest` does not follow the retired lineage: b's old hash
+    // resolves to itself, not to b's fresh binding.
+    assert_eq!(core.latest(&two), two);
+}
+
+/// A changed name whose canonical signature is identical is a rebinding:
+/// every hash of its lineage keeps resolving forward through `latest`,
+/// transitively across deploys.
+#[test]
+fn same_signature_rebinding_resolves_old_refs_forward() {
+    let v1 = compile(
+        "pub fn run(): Number { 0 }
+         pub fn target(): Number { 1 }",
+    );
+    let v2 = compile(
+        "pub fn run(): Number { 0 }
+         pub fn target(): Number { 2 }",
+    );
+    let v3 = compile(
+        "pub fn run(): Number { 0 }
+         pub fn target(): Number { 3 }",
+    );
+    let (t1, t2, t3) = (
+        named_hash(&v1, "target"),
+        named_hash(&v2, "target"),
+        named_hash(&v3, "target"),
+    );
+
+    let core = runtime();
+    core.deploy(&functions_from_module(&v1), &entry_hash(&v1), |_| {})
+        .expect("v1 deploys");
+    let report = core
+        .deploy(&functions_from_module(&v2), &entry_hash(&v2), |_| {})
+        .expect("v2 deploys");
+    assert!(report.names.rebound.contains(&Arc::from("target")));
+    assert!(report.names.retired.is_empty());
+
+    // One read per ref: v1's compile-time ref resolves to the current
+    // binding of the name it was deployed under.
+    assert_eq!(core.latest(&t1), t2);
+    assert_eq!(core.latest(&t2), t2);
+
+    // Transitive: after v3, the whole lineage resolves to the head.
+    core.deploy(&functions_from_module(&v3), &entry_hash(&v3), |_| {})
+        .expect("v3 deploys");
+    assert_eq!(core.latest(&t1), t3);
+    assert_eq!(core.latest(&t2), t3);
+
+    // A hash never deployed under a name resolves to itself.
+    let anonymous = blake3::hash(b"no name");
+    assert_eq!(core.latest(&anonymous), anonymous);
+}
+
+/// A name whose canonical signature changed is retire-and-fresh: the
+/// deploy report says so, and `latest` keeps resolving old refs to
+/// themselves — evolving a live boundary's signature takes a new name.
+#[test]
+fn signature_change_is_retire_and_fresh() {
+    let v1 = compile(
+        "pub fn run(): Number { 0 }
+         pub fn target(): Number { 1 }",
+    );
+    let v2 = compile(
+        "pub fn run(): Number { 0 }
+         pub fn target(tag: String): Number { 2 }",
+    );
+    let (t1, t2) = (named_hash(&v1, "target"), named_hash(&v2, "target"));
+
+    let core = runtime();
+    core.deploy(&functions_from_module(&v1), &entry_hash(&v1), |_| {})
+        .expect("v1 deploys");
+    let report = core
+        .deploy(&functions_from_module(&v2), &entry_hash(&v2), |_| {})
+        .expect("v2 deploys");
+    assert_eq!(report.names.retired, vec![Arc::from("target")]);
+    assert!(!report.names.rebound.contains(&Arc::from("target")));
+
+    // Old refs are pinned to themselves; the fresh binding resolves to
+    // itself too (its own lineage starts here).
+    assert_eq!(core.latest(&t1), t1);
+    assert_eq!(core.latest(&t2), t2);
+    // The table itself did move: the name resolves to the fresh hash.
+    assert_eq!(core.resolve("target").expect("target resolves").hash, t2);
+}
+
+/// Content addressing lets one hash be deployed under several names (two
+/// same-bodied functions hash identically). While their bindings agree
+/// the shared hash resolves forward; once they diverge no single answer
+/// exists, so the shared hash resolves to itself.
+#[test]
+fn diverged_aliases_resolve_to_themselves() {
+    // `a` and `b` have identical bodies — one content hash, two names.
+    let v1 = compile(
+        "pub fn run(): Number { 0 }
+         pub fn a(): Number { 1 }
+         pub fn b(): Number { 1 }",
+    );
+    let v2 = compile(
+        "pub fn run(): Number { 0 }
+         pub fn a(): Number { 2 }
+         pub fn b(): Number { 1 }",
+    );
+    let shared = named_hash(&v1, "a");
+    assert_eq!(
+        shared,
+        named_hash(&v1, "b"),
+        "identical bodies must share one content hash"
+    );
+
+    let core = runtime();
+    core.deploy(&functions_from_module(&v1), &entry_hash(&v1), |_| {})
+        .expect("v1 deploys");
+    // Both names still bind the shared hash: resolving forward is
+    // unambiguous (it goes nowhere new yet).
+    assert_eq!(core.latest(&shared), shared);
+
+    core.deploy(&functions_from_module(&v2), &entry_hash(&v2), |_| {})
+        .expect("v2 deploys");
+    // `a` moved on, `b` still binds the shared hash: the names disagree,
+    // so the shared hash resolves to itself rather than guessing.
+    assert_eq!(core.latest(&shared), shared);
+    // `a`'s new hash is unambiguous.
+    let a2 = named_hash(&v2, "a");
+    assert_eq!(core.latest(&a2), a2);
 }
 
 /// A real build's generation binds every named item (dispatch symbols
