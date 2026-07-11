@@ -6,7 +6,9 @@
 //! build a fully wired VM for any computation. Both `ambient run` and
 //! `ambient dev` are thin drivers over [`RuntimeHost::deploy`]: `run`
 //! deploys once and waits for the process tree and task registry to
-//! wind down; `dev` deploys again on every code change.
+//! wind down; `dev` deploys again on every code change. The REPL is the
+//! third driver, over [`RuntimeHost::deploy_incremental`]: every turn is
+//! a deploy whose entry is not a full program declaration.
 //!
 //! Wiring is native registration, uuid-keyed: stubs first (every platform
 //! extern answers with a catchable "not wired" exception), then the real
@@ -150,29 +152,7 @@ impl RuntimeHost {
     /// `entry` as a reconciliation pass over the live process tree and
     /// task registry.
     pub fn deploy(&self, compiled: &CompiledModule, entry: &str) -> Result<HostDeployOutcome> {
-        // Function names in the merged build carry their full canonical
-        // qualifier (`workspace::<pkg>::main::run`). Resolve `entry` in order:
-        // an exact key; else any *module-path* key ending in `::{entry}` —
-        // uuid-rooted dispatch symbols (`<uuid>::run`, e.g. Execute's own
-        // method impl) are never entry points and are skipped; else, for
-        // the default entry, the structurally-captured entry point.
-        let suffix = format!("::{entry}");
-        let entry_hash = compiled
-            .function_names
-            .get(entry)
-            .or_else(|| {
-                compiled
-                    .function_names
-                    .iter()
-                    .find(|(name, _)| name.ends_with(&suffix) && !is_dispatch_symbol(name))
-                    .map(|(_, hash)| hash)
-            })
-            .or_else(|| {
-                (entry == "run")
-                    .then_some(compiled.entry_point.as_ref())
-                    .flatten()
-            })
-            .ok_or_else(|| anyhow::anyhow!("entry function `{entry}` not found"))?;
+        let (_, entry_hash) = resolve_entry(compiled, entry)?;
 
         // Execute serves functions from the store; register every
         // generation so shipped code keeps resolving.
@@ -188,7 +168,7 @@ impl RuntimeHost {
         // not drain anything, mirroring the process reconciler).
         let functions = functions_from_module(compiled);
         self.tasks.begin_reconcile();
-        let result = self.runtime.deploy_with(&functions, entry_hash, |vm| {
+        let result = self.runtime.deploy_with(&functions, &entry_hash, |vm| {
             install_task_natives(vm, &self.tasks, true);
         });
         let tasks = self.tasks.finish_reconcile(result.is_ok());
@@ -204,6 +184,54 @@ impl RuntimeHost {
         })
     }
 
+    /// Deploy a build *incrementally*: load, validate, swap, and run
+    /// `entry` as a plain reconciliation body — spawns and ensures still
+    /// register (and a re-spawn of a live name upgrades in place), but
+    /// nothing is stopped or drained for being undeclared. This is the
+    /// REPL's per-turn deploy: one turn is never a full declaration of
+    /// the running program, so absence means "leave it running".
+    ///
+    /// Two deliberate asymmetries with [`Self::deploy`]:
+    ///
+    /// - The entry's own name binding is stripped from the generation.
+    ///   An incremental entry is a synthetic per-turn body
+    ///   (`repl::__repl_entry_N`), not a durable name — binding it would
+    ///   root each turn's generation in the name table forever.
+    /// - Task ensures are dynamic (`install_task_natives` with
+    ///   `deploy: false`): they are not declarations, so no reconcile
+    ///   pass brackets the entry and the outcome's task report is empty.
+    pub fn deploy_incremental(
+        &self,
+        compiled: &CompiledModule,
+        entry: &str,
+    ) -> Result<HostDeployOutcome> {
+        let (entry_name, entry_hash) = resolve_entry(compiled, entry)?;
+
+        match self.store.lock() {
+            Ok(mut store) => store.add_module(compiled),
+            Err(_) => bail!("function store lock poisoned"),
+        }
+
+        let mut functions = functions_from_module(compiled);
+        if let Some(name) = &entry_name
+            && let Some(generation) = Arc::get_mut(&mut functions)
+        {
+            generation.bindings.remove(name);
+        }
+        let processes = self
+            .runtime
+            .deploy_incremental(&functions, &entry_hash, |vm| {
+                install_task_natives(vm, &self.tasks, false);
+            })
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let retirement = self.runtime.deploy_core().retirement();
+        Ok(HostDeployOutcome {
+            processes,
+            tasks: TaskReconcileOutcome::default(),
+            retirement,
+        })
+    }
+
     /// The process runtime (for waiting / inspection).
     pub fn runtime(&self) -> &Arc<ProcessRuntime> {
         &self.runtime
@@ -213,6 +241,37 @@ impl RuntimeHost {
     pub fn tasks(&self) -> &Arc<TaskRuntime> {
         &self.tasks
     }
+}
+
+/// Resolve `entry` against a build's function names. Names in a merged
+/// build carry their full canonical qualifier
+/// (`workspace::<pkg>::main::run`), so the resolution order is: an exact
+/// key; else any *module-path* key ending in `::{entry}` — uuid-rooted
+/// dispatch symbols (`<uuid>::run`, e.g. Execute's own method impl) are
+/// never entry points and are skipped; else, for the default entry, the
+/// structurally-captured entry point (which matches no name key).
+/// Returns the matched name key (when one exists) alongside the hash.
+fn resolve_entry(
+    compiled: &CompiledModule,
+    entry: &str,
+) -> Result<(Option<Arc<str>>, blake3::Hash)> {
+    let suffix = format!("::{entry}");
+    if let Some((name, hash)) = compiled.function_names.get_key_value(entry) {
+        return Ok((Some(Arc::clone(name)), *hash));
+    }
+    if let Some((name, hash)) = compiled
+        .function_names
+        .iter()
+        .find(|(name, _)| name.ends_with(&suffix) && !is_dispatch_symbol(name))
+    {
+        return Ok((Some(Arc::clone(name)), *hash));
+    }
+    if entry == "run"
+        && let Some(hash) = compiled.entry_point
+    {
+        return Ok((None, hash));
+    }
+    Err(anyhow::anyhow!("entry function `{entry}` not found"))
 }
 
 /// Whether a store name is a content dispatch symbol (`<uuid>::method` for

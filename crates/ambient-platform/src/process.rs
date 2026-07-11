@@ -295,6 +295,40 @@ impl ProcessRuntime {
         entry: &blake3::Hash,
         wire: impl FnOnce(&mut Vm),
     ) -> Result<DeployOutcome, String> {
+        self.deploy_pass(functions, entry, wire, true)
+    }
+
+    /// An *incremental* deploy: the same load/validate/swap/reconcile
+    /// through the deploy core, but the entry is not a full declaration
+    /// of the program — a spawn on a live name still upgrades in place,
+    /// while processes the entry does not mention are left running
+    /// (nothing is stopped for being undeclared). This is the REPL's
+    /// per-turn deploy: a turn's absence means "leave it running", not
+    /// "stop it".
+    ///
+    /// # Errors
+    ///
+    /// See [`Self::deploy`].
+    pub fn deploy_incremental(
+        self: &Arc<Self>,
+        functions: &Functions,
+        entry: &blake3::Hash,
+        wire: impl FnOnce(&mut Vm),
+    ) -> Result<DeployOutcome, String> {
+        self.deploy_pass(functions, entry, wire, false)
+    }
+
+    /// The shared deploy pass. `declarative` is what separates the dev
+    /// loop's full-program reconciliation from an incremental (REPL)
+    /// turn: only a declarative pass stops root processes the entry no
+    /// longer declares.
+    fn deploy_pass(
+        self: &Arc<Self>,
+        functions: &Functions,
+        entry: &blake3::Hash,
+        wire: impl FnOnce(&mut Vm),
+        declarative: bool,
+    ) -> Result<DeployOutcome, String> {
         {
             let mut inner = self.lock();
             inner.generation = Arc::clone(functions);
@@ -316,12 +350,13 @@ impl ProcessRuntime {
         };
 
         // Stop root processes the entry no longer declares. Dynamic
-        // processes are pinned and never touched.
+        // processes are pinned and never touched, and an incremental
+        // pass stops nothing — its entry is not a full declaration.
         let mut stopped = Vec::new();
         let to_stop: Vec<u64> = inner
             .procs
             .iter()
-            .filter(|(_, p)| p.root && !reconcile.seen.contains(&p.name))
+            .filter(|(_, p)| declarative && p.root && !reconcile.seen.contains(&p.name))
             .map(|(pid, _)| *pid)
             .collect();
         for pid in to_stop {
