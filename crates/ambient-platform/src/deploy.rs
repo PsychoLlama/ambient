@@ -308,17 +308,32 @@ pub struct DeployRuntime {
     /// The atomic name table plus its reverse map. Swapped wholesale per
     /// deploy; readers resolve against an immutable snapshot.
     names: Arc<NameResolver>,
+    /// The `State` cell table: named, runtime-owned values that belong to
+    /// no generation (see `ref/live-upgrade.md`, "State cells"). Owned
+    /// here — not by the embedding host — so every VM this runtime builds
+    /// shares it, and deploy validation can inspect cells pre-swap
+    /// (Phase 4's migration fingerprints).
+    cells: Arc<crate::state::StateCells>,
 }
 
 impl DeployRuntime {
-    /// Create a deploy runtime with nothing loaded and an empty name table.
+    /// Create a deploy runtime with nothing loaded, an empty name table,
+    /// and an empty cell table.
     #[must_use]
     pub fn new(vm_factory: VmFactory) -> Self {
         Self {
             vm_factory,
             loaded: Mutex::new(Loaded::default()),
             names: Arc::new(NameResolver::default()),
+            cells: Arc::new(crate::state::StateCells::new()),
         }
+    }
+
+    /// The shared `State` cell table (for inspection and, later,
+    /// pre-swap migration validation).
+    #[must_use]
+    pub fn cells(&self) -> &Arc<crate::state::StateCells> {
+        &self.cells
     }
 
     /// Apply a generation: load, validate, swap, reconcile, report.
@@ -384,6 +399,11 @@ impl DeployRuntime {
             crate::native_uuid("live_latest"),
             Arc::new(move |args| resolver.latest_native(args)),
         );
+        // Install the `State` natives over their not-wired stubs, all
+        // sharing this runtime's cell table — cells are present in every
+        // VM the system builds. (Execute-sandbox VMs are built elsewhere
+        // and keep the stubs: shipped-by-hash code gets no cells.)
+        crate::state::register_state_natives(&mut vm, &self.cells);
         let loaded = self.lock_loaded();
         for func in loaded.functions.values() {
             vm.load_function_shared(Arc::clone(func));

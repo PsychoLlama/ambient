@@ -6,9 +6,12 @@ Part of the [Ambient Language Reference](architecture.md).
 > ([processes.md](processes.md)) as the live-upgrade design; where the
 > two disagree about upgrades, this document wins. It is written
 > declaratively, as the target. Implemented so far: generations and the
-> deploy core (`crates/ambient-platform/src/deploy.rs`) and the `Live`
-> ability with the same-signature rebinding rule; cells, tasks, drain,
-> and retirement remain design. The process model remains in the tree as
+> deploy core (`crates/ambient-platform/src/deploy.rs`), the `Live`
+> ability with the same-signature rebinding rule, and `State` cells with
+> adopt semantics (`crates/ambient-platform/src/state.rs`; the cell
+> table is owned by the deploy runtime and shared by every VM it
+> builds); migration fingerprints (`init_versioned`), tasks, drain, and
+> retirement remain design. The process model remains in the tree as
 > a concurrency experiment whose own future is decided separately (see
 > "Relation to the process model").
 

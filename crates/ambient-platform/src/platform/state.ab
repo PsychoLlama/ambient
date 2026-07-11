@@ -1,0 +1,51 @@
+//! Named, typed, runtime-owned state cells (see ref/live-upgrade.md,
+//! "State cells").
+
+/// Adopt the cell if it exists, else create it with `make()`.
+extern fn state_init<F>(name: String, make: F): ();
+/// The cell's current value; raises if no such cell exists.
+extern fn state_get<S>(name: String): S;
+/// Overwrite the cell's value; raises if no such cell exists.
+extern fn state_set<S>(name: String, value: S): ();
+/// Atomic read-modify-write; returns the new value.
+extern fn state_update<S, F>(name: String, f: F): S;
+
+/// Named, typed, runtime-owned state cells. A cell belongs to no
+/// generation: it is why state survives a deploy — old code's exit and
+/// new code's init collapse into "the cell is still there". IO handles
+/// live in cells for free (they are plain numbers into runtime-owned
+/// handle tables shared the same way).
+///
+/// `make` and `f` are generic rather than function-typed because ability
+/// signatures cannot yet express effect-polymorphic function parameters
+/// (the `Process::spawn` precedent); the runtime checks it received a
+/// function. Both run *delimited*: performs inside them dispatch to
+/// handlers installed within the function itself, otherwise to default
+/// implementations — never to the caller's handler stack — so keep them
+/// morally pure. An uncaught exception inside either re-raises at the
+/// caller's perform site.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000C) ability State {
+  /// Adopt the cell if it exists (the every-deploy no-op, so the entry
+  /// can re-run on each deploy), else create it with `make()`. Editing
+  /// `make` changes nothing for a live cell — only a migration does.
+  fn init<F>(name: String, make: F): () {
+    state_init(name, make)
+  }
+  /// The cell's current value; raises if no such cell exists.
+  fn get<S>(name: String): S {
+    state_get(name)
+  }
+  /// Overwrite the cell's value; raises if no such cell exists (`init`
+  /// creates cells, so creation stays a declaration in the entry).
+  fn set<S>(name: String, value: S): () {
+    state_set(name, value)
+  }
+  /// Atomic read-modify-write: run `f` on the current value with the
+  /// cell locked, store the result, return it. Touching the same cell
+  /// again from inside `f` is a fault (the lock is held); touching
+  /// *other* cells risks deadlock against concurrent updates — keep `f`
+  /// a pure transformation.
+  fn update<S, F>(name: String, f: F): S {
+    state_update(name, f)
+  }
+}

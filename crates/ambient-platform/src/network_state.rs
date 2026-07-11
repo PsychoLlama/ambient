@@ -181,6 +181,18 @@ impl NetworkState {
         self.insert_stream(stream)
     }
 
+    /// The local address a listener is bound to (e.g. to learn the OS-
+    /// assigned port after binding port 0).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the listener ID is invalid or the socket has no
+    /// local address.
+    pub fn listener_addr(&self, id: ListenerId) -> Result<String, NetworkError> {
+        let addr = self.listener(id)?.local_addr().map_err(NetworkError::Io)?;
+        Ok(addr.to_string())
+    }
+
     /// Close and remove a listener.
     ///
     /// # Errors

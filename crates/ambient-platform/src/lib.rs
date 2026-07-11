@@ -56,6 +56,7 @@ pub mod network;
 pub mod network_state;
 pub mod process;
 pub mod random;
+pub mod state;
 pub mod stdio;
 pub mod time;
 
@@ -146,6 +147,7 @@ pub use network::network_natives;
 pub use network_state::NetworkState;
 pub use process::{DeployOutcome, EventSink, ProcessEvent, ProcessRuntime, ProcessRuntimeConfig};
 pub use random::random_natives;
+pub use state::StateCells;
 pub use stdio::{StdioConfig, StdioSink, stdio_natives, stdio_natives_with_collector};
 pub use time::time_natives;
 
@@ -439,6 +441,30 @@ pub(crate) const EXTERN_BINDINGS: &[ExternBinding] = &[
         module: "live",
         slot: 0x2B,
         arity: 1,
+    },
+    ExternBinding {
+        name: "state_init",
+        module: "state",
+        slot: 0x2C,
+        arity: 2,
+    },
+    ExternBinding {
+        name: "state_get",
+        module: "state",
+        slot: 0x2D,
+        arity: 1,
+    },
+    ExternBinding {
+        name: "state_set",
+        module: "state",
+        slot: 0x2E,
+        arity: 2,
+    },
+    ExternBinding {
+        name: "state_update",
+        module: "state",
+        slot: 0x2F,
+        arity: 2,
     },
 ];
 
@@ -743,6 +769,10 @@ mod tests {
         assert_eq!(
             native_uuid("live_latest").to_string(),
             "ffffffff-ffff-ffff-fffc-00000000002b"
+        );
+        assert_eq!(
+            native_uuid("state_update").to_string(),
+            "ffffffff-ffff-ffff-fffc-00000000002f"
         );
     }
 

@@ -314,7 +314,8 @@ function like any other code.
 
 Builtin abilities are not defined in engine code. The engine's only
 native ability is `Exception` (part of the language). Everything else —
-Stdio, Time, Random, Log, FileSystem, Network, Process, Execute, Live —
+Stdio, Time, Random, Log, FileSystem, Network, Process, Execute, Live,
+State —
 is declared once, in Ambient source, in the **platform bindings
 interface** (`crates/ambient-platform/src/platform/`).
 
