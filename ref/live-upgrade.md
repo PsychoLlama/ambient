@@ -12,12 +12,14 @@ Part of the [Ambient Language Reference](architecture.md).
 > table is owned by the deploy runtime and shared by every VM it
 > builds), the migration contract (`init_versioned` with
 > compiler-threaded fingerprints — see "Migration"), drain with
-> interruptible performs (`crates/ambient-platform/src/drain.rs`), and
+> interruptible performs (`crates/ambient-platform/src/drain.rs`),
 > tasks (`crates/ambient-platform/src/task.rs`, reconciled beside the
 > process registry by one deploy pass — `examples/live_site` is the
-> working demonstration); retirement remains design. The process model
-> remains in the tree as a concurrency experiment whose own future is
-> decided separately (see "Relation to the process model").
+> working demonstration), and retirement with the deploy diagnostics
+> (`crates/ambient-platform/src/retire.rs`: the generation ledger, the
+> trace, the two warnings, and the dev loop's store gc). The process
+> model remains in the tree as a concurrency experiment whose own
+> future is decided separately (see "Relation to the process model").
 
 ## The model
 
@@ -378,6 +380,35 @@ stored in a cell is never a correctness hazard (it stays pinned and
 keeps working) — it is a liveness hazard: it pins its generation until
 it is dropped.
 
+Mechanics, as implemented (`crates/ambient-platform/src/retire.rs`):
+the deploy runtime records every successful swap as a numbered
+generation and attributes each object hash to its **latest shipper** —
+a full build re-ships every unchanged hash, so unchanged code
+attributes to the new generation, and an old generation stays live only
+while a hash it _alone_ still ships is reachable. Roots are gathered,
+not sampled from live VMs: the cell table, each registry's contribution
+(a task publishes the hash it resolved for the current pass — between
+boundaries its frames can hold only code reachable from that hash plus
+already-rooted values; a process publishes its reducers and its state
+as of the last reduction), and the current name table. The trace's BFS
+carries provenance, so a pin names its most direct holder. Retirement
+is **sticky**: unreachable code cannot come back into reach, so the
+transition is reported once and recorded forever. Consequences:
+
+- A task's ensure-time body hash is a resolution key, not a root — a
+  named task never pins the generation that ensured it. A closure body
+  is the running code and does pin.
+- The one known hole is process mailboxes: a closure inside an
+  undelivered message is invisible until it is reduced into published
+  state. Tasks and cells have no such channel.
+- The dev loop gc's a package's `.ambient` store after each deploy with
+  the trace's reachable set as extra roots, so a pinned old
+  generation's objects survive on disk exactly as long as something
+  live holds them; `ambient store gc` (offline) keeps using the names
+  index as roots.
+- Programmatic access is `DeployRuntime::retirement()`; the dev loop
+  prints the transitions and pins per deploy.
+
 ## What is live and what is pinned
 
 | Thing                                | Fresh when…                                                                               |
@@ -407,6 +438,23 @@ systems hit silently. Validation and the deploy report include:
   live generation performs a key no current handler covers.
 - **Signature-changed name**: reported as retire-and-fresh, never as a
   rebinding (see the Live rebinding rule).
+
+Mechanics, as implemented: warnings ride `DeployReport::warnings`,
+computed after reconciliation from the same trace machinery. The
+unreachable-change warning has two flavors: **severed** (the old copy's
+lineage retired — its own late binding resolves to itself forever, the
+signature-changed-task-body case) and **orphaned** (the rebinding is
+fine but no live re-entry point — the entry, a task body's per-pass
+resolution — reaches the new code). Only task roots count as
+late-bound re-entry points: the runtime genuinely re-resolves them,
+while a cell-held value's hypothetical `latest!` cannot be seen
+statically. The uncovered-key warning fires for keys performed by
+strictly-old live code that current code neither performs nor covers,
+scoped to abilities the fresh generation covers at all — otherwise
+every old perform of a default-implemented, never-handled ability
+(`State`, `Time`, ...) would warn. A pinned-but-deliverable rebinding
+warns as nothing: it is a retirement _pin_, which the dev loop prints
+alongside the warnings.
 
 ## Non-goals
 

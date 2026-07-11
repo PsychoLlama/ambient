@@ -479,8 +479,13 @@ impl Ledger {
                             label: self.label(hash),
                         })
                         .collect();
-                    // Labeled pins first, then by hash for determinism.
-                    pins.sort_by_key(|pin| (pin.label.is_none(), pin.hash.to_hex()));
+                    // Directly named pins first, then labeled lambdas,
+                    // then by hash for determinism — the first pin is
+                    // what the dev loop prints.
+                    pins.sort_by_key(|pin| {
+                        let direct = pin.label.as_ref().is_some_and(|label| label.direct);
+                        (pin.label.is_none(), !direct, pin.hash.to_hex())
+                    });
                     report.pinned.push(PinnedGeneration { id, pins });
                 }
             }
