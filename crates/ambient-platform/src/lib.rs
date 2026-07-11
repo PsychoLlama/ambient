@@ -479,6 +479,18 @@ pub(crate) const EXTERN_BINDINGS: &[ExternBinding] = &[
         slot: 0x33,
         arity: 5,
     },
+    ExternBinding {
+        name: "task_ensure",
+        module: "task",
+        slot: 0x34,
+        arity: 2,
+    },
+    ExternBinding {
+        name: "task_drain",
+        module: "task",
+        slot: 0x35,
+        arity: 1,
+    },
 ];
 
 /// The binding-table entry for an extern name.

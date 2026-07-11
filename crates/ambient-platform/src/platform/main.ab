@@ -46,3 +46,4 @@ pub use self::execute::Execute;
 pub use self::live::Live;
 pub use self::state::State;
 pub use self::drain::Drain;
+pub use self::task::Task;

@@ -1,0 +1,48 @@
+//! Named, supervised, drainable loops (see ref/live-upgrade.md, "Tasks").
+
+/// Ensure a named task is running.
+extern fn task_ensure<B>(name: String, body: B): ();
+/// Ask a named task to unwind at its next interruptible perform.
+extern fn task_drain(name: String): ();
+
+/// Named, supervised, drainable loops — much less than a process: no
+/// mailbox, no reducer contract, no message types, just "keep this
+/// running under this name". Each task runs on its own thread with its
+/// own VM; the shared cell and handle tables are the only cross-task
+/// state.
+///
+/// `body` is **one bounded pass** of the loop, not the loop itself: the
+/// runtime re-invokes it, re-resolving the function's deployed name
+/// through the current generation before every iteration (the
+/// `Live::latest!` resolution, applied by the runtime because the
+/// language has no tail calls to spell the loop in). Edit the body —
+/// or anything below it — and the next iteration runs the new code; a
+/// closure body has no deployed name and stays pinned to its hash.
+///
+/// Tasks are reconciled by name during deploy passes: `ensure` on a
+/// live name is a no-op, and a task the entry stops declaring is
+/// drained (never killed) — `Drain::requested!` unwinds its current
+/// pass at the next interruptible perform, the nearest arm runs
+/// cleanup, and the task winds down. A pass that faults is restarted
+/// (the next iteration re-resolves fresh code); a task that exhausts
+/// its consecutive-fault budget, or overruns a drain deadline, is
+/// parked.
+///
+/// `body` is generic rather than function-typed because ability
+/// signatures cannot yet express effect-polymorphic function
+/// parameters (the `Process::spawn` precedent); the runtime checks it
+/// received a zero-parameter function.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000E) ability Task {
+  /// Ensure a named task is running: start it if no task holds the
+  /// name, no-op if one does. During a deploy pass this is a
+  /// declaration — the reconciler drains tasks the entry stops
+  /// declaring.
+  fn ensure<B>(name: String, body: B): () {
+    task_ensure(name, body)
+  }
+  /// Ask a named task to unwind at its next interruptible perform.
+  /// The name frees immediately; no-op if no task holds it.
+  fn drain(name: String): () {
+    task_drain(name)
+  }
+}
