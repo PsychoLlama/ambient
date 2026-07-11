@@ -677,3 +677,48 @@ fn extern_unit_struct_bare_value_is_rejected() {
         "expected an error for bare extern unit struct in value position"
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `let` annotations
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A `let` annotation constrains the initializer. Previously it was resolved
+/// only to report undefined type names and then discarded, so
+/// `let x: Number = "s"` checked clean.
+#[test]
+fn let_annotation_mismatch_is_rejected() {
+    assert_err_containing(
+        r#"
+        fn run(): Number {
+          let x: Number = "not a number";
+          0
+        }
+        "#,
+        "type mismatch",
+    );
+}
+
+/// The annotation is also an inference *source*: it pins a generic
+/// initializer's type, so a conflicting later use errors instead of the
+/// annotation silently losing.
+#[test]
+fn let_annotation_pins_a_generic_initializer() {
+    assert_ok(
+        r"
+        fn run(): Number {
+          let xs: List<Number> = [];
+          xs.length()
+        }
+        ",
+    );
+    assert_err_containing(
+        r#"
+        fn take_strings(xs: List<String>): Number { xs.length() }
+        fn run(): Number {
+          let xs: List<Number> = [];
+          take_strings(xs)
+        }
+        "#,
+        "mismatch",
+    );
+}

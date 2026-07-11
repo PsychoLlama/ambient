@@ -339,15 +339,32 @@ impl Infer {
                 for stmt in stmts {
                     match &mut stmt.kind {
                         StmtKind::Let(binding) => {
-                            // A `let` annotation isn't yet constrained against
-                            // `init` (out of scope), but an undefined type name
-                            // in it is still reported (and rewritten away).
-                            if let Some(ty) = binding.ty.clone() {
-                                let span = (binding.name_span.start, binding.name_span.end);
-                                let _ = super::check::resolve_body_annotation(self, &ty, span);
-                            }
                             let init_ty = self.infer_expr(&block_env, &mut binding.init)?;
-                            let scheme = self.generalize(&block_env, &init_ty);
+                            let ty = if let Some(annotation) = binding.ty.clone() {
+                                // An undefined name in the annotation is
+                                // reported and rewritten to `Type::Error`,
+                                // like a lambda parameter's.
+                                let ann_span = (binding.name_span.start, binding.name_span.end);
+                                let expected = super::check::resolve_body_annotation(
+                                    self,
+                                    &annotation,
+                                    ann_span,
+                                );
+                                let span = (binding.init.span.start, binding.init.span.end);
+                                if let Err(e) = self.unify(&expected, &init_ty, span) {
+                                    self.pending_errors.push(e.with_context(format!(
+                                        "in binding `{}`: type mismatch",
+                                        binding.name
+                                    )));
+                                }
+                                // Bind at the annotation even on mismatch:
+                                // it's the user's stated intent, and it keeps
+                                // downstream errors from cascading.
+                                expected
+                            } else {
+                                init_ty
+                            };
+                            let scheme = self.generalize(&block_env, &ty);
                             block_env.insert(binding.id, binding.name.clone(), scheme);
                         }
                         StmtKind::Expr(expr) => {
