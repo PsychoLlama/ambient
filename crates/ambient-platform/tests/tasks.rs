@@ -268,6 +268,94 @@ fn a_task_picks_up_rebound_code_without_restarting() {
     h.tasks.wait_all();
 }
 
+/// A named task body is a resolution key, not pinned code: the per-pass
+/// resolution stamps what actually runs, so once passes run the new
+/// generation, nothing keeps the ensuring generation alive and it
+/// retires — the task upgrades *through* the name.
+#[test]
+fn a_named_task_does_not_pin_the_generation_that_ensured_it() {
+    const V1: &str = r#"
+    use core::time::Duration;
+
+    pub fn run(): () with core::system::State, core::system::Task {
+      core::system::State::init!("count", () => 0);
+      core::system::Task::ensure!("counter", tick)
+    }
+
+    fn tick(): () with core::system::State, core::system::Time {
+      core::system::State::update!("count", (n: Number) => n + 1);
+      core::system::Time::wait!(Duration::from_millis(2))
+    }
+    "#;
+    let v2 = V1.replace("n + 1", "n + 2");
+
+    let h = harness(Duration::from_secs(5));
+    deploy(&h, &compile(V1));
+    await_at_least(&h, "count", 1.0);
+
+    deploy(&h, &compile(&v2));
+    // Wait until passes of the new generation have run: the rebound
+    // body increments by 2, and every pass re-stamps the resolution.
+    await_at_least(&h, "count", 20.0);
+
+    let report = h.core.retirement();
+    assert_eq!(report.current, Some(2));
+    assert!(
+        report.retired.contains(&1),
+        "the task runs generation 2 code; nothing pins generation 1: {:?}",
+        report.pinned
+    );
+
+    h.tasks.drain_all();
+    h.tasks.wait_all();
+}
+
+/// A closure task body has no deployed name and stays pinned by design
+/// (ensure on the live name is a no-op, so a redeploy does not replace
+/// it either) — the retirement trace reports the task holding its
+/// generation open.
+#[test]
+fn a_closure_task_body_pins_its_generation() {
+    const V1: &str = r#"
+    use core::time::Duration;
+
+    pub fn run(): () with core::system::State, core::system::Task {
+      core::system::State::init!("count", () => 0);
+      core::system::Task::ensure!("held", () => beat())
+    }
+
+    fn beat(): () with core::system::State, core::system::Time {
+      core::system::State::update!("count", (n: Number) => n + 1);
+      core::system::Time::wait!(Duration::from_millis(2))
+    }
+    "#;
+    let v2 = V1.replace("n + 1", "n + 2");
+
+    let h = harness(Duration::from_secs(5));
+    deploy(&h, &compile(V1));
+    await_at_least(&h, "count", 1.0);
+
+    deploy(&h, &compile(&v2));
+    let report = h.core.retirement();
+    assert_eq!(report.current, Some(2));
+    let pinned = report
+        .pinned
+        .iter()
+        .find(|generation| generation.id == 1)
+        .expect("the closure body pins generation 1");
+    assert!(
+        pinned
+            .pins
+            .iter()
+            .any(|pin| pin.root == ambient_platform::retire::RootOrigin::Task(Arc::from("held"))),
+        "provenance should name the holding task: {:?}",
+        pinned.pins
+    );
+
+    h.tasks.drain_all();
+    h.tasks.wait_all();
+}
+
 const TICKER: &str = r#"
     use core::time::Duration;
 

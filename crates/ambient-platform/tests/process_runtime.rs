@@ -383,6 +383,24 @@ fn dynamic_processes_survive_deploys_untouched() {
     host.send("child", Value::Number(0.0));
     host.wait_for_output(|out| out.contains(&"child v1".to_string()));
     assert!(!host.output().contains(&"child v2".to_string()));
+
+    // And the retirement trace says exactly that: the dynamic child's
+    // spawn-time reducer is generation 1 code, so generation 1 is
+    // pinned — by the child, by name.
+    let report = host.runtime.deploy_core().retirement();
+    assert_eq!(report.current, Some(2));
+    let pinned = report
+        .pinned
+        .iter()
+        .find(|generation| generation.id == 1)
+        .expect("the dynamic child pins generation 1");
+    assert!(
+        pinned.pins.iter().any(
+            |pin| pin.root == ambient_platform::retire::RootOrigin::Process(Arc::from("child"))
+        ),
+        "provenance should name the pinned process: {:?}",
+        pinned.pins
+    );
 }
 
 /// A reducer that re-enters through `Live::latest!` picks up new behavior

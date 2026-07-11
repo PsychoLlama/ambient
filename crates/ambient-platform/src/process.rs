@@ -107,6 +107,20 @@ struct ProcCell {
     /// Stopped by a deploy (suppresses the `Exited` event).
     stopped_by_deploy: AtomicBool,
     staged: Mutex<Option<Staged>>,
+    /// The state value as of the last reduction boundary, published for
+    /// the retirement trace (state may hold closures that pin their
+    /// generation). Mid-reduction the next state is being built from
+    /// this value plus the message — the boundary sample is exactly the
+    /// "live frames" approximation the trace documents.
+    published_state: Mutex<Option<Value>>,
+}
+
+impl ProcCell {
+    fn publish_state(&self, state: &Value) {
+        if let Ok(mut published) = self.published_state.lock() {
+            *published = Some(state.clone());
+        }
+    }
 }
 
 /// Registry entry for a live process.
@@ -172,10 +186,13 @@ impl ProcessContext {
 
 impl ProcessRuntime {
     /// Create a runtime with an empty deploy core (nothing loaded, no
-    /// names bound); the first [`Self::deploy`] starts the program.
+    /// names bound); the first [`Self::deploy`] starts the program. The
+    /// registry is registered as a trace-root provider on the core:
+    /// every live process contributes its reducers and last-published
+    /// state to retirement tracing.
     #[must_use]
     pub fn new(config: ProcessRuntimeConfig) -> Arc<Self> {
-        Arc::new(Self {
+        let runtime = Arc::new(Self {
             inner: Mutex::new(Inner {
                 procs: HashMap::new(),
                 names: HashMap::new(),
@@ -186,7 +203,49 @@ impl ProcessRuntime {
             exited: Condvar::new(),
             core: Arc::new(DeployRuntime::new(config.vm_factory)),
             events: config.events,
-        })
+        });
+        let weak = Arc::downgrade(&runtime);
+        runtime.core.register_roots(Arc::new(move || {
+            weak.upgrade().map_or_else(Vec::new, |rt| rt.trace_roots())
+        }));
+        runtime
+    }
+
+    /// Every live process's contribution to the retirement trace: its
+    /// current reducers (spawn-time values, updated when a deploy stages
+    /// a swap — so a pinned dynamic process correctly pins its
+    /// generation) and its state as of the last reduction boundary.
+    /// Known hole, documented in [`crate::retire`]: values inside
+    /// undelivered mailbox messages are invisible until reduced into
+    /// state.
+    fn trace_roots(&self) -> Vec<crate::retire::Root> {
+        use crate::retire::{Root, RootOrigin};
+        let inner = self.lock();
+        let mut roots = Vec::new();
+        for proc in inner.procs.values() {
+            let origin = RootOrigin::Process(Arc::clone(&proc.name));
+            roots.push(Root {
+                origin: origin.clone(),
+                value: proc.current_init.clone(),
+            });
+            roots.push(Root {
+                origin: origin.clone(),
+                value: proc.current_handler.clone(),
+            });
+            let state = proc
+                .cell
+                .published_state
+                .lock()
+                .ok()
+                .and_then(|published| published.clone());
+            if let Some(state) = state {
+                roots.push(Root {
+                    origin,
+                    value: state,
+                });
+            }
+        }
+        roots
     }
 
     /// The deploy core this runtime is a client of (for name
@@ -579,6 +638,7 @@ fn process_main(
             return;
         }
     };
+    cell.publish_state(&state);
 
     let mut consecutive_faults: u32 = 0;
 
@@ -620,6 +680,7 @@ fn process_main(
         match call_function_value(&mut vm, &handler, vec![state.clone(), msg]) {
             Ok(next_state) => {
                 state = next_state;
+                cell.publish_state(&state);
                 consecutive_faults = 0;
             }
             Err(error) => {
@@ -635,7 +696,10 @@ fn process_main(
                 }
                 // Supervision: restart in place with fresh state.
                 match call_function_value(&mut vm, &init, Vec::new()) {
-                    Ok(fresh) => state = fresh,
+                    Ok(fresh) => {
+                        state = fresh;
+                        cell.publish_state(&state);
+                    }
                     Err(error) => {
                         (runtime.events)(&ProcessEvent::InitFailed {
                             name: Arc::clone(name),

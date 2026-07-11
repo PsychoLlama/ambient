@@ -98,6 +98,19 @@ struct TaskHandle {
     /// drained implicitly).
     root: bool,
     signal: Arc<DrainSignal>,
+    /// The ensure-time body value. For the retirement trace this is
+    /// only the *fallback* root (before the first pass stamps a
+    /// resolution, and for closure bodies, which really are the running
+    /// code): a named body's spawn-time hash is a resolution key, and
+    /// rooting it would pin the ensuring generation forever while the
+    /// task runs ever-fresher code.
+    body: Value,
+    /// The hash the task's thread resolved for the pass it is running
+    /// (or last ran) — the "live frames sampled at boundaries" half of
+    /// the retirement trace: while a pass is in flight its frames can
+    /// only hold code reachable from this hash plus already-rooted
+    /// values (cells, registries, the name table).
+    current_pass: Arc<Mutex<Option<blake3::Hash>>>,
 }
 
 /// Bookkeeping for an in-flight deploy pass.
@@ -146,17 +159,54 @@ enum Ending {
 }
 
 impl TaskRuntime {
-    /// Create a runtime with an empty registry.
+    /// Create a runtime with an empty registry, registered as a
+    /// trace-root provider on the shared deploy core (every live task —
+    /// including ones winding down from a drain — contributes its
+    /// current code to retirement tracing).
     #[must_use]
     pub fn new(config: TaskRuntimeConfig) -> Arc<Self> {
-        Arc::new(Self {
+        let runtime = Arc::new(Self {
             inner: Mutex::new(Inner::default()),
             exited: Condvar::new(),
             core: config.core,
             network: config.network,
             events: config.events,
             drain_deadline: config.drain_deadline,
-        })
+        });
+        let weak = Arc::downgrade(&runtime);
+        runtime.core.register_roots(Arc::new(move || {
+            weak.upgrade().map_or_else(Vec::new, |rt| rt.trace_roots())
+        }));
+        runtime
+    }
+
+    /// Every live task's contribution to the retirement trace: the hash
+    /// its thread resolved for the current (or last) pass, or the
+    /// ensure-time body value before a first pass has stamped one (and
+    /// for closures, whose captured environment must be walked too).
+    fn trace_roots(&self) -> Vec<crate::retire::Root> {
+        use crate::retire::{Root, RootOrigin};
+        let inner = self.lock();
+        inner
+            .tasks
+            .values()
+            .map(|task| {
+                let origin = RootOrigin::Task(Arc::clone(&task.name));
+                let stamped = task
+                    .current_pass
+                    .lock()
+                    .ok()
+                    .and_then(|current| *current)
+                    .filter(|_| matches!(task.body, Value::FunctionRef(_)));
+                match stamped {
+                    Some(hash) => Root::from_hash(origin, hash),
+                    None => Root {
+                        origin,
+                        value: task.body.clone(),
+                    },
+                }
+            })
+            .collect()
     }
 
     /// Number of live tasks (including ones still winding down from a
@@ -296,12 +346,15 @@ impl TaskRuntime {
         let id = inner.next_id;
         inner.next_id += 1;
         let signal = DrainSignal::new();
+        let current_pass = Arc::new(Mutex::new(None));
         inner.tasks.insert(
             id,
             TaskHandle {
                 name: Arc::clone(&name),
                 root: deploy,
                 signal: Arc::clone(&signal),
+                body: body.clone(),
+                current_pass: Arc::clone(&current_pass),
             },
         );
         inner.names.insert(Arc::clone(&name), id);
@@ -319,7 +372,7 @@ impl TaskRuntime {
         let spawned = std::thread::Builder::new()
             .name(thread_name)
             .spawn(move || {
-                let ending = task_main(&runtime, &name, &body, &signal);
+                let ending = task_main(&runtime, &name, &body, &signal, &current_pass);
                 signal.mark_complete();
                 runtime.remove_task(id);
                 if let Ending::Drained { cleanly } = ending {
@@ -385,6 +438,7 @@ fn task_main(
     name: &Arc<str>,
     body: &Value,
     signal: &Arc<DrainSignal>,
+    current_pass: &Arc<Mutex<Option<blake3::Hash>>>,
 ) -> Ending {
     // Read the epoch *before* building: a load that races the build is
     // caught by the next pass's staleness check instead of lost.
@@ -417,6 +471,13 @@ fn task_main(
         let result = match body {
             Value::FunctionRef(hash) => {
                 let latest = runtime.core.latest(hash);
+                // Publish the pass's resolution for the retirement
+                // trace: while this pass runs, its frames hold code
+                // reachable from exactly this hash (plus values that
+                // are themselves rooted).
+                if let Ok(mut current) = current_pass.lock() {
+                    *current = Some(latest);
+                }
                 vm.call(&latest, Vec::new())
             }
             Value::Closure(c) => {
