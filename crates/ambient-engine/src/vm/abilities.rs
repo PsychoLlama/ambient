@@ -85,10 +85,19 @@ impl Vm {
 
         // Innermost handler that covers this method. Handlers install
         // per-ability, but a handler value need not cover every method;
-        // an uncovered method falls through to the next handler out.
-        let handler_idx = self.handlers.iter().rposition(|h| {
-            h.ability_id == ability.ability_id && h.handler.handles_method(ability.method)
-        });
+        // an uncovered method falls through to the next handler out — but
+        // never below the current invoke barrier: a handler outside a
+        // reentrant `invoke` region cannot fire inside it (its continuation
+        // would have to capture the invoking native's Rust frame), so
+        // dispatch stops at the barrier and falls through to the default
+        // implementation.
+        let barrier = self.handler_barrier();
+        let handler_idx = self.handlers[barrier..]
+            .iter()
+            .rposition(|h| {
+                h.ability_id == ability.ability_id && h.handler.handles_method(ability.method)
+            })
+            .map(|idx| barrier + idx);
 
         if let Some(idx) = handler_idx {
             self.perform_with_bytecode_handler(idx, ability)?;
@@ -127,10 +136,16 @@ impl Vm {
     pub(super) fn raise_exception(&mut self, error: Value) -> Result<(), VmError> {
         let ability_id = ambient_core::exception::ability_id();
         let throw_key = ambient_core::exception::throw_method_key();
-        let Some(idx) = self
-            .handlers
+        // Same barrier rule as `op_perform`: inside a reentrant invoke,
+        // only Exception handlers installed within the region can catch;
+        // otherwise the exception propagates out of the invoke as a
+        // `VmError`, to be re-raised (and made catchable again) at the
+        // invoking native's own call site.
+        let barrier = self.handler_barrier();
+        let Some(idx) = self.handlers[barrier..]
             .iter()
             .rposition(|h| h.ability_id == ability_id && h.handler.handles_method(throw_key))
+            .map(|idx| barrier + idx)
         else {
             return Err(VmError::Exception(error));
         };

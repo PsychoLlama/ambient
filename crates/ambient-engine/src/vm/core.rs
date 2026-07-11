@@ -78,6 +78,20 @@ pub struct Vm {
     /// against a host binding this VM does not provide.
     pub(super) native_impls: HashMap<uuid::Uuid, crate::natives::NativeFn>,
 
+    /// VM-invoking native implementations (see
+    /// [`crate::natives::NativeVmFn`]). Checked before `native_impls`, so
+    /// registering one overrides a pure implementation (or stub) under the
+    /// same uuid.
+    pub(super) native_vm_impls: HashMap<uuid::Uuid, crate::natives::NativeVmFn>,
+
+    /// Handler-visibility barriers for reentrant [`Self::invoke`] calls,
+    /// one entry per nesting level: performs inside the nested region only
+    /// dispatch to handlers at or above the barrier index. A continuation
+    /// cannot capture the invoking native's Rust frame, so handlers below
+    /// it must be invisible — nested performs fall through to default
+    /// implementations instead.
+    pub(super) handler_barriers: Vec<usize>,
+
     /// Maximum call stack depth to prevent infinite recursion.
     pub(super) max_call_depth: usize,
 }
@@ -107,6 +121,8 @@ impl Vm {
             values: HashMap::new(),
             native_functions: HashMap::new(),
             native_impls: HashMap::new(),
+            native_vm_impls: HashMap::new(),
+            handler_barriers: Vec::new(),
             max_call_depth: 1000,
         };
         vm.register_natives(crate::natives::core_natives());
@@ -140,6 +156,14 @@ impl Vm {
     /// Register the implementation for a native uuid.
     pub fn register_native_impl(&mut self, uuid: uuid::Uuid, func: crate::natives::NativeFn) {
         self.native_impls.insert(uuid, func);
+    }
+
+    /// Register a VM-invoking implementation for a native uuid. Takes
+    /// priority over a pure implementation (typically a stub) registered
+    /// under the same uuid — the same override rule as uuid-keyed
+    /// re-registration.
+    pub fn register_native_vm_impl(&mut self, uuid: uuid::Uuid, func: crate::natives::NativeVmFn) {
+        self.native_vm_impls.insert(uuid, func);
     }
 
     /// Register every implementation in a [`NativeRegistry`] — how a VM
@@ -192,6 +216,7 @@ impl Vm {
         self.stack.clear();
         self.frames.clear();
         self.handlers.clear();
+        self.handler_barriers.clear();
         self.install_base_frames();
 
         let arg_count = args.len() as u8;
@@ -208,7 +233,7 @@ impl Vm {
         }
 
         // Run the execution loop
-        self.run()
+        self.run_until(0)
     }
 
     /// Call a function and return a `RuntimeError` with stack trace on failure.
@@ -237,6 +262,7 @@ impl Vm {
         self.stack.clear();
         self.frames.clear();
         self.handlers.clear();
+        self.handler_barriers.clear();
         self.install_base_frames();
 
         let arg_count = args.len() as u8;
@@ -253,7 +279,82 @@ impl Vm {
         }
 
         // Run the execution loop
-        self.run()
+        self.run_until(0)
+    }
+
+    /// Invoke a function value (function ref or closure) *reentrantly*, in
+    /// the middle of whatever this VM is executing — the channel through
+    /// which a VM-invoking native ([`crate::natives::NativeVmFn`]) runs a
+    /// function it was handed (e.g. `State::update`'s `f`).
+    ///
+    /// The callee runs on this VM's stacks in a nested execution loop that
+    /// returns when the callee's entry frame returns. Ability dispatch
+    /// inside the nested region is **delimited at the invoke boundary**:
+    /// performs see handlers installed within the callee, but never the
+    /// caller's handler stack — a captured continuation cannot span the
+    /// native's Rust frame, so anything below the boundary falls through
+    /// to default implementations, and an uncaught nested exception
+    /// propagates out as `Err(VmError::Exception)` (which, returned from
+    /// the native, re-raises at the caller's own call site).
+    ///
+    /// On error, every VM height (stack, frames, handlers) is restored to
+    /// its pre-invoke value, so the caller's execution state is intact.
+    pub fn invoke(&mut self, callee: &Value, args: Vec<Value>) -> Result<Value, VmError> {
+        let (hash, captures) = match callee {
+            Value::Closure(c) => (c.function_hash, c.environment.clone()),
+            Value::FunctionRef(hash) => (*hash, Vec::new()),
+            other => {
+                return Err(VmError::TypeError {
+                    expected: "function",
+                    got: other.type_name(),
+                    operation: "invoke",
+                });
+            }
+        };
+
+        let base_frames = self.frames.len();
+        let base_stack = self.stack.len();
+        let base_handlers = self.handlers.len();
+
+        let arg_count = args.len() as u8;
+        for arg in args {
+            self.stack.push(arg);
+        }
+
+        self.handler_barriers.push(base_handlers);
+        let result = (|| {
+            // A native callee executes inline: its result is on the stack.
+            if !self.push_frame_with_captures(&hash, arg_count, captures)? {
+                return self.pop();
+            }
+            self.run_until(base_frames)
+        })();
+        self.handler_barriers.pop();
+
+        match result {
+            Ok(value) => {
+                // A clean return already restored every height; truncation
+                // is a no-op then, and re-levels the VM if the callee ended
+                // through a `Halt` mid-frame.
+                self.frames.truncate(base_frames);
+                self.stack.truncate(base_stack);
+                self.handlers.truncate(base_handlers);
+                Ok(value)
+            }
+            Err(error) => {
+                self.frames.truncate(base_frames);
+                self.stack.truncate(base_stack);
+                self.handlers.truncate(base_handlers);
+                Err(error)
+            }
+        }
+    }
+
+    /// The handler-stack index below which the current execution context
+    /// must not dispatch: 0 normally, the innermost invoke boundary during
+    /// a reentrant [`Self::invoke`].
+    pub(super) fn handler_barrier(&self) -> usize {
+        self.handler_barriers.last().copied().unwrap_or(0)
     }
 
     /// Push a new call frame for the given function. Returns `false` if the
@@ -281,6 +382,20 @@ impl Vm {
                 expected: param_count,
                 got: arg_count,
             });
+        }
+        // A VM-invoking implementation takes priority over a pure one (the
+        // stub it overrides); both use the same result contract below.
+        if let Some(func) = self.native_vm_impls.get(&uuid).cloned() {
+            let split = self.stack.len() - arg_count as usize;
+            let args = self.stack.split_off(split);
+            return match func(self, args) {
+                Ok(result) => {
+                    self.stack.push(result);
+                    Ok(())
+                }
+                Err(VmError::Exception(error)) => self.raise_exception(error),
+                Err(other) => Err(other),
+            };
         }
         let func = self
             .native_impls

@@ -41,13 +41,18 @@ binding must name a declaration. A remote host that receives code calling
 a native it does not implement fails loudly at the call
 (`UnboundNative`, naming the UUID) — never a silent misbehavior.
 
-Extern fns take no `with` clause, no VM access, and no ability channel —
-in the type system they are effect-free. Core's natives really are pure
-value transformations. Effectful host operations exist too (the platform's
+Extern fns take no `with` clause and no ability channel — in the type
+system they are effect-free. Core's natives really are pure value
+transformations. Effectful host operations exist too (the platform's
 `stdio_out`, `fs_read`, ...), but they are module-private to
 `core::system`, so the only code that can call them is that module's
 ability method bodies — the default implementations of `Stdio`,
-`FileSystem`, and friends. Effect _tracking_ therefore lives entirely at
+`FileSystem`, and friends. A runtime host may register a **VM-invoking**
+implementation directly on a VM (the platform's `state_update` is one):
+it receives the calling VM and can run function values it was handed,
+reentrantly and delimited at the invoke boundary — performs inside the
+invoked function see only handlers installed within it, falling through
+to default implementations otherwise. Effect _tracking_ therefore lives entirely at
 the ability layer: user code can only reach an effectful native through a
 perform, which the checker accounts for. Anything effectful belongs to an
 ability; an effectful extern fn is its implementation detail, guarded by

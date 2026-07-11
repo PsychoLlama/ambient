@@ -25,10 +25,20 @@
 //!
 //! # Purity
 //!
-//! Native functions are pure value transformations
-//! (`Vec<Value>` → `Value`): no host state, no effects. Effectful host
-//! integration is what abilities are for — natives deliberately get no
-//! ability channel, no store access, and no VM handle.
+//! Registry natives are pure value transformations
+//! (`Vec<Value>` → `Value`): no host state, no effects, no ability channel.
+//! Effectful host integration is what abilities are for.
+//!
+//! A runtime host may additionally register a **VM-invoking native**
+//! ([`NativeVmFn`]) directly on a VM: it receives the calling VM and may
+//! invoke function values on it via [`crate::vm::Vm::invoke`] (a
+//! higher-order host operation like `State::update`'s read-modify-write
+//! needs to run its argument). These never live in a [`NativeRegistry`] —
+//! compile-time attachment stays pure — and the invoke contract is
+//! deliberately narrow: performs inside the invoked function dispatch only
+//! to handlers installed within it (or default implementations), never to
+//! the caller's handler stack, because a delimited continuation cannot
+//! capture the native's Rust frame.
 //!
 //! # The contract
 //!
@@ -49,6 +59,13 @@ use crate::{Value, VmError};
 
 /// A native implementation: a pure function over runtime values.
 pub type NativeFn = Arc<dyn Fn(Vec<Value>) -> Result<Value, VmError> + Send + Sync>;
+
+/// A VM-invoking native implementation: receives the calling VM so it can
+/// run function values reentrantly via [`crate::vm::Vm::invoke`].
+/// Registered per VM ([`crate::vm::Vm::register_native_vm_impl`]), never
+/// through a [`NativeRegistry`] — see the module docs for the contract.
+pub type NativeVmFn =
+    Arc<dyn Fn(&mut crate::vm::Vm, Vec<Value>) -> Result<Value, VmError> + Send + Sync>;
 
 /// The identity half of a binding: what the compiler needs to build the
 /// [`Native` object](crate::object::StoredObject::Native) for a declaration.

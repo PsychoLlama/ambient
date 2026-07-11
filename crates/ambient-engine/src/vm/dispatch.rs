@@ -9,9 +9,11 @@ use crate::bytecode::Opcode;
 use super::core::Vm;
 
 impl Vm {
-    /// Main execution loop.
+    /// Main execution loop. Runs until the frame at depth `base_frames`
+    /// returns — 0 for a top-level `call`, the entry depth of a reentrant
+    /// [`Vm::invoke`] for a nested region.
     #[allow(clippy::too_many_lines)]
-    pub(super) fn run(&mut self) -> Result<Value, VmError> {
+    pub(super) fn run_until(&mut self, base_frames: usize) -> Result<Value, VmError> {
         loop {
             let op = self.fetch_opcode()?;
 
@@ -184,8 +186,12 @@ impl Vm {
                     // Pop locals and arguments from stack
                     self.stack.truncate(frame.bp);
 
-                    if self.frames.is_empty() {
-                        // Returning from top-level function
+                    if self.frames.len() <= base_frames {
+                        // Returning from this execution region's entry
+                        // function (top-level call, or the callee of a
+                        // reentrant invoke). `<` can only happen if a
+                        // handler below a stale boundary fired — defensive,
+                        // the barrier forbids it.
                         return Ok(result);
                     }
 
