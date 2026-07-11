@@ -1,0 +1,77 @@
+//! A live-upgradable web site on tasks + cells (see ref/live-upgrade.md).
+//!
+//! Run under the dev loop:
+//!
+//!     ambient dev examples/live_site
+//!
+//! then browse (or curl) http://127.0.0.1:7878/ and edit while it serves —
+//! see README.md for the guided tour.
+//!
+//! The entry is not a program; it is a *declaration*, re-run by every
+//! deploy as a reconciliation pass over the running system. That only
+//! works because re-running it is always safe: cells adopt their existing
+//! value (or migrate — see state.ab), `Task::ensure!` adopts a live task,
+//! and the listener is just a number in a cell.
+
+use core::system::{Drain, Live, Network, State, Stdio, Task};
+use self::{router, state, ticker};
+
+pub fn run(): () with State, Task {
+  // Runtime-owned state: created on the first deploy, adopted (or
+  // migrated — see state.ab) by every later one.
+  state::init_stats();
+
+  // The IO-handoff story in one line. The socket belongs to the
+  // runtime's handle table; the cell holds an opaque handle to it.
+  // Generation 1 binds it; generation 40 is still serving from it.
+  // Nothing is ever handed off because nothing ever left the runtime.
+  State::init!("listener", () => need(Network::listen!(("127.0.0.1", 7878))));
+
+  // Named tasks, reconciled by name. `ensure` never restarts a live
+  // task; the bodies stay fresh because the task runtime re-resolves
+  // their deployed names before every pass (the Live::latest!
+  // resolution — the language has no tail calls to spell the loop in).
+  Task::ensure!("acceptor", acceptor);
+  Task::ensure!("ticker", ticker::ticker);
+  // Delete the line above and save: the reconciler stops declaring
+  // "ticker", so the runtime drains it — Drain::requested! unwinds it
+  // out of its next Time::wait!, its handler logs a goodbye, done.
+  // Never mid-tick, never a kill.
+}
+
+/// One bounded pass of the accept loop: accept a connection, serve it,
+/// return — the task runtime re-invokes it. The acceptor never restarts
+/// across deploys, yet every request runs the newest code. The Drain
+/// arm is its graceful exit: an explicit `Task::drain!` or an
+/// undeclaring deploy lands here at the next blocking accept — never
+/// mid-request.
+pub fn acceptor(): () with Network, State, Live, Stdio {
+  with { Drain::requested() => Stdio::out!("acceptor: drained, goodbye") }
+    handle serve_once()
+}
+
+fn serve_once(): () with Network, State, Live, Stdio {
+  let listener = State::get!("listener");
+  match Network::accept!(listener) {
+    Ok(conn) => {
+      // THE late-bound point, spelled by the author. The task runtime
+      // already re-resolves *this pass* per iteration; `latest!` here
+      // re-resolves the handler *per connection*, so even a request
+      // accepted mid-deploy dispatches through whatever is newest.
+      // Everything below the returned ref is hash-pinned and
+      // internally consistent — old and new generations coexist,
+      // neither is torn.
+      Live::latest!(router::route)(conn)
+    },
+    Err(message) => Stdio::err!("accept failed: ${message}"),
+  }
+}
+
+/// Unwrap a fallible bind at the application boundary: a failed bind
+/// faults the deploy (the previous generation keeps running untouched).
+fn need(result: Result<Number, String>): Number with Exception {
+  match result {
+    Ok(value) => value,
+    Err(message) => Exception::throw!(message),
+  }
+}

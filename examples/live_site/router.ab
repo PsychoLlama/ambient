@@ -1,0 +1,45 @@
+//! Routing — the late-bound entry into request handling.
+//!
+//! This module is only ever reached through `Live::latest!`, so every
+//! edit here (or below here) lands on the very next request. Note what
+//! is *not* here: no upgrade code, no version checks, no reload hooks.
+//! Being freshly resolved is a property of how this function is
+//! *called*, not of anything it does.
+
+use core::system::{Network, State, Stdio};
+use self::handlers;
+
+/// Serve one connection: read the request, dispatch on its path, write
+/// a minimal HTTP response, close. (Today `core::system` stops at TCP,
+/// so the HTTP framing is hand-rolled — the upgrade mechanics are the
+/// point, not the protocol.)
+pub fn route(conn: Number): () with Network, State, Stdio {
+  let response = match request_path(conn) {
+    "/" => page("200 OK", handlers::home()),
+    "/stats" => page("200 OK", handlers::stats_page()),
+    _ => page("404 Not Found", "<h1>no such page</h1>"),
+  };
+  match Network::send_raw!(conn, Binary::from_string(response)) {
+    Ok(_) => (),
+    Err(message) => Stdio::err!("send failed: ${message}"),
+  };
+  match Network::close!(conn) {
+    Ok(_) => (),
+    Err(message) => Stdio::err!("close failed: ${message}"),
+  }
+}
+
+/// The path of the request's first line ("GET /path HTTP/1.1"), or "/"
+/// when the request is unreadable.
+fn request_path(conn: Number): String with Network {
+  let request = match Network::receive_raw!(conn) {
+    Ok(data) => data.to_string().unwrap_or(""),
+    Err(_) => "",
+  };
+  request.split(" ").get(1).unwrap_or("/")
+}
+
+/// A complete HTTP/1.0 response.
+fn page(status: String, body: String): String {
+  "HTTP/1.0 ${status}\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n${body}"
+}

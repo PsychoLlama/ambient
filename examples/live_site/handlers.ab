@@ -1,0 +1,38 @@
+//! Request handlers — the hot part of the tree.
+//!
+//! Edit anything here while `ambient dev` runs and the next request
+//! serves it.
+
+use core::system::State;
+use self::state::Stats;
+
+/// Change me while the server runs. Nothing "claims" this constant:
+/// the new literal changes home()'s content hash, which changes
+/// route()'s, and the deploy rebinds the name router::route points
+/// at — the const rides along inside the new hashes. A const only goes
+/// permanently stale *above* the nearest late-bound point, never below
+/// one.
+const GREETING: String = "hello from generation one";
+
+pub fn home(): String with State {
+  // Cells are the counter's whole persistence story: this survives
+  // every deploy, including shape changes (see state.ab). The update
+  // goes through the runtime — there is no way to hold state *between*
+  // requests except through a cell, which is exactly what makes every
+  // request boundary a safe upgrade boundary.
+  let stats = State::update!("stats", (s: Stats) => Stats {
+    hits: s.hits + 1,
+    since: s.since,
+  });
+  "<h1>${GREETING}</h1><p>hit #${core::convert::to_string(stats.hits)}</p>"
+}
+
+pub fn stats_page(): String with State {
+  // The typed parameter is what pins the cell read's type: `get` is
+  // generic, and the argument position resolves it to `Stats`.
+  render_stats(State::get!("stats"))
+}
+
+fn render_stats(stats: Stats): String {
+  "<p>${core::convert::to_string(stats.hits)} hits since ${stats.since}</p>"
+}

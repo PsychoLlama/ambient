@@ -20,14 +20,16 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 /// Examples that require a live peer and are tested as pairs instead,
-/// plus long-lived services (`live_server`) that never exit and so
-/// can't be run as a one-shot smoke test.
+/// plus long-lived services (`live_server`, `live_site`) that never
+/// exit and so can't be run as a one-shot smoke test. `live_site` is
+/// exercised under the dev loop in [`live_site_upgrades_under_the_dev_loop`].
 const PAIRED_EXAMPLES: &[&str] = &[
     "network_client",
     "network_server",
     "remote_client",
     "remote_server",
     "live_server",
+    "live_site",
 ];
 
 fn examples_dir() -> PathBuf {
@@ -146,6 +148,167 @@ impl Drop for KillOnDrop {
     fn drop(&mut self) {
         let _ = self.0.kill();
         let _ = self.0.wait();
+    }
+}
+
+/// One HTTP request to the live site; `None` until the server answers.
+fn http_get(port: u16, path: &str) -> Option<String> {
+    use std::io::Write;
+    let addr = format!("127.0.0.1:{port}");
+    let mut stream = std::net::TcpStream::connect(&addr).ok()?;
+    stream.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
+    stream
+        .write_all(format!("GET {path} HTTP/1.0\r\n\r\n").as_bytes())
+        .ok()?;
+    let mut response = String::new();
+    stream.read_to_string(&mut response).ok()?;
+    (!response.is_empty()).then_some(response)
+}
+
+/// Poll `http_get` until the response satisfies `accept` (the dev loop
+/// compiles and deploys asynchronously) or the deadline trips; the
+/// timeout panic quotes the dev loop's own narration from `log`.
+fn await_response(
+    port: u16,
+    path: &str,
+    accept: impl Fn(&str) -> bool,
+    what: &str,
+    log: &Path,
+) -> String {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut last = None;
+    loop {
+        if let Some(response) = http_get(port, path) {
+            if accept(&response) {
+                return response;
+            }
+            last = Some(response);
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {what} from the live site\nlast response: {last:?}\ndev loop said:\n{}",
+            fs::read_to_string(log).unwrap_or_default()
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// The hit counter in a `live_site` response (`... hit #7</p> ...`).
+fn hit_number(response: &str) -> Option<u32> {
+    let (_, rest) = response.split_once("hit #")?;
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
+}
+
+/// Phase 6's exit criteria, end to end: `examples/live_site` runs under
+/// `ambient dev`, an edited handler lands on the next request, cell
+/// state survives the deploy, and a task the entry stops declaring is
+/// drained through its cleanup arm.
+#[test]
+fn live_site_upgrades_under_the_dev_loop() {
+    // Work on a copy (the test edits source), on a port of its own so
+    // a developer's `ambient dev examples/live_site` can coexist.
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let site = tmp.path().join("live_site");
+    copy_dir(&examples_dir().join("live_site"), &site);
+    let port: u16 = 7899;
+    let main_ab = site.join("main.ab");
+    let rewritten = fs::read_to_string(&main_ab)
+        .expect("read main.ab")
+        .replace("7878", &port.to_string());
+    fs::write(&main_ab, rewritten).expect("rewrite port");
+
+    // Capture both streams to files: a piped-but-unread stderr would
+    // eventually block the dev loop, and files let assertions quote the
+    // loop's narration on failure.
+    let out_path = tmp.path().join("dev.out");
+    let err_path = tmp.path().join("dev.err");
+    let out_file = fs::File::create(&out_path).expect("create stdout capture");
+    let err_file = fs::File::create(&err_path).expect("create stderr capture");
+    let dev = Command::new(ambient_bin())
+        .arg("dev")
+        .arg(&site)
+        .stdout(Stdio::from(out_file))
+        .stderr(Stdio::from(err_file))
+        .spawn()
+        .expect("spawn ambient dev");
+    let _dev = KillOnDrop(dev);
+
+    // Generation one serves, and the stats cell counts.
+    let first = await_response(
+        port,
+        "/",
+        |r| r.contains("hello from generation one"),
+        "gen 1",
+        &err_path,
+    );
+    let hits_before = hit_number(&first).expect("hit counter in the page");
+
+    // Edit the handler while it serves: the next request must pick up
+    // the rebinding, and the hit count must survive the deploy.
+    let handlers = site.join("handlers.ab");
+    let edited = fs::read_to_string(&handlers)
+        .expect("read handlers.ab")
+        .replace("hello from generation one", "hello from generation two");
+    fs::write(&handlers, edited).expect("edit handlers.ab");
+    let second = await_response(
+        port,
+        "/",
+        |r| r.contains("hello from generation two"),
+        "gen 2",
+        &err_path,
+    );
+    let hits_after = hit_number(&second).expect("hit counter in the page");
+    assert!(
+        hits_after > hits_before,
+        "the stats cell must survive the deploy (was {hits_before}, now {hits_after})"
+    );
+
+    // Stop declaring the ticker: the reconciler drains it, its
+    // Drain::requested arm runs, and the goodbye lands on stdout.
+    let undeclared = fs::read_to_string(&main_ab)
+        .expect("read main.ab")
+        .replace("Task::ensure!(\"ticker\", ticker::ticker)", "()");
+    fs::write(&main_ab, undeclared).expect("edit main.ab");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let stdout = fs::read_to_string(&out_path).unwrap_or_default();
+        if stdout.contains("ticker: drained, goodbye") {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the undeclared ticker never drained; stdout so far:\n{stdout}\ndev loop said:\n{}",
+            fs::read_to_string(&err_path).unwrap_or_default()
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    }
+
+    // The site is still serving after the drain.
+    await_response(
+        port,
+        "/",
+        |r| r.contains("hit #"),
+        "post-drain traffic",
+        &err_path,
+    );
+}
+
+/// Recursively copy an example directory (skipping any local store).
+fn copy_dir(from: &Path, to: &Path) {
+    fs::create_dir_all(to).expect("create copy target");
+    for entry in fs::read_dir(from).expect("read source dir") {
+        let entry = entry.expect("dir entry");
+        let name = entry.file_name();
+        if name == ".ambient" {
+            continue;
+        }
+        let target = to.join(&name);
+        if entry.path().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), &target).expect("copy file");
+        }
     }
 }
 

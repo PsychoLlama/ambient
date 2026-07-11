@@ -1,0 +1,47 @@
+//! State shapes and migrations.
+//!
+//! The pragmatic migration contract, spelled out: when a cell's shape
+//! changes, the *old* declaration stays in the source as a `*V1` relic
+//! so that new code can type the old value, and the migration is an
+//! ordinary typed function from relic to current. (A cleaner story —
+//! deriving the old type from the store, à la Unison — is future work;
+//! this kicks it down the road on purpose.)
+
+use core::system::State;
+
+/// Relic: the shape the "stats" cell had before `since` existed. Kept
+/// only so `migrate` below can be typed. Delete it once no running
+/// deployment still holds a StatsV1 in its cell — which the retirement
+/// trace will be able to tell you, because the runtime owns the cell.
+pub unique(4C1F3517-E000-4000-8000-00000000A001) struct StatsV1 {
+  hits: Number,
+}
+
+/// Current shape.
+pub unique(4C1F3517-E000-4000-8000-00000000A002) struct Stats {
+  hits: Number,
+  since: String,
+}
+
+/// Adopt, migrate, or create. Cells remember the static type they were
+/// last written at (a fingerprint the compiler threads through the
+/// perform), so the runtime can tell which arm applies:
+///
+///   no cell               -> make()
+///   cell at Stats         -> adopt (the every-deploy no-op)
+///   cell at StatsV1       -> migrate(old); fingerprint advances
+///   cell at anything else -> deploy rejected, pre-swap; the previous
+///                            generation keeps running untouched
+///
+/// To watch a live migration: run the site, take some hits, then
+/// change the shape the way the last one changed — demote `Stats` to
+/// the new relic (`StatsV2`), declare the next `Stats` (fresh uuid,
+/// new field), and point `migrate` from relic to current. Save: the
+/// deploy migrates the live cell in place and the hit count survives.
+pub fn init_stats(): () with State {
+  State::init_versioned!(
+    "stats",
+    () => Stats { hits: 0, since: "the beginning" },
+    (old: StatsV1) => Stats { hits: old.hits, since: "migrated from v1" },
+  )
+}

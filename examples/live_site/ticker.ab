@@ -1,0 +1,34 @@
+//! A background task: the two halves of task lifecycle.
+//!
+//! Self-upgrade needs nothing from this code — the task runtime
+//! re-resolves `ticker`'s deployed name before every pass, so an edit
+//! here lands on the next tick. Graceful drain is the `Drain` arm: the
+//! never-unwind lands at the interruptible `Time::wait!`, cleanup is
+//! ordinary structured code, and the task winds down.
+
+use core::time::Duration;
+use core::system::{Drain, State, Stdio, Time};
+use self::state::Stats;
+
+pub fn ticker(): () with Time, Stdio, State {
+  // Drain::requested is a never method (`: !`): performing it unwinds
+  // — the VM discards the delimited continuation, exactly the existing
+  // Exception machinery — and this arm's value becomes the handle
+  // expression's result.
+  with { Drain::requested() => Stdio::out!("ticker: drained, goodbye") }
+    handle tick()
+}
+
+/// One tick. The only place a drain can land is the blocking,
+/// *interruptible* `Time::wait!` — between interruptible performs code
+/// runs to completion, so the read-then-report below can never be torn
+/// in half. These are reduction boundaries — generalized, and placed
+/// by the author rather than by a mailbox.
+fn tick(): () with Time, Stdio, State {
+  Time::wait!(Duration::from_secs(10));
+  report(State::get!("stats"))
+}
+
+fn report(stats: Stats): () with Stdio {
+  Stdio::out!("served ${core::convert::to_string(stats.hits)} hits so far")
+}
