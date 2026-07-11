@@ -10,11 +10,14 @@ Part of the [Ambient Language Reference](architecture.md).
 > ability with the same-signature rebinding rule, `State` cells with
 > adopt semantics (`crates/ambient-platform/src/state.rs`; the cell
 > table is owned by the deploy runtime and shared by every VM it
-> builds), and the migration contract (`init_versioned` with
-> compiler-threaded fingerprints — see "Migration"); tasks, drain, and
-> retirement remain design. The process model remains in the tree as
-> a concurrency experiment whose own future is decided separately (see
-> "Relation to the process model").
+> builds), the migration contract (`init_versioned` with
+> compiler-threaded fingerprints — see "Migration"), drain with
+> interruptible performs (`crates/ambient-platform/src/drain.rs`), and
+> tasks (`crates/ambient-platform/src/task.rs`, reconciled beside the
+> process registry by one deploy pass — `examples/live_site` is the
+> working demonstration); retirement remains design. The process model
+> remains in the tree as a concurrency experiment whose own future is
+> decided separately (see "Relation to the process model").
 
 ## The model
 
@@ -246,6 +249,38 @@ pub unique(…) ability Task {
   cross-task state. Fault handling follows the process runtime's
   precedent (restart on fault, park after a fault budget).
 
+Mechanics, as implemented: the language has no tail calls (and a
+bounded call depth), so the loop idiom above cannot yet be spelled in
+Ambient — **the task runtime is the loop**
+(`crates/ambient-platform/src/task.rs`). A task body is one bounded
+pass; the runtime re-invokes it forever, resolving the body's deployed
+name against the current generation before every pass (exactly the
+`live_latest` resolution) and topping the task's VM up with any newly
+loaded generation first. The visible consequences:
+
+- Editing a task's body (or anything below it) lands on the very next
+  pass, with no restart and no re-declaration — `ensure` on a live
+  name is a no-op even when the declared body hash changed, because
+  freshness comes from the per-pass resolution, never from
+  re-ensuring. A closure body has no deployed name and stays pinned.
+- Author-placed `Live::latest!` points remain meaningful _inside_ a
+  pass (per-connection dispatch under a per-pass accept, the
+  `examples/live_site` acceptor's shape).
+- How a pass ends classifies the task's fate: a pass completing with a
+  drain requested (its `Drain::requested` arm ran) is a clean drain;
+  an unwind surfacing unhandled is drained-without-cleanup; a hard
+  stop (`VmError::HardStopped`, the drain deadline) always parks —
+  never restarts; any other fault restarts the pass (the retry
+  re-resolves, so a deploy can fix a crash loop) until five
+  consecutive faults park the task.
+- A drain (`Task::drain!` or an undeclaring deploy) frees the name
+  immediately; the winding-down task keeps running to its next
+  interruptible perform, so a redeploy may reuse the name while the
+  old task drains.
+
+When tail calls land, the in-language idiom can replace the runtime
+loop without changing the ability's surface.
+
 ## Drain
 
 Cooperative cancellation reuses machinery the VM already has:
@@ -259,7 +294,7 @@ pub unique(…) ability Drain {
 
 - The runtime delivers `Drain::requested!` **only at interruptible
   performs** — a marked subset of blocking platform operations
-  (`accept`, `receive`, `sleep`, and the task's idle wait). Between
+  (`accept`, `receive`, `receive_raw`, `wait`). Between
   interruptible performs, code runs to completion: invariants never
   tear. These are reduction boundaries, generalized and author-placed —
   the author chooses the granularity by choosing where the blocking
@@ -287,10 +322,11 @@ with { Drain::requested() => checkpoint_and_report() }
   away.
 
 Mechanics, as implemented: a `DrainSignal` is the per-computation
-handle a draining host holds (the raw hook the `Task` registry will
-drive). Wiring a VM with `install_drain_natives` overrides the
-interruptible subset — `network_accept`, `network_receive`, `time_wait`
-— with variants that race the blocking operation against the signal;
+handle a draining host holds (the raw hook the `Task` registry
+drives). Wiring a VM with `install_drain_natives` overrides the
+interruptible subset — `network_accept`, `network_receive`,
+`network_receive_raw`, `time_wait` — with variants that race the
+blocking operation against the signal;
 an interrupted native returns the engine's `VmError::Interrupted`
 carrying the anchors in `ambient_core::drain` (the Exception-anchor
 precedent), and the VM performs `Drain::requested!` as a
