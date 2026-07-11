@@ -286,6 +286,35 @@ with { Drain::requested() => checkpoint_and_report() }
   all; it drains only when its resource (the listener itself) must go
   away.
 
+Mechanics, as implemented: a `DrainSignal` is the per-computation
+handle a draining host holds (the raw hook the `Task` registry will
+drive). Wiring a VM with `install_drain_natives` overrides the
+interruptible subset — `network_accept`, `network_receive`, `time_wait`
+— with variants that race the blocking operation against the signal;
+an interrupted native returns the engine's `VmError::Interrupted`
+carrying the anchors in `ambient_core::drain` (the Exception-anchor
+precedent), and the VM performs `Drain::requested!` as a
+host-constructed suspended never value at the native's own call site.
+The signal is one-way: every interruptible perform after a request
+unwinds immediately, so the delivery point is deterministic. Three
+consequences fall out:
+
+- Drain does **not** appear in effect rows: the delivery rides the
+  runtime channel (like a native's exception), so `Time::wait`'s
+  signature is unchanged and a handler arm may wrap any body. An
+  unhandled delivery is an unhandled-ability fault (`requested` is
+  abstract — the never carve-out), which the draining host reads as
+  "drained without cleanup".
+- The deadline is a watchdog thread plus the VM's host interrupt flag:
+  expiry hard-stops the computation at the next opcode boundary
+  (`VmError::HardStopped`, checked every 64 opcodes). A native blocked
+  in the host past the deadline is _not_ interrupted — only opcode
+  boundaries observe the flag, so a non-interruptible native that never
+  returns wedges its thread (don't write one).
+- An interrupted `receive` may abandon a partially-read frame; the
+  connection's framing is undefined afterwards. Fine by construction:
+  a drain means the resource is being torn down.
+
 ## Retirement
 
 "When is the upgrade finished?" is exactly computable here, which
