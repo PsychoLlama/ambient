@@ -459,6 +459,120 @@ fn test_abstract_never_method_declared_and_performed_across_repl_turns() {
         .shutdown();
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// The REPL as a deploy frontend (ref/live-upgrade.md, "Generations")
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Type a line whose turn prints nothing (a `use`, a Unit expression) and
+/// wait for the turn to finish. The only completion signal is the fresh
+/// prompt: wait until the typed line has echoed *and* the output ends
+/// with the prompt again. Typing into a mid-turn REPL loses characters —
+/// rustyline flushes pending input when it re-enters raw mode — so every
+/// silent turn must be synced this way before the next `type_line`.
+fn sync_silent_turn(test: ReplTest, line: &str) -> ReplTest {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let output = test.output();
+        if output.contains(line) && output.trim_end().ends_with('>') {
+            return test;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timeout waiting for silent turn `{line}`\nActual output:\n{output}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+/// A ticker task body that prints `msg` then waits 50ms at an
+/// interruptible perform (via the session-defined `mk_wait`). Fully
+/// qualified performs keep the definition to one import; every turn the
+/// tests type produces output to sync on.
+fn ticker_body(msg: &str) -> String {
+    format!(
+        "fn tick() {{ core::system::Stdio::out!(\"{msg}\"); \
+         core::system::Time::wait!(mk_wait()) }}"
+    )
+}
+
+#[test]
+fn test_redefining_a_task_body_live_upgrades_the_running_task() {
+    // A definition turn is a deploy: redefining `tick` swaps the name
+    // table, and the ticker task — which re-resolves its body's deployed
+    // name (`repl::tick`) before every pass — picks the new code up on
+    // its very next tick, with no re-ensure and no restart. The task also
+    // proves incremental turns: it survives the turns between `ensure`
+    // and the redefinition (the old declarative deploy would have drained
+    // it as "no longer declared" on the next eval).
+    let test = ReplTest::new()
+        .wait_ready()
+        .type_line("use core::time::Duration;");
+    sync_silent_turn(test, "use core::time::Duration;")
+        .type_line("fn mk_wait(): Duration { Duration::from_millis(50) }")
+        .expect_output("Defined: mk_wait")
+        .type_line(&ticker_body("tick one"))
+        .expect_output("Defined: tick")
+        .type_line("core::system::Task::ensure!(\"ticker\", tick)")
+        .wait_for_output("tick one")
+        .clear_output()
+        .type_line(&ticker_body("tick two"))
+        .expect_output("Defined: tick")
+        .wait_for_output("tick two")
+        .shutdown();
+}
+
+#[test]
+fn test_rejected_deploy_is_a_turn_error_and_the_program_is_untouched() {
+    // The State migration contract rejects pre-swap: committing a
+    // definition whose statically-named `init_versioned` matches neither
+    // the live cell's fingerprint (Number) on its old side (Bool) nor its
+    // new side (String) errors the turn. Nothing was swapped and nothing
+    // was committed: the cell keeps its value and the rejected name stays
+    // undefined.
+    ReplTest::new()
+        .wait_ready()
+        .type_line("{ core::system::State::init!(\"counter\", () => 1); \"ready\" }")
+        .expect_output("ready")
+        .clear_output()
+        .type_line(
+            "fn setup() { core::system::State::init_versioned!(\"counter\", () => \"s\", (b: Bool) => \"s\") }",
+        )
+        .expect_error("deploy rejected")
+        .expect_output("cell `counter`")
+        .clear_output()
+        .type_line("core::system::State::get!(\"counter\") + 1")
+        .expect_output("2")
+        .clear_output()
+        .type_line("setup")
+        .expect_error("undefined variable")
+        .expect_prompt()
+        .shutdown();
+}
+
+#[test]
+fn test_clear_drains_running_tasks() {
+    // `:clear` winds the running program down before rebuilding the
+    // session: the ticker is drained (its Time::wait is interruptible)
+    // and waited for, so it cannot keep printing into the fresh session.
+    let test = ReplTest::new()
+        .wait_ready()
+        .type_line("use core::time::Duration;");
+    sync_silent_turn(test, "use core::time::Duration;")
+        .type_line("fn mk_wait(): Duration { Duration::from_millis(50) }")
+        .expect_output("Defined: mk_wait")
+        .type_line(&ticker_body("tick"))
+        .expect_output("Defined: tick")
+        .type_line("core::system::Task::ensure!(\"ticker\", tick)")
+        .wait_for_output("tick")
+        .type_line(":clear")
+        .wait_for_output("task `ticker` drained")
+        .wait_for_output("State cleared.")
+        .clear_output()
+        .type_line("1 + 1")
+        .expect_output("2")
+        .shutdown();
+}
+
 #[test]
 fn test_resume_in_never_arm_is_rejected_in_repl() {
     // The dedicated catch-only diagnostic surfaces through the REPL: a

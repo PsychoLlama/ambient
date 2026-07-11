@@ -15,11 +15,15 @@ Part of the [Ambient Language Reference](architecture.md).
 > interruptible performs (`crates/ambient-platform/src/drain.rs`),
 > tasks (`crates/ambient-platform/src/task.rs`, reconciled beside the
 > process registry by one deploy pass — `examples/live_site` is the
-> working demonstration), and retirement with the deploy diagnostics
+> working demonstration), retirement with the deploy diagnostics
 > (`crates/ambient-platform/src/retire.rs`: the generation ledger, the
-> trace, the two warnings, and the dev loop's store gc). The process
-> model remains in the tree as a concurrency experiment whose own
-> future is decided separately (see "Relation to the process model").
+> trace, the two warnings, and the dev loop's store gc), and the REPL
+> as a deploy frontend (`crates/ambient-cli/src/repl/`: every turn is an
+> _incremental_ deploy — definitions validate-and-swap so a program
+> driven from the prompt live-upgrades, and nothing is stopped for
+> being absent from a turn). The process model remains in the tree as a
+> concurrency experiment whose own future is decided separately (see
+> "Relation to the process model").
 
 ## The model
 
