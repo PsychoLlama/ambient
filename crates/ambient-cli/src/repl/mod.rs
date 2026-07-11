@@ -9,6 +9,25 @@
 //! diagnostics, and the full platform ability set — without a bespoke
 //! parallel compiler. "What is an error" and "how to compile a module set"
 //! live in the shared layer, never here (see AGENTS.md).
+//!
+//! Execution-wise the REPL is a **deploy frontend** (see
+//! `ref/live-upgrade.md`, "Generations"): the session holds one running
+//! [`RuntimeHost`], and every turn — definition or expression — applies a
+//! generation through [`RuntimeHost::deploy_incremental`]: load, validate,
+//! swap the name table, run a synthetic entry as the reconciliation body.
+//! A definition turn's entry is a no-op (the deploy *is* the point: the
+//! swap rebinds the redefined name, and a running program picks it up at
+//! its late-bound points — a task's next pass, a `Live::latest!` read); an
+//! expression turn's entry is the expression. A rejected deploy (a failed
+//! migration check) errors the turn with nothing committed and the running
+//! program untouched. The generation re-ships the whole session build each
+//! turn; content addressing makes the diff exact, so "one item plus
+//! dependents" falls out as everything else reports `unchanged`.
+//!
+//! Turns deploy *incrementally*: one turn is never a full declaration of
+//! the running program, so nothing is stopped or drained for being absent
+//! from it — tasks ensured three turns ago keep running until an explicit
+//! `Task::drain!` (or `:clear`, which winds the whole program down).
 
 mod completer;
 mod editor;
@@ -41,7 +60,7 @@ use ambient_parser::ReplInput;
 use ambient_platform::process::{EventSink, ProcessEvent};
 
 use crate::commands::core_context;
-use crate::commands::host::RuntimeHost;
+use crate::commands::host::{HostDeployOutcome, RuntimeHost};
 use crate::diagnostic::report_build_error;
 
 /// The module path all session definitions accumulate into.
@@ -198,7 +217,7 @@ impl ReplSession {
         let project_root = find_project_root(project_dir);
         let (package, base, imported_hashes) = build_base(project_root.as_deref())?;
         // The REPL has no program args; `Env::args!()` is empty.
-        let host = RuntimeHost::new(noop_event_sink(), noop_task_event_sink(), Vec::new())?;
+        let host = RuntimeHost::new(process_event_sink(), task_event_sink(), Vec::new())?;
 
         Ok(Self {
             entries: Vec::new(),
@@ -213,14 +232,23 @@ impl ReplSession {
     }
 
     /// Reset all session definitions and rebuild the base + host from scratch.
+    ///
+    /// The running program winds down first: tasks are drained and waited
+    /// for (bounded by the drain deadline), so a lingering ticker can't
+    /// keep printing into the fresh session. Processes are stopped but not
+    /// waited for — a reducer blocked in a non-interruptible native would
+    /// wedge the prompt; its stop flag ends it at the next boundary.
     fn clear(&mut self) -> Result<()> {
+        self.host.runtime().stop_all();
+        self.host.tasks().drain_all();
+        self.host.tasks().wait_all();
         let (package, base, imported_hashes) = build_base(self.project_root.as_deref())?;
         self.entries.clear();
         self.package = package;
         self.base = base;
         self.imported_hashes = imported_hashes;
         self.entry_counter = 0;
-        self.host = RuntimeHost::new(noop_event_sink(), noop_task_event_sink(), Vec::new())?;
+        self.host = RuntimeHost::new(process_event_sink(), task_event_sink(), Vec::new())?;
         // Drop any lingering `repl` module from the package.
         self.sync_repl_module(&self.committed_source());
         Ok(())
@@ -273,28 +301,47 @@ impl ReplSession {
         }
     }
 
-    /// Type-check and commit a definition input, replacing any same-named
-    /// earlier definitions.
+    /// Type-check, deploy, and commit a definition input, replacing any
+    /// same-named earlier definitions.
+    ///
+    /// A definition turn is a deploy: the trial build ships as a
+    /// generation whose reconciliation entry is a synthetic no-op — the
+    /// point is the validate-and-swap, which rebinds the redefined name
+    /// for every late-bound point of the running program (a task's next
+    /// pass, a `Live::latest!` read). A rejected deploy (a failed
+    /// migration check) errors the turn: nothing is committed, the name
+    /// table was never swapped, and the running program is untouched.
     fn eval_items(
         &mut self,
         line: &str,
         items: &[Item],
     ) -> std::result::Result<Option<Value>, String> {
+        self.entry_counter += 1;
+        let entry_local = format!("__repl_entry_{}", self.entry_counter);
         let committed = self.committed_source();
-        let trial_source = format!("{committed}{line}\n");
+        let trial_source = format!("{committed}{line}\nfn {entry_local}() {{ }}\n");
 
         // Type-check the whole trial module; commit only if it is clean.
         let registry = self.check_trial(&trial_source)?;
 
-        // Compile to surface any codegen error before mutating state (the
-        // merged module is discarded — definitions produce no value).
-        self.compile_trial(&registry, &trial_source)
+        let merged = self
+            .compile_trial(&registry, &trial_source)
             .map_err(|e| format!("{e}"))?;
+
+        let entry_qualified = format!("{REPL_MODULE}::{entry_local}");
+        let outcome = match self.host.deploy_incremental(&merged, &entry_qualified) {
+            Ok(outcome) => outcome,
+            Err(e) => {
+                // Leave the committed module in place for the next turn.
+                self.sync_repl_module(&committed);
+                return Err(format!("{e}"));
+            }
+        };
 
         // Commit: drop earlier entries this input redefines, then append.
         let names: Vec<Arc<str>> = items.iter().filter_map(item_name).collect();
         self.commit_entry(SessionEntry {
-            names: names.clone(),
+            names,
             source: line.to_string(),
         });
         self.sync_repl_module(&self.committed_source());
@@ -303,6 +350,7 @@ impl ReplSession {
         for name in &defined {
             eprintln!("Defined: {name}");
         }
+        report_deploy(&outcome);
         Ok(None)
     }
 
@@ -329,8 +377,9 @@ impl ReplSession {
         let entry_qualified = format!("{REPL_MODULE}::{entry_local}");
         let outcome = self
             .host
-            .deploy(&merged, &entry_qualified)
+            .deploy_incremental(&merged, &entry_qualified)
             .map_err(|e| format!("{e}"))?;
+        report_deploy(&outcome);
 
         if matches!(outcome.processes.value, Value::Unit) {
             Ok(None)
@@ -421,13 +470,63 @@ impl ReplSession {
     }
 }
 
-/// A no-op process event sink: the REPL is quiet about process lifecycle.
-fn noop_event_sink() -> EventSink {
-    Arc::new(|_event: &ProcessEvent| {})
+/// Narrate what a turn's deploy did to the running program: names the
+/// rebinding rule retired (signature changed — running references keep
+/// resolving to the old code) and the deploy warnings.
+fn report_deploy(outcome: &HostDeployOutcome) {
+    for name in &outcome.processes.names.retired {
+        eprintln!(
+            "note: `{name}` changed signature — retired, not rebound; \
+             running references keep the old code"
+        );
+    }
+    for warning in &outcome.processes.warnings {
+        eprintln!("\x1b[1;33mwarning\x1b[0m: {warning}");
+    }
 }
 
-fn noop_task_event_sink() -> ambient_platform::TaskEventSink {
-    Arc::new(|_event: &ambient_platform::TaskEvent| {})
+/// Narrate process lifecycle, so a program driven from the prompt is
+/// legible (starts and upgrades land asynchronously, from deploy turns).
+fn process_event_sink() -> EventSink {
+    Arc::new(|event: &ProcessEvent| match event {
+        ProcessEvent::Started { name, pid } => eprintln!("process `{name}` started (pid {pid})"),
+        ProcessEvent::Upgraded { name } => eprintln!("process `{name}` upgraded (state kept)"),
+        ProcessEvent::Stopped { name } => eprintln!("process `{name}` stopped"),
+        ProcessEvent::Exited { name } => eprintln!("process `{name}` exited"),
+        ProcessEvent::Crashed {
+            name,
+            error,
+            restarting,
+        } => {
+            eprintln!("process `{name}` crashed: {error}");
+            if !restarting {
+                eprintln!("process `{name}` exceeded its fault budget; parked");
+            }
+        }
+        ProcessEvent::InitFailed { name, error } => {
+            eprintln!("process `{name}` failed to initialize: {error}");
+        }
+    })
+}
+
+/// Narrate task lifecycle: tasks print from their own threads, so this
+/// is how an ensure or drain from three turns ago stays legible.
+fn task_event_sink() -> ambient_platform::TaskEventSink {
+    Arc::new(|event: &ambient_platform::TaskEvent| match event {
+        ambient_platform::TaskEvent::Started { name } => eprintln!("task `{name}` started"),
+        ambient_platform::TaskEvent::Draining { name } => eprintln!("task `{name}` draining"),
+        ambient_platform::TaskEvent::Drained { name, .. } => eprintln!("task `{name}` drained"),
+        ambient_platform::TaskEvent::Faulted {
+            name,
+            error,
+            restarting,
+        } => {
+            eprintln!("task `{name}` fault: {error}");
+            if !restarting {
+                eprintln!("task `{name}` parked");
+            }
+        }
+    })
 }
 
 /// Build the base compiled module and its analysis package.
@@ -602,6 +701,11 @@ fn print_repl_help() {
     eprintln!("(struct/enum/type/ability/trait/impl/use), cross-module `use`, and");
     eprintln!("the same diagnostics as `ambient check`. A `const` must be a literal;");
     eprintln!("use a `fn` for a computed value.");
+    eprintln!();
+    eprintln!("Every turn is a deploy: redefining a name live-upgrades the running");
+    eprintln!("program — a task ensured earlier picks the new code up on its next");
+    eprintln!("pass. A rejected deploy (a failed State migration check) errors the");
+    eprintln!("turn and leaves the program untouched.");
 }
 
 /// Format a parse error for REPL display (without file path).
