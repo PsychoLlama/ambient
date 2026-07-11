@@ -2,32 +2,6 @@
 
 Part of the [Ambient Language Reference](architecture.md).
 
-> **Status: implemented.** This document is the live-upgrade design; it
-> superseded (and has now fully replaced) the earlier Erlang-style
-> process-model experiment — see "Relation to the process model" for
-> what carried over. Implemented: generations and the deploy core
-> (`crates/ambient-platform/src/deploy.rs`), the `Live` ability with
-> the same-signature rebinding rule, `State` cells with adopt semantics
-> (`crates/ambient-platform/src/state.rs`; the cell table is owned by
-> the deploy runtime and shared by every VM it builds), the migration
-> contract (`init_versioned` with compiler-threaded fingerprints — see
-> "Migration"), drain with interruptible performs
-> (`crates/ambient-platform/src/drain.rs`), tasks
-> (`crates/ambient-platform/src/task.rs`, reconciled by one deploy
-> pass — `examples/live_site` is the working demonstration),
-> retirement with the deploy diagnostics
-> (`crates/ambient-platform/src/retire.rs`: the generation ledger, the
-> trace, the two warnings, and the dev loop's store gc), the REPL
-> as a deploy frontend (`crates/ambient-cli/src/repl/`: every turn is an
-> _incremental_ deploy — definitions validate-and-swap so a program
-> driven from the prompt live-upgrades, and nothing is stopped for
-> being absent from a turn), and remote deploy (the `Deploy` ability:
-> a generation pack received over any transport is applied through the
-> same core — packs carry signatures and migration obligations since
-> pack v2, and `examples/deploy_server` is the working demonstration;
-> see [remote-execution.md](remote-execution.md) for the trust
-> posture).
-
 ## The model
 
 Content addressing fixes what "upgrade" can possibly mean. A hash's
