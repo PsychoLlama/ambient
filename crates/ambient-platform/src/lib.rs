@@ -57,6 +57,7 @@ pub mod network;
 pub mod network_state;
 pub mod process;
 pub mod random;
+pub mod remote_deploy;
 pub mod retire;
 pub mod state;
 pub mod stdio;
@@ -151,6 +152,7 @@ pub use network::network_natives;
 pub use network_state::NetworkState;
 pub use process::{DeployOutcome, EventSink, ProcessEvent, ProcessRuntime, ProcessRuntimeConfig};
 pub use random::random_natives;
+pub use remote_deploy::{DeployApplyHook, DeployApplySlot, remote_deploy_natives};
 pub use state::StateCells;
 pub use stdio::{StdioConfig, StdioSink, stdio_natives, stdio_natives_with_collector};
 pub use task::{
@@ -509,6 +511,12 @@ pub(crate) const EXTERN_BINDINGS: &[ExternBinding] = &[
         slot: 0x37,
         arity: 1,
     },
+    ExternBinding {
+        name: "deploy_apply",
+        module: "deploy",
+        slot: 0x38,
+        arity: 2,
+    },
 ];
 
 /// The binding-table entry for an extern name.
@@ -826,6 +834,10 @@ mod tests {
         assert_eq!(
             native_uuid("state_init_versioned").to_string(),
             "ffffffff-ffff-ffff-fffc-000000000033"
+        );
+        assert_eq!(
+            native_uuid("deploy_apply").to_string(),
+            "ffffffff-ffff-ffff-fffc-000000000038"
         );
     }
 

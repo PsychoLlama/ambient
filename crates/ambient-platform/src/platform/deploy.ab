@@ -1,0 +1,33 @@
+//! Applying generation packs to the running system (see
+//! ref/live-upgrade.md, "Generations", and ref/remote-execution.md).
+
+/// Apply a generation pack to this runtime's deploy core and run the
+/// named entry as the reconciliation pass.
+extern fn deploy_apply(pack: Binary, entry: String): Result<String, String>;
+
+/// Receiving a deploy is the runtime mutating itself, so it is an
+/// ability: `with Deploy` in a signature says the code can replace the
+/// running program. A deploy server is ordinary Ambient code — it reads
+/// pack bytes off whatever transport it likes and performs `apply!`; the
+/// runtime does the rest through the same deploy core every frontend
+/// uses (the dev loop, the REPL).
+///
+/// **Trust:** whoever can reach `apply!` owns the runtime — a generation
+/// pack is arbitrary code. Hashes are recomputed from the received bytes
+/// (a tampered pack cannot smuggle code under a false hash), but there
+/// is no authentication or authorization beyond what the embedding
+/// program builds around the perform. Hobby-deployment posture; guard
+/// the transport.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000F) ability Deploy {
+  /// Apply a generation pack: load its objects additively, validate
+  /// (rejections leave the previous generation untouched), swap the
+  /// name table, and run `entry` — resolved against the pack's name
+  /// bindings, `"run"` for a package's default entry — as the
+  /// reconciliation pass. `Ok` carries a rendered deploy report
+  /// (generation id, name diff, task reconciliation, warnings); `Err`
+  /// carries why the deploy was rejected (malformed pack, validation
+  /// failure, or a faulted entry).
+  fn apply(pack: Binary, entry: String): Result<String, String> {
+    deploy_apply(pack, entry)
+  }
+}
