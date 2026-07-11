@@ -333,7 +333,7 @@ mod tests {
             Ok(Value::some(Value::string("héllo")))
         );
         // Invalid UTF-8 decodes to None, not a fault.
-        let invalid = call(0x0601, vec![nums(&[0xFF as f64])]).unwrap();
+        let invalid = call(0x0601, vec![nums(&[255.0])]).unwrap();
         assert_eq!(call(0x0608, vec![invalid]), Ok(Value::none()));
     }
 

@@ -205,6 +205,16 @@ impl Vm {
         self.functions.insert(func.hash, func);
     }
 
+    /// Whether a function is loaded in this VM (any object kind a call
+    /// can dispatch to: bytecode function or native object). How a host
+    /// checks that a late-bound resolution's target is present before
+    /// handing the ref to running code — a deploy may have bound names
+    /// to objects this VM has not been topped up with yet.
+    #[must_use]
+    pub fn has_function(&self, hash: &blake3::Hash) -> bool {
+        self.functions.contains_key(hash) || self.native_functions.contains_key(hash)
+    }
+
     /// Install a first-class handler value at the base of the VM.
     ///
     /// Base handlers sit under every call frame, so performs anywhere in a

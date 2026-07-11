@@ -311,7 +311,9 @@ struct Loaded {
 pub struct DeployRuntime {
     vm_factory: VmFactory,
     /// Cumulative object stores. Additive: a deploy only ever inserts.
-    loaded: Mutex<Loaded>,
+    /// `Arc`ed so the per-VM `live_latest` native can capture it and top
+    /// its VM up when a resolution outruns the VM's loaded set.
+    loaded: Arc<Mutex<Loaded>>,
     /// Bumped whenever [`Self::load`] merges a generation — the cheap
     /// staleness check behind [`Self::epoch`], so a long-lived VM (a
     /// task's) can re-sync via [`Self::load_into`] only when something
@@ -335,7 +337,7 @@ impl DeployRuntime {
     pub fn new(vm_factory: VmFactory) -> Self {
         Self {
             vm_factory,
-            loaded: Mutex::new(Loaded::default()),
+            loaded: Arc::new(Mutex::new(Loaded::default())),
             epoch: std::sync::atomic::AtomicU64::new(0),
             names: Arc::new(NameResolver::default()),
             cells: Arc::new(crate::state::StateCells::new()),
@@ -406,11 +408,24 @@ impl DeployRuntime {
         let mut vm = (self.vm_factory)();
         // Install `Live::latest`'s real resolution (uuid-keyed, so it
         // overwrites the factory's identity stub): hash → the name the ref
-        // was deployed under → that name's current hash.
+        // was deployed under → that name's current hash. VM-invoking, not
+        // for reentrancy but for loading: a resolution can return a hash
+        // from a generation deployed after this VM was last topped up (a
+        // request racing a deploy), so a miss loads the cumulative stores
+        // into the calling VM before the ref is handed to running code.
         let resolver = Arc::clone(&self.names);
-        vm.register_native_impl(
+        let loaded = Arc::clone(&self.loaded);
+        vm.register_native_vm_impl(
             crate::native_uuid("live_latest"),
-            Arc::new(move |args| resolver.latest_native(args)),
+            Arc::new(move |vm, args| {
+                let current = resolver.latest_native(args)?;
+                if let Value::FunctionRef(hash) = &current
+                    && !vm.has_function(hash)
+                {
+                    load_stores_into(&loaded, vm);
+                }
+                Ok(current)
+            }),
         );
         // Install the `State` natives over their not-wired stubs, all
         // sharing this runtime's cell table — cells are present in every
@@ -431,16 +446,7 @@ impl DeployRuntime {
     ///
     /// Panics if the object-store lock is poisoned.
     pub fn load_into(&self, vm: &mut Vm) {
-        let loaded = self.lock_loaded();
-        for func in loaded.functions.values() {
-            vm.load_function_shared(Arc::clone(func));
-        }
-        for (hash, value) in &loaded.values {
-            vm.load_value(*hash, value.clone());
-        }
-        for (hash, (uuid, param_count)) in &loaded.natives {
-            vm.load_native(*hash, *uuid, *param_count);
-        }
+        load_stores_into(&self.loaded, vm);
     }
 
     /// The load epoch: bumped whenever a generation's objects are
@@ -646,6 +652,24 @@ impl DeployRuntime {
     fn lock_loaded(&self) -> std::sync::MutexGuard<'_, Loaded> {
         #[allow(clippy::unwrap_used)]
         self.loaded.lock().unwrap()
+    }
+}
+
+/// Top up a VM from the cumulative object stores (see
+/// [`DeployRuntime::load_into`]). Free-standing so the per-VM
+/// `live_latest` native can capture the `Arc`ed stores without a
+/// [`DeployRuntime`] borrow.
+fn load_stores_into(loaded: &Mutex<Loaded>, vm: &mut Vm) {
+    #[allow(clippy::unwrap_used)]
+    let loaded = loaded.lock().unwrap();
+    for func in loaded.functions.values() {
+        vm.load_function_shared(Arc::clone(func));
+    }
+    for (hash, value) in &loaded.values {
+        vm.load_value(*hash, value.clone());
+    }
+    for (hash, (uuid, param_count)) in &loaded.natives {
+        vm.load_native(*hash, *uuid, *param_count);
     }
 }
 
