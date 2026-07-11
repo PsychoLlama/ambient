@@ -49,6 +49,27 @@ pub struct CompiledModule {
     /// blake3 hash *is* the function identity — persist or transmit these,
     /// not the runtime `functions`.
     pub objects: HashMap<blake3::Hash, crate::object::StoredObject>,
+
+    /// Static state-migration declarations: one per
+    /// `State::init_versioned!` perform site whose cell name is a string
+    /// literal (see `ref/live-upgrade.md`, "Migration"). Deploy validation
+    /// checks each against the live cell table *pre-swap*; sites with
+    /// computed names cannot be listed here and validate at perform time
+    /// instead. Like `signatures`, these are not persisted in packs yet.
+    pub migrations: Vec<MigrationRecord>,
+}
+
+/// One statically-known `State::init_versioned` obligation: deploying
+/// this module is only valid if cell `cell` is absent, already at `new`,
+/// or at `old` (in which case the entry's perform migrates it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigrationRecord {
+    /// The cell name (a string-literal argument at the perform site).
+    pub cell: Arc<str>,
+    /// Canonical fingerprint of the migration's source type.
+    pub old: Arc<str>,
+    /// Canonical fingerprint of the migration's target type.
+    pub new: Arc<str>,
 }
 
 impl CompiledModule {
@@ -63,6 +84,7 @@ impl CompiledModule {
             lambda_parents: HashMap::new(),
             entry_point: None,
             objects: HashMap::new(),
+            migrations: Vec::new(),
         }
     }
 
@@ -108,6 +130,11 @@ impl CompiledModule {
         }
         for (hash, object) in &other.objects {
             self.objects.entry(*hash).or_insert_with(|| object.clone());
+        }
+        for migration in &other.migrations {
+            if !self.migrations.contains(migration) {
+                self.migrations.push(migration.clone());
+            }
         }
         // Don't overwrite entry point if we already have one
         if self.entry_point.is_none() {

@@ -58,6 +58,25 @@ pub enum Dicts {
     Resolved(Vec<DictSource>),
 }
 
+/// The `State` fingerprint annotation on a perform expression (see
+/// `ambient_core::state` and `ref/live-upgrade.md`, "Migration").
+///
+/// The State ability's write-path methods declare trailing `String`
+/// fingerprint parameters that call sites never spell. The checker hides
+/// them from perform-site arity and records the canonical rendering of the
+/// instantiated cell type here (pending until the enclosing body is fully
+/// inferred, exactly like [`Dicts`]); the compiler pushes each rendering
+/// as a hidden trailing string argument, before any dictionaries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Fingerprints {
+    /// Inference recorded a fingerprint group here; rendering hasn't run
+    /// yet. The compiler treats a surviving `Pending` as an internal error.
+    Pending(u32),
+    /// The rendered canonical fingerprints, one per hidden parameter, in
+    /// declaration order.
+    Resolved(Vec<Arc<str>>),
+}
+
 /// How a method call or overloaded operator dispatches.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedMethod {

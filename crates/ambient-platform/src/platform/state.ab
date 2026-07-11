@@ -1,14 +1,17 @@
 //! Named, typed, runtime-owned state cells (see ref/live-upgrade.md,
 //! "State cells").
 
-/// Adopt the cell if it exists, else create it with `make()`.
-extern fn state_init<F>(name: String, make: F): ();
+/// Adopt the cell if it exists, else create it with `make()`, stamping
+/// the writer's type fingerprint.
+extern fn state_init<F>(name: String, make: F, fingerprint: String): ();
 /// The cell's current value; raises if no such cell exists.
 extern fn state_get<S>(name: String): S;
 /// Overwrite the cell's value; raises if no such cell exists.
-extern fn state_set<S>(name: String, value: S): ();
+extern fn state_set<S>(name: String, value: S, fingerprint: String): ();
 /// Atomic read-modify-write; returns the new value.
-extern fn state_update<S, F>(name: String, f: F): S;
+extern fn state_update<S, F>(name: String, f: F, fingerprint: String): S;
+/// Adopt, migrate, or create, dispatching on the cell's fingerprint.
+extern fn state_init_versioned<F, G>(name: String, make: F, migrate: G, old_fingerprint: String, new_fingerprint: String): ();
 
 /// Named, typed, runtime-owned state cells. A cell belongs to no
 /// generation: it is why state survives a deploy — old code's exit and
@@ -16,20 +19,29 @@ extern fn state_update<S, F>(name: String, f: F): S;
 /// live in cells for free (they are plain numbers into runtime-owned
 /// handle tables shared the same way).
 ///
-/// `make` and `f` are generic rather than function-typed because ability
-/// signatures cannot yet express effect-polymorphic function parameters
-/// (the `Process::spawn` precedent); the runtime checks it received a
-/// function. Both run *delimited*: performs inside them dispatch to
-/// handlers installed within the function itself, otherwise to default
-/// implementations — never to the caller's handler stack — so keep them
-/// morally pure. An uncaught exception inside either re-raises at the
-/// caller's perform site.
+/// `make`, `migrate`, and `f` are generic rather than function-typed
+/// because ability signatures cannot yet express effect-polymorphic
+/// function parameters (the `Process::spawn` precedent); the checker
+/// constrains each to a function shape at the perform site. All run
+/// *delimited*: performs inside them dispatch to handlers installed
+/// within the function itself, otherwise to default implementations —
+/// never to the caller's handler stack — so keep them morally pure. An
+/// uncaught exception inside any of them re-raises at the caller's
+/// perform site.
+///
+/// The trailing `fingerprint` parameters are **compiler-supplied**: call
+/// sites never spell them. Each write path stamps the cell with the
+/// canonical rendering of the static type it was written at, which is
+/// what `init_versioned` dispatches on (see ref/live-upgrade.md,
+/// "Migration"). Because the fingerprint is per call site, a cell write
+/// cannot be generic over its cell type — the checker rejects a write
+/// whose type mentions an enclosing type parameter.
 pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000C) ability State {
   /// Adopt the cell if it exists (the every-deploy no-op, so the entry
   /// can re-run on each deploy), else create it with `make()`. Editing
   /// `make` changes nothing for a live cell — only a migration does.
-  fn init<F>(name: String, make: F): () {
-    state_init(name, make)
+  fn init<F>(name: String, make: F, fingerprint: String): () {
+    state_init(name, make, fingerprint)
   }
   /// The cell's current value; raises if no such cell exists.
   fn get<S>(name: String): S {
@@ -37,15 +49,27 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000C) ability State {
   }
   /// Overwrite the cell's value; raises if no such cell exists (`init`
   /// creates cells, so creation stays a declaration in the entry).
-  fn set<S>(name: String, value: S): () {
-    state_set(name, value)
+  fn set<S>(name: String, value: S, fingerprint: String): () {
+    state_set(name, value, fingerprint)
   }
   /// Atomic read-modify-write: run `f` on the current value with the
   /// cell locked, store the result, return it. Touching the same cell
   /// again from inside `f` is a fault (the lock is held); touching
   /// *other* cells risks deadlock against concurrent updates — keep `f`
   /// a pure transformation.
-  fn update<S, F>(name: String, f: F): S {
-    state_update(name, f)
+  fn update<S, F>(name: String, f: F, fingerprint: String): S {
+    state_update(name, f, fingerprint)
+  }
+  /// Adopt, migrate, or create, dispatching on the cell's recorded
+  /// fingerprint: no cell runs `make`; a cell already at the new type
+  /// adopts (the every-deploy no-op); a cell at the old type runs
+  /// `migrate(old)` and the fingerprint advances; anything else is a
+  /// fault — and a deploy carrying a statically-named `init_versioned`
+  /// is rejected *before* the name swap when the live cell matches
+  /// neither type. Keep the old type's declaration in the source as a
+  /// relic (`StatsV1`); `migrate` is an ordinary typed function from
+  /// relic to current.
+  fn init_versioned<F, G>(name: String, make: F, migrate: G, old_fingerprint: String, new_fingerprint: String): () {
+    state_init_versioned(name, make, migrate, old_fingerprint, new_fingerprint)
   }
 }

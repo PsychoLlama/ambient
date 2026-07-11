@@ -189,6 +189,7 @@ pub(super) fn lower_expression(
                 ability: lower_qualified_name(ability),
                 method: method.name.clone(),
                 args: lowered_args,
+                fingerprints: None,
                 span: expr.span,
             })
         }

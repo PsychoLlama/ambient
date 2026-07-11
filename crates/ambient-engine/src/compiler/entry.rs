@@ -444,6 +444,8 @@ fn compile_module_impl(
     let lambdas: Vec<(blake3::Hash, Arc<str>, CompiledFunction)> = ctx.lambdas;
     // Value objects for block-scoped consts, discovered while walking bodies.
     let block_const_objects = ctx.const_objects;
+    // Statically-named state migrations, for pre-swap deploy validation.
+    let migrations = ctx.migrations;
 
     // An ability default implementation compiles under the dispatch symbol
     // `<ability-uuid>::<method>`, which carries the method name. If such an
@@ -460,6 +462,7 @@ fn compile_module_impl(
     // Phase 3: Compute content-addressed hashes and finalize the module.
     let mut module =
         finalize_module_hashes(compiled_functions, lambdas, &ability_impl_group_names)?;
+    module.migrations = migrations;
     // Fold in every const value object — module-level ones from the pre-pass
     // and block-scoped ones from the bodies. They ship and deduplicate
     // alongside function objects; a referencing function already records the

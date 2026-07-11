@@ -100,6 +100,7 @@ fn with_bindings(compiled: &CompiledModule, bindings: &[(&str, blake3::Hash)]) -
         values: base.values.clone(),
         natives: base.natives.clone(),
         bindings,
+        migrations: Vec::new(),
     })
 }
 

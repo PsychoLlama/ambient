@@ -9,6 +9,7 @@
 
 pub mod exception;
 mod identity;
+pub mod state;
 
 use std::fmt;
 

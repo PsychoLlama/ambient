@@ -50,7 +50,7 @@ pub use entry::{
     compile_module_with_source,
 };
 pub use error::{CompileError, CompileErrorKind};
-pub use module_output::CompiledModule;
+pub use module_output::{CompiledModule, MigrationRecord};
 
 // Re-exports for sibling submodules (`use super::…`).
 use context::{FunctionCompiler, ModuleContext};

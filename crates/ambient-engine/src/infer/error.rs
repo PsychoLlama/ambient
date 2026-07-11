@@ -251,6 +251,11 @@ pub enum TypeErrorKind {
     /// build.
     BoundNotSatisfied { ty: Type, trait_name: Arc<str> },
 
+    /// A `State` cell write whose cell type mentions the enclosing item's
+    /// type parameter: the migration fingerprint must mean exactly one
+    /// type per perform site (see `ref/live-upgrade.md`, "Migration").
+    GenericStateWrite { ty: Type },
+
     /// A generic body used a type parameter where a bound is required,
     /// but the parameter doesn't declare that bound.
     MissingParamBound {
@@ -568,6 +573,14 @@ impl std::fmt::Display for TypeErrorKind {
                     f,
                     "the trait bound `{ty}: {trait_name}` is not satisfied; \
                      no `impl {trait_name} for {ty}` exists in this build"
+                )
+            }
+            Self::GenericStateWrite { ty } => {
+                write!(
+                    f,
+                    "cannot fingerprint a `State` cell at generic type `{ty}`: \
+                     the cell type must be concrete at each write (call this \
+                     through a concretely-typed wrapper, or annotate the value)"
                 )
             }
             Self::MissingParamBound { param, trait_name } => {

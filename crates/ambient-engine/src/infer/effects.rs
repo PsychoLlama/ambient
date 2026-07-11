@@ -42,6 +42,7 @@ impl Infer {
             &ability_call.method,
             &arg_tys,
             dicts,
+            &mut ability_call.fingerprints,
             span,
         )?;
 

@@ -217,6 +217,10 @@ pub(super) struct ModuleContext {
     /// Lambda functions discovered during compilation.
     /// Maps (temporary hash, parent function name) to compiled function.
     pub(super) lambdas: Vec<(blake3::Hash, Arc<str>, CompiledFunction)>,
+    /// Statically-named `State::init_versioned` obligations discovered
+    /// while compiling bodies (see [`super::MigrationRecord`]); folded
+    /// into [`super::CompiledModule::migrations`] after finalization.
+    pub(super) migrations: Vec<super::MigrationRecord>,
     /// Counter for generating unique lambda temporary hashes.
     pub(super) lambda_counter: u32,
     /// Value objects for block-scoped `const`s discovered while compiling
@@ -340,6 +344,7 @@ impl ModuleContext {
         // therefore starts with no enums, exactly like the checker.
         Self {
             lambdas: Vec::new(),
+            migrations: Vec::new(),
             lambda_counter: 0,
             const_objects: HashMap::new(),
             current_function: None,

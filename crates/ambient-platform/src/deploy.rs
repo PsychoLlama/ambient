@@ -35,7 +35,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use ambient_ability::{Value, VmError};
 use ambient_engine::bytecode::CompiledFunction;
-use ambient_engine::compiler::CompiledModule;
+use ambient_engine::compiler::{CompiledModule, MigrationRecord};
 use ambient_engine::vm::Vm;
 
 /// Builds a base VM: platform natives registered (Stdio, Network, ...), no
@@ -78,6 +78,12 @@ pub struct Generation {
     /// Dispatch symbols (`<uuid>::method`) are content-addressed, never
     /// late-bound, so they are deliberately absent.
     pub bindings: HashMap<Arc<str>, Binding>,
+    /// Statically-named `State::init_versioned` obligations the build
+    /// declared (see `ref/live-upgrade.md`, "Migration"). Validation
+    /// checks each against the live cell table *before* the name swap:
+    /// a cell whose fingerprint matches neither side rejects the deploy
+    /// with the previous generation untouched.
+    pub migrations: Vec<MigrationRecord>,
 }
 
 /// A shared code generation.
@@ -123,6 +129,7 @@ pub fn functions_from_module(compiled: &CompiledModule) -> Functions {
         values,
         natives,
         bindings,
+        migrations: compiled.migrations.clone(),
     })
 }
 
@@ -478,6 +485,39 @@ impl DeployRuntime {
         }
     }
 
+    /// Check every statically-named `State::init_versioned` obligation
+    /// against the live cell table, *before* the name swap: a cell is
+    /// fine when absent (`make` will create it), at the new type
+    /// (adopt), or at the old type (the entry's perform migrates it);
+    /// anything else rejects the deploy with the previous generation —
+    /// and every cell — untouched.
+    fn validate_migrations(&self, generation: &Generation, problems: &mut Vec<String>) {
+        let mut migrations: Vec<&MigrationRecord> = generation.migrations.iter().collect();
+        migrations.sort_by_key(|m| (&m.cell, &m.old, &m.new));
+        for migration in migrations {
+            let current = match self.cells.fingerprint(&migration.cell) {
+                Ok(current) => current,
+                Err(e) => {
+                    problems.push(format!(
+                        "cell `{}` could not be inspected: {e:?}",
+                        migration.cell
+                    ));
+                    continue;
+                }
+            };
+            if let Some(current) = current
+                && current != migration.old
+                && current != migration.new
+            {
+                problems.push(format!(
+                    "cell `{}` is at type `{current}`, which is neither the pending \
+                     migration's old type `{}` nor its new type `{}`",
+                    migration.cell, migration.old, migration.new
+                ));
+            }
+        }
+    }
+
     /// Check a generation against the loaded view: the entry and every
     /// binding must resolve to a loaded object.
     fn validate(&self, generation: &Generation, entry: &blake3::Hash) -> Vec<String> {
@@ -491,6 +531,7 @@ impl DeployRuntime {
         if !loaded.functions.contains_key(entry) {
             problems.push(format!("entry function {entry} is not a loaded function"));
         }
+        self.validate_migrations(generation, &mut problems);
         let mut unbound: Vec<&Arc<str>> = generation
             .bindings
             .iter()

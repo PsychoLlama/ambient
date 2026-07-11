@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::ast::{Expr, HandlerLiteralMethod, Lambda};
+use crate::ast::{Expr, ExprKind, HandlerLiteralMethod, Lambda};
 use crate::bytecode::{CompiledFunction, Opcode};
 use crate::fqn::NameKey;
 use crate::types::AbilityId;
@@ -334,6 +334,29 @@ pub(super) fn compile_ability_call(
         compile_expr(fc, arg, ctx)?;
     }
 
+    // A State write's fingerprints ride as hidden trailing string
+    // arguments filling the method's declared fingerprint parameters
+    // (before any dictionaries — declared params precede dict params).
+    // The checker rendered them (`Fingerprints::Resolved`); a surviving
+    // `Pending` is a checker bug, mirroring `compile_dicts`.
+    let fingerprint_count = match &ability_call.fingerprints {
+        None => 0,
+        Some(crate::ast::Fingerprints::Resolved(rendered)) => {
+            for fingerprint in rendered {
+                fc.builder.emit_const(super::str_to_value(fingerprint));
+            }
+            rendered.len()
+        }
+        Some(crate::ast::Fingerprints::Pending(_)) => {
+            return Err(CompileError::new(
+                CompileErrorKind::Internal {
+                    message: "unresolved fingerprint annotation survived checking",
+                },
+                (ability_call.span.start, ability_call.span.end),
+            ));
+        }
+    };
+
     // A bounded method's dictionaries ride as hidden trailing perform
     // arguments; the default implementation binds them as its own hidden
     // trailing parameters.
@@ -358,11 +381,32 @@ pub(super) fn compile_ability_call(
     })?;
     let method_ref = resolve_method_ref(&fc.function_hashes, info, method_name, span)?;
 
-    // Emit suspend instruction (packages the args, dictionaries included),
-    // then perform.
+    // A statically-named `init_versioned` is a deploy-time obligation:
+    // record it so validation can check the live cell *pre-swap*. Computed
+    // names can't be listed; they validate at perform time instead.
+    if info.uuid == ambient_core::state::STATE_UUID
+        && method_name.as_ref() == "init_versioned"
+        && let Some(crate::ast::Fingerprints::Resolved(rendered)) = &ability_call.fingerprints
+        && let [old, new] = rendered.as_slice()
+        && let Some(ExprKind::String(cell)) = ability_call.args.first().map(|expr| &expr.kind)
+    {
+        let record = super::MigrationRecord {
+            cell: Arc::clone(cell),
+            old: Arc::clone(old),
+            new: Arc::clone(new),
+        };
+        if !ctx.migrations.contains(&record) {
+            ctx.migrations.push(record);
+        }
+    }
+
+    // Emit suspend instruction (packages the args, fingerprints and
+    // dictionaries included), then perform.
     #[allow(clippy::cast_possible_truncation)]
-    fc.builder
-        .emit_suspend(method_ref, (ability_call.args.len() + dict_count) as u8);
+    fc.builder.emit_suspend(
+        method_ref,
+        (ability_call.args.len() + fingerprint_count + dict_count) as u8,
+    );
     fc.builder.emit(Opcode::Perform);
 
     Ok(())

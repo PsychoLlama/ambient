@@ -15,7 +15,7 @@ use crate::types::Type;
 
 mod dicts;
 mod name;
-pub use dicts::{DictSource, Dicts, ResolvedMethod, walk_exprs_mut};
+pub use dicts::{DictSource, Dicts, Fingerprints, ResolvedMethod, walk_exprs_mut};
 pub use name::QualifiedName;
 
 /// A source location span for error reporting.
@@ -440,6 +440,10 @@ pub struct AbilityCall {
     pub method: Arc<str>,
     /// Arguments.
     pub args: Vec<Expr>,
+    /// Hidden trailing fingerprint arguments for the State ability's
+    /// write-path methods, recorded by the checker and pushed by the
+    /// compiler (see [`Fingerprints`]). `None` for every other perform.
+    pub fingerprints: Option<Fingerprints>,
     /// Source location.
     pub span: Span,
 }

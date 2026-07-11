@@ -31,6 +31,26 @@ impl Type {
         }
     }
 
+    /// Whether this type mentions a rigid [`Type::Param`] anywhere — i.e.
+    /// its meaning depends on the enclosing item's type parameters.
+    #[must_use]
+    pub fn mentions_param(&self) -> bool {
+        match self {
+            Self::Param(_) => true,
+            Self::Tuple(elems) => elems.iter().any(Type::mentions_param),
+            Self::Record(rec) => rec.fields.iter().any(|(_, t)| t.mentions_param()),
+            Self::Function(f) => {
+                f.params.iter().any(Type::mentions_param) || f.ret.mentions_param()
+            }
+            Self::Named(n) => n.args.iter().any(Type::mentions_param),
+            Self::Nominal(n) => n.inner.mentions_param(),
+            Self::Forall(f) => f.body.mentions_param(),
+            Self::AbilityValue(av) => av.result.mentions_param(),
+            Self::Handler(h) => h.answer.mentions_param(),
+            _ => false,
+        }
+    }
+
     /// Collect all free type variables in this type.
     #[must_use]
     pub fn free_vars(&self) -> Vec<TypeVarId> {

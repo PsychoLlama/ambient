@@ -76,6 +76,36 @@ fn compile(src: &str) -> CompiledModule {
     merged
 }
 
+/// Type-check a test program against core + `core::system` and return
+/// the rendered errors (empty when it checks) — for pinning check-time
+/// rejections without building a runtime.
+fn check_errors(src: &str) -> Vec<String> {
+    let module = ambient_parser::parse(src).expect("test program parses");
+    let mut registry = ModuleRegistry::new();
+    let mut module_function_hashes = HashMap::new();
+    ambient_engine::build::compile_core_modules(&mut registry, &mut module_function_hashes, |s| {
+        ambient_parser::parse(s).map_err(|e| e.to_string())
+    })
+    .expect("core modules compile");
+    registry
+        .natives_mut()
+        .merge(&ambient_platform::stub_natives());
+    ambient_engine::build::compile_declaration_modules(
+        &mut registry,
+        &mut module_function_hashes,
+        ambient_platform::platform_modules(),
+        |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
+    )
+    .expect("core::system compiles");
+    let path = ModulePath::root();
+    registry.register(&path, Arc::new(module.clone()));
+    check_module_with_registry(module, &path, &registry)
+        .errors
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect()
+}
+
 /// A deploy runtime whose VMs carry the platform stubs; the runtime's own
 /// `build_vm` overlays the real `State` natives (and `live_latest`).
 fn runtime() -> DeployRuntime {
@@ -307,7 +337,10 @@ fn exception_in_update_leaves_the_cell_unchanged() {
     assert_eq!(call_number(&core, &compiled, "read"), 1.0);
 }
 
-/// `update`'s argument must be a function, like `Live::latest`'s.
+/// `update`'s argument must be a function — since the fingerprint pass,
+/// rejected at *check time*: the perform site constrains `f` to a
+/// function shape to learn the cell type, so passing `41` no longer
+/// compiles (it used to fault at runtime).
 #[test]
 fn update_rejects_non_functions() {
     let src = r#"
@@ -318,18 +351,10 @@ fn update_rejects_non_functions() {
       core::system::State::update!("n", 41)
     }
     "#;
-    let compiled = compile(src);
-    let core = runtime();
-    deploy(&core, &compiled);
-
-    let mut vm = core.build_vm();
-    let err = vm
-        .call(&named_hash(&compiled, "misuse"), Vec::new())
-        .expect_err("a non-function must raise");
-    let rendered = vm.runtime_error(err).to_string();
+    let errors = check_errors(src);
     assert!(
-        rendered.contains("must be a function"),
-        "the fault must name the contract: {rendered}"
+        errors.iter().any(|e| e.contains("type mismatch")),
+        "a non-function `f` must be a check error: {errors:?}"
     );
 }
 

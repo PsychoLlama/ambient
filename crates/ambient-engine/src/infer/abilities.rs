@@ -143,6 +143,7 @@ impl Infer {
         method_name: &str,
         arg_tys: &[Type],
         dicts: &mut Option<crate::ast::Dicts>,
+        fingerprints: &mut Option<crate::ast::Fingerprints>,
         span: (u32, u32),
     ) -> InferResult<(AbilityId, Type, AbilitySet)> {
         // One policy for every position that names an ability: namespaced
@@ -168,7 +169,7 @@ impl Infer {
                     span,
                 )
             })?;
-        self.lookup_dynamic_method(&dynamic, method_name, arg_tys, dicts, span)
+        self.lookup_dynamic_method(&dynamic, method_name, arg_tys, dicts, fingerprints, span)
     }
 
     /// Type-check a call to a module-declared ability method.
@@ -185,6 +186,7 @@ impl Infer {
         method_name: &str,
         arg_tys: &[Type],
         dicts: &mut Option<crate::ast::Dicts>,
+        fingerprints: &mut Option<crate::ast::Fingerprints>,
         span: (u32, u32),
     ) -> InferResult<(AbilityId, Type, AbilitySet)> {
         let Some(method) = dynamic.method(method_name).cloned() else {
@@ -197,10 +199,21 @@ impl Infer {
             ));
         };
 
-        if method.params.len() != arg_tys.len() {
+        // The State ability's write-path methods declare trailing
+        // fingerprint parameters that perform sites never spell — the
+        // compiler supplies them (see `super::fingerprints`). Recognized
+        // by the reserved uuid, never by name.
+        let hidden = if dynamic.uuid == ambient_core::state::STATE_UUID {
+            super::fingerprints::hidden_fingerprint_params(method_name)
+        } else {
+            0
+        };
+
+        let expected = method.params.len().saturating_sub(hidden);
+        if expected != arg_tys.len() {
             return Err(type_error(
                 TypeErrorKind::ArityMismatch {
-                    expected: method.params.len(),
+                    expected,
                     actual: arg_tys.len(),
                 },
                 span,
@@ -210,6 +223,13 @@ impl Infer {
         let mut subst = std::collections::HashMap::new();
         for quantified in &method.quantified {
             subst.insert(*quantified, self.fresh());
+        }
+
+        // Fingerprinted methods additionally constrain their bare-generic
+        // function parameters to real function shapes (solving the cell
+        // type) and record the pending fingerprint group on the perform.
+        if hidden != 0 {
+            self.record_state_fingerprints(&method, &subst, fingerprints, span)?;
         }
 
         // A bounded method records its dictionary constraints against the
@@ -316,21 +336,41 @@ mod tests {
 
         let qualified = QualifiedName::qualified(vec!["core", "system"], "Printer");
         let (id, ret, _) = infer
-            .lookup_ability_method(&qualified, "go", &[Type::string()], &mut None, span())
+            .lookup_ability_method(
+                &qualified,
+                "go",
+                &[Type::string()],
+                &mut None,
+                &mut None,
+                span(),
+            )
             .expect("qualified perform should resolve");
         assert_eq!(id, aid(7));
         assert_eq!(ret, Type::Unit);
 
         // Declared signatures are enforced: wrong argument type fails.
-        let err =
-            infer.lookup_ability_method(&qualified, "go", &[Type::number()], &mut None, span());
+        let err = infer.lookup_ability_method(
+            &qualified,
+            "go",
+            &[Type::number()],
+            &mut None,
+            &mut None,
+            span(),
+        );
         assert!(err.is_err(), "argument type mismatch should be rejected");
 
         // The wrong namespace does not resolve.
         let wrong = QualifiedName::qualified(vec!["other"], "Printer");
         assert!(
             infer
-                .lookup_ability_method(&wrong, "go", &[Type::string()], &mut None, span())
+                .lookup_ability_method(
+                    &wrong,
+                    "go",
+                    &[Type::string()],
+                    &mut None,
+                    &mut None,
+                    span()
+                )
                 .is_err()
         );
     }
@@ -448,7 +488,14 @@ mod tests {
 
         // A namespaced prelude ability performed bare should fail.
         let bare = QualifiedName::simple("Printer");
-        let result = infer.lookup_ability_method(&bare, "go", &[Type::string()], &mut None, span());
+        let result = infer.lookup_ability_method(
+            &bare,
+            "go",
+            &[Type::string()],
+            &mut None,
+            &mut None,
+            span(),
+        );
         assert!(
             result.is_err(),
             "Printer without platform. prefix should fail"
@@ -456,8 +503,14 @@ mod tests {
 
         // The same perform with the namespace succeeds.
         let qualified = platform_ability("Printer");
-        let result =
-            infer.lookup_ability_method(&qualified, "go", &[Type::string()], &mut None, span());
+        let result = infer.lookup_ability_method(
+            &qualified,
+            "go",
+            &[Type::string()],
+            &mut None,
+            &mut None,
+            span(),
+        );
         assert!(result.is_ok(), "core::system::Printer::go should succeed");
     }
 }

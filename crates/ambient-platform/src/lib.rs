@@ -442,12 +442,11 @@ pub(crate) const EXTERN_BINDINGS: &[ExternBinding] = &[
         slot: 0x2B,
         arity: 1,
     },
-    ExternBinding {
-        name: "state_init",
-        module: "state",
-        slot: 0x2C,
-        arity: 2,
-    },
+    // Slots 0x2C (state_init/2), 0x2E (state_set/2), and 0x2F
+    // (state_update/2) are RETIRED: Phase 4 gave every state write path a
+    // trailing compiler-supplied fingerprint argument, and an extern slot
+    // pins (uuid, arity) forever, so the changed-arity ops took fresh
+    // slots below. Never reassign the retired slots.
     ExternBinding {
         name: "state_get",
         module: "state",
@@ -455,16 +454,28 @@ pub(crate) const EXTERN_BINDINGS: &[ExternBinding] = &[
         arity: 1,
     },
     ExternBinding {
+        name: "state_init",
+        module: "state",
+        slot: 0x30,
+        arity: 3,
+    },
+    ExternBinding {
         name: "state_set",
         module: "state",
-        slot: 0x2E,
-        arity: 2,
+        slot: 0x31,
+        arity: 3,
     },
     ExternBinding {
         name: "state_update",
         module: "state",
-        slot: 0x2F,
-        arity: 2,
+        slot: 0x32,
+        arity: 3,
+    },
+    ExternBinding {
+        name: "state_init_versioned",
+        module: "state",
+        slot: 0x33,
+        arity: 5,
     },
 ];
 
@@ -771,8 +782,18 @@ mod tests {
             "ffffffff-ffff-ffff-fffc-00000000002b"
         );
         assert_eq!(
+            native_uuid("state_get").to_string(),
+            "ffffffff-ffff-ffff-fffc-00000000002d"
+        );
+        // The fingerprint-bearing state writes: re-slotted in Phase 4
+        // (the fingerprintless 0x2C/0x2E/0x2F are retired, never reused).
+        assert_eq!(
             native_uuid("state_update").to_string(),
-            "ffffffff-ffff-ffff-fffc-00000000002f"
+            "ffffffff-ffff-ffff-fffc-000000000032"
+        );
+        assert_eq!(
+            native_uuid("state_init_versioned").to_string(),
+            "ffffffff-ffff-ffff-fffc-000000000033"
         );
     }
 

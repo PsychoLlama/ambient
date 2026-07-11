@@ -92,7 +92,7 @@ fn declarations_expose_the_expected_interfaces() {
         ),
         ("Env", &["var", "vars", "set", "args", "cwd", "pid"]),
         ("Live", &["latest"]),
-        ("State", &["init", "get", "set", "update"]),
+        ("State", &["init", "get", "set", "update", "init_versioned"]),
     ];
 
     assert_eq!(

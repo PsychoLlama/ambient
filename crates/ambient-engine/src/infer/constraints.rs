@@ -266,6 +266,10 @@ impl Infer {
     ) {
         let solved = self.solve_dict_constraints(errors);
         finalize_dicts(body, &solved);
+        // State-cell fingerprints settle on the same schedule: render the
+        // instantiated cell types now that the body's inference is done.
+        let fingerprints = self.solve_fingerprints(errors);
+        super::fingerprints::finalize_fingerprints(body, &fingerprints);
     }
 }
 

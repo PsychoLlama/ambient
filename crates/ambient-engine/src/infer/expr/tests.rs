@@ -744,6 +744,7 @@ fn throw_expr(msg: &str) -> Expr {
             ability: crate::ast::QualifiedName::simple("Exception"),
             method: "throw".into(),
             args: vec![Expr::string(msg)],
+            fingerprints: None,
             span: crate::ast::Span::default(),
         }),
         crate::ast::Span::default(),

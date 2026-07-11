@@ -60,6 +60,7 @@ pub mod enums;
 mod env;
 mod error;
 mod expr;
+pub(crate) mod fingerprints;
 pub mod inherent;
 mod pattern;
 mod unify;
@@ -159,6 +160,14 @@ pub struct Infer {
 
     /// Fresh ids for [`crate::ast::Dicts::Pending`] groups.
     pub(crate) next_dict_group: u32,
+
+    /// State-cell fingerprints recorded at perform sites, awaiting
+    /// rendering once the enclosing body's inference settles the cell
+    /// types. See [`fingerprints`].
+    pub(crate) pending_fingerprints: Vec<fingerprints::PendingFingerprint>,
+
+    /// Fresh ids for [`crate::ast::Fingerprints::Pending`] groups.
+    pub(crate) next_fingerprint_group: u32,
 }
 
 /// A deferred "the sandbox body may only use these abilities" check.
@@ -241,6 +250,8 @@ impl Infer {
             current_bound_params: Vec::new(),
             pending_constraints: Vec::new(),
             next_dict_group: 0,
+            pending_fingerprints: Vec::new(),
+            next_fingerprint_group: 0,
         }
     }
 
