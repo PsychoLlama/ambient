@@ -1,0 +1,44 @@
+//! The conversation loop: one connection, many framed requests.
+//!
+//! Unlike live_site's per-connection acceptor, a whole conversation
+//! happens *inside one task pass* — so the per-pass re-resolution never
+//! helps mid-conversation, and the author-placed `Live::latest!` is the
+//! only freshness channel. That is the point of this example: a deploy
+//! applied between two requests on the same socket lands on the second.
+
+use core::system::{Drain, Live, Network, State, Stdio};
+use self::handlers;
+
+pub fn service(): () with Network, State, Live, Stdio {
+  with { Drain::requested() => Stdio::out!("service: drained, goodbye") }
+    handle serve_conn()
+}
+
+/// One bounded pass: accept a connection and hold the conversation.
+fn serve_conn(): () with Network, State, Live, Stdio {
+  let listener = State::get!("service-listener");
+  match Network::accept!(listener) {
+    Ok(conn) => converse(conn),
+    Err(message) => Stdio::err!("accept failed: ${message}"),
+  }
+}
+
+/// Serve framed requests until the peer closes. THE late-bound point:
+/// each request resolves the handler's current binding, so the reply to
+/// "hello" and the reply to "hello again" can come from different
+/// generations — over the same connection, in the same pass.
+fn converse(conn: Number): () with Network, State, Live, Stdio {
+  match Network::receive!(conn) {
+    Ok(request) => {
+      Live::latest!(handlers::respond)(conn, request);
+      converse(conn)
+    },
+    Err(_) => {
+      // The peer hung up; the conversation is over.
+      match Network::close!(conn) {
+        Ok(_) => (),
+        Err(message) => Stdio::err!("close failed: ${message}"),
+      }
+    },
+  }
+}

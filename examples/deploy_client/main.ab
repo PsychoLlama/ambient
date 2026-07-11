@@ -1,0 +1,87 @@
+//! The deploy sender: half remote client, half deploy tool.
+//!
+//! Holds one conversation with the deploy_server and upgrades the
+//! server in the middle of it:
+//!
+//! 1. connect and send a request — answered by generation one;
+//! 2. ship a generation pack (an `ambient compile -o` artifact named by
+//!    `DEPLOY_PACK`) to the deploy port and print the server's report;
+//! 3. send a second request **on the same connection** — answered by
+//!    the new generation, with the hit counter carried across.
+//!
+//! Run with the server up (see examples/deploy_server/README.md):
+//!
+//!     DEPLOY_PACK=v2.ambient ambient run examples/deploy_client
+
+use core::system::{Env, FileSystem, Network, Stdio};
+
+pub fn run(): () with Stdio, Network, FileSystem, Env, Exception {
+  let conn = need(Network::connect!(("127.0.0.1", port("SERVICE_PORT", 7910))));
+
+  // Request one, against the generation that started the server.
+  let first = request(conn, "hello");
+  Stdio::out!("reply: ${first}");
+
+  // Ship the new generation, mid-conversation.
+  let pack = read_pack(Env::var!("DEPLOY_PACK").unwrap_or("v2.ambient"));
+  let deploy_conn = need(Network::connect!(("127.0.0.1", port("DEPLOY_PORT", 7911))));
+  match Network::send!(deploy_conn, pack) {
+    Ok(_) => (),
+    Err(message) => Exception::throw!("pack send failed: ${message}"),
+  };
+  let report = receive_text(deploy_conn);
+  Stdio::out!("report: ${report}");
+  match Network::close!(deploy_conn) {
+    Ok(_) => (),
+    Err(_) => (),
+  };
+
+  // Request two, on the same socket: the reply comes from the shipped
+  // generation, and the counter kept counting — the cell survived.
+  let second = request(conn, "hello again");
+  Stdio::out!("reply: ${second}");
+
+  match Network::close!(conn) {
+    Ok(_) => (),
+    Err(_) => (),
+  };
+  Stdio::out!("done")
+}
+
+/// One framed request/reply round-trip.
+fn request(conn: Number, text: String): String with Network, Exception {
+  match Network::send!(conn, Binary::from_string(text)) {
+    Ok(_) => (),
+    Err(message) => Exception::throw!("send failed: ${message}"),
+  };
+  receive_text(conn)
+}
+
+/// One framed message, as text.
+fn receive_text(conn: Number): String with Network, Exception {
+  match Network::receive!(conn) {
+    Ok(data) => data.to_string().unwrap_or(""),
+    Err(message) => Exception::throw!("receive failed: ${message}"),
+  }
+}
+
+/// The generation pack to ship: the bytes `ambient compile -o` wrote.
+fn read_pack(path: String): Binary with FileSystem, Exception {
+  match FileSystem::read_binary!(path) {
+    Ok(bytes) => bytes,
+    Err(message) => Exception::throw!("could not read pack ${path}: ${message}"),
+  }
+}
+
+/// A port from the environment, with the server's defaults.
+fn port(var: String, default: Number): Number with Env {
+  core::convert::parse_number(Env::var!(var).unwrap_or("")).unwrap_or(default)
+}
+
+/// Unwrap a fallible connect at the application boundary.
+fn need(result: Result<Number, String>): Number with Exception {
+  match result {
+    Ok(value) => value,
+    Err(message) => Exception::throw!(message),
+  }
+}

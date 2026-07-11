@@ -1,0 +1,21 @@
+//! The request handler — the hot part of the tree.
+//!
+//! Edit the greeting, `ambient compile` the package, and ship the pack
+//! with the deploy client: the next request answers with the new text,
+//! and the hit counter keeps counting because the cell never left the
+//! runtime.
+
+use core::system::{Network, State, Stdio};
+
+/// Change me, then deploy over the wire.
+const GREETING: String = "generation one";
+
+pub fn respond(conn: Number, request: Binary): () with Network, State, Stdio {
+  let hits = State::update!("hits", (n: Number) => n + 1);
+  let text = request.to_string().unwrap_or("");
+  let reply = "${GREETING}: ${text} #${core::convert::to_string(hits)}";
+  match Network::send!(conn, Binary::from_string(reply)) {
+    Ok(_) => (),
+    Err(message) => Stdio::err!("send failed: ${message}"),
+  }
+}

@@ -28,6 +28,8 @@ const PAIRED_EXAMPLES: &[&str] = &[
     "network_server",
     "remote_client",
     "remote_server",
+    "deploy_client",
+    "deploy_server",
     "live_server",
     "live_site",
 ];
@@ -352,6 +354,154 @@ fn network_pair_echoes() {
     assert!(
         stdout.contains("Client: done"),
         "client did not finish:\n{stdout}"
+    );
+}
+
+/// One length-prefixed message out (the platform's framed `send`).
+fn send_frame(conn: &mut std::net::TcpStream, data: &[u8]) {
+    use std::io::Write;
+    let len = u32::try_from(data.len()).expect("frame fits");
+    conn.write_all(&len.to_be_bytes())
+        .expect("write frame length");
+    conn.write_all(data).expect("write frame");
+}
+
+/// One length-prefixed message in.
+fn recv_frame(conn: &mut std::net::TcpStream) -> Vec<u8> {
+    let mut len_buf = [0u8; 4];
+    conn.read_exact(&mut len_buf).expect("read frame length");
+    let mut buf = vec![0u8; u32::from_be_bytes(len_buf) as usize];
+    conn.read_exact(&mut buf).expect("read frame");
+    buf
+}
+
+/// Phase 9's exit criteria, end to end: a running remote service is
+/// upgraded mid-conversation — over TCP, through `Deploy::apply!`, no
+/// dev loop anywhere — and its cell state survives the deploy.
+#[test]
+fn deploy_pair_upgrades_a_remote_service_mid_conversation() {
+    // Private ports so a developer's own `ambient run examples/deploy_server`
+    // (on the 7910/7911 defaults) can coexist with the test.
+    let service_port = "7913";
+    let deploy_port = "7914";
+
+    // Build generation two: the same package with a new greeting,
+    // compiled to a shippable artifact pack.
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let v2_src = tmp.path().join("v2");
+    copy_dir(&examples_dir().join("deploy_server"), &v2_src);
+    let handlers = v2_src.join("handlers.ab");
+    let source = fs::read_to_string(&handlers).expect("read handlers.ab");
+    fs::write(
+        &handlers,
+        source.replace("generation one", "generation two"),
+    )
+    .expect("write handlers.ab");
+    let pack = tmp.path().join("v2.ambient");
+    let compile = Command::new(ambient_bin())
+        .arg("compile")
+        .arg(&v2_src)
+        .arg("-o")
+        .arg(&pack)
+        .output()
+        .expect("compile v2 pack");
+    assert!(
+        compile.status.success(),
+        "compiling the v2 pack failed:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+
+    // Start generation one, plainly (`ambient run`, not `dev`).
+    let server = Command::new(ambient_bin())
+        .arg("run")
+        .arg(examples_dir().join("deploy_server"))
+        .env("SERVICE_PORT", service_port)
+        .env("DEPLOY_PORT", deploy_port)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn server");
+    let mut server = KillOnDrop(server);
+
+    // The client holds one conversation and upgrades the server in the
+    // middle of it. Retry until the server is up.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let stdout = loop {
+        let output = Command::new(ambient_bin())
+            .arg("run")
+            .arg(examples_dir().join("deploy_client"))
+            .env("SERVICE_PORT", service_port)
+            .env("DEPLOY_PORT", deploy_port)
+            .env("DEPLOY_PACK", &pack)
+            .output()
+            .expect("run client");
+        if output.status.success() {
+            break strip_ansi(&String::from_utf8_lossy(&output.stdout));
+        }
+        assert!(
+            Instant::now() < deadline,
+            "deploy client never connected:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    };
+
+    // Request one answered by generation one; request two — on the same
+    // connection — by generation two, with the hit counter carried
+    // across the deploy (the cell never left the runtime).
+    assert!(
+        stdout.contains("reply: generation one: hello #1"),
+        "first reply missing:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("reply: generation two: hello again #2"),
+        "post-deploy reply missing:\n{stdout}"
+    );
+    // The server's report names the rebound handler.
+    assert!(
+        stdout.contains("rebound: workspace::deploy_server::handlers::respond"),
+        "deploy report missing the rebinding:\n{stdout}"
+    );
+
+    // A malformed pack is rejected as the perform's Err value — the
+    // server answers and keeps running, nothing faults.
+    let mut conn = std::net::TcpStream::connect(format!("127.0.0.1:{deploy_port}"))
+        .expect("connect to deploy port");
+    send_frame(&mut conn, b"not a pack");
+    let rejection = String::from_utf8_lossy(&recv_frame(&mut conn)).into_owned();
+    assert!(
+        rejection.starts_with("rejected: invalid generation pack"),
+        "malformed pack should be rejected: {rejection}"
+    );
+    drop(conn);
+
+    // And the service still serves, from generation two, still counting.
+    let mut conn = std::net::TcpStream::connect(format!("127.0.0.1:{service_port}"))
+        .expect("connect to service port");
+    send_frame(&mut conn, b"still there?");
+    let reply = String::from_utf8_lossy(&recv_frame(&mut conn)).into_owned();
+    assert_eq!(
+        reply, "generation two: still there? #3",
+        "service should keep serving after a rejected deploy"
+    );
+    drop(conn);
+
+    let _ = server.0.kill();
+    let mut server_err = String::new();
+    if let Some(stderr) = server.0.stderr.as_mut() {
+        let _ = stderr.read_to_string(&mut server_err);
+    }
+    assert!(
+        !server_err.contains("Runtime error"),
+        "server reported a runtime error:\n{server_err}"
+    );
+    let mut server_out = String::new();
+    if let Some(out) = server.0.stdout.as_mut() {
+        let _ = out.read_to_string(&mut server_out);
+    }
+    assert!(
+        server_out.contains("deploy applied") && server_out.contains("deploy rejected"),
+        "server should narrate both deploy outcomes:\n{server_out}"
     );
 }
 
