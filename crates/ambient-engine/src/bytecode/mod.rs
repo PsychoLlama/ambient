@@ -155,6 +155,25 @@ impl CompiledFunction {
         self
     }
 
+    /// Every content hash this function references: the recorded
+    /// `dependencies` plus every hash the constant pool mentions.
+    ///
+    /// The builder mirrors call / closure / handler-arm / suspend-impl
+    /// targets into `dependencies`, but a bare function-as-value and a
+    /// trait-dictionary tuple entry are plain `PushConst`s that record
+    /// nothing — so any closure walker (pack extraction, disk-store gc,
+    /// `load_closure`, the retirement trace) must consult this, never
+    /// `dependencies` alone, or it under-counts and strands (or purges)
+    /// live code.
+    pub fn referenced_hashes(&self) -> impl Iterator<Item = blake3::Hash> + '_ {
+        let constants = self.constants.iter().filter_map(|value| match value {
+            Value::FunctionRef(hash) | Value::ObjectRef(hash) => Some(*hash),
+            Value::AbilityMethodRef(m) => m.impl_fn,
+            _ => None,
+        });
+        self.dependencies.iter().copied().chain(constants)
+    }
+
     /// Look up the precomputed [`MethodKey`] for the constant at `idx`.
     ///
     /// Returns `Some` iff that constant is an `AbilityMethodRef` (every

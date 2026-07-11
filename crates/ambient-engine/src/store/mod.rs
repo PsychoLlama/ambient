@@ -235,10 +235,10 @@ impl Store {
         }
 
         if let Some(func) = self.get(hash) {
-            for dep in &func.dependencies {
-                if !visited.contains(dep) {
-                    result.push(*dep);
-                    self.collect_dependencies(dep, visited, result);
+            for dep in func.referenced_hashes() {
+                if !visited.contains(&dep) {
+                    result.push(dep);
+                    self.collect_dependencies(&dep, visited, result);
                 }
             }
         }
@@ -374,9 +374,11 @@ impl Store {
         }
 
         if let Some(func) = self.get(hash) {
-            // First extract dependencies
-            for dep in &func.dependencies {
-                self.extract_recursive(dep, visited, result);
+            // First extract everything referenced (recorded dependencies
+            // plus bare constant-pool refs — see `referenced_hashes`).
+            let referenced: Vec<blake3::Hash> = func.referenced_hashes().collect();
+            for dep in referenced {
+                self.extract_recursive(&dep, visited, result);
             }
             // Then add the function itself
             result.functions.insert(*hash, Arc::clone(&func));

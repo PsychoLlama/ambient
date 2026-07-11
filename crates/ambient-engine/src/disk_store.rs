@@ -353,9 +353,7 @@ impl DiskStore {
                 .materialize()
                 .map_err(|error| DiskStoreError::Object { hash, error })?;
             for (_, func) in &materialized {
-                for dep in &func.dependencies {
-                    pending.push(*dep);
-                }
+                pending.extend(func.referenced_hashes());
             }
             loaded += materialized.len();
             store
@@ -490,7 +488,7 @@ impl DiskStore {
                     match object.materialize() {
                         Ok(materialized) => {
                             for (_, func) in materialized {
-                                referenced.extend(func.dependencies.iter().copied());
+                                referenced.extend(func.referenced_hashes());
                             }
                         }
                         Err(e) => report.corrupt.push((*hash, e.to_string())),
@@ -545,7 +543,7 @@ impl DiskStore {
                 for (member_hash, func) in materialized {
                     // Member hashes stay reachable (their redirect files).
                     reachable.insert(member_hash);
-                    pending.extend(func.dependencies.iter().copied());
+                    pending.extend(func.referenced_hashes());
                 }
             }
         }
@@ -881,6 +879,33 @@ mod tests {
         assert!(store.contains(&root_hash));
         assert!(store.contains(&dep_hash));
         assert!(!store.contains(&garbage_hash));
+    }
+
+    #[test]
+    fn gc_keeps_a_bare_constant_pool_ref() {
+        // A function passed *as a value* (or a dictionary tuple entry)
+        // is a `PushConst` FunctionRef with no `dependencies` entry —
+        // the reachability walk must read the constant pool too, or gc
+        // purges live code.
+        let (_dir, store) = temp_store();
+
+        let held_hash = store.put_object(&plain(2.0)).expect("put held");
+        let root = StoredObject::Plain(ObjectFunction {
+            bytecode: vec![9],
+            constants: vec![ObjectConstant::Ref(ObjectRef::External(held_hash))],
+            local_count: 0,
+            param_count: 0,
+            dependencies: vec![],
+        });
+        let root_hash = store.put_object(&root).expect("put root");
+
+        let mut names = BTreeMap::new();
+        names.insert("run".to_string(), root_hash);
+        store.write_names(&names).expect("write names");
+
+        let removed = store.gc(&[]).expect("gc");
+        assert_eq!(removed, 0, "the constant-pool ref is reachable");
+        assert!(store.contains(&held_hash));
     }
 
     #[test]
