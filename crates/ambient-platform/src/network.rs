@@ -173,6 +173,60 @@ pub fn network_natives(state: Arc<NetworkState>) -> NativeRegistry {
         }),
     );
 
+    // network_send_raw(conn: number, data: Binary) -> Result<(), string>
+    let state_clone = Arc::clone(&state);
+    bind(
+        &mut registry,
+        "network_send_raw",
+        Arc::new(move |args: Vec<Value>| {
+            into_result((|| {
+                if args.len() < 2 {
+                    return Err(VmError::TypeErrorOwned {
+                        expected: "2 arguments".to_string(),
+                        got: format!("{} arguments", args.len()),
+                    });
+                }
+
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let conn_id = match &args[0] {
+                    Value::Number(n) => *n as u64,
+                    other => {
+                        return Err(VmError::TypeErrorOwned {
+                            expected: "Number".to_string(),
+                            got: other.type_name().to_string(),
+                        });
+                    }
+                };
+
+                let data = extract_bytes(&args[1])?;
+
+                state_clone
+                    .send_raw(conn_id, &data)
+                    .map_err(|e| VmError::exception(format!("Network.send_raw: {e}")))?;
+                Ok(Value::Unit)
+            })())
+        }),
+    );
+
+    // network_receive_raw(conn: number) -> Result<Binary, string>
+    let state_clone = Arc::clone(&state);
+    bind(
+        &mut registry,
+        "network_receive_raw",
+        Arc::new(move |args: Vec<Value>| {
+            into_result((|| {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let conn_id = extract_number(&args)? as u64;
+
+                let data = state_clone
+                    .receive_raw(conn_id)
+                    .map_err(|e| VmError::exception(format!("Network.receive_raw: {e}")))?;
+
+                Ok(Value::binary(data))
+            })())
+        }),
+    );
+
     // network_local_addr(conn: number) -> Result<string, string>
     let state_clone = Arc::clone(&state);
     bind(

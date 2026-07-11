@@ -33,6 +33,9 @@ pub type ConnectionId = u64;
 /// Maximum message size (16 MB).
 pub const MAX_MESSAGE_SIZE: u32 = 16 * 1024 * 1024;
 
+/// How many bytes one raw (unframed) read can return at most.
+const RAW_READ_BUFFER: usize = 64 * 1024;
+
 /// A TCP connection managed by the Network ability.
 ///
 /// The stream is split so that a receiver blocked waiting for bytes does
@@ -358,6 +361,69 @@ impl NetworkState {
         })
     }
 
+    /// Write raw bytes to a connection — no length prefix, no framing.
+    /// The unframed counterpart of [`Self::send`], for speaking foreign
+    /// wire protocols (HTTP, redis, ...). Never mix framed and raw calls
+    /// on one connection: the framed side would read payload bytes as a
+    /// length.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection is invalid or writing fails.
+    pub fn send_raw(&self, conn_id: ConnectionId, data: &[u8]) -> Result<(), NetworkError> {
+        let conn = self.connection(conn_id)?;
+        let mut write = conn.write.lock().map_err(|_| NetworkError::Poisoned)?;
+        self.runtime.block_on(async {
+            write.write_all(data).await?;
+            write.flush().await?;
+            Ok::<_, std::io::Error>(())
+        })?;
+        Ok(())
+    }
+
+    /// Read whatever bytes are next on a connection — no length prefix,
+    /// no framing — blocking until at least one byte arrives. Returns an
+    /// empty buffer when the peer closed the connection (raw reads have
+    /// no frame boundary, so EOF is data, not an error).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection is invalid or reading fails.
+    pub fn receive_raw(&self, conn_id: ConnectionId) -> Result<Vec<u8>, NetworkError> {
+        self.receive_raw_interruptible(conn_id, std::future::pending())
+    }
+
+    /// [`Self::receive_raw`], except the wait also races `cancel`: when
+    /// it completes first, the read is abandoned and the call returns
+    /// [`NetworkError::Interrupted`] — the same drain contract as
+    /// [`Self::receive_interruptible`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection is invalid, reading fails, or
+    /// `cancel` completes first ([`NetworkError::Interrupted`]).
+    pub fn receive_raw_interruptible(
+        &self,
+        conn_id: ConnectionId,
+        cancel: impl Future<Output = ()>,
+    ) -> Result<Vec<u8>, NetworkError> {
+        let conn = self.connection(conn_id)?;
+        let mut read = conn.read.lock().map_err(|_| NetworkError::Poisoned)?;
+
+        self.runtime.block_on(async {
+            let receive = async {
+                let mut buf = vec![0u8; RAW_READ_BUFFER];
+                let n = read.read(&mut buf).await?;
+                buf.truncate(n);
+                Ok(buf)
+            };
+            tokio::select! {
+                result = receive => result,
+                () = cancel => Err(NetworkError::Interrupted),
+            }
+        })
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Connection info
     // ═══════════════════════════════════════════════════════════════════════════
@@ -497,6 +563,36 @@ mod tests {
         assert_eq!(reader.join().unwrap(), b"pong");
 
         state.close(client).unwrap();
+        state.close(server).unwrap();
+        state.close_listener(listener).unwrap();
+    }
+
+    #[test]
+    fn raw_bytes_round_trip_without_framing() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let state = Arc::new(NetworkState::new(runtime.handle().clone()));
+
+        let listener = state.listen("127.0.0.1", 0).unwrap();
+        let port = {
+            let tables = state.lock_tables().unwrap();
+            tables.listeners[&listener].local_addr().unwrap().port()
+        };
+        let accept_state = Arc::clone(&state);
+        let acceptor = std::thread::spawn(move || accept_state.accept(listener).unwrap());
+        let client = state.connect("127.0.0.1", port).unwrap();
+        let server = acceptor.join().unwrap();
+
+        // Raw bytes cross exactly as written: no 4-byte length prefix.
+        state.send_raw(client, b"GET / HTTP/1.0\r\n\r\n").unwrap();
+        let got = state.receive_raw(server).unwrap();
+        assert_eq!(got, b"GET / HTTP/1.0\r\n\r\n");
+
+        // A closed peer reads as an empty buffer (EOF is data, not an
+        // error — raw reads have no frame boundary to violate).
+        state.close(client).unwrap();
+        let got = state.receive_raw(server).unwrap();
+        assert!(got.is_empty());
+
         state.close(server).unwrap();
         state.close_listener(listener).unwrap();
     }

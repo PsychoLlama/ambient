@@ -14,6 +14,10 @@ extern fn network_close(connection: Number): Result<(), String>;
 extern fn network_send(connection: Number, data: Binary): Result<(), String>;
 /// Block until bytes arrive on a connection.
 extern fn network_receive(connection: Number): Result<Binary, String>;
+/// Write raw bytes — no framing.
+extern fn network_send_raw(connection: Number, data: Binary): Result<(), String>;
+/// Read whatever raw bytes arrive next — no framing.
+extern fn network_receive_raw(connection: Number): Result<Binary, String>;
 /// The local address of a connection.
 extern fn network_local_addr(connection: Number): Result<String, String>;
 /// The remote address of a connection.
@@ -48,6 +52,19 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000007) ability Network {
   /// Block until bytes arrive on a connection.
   fn receive(connection: Number): Result<Binary, String> {
     network_receive(connection)
+  }
+  /// Write raw bytes over a connection — no length prefix, no framing.
+  /// For speaking foreign wire protocols (HTTP, ...); `send`/`receive`
+  /// frame every message with a 4-byte length and only understand each
+  /// other. Never mix framed and raw calls on one connection.
+  fn send_raw(connection: Number, data: Binary): Result<(), String> {
+    network_send_raw(connection, data)
+  }
+  /// Block until raw bytes arrive on a connection and return whatever
+  /// is there (up to one internal buffer). An empty buffer means the
+  /// peer closed the connection.
+  fn receive_raw(connection: Number): Result<Binary, String> {
+    network_receive_raw(connection)
   }
   /// The local address of a connection.
   fn local_addr(connection: Number): Result<String, String> {

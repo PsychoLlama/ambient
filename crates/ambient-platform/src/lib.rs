@@ -496,6 +496,18 @@ pub(crate) const EXTERN_BINDINGS: &[ExternBinding] = &[
         slot: 0x35,
         arity: 1,
     },
+    ExternBinding {
+        name: "network_send_raw",
+        module: "network",
+        slot: 0x36,
+        arity: 2,
+    },
+    ExternBinding {
+        name: "network_receive_raw",
+        module: "network",
+        slot: 0x37,
+        arity: 1,
+    },
 ];
 
 /// The binding-table entry for an extern name.

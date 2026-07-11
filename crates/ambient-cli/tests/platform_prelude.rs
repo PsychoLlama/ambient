@@ -71,6 +71,8 @@ fn declarations_expose_the_expected_interfaces() {
                 "close",
                 "send",
                 "receive",
+                "send_raw",
+                "receive_raw",
                 "local_addr",
                 "peer_addr",
             ],

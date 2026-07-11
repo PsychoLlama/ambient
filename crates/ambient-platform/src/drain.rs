@@ -6,7 +6,8 @@
 //!
 //! 1. **Wakes blocked interruptible natives.** [`install_drain_natives`]
 //!    overrides the interruptible subset of blocking platform natives
-//!    (`network_accept`, `network_receive`, `time_wait`) on the
+//!    (`network_accept`, `network_receive`, `network_receive_raw`,
+//!    `time_wait`) on the
 //!    computation's VM with variants that race the blocking operation
 //!    against the signal. An interrupted native returns
 //!    [`VmError::Interrupted`] carrying the `Drain::requested` anchors
@@ -196,9 +197,9 @@ fn network_error(op: &str, error: NetworkError) -> VmError {
 }
 
 /// Make a VM's blocking natives drain-aware: override the interruptible
-/// subset (`network_accept`, `network_receive`, `time_wait`) with
-/// variants bound to `signal`, and wire the signal's hard-stop flag into
-/// the VM. Implementations are uuid-keyed, so these overrides win over
+/// subset (`network_accept`, `network_receive`, `network_receive_raw`,
+/// `time_wait`) with variants bound to `signal`, and wire the signal's
+/// hard-stop flag into the VM. Implementations are uuid-keyed, so these overrides win over
 /// the registry-installed ones — per-VM wiring, exactly like the process
 /// runtime's `process_*` natives.
 ///
@@ -260,6 +261,26 @@ pub fn install_drain_natives(vm: &mut Vm, network: &Arc<NetworkState>, signal: &
                 let data = net
                     .receive_interruptible(conn_id, s.cancelled())
                     .map_err(|e| network_error("receive", e))?;
+                Ok(Value::binary(data))
+            })())
+        }),
+    );
+
+    // network_receive_raw(conn) -> Result<Binary, string>, interruptible.
+    let s = Arc::clone(signal);
+    let net = Arc::clone(network);
+    vm.register_native_impl(
+        native_uuid("network_receive_raw"),
+        Arc::new(move |args: Vec<Value>| {
+            into_result((|| {
+                if s.is_requested() {
+                    return Err(drain_interrupt());
+                }
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let conn_id = extract_number(&args)? as u64;
+                let data = net
+                    .receive_raw_interruptible(conn_id, s.cancelled())
+                    .map_err(|e| network_error("receive_raw", e))?;
                 Ok(Value::binary(data))
             })())
         }),
