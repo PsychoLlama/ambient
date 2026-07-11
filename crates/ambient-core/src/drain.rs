@@ -69,7 +69,11 @@ mod tests {
         assert_eq!(ability_id(), AbilityId::from_uuid(&DRAIN_UUID));
         assert_eq!(
             requested_method_key(),
-            MethodKey::derive(&DRAIN_UUID, &SignatureHash::new(&[] as &[&str], "never"), None)
+            MethodKey::derive(
+                &DRAIN_UUID,
+                &SignatureHash::new(&[] as &[&str], "never"),
+                None
+            )
         );
     }
 }
