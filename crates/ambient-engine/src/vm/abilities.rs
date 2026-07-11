@@ -82,7 +82,13 @@ impl Vm {
                 });
             }
         };
+        self.perform_suspended(ability)
+    }
 
+    /// Dispatch a suspended ability at the current execution point — the
+    /// shared tail of the `Perform` opcode and the native interrupt
+    /// channel ([`Self::deliver_interrupt`]).
+    fn perform_suspended(&mut self, ability: Arc<SuspendedAbility>) -> Result<(), VmError> {
         // Innermost handler that covers this method. Handlers install
         // per-ability, but a handler value need not cover every method;
         // an uncovered method falls through to the next handler out — but
@@ -125,6 +131,29 @@ impl Vm {
         }
 
         Ok(())
+    }
+
+    /// Deliver a host interrupt at the current execution point: perform
+    /// the identified ability method as a host-constructed suspended
+    /// **never** value with no arguments and no default implementation
+    /// (the abstract carve-out — `Drain::requested` is the canonical
+    /// case). This is how a blocking native interrupted by the host
+    /// (see [`VmError::Interrupted`]) lands its unwind exactly at the
+    /// interrupted perform site: the nearest covering handler arm runs
+    /// with no continuation, and with no handler in scope the perform is
+    /// an unhandled-ability fault the driving host observes.
+    pub(super) fn deliver_interrupt(
+        &mut self,
+        ability_id: ambient_core::AbilityId,
+        method: MethodKey,
+    ) -> Result<(), VmError> {
+        self.perform_suspended(Arc::new(SuspendedAbility {
+            ability_id,
+            method,
+            impl_fn: None,
+            never: true,
+            args: Vec::new(),
+        }))
     }
 
     /// Raise a language-level exception at the current execution point.

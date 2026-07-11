@@ -216,6 +216,26 @@ pub enum VmError {
     /// Exception handler is in scope — an uncaught exception.
     Exception(Value),
 
+    /// A blocking native was interrupted by the host (a drain request
+    /// unblocking `Network::accept`, say). This is the interrupt channel
+    /// for natives, the sibling of [`VmError::Exception`]: returning it
+    /// makes the VM perform the identified ability method — an abstract
+    /// never-returning operation, delivered as a host-constructed
+    /// suspended never value — at the native's own call site, so the
+    /// unwind lands exactly at the interrupted perform. It only surfaces
+    /// as a hard error when a native returns it outside a VM execution
+    /// context.
+    Interrupted {
+        ability_id: ambient_core::AbilityId,
+        method: ambient_core::MethodKey,
+    },
+
+    /// The host stopped the VM through its interrupt flag (see
+    /// `Vm::set_interrupt_flag`): a computation that failed to reach an
+    /// interruptible perform before a drain deadline is hard-stopped at
+    /// the next opcode boundary. Not catchable in-language.
+    HardStopped,
+
     /// I/O error (from Remote ability or other I/O operations).
     IoError(String),
 
@@ -317,6 +337,15 @@ impl std::fmt::Display for VmError {
                     crate::format::format_value(value)
                 )
             }
+            Self::Interrupted { ability_id, method } => {
+                write!(
+                    f,
+                    "interrupted: ability {}, method {}",
+                    ability_id.short_hex(),
+                    method.short_hex()
+                )
+            }
+            Self::HardStopped => write!(f, "computation hard-stopped by the host"),
             Self::IoError(msg) => write!(f, "I/O error: {msg}"),
             Self::LockPoisoned => write!(f, "mutex lock poisoned"),
         }

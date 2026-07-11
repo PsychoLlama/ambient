@@ -14,7 +14,24 @@ impl Vm {
     /// [`Vm::invoke`] for a nested region.
     #[allow(clippy::too_many_lines)]
     pub(super) fn run_until(&mut self, base_frames: usize) -> Result<Value, VmError> {
+        // How many opcodes run between checks of the host's hard-stop
+        // flag: small enough that "the runtime's next opportunity" is
+        // effectively immediate, large enough that the atomic load never
+        // shows up in the loop's profile.
+        const INTERRUPT_CHECK_INTERVAL: u32 = 64;
+        let mut interrupt_fuel = INTERRUPT_CHECK_INTERVAL;
+
         loop {
+            interrupt_fuel -= 1;
+            if interrupt_fuel == 0 {
+                interrupt_fuel = INTERRUPT_CHECK_INTERVAL;
+                if let Some(flag) = &self.interrupt
+                    && flag.load(std::sync::atomic::Ordering::Relaxed)
+                {
+                    return Err(VmError::HardStopped);
+                }
+            }
+
             let op = self.fetch_opcode()?;
 
             match op {

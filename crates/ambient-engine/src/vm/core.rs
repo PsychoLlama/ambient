@@ -92,6 +92,14 @@ pub struct Vm {
     /// implementations instead.
     pub(super) handler_barriers: Vec<usize>,
 
+    /// Host hard-stop flag (see [`Self::set_interrupt_flag`]). When set,
+    /// the execution loop aborts with [`VmError::HardStopped`] at its
+    /// next check — the runtime's "next opportunity" for a computation
+    /// that failed to reach an interruptible perform before a drain
+    /// deadline. Host wiring, like natives: it survives the state reset
+    /// at the start of each `call`.
+    pub(super) interrupt: Option<Arc<std::sync::atomic::AtomicBool>>,
+
     /// Maximum call stack depth to prevent infinite recursion.
     pub(super) max_call_depth: usize,
 }
@@ -123,6 +131,7 @@ impl Vm {
             native_impls: HashMap::new(),
             native_vm_impls: HashMap::new(),
             handler_barriers: Vec::new(),
+            interrupt: None,
             max_call_depth: 1000,
         };
         vm.register_natives(crate::natives::core_natives());
@@ -164,6 +173,17 @@ impl Vm {
     /// re-registration.
     pub fn register_native_vm_impl(&mut self, uuid: uuid::Uuid, func: crate::natives::NativeVmFn) {
         self.native_vm_impls.insert(uuid, func);
+    }
+
+    /// Wire the host's hard-stop flag: while it is set, the execution
+    /// loop aborts with [`VmError::HardStopped`] at its next periodic
+    /// check instead of fetching another opcode. The host sets the flag
+    /// from another thread (a drain-deadline watchdog, say) to stop a
+    /// computation that never reaches an interruptible perform. A native
+    /// blocked in the host is not interrupted by this — the flag is
+    /// observed only between opcodes.
+    pub fn set_interrupt_flag(&mut self, flag: Arc<std::sync::atomic::AtomicBool>) {
+        self.interrupt = Some(flag);
     }
 
     /// Register every implementation in a [`NativeRegistry`] — how a VM
@@ -388,14 +408,8 @@ impl Vm {
         if let Some(func) = self.native_vm_impls.get(&uuid).cloned() {
             let split = self.stack.len() - arg_count as usize;
             let args = self.stack.split_off(split);
-            return match func(self, args) {
-                Ok(result) => {
-                    self.stack.push(result);
-                    Ok(())
-                }
-                Err(VmError::Exception(error)) => self.raise_exception(error),
-                Err(other) => Err(other),
-            };
+            let result = func(self, args);
+            return self.finish_native_call(result);
         }
         let func = self
             .native_impls
@@ -406,23 +420,37 @@ impl Vm {
             .clone();
         let split = self.stack.len() - arg_count as usize;
         let args = self.stack.split_off(split);
-        match func(args) {
+        let result = func(args);
+        self.finish_native_call(result)
+    }
+
+    /// Apply a native's result contract at its call site.
+    ///
+    /// - A native raising an exception behaves exactly like
+    ///   `Exception.throw!` at the call site: the caller's frames are
+    ///   intact, so the nearest in-language Exception handler catches
+    ///   it. This is *not* how fallible operations report failure —
+    ///   those (missing file, refused connection) return an in-language
+    ///   `Result::Err` value instead. This channel is reserved for hard
+    ///   faults a native can still detect at runtime: an unwired
+    ///   capability (`... is not wired`) or a control error like
+    ///   spawning a live process name. Exception arms are catch-only
+    ///   now, so such a throw cannot be resumed with a substitute — it
+    ///   is caught-and-continued or surfaces uncaught.
+    /// - A native interrupted by the host (a drain request unblocking a
+    ///   blocking operation) returns [`VmError::Interrupted`]: the VM
+    ///   performs the identified never-returning method here, at the
+    ///   interrupted perform site (see [`Vm::deliver_interrupt`]).
+    fn finish_native_call(&mut self, result: Result<Value, VmError>) -> Result<(), VmError> {
+        match result {
             Ok(result) => {
                 self.stack.push(result);
                 Ok(())
             }
-            // A native raising an exception behaves exactly like
-            // `Exception.throw!` at the call site: the caller's frames are
-            // intact, so the nearest in-language Exception handler catches
-            // it. This is *not* how fallible operations report failure —
-            // those (missing file, refused connection) return an in-language
-            // `Result::Err` value instead. This channel is reserved for hard
-            // faults a native can still detect at runtime: an unwired
-            // capability (`... is not wired`) or a control error like
-            // spawning a live process name. Exception arms are catch-only
-            // now, so such a throw cannot be resumed with a substitute — it
-            // is caught-and-continued or surfaces uncaught.
             Err(VmError::Exception(error)) => self.raise_exception(error),
+            Err(VmError::Interrupted { ability_id, method }) => {
+                self.deliver_interrupt(ability_id, method)
+            }
             Err(other) => Err(other),
         }
     }

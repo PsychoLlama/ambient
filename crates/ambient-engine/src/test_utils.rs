@@ -73,6 +73,7 @@ pub struct VmTest {
     locals: u16,
     params: u8,
     aux_functions: Vec<CompiledFunction>,
+    natives: Vec<(blake3::Hash, uuid::Uuid, u8, crate::natives::NativeFn)>,
     call_args: Vec<Value>,
     predetermined_hash: Option<blake3::Hash>,
 }
@@ -92,6 +93,7 @@ impl VmTest {
             locals: 0,
             params: 0,
             aux_functions: Vec::new(),
+            natives: Vec::new(),
             call_args: Vec::new(),
             predetermined_hash: None,
         }
@@ -133,6 +135,32 @@ impl VmTest {
     #[must_use]
     pub fn with_function(mut self, func: CompiledFunction) -> Self {
         self.aux_functions.push(func);
+        self
+    }
+
+    /// Load a synthetic native under `blake3(name)` (uuid derived from
+    /// the same hash) and register `func` as its implementation. Call it
+    /// with [`Self::call_native`].
+    #[must_use]
+    pub fn with_native(
+        mut self,
+        name: &str,
+        param_count: u8,
+        func: crate::natives::NativeFn,
+    ) -> Self {
+        let hash = blake3::hash(name.as_bytes());
+        let uuid = uuid::Uuid::from_u128(u128::from_le_bytes(
+            hash.as_bytes()[..16].try_into().expect("16 hash bytes"),
+        ));
+        self.natives.push((hash, uuid, param_count, func));
+        self
+    }
+
+    /// Emit a call to a native previously added with [`Self::with_native`].
+    #[must_use]
+    pub fn call_native(mut self, name: &str, arg_count: u8) -> Self {
+        self.builder
+            .emit_call(blake3::hash(name.as_bytes()), arg_count);
         self
     }
 
@@ -459,6 +487,10 @@ impl VmTest {
         let mut vm = Vm::new();
         for aux in self.aux_functions {
             vm.load_function(aux);
+        }
+        for (hash, uuid, param_count, func) in self.natives {
+            vm.load_native(hash, uuid, param_count);
+            vm.register_native_impl(uuid, func);
         }
         vm.load_function(func);
 
