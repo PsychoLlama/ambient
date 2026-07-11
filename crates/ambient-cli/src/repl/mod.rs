@@ -198,7 +198,7 @@ impl ReplSession {
         let project_root = find_project_root(project_dir);
         let (package, base, imported_hashes) = build_base(project_root.as_deref())?;
         // The REPL has no program args; `Env::args!()` is empty.
-        let host = RuntimeHost::new(noop_event_sink(), Vec::new())?;
+        let host = RuntimeHost::new(noop_event_sink(), noop_task_event_sink(), Vec::new())?;
 
         Ok(Self {
             entries: Vec::new(),
@@ -220,7 +220,7 @@ impl ReplSession {
         self.base = base;
         self.imported_hashes = imported_hashes;
         self.entry_counter = 0;
-        self.host = RuntimeHost::new(noop_event_sink(), Vec::new())?;
+        self.host = RuntimeHost::new(noop_event_sink(), noop_task_event_sink(), Vec::new())?;
         // Drop any lingering `repl` module from the package.
         self.sync_repl_module(&self.committed_source());
         Ok(())
@@ -332,10 +332,10 @@ impl ReplSession {
             .deploy(&merged, &entry_qualified)
             .map_err(|e| format!("{e}"))?;
 
-        if matches!(outcome.value, Value::Unit) {
+        if matches!(outcome.processes.value, Value::Unit) {
             Ok(None)
         } else {
-            Ok(Some(outcome.value))
+            Ok(Some(outcome.processes.value))
         }
     }
 
@@ -424,6 +424,10 @@ impl ReplSession {
 /// A no-op process event sink: the REPL is quiet about process lifecycle.
 fn noop_event_sink() -> EventSink {
     Arc::new(|_event: &ProcessEvent| {})
+}
+
+fn noop_task_event_sink() -> ambient_platform::TaskEventSink {
+    Arc::new(|_event: &ambient_platform::TaskEvent| {})
 }
 
 /// Build the base compiled module and its analysis package.

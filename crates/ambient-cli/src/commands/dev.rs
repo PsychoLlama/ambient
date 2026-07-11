@@ -19,6 +19,7 @@ use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use ambient_engine::format::format_value;
 use ambient_engine::value::Value;
 use ambient_platform::process::ProcessEvent;
+use ambient_platform::task::{TaskEvent, TaskEventSink};
 
 use super::host::RuntimeHost;
 
@@ -66,11 +67,11 @@ pub fn cmd_dev(path: &Path, entry: &str, watch_dirs: Option<&[PathBuf]>) -> Resu
             .with_context(|| format!("failed to watch {}", watch_path.display()))?;
     }
 
-    // One host for the whole session: the process tree survives
-    // redeploys — that's the point. `dev` passes no program args:
-    // `Env::args!()` has no coherent meaning across the reconciliation
-    // re-deploys that define the dev loop.
-    let host = RuntimeHost::new(event_printer(), Vec::new())?;
+    // One host for the whole session: the process tree and task
+    // registry survive redeploys — that's the point. `dev` passes no
+    // program args: `Env::args!()` has no coherent meaning across the
+    // reconciliation re-deploys that define the dev loop.
+    let host = RuntimeHost::new(event_printer(), task_event_printer(), Vec::new())?;
 
     // Initial deploy. Failures (including compile errors) leave the dev
     // loop watching, same as any later iteration.
@@ -126,33 +127,42 @@ fn deploy_iteration(host: &RuntimeHost, path: &Path, entry: &str) {
     let deploy_start = Instant::now();
     match host.deploy(&compiled, entry) {
         Ok(outcome) => {
+            let processes = &outcome.processes;
+            let tasks = &outcome.tasks;
             let mut parts = Vec::new();
-            if !outcome.started.is_empty() {
-                parts.push(format!("started {}", outcome.started.join(", ")));
+            if !processes.started.is_empty() {
+                parts.push(format!("started {}", processes.started.join(", ")));
             }
-            if !outcome.upgraded.is_empty() {
-                parts.push(format!("upgraded {}", outcome.upgraded.join(", ")));
+            if !processes.upgraded.is_empty() {
+                parts.push(format!("upgraded {}", processes.upgraded.join(", ")));
             }
-            if !outcome.stopped.is_empty() {
-                parts.push(format!("stopped {}", outcome.stopped.join(", ")));
+            if !processes.stopped.is_empty() {
+                parts.push(format!("stopped {}", processes.stopped.join(", ")));
             }
-            if outcome.unchanged > 0 {
-                parts.push(format!("{} unchanged", outcome.unchanged));
+            if !tasks.started.is_empty() {
+                parts.push(format!("tasks started: {}", tasks.started.join(", ")));
             }
-            if !outcome.names.retired.is_empty() {
+            if !tasks.drained.is_empty() {
+                parts.push(format!("tasks draining: {}", tasks.drained.join(", ")));
+            }
+            let unchanged = processes.unchanged + tasks.unchanged;
+            if unchanged > 0 {
+                parts.push(format!("{unchanged} unchanged"));
+            }
+            if !processes.names.retired.is_empty() {
                 // Signature-changed names never rebind: `Live::latest!`
                 // keeps resolving old refs to themselves until their
                 // callers upgrade (ref/live-upgrade.md, rebinding rule).
                 parts.push(format!(
                     "signature changed, retired (not rebound): {}",
-                    outcome.names.retired.join(", ")
+                    processes.names.retired.join(", ")
                 ));
             }
             let summary = if parts.is_empty() {
-                if matches!(outcome.value, Value::Unit) {
+                if matches!(processes.value, Value::Unit) {
                     "done".to_string()
                 } else {
-                    format_value(&outcome.value)
+                    format_value(&processes.value)
                 }
             } else {
                 parts.join(", ")
@@ -203,6 +213,37 @@ fn event_printer() -> Arc<dyn Fn(&ProcessEvent) + Send + Sync> {
         }
         ProcessEvent::InitFailed { name, error } => {
             eprintln!("\x1b[1;31m[crash]\x1b[0m process `{name}` failed to initialize: {error}");
+        }
+    })
+}
+
+/// Event sink that narrates task lifecycle to stderr.
+fn task_event_printer() -> TaskEventSink {
+    Arc::new(|event: &TaskEvent| match event {
+        TaskEvent::Started { name } => {
+            eprintln!("{TAG} task `{name}` started");
+        }
+        TaskEvent::Draining { name } => {
+            eprintln!("{TAG} task `{name}` draining (unwinds at its next interruptible perform)");
+        }
+        TaskEvent::Drained { name, cleanly } => {
+            if *cleanly {
+                eprintln!("{TAG} task `{name}` drained");
+            } else {
+                eprintln!("{TAG} task `{name}` drained (no Drain::requested arm ran)");
+            }
+        }
+        TaskEvent::Faulted {
+            name,
+            error,
+            restarting,
+        } => {
+            eprintln!("\x1b[1;31m[crash]\x1b[0m task `{name}`: {error}");
+            if *restarting {
+                eprintln!("{TAG} task `{name}` restarting (the next pass re-resolves)");
+            } else {
+                eprintln!("{TAG} task `{name}` parked");
+            }
         }
     })
 }
