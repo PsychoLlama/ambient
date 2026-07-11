@@ -28,9 +28,9 @@ pub fn home(): String with State {
 }
 
 pub fn stats_page(): String with State {
-  // The typed parameter is what pins the cell read's type: `get` is
-  // generic, and the argument position resolves it to `Stats`.
-  render_stats(State::get!("stats"))
+  // `get` is generic; the annotation pins the cell read at `Stats`.
+  let stats: Stats = State::get!("stats");
+  render_stats(stats)
 }
 
 fn render_stats(stats: Stats): String {
