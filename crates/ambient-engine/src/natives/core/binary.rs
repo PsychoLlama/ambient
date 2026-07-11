@@ -3,7 +3,8 @@
 use crate::{Value, VmError};
 
 use super::{
-    NativeRegistry, binary_arg, bind, list, module, number, slice_bound, type_error, usize_index,
+    NativeRegistry, binary_arg, bind, list, module, number, slice_bound, string, type_error,
+    usize_index,
 };
 
 fn from(mut args: Vec<Value>) -> Result<Value, VmError> {
@@ -62,6 +63,17 @@ fn concat(mut args: Vec<Value>) -> Result<Value, VmError> {
     Ok(Value::binary(result))
 }
 
+fn from_string(mut args: Vec<Value>) -> Result<Value, VmError> {
+    let text = string(&mut args, 0, "bytes_from_string")?;
+    Ok(Value::binary(text.as_bytes().to_vec()))
+}
+
+fn to_string(mut args: Vec<Value>) -> Result<Value, VmError> {
+    let bytes = binary_arg(&mut args, 0, "bytes_to_string")?;
+    Ok(std::str::from_utf8(&bytes)
+        .map_or_else(|_| Value::none(), |text| Value::some(Value::string(text))))
+}
+
 pub(super) fn register(reg: &mut NativeRegistry) {
     let m = module(&["core", "primitives", "binary"]);
     bind(reg, &m, "from", 0x0601, 1, from);
@@ -70,4 +82,6 @@ pub(super) fn register(reg: &mut NativeRegistry) {
     bind(reg, &m, "get", 0x0604, 2, get);
     bind(reg, &m, "slice", 0x0605, 3, slice);
     bind(reg, &m, "concat", 0x0606, 2, concat);
+    bind(reg, &m, "from_string", 0x0607, 1, from_string);
+    bind(reg, &m, "to_string", 0x0608, 1, to_string);
 }

@@ -24,6 +24,10 @@ extern fn get(bytes: Binary, i: Number): Option<Number>;
 extern fn slice(bytes: Binary, start: Number, end: Number): Binary;
 /// `a` and `b` joined end to end.
 extern fn concat(a: Binary, b: Binary): Binary;
+/// The UTF-8 bytes of a string.
+extern fn from_string(text: String): Binary;
+/// The buffer decoded as UTF-8 text, if valid.
+extern fn to_string(bytes: Binary): Option<String>;
 
 // The public surface: `Binary::from(bytes)` to construct, then receiver
 // methods (`b.length()`, `b.slice(0, 4)`, ...) over the externs above.
@@ -55,5 +59,13 @@ impl Binary {
     // Concatenate `other` onto the end of this buffer.
     fn concat(self, other: Binary): Binary {
         concat(self, other)
+    }
+    // The UTF-8 bytes of a string.
+    fn from_string(text: String): Binary {
+        from_string(text)
+    }
+    // The buffer decoded as UTF-8 text, if valid.
+    fn to_string(self): Option<String> {
+        to_string(self)
     }
 }

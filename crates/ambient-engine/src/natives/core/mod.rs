@@ -324,6 +324,20 @@ mod tests {
     }
 
     #[test]
+    fn binary_string_bridge() {
+        // Round trip: UTF-8 encode, then decode.
+        let encoded = call(0x0607, vec![Value::string("héllo")]).unwrap();
+        assert_eq!(call(0x0603, vec![encoded.clone()]), Ok(num(6.0)));
+        assert_eq!(
+            call(0x0608, vec![encoded]),
+            Ok(Value::some(Value::string("héllo")))
+        );
+        // Invalid UTF-8 decodes to None, not a fault.
+        let invalid = call(0x0601, vec![nums(&[0xFF as f64])]).unwrap();
+        assert_eq!(call(0x0608, vec![invalid]), Ok(Value::none()));
+    }
+
+    #[test]
     fn reflect_tag() {
         assert_eq!(call(0x0801, vec![Value::some(num(1.0))]), Ok(num(1.0)));
         assert_eq!(call(0x0801, vec![Value::none()]), Ok(num(0.0)));
@@ -382,6 +396,8 @@ mod tests {
         expect(&["core", "collections", "set"], "to_list", 0x0509, 1);
         expect(&["core", "primitives", "binary"], "from", 0x0601, 1);
         expect(&["core", "primitives", "binary"], "concat", 0x0606, 2);
+        expect(&["core", "primitives", "binary"], "from_string", 0x0607, 1);
+        expect(&["core", "primitives", "binary"], "to_string", 0x0608, 1);
         expect(&["core", "convert"], "to_string", 0x0701, 1);
         expect(&["core", "convert"], "parse_bool", 0x0703, 1);
         expect(&["core", "reflect"], "tag", 0x0801, 1);
