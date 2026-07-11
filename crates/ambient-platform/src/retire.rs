@@ -30,7 +30,7 @@
 //! hash it alone still owns — code that was changed away from — is
 //! reachable. That is exactly "the upgrade is not finished".
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use ambient_ability::Value;
@@ -179,8 +179,9 @@ pub(crate) struct Reach {
 
 /// Trace reachability from per-root seed hashes through the cumulative
 /// object stores: a function hash expands to its static `dependencies`
-/// (complete by construction — the bytecode builder mirrors every
-/// hash-bearing constant into it); a `const` value object expands to the
+/// *and* every hash its constant pool mentions (the builder does not
+/// mirror a bare function-as-value `PushConst` into `dependencies`, so
+/// constants are walked too); a `const` value object expands to the
 /// hashes inside its value; a native object is a leaf.
 pub(crate) fn reach(loaded: &Loaded, seeds: &[(usize, Vec<blake3::Hash>)]) -> Reach {
     let mut seen: HashMap<blake3::Hash, usize> = HashMap::new();
@@ -198,6 +199,9 @@ pub(crate) fn reach(loaded: &Loaded, seeds: &[(usize, Vec<blake3::Hash>)]) -> Re
         let mut next = Vec::new();
         if let Some(func) = loaded.functions.get(&hash) {
             next.extend(func.dependencies.iter().copied());
+            for constant in &func.constants {
+                value_code_hashes(constant, &mut next);
+            }
         } else if let Some(value) = loaded.values.get(&hash) {
             value_code_hashes(value, &mut next);
         }
@@ -240,11 +244,17 @@ impl Pin {
     /// named ancestor (`closure of <name>`), or a hash prefix.
     #[must_use]
     pub fn describe(&self) -> String {
-        match &self.label {
-            Some(label) if label.direct => format!("`{}`", label.name),
-            Some(label) => format!("closure of `{}`", label.name),
-            None => format!("fn {}", &self.hash.to_hex().as_str()[..12]),
-        }
+        describe_hash(self.label.as_ref(), &self.hash)
+    }
+}
+
+/// Render a hash for diagnostics by its label: deployed name, named
+/// ancestor, or a hash prefix.
+fn describe_hash(label: Option<&Label>, hash: &blake3::Hash) -> String {
+    match label {
+        Some(label) if label.direct => format!("`{}`", label.name),
+        Some(label) => format!("closure of `{}`", label.name),
+        None => format!("fn {}", &hash.to_hex().as_str()[..12]),
     }
 }
 
@@ -281,6 +291,80 @@ pub struct RetirementReport {
     /// on-disk store while a system is live (`DiskStore::gc` extra
     /// roots).
     pub reachable: Vec<blake3::Hash>,
+}
+
+/// A name the current deploy changed: rebound (same signature) or
+/// retired-and-fresh (signature changed). Input to the deploy warnings.
+pub(crate) struct ChangedName {
+    pub(crate) name: Arc<str>,
+    pub(crate) old: blake3::Hash,
+    pub(crate) new: blake3::Hash,
+}
+
+/// A deploy-report warning (see `ref/live-upgrade.md`, "Deploy
+/// diagnostics"): a failure mode content addressing lets the deploy pass
+/// *see* rather than hit silently.
+#[derive(Debug, Clone)]
+pub enum DeployWarning {
+    /// A changed name whose running old copy can never pick the change
+    /// up — it can only retire on restart (or when its holder drops it).
+    UnreachableChange {
+        name: Arc<str>,
+        /// The root holding the old copy.
+        pinned_by: RootOrigin,
+        /// True when the name's lineage is severed (`latest` resolves
+        /// the old hash to itself — a signature change or diverged
+        /// aliases), so the holder's own late binding can never go
+        /// forward. False when the change is orphaned: no live re-entry
+        /// point (the entry, a task body resolution) reaches the new
+        /// code at all.
+        severed: bool,
+    },
+    /// Live (old-generation) code performs an ability method key that no
+    /// current handler covers, while current code *does* handle that
+    /// ability — the ability-evolution drift channel: the perform falls
+    /// through to its old default, soundly but silently.
+    UncoveredMethodKey {
+        ability: uuid::Uuid,
+        method: ambient_core::MethodKey,
+        /// What performs it (deployed name, named ancestor, or hash).
+        performer: String,
+    },
+}
+
+impl std::fmt::Display for DeployWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnreachableChange {
+                name,
+                pinned_by,
+                severed: true,
+            } => write!(
+                f,
+                "`{name}` changed, but the running copy (pinned by {pinned_by}) resolves to \
+                 itself — the change can only land on restart"
+            ),
+            Self::UnreachableChange {
+                name,
+                pinned_by,
+                severed: false,
+            } => write!(
+                f,
+                "`{name}` changed, but no live re-entry point reaches the new code — the \
+                 running copy (pinned by {pinned_by}) can only retire on restart"
+            ),
+            Self::UncoveredMethodKey {
+                ability,
+                method,
+                performer,
+            } => write!(
+                f,
+                "live code in {performer} performs method {} of ability {ability}, which no \
+                 current handler covers — the perform falls through to its old default",
+                method.short_hex()
+            ),
+        }
+    }
 }
 
 /// The generation ledger: which deploy shipped which hashes, what names
@@ -405,5 +489,103 @@ impl Ledger {
         report.reachable = reach.seen.keys().copied().collect();
         report.reachable.sort_unstable_by_key(blake3::Hash::to_hex);
         report
+    }
+
+    /// Compute one deploy's warnings (see [`DeployWarning`]).
+    ///
+    /// - `live` is the reach from runtime-held roots only (cells, task
+    ///   and process registries) — the code the running system holds.
+    /// - `fresh` is the reach from live re-entry points: the entry (it
+    ///   re-runs on every deploy) plus every task root's forward
+    ///   resolution (the runtime re-resolves task bodies each pass).
+    /// - `changed` is the swap's rebound + retired names.
+    /// - `latest` is one forward resolution against the swapped table.
+    pub(crate) fn warnings(
+        &self,
+        loaded: &Loaded,
+        live: &Reach,
+        fresh: &Reach,
+        origins: &[RootOrigin],
+        changed: &[ChangedName],
+        latest: &dyn Fn(&blake3::Hash) -> blake3::Hash,
+    ) -> Vec<DeployWarning> {
+        let mut warnings = Vec::new();
+
+        // Unreachable change: a changed name with a live old copy that
+        // the change can never reach — its lineage is severed (the
+        // holder's resolution returns the old hash forever), or the new
+        // code is orphaned from every live re-entry point.
+        let mut changed: Vec<&ChangedName> = changed.iter().collect();
+        changed.sort_by_key(|change| Arc::clone(&change.name));
+        for change in changed {
+            let Some(root) = live.seen.get(&change.old) else {
+                continue;
+            };
+            let severed = latest(&change.old) == change.old;
+            if severed || !fresh.seen.contains_key(&change.new) {
+                warnings.push(DeployWarning::UnreachableChange {
+                    name: Arc::clone(&change.name),
+                    pinned_by: origins[*root].clone(),
+                    severed,
+                });
+            }
+        }
+
+        // Uncovered method key: strictly-old live code performs a key
+        // that current code neither performs nor covers, while current
+        // code *does* cover some key of the same ability — the method
+        // was re-keyed (ability evolution) under the old code's feet.
+        // The ability scoping is deliberate: default-implemented
+        // abilities that are never handled in bytecode (State, Time,
+        // ...) must not warn on every old perform.
+        let mut covered: HashSet<ambient_core::MethodKey> = HashSet::new();
+        let mut fresh_performed: HashSet<ambient_core::MethodKey> = HashSet::new();
+        let mut fresh_covered_abilities: HashSet<uuid::Uuid> = HashSet::new();
+        for hash in live.seen.keys().chain(fresh.seen.keys()) {
+            let Some(func) = loaded.functions.get(hash) else {
+                continue;
+            };
+            let is_fresh = fresh.seen.contains_key(hash);
+            let sites = ambient_engine::bytecode::method_ref_sites(func);
+            for method in sites.covered {
+                covered.insert(method.method_key());
+                if is_fresh {
+                    fresh_covered_abilities.insert(method.ability_uuid);
+                }
+            }
+            if is_fresh {
+                for method in sites.performed {
+                    fresh_performed.insert(method.method_key());
+                }
+            }
+        }
+        let mut old_code: Vec<&blake3::Hash> = live
+            .seen
+            .keys()
+            .filter(|hash| !fresh.seen.contains_key(*hash))
+            .collect();
+        old_code.sort_unstable_by_key(|hash| hash.to_hex());
+        let mut warned: HashSet<ambient_core::MethodKey> = HashSet::new();
+        for hash in old_code {
+            let Some(func) = loaded.functions.get(hash) else {
+                continue;
+            };
+            for method in ambient_engine::bytecode::method_ref_sites(func).performed {
+                let key = method.method_key();
+                if covered.contains(&key)
+                    || fresh_performed.contains(&key)
+                    || !fresh_covered_abilities.contains(&method.ability_uuid)
+                    || !warned.insert(key)
+                {
+                    continue;
+                }
+                warnings.push(DeployWarning::UncoveredMethodKey {
+                    ability: method.ability_uuid,
+                    method: key,
+                    performer: describe_hash(self.labels.get(hash), hash),
+                });
+            }
+        }
+        warnings
     }
 }

@@ -77,6 +77,11 @@ pub struct DeployOutcome {
     /// The deploy core's exact name-table diff (item names, not process
     /// names — the fields above describe the process registry).
     pub names: NameDiff,
+    /// The generation id the core recorded this deploy as.
+    pub generation: u64,
+    /// The core's deploy diagnostics (see `ref/live-upgrade.md`,
+    /// "Deploy diagnostics").
+    pub warnings: Vec<crate::retire::DeployWarning>,
 }
 
 /// Consecutive reduction faults before a process is parked.
@@ -356,6 +361,8 @@ impl ProcessRuntime {
             stopped,
             unchanged: reconcile.unchanged,
             names: report.names,
+            generation: report.generation,
+            warnings: report.warnings,
         })
     }
 

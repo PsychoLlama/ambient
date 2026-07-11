@@ -272,6 +272,10 @@ pub struct DeployReport {
     /// The generation id this deploy was recorded as (1-based, one per
     /// successful swap) — the identity retirement tracing reports.
     pub generation: u64,
+    /// Deploy diagnostics: changes the running system can never pick up
+    /// and ability-method keys old live code performs uncovered (see
+    /// `ref/live-upgrade.md`, "Deploy diagnostics").
+    pub warnings: Vec<crate::retire::DeployWarning>,
 }
 
 /// Why a deploy failed.
@@ -379,8 +383,33 @@ impl DeployRuntime {
     /// Panics if a runtime lock is poisoned.
     #[must_use]
     pub fn retirement(&self) -> crate::retire::RetirementReport {
-        // Gather roots first, holding no runtime-wide locks: providers
-        // lock their own registries, cells lock the cell table.
+        let mut roots = self.runtime_roots();
+        // Every currently bound name is reachable through late-bound
+        // resolution at any time. (For a full build these all attribute
+        // to the current generation; a partial generation leaves old
+        // bindings standing, and those correctly keep their shipper
+        // live.)
+        for (name, binding) in self.name_table().iter() {
+            roots.push(crate::retire::Root::from_hash(
+                crate::retire::RootOrigin::Name(Arc::clone(name)),
+                binding.hash,
+            ));
+        }
+
+        let (origins, seeds) = root_seeds(&roots);
+        let reach = {
+            let loaded = self.lock_loaded();
+            crate::retire::reach(&loaded, &seeds)
+        };
+        #[allow(clippy::unwrap_used)]
+        self.ledger.lock().unwrap().classify(&reach, &origins)
+    }
+
+    /// The runtime-held trace roots: registered providers (task and
+    /// process registries) plus the cell table. Gathered while holding
+    /// no runtime-wide locks — providers lock their own registries,
+    /// cells lock the cell table.
+    fn runtime_roots(&self) -> Vec<crate::retire::Root> {
         let providers: Vec<crate::retire::RootProvider> = {
             #[allow(clippy::unwrap_used)]
             self.root_providers.lock().unwrap().clone()
@@ -395,34 +424,40 @@ impl DeployRuntime {
                 value,
             });
         }
-        // Every currently bound name is reachable through late-bound
-        // resolution at any time. (For a full build these all attribute
-        // to the current generation; a partial generation leaves old
-        // bindings standing, and those correctly keep their shipper
-        // live.)
-        for (name, binding) in self.name_table().iter() {
-            roots.push(crate::retire::Root::from_hash(
-                crate::retire::RootOrigin::Name(Arc::clone(name)),
-                binding.hash,
-            ));
+        roots
+    }
+
+    /// Compute the deploy warnings (see `ref/live-upgrade.md`, "Deploy
+    /// diagnostics"), after reconciliation: `live` is what the running
+    /// system holds (cells + registries — the just-ensured tasks
+    /// included); `fresh` is what the live re-entry points reach — the
+    /// entry, plus the forward resolution of every task root (the
+    /// runtime re-resolves task bodies each pass; a cell or process
+    /// value gets no such forwarding, which is exactly what makes a
+    /// pinned holder's change unreachable).
+    fn deploy_warnings(
+        &self,
+        entry: &blake3::Hash,
+        changed: &[crate::retire::ChangedName],
+    ) -> Vec<crate::retire::DeployWarning> {
+        let roots = self.runtime_roots();
+        let (origins, seeds) = root_seeds(&roots);
+
+        let mut entries = vec![*entry];
+        for (index, hashes) in &seeds {
+            if matches!(origins[*index], crate::retire::RootOrigin::Task(_)) {
+                entries.extend(hashes.iter().map(|hash| self.names.latest(*hash)));
+            }
         }
 
-        let (origins, seeds): (Vec<_>, Vec<_>) = roots
-            .iter()
-            .enumerate()
-            .map(|(index, root)| {
-                let mut hashes = Vec::new();
-                crate::retire::value_code_hashes(&root.value, &mut hashes);
-                (root.origin.clone(), (index, hashes))
-            })
-            .unzip();
-
-        let reach = {
-            let loaded = self.lock_loaded();
-            crate::retire::reach(&loaded, &seeds)
-        };
+        let loaded = self.lock_loaded();
+        let live = crate::retire::reach(&loaded, &seeds);
+        let fresh = crate::retire::reach(&loaded, &[(0, entries)]);
         #[allow(clippy::unwrap_used)]
-        self.ledger.lock().unwrap().classify(&reach, &origins)
+        let ledger = self.ledger.lock().unwrap();
+        ledger.warnings(&loaded, &live, &fresh, &origins, changed, &|hash| {
+            self.names.latest(*hash)
+        })
     }
 
     /// The shared `State` cell table (for inspection and, later,
@@ -470,7 +505,7 @@ impl DeployRuntime {
         // 3. Swap the name table atomically, diffing hash-against-hash,
         // and record the generation in the retirement ledger (recorded
         // at swap time, so a rejected deploy is never a generation).
-        let names = self.swap_names(&generation.bindings);
+        let (names, changed) = self.swap_names(&generation.bindings);
         let generation_id = {
             #[allow(clippy::unwrap_used)]
             self.ledger.lock().unwrap().record(generation)
@@ -484,11 +519,14 @@ impl DeployRuntime {
             Err(e) => return Err(DeployError::Entry(vm.runtime_error(e).to_string())),
         };
 
-        // 5. Report.
+        // 5. Report, with diagnostics computed against the reconciled
+        // registries (the entry's ensures/spawns have registered).
+        let warnings = self.deploy_warnings(entry, &changed);
         Ok(DeployReport {
             value,
             names,
             generation: generation_id,
+            warnings,
         })
     }
 
@@ -694,11 +732,15 @@ impl DeployRuntime {
     /// rendered one — never a silent rebinding on missing data), is
     /// retire-and-fresh: every hash of its lineage leaves the reverse map,
     /// so old refs resolve to themselves.
-    fn swap_names(&self, bindings: &HashMap<Arc<str>, Binding>) -> NameDiff {
+    fn swap_names(
+        &self,
+        bindings: &HashMap<Arc<str>, Binding>,
+    ) -> (NameDiff, Vec<crate::retire::ChangedName>) {
         #[allow(clippy::unwrap_used)]
         let mut state = self.names.state.write().unwrap();
 
         let mut diff = NameDiff::default();
+        let mut changed = Vec::new();
         let mut table = (*state.table).clone();
         let mut reverse = state.reverse.clone();
         for (name, binding) in bindings {
@@ -712,6 +754,11 @@ impl DeployRuntime {
                     }
                 }
                 Some(prev) => {
+                    changed.push(crate::retire::ChangedName {
+                        name: Arc::clone(name),
+                        old: prev.hash,
+                        new: binding.hash,
+                    });
                     if same_signature(prev, binding) {
                         diff.rebound.push(Arc::clone(name));
                     } else {
@@ -741,13 +788,32 @@ impl DeployRuntime {
             table: Arc::new(table),
             reverse,
         });
-        diff
+        (diff, changed)
     }
 
     fn lock_loaded(&self) -> std::sync::MutexGuard<'_, Loaded> {
         #[allow(clippy::unwrap_used)]
         self.loaded.lock().unwrap()
     }
+}
+
+/// Expand trace roots into per-root seed hashes for [`crate::retire::reach`],
+/// pairing each with its origin (index-aligned).
+fn root_seeds(
+    roots: &[crate::retire::Root],
+) -> (
+    Vec<crate::retire::RootOrigin>,
+    Vec<(usize, Vec<blake3::Hash>)>,
+) {
+    roots
+        .iter()
+        .enumerate()
+        .map(|(index, root)| {
+            let mut hashes = Vec::new();
+            crate::retire::value_code_hashes(&root.value, &mut hashes);
+            (root.origin.clone(), (index, hashes))
+        })
+        .unzip()
 }
 
 /// Top up a VM from the cumulative object stores (see

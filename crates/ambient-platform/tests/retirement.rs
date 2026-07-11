@@ -90,14 +90,20 @@ fn named_hash(compiled: &CompiledModule, name: &str) -> blake3::Hash {
         .unwrap_or_else(|| panic!("test program defines `{name}`"))
 }
 
-fn deploy(core: &DeployRuntime, compiled: &CompiledModule) -> u64 {
+fn deploy_report(
+    core: &DeployRuntime,
+    compiled: &CompiledModule,
+) -> ambient_platform::deploy::DeployReport {
     core.deploy(
         &functions_from_module(compiled),
         &named_hash(compiled, "run"),
         |_| {},
     )
     .expect("test program deploys")
-    .generation
+}
+
+fn deploy(core: &DeployRuntime, compiled: &CompiledModule) -> u64 {
+    deploy_report(core, compiled).generation
 }
 
 fn call(core: &DeployRuntime, compiled: &CompiledModule, name: &str) {
@@ -141,8 +147,16 @@ fn a_closure_in_a_cell_pins_its_generation_until_dropped() {
     assert!(report.retired.is_empty());
     assert!(report.pinned.is_empty());
 
-    // Deploy the edit. The cell still holds generation 1's closure.
-    assert_eq!(deploy(&core, &v2), 2);
+    // Deploy the edit. The cell still holds generation 1's closure —
+    // a pin, but not a warning: the new code is reachable through the
+    // entry, so nothing about the change is unreachable.
+    let report = deploy_report(&core, &v2);
+    assert_eq!(report.generation, 2);
+    assert!(
+        report.warnings.is_empty(),
+        "a benign rebind must not warn: {:?}",
+        report.warnings
+    );
     let report = core.retirement();
     assert_eq!(report.current, Some(2));
     assert!(
@@ -203,6 +217,137 @@ fn an_identical_redeploy_retires_the_previous_generation() {
         report.newly_retired,
         vec![1],
         "identical code means nothing is uniquely generation 1's"
+    );
+}
+
+/// The severed flavor of the unreachable-change warning: a name whose
+/// signature changed retires (never rebinds), so a live old copy's own
+/// late binding resolves to itself forever — the change can only land
+/// on restart, and the deploy says so, naming the holder.
+#[test]
+fn a_signature_change_with_a_live_copy_warns_as_severed() {
+    const V1: &str = r#"
+    pub fn helper(x: Number): Number { x + 1 }
+    fn make_held(): (Number) -> Number { helper }
+    pub fn run(): () with core::system::State {
+      core::system::State::init!("held", make_held)
+    }
+    "#;
+    const V2: &str = r#"
+    pub fn helper(x: Number, y: Number): Number { x + y }
+    fn make_held(): (Number, Number) -> Number { helper }
+    pub fn run(): () with core::system::State {
+      core::system::State::init!("held", make_held)
+    }
+    "#;
+
+    let core = runtime();
+    let report = deploy_report(&core, &compile(V1));
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+
+    let report = deploy_report(&core, &compile(V2));
+    let warning = report
+        .warnings
+        .iter()
+        .find_map(|warning| match warning {
+            ambient_platform::retire::DeployWarning::UnreachableChange {
+                name,
+                pinned_by,
+                severed,
+            } if name.contains("helper") => Some((pinned_by.clone(), *severed)),
+            _ => None,
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected a severed warning for helper: {:?}",
+                report.warnings
+            )
+        });
+    assert_eq!(warning.0, RootOrigin::Cell(Arc::from("held")));
+    assert!(warning.1, "a retired lineage is the severed flavor");
+}
+
+/// The orphaned flavor: the change rebinds fine, but no live re-entry
+/// point (entry, task resolution) reaches the new code — only the
+/// pinned old copy exists, so the change lands nowhere.
+#[test]
+fn a_change_no_reentry_point_reaches_warns_as_orphaned() {
+    const V2: &str = r#"
+    pub fn helper(x: Number): Number { x + 9 }
+    fn make_held(): (Number) -> Number {
+      (x: Number) => helper(x)
+    }
+    pub fn run(): () with core::system::State {
+      core::system::State::init!("other", () => 0)
+    }
+    "#;
+
+    let core = runtime();
+    deploy(&core, &compile(HELD));
+    let report = deploy_report(&core, &compile(V2));
+    let warning = report
+        .warnings
+        .iter()
+        .find_map(|warning| match warning {
+            ambient_platform::retire::DeployWarning::UnreachableChange {
+                name,
+                pinned_by,
+                severed,
+            } if name.contains("helper") => Some((pinned_by.clone(), *severed)),
+            _ => None,
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected an orphaned warning for helper: {:?}",
+                report.warnings
+            )
+        });
+    assert_eq!(warning.0, RootOrigin::Cell(Arc::from("held")));
+    assert!(
+        !warning.1,
+        "a live lineage that nothing re-enters is the orphaned flavor"
+    );
+}
+
+/// The ability-evolution drift channel: old live code performs a method
+/// key that re-keyed under it (the default implementation changed), so
+/// the new generation's handler cannot catch it — the perform falls
+/// through to its old default, soundly but silently, and the deploy
+/// warns.
+#[test]
+fn an_uncovered_method_key_performed_by_old_code_warns() {
+    const V1: &str = r#"
+    unique(A1B2C3D4-0000-0000-0000-00000000CC01) ability Ping {
+      fn ping(): Number { 1 }
+    }
+    fn probe(): Number with Ping { Ping::ping!() }
+    pub fn run(): () with core::system::State {
+      core::system::State::init!("held", () => probe)
+    }
+    "#;
+    const V2: &str = r#"
+    unique(A1B2C3D4-0000-0000-0000-00000000CC01) ability Ping {
+      fn ping(): Number { 2 }
+    }
+    fn probe(): Number with Ping { Ping::ping!() }
+    pub fn run(): Number with core::system::State {
+      core::system::State::init!("held", () => probe);
+      with { Ping::ping() => resume(7) } handle probe()
+    }
+    "#;
+
+    let core = runtime();
+    let report = deploy_report(&core, &compile(V1));
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+
+    let report = deploy_report(&core, &compile(V2));
+    assert!(
+        report.warnings.iter().any(|warning| matches!(
+            warning,
+            ambient_platform::retire::DeployWarning::UncoveredMethodKey { .. }
+        )),
+        "the re-keyed method performed by the pinned closure should warn: {:?}",
+        report.warnings
     );
 }
 
