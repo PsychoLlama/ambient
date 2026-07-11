@@ -22,7 +22,7 @@ pub fn cmd_compile(file: &Path, output: Option<&Path>) -> Result<()> {
         } else {
             file.parent().unwrap_or(file).to_path_buf()
         };
-        compile_package_cmd(&pkg_path)?;
+        compile_package_cmd(&pkg_path, output)?;
         return Ok(());
     }
 
@@ -45,8 +45,13 @@ pub fn cmd_compile(file: &Path, output: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-/// Compile a package and print progress.
-fn compile_package_cmd(path: &Path) -> Result<()> {
+/// Compile a package and print progress. With `-o`, write the merged
+/// build as a binary artifact pack — every canonical object plus the
+/// qualified name bindings, canonical signatures, migration
+/// obligations, and entry point. That artifact is both runnable
+/// (`ambient run app.ambient`) and deployable: it is exactly the
+/// generation pack a remote runtime applies via `Deploy::apply!`.
+fn compile_package_cmd(path: &Path, output: Option<&Path>) -> Result<()> {
     let progress_cb = |module: &str, current: usize, total: usize| {
         eprintln!("[{}/{}] Compiling {}", current, total, module);
     };
@@ -67,6 +72,12 @@ fn compile_package_cmd(path: &Path) -> Result<()> {
         "Compiled {} ({} modules)",
         result.package_name, result.module_count
     );
+
+    if let Some(output_path) = output {
+        fs::write(output_path, result.compiled.to_pack().encode())
+            .context("failed to write output")?;
+        eprintln!("Wrote {} -> {}", result.package_name, output_path.display());
+    }
 
     Ok(())
 }
