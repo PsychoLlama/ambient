@@ -43,7 +43,7 @@ fn resolved_prelude() -> HashMap<String, Arc<DynAbility>> {
 fn declarations_expose_the_expected_interfaces() {
     let prelude = resolved_prelude();
 
-    let expected: [(&str, &[&str]); 14] = [
+    let expected: [(&str, &[&str]); 13] = [
         ("Stdio", &["out", "err", "read"]),
         ("Time", &["now", "wait"]),
         ("Random", &["seed", "in_range"]),
@@ -78,10 +78,6 @@ fn declarations_expose_the_expected_interfaces() {
             ],
         ),
         (
-            "Process",
-            &["spawn", "send", "send_named", "self_pid", "whereis", "exit"],
-        ),
-        (
             "Execute",
             &[
                 "has_function",
@@ -103,7 +99,7 @@ fn declarations_expose_the_expected_interfaces() {
     assert_eq!(
         prelude.len(),
         expected.len(),
-        "platform.ab must declare exactly the 14 platform abilities"
+        "platform.ab must declare exactly the 13 platform abilities"
     );
 
     for (name, methods) in expected {
@@ -143,14 +139,15 @@ fn declarations_expose_the_expected_interfaces() {
 fn ability_uuids_are_pinned() {
     let prelude = resolved_prelude();
 
-    let reserved: [(&str, u128); 14] = [
+    // Slot 0x8 (`Process`) is RETIRED: Phase 10 removed the process
+    // runtime. Never reassign a retired ability slot.
+    let reserved: [(&str, u128); 13] = [
         ("Stdio", 0x2),
         ("Time", 0x3),
         ("Random", 0x4),
         ("Log", 0x5),
         ("FileSystem", 0x6),
         ("Network", 0x7),
-        ("Process", 0x8),
         ("Env", 0x9),
         ("Execute", 0xA),
         ("Live", 0xB),

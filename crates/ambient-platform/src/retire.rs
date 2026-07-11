@@ -2,27 +2,21 @@
 //! finished?" (see `ref/live-upgrade.md`, "Retirement").
 //!
 //! Old code is reachable from exactly three kinds of place, all owned by
-//! the runtime: values in `State` cells, values in the task/process
-//! registries (a task's body, a process's reducers and last-published
-//! state), and in-flight frames. The trace takes those as **roots**,
-//! walks every hash a root value can reach (closure environments, handler
-//! arms, continuation frames, then each function's static
-//! `dependencies`), and attributes each reachable hash to the **latest
-//! generation that shipped it**. A generation none of whose
-//! latest-shipped hashes are reachable is **retired** — permanently: the
-//! runtime records it, `ambient store gc` may purge it, and the dev loop
-//! reports the transition once.
+//! the runtime: values in `State` cells, values in the task registry (a
+//! task's body or current-pass resolution), and in-flight frames. The
+//! trace takes those as **roots**, walks every hash a root value can
+//! reach (closure environments, handler arms, continuation frames, then
+//! each function's static `dependencies`), and attributes each reachable
+//! hash to the **latest generation that shipped it**. A generation none
+//! of whose latest-shipped hashes are reachable is **retired** —
+//! permanently: the runtime records it, `ambient store gc` may purge it,
+//! and the dev loop reports the transition once.
 //!
 //! In-flight frames are sampled at boundaries rather than read from live
 //! VMs (a running VM belongs to its thread): a task publishes the hash it
-//! resolved for the current pass, a process publishes its state after
-//! each reduction, and everything else a frame can hold is built from
-//! values that are themselves rooted (cells, registries, the current
-//! name table). The one hole is process mailboxes: a closure inside an
-//! undelivered message is invisible to the trace until it is reduced
-//! into published state, so a generation pinned *only* by a queued
-//! message can be reported retired early. Tasks and cells — the
-//! live-upgrade model's primitives — have no such channel.
+//! resolved for the current pass, and everything else a frame can hold is
+//! built from values that are themselves rooted (cells, the registry, the
+//! current name table).
 //!
 //! Attribution by *latest* shipper is what makes unchanged code harmless:
 //! a full build re-ships every unchanged hash, so those hashes attribute
@@ -45,8 +39,6 @@ pub enum RootOrigin {
     Cell(Arc<str>),
     /// A task registry entry: its body value or current-pass hash.
     Task(Arc<str>),
-    /// A process registry entry: reducers or last-published state.
-    Process(Arc<str>),
     /// A name still bound in the current table (late-bound resolution
     /// can reach it at any time).
     Name(Arc<str>),
@@ -57,7 +49,6 @@ impl std::fmt::Display for RootOrigin {
         match self {
             Self::Cell(name) => write!(f, "cell \"{name}\""),
             Self::Task(name) => write!(f, "task `{name}`"),
-            Self::Process(name) => write!(f, "process `{name}`"),
             Self::Name(name) => write!(f, "name `{name}`"),
         }
     }
@@ -83,9 +74,8 @@ impl Root {
 }
 
 /// A registry's contribution of trace roots, registered on the deploy
-/// runtime by each client (task runtime, process runtime). Called with
-/// no other locks held; implementations should lock briefly, clone, and
-/// return.
+/// runtime by each client (the task runtime). Called with no other
+/// locks held; implementations should lock briefly, clone, and return.
 pub type RootProvider = Arc<dyn Fn() -> Vec<Root> + Send + Sync>;
 
 /// Every code hash a value can reach directly: function refs, closure
@@ -498,8 +488,8 @@ impl Ledger {
 
     /// Compute one deploy's warnings (see [`DeployWarning`]).
     ///
-    /// - `live` is the reach from runtime-held roots only (cells, task
-    ///   and process registries) — the code the running system holds.
+    /// - `live` is the reach from runtime-held roots only (cells and
+    ///   the task registry) — the code the running system holds.
     /// - `fresh` is the reach from live re-entry points: the entry (it
     ///   re-runs on every deploy) plus every task root's forward
     ///   resolution (the runtime re-resolves task bodies each pass).

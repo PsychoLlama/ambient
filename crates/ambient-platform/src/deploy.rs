@@ -22,13 +22,12 @@
 //!    under.
 //! 4. **Reconcile**: run the new entry function on a freshly built VM. The
 //!    caller wires the VM first (a hook), which is how a client like the
-//!    process runtime installs its own natives without this module knowing
-//!    what a process is.
+//!    task runtime installs its own natives without this module knowing
+//!    what a task is.
 //! 5. **Report** the exact hash diff: names rebound, added, unchanged.
 //!
-//! This module is process-agnostic. The process runtime
-//! ([`crate::process`]) is its first client; future frontends (REPL,
-//! remote deploy) apply generations through the same operation.
+//! This module is client-agnostic. Every frontend (dev loop, REPL,
+//! remote deploy) applies generations through the same operation.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, RwLock};
@@ -214,10 +213,10 @@ impl NameResolver {
 }
 
 /// Extract `live_latest`'s single argument and check it is
-/// function-shaped. The ability's parameter is a bare generic (the
-/// `Process::spawn` precedent — ability signatures cannot yet express
-/// effect-polymorphic function parameters), so the runtime enforces the
-/// contract instead of the checker.
+/// function-shaped. The ability's parameter is a bare generic (ability
+/// signatures cannot yet express effect-polymorphic function
+/// parameters — the `Task::ensure` precedent), so the runtime enforces
+/// the contract instead of the checker.
 fn function_arg(args: Vec<Value>) -> Result<Value, VmError> {
     let Some(value) = args.into_iter().next() else {
         return Err(VmError::exception("Live.latest: missing function argument"));
@@ -338,9 +337,9 @@ pub struct DeployRuntime {
     /// shipped which hashes, what names they carried, which generations
     /// have retired — see [`crate::retire`]).
     ledger: Mutex<crate::retire::Ledger>,
-    /// Trace-root providers registered by registry clients (the task and
-    /// process runtimes). Cells are built in; everything else arrives
-    /// through here.
+    /// Trace-root providers registered by registry clients (the task
+    /// runtime). Cells are built in; everything else arrives through
+    /// here.
     root_providers: Mutex<Vec<crate::retire::RootProvider>>,
 }
 
@@ -404,10 +403,10 @@ impl DeployRuntime {
         self.ledger.lock().unwrap().classify(&reach, &origins)
     }
 
-    /// The runtime-held trace roots: registered providers (task and
-    /// process registries) plus the cell table. Gathered while holding
-    /// no runtime-wide locks — providers lock their own registries,
-    /// cells lock the cell table.
+    /// The runtime-held trace roots: registered providers (the task
+    /// registry) plus the cell table. Gathered while holding no
+    /// runtime-wide locks — providers lock their own registries, cells
+    /// lock the cell table.
     fn runtime_roots(&self) -> Vec<crate::retire::Root> {
         let providers: Vec<crate::retire::RootProvider> = {
             #[allow(clippy::unwrap_used)]
@@ -431,9 +430,9 @@ impl DeployRuntime {
     /// system holds (cells + registries — the just-ensured tasks
     /// included); `fresh` is what the live re-entry points reach — the
     /// entry, plus the forward resolution of every task root (the
-    /// runtime re-resolves task bodies each pass; a cell or process
-    /// value gets no such forwarding, which is exactly what makes a
-    /// pinned holder's change unreachable).
+    /// runtime re-resolves task bodies each pass; a cell value gets no
+    /// such forwarding, which is exactly what makes a pinned holder's
+    /// change unreachable).
     fn deploy_warnings(
         &self,
         entry: &blake3::Hash,
@@ -470,7 +469,7 @@ impl DeployRuntime {
     ///
     /// `wire` runs on the freshly built entry VM before the entry is
     /// called — the client's hook for installing its own natives (the
-    /// process runtime binds its `process_*` set here).
+    /// host binds the task runtime's `task_*` set here).
     ///
     /// # Errors
     ///

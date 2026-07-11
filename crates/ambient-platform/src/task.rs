@@ -1,8 +1,8 @@
 //! The task runtime: named, supervised, drainable loops (see
 //! `ref/live-upgrade.md`, "Tasks").
 //!
-//! A task is much less than a process: no mailbox, no reducer contract,
-//! no message types — just "keep this body running under this name".
+//! A task is deliberately small: no mailbox, no reducer contract, no
+//! message types — just "keep this body running under this name".
 //! Each task owns an OS thread and a VM built from the shared
 //! [`DeployRuntime`], wired drain-aware ([`install_drain_natives`]), so
 //! the shared cell and handle tables are the only cross-task state.
@@ -25,10 +25,9 @@
 //! current pass unwinds at its next interruptible perform, the nearest
 //! `Drain::requested` arm runs cleanup, and the task winds down.
 //!
-//! Fault handling follows the process runtime's precedent: a faulting
-//! pass is retried (the retry re-resolves, so a deploy can fix a
-//! crash-looping task), and a task that faults too many times in a row
-//! is parked. A hard stop ([`VmError::HardStopped`], the drain
+//! Fault handling: a faulting pass is retried (the retry re-resolves,
+//! so a deploy can fix a crash-looping task), and a task that faults
+//! too many times in a row is parked. A hard stop ([`VmError::HardStopped`], the drain
 //! deadline's backstop) always parks — restarting a hard-stopped VM
 //! would just hard-stop again, its interrupt flag stays set.
 
@@ -73,9 +72,8 @@ pub type TaskEventSink = Arc<dyn Fn(&TaskEvent) + Send + Sync>;
 /// Configuration for a [`TaskRuntime`].
 pub struct TaskRuntimeConfig {
     /// The deploy core tasks build their VMs from and resolve their
-    /// bodies against. Shared with every other client (the process
-    /// runtime, the entry VM) so all see one name table and one cell
-    /// table.
+    /// bodies against. Shared with every other client (the entry VM)
+    /// so all see one name table and one cell table.
     pub core: Arc<DeployRuntime>,
     /// The shared network handle table — the interruptible natives
     /// need it to race blocked operations against the drain signal.
@@ -87,8 +85,7 @@ pub struct TaskRuntimeConfig {
     pub drain_deadline: Duration,
 }
 
-/// Consecutive pass faults before a task is parked (the process
-/// runtime's budget).
+/// Consecutive pass faults before a task is parked.
 const MAX_CONSECUTIVE_FAULTS: u32 = 5;
 
 /// Registry entry for a live task.
@@ -279,7 +276,7 @@ impl TaskRuntime {
     /// completion), root tasks the pass did not re-declare are drained;
     /// on an incomplete pass (`apply` false — validation rejected the
     /// deploy or the entry faulted) the declaration is incomplete, so
-    /// nothing is drained, mirroring the process runtime.
+    /// nothing is drained.
     ///
     /// # Panics
     ///
@@ -554,7 +551,9 @@ fn task_main(
 }
 
 /// Check that a task body is a zero-parameter function in some deployed
-/// generation (the `Process::spawn` arity precedent).
+/// generation. The body parameter is a bare generic (ability signatures
+/// cannot yet express effect-polymorphic function parameters), so the
+/// runtime enforces the arity contract instead of the checker.
 fn require_task_body(core: &Arc<DeployRuntime>, body: &Value) -> Result<(), VmError> {
     let hash = match body {
         Value::Closure(c) => c.function_hash,
@@ -584,8 +583,7 @@ fn require_task_body(core: &Arc<DeployRuntime>, body: &Value) -> Result<(), VmEr
 /// the reconciliation entry's VM: its ensures are declarations the
 /// reconciler diffs against the live registry (and its tasks are roots,
 /// drained when a later pass stops declaring them). Uuid-keyed, so
-/// these overwrite the not-wired stubs — per-VM wiring, exactly like
-/// the process runtime's `process_*` natives.
+/// these overwrite the not-wired stubs — per-VM wiring.
 pub fn install_task_natives(vm: &mut Vm, runtime: &Arc<TaskRuntime>, deploy: bool) {
     // task_ensure(name, body) -> ()
     let rt = Arc::clone(runtime);

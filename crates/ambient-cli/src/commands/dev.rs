@@ -1,13 +1,14 @@
 //! Dev command: live-upgrade development.
 //!
-//! `ambient dev <pkg>` runs a program under the process runtime and
-//! redeploys it on every source change. A deploy re-runs the entry
-//! function as a reconciliation pass over the live process tree (see
-//! `ref/processes.md`): processes whose reducer's content hash changed
-//! swap code at their next message and **keep their state**; unchanged
-//! processes are untouched; removed ones stop; new ones start. For a
-//! program that spawns no processes, a deploy simply re-runs it — the
-//! classic rerun-on-change dev loop falls out as the trivial case.
+//! `ambient dev <pkg>` runs a program under a runtime host and redeploys
+//! it on every source change. A deploy re-runs the entry function as a
+//! reconciliation pass over the running system (see
+//! `ref/live-upgrade.md`): the name table swaps atomically, so late
+//! bindings — a task's next pass, a `Live::latest!` read — pick up
+//! changed code; cells keep their values; tasks the entry stops
+//! declaring are drained. For a program that ensures no tasks, a deploy
+//! simply re-runs it — the classic rerun-on-change dev loop falls out
+//! as the trivial case.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -18,7 +19,6 @@ use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 
 use ambient_engine::format::format_value;
 use ambient_engine::value::Value;
-use ambient_platform::process::ProcessEvent;
 use ambient_platform::task::{TaskEvent, TaskEventSink};
 
 use super::host::RuntimeHost;
@@ -67,11 +67,11 @@ pub fn cmd_dev(path: &Path, entry: &str, watch_dirs: Option<&[PathBuf]>) -> Resu
             .with_context(|| format!("failed to watch {}", watch_path.display()))?;
     }
 
-    // One host for the whole session: the process tree and task
-    // registry survive redeploys — that's the point. `dev` passes no
-    // program args: `Env::args!()` has no coherent meaning across the
+    // One host for the whole session: the task registry and cell table
+    // survive redeploys — that's the point. `dev` passes no program
+    // args: `Env::args!()` has no coherent meaning across the
     // reconciliation re-deploys that define the dev loop.
-    let host = RuntimeHost::new(event_printer(), task_event_printer(), Vec::new())?;
+    let host = RuntimeHost::new(task_event_printer(), Vec::new())?;
 
     // Initial deploy. Failures (including compile errors) leave the dev
     // loop watching, same as any later iteration.
@@ -147,17 +147,11 @@ fn deploy_iteration(host: &RuntimeHost, path: &Path, entry: &str) {
     let deploy_start = Instant::now();
     match host.deploy(&compiled, entry) {
         Ok(outcome) => {
-            let processes = &outcome.processes;
+            let report = &outcome.report;
             let tasks = &outcome.tasks;
             let mut parts = Vec::new();
-            if !processes.started.is_empty() {
-                parts.push(format!("started {}", processes.started.join(", ")));
-            }
-            if !processes.upgraded.is_empty() {
-                parts.push(format!("upgraded {}", processes.upgraded.join(", ")));
-            }
-            if !processes.stopped.is_empty() {
-                parts.push(format!("stopped {}", processes.stopped.join(", ")));
+            if !report.names.rebound.is_empty() {
+                parts.push(format!("rebound {}", report.names.rebound.join(", ")));
             }
             if !tasks.started.is_empty() {
                 parts.push(format!("tasks started: {}", tasks.started.join(", ")));
@@ -165,36 +159,35 @@ fn deploy_iteration(host: &RuntimeHost, path: &Path, entry: &str) {
             if !tasks.drained.is_empty() {
                 parts.push(format!("tasks draining: {}", tasks.drained.join(", ")));
             }
-            let unchanged = processes.unchanged + tasks.unchanged;
-            if unchanged > 0 {
-                parts.push(format!("{unchanged} unchanged"));
+            if tasks.unchanged > 0 {
+                parts.push(format!("{} task(s) unchanged", tasks.unchanged));
             }
-            if !processes.names.retired.is_empty() {
+            if !report.names.retired.is_empty() {
                 // Signature-changed names never rebind: `Live::latest!`
                 // keeps resolving old refs to themselves until their
                 // callers upgrade (ref/live-upgrade.md, rebinding rule).
                 parts.push(format!(
                     "signature changed, retired (not rebound): {}",
-                    processes.names.retired.join(", ")
+                    report.names.retired.join(", ")
                 ));
             }
             let summary = if parts.is_empty() {
-                if matches!(processes.value, Value::Unit) {
+                if matches!(report.value, Value::Unit) {
                     "done".to_string()
                 } else {
-                    format_value(&processes.value)
+                    format_value(&report.value)
                 }
             } else {
                 parts.join(", ")
             };
             eprintln!(
                 "\x1b[1;32m[deployed]\x1b[0m generation {}: {} (compile: {:?}, deploy: {:?})",
-                processes.generation,
+                report.generation,
                 summary,
                 compile_time,
                 deploy_start.elapsed()
             );
-            for warning in &processes.warnings {
+            for warning in &report.warnings {
                 eprintln!("\x1b[1;33m[warn]\x1b[0m {warning}");
             }
             report_retirement(&outcome.retirement);
@@ -247,41 +240,6 @@ fn gc_package_store(path: &Path, report: &ambient_platform::retire::RetirementRe
         },
         Err(e) => eprintln!("{TAG} store gc could not open the store: {e}"),
     }
-}
-
-/// Event sink that narrates process lifecycle to stderr.
-fn event_printer() -> Arc<dyn Fn(&ProcessEvent) + Send + Sync> {
-    Arc::new(|event: &ProcessEvent| match event {
-        ProcessEvent::Started { name, pid } => {
-            eprintln!("{TAG} process `{name}` started (pid {pid})");
-        }
-        ProcessEvent::Upgraded { name } => {
-            eprintln!("{TAG} process `{name}` upgraded (state kept)");
-        }
-        ProcessEvent::Stopped { name } => {
-            eprintln!("{TAG} process `{name}` stopped (no longer declared)");
-        }
-        ProcessEvent::Exited { name } => {
-            eprintln!("{TAG} process `{name}` exited");
-        }
-        ProcessEvent::Crashed {
-            name,
-            error,
-            restarting,
-        } => {
-            eprintln!("\x1b[1;31m[crash]\x1b[0m process `{name}`: {error}");
-            if *restarting {
-                eprintln!("{TAG} process `{name}` restarting with fresh state");
-            } else {
-                eprintln!(
-                    "{TAG} process `{name}` exceeded its fault budget; parked until the next deploy"
-                );
-            }
-        }
-        ProcessEvent::InitFailed { name, error } => {
-            eprintln!("\x1b[1;31m[crash]\x1b[0m process `{name}` failed to initialize: {error}");
-        }
-    })
 }
 
 /// Event sink that narrates task lifecycle to stderr.

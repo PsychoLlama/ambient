@@ -55,7 +55,6 @@ pub mod execute;
 pub mod fs;
 pub mod network;
 pub mod network_state;
-pub mod process;
 pub mod random;
 pub mod remote_deploy;
 pub mod retire;
@@ -150,7 +149,6 @@ pub use execute::{ExecuteConfig, ExecuteGrants, execute_natives};
 pub use fs::fs_natives;
 pub use network::network_natives;
 pub use network_state::NetworkState;
-pub use process::{DeployOutcome, EventSink, ProcessEvent, ProcessRuntime, ProcessRuntimeConfig};
 pub use random::random_natives;
 pub use remote_deploy::{DeployApplyHook, DeployApplySlot, remote_deploy_natives};
 pub use state::StateCells;
@@ -338,42 +336,11 @@ pub(crate) const EXTERN_BINDINGS: &[ExternBinding] = &[
         slot: 0x18,
         arity: 1,
     },
-    ExternBinding {
-        name: "process_spawn",
-        module: "process",
-        slot: 0x19,
-        arity: 3,
-    },
-    ExternBinding {
-        name: "process_send",
-        module: "process",
-        slot: 0x1A,
-        arity: 2,
-    },
-    ExternBinding {
-        name: "process_send_named",
-        module: "process",
-        slot: 0x1B,
-        arity: 2,
-    },
-    ExternBinding {
-        name: "process_self_pid",
-        module: "process",
-        slot: 0x1C,
-        arity: 0,
-    },
-    ExternBinding {
-        name: "process_whereis",
-        module: "process",
-        slot: 0x1D,
-        arity: 1,
-    },
-    ExternBinding {
-        name: "process_exit",
-        module: "process",
-        slot: 0x1E,
-        arity: 0,
-    },
+    // Slots 0x19–0x1E (process_spawn, process_send, process_send_named,
+    // process_self_pid, process_whereis, process_exit) are RETIRED: Phase 10
+    // removed the process runtime (the mailbox/reducer experiment tasks and
+    // cells superseded — see ref/live-upgrade.md, "Relation to the process
+    // model"). Never reassign retired slots.
     ExternBinding {
         name: "env_var",
         module: "env",
@@ -534,7 +501,7 @@ pub(crate) fn binding(name: &str) -> ExternBinding {
 }
 
 /// The pinned uuid for an extern name (for per-VM implementation
-/// registration, e.g. the process runtime's per-process natives).
+/// registration, e.g. the task runtime's per-task natives).
 ///
 /// # Panics
 ///
@@ -814,8 +781,8 @@ mod tests {
             "ffffffff-ffff-ffff-fffc-00000000002a"
         );
         assert_eq!(
-            native_uuid("process_spawn").to_string(),
-            "ffffffff-ffff-ffff-fffc-000000000019"
+            native_uuid("task_ensure").to_string(),
+            "ffffffff-ffff-ffff-fffc-000000000034"
         );
         assert_eq!(
             native_uuid("live_latest").to_string(),

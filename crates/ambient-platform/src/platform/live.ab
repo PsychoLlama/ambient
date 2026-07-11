@@ -13,7 +13,7 @@ extern fn live_latest<F>(f: F): F;
 /// replacement; a sandbox can deny it, and a test can handle it to pin a
 /// fake generation. `latest` is generic rather than function-typed
 /// because ability signatures cannot yet express effect-polymorphic
-/// function parameters (the `Process::spawn` precedent); the runtime
+/// function parameters (the `Task::ensure` precedent); the runtime
 /// checks it received a function ref.
 pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000B) ability Live {
   /// The current binding of the name `f` was deployed under: an ordinary

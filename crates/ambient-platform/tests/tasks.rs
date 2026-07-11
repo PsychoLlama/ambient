@@ -100,7 +100,7 @@ fn named_hash(compiled: &CompiledModule, name: &str) -> blake3::Hash {
 type Events = Arc<Mutex<Vec<String>>>;
 
 /// A deploy core plus a task runtime wired against it — the production
-/// shape, minus the process runtime.
+/// shape.
 struct Harness {
     /// Owns the reactor the network table needs; unused by these tests
     /// otherwise.

@@ -200,7 +200,7 @@ impl Vm {
     ///
     /// Loading is additive and content-addressed: re-loading a hash the
     /// VM already knows is a no-op, so code generations can be layered
-    /// onto a live VM (the process runtime does this on every deploy).
+    /// onto a live VM (the deploy runtime does this on every deploy).
     pub fn load_function_shared(&mut self, func: Arc<CompiledFunction>) {
         self.functions.insert(func.hash, func);
     }
@@ -444,7 +444,7 @@ impl Vm {
     ///   `Result::Err` value instead. This channel is reserved for hard
     ///   faults a native can still detect at runtime: an unwired
     ///   capability (`... is not wired`) or a control error like
-    ///   spawning a live process name. Exception arms are catch-only
+    ///   ensuring a task with a malformed body. Exception arms are catch-only
     ///   now, so such a throw cannot be resumed with a substitute — it
     ///   is caught-and-continued or surfaces uncaught.
     /// - A native interrupted by the host (a drain request unblocking a

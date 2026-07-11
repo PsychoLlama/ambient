@@ -2,7 +2,7 @@
 //!
 //! `core::system` is a directory module: its shape is the `platform/`
 //! source tree. Each ability lives in the sibling file of the same theme
-//! (`stdio`, `time`, `random`, `log`, `fs`, `network`, `process`, `env`,
+//! (`stdio`, `time`, `random`, `log`, `fs`, `network`, `env`,
 //! `execute`, `live`, `state`, `drain`, `task`, `deploy`) and is
 //! re-exported here, so `use core::system::Stdio;` and a
 //! fully-qualified `core::system::Stdio` both keep resolving through this
@@ -41,7 +41,6 @@ pub use self::random::Random;
 pub use self::log::Log;
 pub use self::fs::FileSystem;
 pub use self::network::Network;
-pub use self::process::Process;
 pub use self::env::Env;
 pub use self::execute::Execute;
 pub use self::live::Live;

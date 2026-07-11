@@ -9,7 +9,6 @@ use anyhow::{Context, Result, bail};
 use ambient_engine::build::BuildOptions;
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::format::format_value_colored;
-use ambient_platform::process::ProcessEvent;
 use ambient_platform::task::TaskEvent;
 
 use super::host::RuntimeHost;
@@ -100,31 +99,12 @@ pub(super) fn compile_package(path: &Path) -> Result<CompiledModule> {
 
 /// Run a compiled module.
 ///
-/// The entry runs as the initial deploy pass of a process runtime. A
-/// program that spawns no processes and ensures no tasks behaves
-/// exactly as before: the entry runs to completion and the command
-/// exits. Otherwise the command keeps running until every process has
-/// exited and every task has wound down.
+/// The entry runs as the initial deploy pass over an empty task
+/// registry. A program that ensures no tasks behaves exactly as before:
+/// the entry runs to completion and the command exits. Otherwise the
+/// command keeps running until every task has wound down.
 fn run_compiled(compiled: &CompiledModule, entry: &str, program_args: Vec<String>) -> Result<()> {
     // `run` is quiet about routine lifecycle; only failures print.
-    let events = Arc::new(|event: &ProcessEvent| match event {
-        ProcessEvent::Crashed {
-            name,
-            error,
-            restarting,
-        } => {
-            eprintln!("process `{name}` crashed: {error}");
-            if *restarting {
-                eprintln!("process `{name}` restarting with fresh state");
-            } else {
-                eprintln!("process `{name}` exceeded its fault budget; giving up");
-            }
-        }
-        ProcessEvent::InitFailed { name, error } => {
-            eprintln!("process `{name}` failed to initialize: {error}");
-        }
-        _ => {}
-    });
     let task_events = Arc::new(|event: &TaskEvent| {
         if let TaskEvent::Faulted {
             name,
@@ -141,13 +121,13 @@ fn run_compiled(compiled: &CompiledModule, entry: &str, program_args: Vec<String
         }
     });
 
-    let host = RuntimeHost::new(events, task_events, program_args)?;
+    let host = RuntimeHost::new(task_events, program_args)?;
 
     match host.deploy(compiled, entry) {
         Ok(outcome) => {
             // Print result if not unit.
-            if !matches!(outcome.processes.value, ambient_engine::value::Value::Unit) {
-                println!("{}", format_value_colored(&outcome.processes.value));
+            if !matches!(outcome.report.value, ambient_engine::value::Value::Unit) {
+                println!("{}", format_value_colored(&outcome.report.value));
             }
         }
         Err(runtime_error) => {
@@ -157,11 +137,9 @@ fn run_compiled(compiled: &CompiledModule, entry: &str, program_args: Vec<String
         }
     }
 
-    // Block until the process tree and task registry (if any) wind
-    // down. Under plain `run` nothing ever drains a task, so an
-    // ensured task keeps the program alive — the acceptor-loop shape,
-    // exactly like a process that never exits.
-    host.runtime().wait_all();
+    // Block until the task registry (if any) winds down. Under plain
+    // `run` nothing ever drains a task, so an ensured task keeps the
+    // program alive — the acceptor-loop shape.
     host.tasks().wait_all();
     Ok(())
 }

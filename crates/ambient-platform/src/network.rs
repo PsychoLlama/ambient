@@ -26,8 +26,8 @@ use crate::{bind, extract_bytes, extract_host_port, extract_number, into_result}
 
 /// The `Network` native implementations, bound against shared state.
 ///
-/// The process runtime hands every process VM the same [`NetworkState`],
-/// so handles cross process boundaries freely.
+/// The host hands every VM it builds the same [`NetworkState`], so
+/// handles cross task boundaries freely.
 #[must_use]
 #[allow(clippy::needless_pass_by_value, clippy::too_many_lines)]
 pub fn network_natives(state: Arc<NetworkState>) -> NativeRegistry {

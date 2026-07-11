@@ -199,9 +199,9 @@ fn network_error(op: &str, error: NetworkError) -> VmError {
 /// Make a VM's blocking natives drain-aware: override the interruptible
 /// subset (`network_accept`, `network_receive`, `network_receive_raw`,
 /// `time_wait`) with variants bound to `signal`, and wire the signal's
-/// hard-stop flag into the VM. Implementations are uuid-keyed, so these overrides win over
-/// the registry-installed ones — per-VM wiring, exactly like the process
-/// runtime's `process_*` natives.
+/// hard-stop flag into the VM. Implementations are uuid-keyed, so these
+/// overrides win over the registry-installed ones — per-VM wiring,
+/// exactly like the task runtime's `task_*` natives.
 ///
 /// Every override checks the signal *before* blocking, so once a drain
 /// is requested each subsequent interruptible perform unwinds

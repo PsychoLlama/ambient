@@ -58,7 +58,7 @@ fn set(args: &[Value]) -> Result<Value, VmError> {
     };
     // SAFETY: Under edition 2024 `set_var` is `unsafe` because mutating the
     // process environment while another thread reads it is undefined
-    // behavior. Ambient runs each process on its own OS thread, so this is
+    // behavior. Ambient runs each task on its own OS thread, so this is
     // inherently process-global and best-effort — intended for early
     // startup/config use, not concurrent mutation. This is a known
     // limitation, not a soundness guarantee.

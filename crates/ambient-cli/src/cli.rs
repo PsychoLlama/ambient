@@ -101,8 +101,10 @@ pub enum Command {
     /// Run an Ambient program with live upgrade.
     ///
     /// Watches for source changes; each change compiles and deploys onto
-    /// the running process tree — changed processes hot-swap their code
-    /// keeping their state, and programs without processes simply rerun.
+    /// the running system — rebound names land at the next late-bound
+    /// point (a task's next pass, a `Live::latest!` read), cells keep
+    /// their values, undeclared tasks drain, and programs without tasks
+    /// simply rerun.
     Dev {
         /// Path to a package directory or bare source file (.ab).
         #[arg(value_name = "PATH", default_value = ".")]

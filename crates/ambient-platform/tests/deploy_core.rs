@@ -2,8 +2,8 @@
 //! name-table swap, exact diff reporting, and pre-swap validation.
 //!
 //! Each test compiles real Ambient source and drives [`DeployRuntime`]
-//! directly — no processes involved; the process runtime is just this
-//! core's first client.
+//! directly — no tasks involved; the task runtime is just one client
+//! of this core.
 
 use std::collections::HashMap;
 use std::sync::Arc;

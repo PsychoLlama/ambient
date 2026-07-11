@@ -57,7 +57,6 @@ use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::{ExportKind, ModuleInfo, ModuleRegistry};
 use ambient_engine::value::{ModuleExport, ModuleExportKind, ModuleMemberRef, ModuleValue, Value};
 use ambient_parser::ReplInput;
-use ambient_platform::process::{EventSink, ProcessEvent};
 
 use crate::commands::core_context;
 use crate::commands::host::{HostDeployOutcome, RuntimeHost};
@@ -217,7 +216,7 @@ impl ReplSession {
         let project_root = find_project_root(project_dir);
         let (package, base, imported_hashes) = build_base(project_root.as_deref())?;
         // The REPL has no program args; `Env::args!()` is empty.
-        let host = RuntimeHost::new(process_event_sink(), task_event_sink(), Vec::new())?;
+        let host = RuntimeHost::new(task_event_sink(), Vec::new())?;
 
         Ok(Self {
             entries: Vec::new(),
@@ -235,11 +234,8 @@ impl ReplSession {
     ///
     /// The running program winds down first: tasks are drained and waited
     /// for (bounded by the drain deadline), so a lingering ticker can't
-    /// keep printing into the fresh session. Processes are stopped but not
-    /// waited for — a reducer blocked in a non-interruptible native would
-    /// wedge the prompt; its stop flag ends it at the next boundary.
+    /// keep printing into the fresh session.
     fn clear(&mut self) -> Result<()> {
-        self.host.runtime().stop_all();
         self.host.tasks().drain_all();
         self.host.tasks().wait_all();
         let (package, base, imported_hashes) = build_base(self.project_root.as_deref())?;
@@ -248,7 +244,7 @@ impl ReplSession {
         self.base = base;
         self.imported_hashes = imported_hashes;
         self.entry_counter = 0;
-        self.host = RuntimeHost::new(process_event_sink(), task_event_sink(), Vec::new())?;
+        self.host = RuntimeHost::new(task_event_sink(), Vec::new())?;
         // Drop any lingering `repl` module from the package.
         self.sync_repl_module(&self.committed_source());
         Ok(())
@@ -381,10 +377,10 @@ impl ReplSession {
             .map_err(|e| format!("{e}"))?;
         report_deploy(&outcome);
 
-        if matches!(outcome.processes.value, Value::Unit) {
+        if matches!(outcome.report.value, Value::Unit) {
             Ok(None)
         } else {
-            Ok(Some(outcome.processes.value))
+            Ok(Some(outcome.report.value))
         }
     }
 
@@ -474,39 +470,15 @@ impl ReplSession {
 /// rebinding rule retired (signature changed — running references keep
 /// resolving to the old code) and the deploy warnings.
 fn report_deploy(outcome: &HostDeployOutcome) {
-    for name in &outcome.processes.names.retired {
+    for name in &outcome.report.names.retired {
         eprintln!(
             "note: `{name}` changed signature — retired, not rebound; \
              running references keep the old code"
         );
     }
-    for warning in &outcome.processes.warnings {
+    for warning in &outcome.report.warnings {
         eprintln!("\x1b[1;33mwarning\x1b[0m: {warning}");
     }
-}
-
-/// Narrate process lifecycle, so a program driven from the prompt is
-/// legible (starts and upgrades land asynchronously, from deploy turns).
-fn process_event_sink() -> EventSink {
-    Arc::new(|event: &ProcessEvent| match event {
-        ProcessEvent::Started { name, pid } => eprintln!("process `{name}` started (pid {pid})"),
-        ProcessEvent::Upgraded { name } => eprintln!("process `{name}` upgraded (state kept)"),
-        ProcessEvent::Stopped { name } => eprintln!("process `{name}` stopped"),
-        ProcessEvent::Exited { name } => eprintln!("process `{name}` exited"),
-        ProcessEvent::Crashed {
-            name,
-            error,
-            restarting,
-        } => {
-            eprintln!("process `{name}` crashed: {error}");
-            if !restarting {
-                eprintln!("process `{name}` exceeded its fault budget; parked");
-            }
-        }
-        ProcessEvent::InitFailed { name, error } => {
-            eprintln!("process `{name}` failed to initialize: {error}");
-        }
-    })
 }
 
 /// Narrate task lifecycle: tasks print from their own threads, so this

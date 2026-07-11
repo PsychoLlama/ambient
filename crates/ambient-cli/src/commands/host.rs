@@ -2,20 +2,19 @@
 //!
 //! A [`RuntimeHost`] owns everything that outlives a single VM — the
 //! tokio runtime, the shared network handle table, the function store
-//! (Execute), and the process and task runtimes — and knows how to
+//! (Execute), the deploy core, and the task runtime — and knows how to
 //! build a fully wired VM for any computation. Both `ambient run` and
 //! `ambient dev` are thin drivers over [`RuntimeHost::deploy`]: `run`
-//! deploys once and waits for the process tree and task registry to
-//! wind down; `dev` deploys again on every code change. The REPL is the
-//! third driver, over [`RuntimeHost::deploy_incremental`]: every turn is
-//! a deploy whose entry is not a full program declaration.
+//! deploys once and waits for the task registry to wind down; `dev`
+//! deploys again on every code change. The REPL is the third driver,
+//! over [`RuntimeHost::deploy_incremental`]: every turn is a deploy
+//! whose entry is not a full program declaration.
 //!
 //! Wiring is native registration, uuid-keyed: stubs first (every platform
 //! extern answers with a catchable "not wired" exception), then the real
-//! implementation sets, which overwrite the stubs they cover. Process
-//! natives are installed per process VM by the [`ProcessRuntime`] itself;
-//! task natives per task VM by the [`TaskRuntime`], which also wires the
-//! interruptible drain natives every task depends on.
+//! implementation sets, which overwrite the stubs they cover. Task
+//! natives are installed per task VM by the [`TaskRuntime`], which also
+//! wires the interruptible drain natives every task depends on.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -26,9 +25,7 @@ use ambient_engine::compiler::CompiledModule;
 use ambient_engine::natives::NativeRegistry;
 use ambient_engine::store::Store;
 use ambient_engine::vm::Vm;
-use ambient_platform::process::{
-    DeployOutcome, EventSink, ProcessRuntime, ProcessRuntimeConfig, functions_from_module,
-};
+use ambient_platform::deploy::{DeployReport, DeployRuntime, functions_from_module};
 use ambient_platform::task::{
     TaskEventSink, TaskReconcileOutcome, TaskRuntime, TaskRuntimeConfig, install_task_natives,
 };
@@ -38,11 +35,11 @@ use ambient_platform::{ExecuteConfig, NetworkState, StdioConfig, StdioSink};
 /// before it is hard-stopped and parked.
 const TASK_DRAIN_DEADLINE: Duration = Duration::from_secs(5);
 
-/// What one deploy did, across both deploy clients.
+/// What one deploy did.
 pub struct HostDeployOutcome {
-    /// The process runtime's report (entry value, registry diff, name
-    /// diff, generation id, warnings).
-    pub processes: DeployOutcome,
+    /// The deploy core's report (entry value, name diff, generation id,
+    /// warnings).
+    pub report: DeployReport,
     /// The task registry's report.
     pub tasks: TaskReconcileOutcome,
     /// The retirement trace run after the pass settled: which old
@@ -51,13 +48,13 @@ pub struct HostDeployOutcome {
     pub retirement: ambient_platform::retire::RetirementReport,
 }
 
-/// Long-lived platform state plus the process and task runtimes.
+/// Long-lived platform state plus the deploy core and task runtime.
 pub struct RuntimeHost {
     /// Owns the reactor threads driving all network IO. Kept alive for
     /// the host's lifetime; unused otherwise.
     _tokio: tokio::runtime::Runtime,
     store: Arc<Mutex<Store>>,
-    runtime: Arc<ProcessRuntime>,
+    core: Arc<DeployRuntime>,
     tasks: Arc<TaskRuntime>,
     /// Serializes deploy passes across frontends. The deploy core's own
     /// state is lock-safe, but the task registry's reconcile bracket
@@ -69,17 +66,13 @@ pub struct RuntimeHost {
 
 impl RuntimeHost {
     /// Build the host: share one network table and one store across every
-    /// future VM, and start an (empty) process runtime.
+    /// future VM, and start an (empty) deploy core.
     ///
     /// `program_args` become `core::system::Env::args!()` for every VM
     /// this host builds (`ambient run` composes the program path plus the
     /// trailing args; `ambient dev` passes an empty vec — program args
     /// have no coherent meaning across reconciliation re-deploys).
-    pub fn new(
-        events: EventSink,
-        task_events: TaskEventSink,
-        program_args: Vec<String>,
-    ) -> Result<Self> {
+    pub fn new(task_events: TaskEventSink, program_args: Vec<String>) -> Result<Self> {
         let tokio = tokio::runtime::Runtime::new()
             .map_err(|e| anyhow::anyhow!("failed to create async runtime: {e}"))?;
 
@@ -142,12 +135,9 @@ impl RuntimeHost {
             })
         };
 
-        let runtime = ProcessRuntime::new(ProcessRuntimeConfig {
-            vm_factory: factory,
-            events,
-        });
+        let core = Arc::new(DeployRuntime::new(factory));
         let tasks = TaskRuntime::new(TaskRuntimeConfig {
-            core: Arc::clone(runtime.deploy_core()),
+            core: Arc::clone(&core),
             network: network_state,
             events: task_events,
             drain_deadline: TASK_DRAIN_DEADLINE,
@@ -163,7 +153,7 @@ impl RuntimeHost {
         // a rejected deploy must not fault the serving task.
         let hook: ambient_platform::DeployApplyHook = {
             let store = Arc::clone(&store);
-            let runtime = Arc::clone(&runtime);
+            let core = Arc::clone(&core);
             let tasks = Arc::clone(&tasks);
             let lock = Arc::clone(&deploy_lock);
             Arc::new(move |bytes, entry| {
@@ -171,7 +161,7 @@ impl RuntimeHost {
                     .map_err(|e| format!("invalid generation pack: {e}"))?;
                 let compiled = CompiledModule::from_pack(&pack)
                     .map_err(|e| format!("invalid generation pack: {e}"))?;
-                let outcome = deploy_build(&lock, &store, &runtime, &tasks, &compiled, entry)
+                let outcome = deploy_build(&lock, &store, &core, &tasks, &compiled, entry)
                     .map_err(|e| e.to_string())?;
                 Ok(render_deploy_report(&outcome))
             })
@@ -181,20 +171,19 @@ impl RuntimeHost {
         Ok(Self {
             _tokio: tokio,
             store,
-            runtime,
+            core,
             tasks,
             deploy_lock,
         })
     }
 
     /// Deploy a build: install it as the current code generation and run
-    /// `entry` as a reconciliation pass over the live process tree and
-    /// task registry.
+    /// `entry` as a reconciliation pass over the live task registry.
     pub fn deploy(&self, compiled: &CompiledModule, entry: &str) -> Result<HostDeployOutcome> {
         deploy_build(
             &self.deploy_lock,
             &self.store,
-            &self.runtime,
+            &self.core,
             &self.tasks,
             compiled,
             entry,
@@ -202,11 +191,11 @@ impl RuntimeHost {
     }
 
     /// Deploy a build *incrementally*: load, validate, swap, and run
-    /// `entry` as a plain reconciliation body — spawns and ensures still
-    /// register (and a re-spawn of a live name upgrades in place), but
-    /// nothing is stopped or drained for being undeclared. This is the
-    /// REPL's per-turn deploy: one turn is never a full declaration of
-    /// the running program, so absence means "leave it running".
+    /// `entry` as a plain reconciliation body — ensures still register
+    /// (as dynamic tasks), but nothing is drained for being undeclared.
+    /// This is the REPL's per-turn deploy: one turn is never a full
+    /// declaration of the running program, so absence means "leave it
+    /// running".
     ///
     /// Two deliberate asymmetries with [`Self::deploy`]:
     ///
@@ -239,23 +228,18 @@ impl RuntimeHost {
         {
             generation.bindings.remove(name);
         }
-        let processes = self
-            .runtime
-            .deploy_incremental(&functions, &entry_hash, |vm| {
+        let report = self
+            .core
+            .deploy(&functions, &entry_hash, |vm| {
                 install_task_natives(vm, &self.tasks, false);
             })
             .map_err(|e| anyhow::anyhow!("{e}"))?;
-        let retirement = self.runtime.deploy_core().retirement();
+        let retirement = self.core.retirement();
         Ok(HostDeployOutcome {
-            processes,
+            report,
             tasks: TaskReconcileOutcome::default(),
             retirement,
         })
-    }
-
-    /// The process runtime (for waiting / inspection).
-    pub fn runtime(&self) -> &Arc<ProcessRuntime> {
-        &self.runtime
     }
 
     /// The task runtime (for waiting / inspection).
@@ -267,11 +251,11 @@ impl RuntimeHost {
 /// The full declarative deploy pass, shared by [`RuntimeHost::deploy`]
 /// and the remote-deploy hook (which owns `Arc`s, not a `&RuntimeHost`):
 /// install the build as the current code generation and run `entry` as a
-/// reconciliation pass over the live process tree and task registry.
+/// reconciliation pass over the live task registry.
 fn deploy_build(
     deploy_lock: &Mutex<()>,
     store: &Mutex<Store>,
-    runtime: &Arc<ProcessRuntime>,
+    core: &Arc<DeployRuntime>,
     tasks: &Arc<TaskRuntime>,
     compiled: &CompiledModule,
     entry: &str,
@@ -290,24 +274,23 @@ fn deploy_build(
         Err(_) => bail!("function store lock poisoned"),
     }
 
-    // One reconciliation pass over both deploy clients: the entry
-    // VM carries the task natives as declarations, and the task
-    // registry drains what the entry stopped declaring — only when
-    // the entry ran to completion (an incomplete declaration must
-    // not drain anything, mirroring the process reconciler).
+    // One reconciliation pass: the entry VM carries the task natives as
+    // declarations, and the task registry drains what the entry stopped
+    // declaring — only when the entry ran to completion (an incomplete
+    // declaration must not drain anything).
     let functions = functions_from_module(compiled);
     tasks.begin_reconcile();
-    let result = runtime.deploy_with(&functions, &entry_hash, |vm| {
+    let result = core.deploy(&functions, &entry_hash, |vm| {
         install_task_natives(vm, tasks, true);
     });
     let task_outcome = tasks.finish_reconcile(result.is_ok());
-    let processes = result.map_err(|e| anyhow::anyhow!("{e}"))?;
+    let report = result.map_err(|e| anyhow::anyhow!("{e}"))?;
     // Trace retirement after the full pass (drains included): the
     // report's reachable set is also the safety roots for purging
     // the on-disk store while the system runs.
-    let retirement = runtime.deploy_core().retirement();
+    let retirement = core.retirement();
     Ok(HostDeployOutcome {
-        processes,
+        report,
         tasks: task_outcome,
         retirement,
     })
@@ -317,10 +300,10 @@ fn deploy_build(
 /// returns to the sender. Deterministic: every list is sorted (the name
 /// diff already is), so tests and tooling can match on it.
 fn render_deploy_report(outcome: &HostDeployOutcome) -> String {
-    let names = &outcome.processes.names;
+    let names = &outcome.report.names;
     let mut report = format!(
         "generation {}: {} rebound, {} retired, {} added, {} unchanged",
-        outcome.processes.generation,
+        outcome.report.generation,
         names.rebound.len(),
         names.retired.len(),
         names.added.len(),
@@ -341,7 +324,7 @@ fn render_deploy_report(outcome: &HostDeployOutcome) -> String {
     for name in &outcome.tasks.drained {
         report.push_str(&format!("\ntask drained: {name}"));
     }
-    for warning in &outcome.processes.warnings {
+    for warning in &outcome.report.warnings {
         report.push_str(&format!("\nwarning: {warning}"));
     }
     report

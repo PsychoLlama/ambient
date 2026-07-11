@@ -21,7 +21,7 @@ extern fn state_init_versioned<F, G>(name: String, make: F, migrate: G, old_fing
 ///
 /// `make`, `migrate`, and `f` are generic rather than function-typed
 /// because ability signatures cannot yet express effect-polymorphic
-/// function parameters (the `Process::spawn` precedent); the checker
+/// function parameters (the `Task::ensure` precedent); the checker
 /// constrains each to a function shape at the perform site. All run
 /// *delimited*: performs inside them dispatch to handlers installed
 /// within the function itself, otherwise to default implementations —

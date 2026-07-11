@@ -8,11 +8,11 @@
 //! - TCP connection lifecycle
 //! - Length-prefixed message I/O
 //!
-//! One `NetworkState` is shared by every VM in a process runtime, so a
-//! listener bound in one process can be accepted in another and a
-//! connection handle can be handed between processes as a plain number.
+//! One `NetworkState` is shared by every VM a running system builds, so
+//! a listener bound in one task can be accepted in another and a
+//! connection handle can be handed between tasks as a plain number.
 //! The handle table lock is held only for lookups; blocking IO happens
-//! under per-listener/per-connection-half locks, so a process blocked in
+//! under per-listener/per-connection-half locks, so a task blocked in
 //! `accept` or `receive` never stalls network operations elsewhere.
 
 use std::collections::HashMap;
@@ -40,7 +40,7 @@ const RAW_READ_BUFFER: usize = 64 * 1024;
 ///
 /// The stream is split so that a receiver blocked waiting for bytes does
 /// not lock out a sender on the same connection (full-duplex use from
-/// two processes).
+/// two tasks).
 struct NetworkConnection {
     /// Read half, locked by the (single) blocked receiver.
     read: Mutex<OwnedReadHalf>,
@@ -67,7 +67,7 @@ struct Tables {
 /// Thread-safe state for Network ability handlers.
 ///
 /// This state is shared across all Network ability method handlers (and,
-/// under the process runtime, across all process VMs) and tracks:
+/// under a runtime host, across all task VMs) and tracks:
 /// - Active TCP listeners
 /// - Active connections
 /// - Handle ID generation

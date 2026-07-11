@@ -2,7 +2,7 @@
 //! ref/live-upgrade.md, "State cells").
 //!
 //! One [`StateCells`] is owned by the deploy runtime and shared by every
-//! VM it builds — entry/reconcile VMs, process VMs, future task VMs — so
+//! VM it builds — entry/reconcile VMs and task VMs alike — so
 //! a cell written in one generation is read by the next with no handoff:
 //! the runtime owns the state, and cells belong to no generation. This is
 //! the shared-handle-table pattern (`NetworkState` is the precedent), but
