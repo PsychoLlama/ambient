@@ -5,7 +5,7 @@
 //! VM's dispatch loop — when adding operands to an opcode in
 //! `vm/dispatch.rs`, update [`operands`] here to match.
 
-use crate::value::Value;
+use crate::value::{AbilityMethodRef, Value};
 
 use super::{CompiledFunction, Opcode};
 
@@ -218,6 +218,87 @@ fn instruction_detail(
     }
 }
 
+/// The ability-method references a function's bytecode mentions, split by
+/// role. The constant pool alone cannot make this split —
+/// `CompiledFunction::method_keys` indexes every `AbilityMethodRef`
+/// constant whether it backs a perform or a handler arm — so the deploy
+/// diagnostics ("uncovered method key", ref/live-upgrade.md) read the
+/// instruction stream instead.
+#[derive(Debug, Default)]
+pub struct MethodRefSites<'a> {
+    /// `Suspend` operands: methods this function performs (or builds as
+    /// first-class suspended values, which a later `Perform` may run).
+    pub performed: Vec<&'a AbilityMethodRef>,
+    /// `MakeHandler` arm methods: keys a handler built by this function
+    /// covers.
+    pub covered: Vec<&'a AbilityMethodRef>,
+}
+
+/// Scan a function's instruction stream for ability-method references,
+/// classifying each as performed (`Suspend`) or covered (`MakeHandler`
+/// arm). Best-effort like the disassembler: an unknown opcode ends the
+/// scan (operand widths past it are unknowable) — our own compiler never
+/// emits one.
+#[must_use]
+pub fn method_ref_sites(func: &CompiledFunction) -> MethodRefSites<'_> {
+    let method_at = |idx: u16| match func.constants.get(idx as usize) {
+        Some(Value::AbilityMethodRef(m)) => Some(&**m),
+        _ => None,
+    };
+
+    let mut sites = MethodRefSites::default();
+    let mut cur = Cursor {
+        code: &func.bytecode,
+        pos: 0,
+    };
+    while cur.pos < cur.code.len() {
+        let byte = cur.code[cur.pos];
+        cur.pos += 1;
+        let Some(op) = Opcode::from_byte(byte) else {
+            break;
+        };
+        match operands(op) {
+            Operands::None => {}
+            Operands::U8 => {
+                cur.u8();
+            }
+            Operands::U16 | Operands::I16 => {
+                cur.u16();
+            }
+            Operands::U16U8 => {
+                let idx = cur.u16();
+                cur.u8();
+                if op == Opcode::Suspend
+                    && let Some(method) = idx.and_then(method_at)
+                {
+                    sites.performed.push(method);
+                }
+            }
+            Operands::U16U16U16U8 => {
+                cur.u16();
+                cur.u16();
+                cur.u16();
+                cur.u8();
+            }
+            Operands::Handler => {
+                let (Some(_), Some(methods), Some(_)) = (cur.u16(), cur.u8(), cur.u8()) else {
+                    break;
+                };
+                for _ in 0..methods {
+                    let (method_idx, func_idx) = (cur.u16(), cur.u16());
+                    if func_idx.is_none() {
+                        break;
+                    }
+                    if let Some(method) = method_idx.and_then(method_at) {
+                        sites.covered.push(method);
+                    }
+                }
+            }
+        }
+    }
+    sites
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,6 +330,44 @@ mod tests {
         assert!(
             listing.contains(&dep.to_hex().as_str()[..12]),
             "listing should show the callee hash prefix: {listing}"
+        );
+    }
+
+    #[test]
+    fn method_ref_sites_split_performed_from_covered() {
+        use crate::test_utils::test_method_ref;
+        use crate::types::AbilityId;
+
+        let performed = test_method_ref(1, 1, Some(blake3::hash(b"impl-1")));
+        let covered = test_method_ref(2, 2, Some(blake3::hash(b"impl-2")));
+
+        let mut builder = BytecodeBuilder::new();
+        builder.emit_suspend(performed.clone(), 0);
+        builder.emit(Opcode::Perform);
+        builder.emit_make_handler(
+            AbilityId::from_bytes([2; 32]),
+            &[(covered.clone(), blake3::hash(b"arm"))],
+            0,
+        );
+        builder.emit(Opcode::Return);
+        let func = builder.build(0, 0);
+
+        let sites = method_ref_sites(&func);
+        assert_eq!(
+            sites
+                .performed
+                .iter()
+                .map(|m| m.method_key())
+                .collect::<Vec<_>>(),
+            vec![performed.method_key()]
+        );
+        assert_eq!(
+            sites
+                .covered
+                .iter()
+                .map(|m| m.method_key())
+                .collect::<Vec<_>>(),
+            vec![covered.method_key()]
         );
     }
 

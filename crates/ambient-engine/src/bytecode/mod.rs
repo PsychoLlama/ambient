@@ -22,7 +22,7 @@ mod opcode;
 
 pub use builder::BytecodeBuilder;
 pub use debug::{DebugInfo, SourceMapping};
-pub use disasm::disassemble;
+pub use disasm::{MethodRefSites, disassemble, method_ref_sites};
 pub use opcode::Opcode;
 
 use std::collections::HashMap;
