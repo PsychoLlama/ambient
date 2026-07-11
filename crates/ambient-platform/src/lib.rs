@@ -57,6 +57,7 @@ pub mod network;
 pub mod network_state;
 pub mod process;
 pub mod random;
+pub mod retire;
 pub mod state;
 pub mod stdio;
 pub mod task;

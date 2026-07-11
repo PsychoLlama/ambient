@@ -269,6 +269,9 @@ pub struct DeployReport {
     pub value: Value,
     /// The name-table diff.
     pub names: NameDiff,
+    /// The generation id this deploy was recorded as (1-based, one per
+    /// successful swap) — the identity retirement tracing reports.
+    pub generation: u64,
 }
 
 /// Why a deploy failed.
@@ -300,10 +303,10 @@ impl std::error::Error for DeployError {}
 
 /// Objects loaded so far, cumulative across every deploy.
 #[derive(Default)]
-struct Loaded {
-    functions: HashMap<blake3::Hash, Arc<CompiledFunction>>,
-    values: HashMap<blake3::Hash, Value>,
-    natives: HashMap<blake3::Hash, (uuid::Uuid, u8)>,
+pub(crate) struct Loaded {
+    pub(crate) functions: HashMap<blake3::Hash, Arc<CompiledFunction>>,
+    pub(crate) values: HashMap<blake3::Hash, Value>,
+    pub(crate) natives: HashMap<blake3::Hash, (uuid::Uuid, u8)>,
 }
 
 /// The deploy core. One per running system; every frontend (dev loop,
@@ -328,6 +331,14 @@ pub struct DeployRuntime {
     /// shares it, and deploy validation can inspect cells pre-swap
     /// (Phase 4's migration fingerprints).
     cells: Arc<crate::state::StateCells>,
+    /// The generation ledger behind retirement tracing (which deploy
+    /// shipped which hashes, what names they carried, which generations
+    /// have retired — see [`crate::retire`]).
+    ledger: Mutex<crate::retire::Ledger>,
+    /// Trace-root providers registered by registry clients (the task and
+    /// process runtimes). Cells are built in; everything else arrives
+    /// through here.
+    root_providers: Mutex<Vec<crate::retire::RootProvider>>,
 }
 
 impl DeployRuntime {
@@ -341,7 +352,77 @@ impl DeployRuntime {
             epoch: std::sync::atomic::AtomicU64::new(0),
             names: Arc::new(NameResolver::default()),
             cells: Arc::new(crate::state::StateCells::new()),
+            ledger: Mutex::new(crate::retire::Ledger::default()),
+            root_providers: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Register a trace-root provider (see [`crate::retire`]): a registry
+    /// client's contribution to retirement tracing. Providers are called
+    /// with no locks held, on every trace.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provider list's lock is poisoned.
+    pub fn register_roots(&self, provider: crate::retire::RootProvider) {
+        #[allow(clippy::unwrap_used)]
+        self.root_providers.lock().unwrap().push(provider);
+    }
+
+    /// Run one retirement trace (see `ref/live-upgrade.md`, "Retirement"):
+    /// gather roots (cells, registered providers, the current name
+    /// table), walk everything they reach, and classify each old
+    /// generation as retired (permanently) or pinned (with what pins it).
+    ///
+    /// # Panics
+    ///
+    /// Panics if a runtime lock is poisoned.
+    #[must_use]
+    pub fn retirement(&self) -> crate::retire::RetirementReport {
+        // Gather roots first, holding no runtime-wide locks: providers
+        // lock their own registries, cells lock the cell table.
+        let providers: Vec<crate::retire::RootProvider> = {
+            #[allow(clippy::unwrap_used)]
+            self.root_providers.lock().unwrap().clone()
+        };
+        let mut roots: Vec<crate::retire::Root> = Vec::new();
+        for provider in providers {
+            roots.extend(provider());
+        }
+        for (name, value) in self.cells.snapshot() {
+            roots.push(crate::retire::Root {
+                origin: crate::retire::RootOrigin::Cell(name),
+                value,
+            });
+        }
+        // Every currently bound name is reachable through late-bound
+        // resolution at any time. (For a full build these all attribute
+        // to the current generation; a partial generation leaves old
+        // bindings standing, and those correctly keep their shipper
+        // live.)
+        for (name, binding) in self.name_table().iter() {
+            roots.push(crate::retire::Root::from_hash(
+                crate::retire::RootOrigin::Name(Arc::clone(name)),
+                binding.hash,
+            ));
+        }
+
+        let (origins, seeds): (Vec<_>, Vec<_>) = roots
+            .iter()
+            .enumerate()
+            .map(|(index, root)| {
+                let mut hashes = Vec::new();
+                crate::retire::value_code_hashes(&root.value, &mut hashes);
+                (root.origin.clone(), (index, hashes))
+            })
+            .unzip();
+
+        let reach = {
+            let loaded = self.lock_loaded();
+            crate::retire::reach(&loaded, &seeds)
+        };
+        #[allow(clippy::unwrap_used)]
+        self.ledger.lock().unwrap().classify(&reach, &origins)
     }
 
     /// The shared `State` cell table (for inspection and, later,
@@ -364,6 +445,10 @@ impl DeployRuntime {
     /// name table is untouched. [`DeployError::Entry`] if the entry
     /// function faults; the swap has already happened (see the error's
     /// docs).
+    ///
+    /// # Panics
+    ///
+    /// Panics if a runtime lock is poisoned.
     pub fn deploy(
         &self,
         generation: &Functions,
@@ -382,8 +467,14 @@ impl DeployRuntime {
             return Err(DeployError::Validation(problems));
         }
 
-        // 3. Swap the name table atomically, diffing hash-against-hash.
+        // 3. Swap the name table atomically, diffing hash-against-hash,
+        // and record the generation in the retirement ledger (recorded
+        // at swap time, so a rejected deploy is never a generation).
         let names = self.swap_names(&generation.bindings);
+        let generation_id = {
+            #[allow(clippy::unwrap_used)]
+            self.ledger.lock().unwrap().record(generation)
+        };
 
         // 4. Reconcile: run the entry on a fully loaded, client-wired VM.
         let mut vm = self.build_vm();
@@ -394,7 +485,11 @@ impl DeployRuntime {
         };
 
         // 5. Report.
-        Ok(DeployReport { value, names })
+        Ok(DeployReport {
+            value,
+            names,
+            generation: generation_id,
+        })
     }
 
     /// Build a VM with every deployed object loaded: the factory's base

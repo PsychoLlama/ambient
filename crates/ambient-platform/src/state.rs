@@ -130,6 +130,35 @@ impl StateCells {
         Ok(lock(&self.cells)?.get(name).cloned())
     }
 
+    /// Snapshot every cell's current value — the cell half of the
+    /// retirement trace's roots (`ref/live-upgrade.md`, "Retirement").
+    /// Takes each cell's content lock briefly, one at a time, after
+    /// releasing the table lock; a cell mid-`update` is waited on (its
+    /// committed value is what the trace should see). Poisoned cells are
+    /// skipped — their thread panicked, and a trace is not the place to
+    /// fault.
+    #[must_use]
+    pub fn snapshot(&self) -> Vec<(Arc<str>, Value)> {
+        // The table guard must drop before any content lock is taken:
+        // an `update` holds its cell's content lock and may take the
+        // table lock for nested cell access — holding both here would
+        // be an ABBA deadlock.
+        let entries: Vec<(Arc<str>, Arc<Cell>)> = match lock(&self.cells) {
+            Ok(cells) => cells
+                .iter()
+                .map(|(name, cell)| (Arc::clone(name), Arc::clone(cell)))
+                .collect(),
+            Err(_) => return Vec::new(),
+        };
+        entries
+            .into_iter()
+            .filter_map(|(name, cell)| {
+                let content = lock(&cell.content).ok()?;
+                Some((name, content.value.clone()))
+            })
+            .collect()
+    }
+
     fn existing(&self, name: &str, op: &str) -> Result<Arc<Cell>, VmError> {
         self.cell(name)?.ok_or_else(|| {
             VmError::exception(format!(
