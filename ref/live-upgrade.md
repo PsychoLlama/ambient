@@ -7,10 +7,11 @@ Part of the [Ambient Language Reference](architecture.md).
 > two disagree about upgrades, this document wins. It is written
 > declaratively, as the target. Implemented so far: generations and the
 > deploy core (`crates/ambient-platform/src/deploy.rs`), the `Live`
-> ability with the same-signature rebinding rule, and `State` cells with
+> ability with the same-signature rebinding rule, `State` cells with
 > adopt semantics (`crates/ambient-platform/src/state.rs`; the cell
 > table is owned by the deploy runtime and shared by every VM it
-> builds); migration fingerprints (`init_versioned`), tasks, drain, and
+> builds), and the migration contract (`init_versioned` with
+> compiler-threaded fingerprints — see "Migration"); tasks, drain, and
 > retirement remain design. The process model remains in the tree as
 > a concurrency experiment whose own future is decided separately (see
 > "Relation to the process model").
@@ -197,6 +198,27 @@ live cell holds the relic shape anymore — i.e. when the relic can be
 deleted. A derived-from-the-store old type (à la Unison) is a possible
 future refinement, not part of this design.
 
+Mechanics, as implemented: the fingerprint is the canonical type
+rendering ability signatures already hash (byte-stable, uuid-keyed
+nominals, position-canonical variables). State's write-path methods
+declare trailing `fingerprint: String` parameters that call sites never
+spell — the checker (anchored on the reserved State uuid) hides them
+from perform-site arity, solves the cell type by constraining
+`make`/`migrate`/`f` to function shapes, and the compiler pushes the
+renderings as hidden trailing arguments, the trait-dictionary shape.
+Two consequences fall out:
+
+- The pre-swap reject arm is only statically checkable for **literal
+  cell names**: those perform sites ship a `(cell, old, new)` record in
+  the generation, which validation checks against the live cell table
+  before the swap. An `init_versioned` whose name is computed validates
+  at perform time instead — the mismatch is a fault during
+  reconciliation, not a rejection.
+- A cell write whose type mentions an enclosing type parameter is a
+  check error: a fingerprint must mean exactly one type per site, and
+  compilation is dictionary-passing, never monomorphizing — there is no
+  per-instantiation type to thread.
+
 ## Tasks
 
 A **task** is a named, supervised, drainable loop — much less than a
@@ -370,6 +392,3 @@ client of cells, tasks, and generations.
 - **`latest!` on lambdas with captures** is resolved-to-itself today
   (no deployed name). Rebinding code under a kept environment is
   semantically defensible and deliberately excluded.
-- **Fingerprint mechanics.** How the compiler threads the static cell
-  type through a generic perform (likely the canonical-signature
-  machinery abilities already use) is an implementation design pass.
