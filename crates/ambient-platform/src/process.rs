@@ -149,8 +149,10 @@ pub struct ProcessRuntime {
     /// Signaled whenever a process exits (for [`Self::wait_all`]).
     exited: Condvar,
     /// The deploy core: owns the loaded object stores and the atomic
-    /// name table; every process VM is built from it.
-    core: DeployRuntime,
+    /// name table; every process VM is built from it. `Arc`-shared so
+    /// sibling clients (the task runtime) resolve against the same
+    /// tables.
+    core: Arc<DeployRuntime>,
     events: EventSink,
 }
 
@@ -182,15 +184,16 @@ impl ProcessRuntime {
                 reconcile: None,
             }),
             exited: Condvar::new(),
-            core: DeployRuntime::new(config.vm_factory),
+            core: Arc::new(DeployRuntime::new(config.vm_factory)),
             events: config.events,
         })
     }
 
-    /// The deploy core this runtime is a client of (for name resolution
-    /// and inspection).
+    /// The deploy core this runtime is a client of (for name
+    /// resolution, inspection, and sharing with sibling clients like
+    /// the task runtime).
     #[must_use]
-    pub fn deploy_core(&self) -> &DeployRuntime {
+    pub fn deploy_core(&self) -> &Arc<DeployRuntime> {
         &self.core
     }
 
@@ -212,6 +215,22 @@ impl ProcessRuntime {
         functions: &Functions,
         entry: &blake3::Hash,
     ) -> Result<DeployOutcome, String> {
+        self.deploy_with(functions, entry, |_| {})
+    }
+
+    /// [`Self::deploy`], with an extra wiring hook for the entry VM —
+    /// how a host composes sibling deploy clients (the task runtime's
+    /// `install_task_natives`) into the same reconciliation pass.
+    ///
+    /// # Errors
+    ///
+    /// See [`Self::deploy`].
+    pub fn deploy_with(
+        self: &Arc<Self>,
+        functions: &Functions,
+        entry: &blake3::Hash,
+        wire: impl FnOnce(&mut Vm),
+    ) -> Result<DeployOutcome, String> {
         {
             let mut inner = self.lock();
             inner.generation = Arc::clone(functions);
@@ -221,6 +240,7 @@ impl ProcessRuntime {
         let ctx = ProcessContext { pid: 0, cell: None };
         let report = self.core.deploy(functions, entry, |vm| {
             install_process_natives(vm, self, &ctx);
+            wire(vm);
         });
 
         let mut inner = self.lock();

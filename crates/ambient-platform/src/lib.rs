@@ -59,6 +59,7 @@ pub mod process;
 pub mod random;
 pub mod state;
 pub mod stdio;
+pub mod task;
 pub mod time;
 
 use std::path::Path;
@@ -151,6 +152,10 @@ pub use process::{DeployOutcome, EventSink, ProcessEvent, ProcessRuntime, Proces
 pub use random::random_natives;
 pub use state::StateCells;
 pub use stdio::{StdioConfig, StdioSink, stdio_natives, stdio_natives_with_collector};
+pub use task::{
+    TaskEvent, TaskEventSink, TaskReconcileOutcome, TaskRuntime, TaskRuntimeConfig,
+    install_task_natives,
+};
 pub use time::time_natives;
 
 pub use env::env_natives;

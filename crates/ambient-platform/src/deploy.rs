@@ -312,6 +312,11 @@ pub struct DeployRuntime {
     vm_factory: VmFactory,
     /// Cumulative object stores. Additive: a deploy only ever inserts.
     loaded: Mutex<Loaded>,
+    /// Bumped whenever [`Self::load`] merges a generation — the cheap
+    /// staleness check behind [`Self::epoch`], so a long-lived VM (a
+    /// task's) can re-sync via [`Self::load_into`] only when something
+    /// new arrived.
+    epoch: std::sync::atomic::AtomicU64,
     /// The atomic name table plus its reverse map. Swapped wholesale per
     /// deploy; readers resolve against an immutable snapshot.
     names: Arc<NameResolver>,
@@ -331,6 +336,7 @@ impl DeployRuntime {
         Self {
             vm_factory,
             loaded: Mutex::new(Loaded::default()),
+            epoch: std::sync::atomic::AtomicU64::new(0),
             names: Arc::new(NameResolver::default()),
             cells: Arc::new(crate::state::StateCells::new()),
         }
@@ -411,6 +417,20 @@ impl DeployRuntime {
         // VM the system builds. (Execute-sandbox VMs are built elsewhere
         // and keep the stubs: shipped-by-hash code gets no cells.)
         crate::state::register_state_natives(&mut vm, &self.cells);
+        self.load_into(&mut vm);
+        vm
+    }
+
+    /// Top up a VM with every deployed object. Loading is additive and
+    /// content-addressed, so re-loading known hashes is a no-op — this
+    /// is how a long-lived VM (a task's, iterating for weeks) picks up
+    /// the objects later generations deployed. Pair with
+    /// [`Self::epoch`] to skip the walk when nothing changed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the object-store lock is poisoned.
+    pub fn load_into(&self, vm: &mut Vm) {
         let loaded = self.lock_loaded();
         for func in loaded.functions.values() {
             vm.load_function_shared(Arc::clone(func));
@@ -421,7 +441,16 @@ impl DeployRuntime {
         for (hash, (uuid, param_count)) in &loaded.natives {
             vm.load_native(*hash, *uuid, *param_count);
         }
-        vm
+    }
+
+    /// The load epoch: bumped whenever a generation's objects are
+    /// merged. Equal epochs guarantee a VM synced at the earlier read
+    /// is missing nothing; a changed epoch says [`Self::load_into`] has
+    /// something new. (Read it *before* the sync it guards, so a
+    /// concurrent load re-syncs next time instead of being missed.)
+    #[must_use]
+    pub fn epoch(&self) -> u64 {
+        self.epoch.load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// The loaded function at `hash`, from any generation ever deployed.
@@ -483,6 +512,9 @@ impl DeployRuntime {
         for (hash, native) in &generation.natives {
             loaded.natives.entry(*hash).or_insert(*native);
         }
+        drop(loaded);
+        self.epoch
+            .fetch_add(1, std::sync::atomic::Ordering::Release);
     }
 
     /// Check every statically-named `State::init_versioned` obligation
