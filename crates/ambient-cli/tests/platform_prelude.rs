@@ -43,7 +43,7 @@ fn resolved_prelude() -> HashMap<String, Arc<DynAbility>> {
 fn declarations_expose_the_expected_interfaces() {
     let prelude = resolved_prelude();
 
-    let expected: [(&str, &[&str]); 11] = [
+    let expected: [(&str, &[&str]); 12] = [
         ("Stdio", &["out", "err", "read"]),
         ("Time", &["now", "wait"]),
         ("Random", &["seed", "in_range"]),
@@ -93,12 +93,13 @@ fn declarations_expose_the_expected_interfaces() {
         ("Env", &["var", "vars", "set", "args", "cwd", "pid"]),
         ("Live", &["latest"]),
         ("State", &["init", "get", "set", "update", "init_versioned"]),
+        ("Drain", &["requested"]),
     ];
 
     assert_eq!(
         prelude.len(),
         expected.len(),
-        "platform.ab must declare exactly the 11 platform abilities"
+        "platform.ab must declare exactly the 12 platform abilities"
     );
 
     for (name, methods) in expected {
@@ -114,9 +115,15 @@ fn declarations_expose_the_expected_interfaces() {
         );
 
         for method in &ability.methods {
-            assert!(
-                method.has_impl,
-                "{name}.{} must carry a default implementation",
+            // The abstract carve-out: a never-returning method may omit
+            // its default implementation. `Drain::requested` is the
+            // platform's only such method — the runtime delivers it, and
+            // an unhandled delivery is a fault by design.
+            let abstract_never = name == "Drain" && method.name.as_ref() == "requested";
+            assert_eq!(
+                method.has_impl, !abstract_never,
+                "{name}.{} must carry a default implementation (unless it \
+                 is the abstract never carve-out)",
                 method.name
             );
         }
@@ -132,7 +139,7 @@ fn declarations_expose_the_expected_interfaces() {
 fn ability_uuids_are_pinned() {
     let prelude = resolved_prelude();
 
-    let reserved: [(&str, u128); 11] = [
+    let reserved: [(&str, u128); 12] = [
         ("Stdio", 0x2),
         ("Time", 0x3),
         ("Random", 0x4),
@@ -144,6 +151,7 @@ fn ability_uuids_are_pinned() {
         ("Execute", 0xA),
         ("Live", 0xB),
         ("State", 0xC),
+        ("Drain", 0xD),
     ];
 
     for (name, slot) in reserved {
@@ -201,6 +209,42 @@ fn signature_hashes_are_byte_stable() {
         wait.signature,
         SignatureHash::new(&["named:Duration"], "unit"),
         "Time::wait must render an unresolved cross-module nominal by name"
+    );
+}
+
+/// `Drain` is declared in Ambient source (`core::system::drain`), but the
+/// platform's interruptible natives deliver `Drain::requested!` by putting
+/// the anchors in `ambient_core::drain` inside `VmError::Interrupted` —
+/// never by resolving the declaration. The declaration must reproduce the
+/// anchors byte-for-byte, or a compiled `Drain::requested` arm would never
+/// cover the runtime's delivery.
+#[test]
+fn declared_drain_reproduces_the_runtime_anchors() {
+    let prelude = resolved_prelude();
+    let drain = prelude.get("Drain").expect("platform declares Drain");
+
+    assert_eq!(
+        drain.id,
+        ambient_core::drain::ability_id(),
+        "core::system::drain::Drain must reproduce the runtime's Drain id"
+    );
+    assert_eq!(drain.uuid, ambient_core::drain::DRAIN_UUID);
+    assert_eq!(drain.methods.len(), 1);
+    let requested = &drain.methods[0];
+    assert_eq!(requested.name.as_ref(), "requested");
+    assert!(
+        !requested.has_impl,
+        "`requested` is abstract (never-returning; unhandled = fault)"
+    );
+    assert_eq!(
+        requested.signature,
+        ambient_core::drain::requested_signature(),
+        "the declared signature must render () -> never"
+    );
+    assert_eq!(
+        ambient_core::MethodKey::derive(&drain.uuid, &requested.signature, None),
+        ambient_core::drain::requested_method_key(),
+        "the declared signature must reproduce the runtime's requested method key"
     );
 }
 

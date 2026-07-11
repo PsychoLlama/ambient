@@ -7,6 +7,7 @@
 //! Host-provided capabilities like Stdio, Time, and File operations are
 //! defined in `ambient-platform` instead, as they are environment-specific.
 
+pub mod drain;
 pub mod exception;
 mod identity;
 pub mod state;

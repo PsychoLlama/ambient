@@ -1,0 +1,28 @@
+//! Cooperative cancellation (see ref/live-upgrade.md, "Drain").
+
+/// Cooperative cancellation. User code never performs `requested`
+/// itself: the **runtime** delivers it — only at interruptible performs
+/// (a marked subset of blocking platform operations: `Network::accept`,
+/// `Network::receive`, `Time::wait`) — when a drain has been requested
+/// for the computation. Code between interruptible performs always runs
+/// to completion, so invariants never tear.
+///
+/// `requested` returns `!` (never): the perform unwinds, discarding the
+/// delimited computation, and the nearest `Drain::requested` arm runs
+/// cleanup and yields the computation's value:
+///
+/// ```ambient
+/// with { Drain::requested() => checkpoint_and_report() }
+///   handle serve_loop()
+/// ```
+///
+/// With no arm in scope the delivery is a runtime fault the draining
+/// host observes. A drain carries a deadline: a computation that does
+/// not reach an interruptible perform in time is hard-stopped and
+/// parked.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000D) ability Drain {
+  /// The runtime is draining this computation: unwind to the nearest
+  /// `Drain::requested` arm. Abstract (never-returning): an unhandled
+  /// delivery is a runtime fault, not a resumable condition.
+  fn requested(): !;
+}
