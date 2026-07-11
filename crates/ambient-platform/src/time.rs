@@ -40,7 +40,8 @@ fn wait(args: &[Value]) -> Result<Value, VmError> {
 /// in `[0, 1e9)`), so `secs`/`nanos` map straight onto `Duration::new`.
 /// Negative or non-finite components describe a duration before the zero
 /// point, which `thread::sleep` can't honor, so they clamp to zero.
-fn duration_from_value(value: &Value) -> Option<std::time::Duration> {
+/// Shared with the interruptible `time_wait` override (`crate::drain`).
+pub(crate) fn duration_from_value(value: &Value) -> Option<std::time::Duration> {
     let Value::Record(fields) = value else {
         return None;
     };

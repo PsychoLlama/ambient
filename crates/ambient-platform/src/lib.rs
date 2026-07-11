@@ -49,6 +49,7 @@
 #![cfg_attr(not(test), deny(clippy::expect_used, clippy::unwrap_used))]
 
 pub mod deploy;
+pub mod drain;
 pub mod env;
 pub mod execute;
 pub mod fs;
@@ -141,6 +142,7 @@ pub use deploy::{
     Binding, DeployError, DeployReport, DeployRuntime, Functions, Generation, NameDiff, NameTable,
     VmFactory, functions_from_module,
 };
+pub use drain::{DrainSignal, drain_interrupt, install_drain_natives};
 pub use execute::{ExecuteConfig, ExecuteGrants, execute_natives};
 pub use fs::fs_natives;
 pub use network::network_natives;

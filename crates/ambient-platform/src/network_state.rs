@@ -16,6 +16,7 @@
 //! `accept` or `receive` never stalls network operations elsewhere.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -173,11 +174,31 @@ impl NetworkState {
     ///
     /// Returns an error if the listener ID is invalid or accepting fails.
     pub fn accept(&self, listener_id: ListenerId) -> Result<ConnectionId, NetworkError> {
+        self.accept_interruptible(listener_id, std::future::pending())
+    }
+
+    /// [`Self::accept`], except the wait also races `cancel`: when it
+    /// completes first, the accept is abandoned and the call returns
+    /// [`NetworkError::Interrupted`]. This is the interruption point for
+    /// a drain request — the caller (an interruptible native) turns the
+    /// error into a `Drain::requested` delivery.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the listener ID is invalid, accepting fails,
+    /// or `cancel` completes first ([`NetworkError::Interrupted`]).
+    pub fn accept_interruptible(
+        &self,
+        listener_id: ListenerId,
+        cancel: impl Future<Output = ()>,
+    ) -> Result<ConnectionId, NetworkError> {
         let listener = self.listener(listener_id)?;
-        let (stream, _peer) = self
-            .runtime
-            .block_on(listener.accept())
-            .map_err(NetworkError::Io)?;
+        let (stream, _peer) = self.runtime.block_on(async {
+            tokio::select! {
+                result = listener.accept() => result.map_err(NetworkError::Io),
+                () = cancel => Err(NetworkError::Interrupted),
+            }
+        })?;
         self.insert_stream(stream)
     }
 
@@ -285,29 +306,55 @@ impl NetworkState {
     /// Returns an error if the connection is invalid, the message is too large,
     /// or reading fails.
     pub fn receive(&self, conn_id: ConnectionId) -> Result<Vec<u8>, NetworkError> {
+        self.receive_interruptible(conn_id, std::future::pending())
+    }
+
+    /// [`Self::receive`], except the wait also races `cancel`: when it
+    /// completes first, the read is abandoned and the call returns
+    /// [`NetworkError::Interrupted`]. An interrupted receive may abandon
+    /// a partially-read frame, corrupting the stream's framing — a drain
+    /// means the connection is being torn down, so the caller must not
+    /// reuse it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection is invalid, the message is too
+    /// large, reading fails, or `cancel` completes first
+    /// ([`NetworkError::Interrupted`]).
+    pub fn receive_interruptible(
+        &self,
+        conn_id: ConnectionId,
+        cancel: impl Future<Output = ()>,
+    ) -> Result<Vec<u8>, NetworkError> {
         let conn = self.connection(conn_id)?;
         let mut read = conn.read.lock().map_err(|_| NetworkError::Poisoned)?;
 
         self.runtime.block_on(async {
-            // Read length prefix
-            let mut len_buf = [0u8; 4];
-            match read.read_exact(&mut len_buf).await {
-                Ok(_) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Err(NetworkError::ConnectionClosed);
+            let receive = async {
+                // Read length prefix
+                let mut len_buf = [0u8; 4];
+                match read.read_exact(&mut len_buf).await {
+                    Ok(_) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                        return Err(NetworkError::ConnectionClosed);
+                    }
+                    Err(e) => return Err(NetworkError::Io(e)),
                 }
-                Err(e) => return Err(NetworkError::Io(e)),
-            }
 
-            let len = u32::from_be_bytes(len_buf);
-            if len > MAX_MESSAGE_SIZE {
-                return Err(NetworkError::MessageTooLarge(len as usize));
-            }
+                let len = u32::from_be_bytes(len_buf);
+                if len > MAX_MESSAGE_SIZE {
+                    return Err(NetworkError::MessageTooLarge(len as usize));
+                }
 
-            // Read payload
-            let mut buf = vec![0u8; len as usize];
-            read.read_exact(&mut buf).await?;
-            Ok(buf)
+                // Read payload
+                let mut buf = vec![0u8; len as usize];
+                read.read_exact(&mut buf).await?;
+                Ok(buf)
+            };
+            tokio::select! {
+                result = receive => result,
+                () = cancel => Err(NetworkError::Interrupted),
+            }
         })
     }
 
@@ -347,6 +394,9 @@ pub enum NetworkError {
     ConnectionClosed,
     /// Message exceeds maximum size.
     MessageTooLarge(usize),
+    /// A blocking operation was abandoned because its cancel future won
+    /// the race (a drain request).
+    Interrupted,
     /// A lock was poisoned by a panicking thread.
     Poisoned,
 }
@@ -364,6 +414,7 @@ impl std::fmt::Display for NetworkError {
                     "message too large: {size} bytes (max {MAX_MESSAGE_SIZE})"
                 )
             }
+            Self::Interrupted => write!(f, "operation interrupted by a drain request"),
             Self::Poisoned => write!(f, "network state lock poisoned"),
         }
     }
