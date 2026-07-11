@@ -31,7 +31,15 @@ use std::sync::Arc;
 use super::error::BoxedTypeErrorExt;
 use super::{Infer, InferResult, TypeEnv, TypeError, TypeErrorKind, type_error};
 use crate::ast::{Expr, ExprKind, StmtKind, UnaryOp};
-use crate::types::Type;
+use crate::types::{LIST_UUID, Type};
+
+/// The element expectation a `List<T>` type carries into a list literal.
+fn expected_list_elem(expected: Option<&Type>) -> Option<&Type> {
+    match expected {
+        Some(Type::Named(n)) if n.uuid == Some(LIST_UUID) && n.args.len() == 1 => Some(&n.args[0]),
+        _ => None,
+    }
+}
 
 impl Infer {
     /// Infer the type of an expression.
@@ -39,11 +47,41 @@ impl Infer {
     /// # Errors
     ///
     /// Returns a `TypeError` if type inference fails.
-    #[allow(clippy::too_many_lines)]
     pub fn infer_expr(&mut self, env: &TypeEnv, expr: &mut Expr) -> InferResult<Type> {
+        self.infer_expr_expecting(env, expr, None)
+    }
+
+    /// Infer the type of an expression under an optional *expected* type —
+    /// a written annotation (`let`/`const`, a declared return type) pushed
+    /// down from the context.
+    ///
+    /// The expectation is a structural hint, not a check: it seeds the
+    /// positions inference would otherwise mint fresh variables for
+    /// (unannotated lambda parameters, list elements, a match's result) and
+    /// threads through type-transparent frames (blocks, `if`/`match`
+    /// branches), so a generic initializer resolves against the annotation
+    /// *during* inference and mismatches surface at the sub-expression that
+    /// caused them. Leaves ignore it — the caller's definitive
+    /// unify-against-annotation still runs after inference returns.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `TypeError` if type inference fails.
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn infer_expr_expecting(
+        &mut self,
+        env: &TypeEnv,
+        expr: &mut Expr,
+        expected: Option<&Type>,
+    ) -> InferResult<Type> {
         // NOTE: module-alias method-call disambiguation (`utils.helper(x)`
         // as a qualified call when `utils` is a module alias) happens in the
         // resolve pass (`crate::resolve`), which runs before checking.
+
+        // Ground the expectation in what earlier inference already solved,
+        // so shape matches below see through bound variables.
+        let expected = expected.map(|t| self.apply(t));
+        let expected = expected.as_ref();
 
         let span = (expr.span.start, expr.span.end);
         // Split borrows: several arms annotate `dicts` (the dictionary
@@ -84,9 +122,16 @@ impl Infer {
             }
 
             ExprKind::Tuple(elems) => {
+                // An expected tuple of matching arity distributes into the
+                // elements.
+                let expected_elems = match expected {
+                    Some(Type::Tuple(tys)) if tys.len() == elems.len() => Some(tys.clone()),
+                    _ => None,
+                };
                 let mut elem_tys = Vec::with_capacity(elems.len());
-                for elem in elems {
-                    elem_tys.push(self.infer_expr(env, elem)?);
+                for (i, elem) in elems.iter_mut().enumerate() {
+                    let elem_expected = expected_elems.as_ref().map(|tys| &tys[i]);
+                    elem_tys.push(self.infer_expr_expecting(env, elem, elem_expected)?);
                 }
                 Type::Tuple(elem_tys)
             }
@@ -264,9 +309,13 @@ impl Infer {
             }
 
             ExprKind::List(elems) => {
-                let elem_ty = self.fresh();
+                let expected_elem = expected_list_elem(expected).cloned();
+                let elem_ty = match expected_elem {
+                    Some(ty) => ty,
+                    None => self.fresh(),
+                };
                 for elem in elems {
-                    let ty = self.infer_expr(env, elem)?;
+                    let ty = self.infer_expr_expecting(env, elem, Some(&elem_ty))?;
                     self.unify(&elem_ty, &ty, span)?;
                 }
                 Type::list(self.apply(&elem_ty))
@@ -297,13 +346,15 @@ impl Infer {
                 let cond_ty = self.infer_expr(env, cond)?;
                 self.unify(&cond_ty, &Type::bool(), span)?;
 
-                let then_ty = self.infer_expr(env, then_branch)?;
-
+                // Branches share the whole expression's expectation; an
+                // else-less `if` is always `()`, so no hint helps it.
                 if let Some(else_branch) = else_branch {
-                    let else_ty = self.infer_expr(env, else_branch)?;
+                    let then_ty = self.infer_expr_expecting(env, then_branch, expected)?;
+                    let else_ty = self.infer_expr_expecting(env, else_branch, expected)?;
                     self.unify(&then_ty, &else_ty, span)?;
                     then_ty
                 } else {
+                    let then_ty = self.infer_expr(env, then_branch)?;
                     // No else branch means unit type
                     self.unify(&then_ty, &Type::Unit, span)?;
                     Type::Unit
@@ -322,12 +373,17 @@ impl Infer {
                     ));
                 }
 
-                let result_ty = self.fresh();
+                // The expectation seeds the result type, so an off-type arm
+                // errors at its own span rather than at the annotation.
+                let result_ty = match expected {
+                    Some(ty) => ty.clone(),
+                    None => self.fresh(),
+                };
                 for arm in arms.iter_mut() {
                     let arm_env = self.infer_pattern(env, &arm.pattern, &scrutinee_ty)?;
                     // Infer on the real body (not a clone): inference
                     // records resolutions the compiler depends on.
-                    let arm_ty = self.infer_expr(&arm_env, &mut arm.body)?;
+                    let arm_ty = self.infer_expr_expecting(&arm_env, &mut arm.body, expected)?;
                     let arm_span = (arm.body.span.start, arm.body.span.end);
                     self.unify(&result_ty, &arm_ty, arm_span)?;
                 }
@@ -339,17 +395,21 @@ impl Infer {
                 for stmt in stmts {
                     match &mut stmt.kind {
                         StmtKind::Let(binding) => {
-                            let init_ty = self.infer_expr(&block_env, &mut binding.init)?;
-                            let ty = if let Some(annotation) = binding.ty.clone() {
-                                // An undefined name in the annotation is
-                                // reported and rewritten to `Type::Error`,
-                                // like a lambda parameter's.
+                            // The annotation resolves first (an undefined
+                            // name in it is reported and rewritten to
+                            // `Type::Error`, like a lambda parameter's) so
+                            // it can flow into the initializer as its
+                            // expected type.
+                            let annotated = binding.ty.clone().map(|annotation| {
                                 let ann_span = (binding.name_span.start, binding.name_span.end);
-                                let expected = super::check::resolve_body_annotation(
-                                    self,
-                                    &annotation,
-                                    ann_span,
-                                );
+                                super::check::resolve_body_annotation(self, &annotation, ann_span)
+                            });
+                            let init_ty = self.infer_expr_expecting(
+                                &block_env,
+                                &mut binding.init,
+                                annotated.as_ref(),
+                            )?;
+                            let ty = if let Some(expected) = annotated {
                                 let span = (binding.init.span.start, binding.init.span.end);
                                 if let Err(e) = self.unify(&expected, &init_ty, span) {
                                     self.pending_errors.push(e.with_context(format!(
@@ -391,17 +451,19 @@ impl Infer {
                                     (const_def.value.span.start, const_def.value.span.end),
                                 ));
                             }
-                            let value_ty = self.infer_expr(&block_env, &mut const_def.value)?;
-                            let ty = if let Some(annotation) = const_def.ty.clone() {
-                                // A block `const`'s annotation is a body-local
-                                // type: an undefined name in it is reported and
-                                // rewritten to `Type::Error`, like a `let`'s.
+                            // A block `const`'s annotation is a body-local
+                            // type: an undefined name in it is reported and
+                            // rewritten to `Type::Error`, like a `let`'s.
+                            let annotated = const_def.ty.clone().map(|annotation| {
                                 let ann_span = (const_def.name_span.start, const_def.name_span.end);
-                                let expected = super::check::resolve_body_annotation(
-                                    self,
-                                    &annotation,
-                                    ann_span,
-                                );
+                                super::check::resolve_body_annotation(self, &annotation, ann_span)
+                            });
+                            let value_ty = self.infer_expr_expecting(
+                                &block_env,
+                                &mut const_def.value,
+                                annotated.as_ref(),
+                            )?;
+                            let ty = if let Some(expected) = annotated {
                                 let span = (const_def.value.span.start, const_def.value.span.end);
                                 if let Err(e) = self.unify(&expected, &value_ty, span) {
                                     self.pending_errors.push(e.with_context(format!(
@@ -422,27 +484,42 @@ impl Infer {
                     }
                 }
                 if let Some(result) = result {
-                    self.infer_expr(&block_env, result)?
+                    // The block's value is its result expression, so the
+                    // expectation passes straight through.
+                    self.infer_expr_expecting(&block_env, result, expected)?
                 } else {
                     Type::Unit
                 }
             }
 
             ExprKind::Lambda(lambda) => {
+                // An expected function type of matching arity seeds the
+                // unannotated parameters and the body's expected return —
+                // this is what lets `let f: (Stats) -> Number = s => s.hits`
+                // type `s` without a written annotation. Written annotations
+                // still win (the caller's final unify checks them).
+                let expected_fn = match expected {
+                    Some(Type::Function(f)) if f.params.len() == lambda.params.len() => {
+                        Some(f.clone())
+                    }
+                    _ => None,
+                };
+
                 let mut lambda_env = env.extend();
                 let mut param_tys = Vec::with_capacity(lambda.params.len());
 
-                for param in &lambda.params {
+                for (i, param) in lambda.params.iter().enumerate() {
                     // Resolve holes in type annotations (e.g., `_` becomes a
                     // fresh variable); an undefined type name is reported and
                     // becomes `Type::Error`.
-                    let param_ty = match &param.ty {
-                        Some(ty) => super::check::resolve_body_annotation(
+                    let param_ty = match (&param.ty, &expected_fn) {
+                        (Some(ty), _) => super::check::resolve_body_annotation(
                             self,
                             ty,
                             (param.span.start, param.span.end),
                         ),
-                        None => self.fresh(),
+                        (None, Some(f)) => f.params[i].clone(),
+                        (None, None) => self.fresh(),
                     };
                     param_tys.push(param_ty.clone());
                     lambda_env.insert_mono(param.id, param.name.clone(), param_ty);
@@ -451,8 +528,10 @@ impl Infer {
                 // The abilities performed by the lambda's body belong to the
                 // lambda's own function type — the enclosing function only
                 // requires them if it actually calls the lambda.
-                let (body_result, lambda_abilities) = self
-                    .with_isolated_effects(|infer| infer.infer_expr(&lambda_env, &mut lambda.body));
+                let body_expected = expected_fn.as_ref().map(|f| f.ret.as_ref());
+                let (body_result, lambda_abilities) = self.with_isolated_effects(|infer| {
+                    infer.infer_expr_expecting(&lambda_env, &mut lambda.body, body_expected)
+                });
                 let ret_ty = body_result?;
 
                 Type::function_with_abilities(

@@ -49,7 +49,10 @@ pub(super) fn check_function_body(
                 func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
             }
 
-            match infer.infer_expr(&func_env, &mut func.body) {
+            // The declared return type flows into the body as its expected
+            // type (seeding lambda parameters, list elements, match results
+            // along the way); the unify below stays the definitive check.
+            match infer.infer_expr_expecting(&func_env, &mut func.body, expected_ret_ty.as_ref()) {
                 Ok(body_ty) => {
                     if let Some(ref expected) = expected_ret_ty {
                         let span = (func.body.span.start, func.body.span.end);
@@ -120,7 +123,7 @@ pub(super) fn check_ability_method_bodies(
                     method_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
                 }
 
-                match infer.infer_expr(&method_env, body) {
+                match infer.infer_expr_expecting(&method_env, body, Some(&expected_ret)) {
                     Ok(body_ty) => {
                         let span = (body.span.start, body.span.end);
                         if let Err(e) = infer.unify(&expected_ret, &body_ty, span) {

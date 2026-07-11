@@ -698,6 +698,49 @@ fn let_annotation_mismatch_is_rejected() {
     );
 }
 
+/// The annotation is pushed into the initializer as its expected type, so
+/// an unannotated lambda parameter takes the annotated function type's
+/// parameter — field access on it resolves during inference instead of
+/// dying with "cannot infer record type".
+#[test]
+fn let_annotation_types_unannotated_lambda_params() {
+    assert_ok(
+        r"
+        unique(A1B2C3D4-0000-0000-0000-0000000000B1) struct Stats { hits: Number }
+        fn run(): Number {
+          let f: (Stats) -> Number = (s) => s.hits;
+          f(Stats { hits: 3 })
+        }
+        ",
+    );
+    // The expected return threads through the lambda body too — here into
+    // a tuple the body builds.
+    assert_ok(
+        r#"
+        fn run(): Number {
+          let g: (Number) -> (Number, String) = (n) => (n, "ok");
+          g(4).0
+        }
+        "#,
+    );
+}
+
+/// The expectation threads through type-transparent frames: a block's
+/// result and both branches of an `if`/`match` see it, so a generic read
+/// nested inside them still resolves against the annotation.
+#[test]
+fn let_annotation_threads_through_branches() {
+    assert_ok(
+        r"
+        fn empty<T>(): List<T> { [] }
+        fn run(cond: Bool): Number {
+          let xs: List<Number> = if cond { empty() } else { [1] };
+          xs.length()
+        }
+        ",
+    );
+}
+
 /// The annotation is also an inference *source*: it pins a generic
 /// initializer's type, so a conflicting later use errors instead of the
 /// annotation silently losing.
