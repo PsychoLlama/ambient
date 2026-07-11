@@ -77,26 +77,36 @@ pub fn cmd_dev(path: &Path, entry: &str, watch_dirs: Option<&[PathBuf]>) -> Resu
     // loop watching, same as any later iteration.
     deploy_iteration(&host, &path, entry);
 
-    // Watch for changes.
-    let mut last_run = Instant::now();
+    // Watch for changes. A change is *deferred* through the debounce —
+    // never dropped: an edit is redeployed no matter when it lands
+    // relative to the previous deploy. (An earlier version compared
+    // against the last deploy's timestamp and discarded events inside
+    // the window; an edit saved within 100ms of a deploy — easy for a
+    // test, possible for an editor save storm — was silently never
+    // deployed, and the watcher never refires for it.)
     let debounce = Duration::from_millis(100);
 
     loop {
         match rx.recv_timeout(Duration::from_millis(500)) {
             Ok(event) => {
-                // Filter to only .ab file changes, ignoring the
-                // package-local store under .ambient/.
-                let is_ab_change = event.paths.iter().any(|p| {
-                    p.extension().is_some_and(|ext| ext == "ab")
-                        && !p.components().any(|c| c.as_os_str() == ".ambient")
-                });
-
-                if is_ab_change && last_run.elapsed() > debounce {
-                    last_run = Instant::now();
-                    eprintln!();
-                    eprintln!("{TAG} Change detected, deploying...");
-                    deploy_iteration(&host, &path, entry);
+                if !is_ab_change(&event) {
+                    continue;
                 }
+                // Coalesce the burst: wait until the tree has been quiet
+                // for one debounce window (editor save storms write many
+                // events; one deploy covers them all).
+                loop {
+                    match rx.recv_timeout(debounce) {
+                        Ok(_) => {}
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            bail!("file watcher disconnected");
+                        }
+                    }
+                }
+                eprintln!();
+                eprintln!("{TAG} Change detected, deploying...");
+                deploy_iteration(&host, &path, entry);
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 // Continue waiting.
@@ -106,6 +116,16 @@ pub fn cmd_dev(path: &Path, entry: &str, watch_dirs: Option<&[PathBuf]>) -> Resu
             }
         }
     }
+}
+
+/// Whether a watch event touches an `.ab` source file, ignoring the
+/// package-local store under `.ambient/` (a deploy persists hundreds of
+/// objects there; redeploying on those would loop forever).
+fn is_ab_change(event: &notify::Event) -> bool {
+    event.paths.iter().any(|p| {
+        p.extension().is_some_and(|ext| ext == "ab")
+            && !p.components().any(|c| c.as_os_str() == ".ambient")
+    })
 }
 
 /// Compile and deploy one generation. Errors are reported and leave the
