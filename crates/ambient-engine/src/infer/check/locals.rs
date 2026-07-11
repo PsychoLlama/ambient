@@ -414,7 +414,16 @@ fn collect_const_signatures(
     env: &mut TypeEnv,
     module_id: Option<&ModuleId>,
 ) {
-    let mut next_binding_id: BindingId = 2_000_000;
+    // Synthetic binding ids in the consts' own range. The channel bases
+    // are 1_000_000 own functions, 2_000_000 foreign exports, 3_000_000
+    // consts, 4_000_000 enum constructors, 5_000_000 unit structs — and
+    // they must stay disjoint: a shared id makes two names alias one
+    // `bindings` slot, and the last write silently replaces the other
+    // name's scheme. Consts briefly shared the foreign base, and because
+    // foreign ids are assigned in map-iteration order, *which* import
+    // lost its scheme to a const varied run to run — package builds with
+    // a `const` failed nondeterministically, ~1 compile in 10.
+    let mut next_binding_id: BindingId = 3_000_000;
     for item in &module.items {
         if let crate::ast::ItemKind::Const(const_def) = &item.kind {
             let binding_id = next_binding_id;

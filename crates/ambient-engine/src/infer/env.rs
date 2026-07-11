@@ -178,6 +178,15 @@ impl TypeEnv {
 
     /// Insert a binding under an arbitrary [`NameKey`].
     pub fn insert_key(&mut self, id: BindingId, key: NameKey, scheme: Scheme) {
+        // Re-binding a *name* is legal shadowing, but a binding id may
+        // never be shared by two names: both would alias one `bindings`
+        // slot and the last write would silently replace the other
+        // name's scheme (the id channels in `check` allocate from
+        // disjoint ranges precisely for this).
+        debug_assert!(
+            !self.bindings.contains_key(&id) || self.names.get(&key) == Some(&id),
+            "binding id {id} is already taken by another name (inserting `{key:?}`)"
+        );
         self.bindings.insert(id, scheme);
         self.names.insert(key, id);
     }
