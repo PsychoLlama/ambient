@@ -285,19 +285,27 @@ pub(super) fn compile_expr_tail(
             // Short-circuit evaluation for logical operators.
             match op {
                 BinaryOp::And => {
+                    // Left is never tail (its value gates the branch). On the
+                    // fallthrough (left true) path the right operand's value is
+                    // the whole expression's value, so it inherits the `&&`'s
+                    // tail position — a tail call there reuses the frame. The
+                    // short-circuit (left false) path jumps past `right` and
+                    // returns the dup'd `false` normally.
                     compile_expr(fc, left, ctx)?;
                     fc.builder.emit(Opcode::Dup);
                     let jump = fc.builder.emit_jump_placeholder(Opcode::JumpIfNot);
                     fc.builder.emit(Opcode::Pop);
-                    compile_expr(fc, right, ctx)?;
+                    compile_expr_tail(fc, right, ctx, tail)?;
                     fc.builder.patch_jump(jump);
                 }
                 BinaryOp::Or => {
+                    // Symmetric to `&&`: the right operand inherits tail
+                    // position on the fallthrough (left false) path.
                     compile_expr(fc, left, ctx)?;
                     fc.builder.emit(Opcode::Dup);
                     let jump = fc.builder.emit_jump_placeholder(Opcode::JumpIf);
                     fc.builder.emit(Opcode::Pop);
-                    compile_expr(fc, right, ctx)?;
+                    compile_expr_tail(fc, right, ctx, tail)?;
                     fc.builder.patch_jump(jump);
                 }
                 _ => {

@@ -213,8 +213,9 @@ fn core_lib_fold_map_filter_over_long_list() {
     // (`fold_from`/`map_from`/`filter_from`) whose recursive calls are in
     // tail position, so they now traverse a list longer than 1000 elements.
     // The list itself is built by a tail-recursive helper (a literal that
-    // long is impractical, and `List::range` recurses non-tail through
-    // `concat`, so it can't build one either). Every element is 1:
+    // long is impractical; `List::range` would work too, but a hand-rolled
+    // builder keeps this test independent of the core-lib helper). Every
+    // element is 1:
     //   fold sum        = 3000
     //   map length      = 3000
     //   filter(==1) len = 3000
@@ -235,6 +236,38 @@ fn core_lib_fold_map_filter_over_long_list() {
     "#,
     )
     .expect_output("9000");
+}
+
+#[test]
+fn core_lib_any_all_over_long_list() {
+    // `any`/`all` delegate to `any_from`/`all_from`, whose recursion is the
+    // right operand of `||`/`&&`. Short-circuit right operands are now tail
+    // positions, so both traverse a list longer than 1000 elements. The list
+    // is all 1s except the last element (2), exercising both the hit and miss
+    // paths that scan the whole list:
+    //   any(== 2)  finds the final element  => true   (scans all 3000)
+    //   any(== 9)  never matches            => false  (scans all 3000)
+    //   all(== 1)  fails on the final 2     => false  (scans all 3000)
+    //   all(>= 1)  holds everywhere         => true   (scans all 3000)
+    // Encoded as 1 + 0 + 0 + 1 = 2 booleans-as-numbers.
+    CliTest::new(
+        r#"
+        fn build(n: Number, acc: List<Number>): List<Number> {
+            if n <= 1 { acc.append(2) } else { build(n - 1, acc.append(1)) }
+        }
+
+        fn as_num(b: Bool): Number { if b { 1 } else { 0 } }
+
+        pub fn run(): Number {
+            let big = build(3000, []);
+            as_num(big.any((x: Number) => x == 2))
+                + as_num(big.any((x: Number) => x == 9))
+                + as_num(big.all((x: Number) => x == 1))
+                + as_num(big.all((x: Number) => x >= 1))
+        }
+    "#,
+    )
+    .expect_output("2");
 }
 
 #[test]
