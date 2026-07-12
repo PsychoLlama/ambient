@@ -221,8 +221,9 @@ fn register_foreign_impl(
 
     let mut impl_record = crate::types::TraitImpl::new(trait_uuid, type_uuid, type_name);
     if is_generic {
-        // Bounds resolve leniently through the in-scope table; unknown-trait
-        // errors are the defining module's to report, so swallow them here.
+        // Bounds resolve by the `Fqn` the resolve pass wrote in the impl's
+        // own module; unknown-trait errors are the defining module's to
+        // report, so swallow them here.
         let bounds = infer.resolve_bound_params(&impl_def.type_params, &mut Vec::new());
         impl_record = impl_record.with_generic_target(for_type.clone(), bounds);
     }

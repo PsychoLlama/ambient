@@ -543,3 +543,72 @@ pub struct ImplMethod {
     /// content-addressed like any other function.
     pub resolved_symbol: Option<Arc<str>>,
 }
+
+#[cfg(test)]
+mod dict_params_tests {
+    use super::*;
+    use crate::fqn::{Fqn, ModuleId, Scope};
+
+    fn trait_fqn(module: &str, name: &str) -> Fqn {
+        Fqn::new(
+            ModuleId {
+                scope: Scope::Workspace(Arc::from("pkg")),
+                path: vec![Arc::from(module)],
+            },
+            vec![Arc::from(name)],
+        )
+    }
+
+    fn bound(name: &str, resolved: Option<Fqn>) -> QualifiedName {
+        let mut qn = QualifiedName::simple(name);
+        qn.resolved = resolved;
+        qn
+    }
+
+    fn param(name: &str, bounds: Vec<QualifiedName>) -> TypeParam {
+        TypeParam {
+            name: Arc::from(name),
+            is_ability: false,
+            bounds,
+            span: Span::new(0, 0),
+        }
+    }
+
+    /// A re-spelling of the *same* trait (a bare `Show` and a qualified
+    /// `m::Show` both resolving to one `Fqn`) collapses to a single
+    /// dictionary entry — dedup is by identity, not spelling.
+    #[test]
+    fn dedups_by_resolved_identity() {
+        let show = trait_fqn("m", "Show");
+        let tp = param(
+            "T",
+            vec![
+                bound("Show", Some(show.clone())),
+                bound("m::Show", Some(show)),
+            ],
+        );
+        assert_eq!(dict_params(&[tp]).len(), 1);
+    }
+
+    /// Two same-named traits from different modules resolve to distinct
+    /// `Fqn`s, so a parameter bounded by both allocates *two* dictionaries.
+    #[test]
+    fn same_name_distinct_modules_do_not_collide() {
+        let tp = param(
+            "T",
+            vec![
+                bound("Tag", Some(trait_fqn("a", "Tag"))),
+                bound("Tag", Some(trait_fqn("b", "Tag"))),
+            ],
+        );
+        assert_eq!(dict_params(&[tp]).len(), 2);
+    }
+
+    /// Registry-less (no resolution): dedup falls back to the spelled name,
+    /// the purely syntactic rule the resolver-less compiler applies.
+    #[test]
+    fn unresolved_dedups_by_spelling() {
+        let tp = param("T", vec![bound("Eq", None), bound("Eq", None)]);
+        assert_eq!(dict_params(&[tp]).len(), 1);
+    }
+}
