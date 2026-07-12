@@ -735,3 +735,97 @@ fn test_operator_overloading_ordering() {
     )
     .expect_output("5");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trait impls for enums
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_trait_impl_for_enum() {
+    // A declared enum is nominal, so it can implement a trait: the impl
+    // registers under the enum's uuid, direct dot dispatch (`.eq(...)`) and
+    // operator sugar (`==`) both resolve, and the enum type satisfies a
+    // `T: Eq` bound (its Eq dictionary flows to the bounded call).
+    CliTest::new(
+        r#"
+        unique(C1B2C3D4-0000-0000-0000-0000000000E1) enum Shape {
+            Circle(Number),
+            Square(Number),
+            Dot,
+        }
+
+        impl Eq for Shape {
+            fn eq(self, other: Shape): Bool {
+                match self {
+                    Circle(r) => match other {
+                        Circle(r2) => r == r2,
+                        Square(_) => false,
+                        Dot => false,
+                    },
+                    Square(s) => match other {
+                        Square(s2) => s == s2,
+                        Circle(_) => false,
+                        Dot => false,
+                    },
+                    Dot => match other {
+                        Dot => true,
+                        Circle(_) => false,
+                        Square(_) => false,
+                    },
+                }
+            }
+        }
+
+        fn either_equal<T: Eq>(target: T, a: T, b: T): Bool {
+            if target.eq(a) { true } else { target.eq(b) }
+        }
+
+        pub fn run(): Number {
+            let direct = Circle(5).eq(Circle(5));
+            let op = Dot == Dot;
+            let bound = either_equal(Square(3), Circle(1), Square(3));
+            let n1 = if direct { 1 } else { 0 };
+            let n2 = if op { 10 } else { 0 };
+            let n3 = if bound { 100 } else { 0 };
+            n1 + n2 + n3
+        }
+    "#,
+    )
+    .expect_output("111");
+}
+
+#[test]
+fn test_generic_trait_impl_rejected() {
+    // A generic (conditional) trait impl — an impl block with its own type
+    // parameters — needs conditional-impl machinery this path lacks, so it
+    // is rejected with a clear diagnostic rather than silently miscompiling.
+    CliTest::new(
+        r#"
+        impl<T> Eq for List<T> {
+            fn eq(self, other: List<T>): Bool { true }
+        }
+
+        fn run(): Number { 0 }
+    "#,
+    )
+    .check()
+    .expect_error("conditional");
+}
+
+#[test]
+fn test_trait_impl_on_applied_container_rejected() {
+    // A trait impl whose target carries concrete type arguments
+    // (`impl Eq for Option<Number>`) is conditional too: coherence keys on
+    // the container uuid alone and could not tell it from `Option<String>`.
+    CliTest::new(
+        r#"
+        impl Eq for Option<Number> {
+            fn eq(self, other: Option<Number>): Bool { true }
+        }
+
+        fn run(): Number { 0 }
+    "#,
+    )
+    .check()
+    .expect_error("conditional");
+}

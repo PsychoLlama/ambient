@@ -773,3 +773,77 @@ fn test_cross_module_bounded_generic() {
         "expected 101 in output, got: {stdout}"
     );
 }
+
+#[test]
+fn test_cross_module_trait_impl_for_enum() {
+    // A declared enum and its `Eq` impl live in one module; a bounded
+    // generic in another; the caller in a third constructs enum values and
+    // solves `T: Eq` against the foreign enum impl. The impl registers
+    // through the foreign path under the enum's uuid, so the dictionary's
+    // method symbols link across the module boundary.
+    let (_dir, pkg) = temp_multi_package(&[
+        (
+            "search.ab",
+            r#"
+            pub fn either_equal<T: Eq>(target: T, a: T, b: T): Bool {
+                if target.eq(a) { true } else { target.eq(b) }
+            }
+            "#,
+        ),
+        (
+            "shapes.ab",
+            r#"
+            pub unique(AAAABBBB-CCCC-DDDD-EEEE-FFFF00007777) enum Shape {
+                Circle(Number),
+                Dot,
+            }
+
+            impl Eq for Shape {
+                fn eq(self, other: Shape): Bool {
+                    match self {
+                        Circle(r) => match other {
+                            Circle(r2) => r == r2,
+                            Dot => false,
+                        },
+                        Dot => match other {
+                            Dot => true,
+                            Circle(_) => false,
+                        },
+                    }
+                }
+            }
+            "#,
+        ),
+        (
+            "main.ab",
+            r#"
+            use pkg::search::either_equal;
+            use pkg::shapes::{Shape};
+
+            pub fn run(): Number {
+                let hit = either_equal(Circle(5), Dot, Circle(5));
+                let miss = either_equal(Dot, Circle(1), Circle(2));
+                let a = if hit { 1 } else { 0 };
+                let b = if miss { 10 } else { 100 };
+                a + b
+            }
+            "#,
+        ),
+    ]);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&pkg)
+        .output()
+        .expect("failed to run ambient");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("101"),
+        "expected 101 in output, got: {stdout}"
+    );
+}
