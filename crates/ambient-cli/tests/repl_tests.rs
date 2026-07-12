@@ -501,3 +501,84 @@ fn test_resume_in_never_arm_is_rejected_in_repl() {
         .expect_error("cannot `resume` `Halt::halt`")
         .shutdown();
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trait Bounds Across Turns
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The REPL re-checks and recompiles the whole committed module every turn, so
+// the trait registry, scheme bounds, and dictionaries are rebuilt from source
+// each time. These tests pin that a bound declared on one turn still solves
+// (and threads its dictionary) when exercised on a later turn.
+
+#[test]
+fn test_bounded_fn_declared_then_called_across_turns() {
+    // A bounded generic committed on one turn is called on a later turn: the
+    // `<` operator dispatches through the reserved `Ord` dictionary, and the
+    // concrete `Number` argument supplies the impl at the (later) call site.
+    ReplTest::new()
+        .type_line("fn min_of<T: Ord>(a: T, b: T): T { if a < b { a } else { b } }")
+        .expect_output("Defined: min_of")
+        .clear_output()
+        .type_line("min_of(7, 3)")
+        .expect_output("3")
+        .shutdown();
+}
+
+#[test]
+fn test_user_trait_impl_and_bound_across_turns() {
+    // A user trait, a struct, its impl, and a function bounded by that trait
+    // are each declared on separate turns; a final turn calls the bounded
+    // function on the struct. The dictionary is built from the impl committed
+    // two turns earlier — the cross-turn re-registration path for a
+    // *user-declared* (non-reserved) trait.
+    ReplTest::new()
+        .type_line(
+            "unique(BC000000-0000-0000-0000-000000000701) trait Weight { fn grams(self): Number; }",
+        )
+        .expect_output("Defined: Weight")
+        .clear_output()
+        .type_line("unique(BC000000-0000-0000-0000-000000000702) struct Brick { kg: Number }")
+        .expect_output("Defined: Brick")
+        .clear_output()
+        .type_line("impl Weight for Brick { fn grams(self): Number { self.kg * 1000 } }")
+        .clear_output()
+        .type_line("fn heft<T: Weight>(x: T): Number { x.grams() }")
+        .expect_output("Defined: heft")
+        .clear_output()
+        .type_line("heft(Brick { kg: 2 })")
+        .expect_output("2000")
+        .shutdown();
+}
+
+#[test]
+fn test_list_contains_uses_eq_bound_in_repl() {
+    // `List::contains` is bounded by `T: Eq`; calling it in the REPL builds
+    // the Number Eq dictionary at the call site like any other bounded call.
+    ReplTest::new()
+        .type_line("[1, 2, 3].contains(2)")
+        .expect_output("true")
+        .clear_output()
+        .type_line("[1, 2, 3].contains(9)")
+        .expect_output("false")
+        .shutdown();
+}
+
+#[test]
+fn test_bounded_fn_over_user_impl_across_turns() {
+    // A reserved-trait (`Eq`) impl for a user struct declared on one turn,
+    // then consumed by a bounded generic on later turns: the same-named-item
+    // commit path keeps the impl's dictionary reachable.
+    ReplTest::new()
+        .type_line("unique(BC000000-0000-0000-0000-000000000703) struct Tag { id: Number }")
+        .expect_output("Defined: Tag")
+        .clear_output()
+        .type_line("impl Eq for Tag { fn eq(self, other: Tag): Bool { self.id == other.id } }")
+        .clear_output()
+        .type_line("fn same<T: Eq>(a: T, b: T): Bool { a.eq(b) }")
+        .expect_output("Defined: same")
+        .clear_output()
+        .type_line("same(Tag { id: 5 }, Tag { id: 5 })")
+        .expect_output("true")
+        .shutdown();
+}
