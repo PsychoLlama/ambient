@@ -122,6 +122,29 @@ pub enum Opcode {
     /// Return from the current function. Top of stack is the return value.
     Return = 0x61,
 
+    /// Tail-call a function by hash, reusing the current call frame instead
+    /// of pushing a new one. Arguments should be on the stack, exactly as
+    /// for [`Self::Call`].
+    /// Operand: u16 (constant pool index containing the function ref)
+    /// Operand: u8 (argument count)
+    ///
+    /// The current frame is rewritten in place: its locals are discarded,
+    /// the arguments slide down onto its base pointer, and execution jumps
+    /// to the callee at ip 0. The frame count does not grow, so a chain of
+    /// tail calls runs in constant call-stack space (no depth check). A tail
+    /// call to a native — which pushes no frame — is call-then-return.
+    TailCall = 0x62,
+
+    /// Tail-call a closure (or bare function value) on the stack, reusing
+    /// the current call frame. Operand: u8 (argument count).
+    ///
+    /// Stack: `[callee, arg1, ..., argN]`. The callee may be a `Closure` or
+    /// a bare `FunctionRef`, the same acceptance as [`Self::CallClosure`].
+    /// Frame reuse is identical to [`Self::TailCall`]; the callee's captured
+    /// environment (empty for a bare function ref) becomes the reused
+    /// frame's captures.
+    TailCallClosure = 0x63,
+
     // ─────────────────────────────────────────────────────────────────────────
     // Data structures
     // ─────────────────────────────────────────────────────────────────────────
@@ -309,6 +332,8 @@ impl Opcode {
             0x52 => Some(Self::JumpIfNot),
             0x60 => Some(Self::Call),
             0x61 => Some(Self::Return),
+            0x62 => Some(Self::TailCall),
+            0x63 => Some(Self::TailCallClosure),
             0x70 => Some(Self::MakeTuple),
             0x71 => Some(Self::TupleGet),
             0x72 => Some(Self::MakeRecord),

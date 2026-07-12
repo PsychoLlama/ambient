@@ -464,6 +464,8 @@ mod tests {
             Opcode::JumpIfNot,
             Opcode::Call,
             Opcode::Return,
+            Opcode::TailCall,
+            Opcode::TailCallClosure,
             Opcode::MakeTuple,
             Opcode::TupleGet,
             Opcode::MakeRecord,

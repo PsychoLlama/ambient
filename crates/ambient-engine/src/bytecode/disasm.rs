@@ -46,11 +46,14 @@ fn operands(op: Opcode) -> Operands {
 
         O::Jump | O::JumpIf | O::JumpIfNot => Operands::I16,
 
-        O::MakeTuple | O::TupleGet | O::MakeRecord | O::GetAbilityArg | O::CallClosure => {
-            Operands::U8
-        }
+        O::MakeTuple
+        | O::TupleGet
+        | O::MakeRecord
+        | O::GetAbilityArg
+        | O::CallClosure
+        | O::TailCallClosure => Operands::U8,
 
-        O::Call | O::MakeClosure | O::Suspend => Operands::U16U8,
+        O::Call | O::TailCall | O::MakeClosure | O::Suspend => Operands::U16U8,
         O::MakeEnum => Operands::U16U16U16U8,
         O::MakeHandler => Operands::Handler,
 
@@ -180,7 +183,10 @@ fn instruction_detail(
         },
         Operands::U16U8 => match (cur.u16(), cur.u8()) {
             (Some(a), Some(b))
-                if op == Opcode::Call || op == Opcode::MakeClosure || op == Opcode::Suspend =>
+                if op == Opcode::Call
+                    || op == Opcode::TailCall
+                    || op == Opcode::MakeClosure
+                    || op == Opcode::Suspend =>
             {
                 format!(" {}, n={b}", const_at(a))
             }

@@ -127,6 +127,33 @@ impl BytecodeBuilder {
         self.code.push(arg_count);
     }
 
+    /// Emit a `TailCall` instruction.
+    ///
+    /// Identical operand layout and dependency tracking to [`Self::emit_call`]
+    /// (the function hash is recorded as a dependency), but the VM reuses the
+    /// current frame instead of pushing a new one.
+    pub fn emit_tail_call(&mut self, func_hash: blake3::Hash, arg_count: u8) {
+        // Track this as a dependency, exactly like `emit_call`.
+        if !self.dependencies.contains(&func_hash) {
+            self.dependencies.push(func_hash);
+        }
+
+        let idx = self.add_constant(Value::FunctionRef(func_hash));
+        self.code.push(Opcode::TailCall as u8);
+        self.code.extend_from_slice(&idx.to_le_bytes());
+        self.code.push(arg_count);
+    }
+
+    /// Emit a `TailCallClosure` instruction.
+    ///
+    /// Tail-calls a closure (or bare function value) on the stack with the
+    /// given number of arguments, reusing the current frame. Mirrors
+    /// [`Self::emit_call_closure`].
+    pub fn emit_tail_call_closure(&mut self, arg_count: u8) {
+        self.code.push(Opcode::TailCallClosure as u8);
+        self.code.push(arg_count);
+    }
+
     /// Emit a `LoadObject` instruction to push a content-addressed `const`.
     ///
     /// The value-object hash is tracked as a dependency (so a disk closure
