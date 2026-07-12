@@ -42,8 +42,7 @@ pub(super) fn check_function_body(
         .filter(|tp| !tp.is_ability)
         .map(|tp| Arc::clone(&tp.name))
         .collect();
-    let ability_scope =
-        super::ability_vars::generic_scope(infer, &func.type_params).ability_var_map;
+    let ability_scope = super::ability_vars::ability_var_scope(infer, &func.type_params);
     let bounds = infer.resolve_bound_params(&func.type_params, errors);
     infer.with_ability_var_scope(ability_scope, true, |infer| {
         infer.with_rigid_params(rigid, |infer| {
@@ -133,8 +132,7 @@ pub(super) fn check_ability_method_bodies(
             .filter(|tp| !tp.is_ability)
             .map(|tp| Arc::clone(&tp.name))
             .collect();
-        let ability_scope =
-            super::ability_vars::generic_scope(infer, &method.type_params).ability_var_map;
+        let ability_scope = super::ability_vars::ability_var_scope(infer, &method.type_params);
         let bounds = infer.resolve_bound_params(&method.type_params, errors);
         infer.with_ability_var_scope(ability_scope, true, |infer| {
             infer.with_rigid_params(rigid, |infer| {

@@ -68,6 +68,28 @@ pub(super) fn generic_scope(infer: &mut Infer, type_params: &[TypeParam]) -> Gen
     }
 }
 
+/// Build just the ability-variable scope (`E!` name → fresh [`AbilityVarId`])
+/// for a declaration's generics.
+///
+/// A function/method *body* installs its own fresh row variables (distinct
+/// from the scheme's) but treats the ordinary type parameters as *rigid*
+/// names, not fresh type variables — so it needs only the ability half of
+/// [`generic_scope`]. Calling `generic_scope` there would mint throwaway type
+/// variables for every `T`; this allocates ability ids alone.
+pub(super) fn ability_var_scope(
+    infer: &mut Infer,
+    type_params: &[TypeParam],
+) -> HashMap<Arc<str>, AbilityVarId> {
+    let mut ability_var_map = HashMap::new();
+    for tp in type_params {
+        if tp.is_ability {
+            let id = infer.r#gen.fresh_ability_id();
+            ability_var_map.insert(Arc::clone(&tp.name), id);
+        }
+    }
+    ability_var_map
+}
+
 /// Resolve a declared `with` clause into an [`AbilitySet`], keying each bare
 /// name against the declaration's ability variables first.
 ///
