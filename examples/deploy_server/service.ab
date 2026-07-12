@@ -5,6 +5,11 @@
 //! helps mid-conversation, and the author-placed `Live::latest!` is the
 //! only freshness channel. That is the point of this example: a deploy
 //! applied between two requests on the same socket lands on the second.
+//!
+//! The loop re-enters through the live channel (`Live::latest!(converse)`),
+//! the canonical idiom: the recursive call is a tail call, so the
+//! conversation runs in constant stack space no matter how long it runs,
+//! and the loop body itself is re-resolved every turn rather than pinned.
 
 use core::system::{Drain, Live, Network, State, Stdio};
 use self::handlers;
@@ -31,7 +36,11 @@ fn converse(conn: Number): () with Network, State, Live, Stdio {
   match Network::receive!(conn) {
     Ok(request) => {
       Live::latest!(handlers::respond)(conn, request);
-      converse(conn)
+      // Re-enter through the live channel (the canonical loop idiom): the
+      // recursive call is in tail position, so the conversation runs in
+      // constant stack space, and each turn re-resolves `converse` — a
+      // deploy applied mid-conversation upgrades the loop itself.
+      Live::latest!(converse)(conn)
     },
     Err(_) => {
       // The peer hung up; the conversation is over.
