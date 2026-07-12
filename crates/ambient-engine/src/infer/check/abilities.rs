@@ -437,15 +437,14 @@ fn resolve_ability_def(
 
     let mut methods = Vec::new();
     for method in &def.methods {
-        // Type parameters become quantified variables, substituted
-        // into the declared types.
-        let mut param_map = HashMap::new();
-        let mut quantified = Vec::new();
-        for tp in &method.type_params {
-            let var_id = infer.r#gen.fresh_id();
-            param_map.insert(Arc::clone(&tp.name), var_id);
-            quantified.push(var_id);
-        }
+        // Split the method's generics into ordinary type parameters (`T`,
+        // substituted for quantified type variables) and ability (row)
+        // variables (`E!`, resolved so a `with E` inside a function-typed
+        // parameter becomes the row's polymorphic tail). The same helper
+        // ordinary functions use, so both derive the split one way.
+        let scope = super::ability_vars::generic_scope(infer, &method.type_params);
+        let quantified = scope.quantified_type_vars.clone();
+        let quantified_abilities = scope.ability_vars.clone();
 
         // `resolve_holes` resolves bare primitive names to their nominal
         // primitive type (a builtin identity, context-independent), so the
@@ -460,12 +459,27 @@ fn resolve_ability_def(
         // `Type::Error` would break both the bridge and hash stability. Typos
         // in a *local* ability's signature are still reported by the
         // declared-types sweep (which runs with the alias table populated).
-        let params: Vec<Type> = method
-            .params
-            .iter()
-            .map(|p| infer.resolve_holes(&substitute_type_params(p.declared_ty(), &param_map)))
-            .collect();
-        let ret = infer.resolve_holes(&substitute_type_params(&method.ret_ty, &param_map));
+        //
+        // The ability-variable scope is installed only around the resolution
+        // so `with E` positions bind to the row variable; `report_type_misuse`
+        // is false here (an `E`-used-as-a-type mistake reports once, from the
+        // default-implementation body check).
+        let ability_var_map = scope.ability_var_map.clone();
+        let (params, ret) = infer.with_ability_var_scope(ability_var_map, false, |infer| {
+            let params: Vec<Type> = method
+                .params
+                .iter()
+                .map(|p| {
+                    infer.resolve_holes(&substitute_type_params(
+                        p.declared_ty(),
+                        &scope.type_var_map,
+                    ))
+                })
+                .collect();
+            let ret =
+                infer.resolve_holes(&substitute_type_params(&method.ret_ty, &scope.type_var_map));
+            (params, ret)
+        });
 
         // Tripwire: a primitive that stayed a bare `Named` (uuid-less, no
         // args) after `resolve_holes` would render `named:String` and
@@ -491,15 +505,26 @@ fn resolve_ability_def(
         }
 
         // Trait bounds on the method's type parameters, in dictionary
-        // order, each keyed by the parameter's declaration index (stable
-        // under renames, independent of any resolver).
+        // order, each keyed by the parameter's index *into `quantified`*
+        // (stable under renames, independent of any resolver). Ability
+        // variables carry no bounds (lowering rejects `E!: Bound`) and are
+        // excluded from `quantified`, so the index counts only ordinary type
+        // parameters — the same list the perform site instantiates and looks
+        // the bound up in (`method.quantified.get(idx)`). With no ability
+        // variables the position is identical to the declaration index, so a
+        // bound method that predates `E!` renders (and hashes) unchanged.
+        let type_param_names: Vec<&Arc<str>> = method
+            .type_params
+            .iter()
+            .filter(|tp| !tp.is_ability)
+            .map(|tp| &tp.name)
+            .collect();
         let bounds: Vec<(usize, Arc<str>)> = crate::ast::dict_params(&method.type_params)
             .into_iter()
             .filter_map(|(param, bound_name)| {
-                method
-                    .type_params
+                type_param_names
                     .iter()
-                    .position(|tp| tp.name == param)
+                    .position(|name| **name == param)
                     .map(|idx| (idx, bound_name))
             })
             .collect();
@@ -523,6 +548,7 @@ fn resolve_ability_def(
             params,
             ret,
             quantified,
+            quantified_abilities,
             bounds,
             signature: SignatureHash::new(&canon_params, &canon_ret),
             has_impl: method.body.is_some(),

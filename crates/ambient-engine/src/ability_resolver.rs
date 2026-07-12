@@ -36,6 +36,14 @@ pub struct DynMethod {
     pub ret: Type,
     /// Type variable IDs standing in for the method's type parameters.
     pub quantified: Vec<crate::types::TypeVarId>,
+    /// Ability (row) variable IDs standing in for the method's `E!`
+    /// parameters. Call sites instantiate a fresh ability variable for each,
+    /// so an effectful lambda argument binds the fresh row and the method
+    /// stays polymorphic in its callee's effects. Effects are erased before
+    /// compilation, so — like `quantified` — these never reach the content
+    /// hash; the canonical signature numbers them positionally (`e0`, `e1`),
+    /// making a method's key independent of the row variable's name.
+    pub quantified_abilities: Vec<crate::types::AbilityVarId>,
     /// Trait bounds on the method's type parameters, in dictionary order:
     /// `(index into quantified, spelled trait name)` per bound. The name
     /// resolves to a trait identity at perform sites (leniently — the
@@ -598,6 +606,7 @@ mod tests {
                 params: vec![Type::string()],
                 ret: Type::Unit,
                 quantified: vec![],
+                quantified_abilities: vec![],
                 bounds: Vec::new(),
                 signature: ambient_core::SignatureHash::new(&["string"], "unit"),
                 has_impl: true,

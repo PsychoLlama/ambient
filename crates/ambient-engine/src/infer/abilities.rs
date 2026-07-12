@@ -118,6 +118,13 @@ impl Infer {
         for quantified in &method.quantified {
             subst.insert(*quantified, self.fresh());
         }
+        // Ability (row) variables instantiate to fresh variables per use
+        // site too, so an `E!`-polymorphic method (`body: () -> T with E`)
+        // freshens its row at every handler arm and perform.
+        let mut ability_subst = std::collections::HashMap::new();
+        for quantified in &method.quantified_abilities {
+            ability_subst.insert(*quantified, self.fresh_ability_var());
+        }
         // `resolve_holes` re-attaches reserved enum identities from the
         // checking context (see `lookup_dynamic_method`): the dynamic
         // method's types were resolved without an enum registry, so
@@ -127,9 +134,9 @@ impl Infer {
         let params = method
             .params
             .iter()
-            .map(|p| self.resolve_holes(&p.substitute(&subst)))
+            .map(|p| self.resolve_holes(&p.substitute_all(&subst, &ability_subst)))
             .collect();
-        let ret = self.resolve_holes(&method.ret.substitute(&subst));
+        let ret = self.resolve_holes(&method.ret.substitute_all(&subst, &ability_subst));
         Some((params, ret))
     }
 
@@ -226,6 +233,15 @@ impl Infer {
         for quantified in &method.quantified {
             subst.insert(*quantified, self.fresh());
         }
+        // Ability (row) variables freshen per perform site: an effectful
+        // lambda argument binds the fresh row, but that row stays local to
+        // this call — it does not join the caller's required abilities just
+        // from being passed (the perform requires the ability and its
+        // declared dependencies, nothing more).
+        let mut ability_subst = std::collections::HashMap::new();
+        for quantified in &method.quantified_abilities {
+            ability_subst.insert(*quantified, self.fresh_ability_var());
+        }
 
         // Fingerprinted methods additionally constrain their bare-generic
         // function parameters to real function shapes (solving the cell
@@ -270,7 +286,7 @@ impl Infer {
             // `Option<T>` param arrives as a bare `Named("Option")` and
             // would fail to unify against an argument that carries the
             // uuid its constructors produce.
-            let param = self.resolve_holes(&param.substitute(&subst));
+            let param = self.resolve_holes(&param.substitute_all(&subst, &ability_subst));
             self.unify(&param, arg, span)?;
         }
 
@@ -278,7 +294,7 @@ impl Infer {
         // `Option<T>`/`Result<T, E>` dispatches its inherent methods
         // (`.unwrap_or`, ...) — those key on the reserved enum uuid, which
         // only the checking context supplies.
-        let ret = self.resolve_holes(&method.ret.substitute(&subst));
+        let ret = self.resolve_holes(&method.ret.substitute_all(&subst, &ability_subst));
         let ret = self.apply(&ret);
         let additional = AbilitySet::from_abilities(dynamic.dependencies.iter().copied());
         Ok((dynamic.id, ret, additional))
@@ -426,6 +442,7 @@ mod tests {
                 params: vec![Type::string()],
                 ret: Type::Unit,
                 quantified: vec![],
+                quantified_abilities: vec![],
                 bounds: Vec::new(),
                 signature: ambient_core::SignatureHash::new(&["string"], "unit"),
                 has_impl: true,

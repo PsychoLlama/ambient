@@ -119,56 +119,69 @@ pub(super) fn check_ability_method_bodies(
         };
         infer.reset_abilities();
 
+        // Ordinary type parameters are rigid in the default body; ability
+        // (row) variables are not types, so they are excluded here and
+        // installed as an ability-variable scope instead — exactly as an
+        // ordinary function body treats its own `E!` (see
+        // `check_function_body`). `with E` inside a function-typed parameter
+        // then resolves to the row variable, and calling that parameter
+        // carries the polymorphic tail, which the lenient subset check below
+        // permits.
         let rigid: Vec<Arc<str>> = method
             .type_params
             .iter()
+            .filter(|tp| !tp.is_ability)
             .map(|tp| Arc::clone(&tp.name))
             .collect();
+        let ability_scope =
+            super::ability_vars::generic_scope(infer, &method.type_params).ability_var_map;
         let bounds = infer.resolve_bound_params(&method.type_params, errors);
-        infer.with_rigid_params(rigid, |infer| {
-            infer.with_bound_params(bounds, |infer| {
-                let mut method_env = env.extend();
-                let expected_ret = resolve_erroring(infer, &method.ret_ty);
+        infer.with_ability_var_scope(ability_scope, true, |infer| {
+            infer.with_rigid_params(rigid, |infer| {
+                infer.with_bound_params(bounds, |infer| {
+                    let mut method_env = env.extend();
+                    let expected_ret = resolve_erroring(infer, &method.ret_ty);
 
-                for param in &method.params {
-                    let param_ty = match &param.ty {
-                        Some(ty) => resolve_erroring(infer, ty),
-                        None => infer.fresh(),
-                    };
-                    method_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
-                }
+                    for param in &method.params {
+                        let param_ty = match &param.ty {
+                            Some(ty) => resolve_erroring(infer, ty),
+                            None => infer.fresh(),
+                        };
+                        method_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
+                    }
 
-                match infer.infer_expr_expecting(&method_env, body, Some(&expected_ret)) {
-                    Ok(body_ty) => {
-                        let span = (body.span.start, body.span.end);
-                        if let Err(e) = infer.unify(&expected_ret, &body_ty, span) {
-                            errors.push(e.with_context(format!(
-                                "in ability method `{}::{}`: default implementation \
+                    match infer.infer_expr_expecting(&method_env, body, Some(&expected_ret)) {
+                        Ok(body_ty) => {
+                            let span = (body.span.start, body.span.end);
+                            if let Err(e) = infer.unify(&expected_ret, &body_ty, span) {
+                                errors.push(e.with_context(format!(
+                                    "in ability method `{}::{}`: default implementation \
                              must return the declared type",
+                                    def.name, method.name
+                                )));
+                            }
+                            deferred.push(DeferredAbilityCheck {
+                                context: format!(
+                                    "default implementation of `{}::{}`",
+                                    def.name, method.name
+                                ),
+                                declared: def.dependencies.clone(),
+                                inferred: infer.current_abilities().clone(),
+                                span: method.span,
+                            });
+                        }
+                        Err(e) => {
+                            errors.push(e.with_context(format!(
+                                "in ability method `{}::{}`",
                                 def.name, method.name
                             )));
                         }
-                        deferred.push(DeferredAbilityCheck {
-                            context: format!(
-                                "default implementation of `{}::{}`",
-                                def.name, method.name
-                            ),
-                            declared: def.dependencies.clone(),
-                            inferred: infer.current_abilities().clone(),
-                            span: method.span,
-                        });
                     }
-                    Err(e) => {
-                        errors.push(e.with_context(format!(
-                            "in ability method `{}::{}`",
-                            def.name, method.name
-                        )));
-                    }
-                }
 
-                // Solve any bound constraints the default implementation
-                // recorded (calls to bounded generics at concrete types).
-                infer.finish_body_constraints(body, errors);
+                    // Solve any bound constraints the default implementation
+                    // recorded (calls to bounded generics at concrete types).
+                    infer.finish_body_constraints(body, errors);
+                });
             });
         });
     }
