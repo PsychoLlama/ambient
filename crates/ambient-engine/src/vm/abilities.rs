@@ -329,13 +329,16 @@ impl Vm {
     /// handler is reinstalled, the resume value becomes the original
     /// perform's result, and the resumed region's completion value returns to
     /// the arm's caller — but the arm frame is discarded *before* the
-    /// continuation is reinstated instead of being parked underneath. A tail
-    /// resume never exits the enclosing `run_until`/invoke region: the
+    /// continuation is reinstated instead of being parked underneath.
+    ///
+    /// A tail resume never lets `run_until`/`invoke` observe an exit: the
     /// captured continuation always contains at least the handle-thunk frame,
-    /// which is immediately re-pushed, and the arm frame always sits strictly
-    /// above any region base (handler boundaries sit above invoke barriers —
-    /// see [`Self::perform_suspended`] and `handler_barrier`), so there is no
-    /// `run_until`-exit value to route.
+    /// so `reinstate_continuation` re-pushes it in the same instruction that
+    /// popped the arm. The dip can reach the region base — a base handler
+    /// installed at boundary 0 (the `run_with` isolated-VM case) makes the arm
+    /// the sole frame, so the pop empties the frame slice before the
+    /// continuation refills it — but the loop only checks its base between
+    /// instructions, so it never sees frames below the region base.
     pub(super) fn op_tail_resume(&mut self) -> Result<(), VmError> {
         let (continuation, value) = self.take_resume_operands()?;
 
@@ -344,18 +347,18 @@ impl Vm {
         // rebases onto these now-lower heights, so the resumed region's
         // completion value returns directly to the arm's caller with no
         // dormant frame left behind.
-        let arm = self
-            .frames
-            .pop()
-            .expect("tail-resume runs inside an arm frame");
+        let arm = self.frames.pop().ok_or(VmError::StackUnderflow)?;
         self.stack.truncate(arm.bp);
+        // No live handler may delimit the popped arm frame: the fired handler
+        // and everything above its boundary were drained into the
+        // continuation at the perform, so any surviving handler sits strictly
+        // below it (its boundary points at a still-present frame). Frames may
+        // be empty here — a base handler installed at boundary 0 makes the arm
+        // the sole frame — and that is fine; the continuation refills it next.
         debug_assert!(
-            !self.frames.is_empty(),
-            "an arm frame always sits above at least the region entry frame"
-        );
-        let arm_idx = self.frames.len();
-        debug_assert!(
-            self.handlers.iter().all(|h| h.boundary_frame_idx < arm_idx),
+            self.handlers
+                .iter()
+                .all(|h| h.boundary_frame_idx < self.frames.len()),
             "no live handler may delimit the popped arm frame"
         );
 
