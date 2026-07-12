@@ -1,13 +1,16 @@
-//! Fluent builder for REPL tests.
+//! Fluent builder for in-process REPL tests.
 //!
-//! Provides a chainable API for testing the REPL experience, including
-//! keystroke simulation, completion testing, and output verification.
+//! Drives a real [`ReplSession`] directly — no subprocess, no PTY. Every
+//! line the session emits (control lines, program `Stdio`/`Log` output) and
+//! every turn's result (a formatted value, or an `error: …` line) lands in
+//! one shared buffer, which the assertions poll. Evaluation is synchronous,
+//! so a plain `type_line` needs no sync dance; polling is still needed only
+//! because ensured tasks print from their own threads.
 //!
 //! # Example
 //!
 //! ```ignore
 //! ReplTest::new()
-//!     .wait_ready()
 //!     .type_line("1 + 2")
 //!     .expect_output("3")
 //!     .shutdown();
@@ -15,61 +18,75 @@
 
 #![allow(dead_code)]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::assertions::{LineResult, OutputResult};
-use super::driver::PtyDriver;
-use super::input::{Arrow, BACKSPACE, ENTER, TAB, ctrl};
+use ambient_cli::repl::session::{ReplCommand, ReplIo, ReplSession, parse_repl_command};
+use ambient_engine::format::format_value;
+use ambient_platform::StdioSink;
 
-/// Default timeout for waiting operations.
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+/// Default deadline for waiting operations. Generous because ensured tasks
+/// print asynchronously from their own threads.
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Polling interval when waiting for output.
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
-/// Fluent builder for REPL tests.
-///
-/// Spawns the REPL as a subprocess connected to a PTY, allowing
-/// keystroke-level testing of the interactive experience.
+/// Fluent builder driving an in-process REPL session.
 pub struct ReplTest {
-    /// PTY driver managing the subprocess.
-    driver: PtyDriver,
-    /// Default timeout for wait operations.
+    /// The session under test.
+    session: ReplSession,
+    /// Everything the session and its program print, plus per-turn results.
+    buffer: Arc<Mutex<String>>,
+    /// Deadline for wait operations.
     timeout: Duration,
-    /// Project directory (if set).
-    project_dir: Option<PathBuf>,
 }
 
 impl ReplTest {
-    /// Create a new REPL test with default settings.
-    ///
-    /// Spawns the REPL subprocess immediately.
+    /// Create a REPL test with no project (bare core), mirroring
+    /// `ambient repl` launched outside a project.
     #[must_use]
     pub fn new() -> Self {
-        Self::with_options(None, None)
+        let dir = std::env::current_dir().expect("current dir");
+        Self::at(&dir)
     }
 
-    /// Create a new REPL test with the specified project directory.
+    /// Create a REPL test rooted in `project_dir`, mirroring `ambient repl`
+    /// launched in that directory.
     #[must_use]
     pub fn with_project(project_dir: &Path) -> Self {
-        Self::with_options(Some(project_dir), None)
+        Self::at(project_dir)
     }
 
-    /// Create a new REPL test with custom options.
-    fn with_options(project_dir: Option<&Path>, binary_path: Option<&Path>) -> Self {
-        let driver =
-            PtyDriver::spawn(project_dir, binary_path).expect("failed to spawn REPL subprocess");
+    /// Build a session whose control and program output both land in one
+    /// buffer.
+    fn at(project_dir: &Path) -> Self {
+        let buffer = Arc::new(Mutex::new(String::new()));
+
+        let control_buf = Arc::clone(&buffer);
+        let control: Arc<dyn Fn(&str) + Send + Sync> =
+            Arc::new(move |line: &str| append(&control_buf, line));
+
+        let out_buf = Arc::clone(&buffer);
+        let err_buf = Arc::clone(&buffer);
+        let program = StdioSink::new(
+            Arc::new(move |line: &str| append(&out_buf, line)),
+            Arc::new(move |line: &str| append(&err_buf, line)),
+        );
+
+        let session = ReplSession::new(project_dir, ReplIo::new(control, program))
+            .expect("failed to build REPL session");
 
         Self {
-            driver,
+            session,
+            buffer,
             timeout: DEFAULT_TIMEOUT,
-            project_dir: project_dir.map(|p| p.to_path_buf()),
         }
     }
 
-    /// Set the default timeout for wait operations.
+    /// Set the deadline for wait operations.
     #[must_use]
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
@@ -77,162 +94,45 @@ impl ReplTest {
     }
 
     // -------------------------------------------------------------------------
-    // Wait / Ready
+    // Input
     // -------------------------------------------------------------------------
 
-    /// Wait for the REPL to be ready (prompt displayed).
+    /// Submit one line: a `:`-command goes through the shared command
+    /// handling; anything else is evaluated. Blank lines are ignored (as in
+    /// the interactive REPL).
     #[must_use]
-    pub fn wait_ready(self) -> Self {
-        self.wait_for_prompt()
-    }
+    pub fn type_line(mut self, text: &str) -> Self {
+        let line = text.trim();
+        if line.is_empty() {
+            return self;
+        }
 
-    /// Wait for the prompt to appear.
-    #[must_use]
-    pub fn wait_for_prompt(self) -> Self {
-        self.wait_for(|output| output.contains("> "), "prompt '> '")
-    }
-
-    /// Wait for output containing the expected text.
-    #[must_use]
-    pub fn wait_for_output(self, expected: &str) -> Self {
-        self.wait_for(
-            |output| output.contains(expected),
-            &format!("output containing '{expected}'"),
-        )
-    }
-
-    /// Wait until a predicate is satisfied.
-    fn wait_for(self, pred: impl Fn(&str) -> bool, desc: &str) -> Self {
-        let deadline = Instant::now() + self.timeout;
-
-        loop {
-            let output = self.driver.output_stripped();
-            if pred(&output) {
-                return self;
+        if line.starts_with(':') {
+            match parse_repl_command(line) {
+                // `:quit` is a no-op here; tests wind down via `shutdown`.
+                ReplCommand::Quit => {}
+                other => {
+                    if let Err(e) = self.session.run_command(other) {
+                        self.push(&format!("error: {e}"));
+                    }
+                }
             }
-
-            if Instant::now() > deadline {
-                panic!(
-                    "Timeout after {:?} waiting for: {}\nActual output:\n{}",
-                    self.timeout, desc, output
-                );
-            }
-
-            thread::sleep(POLL_INTERVAL);
+            return self;
         }
-    }
 
-    // -------------------------------------------------------------------------
-    // Input: Text
-    // -------------------------------------------------------------------------
-
-    /// Type literal text (no special keys).
-    ///
-    /// Sends each character individually with a small delay to ensure
-    /// reliable delivery to the PTY.
-    #[must_use]
-    pub fn type_text(mut self, text: &str) -> Self {
-        for ch in text.bytes() {
-            self.driver.write(&[ch]).expect("failed to type text");
-            thread::sleep(Duration::from_millis(5));
-        }
-        self
-    }
-
-    /// Type text and press Enter.
-    ///
-    /// Includes a small delay after typing to ensure the REPL receives all characters
-    /// before Enter is pressed.
-    #[must_use]
-    pub fn type_line(self, text: &str) -> Self {
-        let test = self.type_text(text);
-        // Small delay to ensure all characters are received before Enter
-        thread::sleep(Duration::from_millis(10));
-        test.enter()
-    }
-
-    // -------------------------------------------------------------------------
-    // Input: Special Keys
-    // -------------------------------------------------------------------------
-
-    /// Press Enter (submit current line).
-    #[must_use]
-    pub fn enter(mut self) -> Self {
-        self.driver.write(ENTER).expect("failed to press Enter");
-        self
-    }
-
-    /// Press Tab (for completion).
-    #[must_use]
-    pub fn tab(mut self) -> Self {
-        self.driver.write(TAB).expect("failed to press Tab");
-        self
-    }
-
-    /// Press an arrow key.
-    #[must_use]
-    pub fn arrow(mut self, direction: Arrow) -> Self {
-        self.driver
-            .write(direction.sequence())
-            .expect("failed to press arrow key");
-        self
-    }
-
-    /// Press Ctrl+key combination.
-    #[must_use]
-    pub fn ctrl(mut self, key: char) -> Self {
-        self.driver
-            .write(&[ctrl(key)])
-            .expect("failed to press Ctrl+key");
-        self
-    }
-
-    /// Press Backspace.
-    #[must_use]
-    pub fn backspace(mut self) -> Self {
-        self.driver
-            .write(BACKSPACE)
-            .expect("failed to press Backspace");
-        self
-    }
-
-    /// Send raw bytes to the PTY.
-    #[must_use]
-    pub fn raw(mut self, bytes: &[u8]) -> Self {
-        self.driver.write(bytes).expect("failed to send raw bytes");
-        self
-    }
-
-    // -------------------------------------------------------------------------
-    // Input: Compound Actions
-    // -------------------------------------------------------------------------
-
-    /// Press Tab multiple times (cycle through completions).
-    #[must_use]
-    pub fn tab_cycle(mut self, n: usize) -> Self {
-        for _ in 0..n {
-            self = self.tab();
-            thread::sleep(Duration::from_millis(50)); // Allow time for completion
-        }
-        self
-    }
-
-    /// Move cursor with arrow keys.
-    #[must_use]
-    pub fn move_cursor(mut self, direction: Arrow, n: usize) -> Self {
-        for _ in 0..n {
-            self = self.arrow(direction);
+        match self.session.eval(line) {
+            Ok(Some(value)) => self.push(&format_value(&value)),
+            Ok(None) => {}
+            Err(e) => self.push(&format!("error: {e}")),
         }
         self
     }
 
     // -------------------------------------------------------------------------
-    // Assertions: Output
+    // Assertions
     // -------------------------------------------------------------------------
 
-    /// Assert the output contains the expected text.
-    ///
-    /// Waits until the text appears or times out.
+    /// Wait until the buffer contains `expected`, then continue.
     #[must_use]
     pub fn expect_output(self, expected: &str) -> Self {
         self.wait_for(
@@ -241,18 +141,14 @@ impl ReplTest {
         )
     }
 
-    /// Assert the output contains the expected text and return for chained assertions.
+    /// Wait until the buffer contains `expected` (alias of
+    /// [`Self::expect_output`], read as "let the async output catch up").
     #[must_use]
-    pub fn expect_output_result(self, expected: &str) -> OutputResult {
-        let test = self.wait_for(
-            |output| output.contains(expected),
-            &format!("output containing '{expected}'"),
-        );
-        let output = test.driver.output_stripped();
-        OutputResult { test, output }
+    pub fn wait_for_output(self, expected: &str) -> Self {
+        self.expect_output(expected)
     }
 
-    /// Assert an error message is shown.
+    /// Wait until the buffer holds an error line mentioning `msg`.
     #[must_use]
     pub fn expect_error(self, msg: &str) -> Self {
         self.wait_for(
@@ -261,89 +157,50 @@ impl ReplTest {
         )
     }
 
-    /// Assert the prompt is displayed.
+    /// The current buffer contents.
     #[must_use]
-    pub fn expect_prompt(self) -> Self {
-        self.wait_for_prompt()
-    }
-
-    /// Get the current output for custom assertions.
     pub fn output(&self) -> String {
-        self.driver.output_stripped()
+        self.buffer.lock().expect("buffer lock").clone()
     }
 
-    /// Get the current output including ANSI sequences.
-    pub fn output_raw(&self) -> String {
-        self.driver.output()
-    }
-
-    /// Clear the output buffer.
-    ///
-    /// Useful for checking only new output after this point.
+    /// Clear the buffer, so later assertions see only fresh output.
     #[must_use]
     pub fn clear_output(self) -> Self {
-        self.driver.clear_output();
+        self.buffer.lock().expect("buffer lock").clear();
         self
     }
 
-    // -------------------------------------------------------------------------
-    // Assertions: Line Content
-    // -------------------------------------------------------------------------
-
-    /// Check the current line content (for completion verification).
-    ///
-    /// This looks for the most recent line after the prompt.
-    #[must_use]
-    pub fn expect_line(self, expected: &str) -> Self {
-        self.wait_for(
-            |output| {
-                // Find the last line that starts with "> " and check what follows
-                output
-                    .lines()
-                    .rev()
-                    .find(|l| l.starts_with("> "))
-                    .map(|l| l[2..].contains(expected))
-                    .unwrap_or(false)
-            },
-            &format!("line containing '{expected}'"),
-        )
+    /// Poll the buffer until `pred` holds or the deadline passes.
+    fn wait_for(self, pred: impl Fn(&str) -> bool, desc: &str) -> Self {
+        let deadline = Instant::now() + self.timeout;
+        loop {
+            let output = self.output();
+            if pred(&output) {
+                return self;
+            }
+            if Instant::now() > deadline {
+                panic!(
+                    "Timeout after {:?} waiting for: {}\nActual output:\n{}",
+                    self.timeout, desc, output
+                );
+            }
+            thread::sleep(POLL_INTERVAL);
+        }
     }
 
-    /// Get the current input line for chained assertions.
-    ///
-    /// This looks for the LAST occurrence of "> " and returns what follows.
-    /// This handles the case where the terminal output has multiple prompts
-    /// on the same line (due to cursor control during typing).
-    #[must_use]
-    pub fn current_line(self) -> LineResult {
-        let output = self.driver.output_stripped();
-        // Find the last occurrence of "> " and get what follows
-        let line = output
-            .rfind("> ")
-            .map(|pos| output[pos + 2..].to_string())
-            .unwrap_or_default();
-        LineResult { test: self, line }
+    /// Append a buffer line (from a turn's value/error result).
+    fn push(&self, line: &str) {
+        append(&self.buffer, line);
     }
 
     // -------------------------------------------------------------------------
     // Lifecycle
     // -------------------------------------------------------------------------
 
-    /// Gracefully shutdown the REPL.
-    pub fn shutdown(mut self) {
-        // Try to send :quit command
-        let _ = self.driver.write(b":quit\n");
-        thread::sleep(Duration::from_millis(100));
-
-        // Force kill if still running
-        if self.driver.is_running() {
-            self.driver.kill();
-        }
-    }
-
-    /// Check if the REPL is still running.
-    pub fn is_running(&mut self) -> bool {
-        self.driver.is_running()
+    /// Wind the session's running tasks down so no ticker keeps printing
+    /// into the buffer or holds the test process open.
+    pub fn shutdown(self) {
+        self.session.shutdown();
     }
 }
 
@@ -355,12 +212,16 @@ impl Default for ReplTest {
 
 impl Drop for ReplTest {
     fn drop(&mut self) {
-        // Don't try cleanup if panicking
-        if std::thread::panicking() {
-            return;
-        }
+        // Best-effort: stop tasks even if a test panicked before `shutdown`,
+        // so a lingering ticker thread can't outlive the buffer.
+        self.session.shutdown();
+    }
+}
 
-        // Try graceful shutdown
-        let _ = self.driver.write(b":quit\n");
+/// Append `line` (plus a newline) to the shared buffer.
+fn append(buffer: &Arc<Mutex<String>>, line: &str) {
+    if let Ok(mut buf) = buffer.lock() {
+        buf.push_str(line);
+        buf.push('\n');
     }
 }

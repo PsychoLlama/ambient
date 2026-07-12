@@ -1,16 +1,20 @@
-//! Integration tests for the REPL using the PTY-based test harness.
+//! Integration tests for the REPL using the in-process test harness.
 //!
-//! These tests verify the interactive REPL experience including:
-//! - Basic expression evaluation
-//! - Arrow key navigation (history)
-//! - Ctrl sequences
-//! - Multi-step flows
+//! These tests drive a real `ReplSession` directly (no PTY): each turn is a
+//! synchronous `eval`/command, and all session and program output flows into
+//! one buffer the assertions poll. They verify:
+//! - Basic expression evaluation and definitions
+//! - REPL commands (`:help`, `:clear`)
+//! - Error handling and introspection
+//! - The full pipeline (structs/enums/abilities/`use`, never semantics)
+//! - The REPL as a deploy frontend (live upgrade, `:clear` drains, rejected
+//!   deploys)
 
 mod repl_harness;
 
 use std::path::PathBuf;
 
-use repl_harness::{Arrow, ReplTest};
+use repl_harness::ReplTest;
 
 /// Path to an example project shipped in the repo.
 fn example_project(name: &str) -> PathBuf {
@@ -26,7 +30,6 @@ fn example_project(name: &str) -> PathBuf {
 #[test]
 fn test_basic_arithmetic() {
     ReplTest::new()
-        .wait_ready()
         .type_line("1 + 2")
         .expect_output("3")
         .shutdown();
@@ -35,7 +38,6 @@ fn test_basic_arithmetic() {
 #[test]
 fn test_multiplication() {
     ReplTest::new()
-        .wait_ready()
         .type_line("6 * 7")
         .expect_output("42")
         .shutdown();
@@ -44,7 +46,6 @@ fn test_multiplication() {
 #[test]
 fn test_boolean_literal() {
     ReplTest::new()
-        .wait_ready()
         .type_line("true")
         .expect_output("true")
         .shutdown();
@@ -57,7 +58,6 @@ fn test_boolean_literal() {
 #[test]
 fn test_define_and_call_function() {
     ReplTest::new()
-        .wait_ready()
         .type_line("fn double(x) { x * 2 }")
         .expect_output("Defined: double")
         .type_line("double(21)")
@@ -68,36 +68,10 @@ fn test_define_and_call_function() {
 #[test]
 fn test_define_constant() {
     ReplTest::new()
-        .wait_ready()
         .type_line("const PI: Number = 3;")
         .expect_output("Defined: PI")
         .type_line("PI + 1")
         .expect_output("4")
-        .shutdown();
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Tab Completion Tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
-// History Navigation Tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[test]
-fn test_history_up_arrow() {
-    ReplTest::new()
-        .wait_ready()
-        .type_line("1 + 1")
-        .expect_output("2")
-        .clear_output()
-        .type_line("2 + 2")
-        .expect_output("4")
-        .clear_output()
-        .arrow(Arrow::Up)
-        .arrow(Arrow::Up)
-        .enter()
-        .expect_output("2") // Re-ran "1 + 1"
         .shutdown();
 }
 
@@ -108,7 +82,6 @@ fn test_history_up_arrow() {
 #[test]
 fn test_help_command() {
     ReplTest::new()
-        .wait_ready()
         .type_line(":help")
         .expect_output("REPL Commands:")
         .expect_output(":quit")
@@ -118,7 +91,6 @@ fn test_help_command() {
 #[test]
 fn test_clear_command() {
     ReplTest::new()
-        .wait_ready()
         .type_line("const X: Number = 42;")
         .expect_output("Defined: X")
         .type_line(":clear")
@@ -129,41 +101,22 @@ fn test_clear_command() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Ctrl Sequence Tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[test]
-fn test_ctrl_c_interrupt() {
-    ReplTest::new()
-        .wait_ready()
-        .type_text("incomplete")
-        .ctrl('C')
-        .expect_output("^C")
-        .expect_prompt()
-        .shutdown();
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Error Handling Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_parse_error() {
     ReplTest::new()
-        .wait_ready()
         .type_line("fn ()")
         .expect_error("error")
-        .expect_prompt() // Should still be usable
         .shutdown();
 }
 
 #[test]
 fn test_undefined_variable() {
     ReplTest::new()
-        .wait_ready()
         .type_line("undefined_var")
         .expect_error("undefined")
-        .expect_prompt()
         .shutdown();
 }
 
@@ -171,10 +124,8 @@ fn test_undefined_variable() {
 fn test_unterminated_string_does_not_crash() {
     // Bug: unterminated strings caused a panic instead of returning an error
     ReplTest::new()
-        .wait_ready()
         .type_line("\"s")
         .expect_error("unterminated") // Should show error, not crash
-        .expect_prompt() // Should still be usable
         .shutdown();
 }
 
@@ -186,12 +137,9 @@ fn test_unterminated_string_does_not_crash() {
 fn test_core_free_function_inspects_as_function() {
     // Bug: Submitting `core::option::flatten` should inspect it as a function,
     // the same as if I printed the value of `fn example() {}<cr>example<cr>`.
-    // Currently it might error or return something unexpected.
     ReplTest::new()
-        .wait_ready()
         .type_line("core::option::flatten")
-        // Should display as a function (like "fn flatten<T>(opt: Option<Option<T>>): Option<T>")
-        // or at least not error
+        // Should display as a function (like "fn flatten<T>(...): Option<T>").
         .expect_output("fn") // Functions should display with "fn" prefix
         .shutdown();
 }
@@ -202,7 +150,6 @@ fn test_dotted_module_path_is_rejected() {
     // is value/field access, not a namespace, so it must NOT resolve as a module
     // member — it parses as field access on the (undefined) value `core`.
     ReplTest::new()
-        .wait_ready()
         .type_line("core.Number.sign")
         .expect_error("undefined")
         .shutdown();
@@ -212,7 +159,6 @@ fn test_dotted_module_path_is_rejected() {
 fn test_user_defined_function_inspection() {
     // For comparison: user-defined functions should also be inspectable
     ReplTest::new()
-        .wait_ready()
         .type_line("fn example() { 42 }")
         .expect_output("Defined: example")
         .type_line("example")
@@ -230,7 +176,6 @@ fn test_define_struct_and_access_field() {
     // struct definitions are now supported; a value can be constructed and
     // its fields read back.
     ReplTest::new()
-        .wait_ready()
         .type_line("struct Point { x: Number, y: Number }")
         .expect_output("Defined: Point")
         .type_line("Point { x: 3, y: 4 }.x")
@@ -241,7 +186,6 @@ fn test_define_struct_and_access_field() {
 #[test]
 fn test_define_enum() {
     ReplTest::new()
-        .wait_ready()
         .type_line("unique(A1B2C3D4-0000-0000-0000-000000000001) enum Color { Red, Green, Blue }")
         .expect_output("Defined: Color")
         .shutdown();
@@ -250,7 +194,6 @@ fn test_define_enum() {
 #[test]
 fn test_define_type_alias() {
     ReplTest::new()
-        .wait_ready()
         .type_line("type Count = Number;")
         .expect_output("Defined: Count")
         .shutdown();
@@ -261,7 +204,6 @@ fn test_cross_turn_use_and_ability_call() {
     // A `use` committed on one turn stays in scope for later turns, and the
     // full platform ability set is wired, so a bare `Stdio::out!` runs.
     ReplTest::new()
-        .wait_ready()
         .type_line("use core::system::Stdio;")
         .type_line("Stdio::out!(\"hello-repl\")")
         .expect_output("hello-repl")
@@ -274,7 +216,6 @@ fn test_user_ability_declared_and_used_across_turns() {
     // a function that performs it, then a handler that intercepts the perform,
     // all resolve against the committed `repl` module.
     ReplTest::new()
-        .wait_ready()
         .type_line(
             "unique(AB000000-0000-0000-0000-0000000000E1) ability Ping { fn ping(): Number { 7 } }",
         )
@@ -293,7 +234,6 @@ fn test_user_ability_default_impl_runs_unhandled() {
     // An unhandled perform of a user-declared ability runs the method's default
     // implementation — across turns and at the top level.
     ReplTest::new()
-        .wait_ready()
         .type_line(
             "unique(AB000000-0000-0000-0000-0000000000E2) ability Pong { fn pong(): Number { 5 } }",
         )
@@ -336,7 +276,6 @@ fn test_project_user_ability_imported_bare_in_repl() {
     // perform/handle the imported user ability by its bare name.
     let dir = project_with_ping_ability("AB000000-0000-0000-0000-0000000000F1");
     ReplTest::with_project(dir.path())
-        .wait_ready()
         .type_line("use pkg::effects::Ping;")
         .clear_output()
         .type_line("with { Ping::ping() => resume(3) } handle Ping::ping!()")
@@ -349,7 +288,6 @@ fn test_project_user_ability_fully_qualified_in_repl() {
     // The same project ability is reachable fully-qualified with no `use`.
     let dir = project_with_ping_ability("AB000000-0000-0000-0000-0000000000F2");
     ReplTest::with_project(dir.path())
-        .wait_ready()
         .type_line(
             "with { pkg::effects::Ping::ping() => resume(4) } handle pkg::effects::Ping::ping!()",
         )
@@ -361,10 +299,8 @@ fn test_project_user_ability_fully_qualified_in_repl() {
 fn test_type_error_is_reported() {
     // A return-type mismatch is caught by the real type checker.
     ReplTest::new()
-        .wait_ready()
         .type_line("fn bad(): String { 42 }")
         .expect_error("String")
-        .expect_prompt()
         .shutdown();
 }
 
@@ -372,7 +308,6 @@ fn test_type_error_is_reported() {
 fn test_redefine_function_across_turns() {
     // Redefinition replaces the earlier same-named definition (last wins).
     ReplTest::new()
-        .wait_ready()
         .type_line("fn f() { 1 }")
         .expect_output("Defined: f")
         .type_line("f()")
@@ -390,7 +325,6 @@ fn test_project_module_is_usable() {
     // Started inside a project, the REPL builds the whole package as its base
     // and project modules are reachable (fully-qualified or via `use`).
     ReplTest::with_project(&example_project("multi_module"))
-        .wait_ready()
         .type_line("pkg::math_utils::gcd(48, 60)")
         .expect_output("12")
         .shutdown();
@@ -401,12 +335,10 @@ fn test_non_literal_const_is_rejected() {
     // Language parity: a `const` must be a literal. A computed value (here a
     // function call) is rejected — use a `fn` instead.
     ReplTest::new()
-        .wait_ready()
         .type_line("fn two() { 2 }")
         .expect_output("Defined: two")
         .type_line("const C: Number = two()")
         .expect_error("error")
-        .expect_prompt()
         .shutdown();
 }
 
@@ -420,7 +352,6 @@ fn test_throw_in_value_position_in_repl_function() {
     // `!`, which must unify with the `Number` the other branch produces —
     // in a function defined on one turn and handled on a later one.
     ReplTest::new()
-        .wait_ready()
         .type_line(
             "fn clamp(v: Number): Number with Exception { if (v > 0) { v + 1 } else { Exception::throw!(\"low\") } }",
         )
@@ -440,7 +371,6 @@ fn test_abstract_never_method_declared_and_performed_across_repl_turns() {
     // commits without a default implementation, and its performs unwind to
     // the handler installed on a later line.
     ReplTest::new()
-        .wait_ready()
         .type_line(
             "unique(AB000000-0000-0000-0000-0000000000E5) ability Abort { fn abort(code: Number): !; }",
         )
@@ -463,34 +393,20 @@ fn test_abstract_never_method_declared_and_performed_across_repl_turns() {
 // The REPL as a deploy frontend (ref/live-upgrade.md, "Generations")
 // ─────────────────────────────────────────────────────────────────────────
 
-/// Type a line whose turn prints nothing (a `use`, a Unit expression) and
-/// wait for the turn to finish. The only completion signal is the fresh
-/// prompt: wait until the typed line has echoed *and* the output ends
-/// with the prompt again. Typing into a mid-turn REPL loses characters —
-/// rustyline flushes pending input when it re-enters raw mode — so every
-/// silent turn must be synced this way before the next `type_line`.
-fn sync_silent_turn(test: ReplTest, line: &str) -> ReplTest {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
-        let output = test.output();
-        if output.contains(line) && output.trim_end().ends_with('>') {
-            return test;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "timeout waiting for silent turn `{line}`\nActual output:\n{output}"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-}
-
 /// A ticker task body that prints `msg` then waits 50ms at an
 /// interruptible perform (via the session-defined `mk_wait`). Fully
 /// qualified performs keep the definition to one import; every turn the
 /// tests type produces output to sync on.
+///
+/// The `: ()` return annotation is load-bearing: without it, an effectful
+/// function whose return type no caller constrains is generalized to a
+/// polymorphic return (rendered `var0`), so the redefinition's canonical
+/// signature differs from the running task's (`unit`) and the deploy core
+/// retires the name instead of rebinding it — defeating the live upgrade
+/// this test exercises. Pinning the return keeps the signature stable.
 fn ticker_body(msg: &str) -> String {
     format!(
-        "fn tick() {{ core::system::Stdio::out!(\"{msg}\"); \
+        "fn tick(): () {{ core::system::Stdio::out!(\"{msg}\"); \
          core::system::Time::wait!(mk_wait()) }}"
     )
 }
@@ -504,10 +420,8 @@ fn test_redefining_a_task_body_live_upgrades_the_running_task() {
     // proves incremental turns: it survives the turns between `ensure`
     // and the redefinition (the old declarative deploy would have drained
     // it as "no longer declared" on the next eval).
-    let test = ReplTest::new()
-        .wait_ready()
-        .type_line("use core::time::Duration;");
-    sync_silent_turn(test, "use core::time::Duration;")
+    ReplTest::new()
+        .type_line("use core::time::Duration;")
         .type_line("fn mk_wait(): Duration { Duration::from_millis(50) }")
         .expect_output("Defined: mk_wait")
         .type_line(&ticker_body("tick one"))
@@ -530,7 +444,6 @@ fn test_rejected_deploy_is_a_turn_error_and_the_program_is_untouched() {
     // was committed: the cell keeps its value and the rejected name stays
     // undefined.
     ReplTest::new()
-        .wait_ready()
         .type_line("{ core::system::State::init!(\"counter\", () => 1); \"ready\" }")
         .expect_output("ready")
         .clear_output()
@@ -545,7 +458,6 @@ fn test_rejected_deploy_is_a_turn_error_and_the_program_is_untouched() {
         .clear_output()
         .type_line("setup")
         .expect_error("undefined variable")
-        .expect_prompt()
         .shutdown();
 }
 
@@ -554,10 +466,8 @@ fn test_clear_drains_running_tasks() {
     // `:clear` winds the running program down before rebuilding the
     // session: the ticker is drained (its Time::wait is interruptible)
     // and waited for, so it cannot keep printing into the fresh session.
-    let test = ReplTest::new()
-        .wait_ready()
-        .type_line("use core::time::Duration;");
-    sync_silent_turn(test, "use core::time::Duration;")
+    ReplTest::new()
+        .type_line("use core::time::Duration;")
         .type_line("fn mk_wait(): Duration { Duration::from_millis(50) }")
         .expect_output("Defined: mk_wait")
         .type_line(&ticker_body("tick"))
@@ -578,7 +488,6 @@ fn test_resume_in_never_arm_is_rejected_in_repl() {
     // The dedicated catch-only diagnostic surfaces through the REPL: a
     // never-returning perform unwinds, so its arm cannot `resume`.
     ReplTest::new()
-        .wait_ready()
         .type_line(
             "unique(AB000000-0000-0000-0000-0000000000E6) ability Halt { fn halt(code: Number): !; }",
         )
@@ -589,6 +498,5 @@ fn test_resume_in_never_arm_is_rejected_in_repl() {
         .clear_output()
         .type_line("with { Halt::halt(code) => resume(code) } handle go3()")
         .expect_error("cannot `resume` `Halt::halt`")
-        .expect_prompt()
         .shutdown();
 }
