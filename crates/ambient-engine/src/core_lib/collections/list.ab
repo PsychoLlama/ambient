@@ -35,9 +35,6 @@ extern fn is_empty<T>(list: List<T>): Bool;
 extern fn last<T>(list: List<T>): Option<T>;
 /// The elements in reverse order.
 extern fn reverse<T>(list: List<T>): List<T>;
-/// The elements sorted ascending (numbers and strings compare; anything
-/// else keeps its order).
-extern fn sort<T>(list: List<T>): List<T>;
 /// The elements in [start, end). Out-of-range bounds clamp.
 extern fn slice<T>(list: List<T>, start: Number, end: Number): List<T>;
 
@@ -129,9 +126,6 @@ impl<T> List<T> {
     fn reverse(self): List<T> {
         reverse(self)
     }
-    fn sort(self): List<T> {
-        sort(self)
-    }
     fn slice(self, start: Number, end: Number): List<T> {
         slice(self, start, end)
     }
@@ -186,10 +180,44 @@ impl<T: Eq> List<T> {
     }
 }
 
-// Ordering-based operations: any element type with an `Ord` impl. (The
-// unbounded `sort` above uses the native structural ordering, which only
-// meaningfully orders numbers and strings; `sorted` orders by `Ord::cmp`.)
-// Each is a combinator; the `Ord` dictionary is captured into the lambdas.
+// Merge two already-sorted runs into one, walking both by index and taking
+// the smaller head each step (ties take `a` first, so equal elements keep
+// their input order — the merge is stable). Once one side is exhausted the
+// other's remaining tail is appended in one `slice`/`concat`. The recursive
+// calls sit in tail position, so a merge runs in constant stack space.
+fn merge<T: Ord>(a: List<T>, b: List<T>, i: Number, j: Number, acc: List<T>): List<T> {
+    match get(a, i) {
+        None => concat(acc, slice(b, j, length(b))),
+        Some(x) => match get(b, j) {
+            None => concat(acc, slice(a, i, length(a))),
+            Some(y) => if x.cmp(y) <= 0 {
+                merge(a, b, i + 1, j, append(acc, x))
+            } else {
+                merge(a, b, i, j + 1, append(acc, y))
+            },
+        },
+    }
+}
+
+// Top-down merge sort: halve the list, sort each half, then merge. The
+// split recursion is O(log n) deep (each half is a `slice`), so it is
+// stack-safe even on long lists, and it does O(n log n) comparisons.
+fn merge_sort<T: Ord>(list: List<T>): List<T> {
+    let n = length(list);
+    if n <= 1 {
+        list
+    } else {
+        // floor(n / 2) using only builtin arithmetic: `n - n % 2` is even, so
+        // the division is exact. (A cross-module `Number::floor` call would
+        // pull a method-dispatch dependency into this core module.)
+        let mid = (n - n % 2) / 2;
+        merge(merge_sort(slice(list, 0, mid)), merge_sort(slice(list, mid, n)), 0, 0, [])
+    }
+}
+
+// Ordering-based operations: any element type with an `Ord` impl. Each is a
+// combinator; the `Ord` dictionary is captured into the lambdas (or threaded
+// into the `merge`/`merge_sort` helpers).
 impl<T: Ord> List<T> {
     // The largest element by `Ord::cmp`, if any.
     fn max(self): Option<T> {
@@ -209,16 +237,10 @@ impl<T: Ord> List<T> {
             None => None,
         }
     }
-    // The elements sorted ascending by `Ord::cmp`. Insertion sort expressed
-    // as a fold: each element splits the accumulated-sorted prefix into the
-    // run it exceeds and the rest, and is spliced between them (before the
-    // first element it does not exceed — matching the previous behaviour).
-    // `fold`/`filter` are tail-recursive, so this runs in constant stack.
-    fn sorted(self): List<T> {
-        self.fold([], (acc: List<T>, item: T) => concat(
-            append(acc.filter((x: T) => item.cmp(x) > 0), item),
-            acc.filter((x: T) => item.cmp(x) <= 0),
-        ))
+    // The elements sorted ascending by `Ord::cmp`, via a stable top-down
+    // merge sort (`merge_sort`). O(n log n) comparisons and O(log n) stack.
+    fn sort(self): List<T> {
+        merge_sort(self)
     }
 }
 

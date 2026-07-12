@@ -449,7 +449,7 @@ fn core_list_sorted_and_min_max() {
         {MONEY}
         fn run(): Number {{
             let ms = [Money {{ cents: 30 }}, Money {{ cents: 10 }}, Money {{ cents: 20 }}];
-            let sorted = ms.sorted();
+            let sorted = ms.sort();
             let lowest = match ms.min() {{ Some(m) => m.cents, None => 0 }};
             let highest = match ms.max() {{ Some(m) => m.cents, None => 0 }};
             let first = match sorted.get(0) {{ Some(m) => m.cents, None => 0 }};

@@ -73,19 +73,6 @@ fn list_reverse(mut args: Vec<Value>) -> Result<Value, VmError> {
     Ok(Value::list(result))
 }
 
-fn list_sort(mut args: Vec<Value>) -> Result<Value, VmError> {
-    let l = list(&mut args, 0, "list_sort")?;
-    let mut result = (*l).clone();
-    result.sort_by(|a, b| match (a, b) {
-        (Value::Number(na), Value::Number(nb)) => {
-            na.partial_cmp(nb).unwrap_or(std::cmp::Ordering::Equal)
-        }
-        (Value::String(sa), Value::String(sb)) => sa.cmp(sb),
-        _ => std::cmp::Ordering::Equal,
-    });
-    Ok(Value::list(result))
-}
-
 fn list_slice(mut args: Vec<Value>) -> Result<Value, VmError> {
     let l = list(&mut args, 0, "list_slice")?;
     let start = number(&mut args, 1, "list_slice")?;
@@ -241,7 +228,8 @@ pub(super) fn register(reg: &mut NativeRegistry) {
     bind(reg, &m, "is_empty", 0x0307, 1, list_is_empty);
     bind(reg, &m, "last", 0x0308, 1, list_last);
     bind(reg, &m, "reverse", 0x0309, 1, list_reverse);
-    bind(reg, &m, "sort", 0x030A, 1, list_sort);
+    // 0x030A retired: the former structural `sort` native is gone; sorting
+    // now lives in `core_lib` as `List::sort<T: Ord>` (merge sort over `cmp`).
     bind(reg, &m, "slice", 0x030B, 3, list_slice);
 
     let m = module(&["core", "collections", "map"]);

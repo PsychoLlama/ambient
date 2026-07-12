@@ -482,7 +482,7 @@ Roughly in priority order:
   helpers). Target roughly the granularity of Go's or Node's standard
   libraries. Generic trait bounds now exist (`fn f<T: Eq>` — see
   [traits.md](traits.md#generic-constraints)) and already power
-  `List::contains`/`index_of`/`min`/`max`/`sorted`; the remaining blockers
+  `List::contains`/`index_of`/`min`/`max`/`sort`; the remaining blockers
   are the bound-dispatch-inside-lambdas and conditional-impl gaps noted
   there.
 - **Cross-module ability imports (done).** The platform-bindings split

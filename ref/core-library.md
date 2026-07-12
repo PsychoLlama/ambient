@@ -83,7 +83,11 @@ The method names, by type:
 ```ambient
 // Collections
 List::{map, filter, fold, any, all, sum, get, head, tail, first, last,
-       length, is_empty, reverse, sort, slice, append, concat}
+       length, is_empty, reverse, slice, append, concat}
+// List methods gated on an element-type bound: Eq unlocks contains/index_of,
+// Ord unlocks sort/min/max. `sort` is a stable O(n log n) merge sort by
+// `Ord::cmp` — the one sort (there is no separate structural native).
+List<T: Eq>::{contains, index_of}   List<T: Ord>::{sort, min, max}
 Map::{get, insert, remove, contains, length, is_empty, keys, values}
 Set::{insert, remove, contains, length, is_empty, union, intersection,
       difference, to_list}
