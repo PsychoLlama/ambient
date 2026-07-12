@@ -14,7 +14,8 @@ Binary    // immutable byte buffer
 // Composite
 { x: Number, y: Number }           // Records (structural)
 (Number, String, Bool)             // Tuples
-List<T>, Set<T>, Map<K, V>         // Collections
+List<T>, Set<T>, Map<K, V>         // Collections (Set/Map key structurally —
+                                   // see core-library.md, "Container Key Semantics")
 
 // Enums (tagged unions) are nominal: every declaration carries a
 // mandatory `unique(<uuid>)` prefix, so two structurally identical enums

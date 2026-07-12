@@ -127,3 +127,55 @@ Option), reflection (`core::reflect::{tag, payload}`), and the wire
 protocol (`core::protocol::{serialize_value, deserialize_value,
 closure_hash, closure_captures, handler_methods, hex_to_binary,
 binary_to_hex}`).
+
+## Container Key Semantics
+
+`Set<T>` and `Map<K, V>` compare keys **structurally** — by the runtime
+`Value`'s own byte-level equality (`ambient-ability`'s `MapValue`/`SetValue`,
+keyed by `Value::eq`), preserving insertion order. This is deliberate and
+fixed: it is **not** routed through a `K: Eq`/`K: Ord` trait bound, and a
+user's `impl Eq`/`impl Ord` for a key type has **no effect** on container
+membership, deduplication, or lookup.
+
+That follows from the language's core stance: **ambient values are plain
+data**. Nominal identity (a `unique(<uuid>) struct`'s UUID) is a
+_compile-time_ concept — at runtime a `Money` is erased to its record, so two
+`Money` values are equal to a container exactly when their fields are. A
+custom `Eq` impl governs `==`, operator dispatch, and trait bounds (including
+`List<T: Eq>::contains`, which _does_ dispatch through the impl); it never
+governs how a `Set`/`Map` hashes or compares its keys. The two notions of
+equality are intentionally separate, and containers pick the structural one.
+
+The consequence — worth stating plainly — is that a **coarser** custom `Eq`
+diverges from container keying. Take a case-insensitive identifier:
+
+```ambient
+unique(D0D0D0D0-0000-0000-0000-000000000001) struct CiName { text: String }
+
+impl Eq for CiName {
+  // Case-insensitive: "Ada" and "ada" are equal values.
+  fn eq(self, other: CiName): Bool {
+    self.text.to_lower() == other.text.to_lower()
+  }
+}
+
+let a = CiName { text: "Ada" };
+let b = CiName { text: "ada" };
+
+a == b                        // true  — dispatches through the Eq impl
+[a].contains(b)               // true  — List::contains uses the Eq bound
+Set::empty().insert(a).insert(b).length()   // 2 — structural keys: "Ada" ≠ "ada"
+```
+
+`a == b` is `true` (the impl collapses case), but the `Set` holds two
+elements because their underlying records differ. If a program needs
+`Eq`-consistent keys, it must normalize before inserting (store
+`CiName { text: self.text.to_lower() }`) — the container will not do it.
+
+This is the same class of hazard as any `Ord`-ordered structure surviving a
+handler edit (see [traits.md](traits.md), "Why this survives live upgrade"):
+container behavior is fixed by the _data_, not by an impl that a later build
+could change. Making structural keys the definition, rather than a
+trait-dispatched key, is what keeps `Set`/`Map` contents stable across live
+upgrades and wire transfers — an impl edit can never silently re-bucket an
+existing collection.
