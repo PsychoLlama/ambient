@@ -197,21 +197,34 @@ fn register_foreign_impl(
     let Some(trait_uuid) = infer.trait_registry.lookup_trait(&trait_name.name) else {
         return;
     };
-    let for_type = infer.resolve_holes(&impl_def.for_type);
 
-    // Generic (conditional) targets and non-identity types are skipped
-    // silently: the defining module reports them during its own check pass.
-    // This mirrors `check_single_impl`'s acceptance criteria exactly, so the
-    // dispatch key a foreign impl registers matches the one call sites resolve.
-    let has_type_args = matches!(&for_type, Type::Named(n) if !n.args.is_empty());
-    if !impl_def.type_params.is_empty() || has_type_args {
-        return;
-    }
+    // Mirror `check_single_impl` exactly so the dispatch key (and now the
+    // conditional-impl target/bounds) a foreign impl registers matches what
+    // call sites resolve. A conditional (generic) impl resolves its target
+    // under its own rigid type parameters, so `Pair<T>` retains `Param(T)`.
+    let is_generic = !impl_def.type_params.is_empty()
+        || matches!(&impl_def.for_type, Type::Named(n) if !n.args.is_empty());
+    let rigid: Vec<Arc<str>> = impl_def
+        .type_params
+        .iter()
+        .filter(|tp| !tp.is_ability)
+        .map(|tp| Arc::clone(&tp.name))
+        .collect();
+    let for_type = infer.with_rigid_params(rigid, |infer| infer.resolve_holes(&impl_def.for_type));
+
+    // Non-identity targets are skipped silently: the defining module reports
+    // them during its own check pass.
     let Some((type_uuid, type_name)) = inherent::trait_impl_identity(&for_type) else {
         return;
     };
 
     let mut impl_record = crate::types::TraitImpl::new(trait_uuid, type_uuid, type_name);
+    if is_generic {
+        // Bounds resolve leniently through the in-scope table; unknown-trait
+        // errors are the defining module's to report, so swallow them here.
+        let bounds = infer.resolve_bound_params(&impl_def.type_params, &mut Vec::new());
+        impl_record = impl_record.with_generic_target(for_type.clone(), bounds);
+    }
     for method in &impl_def.methods {
         let symbol = crate::types::impl_method_symbol(&type_uuid, &trait_uuid, &method.name);
         impl_record.methods.insert(Arc::clone(&method.name), symbol);

@@ -44,6 +44,42 @@ pub enum DictSource {
         /// Index into the enclosing function's dictionary parameters.
         dict_index: usize,
     },
+    /// Build the dictionary from a *conditional* (generic) impl such as
+    /// `impl<T: Eq> Eq for Pair<T>`. The impl's own methods take hidden
+    /// trailing dictionaries (one per the impl's bounds); solving the outer
+    /// bound derived those inner dictionaries ([`inner`], one per impl bound
+    /// in dictionary order). Each dictionary slot is therefore a *closure*
+    /// over the inner dictionaries that, when invoked with the method's
+    /// value arguments, calls the impl method with those arguments plus the
+    /// captured inner dictionaries. The compiler synthesizes one closure per
+    /// method and assembles them into the dictionary tuple.
+    Generic {
+        /// The impl's methods in dictionary order — the same order the
+        /// trait's [`dictionary_order`](crate::types::TraitDef::dictionary_order)
+        /// yields, so the tuple slots line up with bound-method dispatch.
+        methods: Vec<GenericDictMethod>,
+        /// The inner dictionaries the impl's own bounds resolve to, in the
+        /// impl's [`dict_params`](crate::ast::dict_params) order. Every
+        /// method closure captures all of them and forwards them as the
+        /// method's hidden trailing dictionary arguments.
+        inner: Vec<DictSource>,
+    },
+}
+
+/// One method of a conditional impl's dictionary (see
+/// [`DictSource::Generic`]): the impl-method symbol to call and how many
+/// value arguments the dictionary slot forwards to it (receiver included).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenericDictMethod {
+    /// The impl method's canonical dispatch symbol
+    /// ([`crate::types::impl_method_symbol`]); resolved through the ordinary
+    /// name→hash table, so the call site's content hash pins the exact impl.
+    pub symbol: Arc<str>,
+    /// The number of value arguments the slot closure forwards to the impl
+    /// method — `self` (if any) plus the method's declared parameters. The
+    /// inner dictionaries follow these, filling the method's hidden trailing
+    /// dictionary parameters.
+    pub arity: usize,
 }
 
 /// The dictionary annotation on an expression.

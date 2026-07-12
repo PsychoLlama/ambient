@@ -65,32 +65,32 @@ fn check_single_impl(
         return;
     };
 
-    let for_type = infer.resolve_holes(&impl_def.for_type);
-
-    // Generic (conditional) trait impls need machinery this path lacks:
-    // an impl block that declares its own type parameters
-    // (`impl<T: Eq> Eq for Pair<T>`), or a target applied to type arguments
-    // (`impl Eq for List<T>`, and every container — they're all generic).
-    // Coherence keys on the target's UUID alone, which cannot tell
-    // `Option<Number>` from `Option<String>`, so registering one would
-    // misdispatch. Reject loudly; a non-generic target (a plain enum or
-    // struct) is fine. Containers await the conditional-impls task.
-    let has_type_args = matches!(&for_type, Type::Named(n) if !n.args.is_empty());
-    if !impl_def.type_params.is_empty() || has_type_args {
-        errors.push(Box::new(TypeError::new(
-            TypeErrorKind::ConditionalImplUnsupported {
-                trait_name: Arc::clone(&trait_name.name),
-                ty: for_type.clone(),
-            },
-            span,
-        )));
-        return;
-    }
+    // A conditional (generic) impl declares its own type parameters
+    // (`impl<T: Eq> Eq for Pair<T>`) or applies its target to type arguments
+    // (`impl Eq for Option<Number>`). Detect it from the *unresolved* header
+    // (a generic struct's applied form resolves to a bare `Nominal`, losing
+    // its args, so the resolved type can't answer this). The impl's type
+    // parameters are rigid while resolving the target, so `T` becomes a
+    // `Type::Param` inside `Pair<T>` for the solver to match against.
+    let is_generic = !impl_def.type_params.is_empty()
+        || matches!(&impl_def.for_type, Type::Named(n) if !n.args.is_empty());
+    let rigid: Vec<Arc<str>> = impl_def
+        .type_params
+        .iter()
+        .filter(|tp| !tp.is_ability)
+        .map(|tp| Arc::clone(&tp.name))
+        .collect();
+    let for_type = infer.with_rigid_params(rigid.clone(), |infer| {
+        infer.resolve_holes(&impl_def.for_type)
+    });
 
     // The target must carry a nominal identity — the same "what can be an
     // impl target" question the inherent path answers. A declared struct,
     // an `extern`/primitive nominal, and a declared/prelude enum all do;
-    // a structural type or an unknown head does not.
+    // a structural type or an unknown head does not. For a generic target
+    // the identity is the *head*'s uuid (coherence granularity — one impl
+    // per (trait, head), so `impl<T> Eq for Pair<T>` and `impl Eq for
+    // Pair<Number>` conflict); the solver refines with `target` at use sites.
     let Some((type_uuid, type_name)) = inherent::trait_impl_identity(&for_type) else {
         errors.push(Box::new(TypeError::new(
             TypeErrorKind::TraitOnStructuralType {
@@ -107,9 +107,22 @@ fn check_single_impl(
         return;
     };
 
-    // Check each method in the impl
+    // The impl's own bounds, in `dict_params` order — the order the compiled
+    // methods take their hidden dictionary parameters and the solver derives
+    // the inner dictionaries in.
+    let impl_bounds = infer.resolve_bound_params(&impl_def.type_params, errors);
+
+    // Check each method's body under the impl's rigid parameters and bounds.
+    let impl_type_params = impl_def.type_params.clone();
     check_impl_methods(
-        infer, impl_def, &trait_def, &for_type, env, errors, deferred,
+        infer,
+        impl_def,
+        &trait_def,
+        &for_type,
+        &impl_type_params,
+        env,
+        errors,
+        deferred,
     );
 
     // Check that all required methods are implemented
@@ -120,6 +133,9 @@ fn check_single_impl(
     // content-addressed like ordinary functions; call sites resolve the
     // symbol through the same name→hash table as regular calls.
     let mut impl_record = crate::types::TraitImpl::new(trait_uuid, type_uuid, type_name);
+    if is_generic {
+        impl_record = impl_record.with_generic_target(for_type.clone(), impl_bounds);
+    }
     for method in &mut impl_def.methods {
         let symbol = crate::types::impl_method_symbol(&type_uuid, &trait_uuid, &method.name);
         impl_record
@@ -152,11 +168,13 @@ fn check_single_impl(
 /// trait method's declared abilities. Without this, dot dispatch and operator
 /// overloading could launder arbitrary effects past callers, and effect
 /// polymorphism could never reach a trait-dispatched method.
+#[allow(clippy::too_many_arguments)]
 fn check_impl_methods(
     infer: &mut Infer,
     impl_def: &mut crate::ast::ImplDef,
     trait_def: &TraitDef,
     for_type: &Type,
+    impl_type_params: &[crate::ast::TypeParam],
     env: &TypeEnv,
     errors: &mut Vec<BoxedTypeError>,
     deferred: &mut Vec<DeferredAbilityCheck>,
@@ -189,7 +207,16 @@ fn check_impl_methods(
             continue;
         };
 
-        check_impl_method_body(infer, method, tm, for_type, env, errors, deferred);
+        check_impl_method_body(
+            infer,
+            method,
+            tm,
+            for_type,
+            impl_type_params,
+            env,
+            errors,
+            deferred,
+        );
     }
 }
 
@@ -203,75 +230,90 @@ fn check_impl_methods(
 /// resolve against these scopes, exactly like an inherent method. The trait
 /// method's declared row still governs *enforcement*: `tm.abilities` is the
 /// deferred check's declared set.
+#[allow(clippy::too_many_arguments)]
 fn check_impl_method_body(
     infer: &mut Infer,
     method: &mut crate::ast::ImplMethod,
     tm: &crate::types::TraitMethodDef,
     for_type: &Type,
+    impl_type_params: &[crate::ast::TypeParam],
     env: &TypeEnv,
     errors: &mut Vec<BoxedTypeError>,
     deferred: &mut Vec<DeferredAbilityCheck>,
 ) {
     infer.reset_abilities();
 
-    // The impl method's own generics scope the body: type parameters (`U`)
-    // stay rigid (`Type::Param`), and each `E!` gets a fresh row variable, so
-    // a `with E` position in an annotated parameter type resolves to that row.
-    let rigid: Vec<Arc<str>> = method
-        .type_params
+    // The impl's own generics scope every method (`impl<T: Eq> Eq for
+    // Pair<T>` — `T` is rigid in `eq`'s body and its `Eq` bound makes
+    // `self.first.eq(...)` dispatch through the impl's dictionary parameter),
+    // then the method's own: type parameters (`U`) stay rigid, each `E!`
+    // gets a fresh row variable. Combined in the same order the compiled
+    // method allocates dictionary parameters (`dict_params(impl ++ method)`).
+    let combined_params: Vec<crate::ast::TypeParam> = impl_type_params
+        .iter()
+        .chain(method.type_params.iter())
+        .cloned()
+        .collect();
+    let rigid: Vec<Arc<str>> = combined_params
         .iter()
         .filter(|tp| !tp.is_ability)
         .map(|tp| Arc::clone(&tp.name))
         .collect();
-    let ability_scope = super::ability_vars::ability_var_scope(infer, &method.type_params);
+    let ability_scope = super::ability_vars::ability_var_scope(infer, &combined_params);
+    // Unknown-trait errors on these bounds already surfaced when the impl's
+    // bounds were resolved for registration; swallow the duplicates here.
+    let bounds = infer.resolve_bound_params(&combined_params, &mut Vec::new());
 
     infer.with_ability_var_scope(ability_scope, true, |infer| {
         infer.with_rigid_params(rigid, |infer| {
-            let mut func_env = env.extend();
+            infer.with_bound_params(bounds, |infer| {
+                let mut func_env = env.extend();
 
-            if tm.has_self {
-                func_env.insert_mono(method.self_id, Arc::from("self"), for_type.clone());
-            }
+                if tm.has_self {
+                    func_env.insert_mono(method.self_id, Arc::from("self"), for_type.clone());
+                }
 
-            // Each parameter's expected type comes from the trait signature
-            // (Self → the implementing type, resolved under the scopes above);
-            // an explicit annotation on the impl method is resolved the same
-            // way and used in its place.
-            for (param, expected_ty) in method.params.iter().zip(tm.params.iter()) {
-                let param_ty = match &param.ty {
-                    Some(ty) => resolve_erroring(infer, ty),
-                    None => resolve_erroring(infer, &substitute_self(expected_ty, for_type)),
-                };
-                func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
-            }
+                // Each parameter's expected type comes from the trait signature
+                // (Self → the implementing type, resolved under the scopes above);
+                // an explicit annotation on the impl method is resolved the same
+                // way and used in its place.
+                for (param, expected_ty) in method.params.iter().zip(tm.params.iter()) {
+                    let param_ty = match &param.ty {
+                        Some(ty) => resolve_erroring(infer, ty),
+                        None => resolve_erroring(infer, &substitute_self(expected_ty, for_type)),
+                    };
+                    func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
+                }
 
-            let expected_ret = resolve_erroring(infer, &substitute_self(&tm.ret, for_type));
-            match infer.infer_expr(&func_env, &mut method.body) {
-                Ok(body_ty) => {
-                    let method_span = (method.span.start, method.span.end);
-                    if let Err(e) = infer.unify(&expected_ret, &body_ty, method_span) {
+                let expected_ret = resolve_erroring(infer, &substitute_self(&tm.ret, for_type));
+                match infer.infer_expr(&func_env, &mut method.body) {
+                    Ok(body_ty) => {
+                        let method_span = (method.span.start, method.span.end);
+                        if let Err(e) = infer.unify(&expected_ret, &body_ty, method_span) {
+                            errors
+                                .push(e.with_context(format!("in impl method `{}`", method.name)));
+                        }
+                        // The declared row is the trait method's `with` clause: a
+                        // row-variable name resolves to nothing concrete and is
+                        // ignored (its instantiation is enforced at call sites),
+                        // so only a concrete ability outside the row is flagged.
+                        deferred.push(DeferredAbilityCheck {
+                            context: format!("trait impl method `{}`", method.name),
+                            declared: tm.abilities.clone(),
+                            inferred: infer.current_abilities().clone(),
+                            span: method.span,
+                        });
+                    }
+                    Err(e) => {
                         errors.push(e.with_context(format!("in impl method `{}`", method.name)));
                     }
-                    // The declared row is the trait method's `with` clause: a
-                    // row-variable name resolves to nothing concrete and is
-                    // ignored (its instantiation is enforced at call sites),
-                    // so only a concrete ability outside the row is flagged.
-                    deferred.push(DeferredAbilityCheck {
-                        context: format!("trait impl method `{}`", method.name),
-                        declared: tm.abilities.clone(),
-                        inferred: infer.current_abilities().clone(),
-                        span: method.span,
-                    });
                 }
-                Err(e) => {
-                    errors.push(e.with_context(format!("in impl method `{}`", method.name)));
-                }
-            }
 
-            // A trait impl method body may call bounded generics at concrete
-            // types; solve those constraints against this body before the next
-            // one runs.
-            infer.finish_body_constraints(&mut method.body, errors);
+                // A trait impl method body may call bounded generics at concrete
+                // types (and forward the impl's own bounds); solve those
+                // constraints against this body before the next one runs.
+                infer.finish_body_constraints(&mut method.body, errors);
+            });
         });
     });
 }

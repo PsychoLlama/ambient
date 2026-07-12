@@ -257,13 +257,6 @@ pub enum TypeErrorKind {
     /// Cannot implement trait for non-nominal type.
     TraitOnStructuralType { trait_name: Arc<str>, ty: Type },
 
-    /// A trait impl whose target is generic — an impl block declaring type
-    /// parameters (`impl<T: Eq> Eq for Pair<T>`) or a target applied to type
-    /// arguments (`impl Eq for List<T>`). These are *conditional* impls,
-    /// which need machinery this path doesn't have yet; a non-generic
-    /// target (a plain enum or struct) works.
-    ConditionalImplUnsupported { trait_name: Arc<str>, ty: Type },
-
     /// A bound `τ: Trait` failed: the type has no impl of the trait in the
     /// build.
     BoundNotSatisfied { ty: Type, trait_name: Arc<str> },
@@ -280,9 +273,10 @@ pub enum TypeErrorKind {
         trait_name: Arc<str>,
     },
 
-    /// A bound resolved to a generic (conditional) impl, which cannot yet
-    /// serve as a dictionary source.
-    GenericImplAsDictionary { trait_name: Arc<str>, ty: Type },
+    /// Solving a trait bound recursed through conditional impls past the
+    /// depth limit (e.g. `impl<T: Eq> Eq for Pair<Pair<T>>` applied to an
+    /// ever-nesting type), so it was cut off rather than looping forever.
+    DictSolveDepthLimit { ty: Type, trait_name: Arc<str> },
 
     /// A bounded generic item was referenced as a first-class value
     /// (`let f = contains;`). Dictionaries are supplied at call sites, so
@@ -617,14 +611,6 @@ impl std::fmt::Display for TypeErrorKind {
                     "cannot implement trait `{trait_name}` for structural type `{ty}`; traits can only be implemented for nominal types"
                 )
             }
-            Self::ConditionalImplUnsupported { trait_name, ty } => {
-                write!(
-                    f,
-                    "conditional (generic) trait impls are not yet supported: \
-                     `impl {trait_name} for {ty}` is generic; only non-generic \
-                     targets (a plain enum or struct) can implement a trait for now"
-                )
-            }
             Self::BoundNotSatisfied { ty, trait_name } => {
                 write!(
                     f,
@@ -647,11 +633,12 @@ impl std::fmt::Display for TypeErrorKind {
                      required here; add it (`{param}: {trait_name}`)"
                 )
             }
-            Self::GenericImplAsDictionary { trait_name, ty } => {
+            Self::DictSolveDepthLimit { ty, trait_name } => {
                 write!(
                     f,
-                    "the impl of `{trait_name}` for `{ty}` is generic, which cannot yet \
-                     satisfy a trait bound; only non-generic impls can"
+                    "resolving the trait bound `{ty}: {trait_name}` recursed too deeply \
+                     through conditional impls; the nesting has no base case (an \
+                     ever-growing type), so it was cut off"
                 )
             }
             Self::BoundedGenericAsValue { name } => {

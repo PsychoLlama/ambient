@@ -281,11 +281,29 @@ pub struct TraitImpl {
     pub type_name: Arc<str>,
 
     /// Whether the impl block declares its own type parameters
-    /// (`impl<T> Show for Wrapper<T>`). A generic impl cannot yet serve as
-    /// a dictionary source — building its dictionary would mean closing
-    /// each method over the dictionaries *its* bounds demand — so bound
-    /// solving reports it unsupported instead of miscompiling.
+    /// (`impl<T> Show for Wrapper<T>`). A generic (conditional) impl serves
+    /// as a dictionary source by closing each method over the dictionaries
+    /// *its* bounds demand — the solver derives those from [`target`] and
+    /// [`bounds`] (see `Infer::solve_bound`).
+    ///
+    /// [`target`]: Self::target
+    /// [`bounds`]: Self::bounds
     pub is_generic: bool,
+
+    /// The impl's applied target shape, with the impl's type parameters as
+    /// [`Type::Param`]s (`Pair<T>` → `Nominal(pair, Record{ Param(T), … })`,
+    /// `Option<T>` → `Named(Option, [Param(T)], uuid)`). `None` for a
+    /// non-generic impl. The solver unifies this against a concrete type to
+    /// recover the impl's type-parameter assignments before solving
+    /// [`bounds`](Self::bounds).
+    pub target: Option<Type>,
+
+    /// The impl's own trait bounds, in [`crate::ast::dict_params`] order —
+    /// the same order the compiled impl methods take their hidden trailing
+    /// dictionary parameters. Each `(param, bound)` becomes one inner
+    /// dictionary the solver derives (against the assignment `param` unifies
+    /// to) and each method closure forwards. Empty for a non-generic impl.
+    pub bounds: Vec<(Arc<str>, super::TraitBound)>,
 
     /// Method dispatch symbols: method name -> canonical impl-method symbol.
     ///
@@ -305,14 +323,25 @@ impl TraitImpl {
             type_uuid,
             type_name: type_name.into(),
             is_generic: false,
+            target: None,
+            bounds: Vec::new(),
             methods: HashMap::new(),
         }
     }
 
-    /// Mark this impl as generic (declared with its own type parameters).
+    /// Mark this impl as a conditional (generic) impl, recording the applied
+    /// target shape and the impl's own bounds so the solver can derive its
+    /// dictionary. Passing an empty bound list is legal — a generic target
+    /// with no bounds (`impl<T> Show for Wrapper<T>`).
     #[must_use]
-    pub fn with_generic(mut self, is_generic: bool) -> Self {
-        self.is_generic = is_generic;
+    pub fn with_generic_target(
+        mut self,
+        target: Type,
+        bounds: Vec<(Arc<str>, super::TraitBound)>,
+    ) -> Self {
+        self.is_generic = true;
+        self.target = Some(target);
+        self.bounds = bounds;
         self
     }
 

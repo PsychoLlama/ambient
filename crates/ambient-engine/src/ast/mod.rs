@@ -15,7 +15,9 @@ use crate::types::Type;
 
 mod dicts;
 mod name;
-pub use dicts::{DictSource, Dicts, Fingerprints, ResolvedMethod, walk_exprs_mut};
+pub use dicts::{
+    DictSource, Dicts, Fingerprints, GenericDictMethod, ResolvedMethod, walk_exprs_mut,
+};
 pub use name::QualifiedName;
 
 /// A source location span for error reporting.
