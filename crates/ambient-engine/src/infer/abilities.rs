@@ -243,9 +243,11 @@ impl Infer {
             ability_subst.insert(*quantified, self.fresh_ability_var());
         }
 
-        // Fingerprinted methods additionally constrain their bare-generic
-        // function parameters to real function shapes (solving the cell
-        // type) and record the pending fingerprint group on the perform.
+        // Fingerprinted methods record a pending fingerprint group on the
+        // perform, naming the instantiated cell types to render. The
+        // method's `make`/`migrate`/`f` parameters are real function types,
+        // so the cell type is solved by the ordinary argument unification
+        // below — this only registers what to render.
         if hidden != 0 {
             self.record_state_fingerprints(&method, &subst, fingerprints, span)?;
         }

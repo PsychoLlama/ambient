@@ -502,9 +502,13 @@ Roughly in priority order:
   through `Live::latest!` in tail position and run in constant stack
   space (see `examples/deploy_server`'s `converse`), and a
   tail-position `resume` runs in constant space too (`TailResume`), so
-  a handler-driven effect loop is no longer frame-bounded. Still open:
-  typed `latest`/task bodies (blocked on effect-polymorphic function
-  parameters in ability signatures) and snapshot groups for multi-read
+  a handler-driven effect loop is no longer frame-bounded. Task bodies
+  and `State` functions are now checker-enforced: ability signatures
+  carry effect-polymorphic function parameters
+  (`Task::ensure<E!>(name, body: () -> () with E)`), so a malformed body
+  or state function is a compile error. Still open: typed `Live::latest`
+  (blocked on arity polymorphism — it is applied at every arity, so no
+  single function type is precise) and snapshot groups for multi-read
   consistency.
 - Trait bounds (`fn foo<T: Eq>(x: T)`) are **done** — dictionary-passing,
   uniform across functions, impl methods, and ability methods. Still open:

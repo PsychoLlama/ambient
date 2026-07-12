@@ -166,6 +166,29 @@ pub fn transform(x: Input): Output
 { ... }
 ```
 
+An **ability variable** (`E!`) quantifies over an effect row rather than
+a type. `with E` in a signature is the row's polymorphic tail: `map`
+requires exactly the effects its `f` performs, whatever they are.
+
+Ability **methods** are effect-polymorphic on the same footing as
+ordinary functions — the platform abilities use this to type their
+function-valued parameters precisely:
+
+```ambient
+ability Task {
+  // A task body is a zero-parameter, effect-polymorphic function.
+  fn ensure<E!>(name: String, body: () -> () with E): () { ... }
+}
+```
+
+`E` appears only in **parameter** position here, so it does not join the
+method's own effect row: a task body's effects run in the task's own VM
+against default implementations, never against the performer's handler
+stack, so `Task::ensure`'s contract stays empty. The checker still uses
+the row to reject a non-function or wrong-arity body up front. `State`'s
+`init`/`update`/`init_versioned` type their `make`/`migrate`/`f`
+parameters the same way (`() -> S with E`, `(S) -> S with E`, ...).
+
 ## Handling Abilities
 
 ```ambient

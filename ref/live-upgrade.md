@@ -111,10 +111,11 @@ pub unique(…) ability Live {
   `latest!` read returns a hash-pinned ref whose entire subtree is
   internally consistent. Two separate reads may straddle a deploy; the
   convention is one `latest!` read per unit of work (per request, per
-  tick), taken at the top. The `latest` is typed as a bare generic for
-  the same reason `Task::ensure`'s body parameter is — ability
-  signatures cannot yet express effect-polymorphic function
-  parameters — and the runtime checks it received a function ref.
+  tick), taken at the top. The `latest` is typed identity over `F`
+  (`(f: F): F`) deliberately — it is applied at every arity and the
+  language has no arity polymorphism, so an identity type is already the
+  most precise typing available — and the runtime checks it received a
+  function ref.
 
 The canonical loop idiom — Erlang's fully-qualified `?MODULE:loop(State)`
 call, spelled as an effect:
@@ -490,9 +491,12 @@ cells, tasks, and generations — never as a second upgrade mechanism.
   (hierarchical, `"app::stats"`); collisions between frameworks sharing
   a runtime are unguarded. An `Fqn`-scoped or capability-scoped naming
   scheme is future work.
-- **Typed `latest` / typed task bodies.** Both fall to the same gap as
-  typed `spawn`: effect-polymorphic function parameters in ability
-  signatures.
+- **Typed `latest`.** Task bodies and `State` functions are now
+  checker-enforced: ability signatures carry effect-polymorphic function
+  parameters (`Task::ensure<E!>(name, body: () -> () with E)`), so a
+  malformed body or state function is a compile error. `Live::latest`
+  stays identity-typed over `F`, pending **arity polymorphism** — it is
+  applied at every arity, so no single function type is precise enough.
 - **`latest!` on lambdas with captures** is resolved-to-itself today
   (no deployed name). Rebinding code under a kept environment is
   semantically defensible and deliberately excluded.
