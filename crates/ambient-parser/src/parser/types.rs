@@ -16,10 +16,14 @@ pub(super) enum TypeCtx {
     /// parameter / record-field list (`, name :`). The default for a standalone
     /// type position and every top-level `with` clause.
     Default,
-    /// A function type inside a generic argument list — `Map<() -> () with E,
-    /// Number>`. The list is delimited by `>`, so a comma always separates
-    /// generic arguments and can never extend the ability row.
-    GenericArg,
+    /// Any comma-delimited type list with a hard closing delimiter — `>` for
+    /// generic arguments (`Map<() -> () with E, Number>`), `)` for tuple and
+    /// function-parameter elements (`(() -> () with E, Number)`). A comma
+    /// always separates list elements and can never extend a function type's
+    /// ability row. The consequence: inside such a list a `with` row can name
+    /// only ONE ability — there is no `name :` terminator to distinguish a
+    /// second ability from the next element, so the comma must end the row.
+    DelimitedList,
 }
 
 impl Parser<'_> {
@@ -96,7 +100,7 @@ impl Parser<'_> {
                 // Each argument is delimited by `,` / `>`, so a function-typed
                 // argument's `with` clause stops at the comma rather than
                 // swallowing the next argument (`Map<() -> () with E, Number>`).
-                args.push(self.parse_type_ctx(TypeCtx::GenericArg)?);
+                args.push(self.parse_type_ctx(TypeCtx::DelimitedList)?);
 
                 if self.consume(TokenKind::Comma).is_none() {
                     break;
@@ -149,7 +153,10 @@ impl Parser<'_> {
                 break;
             }
 
-            elements.push(self.parse_type()?);
+            // Each element is delimited by `,` / `)`, so a function-typed
+            // element's `with` clause stops at the comma rather than swallowing
+            // the next element (`(() -> () with E, Number)`).
+            elements.push(self.parse_type_ctx(TypeCtx::DelimitedList)?);
 
             if self.consume(TokenKind::Comma).is_none() {
                 break;
@@ -234,12 +241,13 @@ impl Parser<'_> {
                 break;
             }
 
-            // Inside a generic argument list there is no `name :` terminator
-            // and the comma always separates generic arguments, so it can
-            // never extend the row: `Map<() -> () with E, Number>` is a
-            // single-ability row followed by the `Number` argument. Stop
-            // *without* consuming the comma so the generic parser sees it.
-            if ctx == TypeCtx::GenericArg {
+            // Inside a comma-delimited list with a hard closing delimiter there
+            // is no `name :` terminator and the comma always separates
+            // elements, so it can never extend the row: `Map<() -> () with E,
+            // Number>` and `(() -> () with E, Number)` each carry a
+            // single-ability row followed by the `Number` element. Stop
+            // *without* consuming the comma so the enclosing parser sees it.
+            if ctx == TypeCtx::DelimitedList {
                 break;
             }
 
