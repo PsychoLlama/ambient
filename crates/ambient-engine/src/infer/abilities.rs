@@ -148,24 +148,23 @@ impl Infer {
         let ret = self.resolve_holes(&method.ret.substitute_all(&subst, &ability_subst));
 
         // Resolve the method's bounds into the arm's dictionary-parameter
-        // context, in dictionary order (the `bounds` list already is). The
-        // names were spelled in the declaring module's scope, so they
-        // resolve leniently — an unknown one is already reported at every
-        // perform site, so dropping it here only skews indices in a module
-        // that will not compile.
+        // context, in dictionary order (the `bounds` list already is). Each
+        // bound carries the resolve pass's canonical `Fqn`, so it resolves to
+        // the defining module's trait regardless of this module's scope — an
+        // unknown one is already reported at every perform site, so dropping
+        // it here only skews indices in a module that will not compile.
         let mut bounds = Vec::with_capacity(method.bounds.len());
-        for (idx, bound_name) in &method.bounds {
-            let (Some(name), Some(trait_uuid)) = (
-                method.type_param_names.get(*idx),
-                self.trait_registry.lookup_trait_lenient(bound_name),
-            ) else {
+        for (idx, bound) in &method.bounds {
+            let (Some(name), Some(trait_uuid)) =
+                (method.type_param_names.get(*idx), self.trait_uuid_of(bound))
+            else {
                 continue;
             };
             bounds.push((
                 Arc::clone(name),
                 crate::types::TraitBound {
                     trait_uuid,
-                    name: Arc::clone(bound_name),
+                    name: Arc::clone(&bound.name),
                 },
             ));
         }
@@ -286,15 +285,15 @@ impl Infer {
         }
 
         // A bounded method records its dictionary constraints against the
-        // perform expression. The bound names were spelled in the
-        // declaring module's scope, so they resolve leniently here.
+        // perform expression. Each bound carries the resolve pass's canonical
+        // `Fqn`, so it resolves to the defining module's trait here.
         if !method.bounds.is_empty() {
             let mut resolved_bounds = Vec::with_capacity(method.bounds.len());
-            for (param_idx, bound_name) in &method.bounds {
-                let Some(trait_uuid) = self.trait_registry.lookup_trait_lenient(bound_name) else {
+            for (param_idx, bound) in &method.bounds {
+                let Some(trait_uuid) = self.trait_uuid_of(bound) else {
                     return Err(type_error(
                         TypeErrorKind::UnknownTrait {
-                            name: Arc::clone(bound_name),
+                            name: Arc::clone(&bound.name),
                         },
                         span,
                     ));
@@ -306,7 +305,7 @@ impl Infer {
                     var,
                     crate::types::TraitBound {
                         trait_uuid,
-                        name: Arc::clone(bound_name),
+                        name: Arc::clone(&bound.name),
                     },
                 ));
             }

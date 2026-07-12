@@ -541,7 +541,7 @@ fn alloc_dict_locals(
             ));
         }
         fc.next_local += 1;
-        fc.record_local_name(slot, &format!("<dict {param}: {bound}>"));
+        fc.record_local_name(slot, &format!("<dict {param}: {}>", bound.name));
         fc.local_names
             .insert(super::context::dict_capture_name(index), slot);
         fc.dict_locals.push(slot);

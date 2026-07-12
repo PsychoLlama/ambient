@@ -13,6 +13,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::Type;
+use crate::fqn::Fqn;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Reserved trait identities
@@ -151,19 +152,36 @@ pub struct TraitDef {
     /// Trait name for display and in-scope lookup.
     pub name: Arc<str>,
 
+    /// The trait's fully-qualified location identity — the key the resolve
+    /// pass canonicalizes every trait *reference* to, and the key the
+    /// build-global [`TraitRegistry::uuid_for_fqn`] table indexes this trait
+    /// under. `None` for a registry-less check (single-file/tests), where
+    /// references stay bare and resolve by in-scope name instead.
+    pub fqn: Option<Fqn>,
+
     /// Methods defined by this trait, in declaration order.
     pub methods: Vec<TraitMethodDef>,
 }
 
 impl TraitDef {
-    /// Create a new trait definition.
+    /// Create a new trait definition (no location identity — see
+    /// [`with_fqn`](Self::with_fqn)).
     #[must_use]
     pub fn new(uuid: Uuid, name: impl Into<Arc<str>>) -> Self {
         Self {
             uuid,
             name: name.into(),
+            fqn: None,
             methods: Vec::new(),
         }
+    }
+
+    /// Attach the trait's fully-qualified location identity, so registering
+    /// it also indexes the build-global `Fqn → uuid` table.
+    #[must_use]
+    pub fn with_fqn(mut self, fqn: Option<Fqn>) -> Self {
+        self.fqn = fqn;
+        self
     }
 
     /// Add a method.
@@ -241,14 +259,16 @@ pub struct TraitMethodDef {
     /// Method-level ability (row) variable names (`fn each<E!>` → `["E"]`).
     pub ability_var_names: Vec<Arc<str>>,
 
-    /// The method's own trait bounds as `(param name, bound trait name)`
+    /// The method's own trait bounds as `(param name, bound reference)`
     /// pairs, in [`crate::ast::dict_params`] order — the single authority the
     /// compiled impl method allocates its trailing dictionary parameters from,
     /// so a concrete-receiver call site's recorded dictionaries and the
-    /// method's slots can never disagree. Names, not identities: the call site
-    /// resolves each against the trait registry, and impl-method conformance
-    /// compares this list to the impl method's own `dict_params`.
-    pub method_bounds: Vec<(Arc<str>, Arc<str>)>,
+    /// method's slots can never disagree. The bound carries the resolve pass's
+    /// canonical `Fqn` (in [`crate::ast::QualifiedName::resolved`]), so a call
+    /// site resolves it to the *defining* module's trait — never re-resolved
+    /// in the caller's scope — and impl-method conformance compares by
+    /// identity.
+    pub method_bounds: Vec<(Arc<str>, crate::ast::QualifiedName)>,
 }
 
 impl TraitMethodDef {
@@ -276,7 +296,7 @@ impl TraitMethodDef {
         abilities: Vec<crate::ast::QualifiedName>,
         type_param_names: Vec<Arc<str>>,
         ability_var_names: Vec<Arc<str>>,
-        method_bounds: Vec<(Arc<str>, Arc<str>)>,
+        method_bounds: Vec<(Arc<str>, crate::ast::QualifiedName)>,
     ) -> Self {
         self.abilities = abilities;
         self.type_param_names = type_param_names;
@@ -446,11 +466,14 @@ pub struct TraitRegistry {
     /// Map from in-scope trait name to identity.
     name_to_uuid: HashMap<Arc<str>, Uuid>,
 
-    /// Every known trait per name, in-scope or not — the disambiguation
-    /// fallback for names that reach this check from *another* module's
-    /// signature (a foreign `fn f<T: Show>` hydrated here spells `Show` in
-    /// the defining module's scope, which this module may not share).
-    all_names: HashMap<Arc<str>, Vec<Uuid>>,
+    /// Build-global map from a trait's fully-qualified location identity to
+    /// its uuid. The resolve pass canonicalizes every trait *reference* to
+    /// an [`Fqn`]; the checker maps that `Fqn` here, so a bound resolves in
+    /// the module that *defined* it — never re-resolved in the consumer's
+    /// scope, and never shadowed by a consumer-side same-named trait. Every
+    /// registered trait with a location identity indexes here, in-scope or
+    /// not, so a foreign signature's bound resolves without importing.
+    fqn_to_uuid: HashMap<Fqn, Uuid>,
 
     /// Map from (trait uuid, nominal type UUID) to implementation.
     impls: HashMap<(Uuid, Uuid), TraitImpl>,
@@ -466,25 +489,24 @@ impl TraitRegistry {
     /// Register a trait definition, binding its name in scope.
     pub fn register_trait(&mut self, def: TraitDef) {
         self.name_to_uuid.insert(def.name.clone(), def.uuid);
-        self.index_name(&def);
+        self.index_fqn(&def);
         self.traits.insert(def.uuid, def);
     }
 
     /// Register a trait definition *without* binding its bare name in
     /// scope — the identity resolves ([`get_trait`](Self::get_trait)) and
-    /// the name is indexed for the [`lookup_trait`](Self::lookup_trait)
-    /// fallback, but a local/imported trait of the same name still wins.
-    /// Used for foreign traits a module never imported: their impls and
-    /// the bounds of foreign signatures must still resolve.
+    /// its [`Fqn`] indexes the build-global table, but a local/imported
+    /// trait of the same name still wins for *bare* in-scope lookups. Used
+    /// for foreign traits a module never imported: their impls and the
+    /// bounds of foreign signatures resolve by `Fqn`.
     pub fn register_trait_unnamed(&mut self, def: TraitDef) {
-        self.index_name(&def);
+        self.index_fqn(&def);
         self.traits.entry(def.uuid).or_insert(def);
     }
 
-    fn index_name(&mut self, def: &TraitDef) {
-        let entry = self.all_names.entry(def.name.clone()).or_default();
-        if !entry.contains(&def.uuid) {
-            entry.push(def.uuid);
+    fn index_fqn(&mut self, def: &TraitDef) {
+        if let Some(fqn) = &def.fqn {
+            self.fqn_to_uuid.insert(fqn.clone(), def.uuid);
         }
     }
 
@@ -504,22 +526,14 @@ impl TraitRegistry {
         self.name_to_uuid.get(name).copied()
     }
 
-    /// Resolve a trait name arriving through a *foreign* signature (`fn
-    /// f<T: Show>` hydrated from another module): the in-scope binding
-    /// first, then the build-global index when unambiguous. The name was
-    /// spelled in the defining module's scope, which this module need not
-    /// share, so scope alone would spuriously reject valid imports of
-    /// bounded functions. Two same-named traits in one build resolve only
-    /// through the in-scope binding.
+    /// Resolve a trait by its canonicalized location identity — the key the
+    /// resolve pass wrote onto every trait reference. This is scope-blind by
+    /// design: the `Fqn` already names the defining module, so a foreign
+    /// signature's bound resolves to the same trait it did in its own
+    /// module, and a consumer-side same-named trait cannot shadow it.
     #[must_use]
-    pub fn lookup_trait_lenient(&self, name: &str) -> Option<Uuid> {
-        if let Some(uuid) = self.name_to_uuid.get(name) {
-            return Some(*uuid);
-        }
-        match self.all_names.get(name).map(Vec::as_slice) {
-            Some([unique]) => Some(*unique),
-            _ => None,
-        }
+    pub fn uuid_for_fqn(&self, fqn: &Fqn) -> Option<Uuid> {
+        self.fqn_to_uuid.get(fqn).copied()
     }
 
     /// Register a trait implementation.

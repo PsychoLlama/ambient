@@ -434,13 +434,28 @@ impl Infer {
             .position(|(name, bound)| name.as_ref() == param && bound.trait_uuid == trait_uuid)
     }
 
+    /// Resolve a trait *reference* — an impl header or a `T: Bound` — to its
+    /// nominal uuid. Prefers the resolve pass's canonical [`Fqn`], mapped
+    /// through the build-global table: scope-blind, so a foreign signature's
+    /// bound resolves in the module that *defined* it and no consumer-side
+    /// same-named trait can shadow it. Falls back to an in-scope bare-name
+    /// lookup only when the reference was never resolved — a registry-less
+    /// single-file/test check, where every trait is local and named.
+    #[must_use]
+    pub(crate) fn trait_uuid_of(&self, name: &crate::ast::QualifiedName) -> Option<uuid::Uuid> {
+        match &name.resolved {
+            Some(fqn) => self.trait_registry.uuid_for_fqn(fqn),
+            None => self.trait_registry.lookup_trait(&name.name),
+        }
+    }
+
     /// Resolve an item's declared bounds (`<T: Eq + Ord>`) into the
     /// dictionary-parameter list. The order and dedup come from
     /// [`crate::ast::dict_params`] — the same authority the compiler
     /// allocates hidden parameters from — so checker indices and compiled
-    /// slots can never disagree. Unknown trait names surface as errors and
-    /// are skipped; the module doesn't compile in that case, so the index
-    /// skew is harmless.
+    /// slots can never disagree. Unknown trait references surface as errors
+    /// and are skipped; the module doesn't compile in that case, so the
+    /// index skew is harmless.
     pub(crate) fn resolve_bound_params(
         &mut self,
         type_params: &[crate::ast::TypeParam],
@@ -450,11 +465,11 @@ impl Infer {
             .first()
             .map_or((0, 0), |tp| (tp.span.start, tp.span.end));
         let mut out = Vec::new();
-        for (param, bound_name) in crate::ast::dict_params(type_params) {
-            let Some(trait_uuid) = self.trait_registry.lookup_trait(&bound_name) else {
+        for (param, bound) in crate::ast::dict_params(type_params) {
+            let Some(trait_uuid) = self.trait_uuid_of(bound) else {
                 errors.push(Box::new(TypeError::new(
                     TypeErrorKind::UnknownTrait {
-                        name: Arc::clone(&bound_name),
+                        name: Arc::clone(&bound.name),
                     },
                     span,
                 )));
@@ -464,7 +479,7 @@ impl Infer {
                 param,
                 TraitBound {
                     trait_uuid,
-                    name: bound_name,
+                    name: Arc::clone(&bound.name),
                 },
             ));
         }

@@ -519,15 +519,16 @@ fn resolve_ability_def(
             .filter(|tp| !tp.is_ability)
             .map(|tp| &tp.name)
             .collect();
-        let bounds: Vec<(usize, Arc<str>)> = crate::ast::dict_params(&method.type_params)
-            .into_iter()
-            .filter_map(|(param, bound_name)| {
-                type_param_names
-                    .iter()
-                    .position(|name| **name == param)
-                    .map(|idx| (idx, bound_name))
-            })
-            .collect();
+        let bounds: Vec<(usize, crate::ast::QualifiedName)> =
+            crate::ast::dict_params(&method.type_params)
+                .into_iter()
+                .filter_map(|(param, bound)| {
+                    type_param_names
+                        .iter()
+                        .position(|name| **name == param)
+                        .map(|idx| (idx, bound.clone()))
+                })
+                .collect();
 
         // One renderer per signature: variable numbering is
         // signature-local, by first occurrence.
@@ -538,8 +539,14 @@ fn resolve_ability_def(
         // the real ones (`bound:<param_index>:<TraitName>`): a bound is
         // interface, so adding one re-keys the method loudly. A boundless
         // method's rendering is byte-identical to before bounds existed.
-        for (idx, bound_name) in &bounds {
-            canon_params.push(format!("bound:{idx}:{bound_name}"));
+        //
+        // Deliberately the *spelled* final name, never the resolved `Fqn`:
+        // like `named:Duration` for an unresolved cross-module nominal, the
+        // method key must not depend on what is in scope where it renders,
+        // and switching to the uuid/Fqn would re-key every bounded ability
+        // method (the platform ability ids are golden-pinned). See AGENTS.md.
+        for (idx, bound) in &bounds {
+            canon_params.push(format!("bound:{idx}:{}", bound.name));
         }
 
         methods.push(DynMethod {

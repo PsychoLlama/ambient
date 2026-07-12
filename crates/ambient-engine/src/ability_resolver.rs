@@ -52,13 +52,14 @@ pub struct DynMethod {
     /// making a method's key independent of the row variable's name.
     pub quantified_abilities: Vec<crate::types::AbilityVarId>,
     /// Trait bounds on the method's type parameters, in dictionary order:
-    /// `(index into quantified, spelled trait name)` per bound. The name
-    /// resolves to a trait identity at perform sites (leniently — the
-    /// spelling comes from the declaring module's scope); the *canonical
-    /// signature* renders the spelled name, matching how unresolved
-    /// cross-module nominals hash (`named:Duration`), so an ability's
-    /// identity never depends on what is in scope where it is rendered.
-    pub bounds: Vec<(usize, Arc<str>)>,
+    /// `(index into quantified, bound reference)` per bound. The bound
+    /// carries the resolve pass's canonical `Fqn`, so a perform/handler site
+    /// resolves it to the *defining* module's trait — never re-resolved in
+    /// the caller's scope. The *canonical signature* still renders the
+    /// spelled final name, matching how unresolved cross-module nominals hash
+    /// (`named:Duration`), so an ability's identity never depends on what is
+    /// in scope where it is rendered.
+    pub bounds: Vec<(usize, crate::ast::QualifiedName)>,
     /// Hash of the canonical signature rendering.
     pub signature: SignatureHash,
     /// Whether the method carries a default implementation. `false` only

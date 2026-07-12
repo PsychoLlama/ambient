@@ -174,23 +174,31 @@ impl TypeParam {
 }
 
 /// The dictionary-parameter list an item's type parameters imply: one
-/// `(param name, bound name)` per distinct bound, in declaration order.
+/// `(param name, bound reference)` per distinct bound, in declaration order.
 ///
 /// This is the **single authority** on dictionary order and count. The
-/// checker resolves each entry to a trait identity and solves call-site
-/// constraints against the list; the compiler allocates one hidden trailing
-/// parameter per entry. Both derive from this function, so they can never
-/// disagree. Dedup is deliberately syntactic (`<T: Eq + Eq>` collapses; two
-/// differently-spelled names never do) — the compiler has no resolver, so
-/// the rule must not depend on resolution.
+/// checker resolves each bound reference to a trait identity and solves
+/// call-site constraints against the list; the compiler allocates one hidden
+/// trailing parameter per entry. Both derive from this function — and both
+/// read the same [`QualifiedName::resolved`] the resolve pass wrote — so they
+/// can never disagree.
+///
+/// Dedup is by trait **identity**: two bounds on one parameter collapse iff
+/// they name the same trait. When the resolve pass ran, that is the resolved
+/// `Fqn` (so a bare `Show` and a qualified `m::Show` collapse, and two
+/// same-named traits from different modules do *not*); registry-less (no
+/// resolution), it falls back to the spelled path+name, the purely syntactic
+/// rule the resolver-less compiler applies identically.
 #[must_use]
-pub fn dict_params(type_params: &[TypeParam]) -> Vec<(Arc<str>, Arc<str>)> {
-    let mut out: Vec<(Arc<str>, Arc<str>)> = Vec::new();
+pub fn dict_params(type_params: &[TypeParam]) -> Vec<(Arc<str>, &QualifiedName)> {
+    let mut out: Vec<(Arc<str>, &QualifiedName)> = Vec::new();
     for tp in type_params {
         for bound in &tp.bounds {
-            let entry = (Arc::clone(&tp.name), Arc::clone(&bound.name));
-            if !out.contains(&entry) {
-                out.push(entry);
+            let duplicate = out
+                .iter()
+                .any(|(param, existing)| *param == tp.name && existing.same_target(bound));
+            if !duplicate {
+                out.push((Arc::clone(&tp.name), bound));
             }
         }
     }

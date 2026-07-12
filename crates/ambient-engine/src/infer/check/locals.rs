@@ -37,7 +37,7 @@ pub(super) fn register_local_declarations(
     // Unit structs are values too: each denotes a single value constructed by
     // its bare name (like a nullary variant), bound so `let o = Origin` checks.
     register_unit_struct_values(module, env, module_id);
-    register_traits(infer, module, errors);
+    register_traits(infer, module, errors, module_id);
     register_enums(infer, module, env, errors, module_id);
     // ORDERING (load-bearing): `build_import_env` already registered
     // cross-module ability imports as bare dynamics; `register_abilities`
@@ -132,6 +132,7 @@ fn register_traits(
     infer: &mut Infer,
     module: &crate::ast::Module,
     errors: &mut Vec<BoxedTypeError>,
+    module_id: Option<&ModuleId>,
 ) {
     for item in &module.items {
         if let crate::ast::ItemKind::Trait(trait_def) = &item.kind {
@@ -157,7 +158,7 @@ fn register_traits(
                 )));
                 continue;
             }
-            register_trait_def(infer, trait_def);
+            register_trait_def(infer, trait_def, module_id);
         }
     }
 }
@@ -258,23 +259,32 @@ fn reserved_trait_method_shape(
 /// bare name in scope. The identity is the declaration's `unique(<uuid>)`
 /// prefix, so re-registering the same trait (an import seen from several
 /// modules) is idempotent.
-pub(super) fn register_trait_def(infer: &mut Infer, trait_def: &crate::ast::TraitDef) {
+pub(super) fn register_trait_def(
+    infer: &mut Infer,
+    trait_def: &crate::ast::TraitDef,
+    module_id: Option<&ModuleId>,
+) {
     infer
         .trait_registry
-        .register_trait(checked_trait_def(trait_def));
+        .register_trait(checked_trait_def(trait_def, module_id));
 }
 
 /// Register a trait definition by identity only — resolvable by uuid for
 /// impls and bounds, but its bare name does not enter scope. Used for
 /// foreign traits this module never imported.
-pub(super) fn register_trait_def_unnamed(infer: &mut Infer, trait_def: &crate::ast::TraitDef) {
+pub(super) fn register_trait_def_unnamed(
+    infer: &mut Infer,
+    trait_def: &crate::ast::TraitDef,
+    module_id: Option<&ModuleId>,
+) {
     infer
         .trait_registry
-        .register_trait_unnamed(checked_trait_def(trait_def));
+        .register_trait_unnamed(checked_trait_def(trait_def, module_id));
 }
 
-/// Convert an AST trait declaration to its checker form.
-fn checked_trait_def(trait_def: &crate::ast::TraitDef) -> TraitDef {
+/// Convert an AST trait declaration to its checker form, stamping the
+/// trait's `Fqn` (its build-global lookup key) from its defining module.
+fn checked_trait_def(trait_def: &crate::ast::TraitDef, module_id: Option<&ModuleId>) -> TraitDef {
     let methods: Vec<TraitMethodDef> = trait_def
         .methods
         .iter()
@@ -294,7 +304,11 @@ fn checked_trait_def(trait_def: &crate::ast::TraitDef) -> TraitDef {
                     type_param_names.push(Arc::clone(&tp.name));
                 }
             }
-            let method_bounds = crate::ast::dict_params(&m.type_params);
+            let method_bounds: Vec<(Arc<str>, crate::ast::QualifiedName)> =
+                crate::ast::dict_params(&m.type_params)
+                    .into_iter()
+                    .map(|(param, bound)| (param, bound.clone()))
+                    .collect();
             TraitMethodDef::new(
                 Arc::clone(&m.name),
                 m.has_self,
@@ -310,9 +324,11 @@ fn checked_trait_def(trait_def: &crate::ast::TraitDef) -> TraitDef {
         })
         .collect();
 
+    let fqn = module_id.map(|id| Fqn::new(id.clone(), vec![Arc::clone(&trait_def.name)]));
     TraitDef {
         uuid: trait_def.uuid,
         name: Arc::clone(&trait_def.name),
+        fqn,
         methods,
     }
 }
@@ -452,7 +468,7 @@ fn collect_function_signatures(
             crate::ast::ItemKind::Function(func) => {
                 let binding_id = next_binding_id;
                 next_binding_id += 1;
-                let scheme = build_function_scheme(infer, func, true, false);
+                let scheme = build_function_scheme(infer, func, true);
                 bind_own_item(env, module_id, binding_id, &func.name, scheme);
             }
             crate::ast::ItemKind::ExternFn(def) => {
@@ -528,7 +544,6 @@ pub(super) fn build_function_scheme(
     infer: &mut Infer,
     func: &crate::ast::FunctionDef,
     infer_abilities: bool,
-    lenient_bounds: bool,
 ) -> Scheme {
     // Split the generics into type variables and ability (row) variables
     // (`E!`), allocating fresh quantified ids for each.
@@ -595,44 +610,37 @@ pub(super) fn build_function_scheme(
             fn_ty,
         )
     };
-    attach_scheme_bounds(
-        infer,
-        scheme,
-        &func.type_params,
-        &scope.type_var_map,
-        lenient_bounds,
-    )
+    attach_scheme_bounds(infer, scheme, &func.type_params, &scope.type_var_map)
 }
 
 /// Attach an item's declared trait bounds to its scheme, resolving each
-/// bound name against the trait registry. The order comes from
+/// bound reference to a trait identity. The order comes from
 /// [`crate::ast::dict_params`] — the same authority the compiler allocates
-/// hidden dictionary parameters from. Unknown bound names report through
+/// hidden dictionary parameters from. Resolution goes through
+/// [`Infer::trait_uuid_of`], which prefers the resolve pass's canonical
+/// `Fqn`: a foreign scheme's bound resolves in its defining module, never
+/// re-resolved in this consumer's scope. Unknown bounds report through
 /// `pending_errors`.
 pub(super) fn attach_scheme_bounds(
     infer: &mut Infer,
     scheme: Scheme,
     type_params: &[crate::ast::TypeParam],
     type_var_map: &HashMap<Arc<str>, TypeVarId>,
-    lenient: bool,
 ) -> Scheme {
     let mut bounds = Vec::new();
-    for (param, bound_name) in crate::ast::dict_params(type_params) {
+    for (param, bound) in crate::ast::dict_params(type_params) {
         let Some(&var) = type_var_map.get(&param) else {
             continue;
         };
-        let lookup = if lenient {
-            infer.trait_registry.lookup_trait_lenient(&bound_name)
-        } else {
-            infer.trait_registry.lookup_trait(&bound_name)
-        };
-        let Some(trait_uuid) = lookup else {
+        let Some(trait_uuid) = infer.trait_uuid_of(bound) else {
             let span = type_params
                 .iter()
                 .find(|tp| tp.name == param)
                 .map_or((0, 0), |tp| (tp.span.start, tp.span.end));
             infer.pending_errors.push(Box::new(TypeError::new(
-                TypeErrorKind::UnknownTrait { name: bound_name },
+                TypeErrorKind::UnknownTrait {
+                    name: Arc::clone(&bound.name),
+                },
                 span,
             )));
             continue;
@@ -641,7 +649,7 @@ pub(super) fn attach_scheme_bounds(
             var,
             crate::types::TraitBound {
                 trait_uuid,
-                name: bound_name,
+                name: Arc::clone(&bound.name),
             },
         ));
     }

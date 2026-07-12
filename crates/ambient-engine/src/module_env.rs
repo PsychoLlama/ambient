@@ -197,11 +197,16 @@ pub fn imported_enum_defs(
 }
 
 /// The trait definitions a module imports — by explicit `use` or through
-/// the prelude (the operator traits). The checker registers exactly these,
-/// so trait defs are import-scoped: `Default`, omitted from the prelude,
-/// stays unavailable without `use core::traits::Default`.
+/// the prelude (the operator traits) — each paired with the [`ModuleId`] of
+/// the module that *defines* it (the key its `Fqn` lookup indexes under).
+/// The checker registers exactly these, so trait defs are import-scoped:
+/// `Default`, omitted from the prelude, stays unavailable without
+/// `use core::traits::Default`.
 #[must_use]
-pub fn imported_trait_defs(registry: &ModuleRegistry, module_path: &ModulePath) -> Vec<TraitDef> {
+pub fn imported_trait_defs(
+    registry: &ModuleRegistry,
+    module_path: &ModulePath,
+) -> Vec<(ModuleId, TraitDef)> {
     let mut traits = Vec::new();
     let Ok(resolved) = registry.resolve_imports(module_path) else {
         return traits;
@@ -217,11 +222,12 @@ pub fn imported_trait_defs(registry: &ModuleRegistry, module_path: &ModulePath) 
                 continue;
             };
             if let Some(info) = registry.get(&from_module) {
+                let trait_module = registry.module_id(&from_module);
                 for item in &info.module.items {
                     if let ItemKind::Trait(def) = &item.kind
                         && def.name == name
                     {
-                        traits.push(def.clone());
+                        traits.push((trait_module.clone(), def.clone()));
                     }
                 }
             }

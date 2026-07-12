@@ -443,18 +443,17 @@ impl Infer {
         type_var_map: &HashMap<Arc<str>, TypeVarId>,
     ) -> Vec<(Type, crate::types::TraitBound)> {
         let mut out = Vec::new();
-        for (param, bound_name) in &method.method_bounds {
-            let (Some(trait_uuid), Some(&var)) = (
-                self.trait_registry.lookup_trait_lenient(bound_name),
-                type_var_map.get(param),
-            ) else {
+        for (param, bound) in &method.method_bounds {
+            let (Some(trait_uuid), Some(&var)) =
+                (self.trait_uuid_of(bound), type_var_map.get(param))
+            else {
                 continue;
             };
             out.push((
                 Type::var(var),
                 crate::types::TraitBound {
                     trait_uuid,
-                    name: Arc::clone(bound_name),
+                    name: Arc::clone(&bound.name),
                 },
             ));
         }

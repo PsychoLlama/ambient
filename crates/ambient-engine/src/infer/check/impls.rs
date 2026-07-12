@@ -54,8 +54,9 @@ fn check_single_impl(
 ) {
     let span = (item_span.start, item_span.end);
 
-    // Look up the trait
-    let Some(trait_uuid) = infer.trait_registry.lookup_trait(&trait_name.name) else {
+    // Look up the trait by its canonicalized identity (the resolve pass
+    // wrote it), falling back to in-scope name only registry-less.
+    let Some(trait_uuid) = infer.trait_uuid_of(trait_name) else {
         errors.push(Box::new(TypeError::new(
             TypeErrorKind::UnknownTrait {
                 name: Arc::clone(&trait_name.name),
@@ -235,21 +236,36 @@ fn check_method_bound_conformance(
     errors: &mut Vec<BoxedTypeError>,
 ) {
     let impl_bounds = crate::ast::dict_params(&method.type_params);
-    if impl_bounds == tm.method_bounds {
+    // Compare by trait *identity* (the resolve pass's canonical `Fqn`), in
+    // order, not by spelled name: a qualified re-spelling of the same trait
+    // conforms, and two same-named traits from different modules do not.
+    let matches = impl_bounds.len() == tm.method_bounds.len()
+        && impl_bounds
+            .iter()
+            .zip(&tm.method_bounds)
+            .all(|((ip, ib), (tp, tb))| ip == tp && ib.same_target(tb));
+    if matches {
         return;
     }
-    let render = |bounds: &[(Arc<str>, Arc<str>)]| {
+    let render_impl = |bounds: &[(Arc<str>, &crate::ast::QualifiedName)]| {
         bounds
             .iter()
-            .map(|(param, bound)| format!("{param}: {bound}"))
+            .map(|(param, bound)| format!("{param}: {}", bound.name))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let render_trait = |bounds: &[(Arc<str>, crate::ast::QualifiedName)]| {
+        bounds
+            .iter()
+            .map(|(param, bound)| format!("{param}: {}", bound.name))
             .collect::<Vec<_>>()
             .join(", ")
     };
     errors.push(Box::new(TypeError::new(
         TypeErrorKind::TraitMethodBoundMismatch {
             method: Arc::clone(&method.name),
-            expected: render(&tm.method_bounds),
-            found: render(&impl_bounds),
+            expected: render_trait(&tm.method_bounds),
+            found: render_impl(&impl_bounds),
         },
         (method.span.start, method.span.end),
     )));
@@ -455,14 +471,8 @@ pub(super) fn register_inherent_impls(
 
         let impl_type_params = impl_def.type_params.clone();
         for method in &mut impl_def.methods {
-            let scheme = build_inherent_method_scheme(
-                infer,
-                &impl_type_params,
-                method,
-                &for_type,
-                errors,
-                false,
-            );
+            let scheme =
+                build_inherent_method_scheme(infer, &impl_type_params, method, &for_type, errors);
             let symbol = inherent::inherent_method_symbol(&key, &method.name);
             let record = inherent::InherentMethod {
                 name: Arc::clone(&method.name),
@@ -497,7 +507,6 @@ pub(super) fn build_inherent_method_scheme(
     method: &crate::ast::ImplMethod,
     for_type: &Type,
     errors: &mut Vec<BoxedTypeError>,
-    lenient_bounds: bool,
 ) -> Scheme {
     // Combined impl-then-method generics: the impl block's parameters (their
     // bounds scope every method) come first, then the method's own — the same
@@ -570,13 +579,7 @@ pub(super) fn build_inherent_method_scheme(
         )
     };
 
-    super::locals::attach_scheme_bounds(
-        infer,
-        scheme,
-        &combined,
-        &scope.type_var_map,
-        lenient_bounds,
-    )
+    super::locals::attach_scheme_bounds(infer, scheme, &combined, &scope.type_var_map)
 }
 /// Resolve a declared type from an inherent method signature: substitute
 /// `Self`, then the quantified type parameters, then expand aliases/holes.

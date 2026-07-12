@@ -102,6 +102,20 @@ impl QualifiedName {
             .map_or_else(|| self.name.as_ref(), Fqn::name)
     }
 
+    /// Whether two references name the same target: by resolved [`Fqn`]
+    /// identity when both were canonicalized, else by spelled path+name (the
+    /// registry-less fallback, matching this type's own `PartialEq`). Trait
+    /// bounds dedup and conformance-check through this, so a qualified
+    /// re-spelling collapses onto a bare one and two same-named traits from
+    /// different modules stay distinct.
+    #[must_use]
+    pub fn same_target(&self, other: &Self) -> bool {
+        match (&self.resolved, &other.resolved) {
+            (Some(a), Some(b)) => a == b,
+            _ => self == other,
+        }
+    }
+
     /// Create a simple unqualified name.
     #[must_use]
     pub fn simple(name: impl Into<Arc<str>>) -> Self {
