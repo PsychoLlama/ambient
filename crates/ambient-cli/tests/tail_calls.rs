@@ -271,6 +271,21 @@ fn core_lib_any_all_over_long_list() {
 }
 
 #[test]
+fn core_lib_range_over_long_span() {
+    // `List::range` now accumulates front-to-back via `range_from`, whose
+    // recursive call is in tail position (no `concat` wrapping it), so it
+    // builds spans longer than 1000. `range(0, 3000)` sums to 3000*2999/2.
+    CliTest::new(
+        r#"
+        pub fn run(): Number {
+            List::range(0, 3000).fold(0, (acc: Number, x: Number) => acc + x)
+        }
+    "#,
+    )
+    .expect_output("4498500");
+}
+
+#[test]
 fn fibonacci_example_tail_variant() {
     // The `examples/fibonacci` `fib_tail`/`fib_tail_helper` pair is genuine
     // tail recursion; its output must be unchanged. `fib_tail(20)` is the

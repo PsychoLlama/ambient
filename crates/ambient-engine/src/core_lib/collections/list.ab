@@ -205,6 +205,16 @@ fn sorted_from<T: Ord>(list: List<T>, i: Number, acc: List<T>): List<T> {
     }
 }
 
+// Accumulate [start, end) front-to-back so the recursive call sits in tail
+// position (no `concat` wrapping it) — `range` runs in constant stack space.
+fn range_from(start: Number, end: Number, acc: List<Number>): List<Number> {
+    if start >= end {
+        acc
+    } else {
+        range_from(start + 1, end, append(acc, start))
+    }
+}
+
 // Equality-based operations: any element type with an `Eq` impl.
 impl<T: Eq> List<T> {
     // True if any element equals `item` (by its Eq impl).
@@ -248,11 +258,7 @@ impl List<Number> {
     // The numbers start..end (end exclusive): List::range(1, 4) == [1, 2, 3].
     // An associated constructor: it takes no receiver, so it has no `self`.
     fn range(start: Number, end: Number): List<Number> {
-        if start >= end {
-            []
-        } else {
-            concat([start], List::range(start + 1, end))
-        }
+        range_from(start, end, [])
     }
     fn sum(self): Number {
         self.fold(0, (acc: Number, x: Number) => acc + x)
