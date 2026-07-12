@@ -231,25 +231,6 @@ impl Infer {
             ));
         };
 
-        // A bounded method's perform carries hidden dictionary arguments;
-        // handler arms don't bind them yet, so covering such a method
-        // would receive the wrong argument list at runtime. Reject loudly
-        // — the perform still runs the (dictionary-aware) default
-        // implementation.
-        let has_bounds = self
-            .ability_resolver
-            .get_dynamic_by_id(ability_id)
-            .and_then(|d| d.method(&handler.method))
-            .is_some_and(|m| !m.bounds.is_empty());
-        if has_bounds {
-            return Err(type_error(
-                TypeErrorKind::HandlerForBoundedMethod {
-                    ability: handler.ability.name.clone(),
-                    method: handler.method.clone(),
-                },
-                handler_span,
-            ));
-        }
         if handler.params.len() != param_tys.len() {
             return Err(type_error(
                 TypeErrorKind::HandlerMethodArityMismatch {

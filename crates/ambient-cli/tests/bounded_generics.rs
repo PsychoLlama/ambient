@@ -286,10 +286,10 @@ fn bounded_ability_method_forwards_from_generic_caller() {
 }
 
 #[test]
-fn handler_for_bounded_method_rejected() {
-    // Handler arms for bounded methods don't bind the hidden dictionary
-    // arguments yet; covering one is a clear error rather than a runtime
-    // arity mismatch.
+fn handler_resumes_bounded_method() {
+    // A handler arm covering a bounded method resumes with its own value,
+    // overriding the default implementation. The arm binds the declared
+    // params and (invisibly) the hidden Eq dictionary the perform pushes.
     CliTest::new(format!(
         r#"
         {MONEY}
@@ -306,7 +306,39 @@ fn handler_for_bounded_method_rejected() {
         }}
     "#
     ))
-    .expect_error("not supported yet");
+    .expect_output("true");
+}
+
+#[test]
+fn handler_and_default_bounded_method_coexist() {
+    // Both paths in one program: the first perform is handled (arm returns a
+    // constant), the second escapes the handler and runs the dictionary-aware
+    // default implementation.
+    CliTest::new(format!(
+        r#"
+        {MONEY}
+        unique(A1B2C3D4-0000-0000-0000-00000000BB14) ability Chooser {{
+            fn pick_equal<T: Eq>(a: T, b: T): Bool {{
+                a.eq(b)
+            }}
+        }}
+
+        fn handled(): Bool {{
+            with {{
+                Chooser::pick_equal(a, b) => resume(true)
+            }} handle Chooser::pick_equal!(Money {{ cents: 1 }}, Money {{ cents: 2 }})
+        }}
+
+        fn defaulted(): Bool with Chooser {{
+            Chooser::pick_equal!(Money {{ cents: 5 }}, Money {{ cents: 5 }})
+        }}
+
+        fn run(): Bool with Chooser {{
+            if handled() {{ defaulted() }} else {{ false }}
+        }}
+    "#
+    ))
+    .expect_output("true");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

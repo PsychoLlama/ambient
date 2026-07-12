@@ -370,6 +370,13 @@ pub(crate) struct CompiledMethodInfo {
     /// Whether the method returns `!` (never) — its performs unwind
     /// instead of capturing a continuation.
     pub never: bool,
+    /// How many hidden trailing dictionary arguments a bounded method's
+    /// perform carries (one per entry of [`crate::ast::dict_params`] on the
+    /// method's type parameters). A handler arm allocates this many extra
+    /// locals after its declared parameters and extracts them from the
+    /// suspended ability, so covering a bounded method receives the same
+    /// argument list the default implementation does.
+    pub dict_count: usize,
 }
 
 impl CompiledAbilityInfo {
@@ -405,6 +412,10 @@ fn compiled_info(ability: &crate::ability_resolver::DynAbility) -> CompiledAbili
                 signature: m.signature,
                 has_impl: m.has_impl,
                 never: matches!(m.ret, crate::types::Type::Never),
+                // Foreign abilities arrive as resolved dynamics: their
+                // bound list already holds one entry per dictionary
+                // parameter (`ability_resolver::DynMethod::bounds`).
+                dict_count: m.bounds.len(),
             })
             .collect(),
     }
@@ -515,6 +526,9 @@ impl ModuleContext {
                             signature,
                             has_impl: m.body.is_some(),
                             never: matches!(m.ret_ty, crate::types::Type::Never),
+                            // One dictionary per bound, from the single
+                            // authority the compiler allocates slots from.
+                            dict_count: crate::ast::dict_params(&m.type_params).len(),
                         })
                     })
                     .collect::<Result<Vec<_>, CompileError>>()?;

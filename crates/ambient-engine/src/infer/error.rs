@@ -291,11 +291,6 @@ pub enum TypeErrorKind {
         bounds: Vec<Arc<str>>,
     },
 
-    /// A handler arm covers an ability method with trait bounds, which is
-    /// not supported yet (the perform carries hidden dictionary arguments
-    /// the arm would not bind).
-    HandlerForBoundedMethod { ability: Arc<str>, method: Arc<str> },
-
     /// A second impl of the same trait for the same type.
     DuplicateImpl { trait_name: Arc<str>, ty: Type },
 
@@ -646,14 +641,6 @@ impl std::fmt::Display for TypeErrorKind {
                     f,
                     "`{name}` has trait bounds, so it cannot be used as a first-class \
                      value yet; call it directly instead"
-                )
-            }
-            Self::HandlerForBoundedMethod { ability, method } => {
-                write!(
-                    f,
-                    "handler arms for `{ability}::{method}` are not supported yet: the method \
-                     has trait bounds, and a perform of it carries hidden dictionary arguments \
-                     the arm would not bind; the default implementation still runs"
                 )
             }
             Self::MethodNotInBounds {

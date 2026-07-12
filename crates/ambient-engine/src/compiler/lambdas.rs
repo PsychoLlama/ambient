@@ -486,7 +486,12 @@ fn compile_handler_methods(
             _ => e,
         })?;
 
-        let (func, captures) = compile_handler_method(fc, method, &shared_captures, ctx)?;
+        // A bounded method's perform carries hidden trailing dictionary
+        // arguments; the arm binds them as extra locals after its declared
+        // parameters, mirroring a bounded function's `alloc_dict_locals`.
+        let dict_count = info.method(&method.method).map_or(0, |m| m.dict_count);
+        let (func, captures) =
+            compile_handler_method(fc, method, dict_count, &shared_captures, ctx)?;
         let final_hash = ctx.register_lambda(func);
         method_hashes.push((method_ref, final_hash));
         // The arm was seeded with `shared_captures` and only appends, so
@@ -506,10 +511,17 @@ fn compile_handler_methods(
 ///
 /// Arm functions take two implicit params — slot 0 the continuation, slot 1
 /// the suspended ability — and bind the method's declared parameters into
-/// slots 2.. by extracting the suspended ability's arguments.
+/// slots 2.. by extracting the suspended ability's arguments. A bounded
+/// method's `dict_count` hidden trailing dictionaries follow the declared
+/// parameters in the suspended ability (the same order a perform pushes and
+/// the default implementation binds them); the arm extracts them into
+/// further locals under the dictionary pseudo-names, so `x.eq(y)` inside the
+/// arm dispatches through the received dictionary via the ordinary
+/// capture/local path.
 fn compile_handler_method(
     fc: &FunctionCompiler,
     method: &HandlerLiteralMethod,
+    dict_count: usize,
     seed_captures: &HashMap<Arc<str>, u16>,
     ctx: &mut ModuleContext,
 ) -> Result<(CompiledFunction, HashMap<Arc<str>, u16>), CompileError> {
@@ -527,6 +539,25 @@ fn compile_handler_method(
         method_fc.builder.emit_u16(Opcode::LoadLocal, 1);
         method_fc.builder.emit_get_ability_arg(i as u8);
         method_fc.builder.emit_u16(Opcode::StoreLocal, 2 + i as u16);
+    }
+
+    // Bind the hidden trailing dictionaries. They ride in the suspended
+    // ability immediately after the declared arguments (perform pushes
+    // `args…, dicts…`; a bounded ability method is never a State method, so
+    // no fingerprints sit between). Each dictionary local registers under
+    // its index-keyed pseudo-name (`<dict#N>`) and in `dict_locals`, so
+    // `DictSource::Param` forwarding and bound method dispatch reach it
+    // through the same path a bounded function's dictionaries use.
+    for index in 0..dict_count {
+        let slot = method_fc.next_local;
+        method_fc.alloc_local_with_name(0, &super::context::dict_capture_name(index))?;
+        method_fc.dict_locals.push(slot);
+        method_fc.builder.emit_u16(Opcode::LoadLocal, 1);
+        #[allow(clippy::cast_possible_truncation)]
+        method_fc
+            .builder
+            .emit_get_ability_arg((method.params.len() + index) as u8);
+        method_fc.builder.emit_u16(Opcode::StoreLocal, slot);
     }
 
     // A handler arm compiles as `<body> Return` with nothing in between, so
