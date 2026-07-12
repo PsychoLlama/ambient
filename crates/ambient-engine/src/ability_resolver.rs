@@ -412,6 +412,11 @@ impl Default for AbilityResolver {
 pub struct CanonicalTypeRenderer {
     vars: HashMap<crate::types::TypeVarId, u32>,
     next_var: u32,
+    /// Ability (row) variables are numbered `e0`, `e1`, … positionally on
+    /// first occurrence — a separate counter from type variables so the two
+    /// namespaces never collide, and shared occurrences reuse their number.
+    ability_vars: HashMap<crate::types::AbilityVarId, u32>,
+    next_ability_var: u32,
 }
 
 impl CanonicalTypeRenderer {
@@ -541,7 +546,6 @@ impl CanonicalTypeRenderer {
         }
     }
 
-    #[allow(clippy::unused_self)] // symmetry with render(); may number ability vars later
     fn render_ability_set(&mut self, set: &crate::types::AbilitySet) -> String {
         use crate::types::AbilitySet;
         match set {
@@ -551,11 +555,11 @@ impl CanonicalTypeRenderer {
                 ids.sort_unstable();
                 ids.join(", ")
             }
-            AbilitySet::Var(_) => "e".to_string(),
-            AbilitySet::Row { concrete, tail: _ } => {
+            AbilitySet::Var(id) => self.ability_var(*id),
+            AbilitySet::Row { concrete, tail } => {
                 let mut ids: Vec<String> = concrete.iter().map(AbilityId::to_hex).collect();
                 ids.sort_unstable();
-                ids.push("e".to_string());
+                ids.push(self.ability_var(*tail));
                 ids.join(", ")
             }
             // Unresolved names never survive type checking.
@@ -565,6 +569,17 @@ impl CanonicalTypeRenderer {
                 names.join(", ")
             }
         }
+    }
+
+    /// Render an ability (row) variable to its positional `e{n}` name,
+    /// numbering it on first occurrence and reusing the number thereafter.
+    fn ability_var(&mut self, id: crate::types::AbilityVarId) -> String {
+        let n = *self.ability_vars.entry(id).or_insert_with(|| {
+            let n = self.next_ability_var;
+            self.next_ability_var += 1;
+            n
+        });
+        format!("e{n}")
     }
 }
 
@@ -718,5 +733,51 @@ mod tests {
         assert!(names.iter().any(|n| n.as_ref() == "core::system::Printer"));
         assert!(names.iter().any(|n| n.as_ref() == "Local"));
         assert!(!names.iter().any(|n| n.as_ref() == "Printer"));
+    }
+
+    /// A single ability-row function renders its variable positionally as
+    /// `e0`, and two functions differing only in the *id* of that variable
+    /// (as two same-shaped `E!` declarations do) render byte-identically —
+    /// the property that keeps their content hashes equal.
+    #[test]
+    fn ability_variables_render_positionally_and_name_independently() {
+        let f = |var| {
+            Type::function_with_abilities(
+                vec![Type::string()],
+                Type::string(),
+                crate::types::AbilitySet::Var(var),
+            )
+        };
+        let mut r = CanonicalTypeRenderer::new();
+        assert_eq!(r.render(&f(3)), "fn(string) -> string with e0");
+        // A distinct rendering context numbers from zero again, so a
+        // differently-allocated variable id renders identically.
+        assert_eq!(
+            CanonicalTypeRenderer::new().render(&f(3)),
+            CanonicalTypeRenderer::new().render(&f(99)),
+        );
+    }
+
+    /// A mixed row renders its sorted concrete hex ids followed by the
+    /// positional `e{n}` tail, and a second distinct variable in the same
+    /// rendering gets `e1`.
+    #[test]
+    fn ability_rows_render_concrete_then_numbered_tail() {
+        let row = |ids: Vec<u8>, tail| {
+            Type::function_with_abilities(
+                vec![],
+                Type::Unit,
+                crate::types::AbilitySet::row(
+                    ids.into_iter().map(|b| AbilityId::from_bytes([b; 32])),
+                    tail,
+                ),
+            )
+        };
+        let mut r = CanonicalTypeRenderer::new();
+        let first = r.render(&row(vec![1], 5));
+        let second = r.render(&row(vec![1], 8));
+        assert!(first.ends_with(", e0"), "got {first}");
+        // A second, distinct tail in the same context numbers as `e1`.
+        assert!(second.ends_with(", e1"), "got {second}");
     }
 }
