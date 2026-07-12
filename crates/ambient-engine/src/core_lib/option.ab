@@ -33,22 +33,24 @@ pub fn flatten<T>(opt: Option<Option<T>>): Option<T> {
 // attaches these to the type itself; these methods are the canonical way
 // to use Option's combinators and predicates.
 impl<T> Option<T> {
-    // Transform the contained value.
-    fn map<U>(self, f: (T) -> U): Option<U> {
+    // Transform the contained value. The mapping function's effects flow
+    // through to the caller via the polymorphic row `E!` (`Empty` for a pure
+    // `f`, so pure call sites stay pure).
+    fn map<U, E!>(self, f: (T) -> U with E): Option<U> with E {
         match self {
             Some(v) => Some(f(v)),
             None => None,
         }
     }
     // Chain a fallible operation.
-    fn and_then<U>(self, f: (T) -> Option<U>): Option<U> {
+    fn and_then<U, E!>(self, f: (T) -> Option<U> with E): Option<U> with E {
         match self {
             Some(v) => f(v),
             None => None,
         }
     }
     // Fall back to another option when empty.
-    fn or_else(self, fallback: () -> Option<T>): Option<T> {
+    fn or_else<E!>(self, fallback: () -> Option<T> with E): Option<T> with E {
         match self {
             Some(v) => Some(v),
             None => fallback(),

@@ -38,22 +38,25 @@ impl<T, E> Result<T, E> {
             Err(_) => default,
         }
     }
-    // Transform the success value.
-    fn map<U>(self, f: (T) -> U): Result<U, E> {
+    // Transform the success value. The mapping function's effects flow
+    // through to the caller via the polymorphic row `Eff!` (`Empty` for a
+    // pure `f`, so pure call sites stay pure). The row variable is named
+    // `Eff` here because `E` is already the error type parameter.
+    fn map<U, Eff!>(self, f: (T) -> U with Eff): Result<U, E> with Eff {
         match self {
             Ok(v) => Ok(f(v)),
             Err(e) => Err(e),
         }
     }
     // Transform the error value.
-    fn map_err<F>(self, f: (E) -> F): Result<T, F> {
+    fn map_err<F, Eff!>(self, f: (E) -> F with Eff): Result<T, F> with Eff {
         match self {
             Ok(v) => Ok(v),
             Err(e) => Err(f(e)),
         }
     }
     // Chain a fallible operation.
-    fn and_then<U>(self, f: (T) -> Result<U, E>): Result<U, E> {
+    fn and_then<U, Eff!>(self, f: (T) -> Result<U, E> with Eff): Result<U, E> with Eff {
         match self {
             Ok(v) => f(v),
             Err(e) => Err(e),

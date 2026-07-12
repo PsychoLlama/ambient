@@ -440,23 +440,217 @@ fn cross_module_effect_polymorphic_ability() {
     assert!(stdout.contains('7'), "expected 7 in output, got: {stdout}");
 }
 
-/// Effect polymorphism is wired for free functions and ability methods only:
-/// an `E!` on an impl method is rejected cleanly at lowering (not left to
-/// surface as an opaque "unknown ability" downstream). Trait and impl-block
-/// parameters reject it the same way.
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 3: effect-polymorphic inherent impl methods
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The canonical inherent-method case: a method on a user type forwards an
+/// effectful lambda, propagating its row to the caller. An effectful lambda
+/// makes the caller declare (or handle) the ability; a pure lambda leaves a
+/// pure caller pure — `E` instantiates to the empty row per call site.
 #[test]
-fn ability_variable_on_impl_method_is_rejected_cleanly() {
+fn inherent_method_propagates_effectful_lambda_row() {
     CliTest::new(
         r#"
-        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF0000ABCD) struct Box { v: Number }
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000001) struct Wrap { v: Number }
 
-        impl Box {
-          fn run<T, E!>(self, body: () -> T with E): T { body() }
+        impl Wrap {
+          fn apply<E!>(self, f: (Number) -> Number with E): Number with E {
+            f(self.v)
+          }
+        }
+
+        pub fn effectful_caller(): Number with core::system::Stdio {
+          Wrap { v: 3 }.apply((n) => { core::system::Stdio::out!("hi"); n })
+        }
+
+        pub fn pure_caller(): Number {
+          Wrap { v: 3 }.apply((n) => n + 1)
         }
         "#,
     )
     .check()
-    .expect_error("ability variables are not yet supported on impl methods");
+    .expect_success();
+}
+
+/// Negative: passing an effectful lambda through an `E!` inherent method into
+/// a *pure* public caller is rejected — the concrete effect escapes undeclared.
+#[test]
+fn inherent_method_effect_escapes_pure_caller_rejected() {
+    CliTest::new(
+        r#"
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000002) struct Wrap { v: Number }
+
+        impl Wrap {
+          fn apply<E!>(self, f: (Number) -> Number with E): Number with E {
+            f(self.v)
+          }
+        }
+
+        pub fn bad(): Number {
+          Wrap { v: 3 }.apply((n) => { core::system::Stdio::out!("leak"); n })
+        }
+        "#,
+    )
+    .check()
+    .expect_error("uses ability `Stdio` but doesn't declare it");
+}
+
+/// A method-level `E!` chained *after* an impl-level type parameter. `List`'s
+/// `impl<T> List<T>` supplies the impl-level `T`; the retyped `fold<A, E!>`
+/// chains the method-level `A` and the row variable after it — impl-then-method
+/// order, the same order the compiler allocates dictionary parameters in.
+/// (Generic *user* struct inherent impls are a separate, pre-existing gap, so
+/// `List` is the real vehicle for an impl-level type parameter here.)
+#[test]
+fn method_level_ability_var_chained_after_impl_type_param() {
+    CliTest::new(
+        r#"
+        pub fn effectful(): Number with core::system::Stdio {
+          [1, 2, 3].fold(0, (acc, n) => { core::system::Stdio::out!("step"); acc + n })
+        }
+
+        pub fn pure(): Number {
+          [1, 2, 3].fold(0, (acc, n) => acc + n)
+        }
+        "#,
+    )
+    .check()
+    .expect_success();
+}
+
+/// A bounded *and* effect-polymorphic method: `<U: Eq, E!>` — the `Eq`
+/// dictionary parameter and the row variable coexist. The row variable carries
+/// no bound so it never enters the dictionary list; the `U: Eq` dictionary is
+/// allocated and used (`a.eq(b)`) exactly as without the `E!`.
+#[test]
+fn bounded_and_effect_polymorphic_inherent_method_coexist() {
+    CliTest::new(
+        r#"
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000004) struct Gate { v: Number }
+
+        impl Gate {
+          fn when_equal<U: core::cmp::Eq, E!>(
+            self, a: U, b: U, g: () -> Number with E
+          ): Number with E {
+            if a.eq(b) { g() } else { 0 }
+          }
+        }
+
+        pub fn effectful(): Number with core::system::Stdio {
+          Gate { v: 0 }.when_equal(1, 1, () => { core::system::Stdio::out!("eq"); 5 })
+        }
+
+        pub fn pure(): Number {
+          Gate { v: 0 }.when_equal(1, 2, () => 9)
+        }
+        "#,
+    )
+    .check()
+    .expect_success();
+}
+
+/// `List::map` over an effectful lambda: the caller must declare the ability;
+/// handling it at the call boundary discharges it; a pure map call site
+/// requires nothing (the retyped core combinator instantiates `E := Empty`).
+#[test]
+fn list_map_with_effectful_lambda() {
+    CliTest::new(
+        r#"
+        unique(AB000000-0000-0000-0000-00000000ABCD) ability Beep {
+          fn beep(): Number { 0 }
+        }
+
+        // Declares the ability: an effectful mapping lambda propagates its row.
+        pub fn declaring(): List<Number> with Beep {
+          [1, 2, 3].map((n) => n + Beep::beep!())
+        }
+
+        // Handles the ability at the boundary: the enclosing function is pure.
+        pub fn handling(): List<Number> {
+          with { Beep::beep() => resume(10) } handle [1, 2, 3].map((n) => n + Beep::beep!())
+        }
+
+        // Pure lambda: `map`'s row instantiates to empty, so this stays pure.
+        pub fn pure(): List<Number> {
+          [1, 2, 3].map((n) => n * 2)
+        }
+        "#,
+    )
+    .check()
+    .expect_success();
+}
+
+/// The retyped `Option`/`Result` combinators stay pure for pure callers:
+/// `opt.map(pure)` and `res.map(pure)` require no abilities.
+#[test]
+fn option_and_result_map_stay_pure_for_pure_lambdas() {
+    CliTest::new(
+        r#"
+        pub fn opt(): Option<Number> {
+          Some(1).map((n) => n + 1)
+        }
+
+        pub fn res(): Result<Number, String> {
+          Ok(1).map((n) => n + 1)
+        }
+        "#,
+    )
+    .check()
+    .expect_success();
+}
+
+/// End-to-end: `ambient run` maps over a list with a lambda that performs
+/// `Stdio`, declared on `run` (the platform supplies the default handler), and
+/// the printed items reach stdout.
+#[test]
+fn run_list_map_performing_stdio() {
+    CliTest::new(
+        r#"
+        pub fn run(): Number with core::system::Stdio {
+          let doubled = [1, 2, 3].map((n) => {
+            core::system::Stdio::out!(core::convert::to_string(n * 2));
+            n * 2
+          });
+          doubled.length()
+        }
+        "#,
+    )
+    .expect_output("6");
+}
+
+/// `E!` on an impl *block* stays rejected: a block parameter parameterizes the
+/// receiver type head, where an effect row cannot appear. The message points
+/// at declaring `E!` on the method instead.
+#[test]
+fn ability_variable_on_impl_block_is_rejected() {
+    CliTest::new(
+        r#"
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000005) struct Box { v: Number }
+
+        impl<E!> Box {
+          fn run(self): Number { self.v }
+        }
+        "#,
+    )
+    .check()
+    .expect_error("not supported on impl blocks");
+}
+
+/// `E!` on a trait method stays rejected — trait methods still discard all
+/// method generics (a pre-existing gap), so the row variable would have
+/// nothing to attach to.
+#[test]
+fn ability_variable_on_trait_method_is_rejected() {
+    CliTest::new(
+        r#"
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000006) trait Run {
+          fn run<E!>(self, body: () -> Number with E): Number;
+        }
+        "#,
+    )
+    .check()
+    .expect_error("not yet supported on trait methods");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
