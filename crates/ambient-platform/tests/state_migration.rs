@@ -282,6 +282,56 @@ fn mismatched_migration_rejects_the_deploy_pre_swap() {
     );
 }
 
+/// A dry-run `plan` runs the same pre-swap migration validation as
+/// `deploy`, but reports the mismatch as a *successful* plan (problems in
+/// the report) rather than an error — and touches nothing: the live cell,
+/// its fingerprint, the name table, and the generation count all stay
+/// exactly as generation 1 left them.
+#[test]
+fn plan_reports_migration_mismatch_without_touching_the_system() {
+    const MISMATCH: &str = r#"
+    pub fn run(): () with core::system::State {
+      core::system::State::init_versioned!(
+        "stats",
+        () => "fresh",
+        (old: Bool) => "migrated"
+      )
+    }
+    pub fn probe(): Number { 42 }
+    "#;
+    let v1 = compile(GEN1);
+    let v2 = compile(MISMATCH);
+
+    let core = runtime();
+    deploy(&core, &v1).expect("gen 1 deploys");
+    let run_v1 = core.resolve("run").expect("gen 1 bound `run`").hash;
+
+    let plan = core.plan(&functions_from_module(&v2), &named_hash(&v2, "run"));
+    assert!(
+        plan.problems
+            .iter()
+            .any(|p| { p.contains("`stats`") && p.contains("number") && p.contains("bool") }),
+        "the plan must report the cell and the mismatching types: {:?}",
+        plan.problems
+    );
+
+    // Nothing committed: the cell still reads 41 at fingerprint `number`,
+    // `run` still binds generation 1's hash, and the rejected generation's
+    // fresh `probe` never entered the name table.
+    assert_eq!(call_number(&core, &v1, "read"), 41.0);
+    assert_eq!(fingerprint(&core, "stats"), "number");
+    assert_eq!(core.resolve("run").expect("`run` still bound").hash, run_v1);
+    assert!(
+        core.resolve("probe").is_none(),
+        "a plan must not add the candidate generation's names"
+    );
+
+    // And a real deploy of the same generation still rejects it, proving
+    // the plan left the reject arm's precondition intact.
+    let err = deploy(&core, &v2).expect_err("the mismatch still rejects the real deploy");
+    assert!(matches!(err, DeployError::Validation(_)), "{err:?}");
+}
+
 /// A computed cell name cannot be validated pre-swap (there is no static
 /// record), so the same mismatch faults at the perform instead — during
 /// reconciliation, surfacing as an entry error.

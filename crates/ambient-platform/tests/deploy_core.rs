@@ -480,6 +480,80 @@ fn unconstrained_effectful_return_rebinds_across_caller_context() {
     assert_eq!(core.latest(&h_open), h_pinned);
 }
 
+/// A plan reports exactly the diff a subsequent `deploy` then produces,
+/// and changes nothing: not the name table, not the generation count, not
+/// `latest` resolution.
+#[test]
+fn plan_reports_the_would_be_diff_without_committing() {
+    let v1 = compile(
+        "pub fn run(): Number { 0 }
+         pub fn target(): Number { 1 }",
+    );
+    let v2 = compile(
+        "pub fn run(): Number { 0 }
+         pub fn target(): Number { 2 }
+         pub fn fresh(): Number { 3 }",
+    );
+    let (t1, t2) = (named_hash(&v1, "target"), named_hash(&v2, "target"));
+
+    let core = runtime();
+    core.deploy(&functions_from_module(&v1), &entry_hash(&v1), |_| {})
+        .expect("v1 deploys");
+
+    // Snapshot the pre-plan world.
+    let before_table = core.name_table();
+    let before_target_latest = core.latest(&t1);
+
+    let plan = core.plan(&functions_from_module(&v2), &entry_hash(&v2));
+    assert!(plan.problems.is_empty(), "a clean plan has no problems");
+    assert!(plan.names.rebound.contains(&Arc::from("target")));
+    assert_eq!(plan.names.added, vec![Arc::from("fresh")]);
+    assert!(plan.names.retired.is_empty());
+
+    // The plan committed nothing: the name table is byte-identical, `fresh`
+    // never entered it, and `latest` still resolves the old binding.
+    assert_eq!(*core.name_table(), *before_table);
+    assert!(core.resolve("fresh").is_none());
+    assert_eq!(core.resolve("target").expect("target bound").hash, t1);
+    assert_eq!(core.latest(&t1), before_target_latest);
+
+    // The subsequent real deploy produces exactly the diff the plan predicted.
+    let report = core
+        .deploy(&functions_from_module(&v2), &entry_hash(&v2), |_| {})
+        .expect("v2 deploys");
+    assert_eq!(report.names.rebound, plan.names.rebound);
+    assert_eq!(report.names.added, plan.names.added);
+    assert_eq!(report.names.retired, plan.names.retired);
+    assert_eq!(report.names.unchanged, plan.names.unchanged);
+    // Only now does the world move.
+    assert_eq!(core.resolve("target").expect("target bound").hash, t2);
+    assert_eq!(core.latest(&t1), t2);
+}
+
+/// A plan whose entry is not loaded reports the problem — as a successful
+/// plan, not an error (planning's whole purpose is reporting what would
+/// happen).
+#[test]
+fn plan_reports_validation_problems_instead_of_erroring() {
+    let compiled = compile("pub fn run(): Number { 0 }");
+    let entry = entry_hash(&compiled);
+
+    let core = runtime();
+    core.deploy(&with_bindings(&compiled, &[("a", entry)]), &entry, |_| {})
+        .expect("first deploy succeeds");
+
+    // Bind a name to an object that was never loaded: validation rejects it.
+    let unknown = blake3::hash(b"never deployed");
+    let plan = core.plan(&with_bindings(&compiled, &[("a", unknown)]), &entry);
+    assert!(
+        plan.problems.iter().any(|p| p.contains("not loaded")),
+        "the plan must report the unloaded binding: {:?}",
+        plan.problems
+    );
+    // Still a would-be diff, and still no commit: `a` keeps its old hash.
+    assert_eq!(core.resolve("a").expect("a bound").hash, entry);
+}
+
 /// The same instability afflicts an unannotated *parameter*: a caller pins
 /// it to a concrete type, no caller leaves it a variable. The declared
 /// interface renders the parameter as a variable either way, so a redeploy

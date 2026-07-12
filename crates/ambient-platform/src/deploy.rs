@@ -277,6 +277,62 @@ pub struct DeployReport {
     pub warnings: Vec<crate::retire::DeployWarning>,
 }
 
+/// The result of a dry-run [`DeployRuntime::plan`]: everything a deploy
+/// computes *before* the swap, and nothing it does at or after it. The
+/// generation's objects were loaded (additive and content-addressed, so a
+/// planned-but-never-committed generation leaves only harmless residents),
+/// but the name table, the retirement ledger, the cell table, and the
+/// entry are all untouched.
+///
+/// A validation failure is a *successful* plan whose [`Self::problems`] is
+/// non-empty, not an error: reporting what *would* be rejected — alongside
+/// the diff it *would* produce — is the whole point of planning. (Contrast
+/// [`DeployRuntime::deploy`], whose validation failure is a
+/// [`DeployError::Validation`], because a deploy that cannot apply must not
+/// silently succeed.)
+#[derive(Debug, Default)]
+pub struct PlanReport {
+    /// The name diff this generation *would* produce against the current
+    /// table, computed read-only through the exact per-name classification
+    /// the swap uses ([`classify_name`]) — so a plan can never diverge from
+    /// what a subsequent [`DeployRuntime::deploy`] then reports.
+    pub names: NameDiff,
+    /// Why the deploy *would* be rejected, if anything: an unloaded object
+    /// behind a binding, an unloaded entry, or a migration fingerprint that
+    /// matches neither side of the live cell table. Empty means the plan
+    /// would apply cleanly.
+    pub problems: Vec<String>,
+}
+
+/// One name's fate under a generation's bindings, against the current
+/// table. The single classification both the read-only plan diff
+/// ([`DeployRuntime::diff_bindings`]) and the mutating swap
+/// ([`DeployRuntime::swap_names`]) key off, so the two can never drift.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NameChange {
+    /// Bound to the identical hash — same behavior, same type.
+    Unchanged,
+    /// A changed hash whose canonical signature is identical: a rebinding,
+    /// `latest` follows it forward.
+    Rebound,
+    /// A changed hash whose signature changed (or is missing on either
+    /// side): retire-and-fresh, `latest` resolves old refs to themselves.
+    Retired,
+    /// A name the table did not carry before.
+    Added,
+}
+
+/// Classify one name's binding against its previous binding (if any) — the
+/// rebinding rule, in one place. See [`NameChange`].
+fn classify_name(prev: Option<&Binding>, next: &Binding) -> NameChange {
+    match prev {
+        Some(prev) if prev.hash == next.hash => NameChange::Unchanged,
+        Some(prev) if same_signature(prev, next) => NameChange::Rebound,
+        Some(_) => NameChange::Retired,
+        None => NameChange::Added,
+    }
+}
+
 /// Why a deploy failed.
 #[derive(Debug)]
 pub enum DeployError {
@@ -464,6 +520,38 @@ impl DeployRuntime {
     #[must_use]
     pub fn cells(&self) -> &Arc<crate::state::StateCells> {
         &self.cells
+    }
+
+    /// Dry-run a generation: everything [`Self::deploy`] does *before* the
+    /// swap, and nothing at or after it. Loads the objects additively
+    /// (inert — a planned generation's objects are harmless residents),
+    /// runs the same validation (loaded-object checks plus the pre-swap
+    /// migration-fingerprint checks against the live cell table), computes
+    /// the *would-be* name diff read-only, and returns a [`PlanReport`].
+    ///
+    /// Does **not** swap the name table, record a generation in the
+    /// retirement ledger, or run the entry — so a validation failure is a
+    /// successful plan whose [`PlanReport::problems`] is non-empty, never an
+    /// error (that is the whole point of planning).
+    ///
+    /// Takes no deploy lock: it never swaps, records, or reconciles, and
+    /// the core's own stores are individually lock-safe. Planning from
+    /// *inside* a deploy pass therefore works — a reconciliation entry may
+    /// `Deploy::plan!` a candidate without the reentrancy hazard
+    /// `Deploy::apply!` has (which re-enters the host's non-reentrant
+    /// reconcile bracket).
+    ///
+    /// # Panics
+    ///
+    /// Panics if a runtime lock is poisoned.
+    #[must_use]
+    pub fn plan(&self, generation: &Functions, entry: &blake3::Hash) -> PlanReport {
+        // Load additively, exactly as `deploy` does — content addressing
+        // makes it inert, and validation reads the loaded view.
+        self.load(generation);
+        let problems = self.validate(generation, entry);
+        let names = self.diff_bindings(&generation.bindings);
+        PlanReport { names, problems }
     }
 
     /// Apply a generation: load, validate, swap, reconcile, report.
@@ -717,6 +805,29 @@ impl DeployRuntime {
         problems
     }
 
+    /// The name diff a generation *would* produce against the current
+    /// table, computed read-only against an immutable snapshot — the
+    /// dry-run half of [`Self::swap_names`]. Uses the same [`classify_name`]
+    /// rule, so plan and the subsequent swap can never disagree on a name's
+    /// fate.
+    fn diff_bindings(&self, bindings: &HashMap<Arc<str>, Binding>) -> NameDiff {
+        let snapshot = self.names.snapshot();
+        let table = &snapshot.table;
+        let mut diff = NameDiff::default();
+        for (name, binding) in bindings {
+            match classify_name(table.get(name), binding) {
+                NameChange::Unchanged => diff.unchanged += 1,
+                NameChange::Rebound => diff.rebound.push(Arc::clone(name)),
+                NameChange::Retired => diff.retired.push(Arc::clone(name)),
+                NameChange::Added => diff.added.push(Arc::clone(name)),
+            }
+        }
+        diff.rebound.sort();
+        diff.retired.sort();
+        diff.added.sort();
+        diff
+    }
+
     /// Install the generation's bindings as the new name table — one
     /// atomic swap — and return the exact diff against the old table.
     ///
@@ -743,8 +854,19 @@ impl DeployRuntime {
         let mut table = (*state.table).clone();
         let mut reverse = state.reverse.clone();
         for (name, binding) in bindings {
-            match table.get(name) {
-                Some(prev) if prev.hash == binding.hash => {
+            let prev = table.get(name);
+            let change = classify_name(prev, binding);
+            // The retirement ledger tracks every hash move (rebinding or
+            // retirement); record it before the borrow of `table` ends.
+            if let (Some(prev), NameChange::Rebound | NameChange::Retired) = (prev, change) {
+                changed.push(crate::retire::ChangedName {
+                    name: Arc::clone(name),
+                    old: prev.hash,
+                    new: binding.hash,
+                });
+            }
+            match change {
+                NameChange::Unchanged => {
                     diff.unchanged += 1;
                     // Same hash means same behavior and same type: keep the
                     // richer signature when this producer rendered none.
@@ -752,24 +874,19 @@ impl DeployRuntime {
                         table.insert(Arc::clone(name), binding.clone());
                     }
                 }
-                Some(prev) => {
-                    changed.push(crate::retire::ChangedName {
-                        name: Arc::clone(name),
-                        old: prev.hash,
-                        new: binding.hash,
-                    });
-                    if same_signature(prev, binding) {
-                        diff.rebound.push(Arc::clone(name));
-                    } else {
-                        diff.retired.push(Arc::clone(name));
-                        for names in reverse.values_mut() {
-                            names.remove(name);
-                        }
-                        reverse.retain(|_, names| !names.is_empty());
-                    }
+                NameChange::Rebound => {
+                    diff.rebound.push(Arc::clone(name));
                     table.insert(Arc::clone(name), binding.clone());
                 }
-                None => {
+                NameChange::Retired => {
+                    diff.retired.push(Arc::clone(name));
+                    for names in reverse.values_mut() {
+                        names.remove(name);
+                    }
+                    reverse.retain(|_, names| !names.is_empty());
+                    table.insert(Arc::clone(name), binding.clone());
+                }
+                NameChange::Added => {
                     diff.added.push(Arc::clone(name));
                     table.insert(Arc::clone(name), binding.clone());
                 }
