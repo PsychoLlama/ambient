@@ -104,6 +104,10 @@ struct Resolver<'r> {
     /// Module-level ability names: bare ability references to these stay
     /// bare (the ability resolver registers local declarations by name).
     module_abilities: HashSet<Arc<str>>,
+    /// Module-level trait names: a bare trait reference (an impl header or a
+    /// `T: Bound`) naming one canonicalizes to its own `Fqn(current,
+    /// [name])`, the key the build-global trait table indexes it under.
+    module_traits: HashSet<Arc<str>>,
     /// Lexical scope stack of local binding names (params, lets, pattern
     /// bindings, handler params). Locals shadow everything.
     locals: Vec<Vec<Arc<str>>>,
@@ -133,6 +137,7 @@ impl<'r> Resolver<'r> {
         let mut module_variants = HashMap::new();
         let mut module_types = HashSet::new();
         let mut module_abilities = HashSet::new();
+        let mut module_traits = HashSet::new();
         for item in &module.items {
             match &item.kind {
                 ItemKind::Function(f) => {
@@ -167,7 +172,10 @@ impl<'r> Resolver<'r> {
                 ItemKind::Ability(a) => {
                     module_abilities.insert(Arc::clone(&a.name));
                 }
-                ItemKind::Trait(_) | ItemKind::Impl(_) | ItemKind::Use(_) => {}
+                ItemKind::Trait(t) => {
+                    module_traits.insert(Arc::clone(&t.name));
+                }
+                ItemKind::Impl(_) | ItemKind::Use(_) => {}
             }
         }
         let current_is_dir = registry.get(current).is_some_and(|info| info.is_dir_module);
@@ -180,6 +188,7 @@ impl<'r> Resolver<'r> {
             module_variants,
             module_types,
             module_abilities,
+            module_traits,
             locals: Vec::new(),
             type_params: Vec::new(),
             overlays: Vec::new(),

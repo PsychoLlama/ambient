@@ -25,6 +25,7 @@ impl Resolver<'_> {
     fn resolve_item(&mut self, item: &mut ItemKind) {
         match item {
             ItemKind::Function(f) => {
+                self.resolve_type_param_bounds(&mut f.type_params);
                 self.push_type_params(&f.type_params);
                 for ability in &mut f.abilities {
                     self.resolve_ability_ref(ability);
@@ -53,6 +54,7 @@ impl Resolver<'_> {
                     self.resolve_ability_ref(dep);
                 }
                 for method in &mut a.methods {
+                    self.resolve_type_param_bounds(&mut method.type_params);
                     self.push_type_params(&method.type_params);
                     for param in &mut method.params {
                         if let Some(ty) = param.ty.as_mut() {
@@ -76,9 +78,14 @@ impl Resolver<'_> {
                 // The block's own params (`impl<T> Foo<T>`) scope the
                 // `for` type and every method; each method's own params
                 // nest inside for that method's signature and body.
+                self.resolve_type_param_bounds(&mut imp.type_params);
+                if let Some(trait_name) = &mut imp.trait_name {
+                    self.resolve_trait_ref(trait_name);
+                }
                 self.push_type_params(&imp.type_params);
                 self.resolve_type(&mut imp.for_type);
                 for method in &mut imp.methods {
+                    self.resolve_type_param_bounds(&mut method.type_params);
                     self.push_type_params(&method.type_params);
                     for ability in &mut method.abilities {
                         self.resolve_ability_ref(ability);
@@ -104,16 +111,19 @@ impl Resolver<'_> {
                 self.pop_type_params();
             }
             ItemKind::Struct(s) => {
+                self.resolve_type_param_bounds(&mut s.type_params);
                 self.push_type_params(&s.type_params);
                 self.resolve_type(&mut s.ty);
                 self.pop_type_params();
             }
             ItemKind::TypeAlias(t) => {
+                self.resolve_type_param_bounds(&mut t.type_params);
                 self.push_type_params(&t.type_params);
                 self.resolve_type(&mut t.ty);
                 self.pop_type_params();
             }
             ItemKind::Enum(e) => {
+                self.resolve_type_param_bounds(&mut e.type_params);
                 self.push_type_params(&e.type_params);
                 for variant in &mut e.variants {
                     if let Some(payload) = &mut variant.payload {
@@ -125,8 +135,10 @@ impl Resolver<'_> {
             ItemKind::Trait(t) => {
                 // Trait-level params (`trait Container<T>`) scope every
                 // method signature; each method's own params nest inside.
+                self.resolve_type_param_bounds(&mut t.type_params);
                 self.push_type_params(&t.type_params);
                 for method in &mut t.methods {
+                    self.resolve_type_param_bounds(&mut method.type_params);
                     self.push_type_params(&method.type_params);
                     for ability in &mut method.abilities {
                         self.resolve_ability_ref(ability);
@@ -140,6 +152,7 @@ impl Resolver<'_> {
                 self.pop_type_params();
             }
             ItemKind::ExternFn(e) => {
+                self.resolve_type_param_bounds(&mut e.type_params);
                 self.push_type_params(&e.type_params);
                 for param in &mut e.params {
                     if let Some(ty) = &mut param.ty {
@@ -164,6 +177,18 @@ impl Resolver<'_> {
     fn push_type_params(&mut self, params: &[crate::ast::TypeParam]) {
         self.type_params
             .push(params.iter().map(|p| Arc::clone(&p.name)).collect());
+    }
+
+    /// Canonicalize the trait references in a declaration's type-parameter
+    /// bounds (`<T: Show + Ord>`, `where T: Show`). Each bound names a trait,
+    /// resolved exactly like an impl header — a trait name is never a type
+    /// parameter, so this is independent of the `push_type_params` scope.
+    fn resolve_type_param_bounds(&mut self, params: &mut [crate::ast::TypeParam]) {
+        for tp in params {
+            for bound in &mut tp.bounds {
+                self.resolve_trait_ref(bound);
+            }
+        }
     }
 
     fn pop_type_params(&mut self) {

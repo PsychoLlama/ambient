@@ -132,6 +132,52 @@ impl Resolver<'_> {
         self.resolve_path_ref(name);
     }
 
+    /// Resolve a trait reference (an impl header `impl Show for X`, or a
+    /// bound `T: Show` / `where T: Show`) to the trait's `Fqn`.
+    ///
+    /// Traits are nominal — their `unique(<uuid>)` prefix is the identity —
+    /// so this `Fqn` is only a build-global *lookup key* (the checker maps it
+    /// to the uuid through `TraitRegistry`), never a content input. Bare
+    /// names follow the same local→import→prelude precedence every other
+    /// reference obeys; a qualified spelling (`some::module::Show`) resolves
+    /// through the named module. Unlike a value reference this adds **no
+    /// compile-ordering dependency**: a bound needs only the trait's
+    /// *definition* registered (which happens upfront for every module),
+    /// never its compiled body, so a trait edge here would manufacture
+    /// spurious cycles — exactly the reasoning [`Resolver::resolve_type`]
+    /// applies to bare type references.
+    pub(super) fn resolve_trait_ref(&mut self, name: &mut QualifiedName) {
+        if name.resolved.is_some() {
+            return;
+        }
+        if name.path.is_empty() {
+            // A locally-declared trait resolves to its own `Fqn(current,
+            // [name])`; an imported or prelude trait to its declaring module.
+            if self.module_traits.contains(&name.name) {
+                let module_id = self.registry.module_id(self.current);
+                name.resolved = Some(Fqn::new(module_id, vec![Arc::clone(&name.name)]));
+                return;
+            }
+            if let Some(import) = self.scope_item(&name.name, Namespace::Trait) {
+                let module_id = self.registry.module_id(&import.module);
+                name.resolved = Some(Fqn::new(module_id, vec![Arc::clone(&import.name)]));
+            }
+            return;
+        }
+        // A qualified spelling: resolve the module prefix, then confirm the
+        // final segment is a trait that module exports (chasing `pub use`
+        // re-exports to the defining origin).
+        let Some(target) = self.resolve_module_prefix(&name.path) else {
+            return;
+        };
+        if let Ok((export, origin)) = self.registry.lookup_symbol(&target, &name.name)
+            && export.kind == ExportKind::Trait
+        {
+            let module_id = self.registry.module_id(&origin);
+            name.resolved = Some(Fqn::new(module_id, vec![Arc::clone(&name.name)]));
+        }
+    }
+
     /// Resolve a type-namespace reference (typed record constructors).
     ///
     /// Same-module types resolve to their own `Fqn(current, [name])` — the
