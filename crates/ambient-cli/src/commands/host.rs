@@ -16,7 +16,8 @@
 //! natives are installed per task VM by the [`TaskRuntime`], which also
 //! wires the interruptible drain natives every task depends on.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::thread::{self, ThreadId};
 use std::time::Duration;
 
 use anyhow::{Result, bail};
@@ -56,12 +57,15 @@ pub struct RuntimeHost {
     store: Arc<Mutex<Store>>,
     core: Arc<DeployRuntime>,
     tasks: Arc<TaskRuntime>,
-    /// Serializes deploy passes across frontends. The deploy core's own
-    /// state is lock-safe, but the task registry's reconcile bracket
+    /// Serializes deploy passes across frontends, and records which thread
+    /// (if any) is inside a pass. The deploy core's own state is lock-safe,
+    /// but the task registry's reconcile bracket
     /// (`begin_reconcile`/`finish_reconcile`) is one global declaration
     /// diff — a dev-loop deploy and a remote `Deploy::apply!` (which
     /// runs on a task's thread) interleaving would cross their brackets.
-    deploy_lock: Arc<Mutex<()>>,
+    /// The recorded holder is what lets the remote-deploy hook reject a
+    /// deploy performed *from within* a deploy pass (see [`DeployLock`]).
+    deploy_lock: Arc<DeployLock>,
 }
 
 impl RuntimeHost {
@@ -152,7 +156,7 @@ impl RuntimeHost {
             drain_deadline: TASK_DRAIN_DEADLINE,
         });
 
-        let deploy_lock = Arc::new(Mutex::new(()));
+        let deploy_lock = Arc::new(DeployLock::new());
 
         // Wire the remote-deploy hook: a received generation pack is a
         // full program declaration, so it takes the same declarative
@@ -166,6 +170,21 @@ impl RuntimeHost {
             let tasks = Arc::clone(&tasks);
             let lock = Arc::clone(&deploy_lock);
             Arc::new(move |bytes, entry| {
+                // Reentrancy guard, checked *before* anything else (before
+                // pack decode): a deploy pass runs its reconciliation entry
+                // synchronously on the lock-holding thread, so if that entry
+                // (or anything it calls) performs `Deploy::apply!`, this hook
+                // runs on that same thread while it still holds `deploy_lock`.
+                // Falling through to `deploy_build` would re-take the
+                // non-reentrant deploy mutex on the thread already holding it
+                // — a permanent deadlock. Reject it as the perform's `Err`
+                // value instead (the hook's existing rejection-as-a-value
+                // contract). A *different* thread's `apply!` is not held here:
+                // it blocks on the lock in `deploy_build` and serializes, as
+                // intended.
+                if lock.held_by_current_thread() {
+                    return Err("Deploy.apply: cannot deploy from within a deploy pass".to_string());
+                }
                 let pack = ambient_engine::store::Pack::decode(bytes)
                     .map_err(|e| format!("invalid generation pack: {e}"))?;
                 let compiled = CompiledModule::from_pack(&pack)
@@ -220,10 +239,7 @@ impl RuntimeHost {
         compiled: &CompiledModule,
         entry: &str,
     ) -> Result<HostDeployOutcome> {
-        let _pass = self
-            .deploy_lock
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _pass = self.deploy_lock.acquire();
         let (entry_name, entry_hash) = resolve_entry(compiled, entry)?;
 
         match self.store.lock() {
@@ -257,23 +273,99 @@ impl RuntimeHost {
     }
 }
 
+/// The deploy serialization lock, plus the identity of the thread inside
+/// the current pass.
+///
+/// A plain `Mutex<()>` serializes passes correctly but cannot answer the
+/// one question the remote-deploy hook must ask: *am I already inside a
+/// deploy pass on this very thread?* A reconciliation entry runs
+/// synchronously on the lock-holding thread, so an entry that performs
+/// `Deploy::apply!` re-enters the deploy machinery on that same thread —
+/// re-taking a non-reentrant `Mutex` it already holds would deadlock every
+/// future deploy. Recording the holder's [`ThreadId`] lets the hook detect
+/// that case and reject it as a value instead.
+///
+/// Soundness: only the holding thread can observe "holder == me" truthfully
+/// — it cannot race with itself, and the holder is set before the entry
+/// runs and cleared before the gate is released (guard drop order). A
+/// *different* thread may read a stale holder, but its only reaction is to
+/// block on `gate`, which is exactly the serialization we want.
+struct DeployLock {
+    /// The serialization gate: held for the whole duration of a pass.
+    gate: Mutex<()>,
+    /// The thread currently inside a pass, or `None` when idle.
+    holder: Mutex<Option<ThreadId>>,
+}
+
+impl DeployLock {
+    /// An idle lock: no pass in progress, no holder.
+    fn new() -> Self {
+        Self {
+            gate: Mutex::new(()),
+            holder: Mutex::new(None),
+        }
+    }
+
+    /// Enter a deploy pass: take the gate (blocking while another thread
+    /// holds it) and record this thread as the holder until the returned
+    /// guard drops.
+    ///
+    /// A poisoned lock means another frontend's deploy panicked; its pass
+    /// is over either way, so we recover the guard rather than wedge every
+    /// future deploy.
+    fn acquire(&self) -> DeployPass<'_> {
+        let gate = self.gate.lock().unwrap_or_else(PoisonError::into_inner);
+        *self.holder.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread::current().id());
+        DeployPass {
+            lock: self,
+            _gate: gate,
+        }
+    }
+
+    /// Whether the current thread is the one inside the active pass — the
+    /// reentrancy check the remote-deploy hook runs before doing anything.
+    fn held_by_current_thread(&self) -> bool {
+        *self.holder.lock().unwrap_or_else(PoisonError::into_inner) == Some(thread::current().id())
+    }
+}
+
+/// An active deploy pass. Holds the gate for its lifetime and clears the
+/// recorded holder on drop.
+struct DeployPass<'a> {
+    lock: &'a DeployLock,
+    /// The gate guard. Declared last so it drops *after* [`Drop`] clears the
+    /// holder — a thread that then acquires the gate always finds the holder
+    /// already cleared.
+    _gate: std::sync::MutexGuard<'a, ()>,
+}
+
+impl Drop for DeployPass<'_> {
+    fn drop(&mut self) {
+        *self
+            .lock
+            .holder
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+    }
+}
+
 /// The full declarative deploy pass, shared by [`RuntimeHost::deploy`]
 /// and the remote-deploy hook (which owns `Arc`s, not a `&RuntimeHost`):
 /// install the build as the current code generation and run `entry` as a
 /// reconciliation pass over the live task registry.
 fn deploy_build(
-    deploy_lock: &Mutex<()>,
+    deploy_lock: &DeployLock,
     store: &Mutex<Store>,
     core: &Arc<DeployRuntime>,
     tasks: &Arc<TaskRuntime>,
     compiled: &CompiledModule,
     entry: &str,
 ) -> Result<HostDeployOutcome> {
-    // A poisoned lock means another frontend's deploy panicked; its pass
-    // is over either way, so proceed rather than wedge every deploy.
-    let _pass = deploy_lock
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Acquire the deploy pass. Blocks while another *thread* is mid-pass
+    // (intended serialization). The remote-deploy hook has already rejected
+    // a same-thread reentrant `apply!` before reaching here, so this never
+    // deadlocks on the current thread.
+    let _pass = deploy_lock.acquire();
     let (_, entry_hash) = resolve_entry(compiled, entry)?;
 
     // Execute serves functions from the store; register every
@@ -377,4 +469,65 @@ fn is_dispatch_symbol(name: &str) -> bool {
     name.split("::")
         .next()
         .is_some_and(|head| uuid::Uuid::parse_str(head).is_ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::sync::mpsc;
+
+    use super::*;
+    use crate::commands::compile_source;
+
+    /// A reconciliation entry that performs `Deploy::apply!` re-enters the
+    /// deploy machinery on the very thread already holding the deploy lock
+    /// (the entry runs synchronously inside the pass). Before the reentrancy
+    /// guard this was a permanent deadlock of all future deploys; now the
+    /// hook rejects it as the perform's `Err` value before touching the
+    /// lock. The deploy runs on a spawned thread guarded by a channel
+    /// timeout, so a regression fails fast instead of hanging the test
+    /// process forever.
+    #[test]
+    fn deploy_within_a_deploy_pass_is_rejected_not_deadlocked() {
+        // The entry performs `apply!` with garbage pack bytes on purpose:
+        // the reentrancy check fires before the pack is decoded, so the
+        // bytes never matter — only that the perform reaches the hook.
+        let source = r#"
+use core::system::Deploy;
+
+pub fn run(): String with Deploy {
+  match Deploy::apply!(Binary::from_string("not a real pack"), "run") {
+    Ok(report) => report,
+    Err(problem) => problem,
+  }
+}
+"#;
+        let compiled = compile_source(source, Path::new("reentrant_deploy.ab"))
+            .expect("compile the reentrant-deploy program");
+
+        let events: TaskEventSink = Arc::new(|_: &ambient_platform::TaskEvent| {});
+        let stdio = StdioSink::new(Arc::new(|_: &str| {}), Arc::new(|_: &str| {}));
+        let host = RuntimeHost::new(events, stdio, Vec::new()).expect("build host");
+
+        // Run the deploy off-thread and time it out: a regression deadlocks
+        // inside `deploy`, and we want a fast failure, not a hung process.
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let value = host
+                .deploy(&compiled, "run")
+                .expect("deploy entry ran to completion")
+                .report
+                .value;
+            let _ = tx.send(ambient_engine::format::format_value(&value));
+        });
+
+        let rendered = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("reentrant Deploy::apply! deadlocked instead of returning an Err");
+        assert!(
+            rendered.contains("cannot deploy from within a deploy pass"),
+            "the entry should observe the reentrancy rejection as its \
+             `apply!` Err, got: {rendered}"
+        );
+    }
 }
