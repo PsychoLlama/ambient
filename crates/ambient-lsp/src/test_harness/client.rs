@@ -209,15 +209,6 @@ impl TestClient {
         }
     }
 
-    /// Process any pending notifications (non-blocking).
-    pub fn process_notifications(&self) {
-        while let Ok(msg) = self.connection.receiver.try_recv() {
-            if let Message::Notification(notif) = msg {
-                self.handle_notification(notif);
-            }
-        }
-    }
-
     /// Open a document in the LSP server.
     pub fn open_document(&mut self, uri: Uri, text: &str) {
         let params = DidOpenTextDocumentParams {

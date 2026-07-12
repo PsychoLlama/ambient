@@ -103,10 +103,10 @@ fn assert_parity(files: &[(&str, &str)]) {
         })
         .collect();
 
-    // Let the server finish analyzing all opened documents.
-    std::thread::sleep(std::time::Duration::from_millis(200));
-    client.process_notifications();
-
+    // No wait needed: `open_document`'s barrier request already folded every
+    // `didOpen`'s synchronously-published diagnostics into the map (the server
+    // handles messages strictly in order, so the barrier response trails the
+    // diagnostics it triggered).
     for (module_key, uri) in &uris {
         let mut expected = analysis_diagnostics(root, module_key);
         let mut actual = lsp_diagnostics(&client, uri);
