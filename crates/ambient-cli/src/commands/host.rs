@@ -72,7 +72,16 @@ impl RuntimeHost {
     /// this host builds (`ambient run` composes the program path plus the
     /// trailing args; `ambient dev` passes an empty vec — program args
     /// have no coherent meaning across reconciliation re-deploys).
-    pub fn new(task_events: TaskEventSink, program_args: Vec<String>) -> Result<Self> {
+    ///
+    /// `stdio` is where every VM's `Stdio` (and `Log`, which performs
+    /// `Stdio`) output lands: `ambient run`/`dev` pass an inheriting sink
+    /// (real stdout/stderr); the REPL's in-process test harness passes a
+    /// capturing sink so program output can be asserted on.
+    pub fn new(
+        task_events: TaskEventSink,
+        stdio: StdioSink,
+        program_args: Vec<String>,
+    ) -> Result<Self> {
         let tokio = tokio::runtime::Runtime::new()
             .map_err(|e| anyhow::anyhow!("failed to create async runtime: {e}"))?;
 
@@ -81,8 +90,8 @@ impl RuntimeHost {
         let argv = Arc::new(program_args);
 
         // Log's default implementations perform Stdio, so both stream to
-        // the same stdout for every VM this host builds.
-        let sink = StdioSink::default();
+        // the same sink for every VM this host builds.
+        let sink = stdio;
 
         // Host policy for executed-by-hash code (Execute ability): shipped
         // code may print (Stdio, and Log through it) but gets no

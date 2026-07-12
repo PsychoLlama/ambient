@@ -121,7 +121,11 @@ fn run_compiled(compiled: &CompiledModule, entry: &str, program_args: Vec<String
         }
     });
 
-    let host = RuntimeHost::new(task_events, program_args)?;
+    let host = RuntimeHost::new(
+        task_events,
+        ambient_platform::StdioSink::inherit(),
+        program_args,
+    )?;
 
     match host.deploy(compiled, entry) {
         Ok(outcome) => {

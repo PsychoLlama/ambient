@@ -71,7 +71,11 @@ pub fn cmd_dev(path: &Path, entry: &str, watch_dirs: Option<&[PathBuf]>) -> Resu
     // survive redeploys — that's the point. `dev` passes no program
     // args: `Env::args!()` has no coherent meaning across the
     // reconciliation re-deploys that define the dev loop.
-    let host = RuntimeHost::new(task_event_printer(), Vec::new())?;
+    let host = RuntimeHost::new(
+        task_event_printer(),
+        ambient_platform::StdioSink::inherit(),
+        Vec::new(),
+    )?;
 
     // Initial deploy. Failures (including compile errors) leave the dev
     // loop watching, same as any later iteration.
