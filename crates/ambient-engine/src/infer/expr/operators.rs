@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use crate::ast::{BinaryOp, Expr, ResolvedMethod};
+use crate::ast::{BinaryOp, Dicts, Expr, ResolvedMethod};
 use crate::infer::error::{TypeError, TypeErrorKind};
 use crate::infer::{Infer, InferResult, TypeEnv};
 use crate::types::{ReservedTrait, Type};
@@ -23,6 +23,7 @@ impl Infer {
         left: &mut Expr,
         right: &mut Expr,
         resolved_op: &mut Option<ResolvedMethod>,
+        dicts: &mut Option<Dicts>,
         span: (u32, u32),
     ) -> InferResult<Type> {
         let left_ty = self.infer_expr(env, left)?;
@@ -62,6 +63,24 @@ impl Infer {
 
                 // Store the resolved dispatch symbol for compilation
                 *resolved_op = Some(ResolvedMethod::Symbol(symbol));
+
+                // A conditional impl's operator method carries hidden trailing
+                // dictionaries (`impl<T: Eq> Eq for Pair<T>` — `Pair<Money> ==
+                // Pair<Money>` supplies `Money`'s Eq dictionary), threaded
+                // exactly like a direct method call.
+                let generic_impl = self
+                    .trait_registry
+                    .get_impl(op_trait.uuid(), type_uuid)
+                    .filter(|imp| imp.is_generic)
+                    .map(|imp| (imp.target.clone(), imp.bounds.clone()));
+                if let Some((target, bounds)) = generic_impl {
+                    *dicts = self.record_conditional_impl_dicts(
+                        target.as_ref(),
+                        &bounds,
+                        &left_ty,
+                        span,
+                    );
+                }
 
                 // Return type depends on the operator category
                 return Ok(operator_return_type(op, &left_ty));

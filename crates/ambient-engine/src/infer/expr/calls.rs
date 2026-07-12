@@ -190,7 +190,7 @@ impl Infer {
     /// receivers only). Inherent methods shadow same-named trait methods,
     /// so adding an inherent method is a deliberate, local override —
     /// never silent ambiguity.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(super) fn infer_method_call(
         &mut self,
         env: &TypeEnv,
@@ -288,6 +288,19 @@ impl Infer {
 
         // Store the resolved dispatch symbol for compilation
         *resolved_method = Some(ResolvedMethod::Symbol(method_symbol));
+
+        // A conditional (generic) impl's method carries hidden trailing
+        // dictionaries; thread them at this direct call site the same way a
+        // bounded-generic call site does.
+        let generic_impl = self
+            .trait_registry
+            .get_impl(trait_uuid, type_uuid)
+            .filter(|imp| imp.is_generic)
+            .map(|imp| (imp.target.clone(), imp.bounds.clone()));
+        if let Some((target, bounds)) = generic_impl {
+            *dicts =
+                self.record_conditional_impl_dicts(target.as_ref(), &bounds, &receiver_ty, span);
+        }
 
         // Instantiate the method's generics fresh for this call site: `Self` →
         // the receiver, each method-level type parameter → a fresh inference

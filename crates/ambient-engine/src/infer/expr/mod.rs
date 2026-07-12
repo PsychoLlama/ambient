@@ -347,7 +347,7 @@ impl Infer {
                 left,
                 right,
                 resolved_op,
-            } => self.infer_binary(env, *op, left, right, resolved_op, span)?,
+            } => self.infer_binary(env, *op, left, right, resolved_op, dicts, span)?,
 
             ExprKind::Unary(op, operand) => {
                 let operand_ty = self.infer_expr(env, operand)?;
