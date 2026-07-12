@@ -265,6 +265,49 @@ fn test_lower_impl_where_clause_folds_into_bounds() {
 }
 
 #[test]
+fn test_lower_fn_where_clause_folds_into_bounds() {
+    // A fn-level `where T: Ord` is the same declaration as `fn f<T: Ord>`:
+    // it folds into the type parameter's bounds, so there is one AST shape.
+    let source = "fn cmp_them<T>(a: T, b: T): Number where T: Ord { a.cmp(b) }";
+    let module = parse(source).expect("parse error");
+    match &module.items[0].kind {
+        ItemKind::Function(f) => {
+            assert_eq!(f.type_params.len(), 1);
+            let bounds: Vec<&str> = f.type_params[0].bounds.iter().map(|b| &*b.name).collect();
+            assert_eq!(bounds, ["Ord"]);
+        }
+        _ => panic!("Expected function"),
+    }
+}
+
+#[test]
+fn test_lower_fn_where_before_with() {
+    // `where` precedes the `with` effect clause: the two never clash and
+    // both bounds and abilities survive lowering.
+    let source = "fn f<T>(x: T): T where T: Eq + Ord with core::system::Stdio { x }";
+    let module = parse(source).expect("parse error");
+    match &module.items[0].kind {
+        ItemKind::Function(f) => {
+            let bounds: Vec<&str> = f.type_params[0].bounds.iter().map(|b| &*b.name).collect();
+            assert_eq!(bounds, ["Eq", "Ord"]);
+            assert_eq!(f.abilities.len(), 1);
+        }
+        _ => panic!("Expected function"),
+    }
+}
+
+#[test]
+fn test_lower_fn_where_clause_on_non_param_rejected() {
+    // A fn `where` clause may only constrain the fn's own type parameters.
+    let source = "fn f<T>(x: T): T where Number: Eq { x }";
+    let result = parse(source);
+    assert!(matches!(
+        result.unwrap_err().kind,
+        ParseErrorKind::LoweringError(_)
+    ));
+}
+
+#[test]
 fn test_lower_where_clause_on_non_param_rejected() {
     // `where` can only constrain the impl's own type parameters.
     let source = r"

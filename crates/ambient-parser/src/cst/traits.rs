@@ -47,6 +47,8 @@ pub struct CstTraitMethod {
     /// effect row is part of its dispatch contract, so it is declared here
     /// exactly like a free function's `with` clause.
     pub abilities: Vec<CstQualifiedName>,
+    /// Trailing `where` clauses, folded into `type_params`' bounds at lowering.
+    pub where_clauses: Vec<CstWhereClause>,
     /// Source span.
     pub span: Span,
 }
@@ -106,6 +108,8 @@ pub struct CstImplMethod {
     pub ret_ty: Option<CstTypeExpr>,
     /// Declared abilities (`with Stdio, Log`).
     pub abilities: Vec<CstQualifiedName>,
+    /// Trailing `where` clauses, folded into `type_params`' bounds at lowering.
+    pub where_clauses: Vec<CstWhereClause>,
     /// Method body.
     pub body: CstExpr,
     /// Source span.

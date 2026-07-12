@@ -613,6 +613,26 @@ fn core_list_sorted_and_min_max() {
 }
 
 #[test]
+fn fn_where_clause_is_sugar_for_inline_bounds() {
+    // A fn-level `where T: Ord` folds into the type parameter's bounds, so a
+    // `.cmp` call in the body dispatches through the Ord dictionary exactly
+    // like the inline `fn min_of<T: Ord>` form.
+    CliTest::new(format!(
+        r#"
+        {MONEY}
+        fn ordering<T>(a: T, b: T): Number where T: Ord {{
+            a.cmp(b)
+        }}
+
+        fn run(): Number {{
+            ordering(Money {{ cents: 30 }}, Money {{ cents: 10 }})
+        }}
+    "#
+    ))
+    .expect_output("1");
+}
+
+#[test]
 fn primitive_operators_stay_builtin() {
     // Concrete primitive operators keep their builtin semantics (the
     // core impls exist only as dictionary sources), and bounded generics

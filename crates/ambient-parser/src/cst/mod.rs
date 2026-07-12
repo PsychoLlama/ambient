@@ -202,6 +202,9 @@ pub struct CstFunctionDef {
     pub params: Vec<CstParam>,
     /// Return type.
     pub ret_ty: Option<CstTypeExpr>,
+    /// Trailing `where` clauses (`where T: Eq`), folded into `type_params`'
+    /// bounds at lowering. Surface sugar for inline bounds; no new AST channel.
+    pub where_clauses: Vec<CstWhereClause>,
     /// Abilities used (`with Ability1, Ability2`).
     pub abilities: Vec<CstQualifiedName>,
     /// Function body.
@@ -435,6 +438,8 @@ pub struct CstAbilityMethod {
     pub params: Vec<(CstIdent, CstTypeExpr)>,
     /// Return type.
     pub ret_ty: CstTypeExpr,
+    /// Trailing `where` clauses, folded into `type_params`' bounds at lowering.
+    pub where_clauses: Vec<CstWhereClause>,
     /// Default implementation body (`None` for a `;`-terminated signature).
     pub body: Option<CstExpr>,
     /// Source span.

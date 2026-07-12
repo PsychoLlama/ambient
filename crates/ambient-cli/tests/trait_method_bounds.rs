@@ -78,6 +78,30 @@ fn conditional_impl_and_method_bounds_thread_combined_dictionaries() {
     .expect_output("true");
 }
 
+/// A trait method and an impl method may both spell their bound as a trailing
+/// `where` clause; it folds into the method's own type-parameter bounds, so the
+/// threaded dictionary is identical to the inline `<U: Eq>` form.
+#[test]
+fn where_clause_on_trait_and_impl_methods() {
+    CliTest::new(
+        r#"
+        use core::traits::Eq;
+        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000601) trait Tagger {
+          fn same<U>(self, a: U, b: U): Bool where U: Eq;
+        }
+        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000602) struct Machine { id: Number }
+        impl Tagger for Machine {
+          fn same<U>(self, a: U, b: U): Bool where U: Eq { a.eq(b) }
+        }
+        fn run(): Bool {
+          let m = Machine { id: 1 };
+          m.same(3, 3)
+        }
+    "#,
+    )
+    .expect_output("true");
+}
+
 /// Calling a bounded trait method with an argument whose type has no matching
 /// impl fails the bound solve with a clear diagnostic.
 #[test]

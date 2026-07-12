@@ -104,6 +104,11 @@ impl Parser<'_> {
             None
         };
 
+        // `where` precedes `with`: `fn f<T>(x: T): R where T: Eq with Stdio`.
+        // The clause folds into the type parameters' bounds at lowering, so it
+        // is pure sugar for the inline `fn f<T: Eq>` form.
+        let where_clauses = self.parse_optional_where_clauses()?;
+
         // Abilities
         let abilities = if self.check(TokenKind::With) {
             self.advance();
@@ -121,6 +126,7 @@ impl Parser<'_> {
             type_params,
             params,
             ret_ty,
+            where_clauses,
             abilities,
             body,
         })
@@ -555,6 +561,8 @@ impl Parser<'_> {
         self.expect(TokenKind::Colon)?;
         let ret_ty = self.parse_type()?;
 
+        let where_clauses = self.parse_optional_where_clauses()?;
+
         // A block is the method's default implementation; a `;` leaves it
         // abstract (rejected later everywhere but the Exception carve-out).
         let (body, end) = if self.check(TokenKind::LBrace) {
@@ -571,6 +579,7 @@ impl Parser<'_> {
             type_params,
             params,
             ret_ty,
+            where_clauses,
             body,
             span: Span::new(start, end),
         })
@@ -652,6 +661,10 @@ impl Parser<'_> {
         self.expect(TokenKind::Colon)?;
         let ret_ty = self.parse_type()?;
 
+        // `where` precedes `with`, matching free functions; it folds into the
+        // method's own type-parameter bounds at lowering.
+        let where_clauses = self.parse_optional_where_clauses()?;
+
         // Optional `with` clause: the method's declared effect row. Parsed like
         // a free function's, so `with E` (a method-level ability variable) or
         // `with Stdio` binds the same way.
@@ -670,6 +683,7 @@ impl Parser<'_> {
             params,
             ret_ty,
             abilities,
+            where_clauses,
             span: Span::new(start, end),
         })
     }
@@ -749,12 +763,7 @@ impl Parser<'_> {
         let for_type = self.parse_type()?;
 
         // Optional where clause
-        let where_clauses = if self.check(TokenKind::Where) {
-            self.advance();
-            self.parse_where_clauses()?
-        } else {
-            Vec::new()
-        };
+        let where_clauses = self.parse_optional_where_clauses()?;
 
         self.expect(TokenKind::LBrace)?;
 
@@ -776,6 +785,18 @@ impl Parser<'_> {
             methods,
             span: Span::new(start, end),
         })
+    }
+
+    /// Parse a trailing `where` clause if one is present, else return empty.
+    /// Shared by every declaration that carries bounds (functions, trait /
+    /// impl / ability methods, and impl blocks).
+    fn parse_optional_where_clauses(&mut self) -> Result<Vec<CstWhereClause>, ParseError> {
+        if self.check(TokenKind::Where) {
+            self.advance();
+            self.parse_where_clauses()
+        } else {
+            Ok(Vec::new())
+        }
     }
 
     /// Parse where clauses: `T: Trait1 + Trait2, U: Trait3`
@@ -838,6 +859,10 @@ impl Parser<'_> {
             None
         };
 
+        // `where` precedes `with`, matching free functions; it folds into the
+        // method's own type-parameter bounds at lowering.
+        let where_clauses = self.parse_optional_where_clauses()?;
+
         // Optional ability clause
         let abilities = if self.check(TokenKind::With) {
             self.advance();
@@ -855,6 +880,7 @@ impl Parser<'_> {
             type_params,
             params,
             ret_ty,
+            where_clauses,
             abilities,
             body,
             span: Span::new(start, end),

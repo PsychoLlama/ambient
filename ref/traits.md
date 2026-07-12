@@ -288,11 +288,31 @@ unique(...) ability Chooser {
 }
 ```
 
-Multiple bounds join with `+` (`<T: Eq + Ord>`), and an impl block may
-spell its bounds as a trailing clause (`impl<T> Wrapper<T> where T: Eq`) —
-`where` is surface syntax that folds into the parameter's bounds. Bounds
+Multiple bounds join with `+` (`<T: Eq + Ord>`). Bounds
 belong where generic _code_ lives: type declarations (`struct`, `enum`,
 `type`) and `extern fn`s reject them.
+
+Every position that takes inline bounds also accepts a trailing `where`
+clause — functions, impl blocks, and trait / impl / ability methods:
+
+```ambient
+fn cmp_them<T>(a: T, b: T): Number where T: Ord { a.cmp(b) }
+impl<T> Wrapper<T> where T: Eq { ... }
+```
+
+`where` is pure surface syntax: at lowering each clause folds into the named
+type parameter's bounds, so `fn f<T>() where T: Eq` and `fn f<T: Eq>()` lower
+to the identical AST. A clause may only constrain one of the declaration's own
+type parameters — constraining a concrete type or an unknown name
+(`where Number: Eq`) is a declaration-site error.
+
+On a function or method the clause sits **after the return type and before the
+`with` effect clause**, so the two never clash:
+
+```ambient
+fn f<T>(x: T): T where T: Eq + Ord with Stdio { x }
+//              └ return ┘ └── where ──┘ └ with ┘
+```
 
 Inside a bounded body, the bound is what makes the parameter usable: a
 bound's methods are callable on values of the parameter type, and the

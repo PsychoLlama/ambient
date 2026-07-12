@@ -18,7 +18,7 @@ use super::types::{lower_qualified_name, lower_type};
 use crate::cst::{
     CstAbilityDef, CstConstDef, CstEnumDef, CstExternFnDef, CstFunctionDef, CstImplDef, CstItem,
     CstItemKind, CstParam, CstStructDef, CstTraitDef, CstTraitParamKind, CstTypeAliasDef,
-    CstTypeExprKind, CstUseDef, CstUseTree, CstUseTreeKind,
+    CstTypeExprKind, CstUseDef, CstUseTree, CstUseTreeKind, CstWhereClause,
 };
 use crate::error::{ParseError, ParseErrorKind};
 
@@ -95,6 +95,44 @@ fn lower_unbounded_type_param(
     lower_type_param(tp)
 }
 
+/// Fold trailing `where` clauses into their type parameters' bounds. `where`
+/// is surface sugar with no AST channel of its own: `fn f<T>() where T: Eq`
+/// lowers identically to `fn f<T: Eq>()`. A clause may only constrain one of
+/// the declaration's own type parameters — there is nothing else in scope it
+/// could name — and constraining anything else (a concrete type, an unknown
+/// name) is a clear declaration-site error.
+fn fold_where_clauses(
+    type_params: &mut [TypeParam],
+    where_clauses: &[CstWhereClause],
+) -> Result<(), ParseError> {
+    for wc in where_clauses {
+        let param_name = match &wc.ty.kind {
+            CstTypeExprKind::Name(name) if name.segments.len() == 1 => {
+                Some(name.segments[0].name.clone())
+            }
+            _ => None,
+        };
+        let target = param_name
+            .as_ref()
+            .and_then(|n| type_params.iter_mut().find(|tp| &tp.name == n));
+        let Some(target) = target else {
+            return Err(ParseError::new(
+                ParseErrorKind::LoweringError(
+                    "a `where` clause can only constrain one of the declaration's own type \
+                     parameters (e.g. `fn f<T>(...) where T: Eq` or `impl<T> Wrapper<T> where \
+                     T: Eq`)"
+                        .into(),
+                ),
+                wc.span,
+            ));
+        };
+        target
+            .bounds
+            .extend(wc.bounds.iter().map(lower_qualified_name));
+    }
+    Ok(())
+}
+
 pub(super) fn lower_item_impl(
     ctx: &mut LoweringContext,
     item: &CstItem,
@@ -134,11 +172,12 @@ fn lower_function(
     ctx: &mut LoweringContext,
     f: &CstFunctionDef,
 ) -> Result<FunctionDef, ParseError> {
-    let type_params = f
+    let mut type_params = f
         .type_params
         .iter()
         .map(lower_type_param)
         .collect::<Result<Vec<_>, _>>()?;
+    fold_where_clauses(&mut type_params, &f.where_clauses)?;
 
     let params = f
         .params
@@ -390,11 +429,12 @@ fn lower_ability_def(
         .methods
         .iter()
         .map(|m| {
-            let type_params = m
+            let mut type_params = m
                 .type_params
                 .iter()
                 .map(lower_type_param)
                 .collect::<Result<Vec<_>, _>>()?;
+            fold_where_clauses(&mut type_params, &m.where_clauses)?;
 
             // A method signature is an interface other code compiles
             // against, so every parameter carries a declared type — there
@@ -575,11 +615,12 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
             // (`E!`) and trait bounds (`<U: Eq>`): a concrete-receiver call
             // threads one hidden dictionary per bound as a trailing argument,
             // exactly like a bounded free function.
-            let method_type_params = m
+            let mut method_type_params = m
                 .type_params
                 .iter()
                 .map(lower_type_param)
                 .collect::<Result<Vec<_>, _>>()?;
+            fold_where_clauses(&mut method_type_params, &m.where_clauses)?;
 
             // Check if first param is self
             let (has_self, other_params) = if let Some(first) = m.params.first() {
@@ -653,34 +694,10 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
     let trait_name = i.trait_name.as_ref().map(lower_qualified_name);
     let for_type = lower_type(&i.for_type)?;
 
-    // `where T: Bound` is the trailing spelling of an inline bound: fold
-    // each clause into its type parameter so bounds have exactly one AST
-    // representation. The constrained type must be one of the impl's own
-    // parameters — there is nothing else in scope a clause could constrain.
-    for wc in &i.where_clauses {
-        let param_name = match &wc.ty.kind {
-            CstTypeExprKind::Name(name) if name.segments.len() == 1 => {
-                Some(name.segments[0].name.clone())
-            }
-            _ => None,
-        };
-        let target = param_name
-            .as_ref()
-            .and_then(|n| type_params.iter_mut().find(|tp| &tp.name == n));
-        let Some(target) = target else {
-            return Err(ParseError::new(
-                ParseErrorKind::LoweringError(
-                    "a `where` clause can only constrain one of the impl's own type parameters \
-                     (e.g. `impl<T> Wrapper<T> where T: Eq`)"
-                        .into(),
-                ),
-                wc.span,
-            ));
-        };
-        target
-            .bounds
-            .extend(wc.bounds.iter().map(lower_qualified_name));
-    }
+    // `where T: Bound` is the trailing spelling of an inline bound: fold each
+    // clause into its type parameter so bounds have exactly one AST
+    // representation.
+    fold_where_clauses(&mut type_params, &i.where_clauses)?;
 
     let methods = i
         .methods
@@ -689,11 +706,12 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
             // Impl methods are a wired position for effect polymorphism:
             // `fn each<E!>(self, f: (T) -> () with E): () with E` accepts and
             // propagates `E!` exactly like a free function.
-            let method_type_params = m
+            let mut method_type_params = m
                 .type_params
                 .iter()
                 .map(lower_type_param)
                 .collect::<Result<Vec<_>, _>>()?;
+            fold_where_clauses(&mut method_type_params, &m.where_clauses)?;
 
             // Allocate self binding ID
             let self_id = ctx.fresh_binding();
