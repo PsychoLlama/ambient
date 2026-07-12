@@ -847,3 +847,65 @@ fn test_cross_module_trait_impl_for_enum() {
         "expected 101 in output, got: {stdout}"
     );
 }
+
+#[test]
+fn test_cross_module_conditional_impl() {
+    // A conditional impl (`impl<T: Eq> Eq for Pair<T>`) defined in one module
+    // is a valid dictionary source in another: `register_foreign_impl` must
+    // round-trip its target shape and bounds so `Pair<Money>: Eq` solves
+    // across the module boundary.
+    let (_dir, pkg) = temp_multi_package(&[
+        (
+            "data.ab",
+            r#"
+            pub unique(DDDD0000-0000-0000-0000-000000000A01) struct Money { cents: Number }
+
+            impl Eq for Money {
+                fn eq(self, other: Money): Bool {
+                    self.cents == other.cents
+                }
+            }
+
+            pub unique(DDDD0000-0000-0000-0000-000000000A02) struct Pair<T> { first: T, second: T }
+
+            impl<T: Eq> Eq for Pair<T> {
+                fn eq(self, other: Pair<T>): Bool {
+                    self.first.eq(other.first) && self.second.eq(other.second)
+                }
+            }
+
+            pub fn money(n: Number): Money { Money { cents: n } }
+            "#,
+        ),
+        (
+            "main.ab",
+            r#"
+            use pkg::data::{Money, Pair, money};
+
+            fn same<T: Eq>(a: T, b: T): Bool { a.eq(b) }
+
+            pub fn run(): Number {
+                let a = Pair { first: money(1), second: money(2) };
+                let b = Pair { first: money(1), second: money(2) };
+                if same(a, b) { 42 } else { 0 }
+            }
+            "#,
+        ),
+    ]);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&pkg)
+        .output()
+        .expect("failed to run ambient");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("42"),
+        "expected 42 in output, got: {stdout}"
+    );
+}

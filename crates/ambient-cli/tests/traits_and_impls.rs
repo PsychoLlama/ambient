@@ -795,37 +795,59 @@ fn test_trait_impl_for_enum() {
 }
 
 #[test]
-fn test_generic_trait_impl_rejected() {
-    // A generic (conditional) trait impl — an impl block with its own type
-    // parameters — needs conditional-impl machinery this path lacks, so it
-    // is rejected with a clear diagnostic rather than silently miscompiling.
+fn test_generic_trait_impl_on_container_accepted() {
+    // A conditional trait impl on a builtin container (`impl<T> Eq for
+    // List<T>`) is now a valid dictionary source: a bounded generic can
+    // satisfy `List<Number>: Eq` through it.
     CliTest::new(
         r#"
         impl<T> Eq for List<T> {
             fn eq(self, other: List<T>): Bool { true }
         }
 
-        fn run(): Number { 0 }
+        fn check_eq<T: Eq>(a: T, b: T): Bool { a.eq(b) }
+
+        fn run(): Bool { check_eq([1, 2, 3], [1, 2, 3]) }
     "#,
     )
-    .check()
-    .expect_error("conditional");
+    .expect_output("true");
 }
 
 #[test]
-fn test_trait_impl_on_applied_container_rejected() {
+fn test_trait_impl_on_applied_container_accepted() {
     // A trait impl whose target carries concrete type arguments
-    // (`impl Eq for Option<Number>`) is conditional too: coherence keys on
-    // the container uuid alone and could not tell it from `Option<String>`.
+    // (`impl Eq for Option<Number>`) is a conditional impl with no bounds;
+    // the solver matches the exact instantiation, so `Option<Number>: Eq`
+    // is satisfied while `Option<String>: Eq` is not.
     CliTest::new(
         r#"
         impl Eq for Option<Number> {
             fn eq(self, other: Option<Number>): Bool { true }
         }
 
-        fn run(): Number { 0 }
+        fn check_eq<T: Eq>(a: T, b: T): Bool { a.eq(b) }
+
+        fn run(): Bool { check_eq(Some(1), Some(2)) }
+    "#,
+    )
+    .expect_output("true");
+}
+
+#[test]
+fn test_trait_impl_on_applied_container_wrong_instantiation_rejected() {
+    // `impl Eq for Option<Number>` must not satisfy `Option<String>: Eq`:
+    // the solver matches the concrete instantiation, not just the head uuid.
+    CliTest::new(
+        r#"
+        impl Eq for Option<Number> {
+            fn eq(self, other: Option<Number>): Bool { true }
+        }
+
+        fn check_eq<T: Eq>(a: T, b: T): Bool { a.eq(b) }
+
+        fn run(): Bool { check_eq(Some("a"), Some("b")) }
     "#,
     )
     .check()
-    .expect_error("conditional");
+    .expect_failure();
 }
