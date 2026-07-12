@@ -117,10 +117,19 @@ fn check_single_impl(
 }
 /// Check all methods in an impl block.
 ///
-/// Trait method signatures carry no `with` clause, so trait impl bodies
-/// must be pure — enforced like a public function's empty declaration,
-/// deferred until all bodies are checked. Without this, dot dispatch and
-/// operator overloading would launder arbitrary effects past callers.
+/// An impl method inherits the *whole* trait method signature — parameter and
+/// return types, and the declared effect row (`with E`). The impl author does
+/// not (and cannot) re-declare that row: the method's effects are fixed by the
+/// trait contract, so an explicit `with` clause on an impl method is still an
+/// error. But the body is no longer forced pure. Instead it is checked under
+/// the trait method's own generics — method-level type parameters rigid, `E!`
+/// installed as a fresh row scope — exactly like an inherent method's body.
+/// A body that only performs the polymorphic row (by calling a row-typed
+/// parameter) type-checks; a body performing a *concrete* ability outside the
+/// trait's declared row is rejected by the deferred subset check against the
+/// trait method's declared abilities. Without this, dot dispatch and operator
+/// overloading could launder arbitrary effects past callers, and effect
+/// polymorphism could never reach a trait-dispatched method.
 fn check_impl_methods(
     infer: &mut Infer,
     impl_def: &mut crate::ast::ImplDef,
@@ -131,7 +140,7 @@ fn check_impl_methods(
     deferred: &mut Vec<DeferredAbilityCheck>,
 ) {
     for method in &mut impl_def.methods {
-        // Trait method effects are fixed by the trait signature; a `with`
+        // The method's effects are fixed by the trait signature; a `with`
         // clause on the impl method has nothing to attach to.
         if !method.abilities.is_empty() {
             errors.push(Box::new(TypeError::new(
@@ -158,52 +167,91 @@ fn check_impl_methods(
             continue;
         };
 
-        // Type-check the method body
-        infer.reset_abilities();
-        let mut func_env = env.extend();
+        check_impl_method_body(infer, method, tm, for_type, env, errors, deferred);
+    }
+}
 
-        // Add self parameter
-        if tm.has_self {
-            func_env.insert_mono(method.self_id, Arc::from("self"), for_type.clone());
-        }
+/// Check one trait-impl method body against the (Self-substituted) trait
+/// signature, under the impl method's own method-level generics: type
+/// parameters rigid, ability (row) variables installed as a fresh scope.
+///
+/// Because an impl method's parameters must be annotated (the grammar has no
+/// bare `self, f` form), the impl re-declares the trait method's generics —
+/// `fn each<E!>(self, f: (Number) -> () with E)` — and those annotations
+/// resolve against these scopes, exactly like an inherent method. The trait
+/// method's declared row still governs *enforcement*: `tm.abilities` is the
+/// deferred check's declared set.
+fn check_impl_method_body(
+    infer: &mut Infer,
+    method: &mut crate::ast::ImplMethod,
+    tm: &crate::types::TraitMethodDef,
+    for_type: &Type,
+    env: &TypeEnv,
+    errors: &mut Vec<BoxedTypeError>,
+    deferred: &mut Vec<DeferredAbilityCheck>,
+) {
+    infer.reset_abilities();
 
-        // Add other parameters, substituting Self with the implementing type
-        for (param, expected_ty) in method.params.iter().zip(tm.params.iter()) {
-            // Substitute Self with for_type in the expected type from trait method
-            let expected_ty_substituted = substitute_self(expected_ty, for_type);
-            let param_ty = param.ty.as_ref().map_or_else(
-                || expected_ty_substituted.clone(),
-                |ty| resolve_erroring(infer, ty),
-            );
-            func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
-        }
+    // The impl method's own generics scope the body: type parameters (`U`)
+    // stay rigid (`Type::Param`), and each `E!` gets a fresh row variable, so
+    // a `with E` position in an annotated parameter type resolves to that row.
+    let rigid: Vec<Arc<str>> = method
+        .type_params
+        .iter()
+        .filter(|tp| !tp.is_ability)
+        .map(|tp| Arc::clone(&tp.name))
+        .collect();
+    let ability_scope = super::ability_vars::ability_var_scope(infer, &method.type_params);
 
-        // Infer body type and check against expected return type
-        // Substitute Self with for_type in the expected return type
-        let expected_ret = substitute_self(&tm.ret, for_type);
-        match infer.infer_expr(&func_env, &mut method.body) {
-            Ok(body_ty) => {
-                let method_span = (method.span.start, method.span.end);
-                if let Err(e) = infer.unify(&expected_ret, &body_ty, method_span) {
+    infer.with_ability_var_scope(ability_scope, true, |infer| {
+        infer.with_rigid_params(rigid, |infer| {
+            let mut func_env = env.extend();
+
+            if tm.has_self {
+                func_env.insert_mono(method.self_id, Arc::from("self"), for_type.clone());
+            }
+
+            // Each parameter's expected type comes from the trait signature
+            // (Self → the implementing type, resolved under the scopes above);
+            // an explicit annotation on the impl method is resolved the same
+            // way and used in its place.
+            for (param, expected_ty) in method.params.iter().zip(tm.params.iter()) {
+                let param_ty = match &param.ty {
+                    Some(ty) => resolve_erroring(infer, ty),
+                    None => resolve_erroring(infer, &substitute_self(expected_ty, for_type)),
+                };
+                func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
+            }
+
+            let expected_ret = resolve_erroring(infer, &substitute_self(&tm.ret, for_type));
+            match infer.infer_expr(&func_env, &mut method.body) {
+                Ok(body_ty) => {
+                    let method_span = (method.span.start, method.span.end);
+                    if let Err(e) = infer.unify(&expected_ret, &body_ty, method_span) {
+                        errors.push(e.with_context(format!("in impl method `{}`", method.name)));
+                    }
+                    // The declared row is the trait method's `with` clause: a
+                    // row-variable name resolves to nothing concrete and is
+                    // ignored (its instantiation is enforced at call sites),
+                    // so only a concrete ability outside the row is flagged.
+                    deferred.push(DeferredAbilityCheck {
+                        context: format!("trait impl method `{}`", method.name),
+                        declared: tm.abilities.clone(),
+                        inferred: infer.current_abilities().clone(),
+                        span: method.span,
+                    });
+                }
+                Err(e) => {
                     errors.push(e.with_context(format!("in impl method `{}`", method.name)));
                 }
-                deferred.push(DeferredAbilityCheck {
-                    context: format!("trait impl method `{}`", method.name),
-                    declared: Vec::new(),
-                    inferred: infer.current_abilities().clone(),
-                    span: method.span,
-                });
             }
-            Err(e) => {
-                errors.push(e.with_context(format!("in impl method `{}`", method.name)));
-            }
-        }
 
-        // A trait impl method body may call bounded generics at concrete
-        // types; solve those constraints against this body before the next
-        // one runs.
-        infer.finish_body_constraints(&mut method.body, errors);
-    }
+            // A trait impl method body may call bounded generics at concrete
+            // types; solve those constraints against this body before the next
+            // one runs.
+            infer.finish_body_constraints(&mut method.body, errors);
+        });
+    });
 }
 /// Check that all required trait methods are implemented.
 fn check_impl_completeness(

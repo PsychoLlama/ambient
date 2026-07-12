@@ -475,6 +475,10 @@ pub struct TraitMethod {
     pub params: Vec<(Arc<str>, Type)>,
     /// Return type.
     pub ret_ty: Type,
+    /// Declared abilities (the method's `with` clause). `E` here names a
+    /// method-level ability (row) variable from `type_params`; a concrete
+    /// name resolves to its ability id.
+    pub abilities: Vec<QualifiedName>,
     /// Source span.
     pub span: Span,
 }

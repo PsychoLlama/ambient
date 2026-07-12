@@ -43,6 +43,10 @@ pub struct CstTraitMethod {
     pub params: Vec<CstTraitParam>,
     /// Return type.
     pub ret_ty: CstTypeExpr,
+    /// Declared abilities (`with E` or `with Stdio, Log`). A trait method's
+    /// effect row is part of its dispatch contract, so it is declared here
+    /// exactly like a free function's `with` clause.
+    pub abilities: Vec<CstQualifiedName>,
     /// Source span.
     pub span: Span,
 }

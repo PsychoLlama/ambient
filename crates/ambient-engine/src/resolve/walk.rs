@@ -128,6 +128,9 @@ impl Resolver<'_> {
                 self.push_type_params(&t.type_params);
                 for method in &mut t.methods {
                     self.push_type_params(&method.type_params);
+                    for ability in &mut method.abilities {
+                        self.resolve_ability_ref(ability);
+                    }
                     for (_, ty) in &mut method.params {
                         self.resolve_type(ty);
                     }

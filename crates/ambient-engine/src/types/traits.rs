@@ -199,6 +199,14 @@ impl TraitDef {
 }
 
 /// A method signature in a trait definition.
+///
+/// The signature is stored *un-instantiated*: parameter/return types keep
+/// `Self` and any method-level type parameters (`U`) as bare `Named`s, and the
+/// effect row keeps `E` unresolved. `type_param_names`/`ability_var_names`
+/// record the method's own generics so each use site (a trait-dispatched call,
+/// or an impl body) resolves the signature under its own scope — fresh
+/// inference variables at a call site, rigid parameters plus a fresh row scope
+/// in an impl body — instead of baking one set of variables into the registry.
 #[derive(Debug, Clone)]
 pub struct TraitMethodDef {
     /// Method name.
@@ -207,15 +215,25 @@ pub struct TraitMethodDef {
     /// Whether the method takes `self` as first argument.
     pub has_self: bool,
 
-    /// Parameter types (excluding self).
+    /// Parameter types (excluding self), with `Self`/`U`/`E` unresolved.
     pub params: Vec<Type>,
 
-    /// Return type.
+    /// Return type, with `Self`/`U`/`E` unresolved.
     pub ret: Type,
+
+    /// The method's declared effect row (`with E` / `with Stdio`), unresolved.
+    /// A name matching `ability_var_names` is the row's polymorphic tail.
+    pub abilities: Vec<crate::ast::QualifiedName>,
+
+    /// Unbounded method-level type parameter names (`fn tag<U>` → `["U"]`).
+    pub type_param_names: Vec<Arc<str>>,
+
+    /// Method-level ability (row) variable names (`fn each<E!>` → `["E"]`).
+    pub ability_var_names: Vec<Arc<str>>,
 }
 
 impl TraitMethodDef {
-    /// Create a new trait method definition.
+    /// Create a new trait method definition with no method-level generics.
     #[must_use]
     pub fn new(name: impl Into<Arc<str>>, has_self: bool, params: Vec<Type>, ret: Type) -> Self {
         Self {
@@ -223,7 +241,24 @@ impl TraitMethodDef {
             has_self,
             params,
             ret,
+            abilities: Vec::new(),
+            type_param_names: Vec::new(),
+            ability_var_names: Vec::new(),
         }
+    }
+
+    /// Attach the method's declared effect row and method-level generics.
+    #[must_use]
+    pub fn with_generics(
+        mut self,
+        abilities: Vec<crate::ast::QualifiedName>,
+        type_param_names: Vec<Arc<str>>,
+        ability_var_names: Vec<Arc<str>>,
+    ) -> Self {
+        self.abilities = abilities;
+        self.type_param_names = type_param_names;
+        self.ability_var_names = ability_var_names;
+        self
     }
 }
 

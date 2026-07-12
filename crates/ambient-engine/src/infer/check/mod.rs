@@ -27,6 +27,7 @@ mod subst;
 mod tests;
 
 pub use abilities::{resolve_ability_declarations, resolve_registry_abilities};
+pub(in crate::infer) use ability_vars::resolve_declared_with;
 pub(in crate::infer) use locals::resolve_body_annotation;
 pub(in crate::infer) use subst::{substitute_named, substitute_type_params};
 

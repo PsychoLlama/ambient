@@ -637,20 +637,154 @@ fn ability_variable_on_impl_block_is_rejected() {
     .expect_error("not supported on impl blocks");
 }
 
-/// `E!` on a trait method stays rejected — trait methods still discard all
-/// method generics (a pre-existing gap), so the row variable would have
-/// nothing to attach to.
+/// `E!` on a trait method now checks: the method-level ability (row) variable
+/// binds `with E` positions in the signature, exactly as on free functions and
+/// inherent methods. The declaration alone type-checks.
 #[test]
-fn ability_variable_on_trait_method_is_rejected() {
+fn ability_variable_on_trait_method_checks() {
     CliTest::new(
         r#"
         pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000006) trait Run {
-          fn run<E!>(self, body: () -> Number with E): Number;
+          fn run<E!>(self, body: () -> Number with E): Number with E;
         }
         "#,
     )
     .check()
-    .expect_error("not yet supported on trait methods");
+    .expect_success();
+}
+
+/// End-to-end effect polymorphism through a trait-dispatched call: a struct's
+/// `each` forwards an effectful lambda, and the performed ability propagates to
+/// a caller that declares it.
+#[test]
+fn trait_method_effect_row_propagates_through_dispatch() {
+    CliTest::new(
+        r#"
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000010) struct Collection { n: Number }
+
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000011) trait Each {
+          fn each<E!>(self, f: (Number) -> () with E): () with E;
+        }
+
+        impl Each for Collection {
+          fn each<E!>(self, f: (Number) -> () with E) { f(self.n) }
+        }
+
+        pub fn drive(c: Collection): () with core::system::Stdio {
+          c.each((n) => { core::system::Stdio::out!(core::convert::to_string(n)); })
+        }
+        "#,
+    )
+    .check()
+    .expect_success();
+}
+
+/// The same trait-dispatched call, but the caller fails to declare the ability
+/// the lambda performs — the propagated row surfaces as a missing-ability
+/// error, so effects can't launder past the caller.
+#[test]
+fn trait_method_effect_row_requires_caller_to_declare() {
+    CliTest::new(
+        r#"
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000012) struct Collection { n: Number }
+
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000013) trait Each {
+          fn each<E!>(self, f: (Number) -> () with E): () with E;
+        }
+
+        impl Each for Collection {
+          fn each<E!>(self, f: (Number) -> () with E) { f(self.n) }
+        }
+
+        pub fn drive(c: Collection): () {
+          c.each((n) => { core::system::Stdio::out!(core::convert::to_string(n)); })
+        }
+        "#,
+    )
+    .check()
+    .expect_error("missing ability");
+}
+
+/// A pure lambda through the same `E!` method instantiates the row to empty, so
+/// the caller stays pure — no spurious required ability.
+#[test]
+fn trait_method_pure_lambda_stays_pure() {
+    CliTest::new(
+        r#"
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000014) struct Collection { n: Number }
+
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000015) trait Each {
+          fn each<E!>(self, f: (Number) -> () with E): () with E;
+        }
+
+        impl Each for Collection {
+          fn each<E!>(self, f: (Number) -> () with E) { f(self.n) }
+        }
+
+        pub fn drive(c: Collection): () {
+          c.each((n) => {})
+        }
+        "#,
+    )
+    .check()
+    .expect_success();
+}
+
+/// An unbounded method-level *type* parameter on a trait method flows through
+/// dispatch: `tag<U>(self, u: U): U` instantiates `U` per call site.
+#[test]
+fn trait_method_type_param_flows_through_dispatch() {
+    CliTest::new(
+        r#"
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000016) struct Wrapper { v: Number }
+
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000017) trait Tagger {
+          fn tag<U>(self, u: U): U;
+        }
+
+        impl Tagger for Wrapper {
+          fn tag<U>(self, u: U) { u }
+        }
+
+        pub fn run(): Number {
+          let w = Wrapper { v: 1 };
+          w.tag(42)
+        }
+        "#,
+    )
+    .expect_output("42");
+}
+
+/// A reserved operator trait (here `Add`, by its pinned uuid) may not declare
+/// method-level generics: operator desugaring anchors on the fixed reserved
+/// shape and cannot supply a fresh type/row variable per operator use.
+#[test]
+fn reserved_operator_trait_method_cannot_be_generic() {
+    CliTest::new(
+        r#"
+        pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0010) trait Add {
+          fn add<E!>(self, other: Self): Self with E;
+        }
+        "#,
+    )
+    .check()
+    .expect_error("must not declare method-level generics");
+}
+
+/// A *bounded* method-level type parameter on a trait method is a deliberate
+/// scope cut: it would need per-call dictionary threading the trait-dispatch
+/// path doesn't build, so lowering rejects it with a clear diagnostic.
+#[test]
+fn bounded_trait_method_type_param_is_rejected() {
+    CliTest::new(
+        r#"
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000018) trait Tagger {
+          fn tag<U: core::traits::Default>(self, u: U): U;
+        }
+        "#,
+    )
+    .check()
+    .expect_error("trait bounds are not yet supported on trait-method type parameters");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

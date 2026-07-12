@@ -99,7 +99,7 @@ pub(super) fn ability_var_scope(
 /// tail, so a second distinct variable in one row is an error. Unknown
 /// concrete names report through `pending_errors` — a typo must not quietly
 /// declare the function pure.
-pub(super) fn resolve_declared_with(
+pub(in crate::infer) fn resolve_declared_with(
     infer: &mut Infer,
     abilities: &[QualifiedName],
     ability_var_map: &HashMap<Arc<str>, AbilityVarId>,

@@ -652,6 +652,16 @@ impl Parser<'_> {
         self.expect(TokenKind::Colon)?;
         let ret_ty = self.parse_type()?;
 
+        // Optional `with` clause: the method's declared effect row. Parsed like
+        // a free function's, so `with E` (a method-level ability variable) or
+        // `with Stdio` binds the same way.
+        let abilities = if self.check(TokenKind::With) {
+            self.advance();
+            self.parse_ability_list(super::types::TypeCtx::Default)?
+        } else {
+            Vec::new()
+        };
+
         let end = self.expect(TokenKind::Semi)?.span.end;
 
         Ok(CstTraitMethod {
@@ -659,6 +669,7 @@ impl Parser<'_> {
             type_params,
             params,
             ret_ty,
+            abilities,
             span: Span::new(start, end),
         })
     }

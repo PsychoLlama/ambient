@@ -64,6 +64,27 @@ fn lower_type_param_no_ability(
     lower_type_param(tp)
 }
 
+/// Lower a trait-method type parameter. Effect-polymorphic ability variables
+/// (`E!`) are wired here (they bind `with E` positions in the method signature,
+/// like free functions and inherent methods), but trait *bounds* are not: a
+/// bounded method-level type parameter would need per-call dictionary threading
+/// the trait-dispatch path does not build, so it is rejected with a clear
+/// message pointing at the unsupported feature rather than miscompiling.
+fn lower_trait_method_type_param(tp: &crate::cst::CstTypeParam) -> Result<TypeParam, ParseError> {
+    if !tp.bounds.is_empty() {
+        return Err(ParseError::new(
+            ParseErrorKind::LoweringError(
+                "trait bounds are not yet supported on trait-method type \
+                 parameters; a bounded method-level parameter needs per-call \
+                 dictionary passing that trait dispatch does not yet build"
+                    .into(),
+            ),
+            tp.span,
+        ));
+    }
+    lower_type_param(tp)
+}
+
 /// Lower a type parameter in a position where trait bounds are meaningless
 /// (type declarations, which have no code to constrain, and `extern fn`s,
 /// which have no dictionary calling convention). A bound there is an error
@@ -570,14 +591,7 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
             let method_type_params = m
                 .type_params
                 .iter()
-                .map(|tp| {
-                    lower_type_param_no_ability(
-                        tp,
-                        "ability variables (`E!`) are not yet supported on trait \
-                         methods; effect polymorphism is available on free \
-                         functions, ability methods, and inherent impl methods",
-                    )
-                })
+                .map(lower_trait_method_type_param)
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Check if first param is self
@@ -608,6 +622,8 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
 
             let ret_ty = lower_type(&m.ret_ty)?;
 
+            let abilities = m.abilities.iter().map(lower_qualified_name).collect();
+
             Ok(TraitMethod {
                 name: m.name.name.clone(),
                 name_span: m.name.span,
@@ -615,6 +631,7 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
                 has_self,
                 params,
                 ret_ty,
+                abilities,
                 span: m.span,
             })
         })

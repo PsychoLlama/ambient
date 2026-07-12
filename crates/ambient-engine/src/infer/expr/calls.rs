@@ -2,12 +2,14 @@
 //! (`Type::method(...)`) calls, and trait method calls — plus the shared
 //! `Self`-substitution helper.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::ast::{Dicts, Expr, ResolvedMethod};
+use crate::infer::check::{resolve_declared_with, substitute_type_params};
 use crate::infer::error::BoxedTypeErrorExt;
 use crate::infer::{Infer, InferResult, TypeEnv, TypeErrorKind, type_error};
-use crate::types::Type;
+use crate::types::{AbilitySet, AbilityVarId, TraitMethodDef, Type, TypeVarId};
 
 impl Infer {
     /// Type-check a call to an inherent method against its instantiated
@@ -137,15 +139,16 @@ impl Infer {
 
         // The method must exist and be associated (no `self`); an instance
         // method reached this way is not a valid associated call.
-        let (params, ret, symbol) = match self.trait_registry.find_method(nominal.uuid, method_name)
+        let (method_def, symbol) = match self.trait_registry.find_method(nominal.uuid, method_name)
         {
             crate::types::MethodLookup::Found { method, symbol, .. } if !method.has_self => {
-                (method.params.clone(), method.ret.clone(), symbol)
+                (method.clone(), symbol)
             }
             _ => return Ok(None),
         };
 
         let self_ty = Type::Nominal(nominal);
+        let (params, ret, abilities) = self.instantiate_trait_method(&method_def, &self_ty);
 
         let mut arg_tys = Vec::with_capacity(args.len());
         for arg in args.iter_mut() {
@@ -164,8 +167,7 @@ impl Infer {
         }
 
         for (i, (arg_ty, param_ty)) in arg_tys.iter().zip(params.iter()).enumerate() {
-            let param_ty = substitute_self(param_ty, &self_ty);
-            if let Err(e) = self.unify(arg_ty, &param_ty, span) {
+            if let Err(e) = self.unify(arg_ty, param_ty, span) {
                 return Err(e.with_context(format!(
                     "in argument {} of associated call `{type_name}::{method_name}`",
                     i + 1
@@ -173,7 +175,10 @@ impl Infer {
             }
         }
 
-        Ok(Some((symbol, substitute_self(&ret, &self_ty))))
+        let abilities = self.apply_abilities(&abilities);
+        self.require_abilities(&abilities);
+
+        Ok(Some((symbol, self.apply(&ret))))
     }
 
     /// Infer the type of a method call expression.
@@ -279,6 +284,13 @@ impl Infer {
         // Store the resolved dispatch symbol for compilation
         *resolved_method = Some(ResolvedMethod::Symbol(method_symbol));
 
+        // Instantiate the method's generics fresh for this call site: `Self` →
+        // the receiver, each method-level type parameter → a fresh inference
+        // variable, each `E!` → a fresh ability (row) variable. An effectful
+        // argument's row unifies into that variable and then propagates to the
+        // caller via `require_abilities` below.
+        let (params, ret, abilities) = self.instantiate_trait_method(&method_def, &receiver_ty);
+
         // Infer argument types
         let mut arg_tys = Vec::new();
         for arg in args.iter_mut() {
@@ -286,8 +298,7 @@ impl Infer {
         }
 
         // Check argument count (excluding self)
-        let expected_param_count = method_def.params.len();
-        if arg_tys.len() != expected_param_count {
+        if arg_tys.len() != params.len() {
             // Get trait name for error message
             let trait_name = self
                 .trait_registry
@@ -295,7 +306,7 @@ impl Infer {
                 .map_or_else(|| Arc::from("?"), |t| Arc::clone(&t.name));
             return Err(type_error(
                 TypeErrorKind::ArityMismatch {
-                    expected: expected_param_count,
+                    expected: params.len(),
                     actual: arg_tys.len(),
                 },
                 span,
@@ -303,13 +314,9 @@ impl Infer {
             .with_context(format!("in method call `{trait_name}.{method_name}`")));
         }
 
-        // Unify argument types with parameter types
-        // For now, we use the parameter types from the trait method definition
-        // In a full implementation, we'd substitute Self with the receiver type
-        for (i, (arg_ty, param_ty)) in arg_tys.iter().zip(method_def.params.iter()).enumerate() {
-            // Substitute Self in param_ty with the receiver type
-            let param_ty = substitute_self(param_ty, &receiver_ty);
-            if let Err(e) = self.unify(arg_ty, &param_ty, span) {
+        // Unify argument types with the instantiated parameter types.
+        for (i, (arg_ty, param_ty)) in arg_tys.iter().zip(params.iter()).enumerate() {
+            if let Err(e) = self.unify(arg_ty, param_ty, span) {
                 return Err(e.with_context(format!(
                     "in argument {} of method `{}`",
                     i + 1,
@@ -318,8 +325,53 @@ impl Infer {
             }
         }
 
-        // Return the substituted return type
-        Ok(substitute_self(&method_def.ret, &receiver_ty))
+        // The method's declared effect row (with its instantiated variable) is
+        // the caller's obligation, exactly as an ordinary call absorbs its
+        // callee's `with` row.
+        let abilities = self.apply_abilities(&abilities);
+        self.require_abilities(&abilities);
+
+        Ok(self.apply(&ret))
+    }
+
+    /// Instantiate a trait method's stored (un-instantiated) signature for one
+    /// use, substituting `Self` with `self_ty`, each method-level type
+    /// parameter with a fresh inference variable, and each `E!` with a fresh
+    /// ability (row) variable. Returns the non-self parameter types, the return
+    /// type, and the declared effect row. Mirrors how a generic function's
+    /// scheme is instantiated at a call site.
+    pub(in crate::infer) fn instantiate_trait_method(
+        &mut self,
+        method: &TraitMethodDef,
+        self_ty: &Type,
+    ) -> (Vec<Type>, Type, AbilitySet) {
+        let type_var_map: HashMap<Arc<str>, TypeVarId> = method
+            .type_param_names
+            .iter()
+            .map(|n| (Arc::clone(n), self.r#gen.fresh_id()))
+            .collect();
+        let ability_var_map: HashMap<Arc<str>, AbilityVarId> = method
+            .ability_var_names
+            .iter()
+            .map(|n| (Arc::clone(n), self.r#gen.fresh_ability_id()))
+            .collect();
+
+        self.with_ability_var_scope(ability_var_map.clone(), false, |infer| {
+            let instantiate = |infer: &mut Self, ty: &Type| {
+                let ty = substitute_type_params(ty, &type_var_map);
+                let ty = infer.resolve_holes(&ty);
+                substitute_self(&ty, self_ty)
+            };
+            let params = method
+                .params
+                .iter()
+                .map(|p| instantiate(infer, p))
+                .collect();
+            let ret = instantiate(infer, &method.ret);
+            let abilities =
+                resolve_declared_with(infer, &method.abilities, &ability_var_map, &method.name);
+            (params, ret, abilities)
+        })
     }
 
     /// Type a method call whose receiver is a rigid type parameter: the
@@ -417,29 +469,33 @@ impl Infer {
             })?;
         let slot = trait_def.dictionary_slot(method_name).unwrap_or_default();
 
-        // Type against the trait signature with Self = the parameter.
-        if args.len() != method_def.params.len() {
+        // Type against the trait signature with Self = the parameter, the
+        // method's own generics instantiated fresh for this call.
+        let (params, ret, abilities) = self.instantiate_trait_method(&method_def, receiver_ty);
+        if args.len() != params.len() {
             return Err(type_error(
                 TypeErrorKind::ArityMismatch {
-                    expected: method_def.params.len(),
+                    expected: params.len(),
                     actual: args.len(),
                 },
                 span,
             )
             .with_context(format!("in method call `{}.{method_name}`", bound.name)));
         }
-        for (i, (arg, param_ty)) in args.iter_mut().zip(method_def.params.iter()).enumerate() {
+        for (i, (arg, param_ty)) in args.iter_mut().zip(params.iter()).enumerate() {
             let arg_ty = self.infer_expr(env, arg)?;
-            let param_ty = substitute_self(param_ty, receiver_ty);
-            if let Err(e) = self.unify(&arg_ty, &param_ty, span) {
+            if let Err(e) = self.unify(&arg_ty, param_ty, span) {
                 return Err(
                     e.with_context(format!("in argument {} of method `{method_name}`", i + 1))
                 );
             }
         }
 
+        let abilities = self.apply_abilities(&abilities);
+        self.require_abilities(&abilities);
+
         *resolved_method = Some(ResolvedMethod::DictSlot { dict_index, slot });
-        Ok(substitute_self(&method_def.ret, receiver_ty))
+        Ok(self.apply(&ret))
     }
 }
 

@@ -191,6 +191,12 @@ fn validate_reserved_trait(def: &crate::ast::TraitDef) -> Result<(), String> {
             if has_self { " and `self`" } else { "" }
         ));
     }
+    // Operator desugaring anchors on the reserved shape and cannot supply
+    // method-level generics (a fresh type or effect-row variable per operator
+    // use), so a reserved operator method must be non-generic.
+    if !method.type_params.is_empty() {
+        return mismatch("its method must not declare method-level generics");
+    }
     Ok(())
 }
 
@@ -236,12 +242,26 @@ fn checked_trait_def(trait_def: &crate::ast::TraitDef) -> TraitDef {
         .methods
         .iter()
         .map(|m| {
+            // Method-level generics: unbounded type parameters (`U`) and
+            // ability (row) variables (`E!`). Lowering rejects bounds on a
+            // trait-method type parameter, so only the two name lists survive
+            // — the signature stays un-instantiated (see `TraitMethodDef`).
+            let mut type_param_names = Vec::new();
+            let mut ability_var_names = Vec::new();
+            for tp in &m.type_params {
+                if tp.is_ability {
+                    ability_var_names.push(Arc::clone(&tp.name));
+                } else {
+                    type_param_names.push(Arc::clone(&tp.name));
+                }
+            }
             TraitMethodDef::new(
                 Arc::clone(&m.name),
                 m.has_self,
                 m.params.iter().map(|(_, ty)| ty.clone()).collect(),
                 m.ret_ty.clone(),
             )
+            .with_generics(m.abilities.clone(), type_param_names, ability_var_names)
         })
         .collect();
 
