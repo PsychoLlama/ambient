@@ -7,8 +7,22 @@
 //! <root>/
 //!   format                    "ambient-store-v1\n" (version marker)
 //!   names                     "<hex-hash> <name>\n" per binding, sorted
+//!   signatures                "<name>\t<canonical-signature>\n", sorted
+//!   migrations                "<cell>\t<old>\t<new>\n" per obligation, sorted
 //!   objects/<2hex>/<62hex>    one canonical object per file
 //! ```
+//!
+//! `signatures` and `migrations` are the two sections artifact packs
+//! gained in pack v2 (`CompiledModule::to_pack`), persisted so a future
+//! "deploy from the package store" frontend can reconstruct a generation's
+//! name bindings (`hash + signature`, the rebinding rule's input) and its
+//! pre-swap migration obligations. Both are sidecars beside `names`: an old
+//! store simply lacks the files, which reads back as "no signatures / no
+//! migrations" — and a missing signature fails safe to retire-and-fresh
+//! (see `ref/live-upgrade.md`). Their fields are tab-separated with a
+//! minimal `\`/newline/tab escape, because a signature or cell name may
+//! contain spaces (`(Number) -> String with row`) — the flat `names`
+//! file's space delimiter would be ambiguous there.
 //!
 //! Every object file's path is derived from its content: for plain and
 //! group objects, `blake3(file bytes)` *is* the file name, so a read
@@ -35,7 +49,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::bytecode::CompiledFunction;
-use crate::compiler::CompiledModule;
+use crate::compiler::{CompiledModule, MigrationRecord};
 use crate::object::{ObjectError, StoredObject};
 use crate::store::Store;
 
@@ -69,6 +83,10 @@ pub enum DiskStoreError {
     UnknownFormat(String),
     /// The `names` file is malformed.
     MalformedNames(String),
+    /// The `signatures` file is malformed.
+    MalformedSignatures(String),
+    /// The `migrations` file is malformed.
+    MalformedMigrations(String),
 }
 
 impl std::fmt::Display for DiskStoreError {
@@ -91,6 +109,12 @@ impl std::fmt::Display for DiskStoreError {
                 )
             }
             Self::MalformedNames(line) => write!(f, "malformed names entry: {line:?}"),
+            Self::MalformedSignatures(line) => {
+                write!(f, "malformed signatures entry: {line:?}")
+            }
+            Self::MalformedMigrations(line) => {
+                write!(f, "malformed migrations entry: {line:?}")
+            }
         }
     }
 }
@@ -237,10 +261,32 @@ impl DiskStore {
         // consts share the flat index; the object kind at each hash tells
         // them apart (`store show`/`ls`).
         let mut names = self.names()?;
+        let mut signatures = self.signatures()?;
         for (name, hash) in module.function_names.iter().chain(&module.const_names) {
             names.insert(name.to_string(), *hash);
+            // Keep signatures in lockstep with names: a name this build
+            // rebinds either gets its fresh rendering or drops the stale
+            // one. A stale signature is worse than none — `None` fails safe
+            // to retire-and-fresh, but a wrong rendering could make the
+            // deploy rule *rebind* incompatibly.
+            match module.signatures.get(name.as_ref()) {
+                Some(sig) => {
+                    signatures.insert(name.to_string(), sig.to_string());
+                }
+                None => {
+                    signatures.remove(name.as_ref());
+                }
+            }
         }
         self.write_names(&names)?;
+        self.write_signatures(&signatures)?;
+
+        // Migrations are per-build obligations, not per-name facts, so a
+        // complete build replaces them wholesale — matching the names
+        // file's "always reflects a complete build" contract. (Incremental
+        // per-module puts therefore do *not* accumulate obligations; put a
+        // merged build.)
+        self.write_migrations(&module.migrations)?;
 
         Ok(stats)
     }
@@ -416,6 +462,153 @@ impl DiskStore {
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // Signatures and migrations (pack v2 parity)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// Read the name → canonical-signature renderings from the latest
+    /// build. This is a *subset* of [`Self::names`]: a name whose producer
+    /// rendered no signature has no entry here (fails safe to
+    /// retire-and-fresh under the rebinding rule). An old store lacking the
+    /// file reads back empty.
+    ///
+    /// # Errors
+    ///
+    /// Fails on I/O errors or a malformed signatures file.
+    pub fn signatures(&self) -> Result<BTreeMap<String, String>, DiskStoreError> {
+        let path = self.root.join("signatures");
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+            Err(e) => return Err(e.into()),
+        };
+        let mut signatures = BTreeMap::new();
+        for line in content.lines() {
+            if line.is_empty() {
+                continue;
+            }
+            let Some((name, sig)) = line.split_once('\t') else {
+                return Err(DiskStoreError::MalformedSignatures(line.to_string()));
+            };
+            signatures.insert(
+                unescape_field(name)
+                    .ok_or_else(|| DiskStoreError::MalformedSignatures(line.to_string()))?,
+                unescape_field(sig)
+                    .ok_or_else(|| DiskStoreError::MalformedSignatures(line.to_string()))?,
+            );
+        }
+        Ok(signatures)
+    }
+
+    /// Atomically replace the signatures sidecar.
+    ///
+    /// # Errors
+    ///
+    /// Fails on I/O errors.
+    pub fn write_signatures(
+        &self,
+        signatures: &BTreeMap<String, String>,
+    ) -> Result<(), DiskStoreError> {
+        let mut content = String::new();
+        for (name, sig) in signatures {
+            content.push_str(&escape_field(name));
+            content.push('\t');
+            content.push_str(&escape_field(sig));
+            content.push('\n');
+        }
+        write_atomic(
+            &self.root,
+            &self.root.join("signatures"),
+            content.as_bytes(),
+        )?;
+        Ok(())
+    }
+
+    /// Read the latest build's statically-named `State::init_versioned`
+    /// obligations. An old store lacking the file reads back empty. The
+    /// result is sorted (by `(cell, old, new)`), matching what was written.
+    ///
+    /// # Errors
+    ///
+    /// Fails on I/O errors or a malformed migrations file.
+    pub fn migrations(&self) -> Result<Vec<MigrationRecord>, DiskStoreError> {
+        let path = self.root.join("migrations");
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e.into()),
+        };
+        let mut migrations = Vec::new();
+        for line in content.lines() {
+            if line.is_empty() {
+                continue;
+            }
+            let mut fields = line.split('\t');
+            let (Some(cell), Some(old), Some(new), None) =
+                (fields.next(), fields.next(), fields.next(), fields.next())
+            else {
+                return Err(DiskStoreError::MalformedMigrations(line.to_string()));
+            };
+            let malformed = || DiskStoreError::MalformedMigrations(line.to_string());
+            migrations.push(MigrationRecord {
+                cell: unescape_field(cell).ok_or_else(malformed)?.into(),
+                old: unescape_field(old).ok_or_else(malformed)?.into(),
+                new: unescape_field(new).ok_or_else(malformed)?.into(),
+            });
+        }
+        Ok(migrations)
+    }
+
+    /// Atomically replace the migrations sidecar with a complete build's
+    /// obligations, written sorted for determinism.
+    ///
+    /// # Errors
+    ///
+    /// Fails on I/O errors.
+    pub fn write_migrations(&self, migrations: &[MigrationRecord]) -> Result<(), DiskStoreError> {
+        let mut sorted: Vec<&MigrationRecord> = migrations.iter().collect();
+        sorted.sort_by(|a, b| (&a.cell, &a.old, &a.new).cmp(&(&b.cell, &b.old, &b.new)));
+        let mut content = String::new();
+        for record in sorted {
+            content.push_str(&escape_field(&record.cell));
+            content.push('\t');
+            content.push_str(&escape_field(&record.old));
+            content.push('\t');
+            content.push_str(&escape_field(&record.new));
+            content.push('\n');
+        }
+        write_atomic(
+            &self.root,
+            &self.root.join("migrations"),
+            content.as_bytes(),
+        )?;
+        Ok(())
+    }
+
+    /// Convenience: every name binding as `name → (hash, signature)`,
+    /// joining the `names` index with the `signatures` sidecar. This is the
+    /// exact shape a deploy frontend needs to reconstruct a generation's
+    /// `Binding`s (see `crates/ambient-platform/src/deploy.rs`); a name with
+    /// no rendered signature carries `None`, which fails safe to
+    /// retire-and-fresh.
+    ///
+    /// # Errors
+    ///
+    /// Fails on I/O errors or a malformed names/signatures file.
+    pub fn name_bindings(
+        &self,
+    ) -> Result<BTreeMap<String, (blake3::Hash, Option<String>)>, DiskStoreError> {
+        let names = self.names()?;
+        let mut signatures = self.signatures()?;
+        Ok(names
+            .into_iter()
+            .map(|(name, hash)| {
+                let sig = signatures.remove(&name);
+                (name, (hash, sig))
+            })
+            .collect())
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // Maintenance
     // ─────────────────────────────────────────────────────────────────────
 
@@ -581,355 +774,48 @@ fn write_atomic(store_root: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> 
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::object::{GroupMember, ObjectConstant, ObjectFunction, ObjectRef};
-
-    fn temp_store() -> (tempfile::TempDir, DiskStore) {
-        let dir = tempfile::tempdir().expect("create temp dir");
-        let store = DiskStore::open(dir.path().join("store")).expect("open store");
-        (dir, store)
+/// Escape a `signatures`/`migrations` field so tab (the field separator)
+/// and newline (the record separator) can never appear raw. Canonical
+/// signature renderings are single-line today, but a cell name is an
+/// arbitrary user string literal and a fingerprint an arbitrary rendering,
+/// so the store escapes defensively rather than assume. Backslash is the
+/// escape lead; the common case (no special chars) is left untouched and
+/// stays human-readable.
+fn escape_field(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            other => out.push(other),
+        }
     }
-
-    fn plain(n: f64) -> StoredObject {
-        StoredObject::Plain(ObjectFunction {
-            bytecode: vec![1, 2, 3],
-            constants: vec![ObjectConstant::Number(n)],
-            local_count: 0,
-            param_count: 0,
-            dependencies: vec![],
-        })
-    }
-
-    #[test]
-    fn put_get_roundtrip() {
-        let (_dir, store) = temp_store();
-        let object = plain(42.0);
-        let hash = store.put_object(&object).expect("put");
-        assert!(store.contains(&hash));
-        let loaded = store.get_object(&hash).expect("get").expect("present");
-        assert_eq!(loaded, object);
-    }
-
-    #[test]
-    fn missing_object_is_none() {
-        let (_dir, store) = temp_store();
-        let absent = blake3::hash(b"nothing here");
-        assert!(store.get_object(&absent).expect("get").is_none());
-        assert!(store.get_function(&absent).expect("get").is_none());
-    }
-
-    #[test]
-    fn corruption_is_detected() {
-        let (_dir, store) = temp_store();
-        let hash = store.put_object(&plain(1.0)).expect("put");
-
-        // Flip one byte in the object file.
-        let path = store.object_path(&hash);
-        let mut bytes = std::fs::read(&path).expect("read");
-        let last = bytes.len() - 1;
-        bytes[last] ^= 0xff;
-        std::fs::write(&path, &bytes).expect("write");
-
-        let result = store.get_object(&hash);
-        assert!(
-            matches!(
-                result,
-                Err(DiskStoreError::Corrupt { .. } | DiskStoreError::Object { .. })
-            ),
-            "corrupted object must not load: {result:?}"
-        );
-    }
-
-    #[test]
-    fn group_and_redirects_roundtrip_through_disk() {
-        let (_dir, store) = temp_store();
-
-        let member = |other: u32, name: &str| GroupMember {
-            name: Some(name.to_string()),
-            function: ObjectFunction {
-                bytecode: vec![7],
-                constants: vec![ObjectConstant::Ref(ObjectRef::Internal(other))],
-                local_count: 0,
-                param_count: 1,
-                dependencies: vec![ObjectRef::Internal(other)],
-            },
-        };
-        let group = StoredObject::Group(vec![member(1, "even"), member(0, "odd")]);
-        let group_hash = store.put_object(&group).expect("put group");
-
-        let even = crate::object::member_hash(&group_hash, 0, 2);
-        let odd = crate::object::member_hash(&group_hash, 1, 2);
-        store
-            .put_object_at(
-                &even,
-                &StoredObject::Redirect {
-                    group: group_hash,
-                    index: 0,
-                },
-            )
-            .expect("put redirect");
-        store
-            .put_object_at(
-                &odd,
-                &StoredObject::Redirect {
-                    group: group_hash,
-                    index: 1,
-                },
-            )
-            .expect("put redirect");
-
-        // get_function follows the redirect, verifies, and substitutes
-        // sibling hashes.
-        let func = store.get_function(&even).expect("get").expect("present");
-        assert_eq!(func.hash, even);
-        assert_eq!(func.dependencies, vec![odd]);
-    }
-
-    #[test]
-    fn lying_redirect_is_rejected() {
-        let (_dir, store) = temp_store();
-        let decoy_hash = store.put_object(&plain(3.0)).expect("put");
-
-        // A redirect claiming that some arbitrary hash is member 5 of a
-        // plain object's hash.
-        let liar = blake3::hash(b"liar");
-        store
-            .put_object_at(
-                &liar,
-                &StoredObject::Redirect {
-                    group: decoy_hash,
-                    index: 5,
-                },
-            )
-            .expect("put");
-
-        let result = store.get_function(&liar);
-        assert!(
-            matches!(result, Err(DiskStoreError::BadRedirect { .. })),
-            "redirect to a non-deriving group must fail: {result:?}"
-        );
-    }
-
-    #[test]
-    fn names_roundtrip_and_merge() {
-        let (_dir, store) = temp_store();
-        let mut names = BTreeMap::new();
-        names.insert("run".to_string(), blake3::hash(b"run"));
-        names.insert("helper".to_string(), blake3::hash(b"helper"));
-        store.write_names(&names).expect("write");
-        assert_eq!(store.names().expect("read"), names);
-    }
-
-    #[test]
-    fn load_closure_pulls_dependencies() {
-        let (_dir, store) = temp_store();
-
-        let dep = plain(1.0);
-        let dep_hash = store.put_object(&dep).expect("put dep");
-        let root = StoredObject::Plain(ObjectFunction {
-            bytecode: vec![9],
-            constants: vec![ObjectConstant::Ref(ObjectRef::External(dep_hash))],
-            local_count: 0,
-            param_count: 0,
-            dependencies: vec![ObjectRef::External(dep_hash)],
-        });
-        let root_hash = store.put_object(&root).expect("put root");
-
-        let mut memory = Store::new();
-        let loaded = store
-            .load_closure(&root_hash, &mut memory)
-            .expect("load closure");
-        assert_eq!(loaded, 2);
-        assert!(memory.contains(&root_hash));
-        assert!(memory.contains(&dep_hash));
-    }
-
-    #[test]
-    fn load_closure_pulls_in_const_value_objects() {
-        use ambient_ability::Value;
-
-        let (_dir, store) = temp_store();
-
-        // A `const` value object (a leaf) and a function that depends on it.
-        let value_object = crate::object::value_object(&Value::Number(42.0)).expect("value object");
-        let value_hash = store.put_object(&value_object).expect("put value");
-
-        let root = StoredObject::Plain(ObjectFunction {
-            bytecode: vec![9],
-            // The reference is a value ref in the pool plus a dependency edge.
-            constants: vec![ObjectConstant::ValueRef(value_hash)],
-            local_count: 0,
-            param_count: 0,
-            dependencies: vec![ObjectRef::External(value_hash)],
-        });
-        let root_hash = store.put_object(&root).expect("put root");
-
-        let mut memory = Store::new();
-        store
-            .load_closure(&root_hash, &mut memory)
-            .expect("load closure");
-        // The function loaded, and its const value object came along as a leaf.
-        assert!(memory.contains(&root_hash));
-        assert_eq!(memory.get_value(&value_hash), Some(&Value::Number(42.0)));
-    }
-
-    #[test]
-    fn identical_const_values_deduplicate_on_disk() {
-        use ambient_ability::Value;
-
-        let (_dir, store) = temp_store();
-        let a = crate::object::value_object(&Value::string("blob")).expect("value object");
-        let b = crate::object::value_object(&Value::string("blob")).expect("value object");
-
-        let first = store.put_object(&a).expect("put a");
-        // Byte-identical content ⇒ same path ⇒ the second write is a no-op.
-        assert!(!store.put_object_at(&b.hash(), &b).expect("put b"));
-        assert_eq!(first, b.hash());
-    }
-
-    #[test]
-    fn put_module_binds_const_names_in_index() {
-        use ambient_ability::Value;
-
-        let (_dir, store) = temp_store();
-
-        // A module carrying one named const value object (no functions).
-        let mut module = CompiledModule::new();
-        let value_object = crate::object::value_object(&Value::Number(7.0)).expect("value object");
-        let hash = value_object.hash();
-        module.objects.insert(hash, value_object);
-        module
-            .const_names
-            .insert(std::sync::Arc::from("SEVEN"), hash);
-
-        store.put_module(&module).expect("put module");
-
-        // The const is a first-class named binding, resolving to a Value object.
-        let names = store.names().expect("names");
-        assert_eq!(names.get("SEVEN"), Some(&hash));
-        assert!(matches!(
-            store.get_object(&hash).expect("get object"),
-            Some(StoredObject::Value(_))
-        ));
-    }
-
-    #[test]
-    fn load_closure_fails_on_missing_dependency() {
-        let (_dir, store) = temp_store();
-
-        let ghost = blake3::hash(b"ghost");
-        let root = StoredObject::Plain(ObjectFunction {
-            bytecode: vec![9],
-            constants: vec![],
-            local_count: 0,
-            param_count: 0,
-            dependencies: vec![ObjectRef::External(ghost)],
-        });
-        let root_hash = store.put_object(&root).expect("put root");
-
-        let mut memory = Store::new();
-        assert!(store.load_closure(&root_hash, &mut memory).is_err());
-    }
-
-    #[test]
-    fn verify_reports_clean_and_dangling() {
-        let (_dir, store) = temp_store();
-        store.put_object(&plain(1.0)).expect("put");
-        let report = store.verify().expect("verify");
-        assert!(report.is_clean());
-        assert_eq!(report.valid, 1);
-
-        // Add an object referencing a hash nobody provides.
-        let root = StoredObject::Plain(ObjectFunction {
-            bytecode: vec![9],
-            constants: vec![],
-            local_count: 0,
-            param_count: 0,
-            dependencies: vec![ObjectRef::External(blake3::hash(b"ghost"))],
-        });
-        store.put_object(&root).expect("put");
-        let report = store.verify().expect("verify");
-        assert_eq!(report.dangling.len(), 1);
-        assert!(!report.is_clean());
-    }
-
-    #[test]
-    fn gc_keeps_named_closure_and_removes_garbage() {
-        let (_dir, store) = temp_store();
-
-        let dep_hash = store.put_object(&plain(1.0)).expect("put dep");
-        let root = StoredObject::Plain(ObjectFunction {
-            bytecode: vec![9],
-            constants: vec![ObjectConstant::Ref(ObjectRef::External(dep_hash))],
-            local_count: 0,
-            param_count: 0,
-            dependencies: vec![ObjectRef::External(dep_hash)],
-        });
-        let root_hash = store.put_object(&root).expect("put root");
-        let garbage_hash = store.put_object(&plain(999.0)).expect("put garbage");
-
-        let mut names = BTreeMap::new();
-        names.insert("run".to_string(), root_hash);
-        store.write_names(&names).expect("write names");
-
-        let removed = store.gc(&[]).expect("gc");
-        assert_eq!(removed, 1);
-        assert!(store.contains(&root_hash));
-        assert!(store.contains(&dep_hash));
-        assert!(!store.contains(&garbage_hash));
-    }
-
-    #[test]
-    fn gc_keeps_a_bare_constant_pool_ref() {
-        // A function passed *as a value* (or a dictionary tuple entry)
-        // is a `PushConst` FunctionRef with no `dependencies` entry —
-        // the reachability walk must read the constant pool too, or gc
-        // purges live code.
-        let (_dir, store) = temp_store();
-
-        let held_hash = store.put_object(&plain(2.0)).expect("put held");
-        let root = StoredObject::Plain(ObjectFunction {
-            bytecode: vec![9],
-            constants: vec![ObjectConstant::Ref(ObjectRef::External(held_hash))],
-            local_count: 0,
-            param_count: 0,
-            dependencies: vec![],
-        });
-        let root_hash = store.put_object(&root).expect("put root");
-
-        let mut names = BTreeMap::new();
-        names.insert("run".to_string(), root_hash);
-        store.write_names(&names).expect("write names");
-
-        let removed = store.gc(&[]).expect("gc");
-        assert_eq!(removed, 0, "the constant-pool ref is reachable");
-        assert!(store.contains(&held_hash));
-    }
-
-    #[test]
-    fn reopening_preserves_contents() {
-        let dir = tempfile::tempdir().expect("create temp dir");
-        let path = dir.path().join("store");
-        let hash = {
-            let store = DiskStore::open(&path).expect("open");
-            store.put_object(&plain(7.0)).expect("put")
-        };
-        let store = DiskStore::open(&path).expect("reopen");
-        assert!(store.contains(&hash));
-        assert!(store.get_function(&hash).expect("get").is_some());
-    }
-
-    #[test]
-    fn foreign_format_is_rejected() {
-        let dir = tempfile::tempdir().expect("create temp dir");
-        let path = dir.path().join("store");
-        std::fs::create_dir_all(&path).expect("mkdir");
-        std::fs::write(path.join("format"), "something-else\n").expect("write");
-        assert!(matches!(
-            DiskStore::open(&path),
-            Err(DiskStoreError::UnknownFormat(_))
-        ));
-    }
+    out
 }
+
+/// Reverse [`escape_field`]. Returns `None` on a malformed escape sequence
+/// (a trailing backslash or an unknown escape), which the caller reports as
+/// a malformed sidecar entry.
+fn unescape_field(s: &str) -> Option<String> {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next()? {
+            '\\' => out.push('\\'),
+            't' => out.push('\t'),
+            'n' => out.push('\n'),
+            'r' => out.push('\r'),
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+#[cfg(test)]
+mod tests;
