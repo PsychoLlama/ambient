@@ -264,10 +264,13 @@ expression of a function, lambda, or handler arm, threaded through `if`
 branches, `match` arms, block results, and `sandbox` — reuses the
 current frame (`TailCall`/`TailCallClosure`) instead of pushing a new
 one, so tail recursion runs in constant stack space. Non-tail
-recursion still caps at `max_call_depth` (1000). Two carve-outs are
-_not_ tail positions: a `handle` expression's body (trailing
-continuation cleanup runs after it) and `resume` (a handler that
-resumes each iteration accumulates one frame per cycle).
+recursion still caps at `max_call_depth` (1000). A tail-position
+`resume` is constant-space too: it compiles to `TailResume`, which
+discards the arm frame before reinstating the continuation (a fused
+`Resume; Return`), so a handler that resumes every cycle no longer
+parks a frame per cycle. One carve-out remains _not_ a tail position:
+a `handle` expression's body (trailing continuation cleanup runs after
+it).
 
 ### Content-Addressing
 
@@ -497,11 +500,12 @@ Roughly in priority order:
   remote deploy over the `Deploy` ability). The in-language loop idiom
   is now spellable — proper tail calls mean a task's loop can re-enter
   through `Live::latest!` in tail position and run in constant stack
-  space (see `examples/deploy_server`'s `converse`). Still open: typed
-  `latest`/task bodies (blocked on effect-polymorphic function
-  parameters in ability signatures), snapshot groups for multi-read
-  consistency, and tail-`resume` (a handler-driven effect loop still
-  accumulates one frame per cycle, so those loops stay frame-bounded).
+  space (see `examples/deploy_server`'s `converse`), and a
+  tail-position `resume` runs in constant space too (`TailResume`), so
+  a handler-driven effect loop is no longer frame-bounded. Still open:
+  typed `latest`/task bodies (blocked on effect-polymorphic function
+  parameters in ability signatures) and snapshot groups for multi-read
+  consistency.
 - Trait bounds (`fn foo<T: Eq>(x: T)`) are **done** — dictionary-passing,
   uniform across functions, impl methods, and ability methods. Still open:
   generic traits (`trait Container<T>`), supertraits, conditional impls as
