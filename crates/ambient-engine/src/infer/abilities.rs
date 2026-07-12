@@ -95,49 +95,82 @@ impl Infer {
         self.ability_resolver.id_to_name(id)
     }
 
-    /// The full declared signature of an ability method, instantiated for
-    /// one use site: quantified type parameters of dynamic methods become
-    /// fresh inference variables, and builtin-descriptor type variables
-    /// (which arrive as `Hole`) resolve to fresh variables too.
+    /// The signature and bound context a *handler arm* covering
+    /// `method_name` checks against: the declared parameter and return
+    /// types with the method's type parameters made **rigid**
+    /// ([`Type::Param`]) rather than instantiated, the rigid parameter
+    /// names, and the resolved `(param, trait)` bounds in dictionary order.
     ///
-    /// This is the one lookup handler arms, handler literals, and perform
-    /// checking share, so all three enforce the same signature.
-    pub(crate) fn ability_method_signature(
+    /// A perform instantiates the method's type parameters to fresh
+    /// variables (a call at a concrete type); a handler arm is the opposite
+    /// — it must work for *every* instantiation the delimited body performs,
+    /// so its type parameters are rigid, exactly like an ordinary function
+    /// body's. The arm then receives one dictionary per bound (the perform
+    /// pushes them and the compiler binds them to the arm's `<dict#N>`
+    /// pseudo-locals), so `x.eq(y)` inside the arm dispatches through the
+    /// delivered dictionary. Returns `None` if the ability or method is
+    /// unknown.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn ability_method_arm_signature(
         &mut self,
         ability_id: AbilityId,
         method_name: &str,
-    ) -> Option<(Vec<Type>, Type)> {
-        // Every ability is a module-declared (dynamic) ability carrying
-        // fully resolved types.
+    ) -> Option<(
+        Vec<Type>,
+        Type,
+        Vec<Arc<str>>,
+        Vec<(Arc<str>, crate::types::TraitBound)>,
+    )> {
         let dynamic = self
             .ability_resolver
             .get_dynamic_by_id(ability_id)
             .cloned()?;
         let method = dynamic.method(method_name)?;
+
+        // Each type parameter is rigid in the arm: map its quantified
+        // variable to `Type::Param(name)` (parallel lists, ability/row
+        // variables excluded from both).
         let mut subst = std::collections::HashMap::new();
-        for quantified in &method.quantified {
-            subst.insert(*quantified, self.fresh());
+        for (var, name) in method.quantified.iter().zip(&method.type_param_names) {
+            subst.insert(*var, Type::Param(Arc::clone(name)));
         }
-        // Ability (row) variables instantiate to fresh variables per use
-        // site too, so an `E!`-polymorphic method (`body: () -> T with E`)
-        // freshens its row at every handler arm and perform.
+        // Ability (row) variables still freshen per arm, like a perform.
         let mut ability_subst = std::collections::HashMap::new();
         for quantified in &method.quantified_abilities {
             ability_subst.insert(*quantified, self.fresh_ability_var());
         }
-        // `resolve_holes` re-attaches reserved enum identities from the
-        // checking context (see `lookup_dynamic_method`): the dynamic
-        // method's types were resolved without an enum registry, so
-        // prelude `Option`/`Result` arrive uuid-less and would miss
-        // inherent-method dispatch and unification against uuid-bearing
-        // values.
+
         let params = method
             .params
             .iter()
             .map(|p| self.resolve_holes(&p.substitute_all(&subst, &ability_subst)))
             .collect();
         let ret = self.resolve_holes(&method.ret.substitute_all(&subst, &ability_subst));
-        Some((params, ret))
+
+        // Resolve the method's bounds into the arm's dictionary-parameter
+        // context, in dictionary order (the `bounds` list already is). The
+        // names were spelled in the declaring module's scope, so they
+        // resolve leniently — an unknown one is already reported at every
+        // perform site, so dropping it here only skews indices in a module
+        // that will not compile.
+        let mut bounds = Vec::with_capacity(method.bounds.len());
+        for (idx, bound_name) in &method.bounds {
+            let (Some(name), Some(trait_uuid)) = (
+                method.type_param_names.get(*idx),
+                self.trait_registry.lookup_trait_lenient(bound_name),
+            ) else {
+                continue;
+            };
+            bounds.push((
+                Arc::clone(name),
+                crate::types::TraitBound {
+                    trait_uuid,
+                    name: Arc::clone(bound_name),
+                },
+            ));
+        }
+
+        Some((params, ret, method.type_param_names.clone(), bounds))
     }
 
     /// Look up an ability method and return its ID, result type, and
@@ -444,6 +477,7 @@ mod tests {
                 params: vec![Type::string()],
                 ret: Type::Unit,
                 quantified: vec![],
+                type_param_names: vec![],
                 quantified_abilities: vec![],
                 bounds: Vec::new(),
                 signature: ambient_core::SignatureHash::new(&["string"], "unit"),

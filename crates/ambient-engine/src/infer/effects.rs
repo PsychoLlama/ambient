@@ -220,7 +220,8 @@ impl Infer {
         // builtin Exception bare.
         let ability_id = self.resolve_ability_ref(&handler.ability, handler_span)?;
 
-        let Some((param_tys, ret_ty)) = self.ability_method_signature(ability_id, &handler.method)
+        let Some((param_tys, ret_ty, rigid_names, bounds)) =
+            self.ability_method_arm_signature(ability_id, &handler.method)
         else {
             return Err(type_error(
                 TypeErrorKind::UnknownAbilityMethod {
@@ -243,8 +244,73 @@ impl Infer {
             ));
         }
 
+        // A bounded (generic) method's arm checks in a fresh rigid scope:
+        // its type parameters are rigid and its bounds become the arm's
+        // dictionary context, so a bound method call inside the arm resolves
+        // to a `DictSource::Param` forwarding the dictionary the perform
+        // delivered. A method with no type parameters keeps the enclosing
+        // item's scope untouched (an arm may still reference the enclosing
+        // function's own rigid parameters). The arm's own dictionary
+        // constraints are isolated and solved here so they never mix with
+        // the enclosing body's (which resolve against a different context).
+        let generic = !rigid_names.is_empty();
+        let saved_rigid = self.rigid_params.clone();
+        let saved_bounds = generic.then(|| {
+            self.rigid_params.extend(rigid_names.iter().cloned());
+            std::mem::replace(&mut self.current_bound_params, bounds)
+        });
+        let saved_constraints = generic.then(|| std::mem::take(&mut self.pending_constraints));
+
+        let outcome = self.check_arm_body(
+            env,
+            handler,
+            &param_tys,
+            &ret_ty,
+            result_ty,
+            handler_span,
+            span,
+        );
+
+        // Solve the arm's dictionary constraints while its bound context is
+        // still installed, then restore the caller's scope. Errors surface
+        // as this arm's result.
+        let mut arm_errors = Vec::new();
+        if generic && outcome.is_ok() {
+            let solved = self.solve_dict_constraints(&mut arm_errors);
+            crate::infer::constraints::finalize_dicts(&mut handler.body, &solved);
+        }
+        self.rigid_params = saved_rigid;
+        if let Some(saved) = saved_bounds {
+            self.current_bound_params = saved;
+        }
+        if let Some(saved) = saved_constraints {
+            self.pending_constraints = saved;
+        }
+
+        outcome?;
+        if let Some(err) = arm_errors.into_iter().next() {
+            return Err(err);
+        }
+        Ok(ability_id)
+    }
+
+    /// Bind a handler arm's parameters and check its body against the method
+    /// signature, with the arm's rigid/bound scope already installed by the
+    /// caller. Split out so the caller can save and restore that scope
+    /// around one `&mut self` call without a borrow tangle.
+    #[allow(clippy::too_many_arguments)]
+    fn check_arm_body(
+        &mut self,
+        env: &TypeEnv,
+        handler: &mut HandlerLiteralMethod,
+        param_tys: &[Type],
+        ret_ty: &Type,
+        result_ty: &Type,
+        handler_span: (u32, u32),
+        span: (u32, u32),
+    ) -> InferResult<()> {
         let mut handler_env = env.extend();
-        for (param, declared_ty) in handler.params.iter().zip(&param_tys) {
+        for (param, declared_ty) in handler.params.iter().zip(param_tys) {
             let param_ty = match &param.ty {
                 Some(ty) => {
                     let annotated = self.resolve_holes(ty);
@@ -262,7 +328,7 @@ impl Infer {
         // `resume` gets a dedicated diagnostic. There is no way to
         // substitute a value for a failing call and continue; fallible host
         // operations return `Result` and are matched on instead.
-        let ret_ty = self.apply(&ret_ty);
+        let ret_ty = self.apply(ret_ty);
         let never_method = matches!(ret_ty, Type::Never)
             .then(|| (handler.ability.name.clone(), handler.method.clone()));
         self.resume_contexts.push(crate::infer::ResumeContext {
@@ -274,6 +340,6 @@ impl Infer {
         self.resume_contexts.pop();
         let handler_ty = handler_result?;
         self.unify(result_ty, &handler_ty, span)?;
-        Ok(ability_id)
+        Ok(())
     }
 }

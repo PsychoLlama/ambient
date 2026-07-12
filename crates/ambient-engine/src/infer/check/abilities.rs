@@ -548,6 +548,7 @@ fn resolve_ability_def(
             params,
             ret,
             quantified,
+            type_param_names: type_param_names.iter().map(|n| Arc::clone(n)).collect(),
             quantified_abilities,
             bounds,
             signature: SignatureHash::new(&canon_params, &canon_ret),

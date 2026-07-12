@@ -310,6 +310,31 @@ fn handler_resumes_bounded_method() {
 }
 
 #[test]
+fn handler_uses_bound_dictionary_in_arm() {
+    // The arm reaches the method's `T: Eq` bound: `a.eq(b)` inside the arm
+    // dispatches through the hidden dictionary the perform delivered. Unequal
+    // Money values make the arm resume with `false`, distinct from the
+    // hard-coded `true` above.
+    CliTest::new(format!(
+        r#"
+        {MONEY}
+        unique(A1B2C3D4-0000-0000-0000-00000000BB13) ability Chooser {{
+            fn pick_equal<T: Eq>(a: T, b: T): Bool {{
+                a.eq(b)
+            }}
+        }}
+
+        fn run(): Bool {{
+            with {{
+                Chooser::pick_equal(a, b) => resume(a.eq(b))
+            }} handle Chooser::pick_equal!(Money {{ cents: 1 }}, Money {{ cents: 2 }})
+        }}
+    "#
+    ))
+    .expect_output("false");
+}
+
+#[test]
 fn handler_and_default_bounded_method_coexist() {
     // Both paths in one program: the first perform is handled (arm returns a
     // constant), the second escapes the handler and runs the dictionary-aware

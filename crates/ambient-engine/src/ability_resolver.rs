@@ -36,6 +36,13 @@ pub struct DynMethod {
     pub ret: Type,
     /// Type variable IDs standing in for the method's type parameters.
     pub quantified: Vec<crate::types::TypeVarId>,
+    /// The method's ordinary type-parameter *names*, index-aligned with
+    /// `quantified` and `bounds` (ability/row variables excluded). A handler
+    /// arm covering the method needs the names to re-derive the method's
+    /// rigid [`Type::Param`]s and bound context, so `x.eq(y)` inside the arm
+    /// dispatches through the dictionary the perform delivered. Perform sites
+    /// never need them (they instantiate `quantified` to fresh variables).
+    pub type_param_names: Vec<Arc<str>>,
     /// Ability (row) variable IDs standing in for the method's `E!`
     /// parameters. Call sites instantiate a fresh ability variable for each,
     /// so an effectful lambda argument binds the fresh row and the method
@@ -606,6 +613,7 @@ mod tests {
                 params: vec![Type::string()],
                 ret: Type::Unit,
                 quantified: vec![],
+                type_param_names: vec![],
                 quantified_abilities: vec![],
                 bounds: Vec::new(),
                 signature: ambient_core::SignatureHash::new(&["string"], "unit"),
