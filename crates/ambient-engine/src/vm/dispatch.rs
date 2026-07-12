@@ -196,24 +196,34 @@ impl Vm {
 
                 Opcode::Return => {
                     let result = self.pop()?;
-
-                    // Get info before popping frame
-                    let frame = self.frames.pop().ok_or(VmError::StackUnderflow)?;
-
-                    // Pop locals and arguments from stack
-                    self.stack.truncate(frame.bp);
-
-                    if self.frames.len() <= base_frames {
-                        // Returning from this execution region's entry
-                        // function (top-level call, or the callee of a
-                        // reentrant invoke). `<` can only happen if a
-                        // handler below a stale boundary fired — defensive,
-                        // the barrier forbids it.
-                        return Ok(result);
+                    if let Some(value) = self.unwind_frame(result, base_frames)? {
+                        return Ok(value);
                     }
+                }
 
-                    // Push result for caller
-                    self.stack.push(result);
+                Opcode::TailCall => {
+                    let func_idx = self.read_u16()?;
+                    let arg_count = self.read_u8()?;
+                    let hash = match self.get_constant(func_idx)? {
+                        Value::FunctionRef(h) => h,
+                        other => {
+                            return Err(VmError::TypeError {
+                                expected: "function",
+                                got: other.type_name(),
+                                operation: "tail_call",
+                            });
+                        }
+                    };
+                    if let Some(value) = self.op_tail_call(&hash, arg_count, base_frames)? {
+                        return Ok(value);
+                    }
+                }
+
+                Opcode::TailCallClosure => {
+                    let arg_count = self.read_u8()?;
+                    if let Some(value) = self.op_tail_call_closure(arg_count, base_frames)? {
+                        return Ok(value);
+                    }
                 }
 
                 Opcode::MakeTuple => {

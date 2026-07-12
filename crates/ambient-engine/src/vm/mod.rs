@@ -59,6 +59,7 @@
 mod abilities;
 mod core;
 mod dispatch;
+mod tail_call;
 
 pub use ambient_ability::{RuntimeError, StackTraceFrame, VmError};
 pub use core::Vm;

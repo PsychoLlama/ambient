@@ -398,7 +398,8 @@ impl Vm {
     }
 
     /// Execute a call to a native (extern fn): pop the arguments the caller
-    /// pushed, run the bound implementation, push the result. No frame is
+    /// pushed, run the bound implementation, and apply its result contract
+    /// (push the value, or raise/interrupt at this site). No frame is
     /// pushed — a native is a pure value transformation, invisible to
     /// continuations and stack traces.
     fn call_native(
@@ -407,6 +408,23 @@ impl Vm {
         param_count: u8,
         arg_count: u8,
     ) -> Result<(), VmError> {
+        let result = self.run_native(uuid, param_count, arg_count)?;
+        self.finish_native_call(result)
+    }
+
+    /// Pop the arguments the caller pushed and run a native's bound
+    /// implementation, returning its raw `Result<Value, VmError>` **without**
+    /// applying the result contract. The arity check lives here (a mismatch
+    /// is the outer `Err`); interpreting the inner result — a returned value,
+    /// a raised exception, or a host interrupt — is the caller's job
+    /// ([`Self::finish_native_call`] for a normal call, the tail-call path
+    /// for a tail call).
+    pub(super) fn run_native(
+        &mut self,
+        uuid: uuid::Uuid,
+        param_count: u8,
+        arg_count: u8,
+    ) -> Result<Result<Value, VmError>, VmError> {
         if arg_count != param_count {
             return Err(VmError::ArityMismatch {
                 expected: param_count,
@@ -414,12 +432,11 @@ impl Vm {
             });
         }
         // A VM-invoking implementation takes priority over a pure one (the
-        // stub it overrides); both use the same result contract below.
+        // stub it overrides); both yield the same raw result contract.
         if let Some(func) = self.native_vm_impls.get(&uuid).cloned() {
             let split = self.stack.len() - arg_count as usize;
             let args = self.stack.split_off(split);
-            let result = func(self, args);
-            return self.finish_native_call(result);
+            return Ok(func(self, args));
         }
         let func = self
             .native_impls
@@ -430,8 +447,34 @@ impl Vm {
             .clone();
         let split = self.stack.len() - arg_count as usize;
         let args = self.stack.split_off(split);
-        let result = func(args);
-        self.finish_native_call(result)
+        Ok(func(args))
+    }
+
+    /// Unwind the current call frame, delivering `result` to its caller.
+    ///
+    /// Pops the frame, truncates the value stack back to the frame's base
+    /// pointer (discarding its locals), and either hands `result` back to
+    /// the caller frame (`None` — keep executing) or, if the frame at the
+    /// enclosing `run_until` region's entry depth just unwound, surfaces
+    /// `result` to exit the loop (`Some`). Shared by the `Return` opcode
+    /// and the tail-call-to-native path.
+    pub(super) fn unwind_frame(
+        &mut self,
+        result: Value,
+        base_frames: usize,
+    ) -> Result<Option<Value>, VmError> {
+        let frame = self.frames.pop().ok_or(VmError::StackUnderflow)?;
+        self.stack.truncate(frame.bp);
+        if self.frames.len() <= base_frames {
+            // Returning from this execution region's entry function
+            // (top-level call, or the callee of a reentrant invoke). `<`
+            // can only happen if a handler below a stale boundary fired —
+            // defensive, the barrier forbids it.
+            Ok(Some(result))
+        } else {
+            self.stack.push(result);
+            Ok(None)
+        }
     }
 
     /// Apply a native's result contract at its call site.
