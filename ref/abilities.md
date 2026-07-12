@@ -31,9 +31,12 @@ here:
   re-keys the method. At runtime the bound's dictionary rides as a hidden
   trailing perform argument and the default implementation binds it — see
   [Generic Constraints in traits.md](traits.md#generic-constraints).
-  Handler arms cannot cover a bounded method yet (they would not bind the
-  dictionary); the checker rejects such arms and the default
-  implementation handles the perform.
+  A handler arm may cover a bounded method: the arm checks in a fresh rigid
+  scope with the method's type parameters rigid and its bounds installed as
+  the arm's dictionary context, so a bound-method call inside the arm
+  resolves to a `DictSource::Param` that forwards the dictionary the perform
+  delivered (`check_handler_arm` in `infer/effects.rs`). The arm's own
+  dictionary constraints are isolated and solved before the enclosing body's.
 
 Dispatch keys on `(AbilityId, MethodKey)`: compiled bytecode references
 each performed method through the constant pool (uuid, signature, and
@@ -466,8 +469,140 @@ Engine-level faults (stack overflow, type errors in bytecode, arity
 mismatches) remain fatal `VmError`s — they indicate bugs, not conditions
 programs should handle.
 
-Current limits: `Exception` is not generic yet (`throw` takes a string;
-`Exception<E>` with an error trait bound is the planned evolution).
+### Typed exceptions: `throw<E: Error>` (design)
+
+Today `throw(message: String): !` carries only a string. The planned
+evolution lets an exception carry an arbitrary value. Now that ability
+methods take type-parameter bounds and handler arms bind their
+dictionaries, this is a small, incremental change rather than a new
+subsystem.
+
+**Decision.** Generalize the _method_, not the ability:
+
+```ambient
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000001) ability Exception {
+  fn throw<E: Error>(error: E): !;
+}
+```
+
+The ability stays non-generic and singular. There is exactly one
+`Exception` identity, one handler channel, and one effect-row entry
+(`with Exception`) — a generic _ability_ `Exception<E>` is rejected on two
+counts: trait/ability-level type parameters are not supported (see
+[traits.md](traits.md#defining-traits)), and effect rows key on
+`AbilityId`, so `with Exception<E>` has no representation in row
+unification and would fracture "one handler catches every throw" into one
+handler per `E`. Generalizing the method keeps every mechanism that
+already exists and adds only a bound.
+
+**1. Anchor.** Ability identity is `EXCEPTION_UUID`
+(`ambient_core::exception::ability_id()`) and is untouched — the uuid does
+not mention the signature. Method identity is not: `throw`'s `MethodKey`
+is `MethodKey::derive(EXCEPTION_UUID, throw_signature(), None)`, and
+`throw_signature()` changes from `(string) -> never` to the generic
+canonical form `<E: Error>(E) -> never` (type variable numbered by first
+occurrence, bound rendered `bound:0:Error` by the spelled-name
+convention). So `throw` **re-keys**. That is acceptable and mostly
+invisible:
+
+- The uncaught path in `op_perform` keys on `ability_id` alone
+  (`ability.ability_id == exception::ability_id()`), not on the method
+  key, so it is unaffected.
+- `raise_exception` (the host/native throw path) recomputes
+  `throw_method_key()` from the anchor, so it tracks the new signature for
+  free.
+- The checker/compiler special cases that recognize Exception key on
+  `EXCEPTION_UUID` (the `STATE_UUID` fingerprint carve-out is the
+  precedent), never on the method key, so none of them move.
+
+The re-key does invalidate content hashes of code compiled against the old
+`throw` — a store/deploy concern, not a soundness one. With no
+backwards-compatibility constraint this is a one-time reset: bump
+`throw_signature()`, regenerate the golden tests that pin it
+(`ambient-cli/tests/platform_prelude.rs`, `ambient-core/src/exception.rs`),
+and rebuild. Never renumber `EXCEPTION_UUID` itself.
+
+**2. Ergonomics.** With one polymorphic method, a single arm catches every
+`E`:
+
+```ambient
+with { Exception::throw(e) => handle_it(e) } handle body
+```
+
+The arm binds `e: E` in a fresh rigid scope with the `Error` dictionary
+forwarded as `DictSource::Param` (exactly the bounded-method arm path
+described under Ability Identity). Inside the arm `e` is opaque except
+through `Error`'s methods — it cannot be inspected structurally, because a
+rigid `E` has no known shape; the dictionary is the only handle on it.
+`Result`-interop is the existing catch-and-continue plus `else`, with no
+new `try` keyword:
+
+```ambient
+// body: T with Exception  ⇒  Result<T, SomeError>
+with { Exception::throw(e) => Err(e) } handle body else (r) => Ok(r)
+```
+
+For a caller that wants a concrete error type it annotates it; the arm's
+rigid `E` unifies with the annotation at the `handle` site.
+
+**3. The `Error` bound.** `E` is bounded so an uncaught (or logging)
+handler can always render it. Add one core trait — the obvious minimum is
+`Show { fn show(self): String }` (a stringifier), or a distinct `Error`
+trait if we later want it to carry structure (`fn message(self): String`
+plus, say, a cause). Either claims the next slot in the reserved trait
+block (`FFFF…-0010` holds `Add`…`Default` at `-0017`, so the new trait
+takes `FFFF…-0018`) and is validated by `validate_reserved_trait` like the
+operator traits. It is re-exported onto the prelude next to `Exception` so
+`throw` and its bound are always in scope bare.
+
+**4. Uncaught path.** `VmError::Exception(value)` already renders through
+`format_value`, which walks _any_ `Value` structurally (records, enums,
+lists, primitives) — so an arbitrary `E` already prints without a
+dictionary at the crash site, and no dictionary is available there anyway
+(the value has outlived every frame). The structural rendering is the
+runtime floor. The `Error`/`Show` bound is a compile-time _refinement_:
+where the thrown expression's static type is known, the compiler can emit
+`E::show(value)` before the throw and carry the rendered string alongside
+the value, so the uncaught message reads as the type intends rather than
+as a raw record dump. Absent that, structural fallback still holds.
+
+**5. Arm typing.** One polymorphic arm, not per-instantiation arms. The
+arm is checked once with `E` rigid and the `Error` dictionary in scope
+(`check_handler_arm`), and it covers every throw regardless of the
+concrete `E` at each perform site — the same shape a bounded free function
+gets. There is no per-`E` handler table; dispatch is still the single
+`(EXCEPTION_UUID, throw_method_key)` match.
+
+**6. What stays a string.** `throw("msg")` keeps working unchanged: with
+`impl Show for String` (or `impl Error for String`) in `core::traits`, the
+call infers `E = String` and builds the `String` dictionary at the site
+like any bounded call — no sugar, no special case, no deprecation step. A
+bare `throw(record)` works the moment `record`'s type implements the
+bound.
+
+**Implementation sketch** (each step lands independently):
+
+1. Add the `Show`/`Error` trait to `core::traits` with the reserved
+   `FFFF…-0018` uuid, `validate_reserved_trait` entry, and prelude
+   re-export; `impl` it for `String` and the primitives. (Pure trait work,
+   no Exception change yet.)
+2. Change `throw_signature()` to the generic form and update
+   `core_lib/exception.ab` to `fn throw<E: Error>(error: E): !`. Regenerate
+   the golden tests pinning the signature/method key. `throw("msg")` now
+   compiles through the dictionary path.
+3. Confirm the uncaught path and `raise_exception` need no change (they key
+   on the uuid / recompute the key); add a regression test throwing a
+   record and asserting structural rendering.
+4. (Optional refinement) At compiled `throw!` sites with a statically known
+   `E`, emit `E::show` and thread the rendered string into
+   `VmError::Exception` for prettier uncaught output.
+
+The one genuinely awkward spot: a rigid `E` in a catch arm is opaque, so
+"catch, then branch on which error it was" wants either the `Error` trait
+to expose enough (a tag/`show`) or the program to throw a concrete enum
+and match after catching — the polymorphic-throw / monomorphic-catch
+asymmetry is inherent to a single-ability, single-arm design and is the
+price of not making `Exception` generic.
 
 ### Option/Result vs exceptions
 
