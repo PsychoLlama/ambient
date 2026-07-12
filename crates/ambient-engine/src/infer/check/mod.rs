@@ -19,6 +19,7 @@
 mod abilities;
 mod ability_vars;
 mod bodies;
+mod declared_types;
 mod foreign;
 mod impls;
 mod locals;
@@ -28,7 +29,7 @@ mod tests;
 
 pub use abilities::{resolve_ability_declarations, resolve_registry_abilities};
 pub(in crate::infer) use ability_vars::resolve_declared_with;
-pub(in crate::infer) use locals::resolve_body_annotation;
+pub(in crate::infer) use declared_types::resolve_body_annotation;
 pub(in crate::infer) use subst::{substitute_named, substitute_type_params};
 
 use crate::ability_resolver::AbilityResolver;
@@ -326,15 +327,19 @@ fn check_module_core(
 /// `ref/live-upgrade.md` and `ambient-platform`'s `Binding::signature`), so
 /// they must render the function's **declared interface**, not whatever a
 /// caller happened to monomorphize it to in this compile. An unannotated
-/// private function has a mono scheme whose param/return variables are pinned
-/// only by call sites in the same module: a caller present renders `unit`, no
+/// private function has a mono scheme whose param/return variables are
+/// shared by its body and its call sites; positions the body leaves
+/// unconstrained (`fn g(x) { x }`) are pinned only by whichever callers
+/// happen to exist in this compile — a caller present renders `unit`, no
 /// caller renders `var0`. That instability made a same-source redeploy of an
 /// effectful task body read as a signature change and retire instead of
-/// rebind. [`interface_position_type`] neutralizes it: every unannotated
-/// param/return position renders as a fresh unconstrained variable, so the
-/// signature depends only on the source — never on incidental callers. The
-/// effect row stays the body's inferred abilities (a genuine effect change is
-/// still a signature change); only the caller-driven monomorphization of an
+/// rebind. [`interface_type`] neutralizes it: every unannotated param/return
+/// position renders as a fresh unconstrained variable, so the signature
+/// depends only on the source — never on incidental callers. (Body↔scheme
+/// type sharing made body-determined positions source-stable, but not
+/// body-underdetermined ones, so the masking deliberately stays.) The effect
+/// row stays the body's inferred abilities (a genuine effect change is still
+/// a signature change); only the caller-driven monomorphization of an
 /// undeclared type position is dropped.
 fn render_item_signatures(
     infer: &Infer,

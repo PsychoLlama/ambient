@@ -12,7 +12,7 @@ use crate::infer::expr::substitute_self;
 use crate::infer::{Infer, inherent};
 
 use super::bodies::DeferredAbilityCheck;
-use super::locals::resolve_erroring;
+use super::declared_types::resolve_erroring;
 use super::subst::substitute_type_params;
 
 /// Check impl blocks and register implementations.

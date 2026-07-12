@@ -285,3 +285,118 @@ fn test_string_interpolation_with_braced_block_and_nested_string() {
     )
     .expect_output("out: hi");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Type inference for unannotated private functions (body ↔ scheme sharing)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// An unannotated parameter or return position is monomorphic: one type
+// variable shared by the function's body and every call site. The body's
+// constraints therefore reach callers (and vice versa) — before this,
+// bodies and call sites ran on disjoint fresh variables, and
+// `fn g(x) { x + 1 }; g(true)` checked clean and executed `true + 1`.
+
+#[test]
+fn test_body_pins_unannotated_param_rejecting_mismatched_caller() {
+    // Callee checked first: the body pins `x: Number`, so the call site
+    // reports the mismatch.
+    CliTest::new(
+        r#"
+        fn g(x) { x + 1 }
+
+        pub fn run(): Number {
+            g(true)
+        }
+        "#,
+    )
+    .check()
+    .expect_error("type mismatch: expected `Number`, found `Bool`");
+}
+
+#[test]
+fn test_caller_pins_unannotated_param_rejecting_mismatched_body() {
+    // Caller checked first: the call site pins `x: Bool`, so the body's
+    // `x + 1` reports the mismatch (in function `g`).
+    CliTest::new(
+        r#"
+        pub fn run(): Number {
+            g(true)
+        }
+
+        fn g(x) { x + 1 }
+        "#,
+    )
+    .check()
+    .expect_error("type mismatch: expected `Bool`, found `Number`");
+}
+
+#[test]
+fn test_unannotated_return_type_flows_to_callers() {
+    CliTest::new(
+        r#"
+        fn make() { "hello" }
+
+        pub fn run(): Number {
+            make()
+        }
+        "#,
+    )
+    .check()
+    .expect_error("type mismatch");
+}
+
+#[test]
+fn test_unannotated_recursive_function_infers_cleanly() {
+    // Self-recursion constrains the shared variables consistently: the
+    // recursive call's type IS the scheme's return variable.
+    CliTest::new(
+        r#"
+        fn count(n) {
+            if n == 0 { 0 } else { count(n - 1) }
+        }
+
+        pub fn run(): Number {
+            count(3)
+        }
+        "#,
+    )
+    .check()
+    .expect_success();
+}
+
+#[test]
+fn test_generic_function_unannotated_position_must_be_annotated() {
+    // The body forces `b: T` and the return to `T`. A monomorphic shared
+    // variable cannot carry a quantified parameter, so both positions get a
+    // dedicated "annotate it" error instead of leaking a rigid `T` into
+    // call sites.
+    CliTest::new(
+        r#"
+        fn pick<T>(a: T, b) {
+            if true { a } else { b }
+        }
+
+        pub fn run(): Number {
+            pick(1, 2)
+        }
+        "#,
+    )
+    .check()
+    .expect_error("must be annotated in the signature");
+}
+
+#[test]
+fn test_public_fn_requires_full_signature_annotations() {
+    // A `pub fn` signature is the cross-module contract: importing modules
+    // rebuild the scheme from the written annotations alone, so inference
+    // can never fill an omitted type for foreign callers.
+    CliTest::new(
+        r#"
+        pub fn f(x) {
+            x + 1
+        }
+        "#,
+    )
+    .check()
+    .expect_error("public function `f` must declare");
+}

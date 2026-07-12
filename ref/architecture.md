@@ -191,13 +191,23 @@ Option/Result-vs-exceptions distinction.
 
 ## Type Inference Rules
 
-1. **Public functions**: Abilities must be declared (`with ...`); no clause
-   means pure. Using an undeclared ability is a type error. Return types
-   must be declared.
+1. **Public functions**: The full signature must be declared — every
+   parameter type and the return type. A `pub` signature is the contract
+   other modules compile against (importers rebuild the callable type from
+   the written annotations alone), so inference can never fill an omitted
+   position for a foreign caller. Abilities must be declared (`with ...`);
+   no clause means pure. Using an undeclared ability is a type error.
 2. **Private functions**: Abilities are inferred from the body when no
    `with` clause is given (a clause, if present, is enforced). Inferred
    abilities propagate to callers and count against the declarations of any
-   public function that transitively reaches them.
+   public function that transitively reaches them. Unannotated parameter
+   and return types are likewise inferred — each such position is a single
+   **monomorphic** type variable shared by the function's body and every
+   call site, so the body's constraints reach callers and vice versa
+   (`fn g(x) { x + 1 }` pins `x: Number`; `g(true)` is a type error). One
+   consequence: an unannotated position of a _generic_ function may not
+   resolve to one of its own type parameters (a monomorphic variable cannot
+   carry a quantified type) — the checker asks for the annotation.
 3. **Local variables**: Always inferred
 4. **Lambdas**: Parameter types inferred from context; the lambda's ability
    set is inferred from its body and carried on its function type

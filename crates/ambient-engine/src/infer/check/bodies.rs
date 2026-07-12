@@ -10,7 +10,8 @@ use crate::infer::Infer;
 use crate::infer::env::TypeEnv;
 use crate::infer::error::{BoxedTypeError, BoxedTypeErrorExt, TypeError, TypeErrorKind};
 
-use super::locals::{own_item_scheme, resolve_erroring};
+use super::declared_types::resolve_erroring;
+use super::locals::own_item_scheme;
 
 /// Type-check one function body (Phase 3).
 ///
@@ -19,6 +20,17 @@ use super::locals::{own_item_scheme, resolve_erroring};
 /// `Type::Param("T")`, not an unresolved nominal reference. On success the
 /// body's inferred abilities are recorded (by item index) for deferred
 /// enforcement in Phase 4.
+///
+/// Unannotated parameter and return positions are **shared with the
+/// function's scheme**: the body binds each unannotated parameter at the
+/// scheme's own variable and unifies its result with the scheme's return
+/// variable — the same variables every call site unifies against. That is
+/// what makes an unannotated position genuinely monomorphic: the body and
+/// all callers constrain one variable, so `fn g(x) { x + 1 }` pins `x` to
+/// `Number` and a `g(true)` call site is a type error (whichever of the two
+/// is checked second reports the mismatch). Without the sharing, bodies and
+/// call sites ran on disjoint fresh variables and never saw each other —
+/// `g(true)` checked clean and executed `true + 1`.
 pub(super) fn check_function_body(
     infer: &mut Infer,
     func: &mut crate::ast::FunctionDef,
@@ -29,6 +41,15 @@ pub(super) fn check_function_body(
     inferred_abilities: &mut Vec<(usize, AbilitySet)>,
 ) {
     infer.reset_abilities();
+
+    // The scheme's function type, for its unannotated-position variables
+    // (annotated positions resolve from source below, exactly as before —
+    // the scheme resolved the same annotations, so re-unifying them would
+    // be redundant). Cloned up front so `env` is free to extend.
+    let scheme_fn = own_item_scheme(env, current_module_id, &func.name).and_then(|s| match &s.ty {
+        Type::Function(f) => Some(f.clone()),
+        _ => None,
+    });
 
     // Ordinary type parameters are rigid in the body (`T` → `Type::Param`);
     // ability (row) variables are not types, so they are excluded here and
@@ -50,10 +71,18 @@ pub(super) fn check_function_body(
                 let mut func_env = env.extend();
                 let expected_ret_ty = func.ret_ty.clone().map(|ty| resolve_erroring(infer, &ty));
 
-                for param in &func.params {
+                for (i, param) in func.params.iter().enumerate() {
                     let param_ty = match &param.ty {
                         Some(ty) => resolve_erroring(infer, ty),
-                        None => infer.fresh(),
+                        // Unannotated: bind at the scheme's own variable so
+                        // the body's constraints reach call sites (and vice
+                        // versa). The fresh fallback only covers a scheme
+                        // shadowed out of the env — graceful, already
+                        // reported elsewhere.
+                        None => scheme_fn
+                            .as_ref()
+                            .and_then(|f| f.params.get(i).cloned())
+                            .unwrap_or_else(|| infer.fresh()),
                     };
                     func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
                 }
@@ -67,11 +96,25 @@ pub(super) fn check_function_body(
                     expected_ret_ty.as_ref(),
                 ) {
                     Ok(body_ty) => {
+                        let span = (func.body.span.start, func.body.span.end);
                         if let Some(ref expected) = expected_ret_ty {
-                            let span = (func.body.span.start, func.body.span.end);
                             if let Err(e) = infer.unify(expected, &body_ty, span) {
                                 errors.push(e.with_context(format!(
                                     "in function `{}`: return type mismatch",
+                                    func.name
+                                )));
+                            }
+                        } else if let Some(f) = &scheme_fn {
+                            // Unannotated return: pin the scheme's return
+                            // variable to the body's type, so callers see the
+                            // real return type. A failure means a call site
+                            // checked earlier already pinned the variable to
+                            // something else — expected is the callers' view,
+                            // found the body's.
+                            if let Err(e) = infer.unify(&f.ret, &body_ty, span) {
+                                errors.push(e.with_context(format!(
+                                    "in function `{}`: the body's return type \
+                                     conflicts with how a call site uses it",
                                     func.name
                                 )));
                             }
@@ -91,6 +134,65 @@ pub(super) fn check_function_body(
             });
         });
     });
+
+    enforce_monomorphic_positions(infer, func, scheme_fn.as_ref(), errors);
+}
+/// Reject an unannotated position of a *generic* function whose inferred type
+/// mentions one of the function's own rigid type parameters.
+///
+/// Unannotated positions are monomorphic — one shared variable constrained by
+/// the body and every call site — so a position that the body ties to a
+/// quantified parameter (`fn pick<T>(a: T, b) { … }` forcing `b: T`) is
+/// contradictory: the scheme instantiates `T` fresh per call, but the shared
+/// variable cannot follow. Rather than let the rigid `Param` leak into call
+/// sites as a baffling `expected 'T'` mismatch, report a dedicated "annotate
+/// it" error at the definition and bind the position to `Type::Error` so no
+/// cascade follows.
+fn enforce_monomorphic_positions(
+    infer: &mut Infer,
+    func: &crate::ast::FunctionDef,
+    scheme_fn: Option<&crate::types::FunctionType>,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    // Only a body with rigid type parameters can mint a `Type::Param`.
+    if !func.type_params.iter().any(|tp| !tp.is_ability) {
+        return;
+    }
+    let Some(f) = scheme_fn else {
+        return;
+    };
+
+    let mut positions: Vec<(Arc<str>, &Type, (u32, u32))> = Vec::new();
+    for (i, param) in func.params.iter().enumerate() {
+        if param.ty.is_none()
+            && let Some(scheme_ty) = f.params.get(i)
+        {
+            let label = Arc::from(format!("parameter `{}`", param.name));
+            positions.push((label, scheme_ty, (param.span.start, param.span.end)));
+        }
+    }
+    if func.ret_ty.is_none() {
+        let span = (func.body.span.start, func.body.span.end);
+        positions.push((Arc::from("return type"), f.ret.as_ref(), span));
+    }
+
+    for (position, scheme_ty, span) in positions {
+        let inferred = infer.apply(scheme_ty);
+        if !inferred.mentions_param() {
+            continue;
+        }
+        errors.push(Box::new(TypeError::new(
+            TypeErrorKind::GenericPositionNeedsAnnotation {
+                func: Arc::clone(&func.name),
+                position,
+                inferred,
+            },
+            span,
+        )));
+        if let Type::Var(id) = scheme_ty {
+            infer.subst.insert(*id, Type::Error);
+        }
+    }
 }
 /// Type-check every default implementation of one ability declaration
 /// (Phase 3).

@@ -333,6 +333,24 @@ pub enum TypeErrorKind {
     /// Constants map an identifier to a single hashed primitive, so their
     /// initializer must be a literal (see `crate::const_eval`).
     ConstNotLiteral { name: Arc<str> },
+
+    /// An unannotated parameter/return of a *generic* function was inferred
+    /// to a type mentioning one of the function's own type parameters.
+    /// Unannotated positions are monomorphic (one variable shared by the
+    /// body and every call site), so they cannot carry a quantified
+    /// parameter — the position must be annotated.
+    GenericPositionNeedsAnnotation {
+        func: Arc<str>,
+        position: Arc<str>,
+        inferred: Type,
+    },
+
+    /// A public function signature with an unannotated parameter or return
+    /// type. A `pub fn` signature is the cross-module contract — importing
+    /// modules rebuild the scheme from the written annotations alone, so an
+    /// omitted type would let foreign callers bypass the body's types
+    /// entirely.
+    PublicFnMissingAnnotation { func: Arc<str>, position: Arc<str> },
 }
 
 impl std::fmt::Display for TypeErrorKind {
@@ -699,6 +717,25 @@ impl std::fmt::Display for TypeErrorKind {
                 write!(
                     f,
                     "`const {name}` must be initialized with a literal value (a number, string, boolean, or `()`)"
+                )
+            }
+            Self::GenericPositionNeedsAnnotation {
+                func,
+                position,
+                inferred,
+            } => {
+                write!(
+                    f,
+                    "in generic function `{func}`: the {position} is inferred as `{inferred}`, \
+                     which mentions a type parameter; an unannotated position is monomorphic, \
+                     so it must be annotated in the signature"
+                )
+            }
+            Self::PublicFnMissingAnnotation { func, position } => {
+                write!(
+                    f,
+                    "public function `{func}` must declare {position}: a `pub` signature \
+                     is the contract other modules compile against"
                 )
             }
         }
