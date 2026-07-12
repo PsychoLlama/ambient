@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::types::{AbilitySet, TraitDef, Type, TypeVarId};
+use crate::types::{TraitDef, Type, TypeVarId};
 
 use crate::infer::env::{Scheme, TypeEnv};
 use crate::infer::error::{BoxedTypeError, BoxedTypeErrorExt, TypeError, TypeErrorKind};
@@ -352,61 +352,84 @@ pub(super) fn build_inherent_method_scheme(
     errors: &mut Vec<BoxedTypeError>,
     lenient_bounds: bool,
 ) -> Scheme {
-    // Quantified ids come from the shared generator so they can never
-    // collide with inference variables allocated elsewhere.
-    let mut type_var_map: HashMap<Arc<str>, TypeVarId> = HashMap::new();
-    let mut quantified = Vec::new();
-    for tp in impl_type_params.iter().chain(method.type_params.iter()) {
-        let var_id = infer.r#gen.fresh_id();
-        type_var_map.insert(Arc::clone(&tp.name), var_id);
-        quantified.push(var_id);
-    }
-
-    let self_ty = substitute_type_params(for_type, &type_var_map);
-
-    let mut params = Vec::new();
-    if method.has_self {
-        params.push(self_ty.clone());
-    }
-    for p in &method.params {
-        let ty = match &p.ty {
-            Some(ty) => resolve_signature_type(infer, ty, for_type, &type_var_map),
-            None => infer.fresh(),
-        };
-        params.push(ty);
-    }
-
-    let ret = if let Some(ty) = &method.ret_ty {
-        resolve_signature_type(infer, ty, for_type, &type_var_map)
-    } else {
-        // The signature is the dispatch contract; without a declared
-        // return type foreign callers would see a dangling variable.
-        errors.push(Box::new(TypeError::new(
-            TypeErrorKind::InherentMethodMissingReturnType {
-                method: Arc::clone(&method.name),
-            },
-            (method.span.start, method.span.end),
-        )));
-        infer.fresh()
-    };
-
-    let abilities = resolve_declared_abilities(infer, &method.abilities, method.span, errors);
-    let fn_ty = Type::function_with_abilities(params, ret, abilities);
-    let scheme = if quantified.is_empty() {
-        Scheme::mono(fn_ty)
-    } else {
-        Scheme::poly(quantified, fn_ty)
-    };
-
-    // Bounds quantify with the scheme: the impl block's first (its bounds
-    // scope every method), then the method's own — the same combined order
-    // the compiler allocates the method's dictionary parameters in.
+    // Combined impl-then-method generics: the impl block's parameters (their
+    // bounds scope every method) come first, then the method's own — the same
+    // order the compiler allocates dictionary parameters in. Split into type
+    // variables and ability (row) variables (`E!`), allocating fresh
+    // quantified ids for each — mirroring `build_function_scheme`. The
+    // hand-rolled positional minting this replaces would have minted a bogus
+    // type variable for an `E!` parameter.
     let combined: Vec<crate::ast::TypeParam> = impl_type_params
         .iter()
         .chain(method.type_params.iter())
         .cloned()
         .collect();
-    super::locals::attach_scheme_bounds(infer, scheme, &combined, &type_var_map, lenient_bounds)
+    let scope = super::ability_vars::generic_scope(infer, &combined);
+
+    // Resolve the signature with the method's ability variables in scope, so
+    // `with E` positions bind to the row variable. `report_type_misuse` is
+    // false here: an `E`-used-as-a-type mistake reports once, from the body
+    // check (this same resolution runs twice, scheme and body).
+    let (params, ret, abilities) =
+        infer.with_ability_var_scope(scope.ability_var_map.clone(), false, |infer| {
+            let self_ty = substitute_type_params(for_type, &scope.type_var_map);
+
+            let mut params = Vec::new();
+            if method.has_self {
+                params.push(self_ty);
+            }
+            for p in &method.params {
+                let ty = match &p.ty {
+                    Some(ty) => resolve_signature_type(infer, ty, for_type, &scope.type_var_map),
+                    None => infer.fresh(),
+                };
+                params.push(ty);
+            }
+
+            let ret = if let Some(ty) = &method.ret_ty {
+                resolve_signature_type(infer, ty, for_type, &scope.type_var_map)
+            } else {
+                // The signature is the dispatch contract; without a declared
+                // return type foreign callers would see a dangling variable.
+                errors.push(Box::new(TypeError::new(
+                    TypeErrorKind::InherentMethodMissingReturnType {
+                        method: Arc::clone(&method.name),
+                    },
+                    (method.span.start, method.span.end),
+                )));
+                infer.fresh()
+            };
+
+            // The declared `with` clause. Bare names that name an ability
+            // variable form the row tail; other names resolve concrete. An
+            // absent clause means "pure", like a public function.
+            let abilities = super::ability_vars::resolve_declared_with(
+                infer,
+                &method.abilities,
+                &scope.ability_var_map,
+                &method.name,
+            );
+            (params, ret, abilities)
+        });
+
+    let fn_ty = Type::function_with_abilities(params, ret, abilities);
+    let scheme = if scope.is_empty() {
+        Scheme::mono(fn_ty)
+    } else {
+        Scheme::poly_with_abilities(
+            scope.quantified_type_vars.clone(),
+            scope.ability_vars.clone(),
+            fn_ty,
+        )
+    };
+
+    super::locals::attach_scheme_bounds(
+        infer,
+        scheme,
+        &combined,
+        &scope.type_var_map,
+        lenient_bounds,
+    )
 }
 /// Resolve a declared type from an inherent method signature: substitute
 /// `Self`, then the quantified type parameters, then expand aliases/holes.
@@ -419,27 +442,6 @@ fn resolve_signature_type(
     let ty = substitute_self(ty, for_type);
     let ty = substitute_type_params(&ty, type_var_map);
     resolve_erroring(infer, &ty)
-}
-/// Resolve a `with` clause to a concrete ability set.
-///
-/// Unknown names go into the caller's error sink, not the shared pending
-/// list: foreign signature registration passes a scratch vec so a foreign
-/// module's mistakes (or abilities that only resolve in its own context)
-/// don't surface as errors of the module currently being checked.
-fn resolve_declared_abilities(
-    infer: &mut Infer,
-    declared: &[crate::ast::QualifiedName],
-    span: crate::ast::Span,
-    errors: &mut Vec<BoxedTypeError>,
-) -> AbilitySet {
-    let mut ids = Vec::new();
-    for qn in declared {
-        match infer.resolve_ability_ref(qn, (span.start, span.end)) {
-            Ok(id) => ids.push(id),
-            Err(e) => errors.push(e),
-        }
-    }
-    AbilitySet::from_abilities(ids)
 }
 /// Type-check the bodies of an inherent impl block.
 ///
@@ -459,11 +461,6 @@ fn check_inherent_impl_bodies(
     // Cloned so the per-method closure can resolve the target without holding
     // an immutable borrow of `impl_def` while `method` borrows it mutably.
     let for_type_ast = impl_def.for_type.clone();
-    let impl_params: Vec<Arc<str>> = impl_def
-        .type_params
-        .iter()
-        .map(|tp| Arc::clone(&tp.name))
-        .collect();
     let impl_type_params_ast = impl_def.type_params.clone();
 
     for method in &mut impl_def.methods {
@@ -475,10 +472,17 @@ fn check_inherent_impl_bodies(
 
         infer.reset_abilities();
 
-        let rigid: Vec<Arc<str>> = impl_params
+        // Ordinary type parameters are rigid in the body (`T` → `Type::Param`);
+        // ability (row) variables are not types, so they are excluded here and
+        // installed as an ability-variable scope instead — exactly as an
+        // ordinary function body treats its own `E!` (see
+        // `check_function_body`). Bodies allocate their own fresh row
+        // variables, distinct from the scheme's.
+        let rigid: Vec<Arc<str>> = impl_type_params_ast
             .iter()
-            .cloned()
-            .chain(method.type_params.iter().map(|tp| Arc::clone(&tp.name)))
+            .chain(method.type_params.iter())
+            .filter(|tp| !tp.is_ability)
+            .map(|tp| Arc::clone(&tp.name))
             .collect();
         // Bounds in the combined impl-then-method order — the same order
         // the scheme quantified them and the compiler allocates the
@@ -489,57 +493,62 @@ fn check_inherent_impl_bodies(
             .chain(method.type_params.iter())
             .cloned()
             .collect();
+        let ability_scope = super::ability_vars::ability_var_scope(infer, &combined_params);
         let bounds = infer.resolve_bound_params(&combined_params, &mut Vec::new());
-        infer.with_rigid_params(rigid, |infer| {
-            infer.with_bound_params(bounds, |infer| {
-                let for_type = infer.resolve_holes(&for_type_ast);
-                let mut func_env = env.extend();
+        infer.with_ability_var_scope(ability_scope, true, |infer| {
+            infer.with_rigid_params(rigid, |infer| {
+                infer.with_bound_params(bounds, |infer| {
+                    let for_type = infer.resolve_holes(&for_type_ast);
+                    let mut func_env = env.extend();
 
-                if method.has_self {
-                    func_env.insert_mono(method.self_id, Arc::from("self"), for_type.clone());
-                }
-                for param in &method.params {
-                    let param_ty = match &param.ty {
-                        Some(ty) => {
-                            let ty = substitute_self(ty, &for_type);
-                            resolve_erroring(infer, &ty)
-                        }
-                        None => infer.fresh(),
-                    };
-                    func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
-                }
-
-                let expected_ret = method.ret_ty.as_ref().map(|ty| {
-                    let ty = substitute_self(ty, &for_type);
-                    resolve_erroring(infer, &ty)
-                });
-
-                match infer.infer_expr(&func_env, &mut method.body) {
-                    Ok(body_ty) => {
-                        if let Some(expected) = &expected_ret {
-                            let method_span = (method.span.start, method.span.end);
-                            if let Err(e) = infer.unify(expected, &body_ty, method_span) {
-                                errors.push(
-                                    e.with_context(format!("in inherent method `{}`", method.name)),
-                                );
+                    if method.has_self {
+                        func_env.insert_mono(method.self_id, Arc::from("self"), for_type.clone());
+                    }
+                    for param in &method.params {
+                        let param_ty = match &param.ty {
+                            Some(ty) => {
+                                let ty = substitute_self(ty, &for_type);
+                                resolve_erroring(infer, &ty)
                             }
-                        }
-                        deferred.push(DeferredAbilityCheck {
-                            context: format!("inherent method `{}`", method.name),
-                            declared: method.abilities.clone(),
-                            inferred: infer.current_abilities().clone(),
-                            span: method.span,
-                        });
+                            None => infer.fresh(),
+                        };
+                        func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
                     }
-                    Err(e) => {
-                        errors
-                            .push(e.with_context(format!("in inherent method `{}`", method.name)));
-                    }
-                }
 
-                // Solve the bound constraints this body recorded and finalize
-                // its dictionary annotations for the compiler.
-                infer.finish_body_constraints(&mut method.body, errors);
+                    let expected_ret = method.ret_ty.as_ref().map(|ty| {
+                        let ty = substitute_self(ty, &for_type);
+                        resolve_erroring(infer, &ty)
+                    });
+
+                    match infer.infer_expr(&func_env, &mut method.body) {
+                        Ok(body_ty) => {
+                            if let Some(expected) = &expected_ret {
+                                let method_span = (method.span.start, method.span.end);
+                                if let Err(e) = infer.unify(expected, &body_ty, method_span) {
+                                    errors.push(e.with_context(format!(
+                                        "in inherent method `{}`",
+                                        method.name
+                                    )));
+                                }
+                            }
+                            deferred.push(DeferredAbilityCheck {
+                                context: format!("inherent method `{}`", method.name),
+                                declared: method.abilities.clone(),
+                                inferred: infer.current_abilities().clone(),
+                                span: method.span,
+                            });
+                        }
+                        Err(e) => {
+                            errors.push(
+                                e.with_context(format!("in inherent method `{}`", method.name)),
+                            );
+                        }
+                    }
+
+                    // Solve the bound constraints this body recorded and finalize
+                    // its dictionary annotations for the compiler.
+                    infer.finish_body_constraints(&mut method.body, errors);
+                });
             });
         });
     }

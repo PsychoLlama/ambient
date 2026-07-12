@@ -45,23 +45,19 @@ fn lower_type_param(tp: &crate::cst::CstTypeParam) -> Result<TypeParam, ParseErr
     })
 }
 
-/// Lower a method-level type parameter for a position that supports trait
-/// bounds but is not yet wired for effect-polymorphic ability variables
-/// (`E!`): impl-block, impl-method, and trait-method parameters. Free
-/// functions and *ability* methods are the wired positions; rejecting `E!`
-/// here gives a clear boundary instead of the opaque "unknown ability `E`"
-/// that an unwired `with E` would otherwise produce downstream.
+/// Lower a type parameter for a position that supports trait bounds but not
+/// effect-polymorphic ability variables (`E!`): impl-block and trait-method
+/// parameters. `E!` is wired for free functions, ability methods, and impl
+/// *methods*; rejecting it here (with a position-specific `reject_message`)
+/// gives a clear boundary instead of the opaque "unknown ability `E`" that an
+/// unwired `with E` would otherwise produce downstream.
 fn lower_type_param_no_ability(
     tp: &crate::cst::CstTypeParam,
-    context: &str,
+    reject_message: &str,
 ) -> Result<TypeParam, ParseError> {
     if tp.is_ability {
         return Err(ParseError::new(
-            ParseErrorKind::LoweringError(format!(
-                "ability variables are not yet supported on {context}; \
-                 effect polymorphism (`E!`) is currently available on \
-                 free functions and ability methods"
-            )),
+            ParseErrorKind::LoweringError(reject_message.to_string()),
             tp.span,
         ));
     }
@@ -574,7 +570,14 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
             let method_type_params = m
                 .type_params
                 .iter()
-                .map(|tp| lower_type_param_no_ability(tp, "trait methods"))
+                .map(|tp| {
+                    lower_type_param_no_ability(
+                        tp,
+                        "ability variables (`E!`) are not yet supported on trait \
+                         methods; effect polymorphism is available on free \
+                         functions, ability methods, and inherent impl methods",
+                    )
+                })
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Check if first param is self
@@ -632,7 +635,15 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
     let mut type_params: Vec<TypeParam> = i
         .type_params
         .iter()
-        .map(|tp| lower_type_param_no_ability(tp, "impl blocks"))
+        .map(|tp| {
+            lower_type_param_no_ability(
+                tp,
+                "ability variables (`E!`) are not supported on impl blocks; an \
+                 impl block's type parameters parameterize the receiver type, \
+                 where an effect row cannot appear. Declare `E!` on the method \
+                 instead: `fn method<E!>(...)`",
+            )
+        })
         .collect::<Result<_, _>>()?;
 
     let trait_name = i.trait_name.as_ref().map(lower_qualified_name);
@@ -671,10 +682,13 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
         .methods
         .iter()
         .map(|m| {
+            // Impl methods are a wired position for effect polymorphism:
+            // `fn each<E!>(self, f: (T) -> () with E): () with E` accepts and
+            // propagates `E!` exactly like a free function.
             let method_type_params = m
                 .type_params
                 .iter()
-                .map(|tp| lower_type_param_no_ability(tp, "impl methods"))
+                .map(lower_type_param)
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Allocate self binding ID
