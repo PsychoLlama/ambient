@@ -292,7 +292,7 @@ impl Parser<'_> {
 
         // Parse optional `with` clause for allowed abilities
         let allowed_abilities = if self.consume(TokenKind::With).is_some() {
-            self.parse_ability_list()?
+            self.parse_ability_list(super::types::TypeCtx::Default)?
         } else {
             Vec::new()
         };

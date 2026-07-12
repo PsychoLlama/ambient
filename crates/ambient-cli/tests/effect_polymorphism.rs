@@ -90,6 +90,24 @@ fn mixed_concrete_and_variable_row() {
     .expect_success();
 }
 
+/// An effectful function type sitting inside a generic argument list, ahead
+/// of a plain type argument (`Map<() -> Number with E, Number>`): the parser
+/// must read two generic arguments — the effectful function type and
+/// `Number` — and the `with E` row inside the argument must resolve to the
+/// enclosing function's ability variable like any other function-type row.
+#[test]
+fn effectful_function_type_inside_generic_argument_resolves() {
+    CliTest::new(
+        r#"
+        pub fn indexed<E!>(m: Map<() -> Number with E, Number>): Number with E {
+          0
+        }
+        "#,
+    )
+    .check()
+    .expect_success();
+}
+
 /// A body performing an ability outside its declared row (`with E` only, body
 /// performs `Stdio` directly) is rejected — the concrete effect escapes.
 #[test]

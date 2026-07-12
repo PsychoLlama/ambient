@@ -20,6 +20,8 @@
 
 mod control;
 mod expr;
+#[cfg(test)]
+mod function_type_tests;
 mod items;
 mod patterns;
 #[cfg(test)]

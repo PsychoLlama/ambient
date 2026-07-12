@@ -7,6 +7,21 @@ use crate::cst::{CstQualifiedName, CstTypeExpr, CstTypeExprKind};
 use crate::error::ParseError;
 use crate::lexer::TokenKind;
 
+/// How the list enclosing a type expression terminates — the context a
+/// function type's trailing `with` clause needs to know where its ability
+/// row ends when a comma follows.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum TypeCtx {
+    /// A `with` clause terminated by a block (`{`) or by the enclosing
+    /// parameter / record-field list (`, name :`). The default for a standalone
+    /// type position and every top-level `with` clause.
+    Default,
+    /// A function type inside a generic argument list — `Map<() -> () with E,
+    /// Number>`. The list is delimited by `>`, so a comma always separates
+    /// generic arguments and can never extend the ability row.
+    GenericArg,
+}
+
 impl Parser<'_> {
     /// Parse a type expression.
     ///
@@ -14,6 +29,13 @@ impl Parser<'_> {
     ///
     /// Returns a `ParseError` if the source is not a valid type expression.
     pub fn parse_type(&mut self) -> Result<CstTypeExpr, ParseError> {
+        self.parse_type_ctx(TypeCtx::Default)
+    }
+
+    /// Parse a type expression whose enclosing list terminates per `ctx`. A
+    /// function type's `with` clause resolves its comma ambiguity against
+    /// `ctx`; every other type shape ignores it.
+    pub(super) fn parse_type_ctx(&mut self, ctx: TypeCtx) -> Result<CstTypeExpr, ParseError> {
         let start = self.current().span.start;
 
         // Check for special types
@@ -33,7 +55,7 @@ impl Parser<'_> {
 
         // Tuple or parenthesized type
         if self.check(TokenKind::LParen) {
-            return self.parse_tuple_or_function_type();
+            return self.parse_tuple_or_function_type(ctx);
         }
 
         // Record type
@@ -71,7 +93,10 @@ impl Parser<'_> {
                     break;
                 }
 
-                args.push(self.parse_type()?);
+                // Each argument is delimited by `,` / `>`, so a function-typed
+                // argument's `with` clause stops at the comma rather than
+                // swallowing the next argument (`Map<() -> () with E, Number>`).
+                args.push(self.parse_type_ctx(TypeCtx::GenericArg)?);
 
                 if self.consume(TokenKind::Comma).is_none() {
                     break;
@@ -111,7 +136,10 @@ impl Parser<'_> {
         })
     }
 
-    pub(super) fn parse_tuple_or_function_type(&mut self) -> Result<CstTypeExpr, ParseError> {
+    pub(super) fn parse_tuple_or_function_type(
+        &mut self,
+        ctx: TypeCtx,
+    ) -> Result<CstTypeExpr, ParseError> {
         let start = self.current().span.start;
         self.expect(TokenKind::LParen)?;
 
@@ -132,10 +160,13 @@ impl Parser<'_> {
 
         // Check for function type
         if self.consume(TokenKind::Arrow).is_some() {
-            let ret = self.parse_type()?;
+            // The return type inherits `ctx`: a chained arrow's own `with`
+            // clause is still bounded by the enclosing list (e.g. the inner
+            // arrow in `Map<() -> () -> () with E, Number>`).
+            let ret = self.parse_type_ctx(ctx)?;
             let abilities = if self.check(TokenKind::With) {
                 self.advance();
-                self.parse_ability_list()?
+                self.parse_ability_list(ctx)?
             } else {
                 Vec::new()
             };
@@ -190,13 +221,25 @@ impl Parser<'_> {
         })
     }
 
-    pub(super) fn parse_ability_list(&mut self) -> Result<Vec<CstQualifiedName>, ParseError> {
+    pub(super) fn parse_ability_list(
+        &mut self,
+        ctx: TypeCtx,
+    ) -> Result<Vec<CstQualifiedName>, ParseError> {
         let mut abilities = Vec::new();
 
         loop {
             abilities.push(self.parse_qualified_name()?);
 
             if !self.check(TokenKind::Comma) {
+                break;
+            }
+
+            // Inside a generic argument list there is no `name :` terminator
+            // and the comma always separates generic arguments, so it can
+            // never extend the row: `Map<() -> () with E, Number>` is a
+            // single-ability row followed by the `Number` argument. Stop
+            // *without* consuming the comma so the generic parser sees it.
+            if ctx == TypeCtx::GenericArg {
                 break;
             }
 

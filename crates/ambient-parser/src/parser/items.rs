@@ -107,7 +107,7 @@ impl Parser<'_> {
         // Abilities
         let abilities = if self.check(TokenKind::With) {
             self.advance();
-            self.parse_ability_list()?
+            self.parse_ability_list(super::types::TypeCtx::Default)?
         } else {
             Vec::new()
         };
@@ -494,7 +494,7 @@ impl Parser<'_> {
         // Dependencies
         let dependencies = if self.check(TokenKind::With) {
             self.advance();
-            self.parse_ability_list()?
+            self.parse_ability_list(super::types::TypeCtx::Default)?
         } else {
             Vec::new()
         };
@@ -605,7 +605,7 @@ impl Parser<'_> {
         // Supertraits: `with Trait1, Trait2`
         let supertraits = if self.check(TokenKind::With) {
             self.advance();
-            self.parse_ability_list()?
+            self.parse_ability_list(super::types::TypeCtx::Default)?
         } else {
             Vec::new()
         };
@@ -830,7 +830,7 @@ impl Parser<'_> {
         // Optional ability clause
         let abilities = if self.check(TokenKind::With) {
             self.advance();
-            self.parse_ability_list()?
+            self.parse_ability_list(super::types::TypeCtx::Default)?
         } else {
             Vec::new()
         };
