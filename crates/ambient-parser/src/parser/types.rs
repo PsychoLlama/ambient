@@ -196,16 +196,43 @@ impl Parser<'_> {
         loop {
             abilities.push(self.parse_qualified_name()?);
 
-            if self.consume(TokenKind::Comma).is_none() {
+            if !self.check(TokenKind::Comma) {
                 break;
             }
 
-            // Check for trailing comma before block
+            // A `with` list on a function-typed parameter (or record field)
+            // is followed by `, nextItem` in the enclosing list — e.g.
+            // `fn f(make: () -> S with E, fingerprint: String)`. Peek past
+            // the comma: a qualified name followed by a single `:` (a type
+            // annotation) names the next parameter/field, not another
+            // ability. Stop the list *without* consuming the comma so the
+            // enclosing parser sees it.
+            if self.comma_precedes_param() {
+                break;
+            }
+
+            self.advance(); // consume the comma
+
+            // Trailing comma before a block (top-level fn `with` clause).
             if self.check(TokenKind::LBrace) {
                 break;
             }
         }
 
         Ok(abilities)
+    }
+
+    /// After a comma in an ability list, whether the upcoming tokens name
+    /// the next parameter/field rather than another ability. A qualified
+    /// name followed by a single `:` is a parameter name; `::` path
+    /// separators stay inside the qualified name, so only a lone `:`
+    /// triggers this. Pure lookahead — `self.pos` is restored, and the
+    /// speculative `parse_qualified_name` records no errors.
+    fn comma_precedes_param(&mut self) -> bool {
+        let saved = self.pos;
+        self.advance(); // step past the comma
+        let is_param = self.parse_qualified_name().is_ok() && self.check(TokenKind::Colon);
+        self.pos = saved;
+        is_param
     }
 }
