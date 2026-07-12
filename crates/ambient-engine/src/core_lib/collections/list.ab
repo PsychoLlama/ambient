@@ -150,63 +150,6 @@ impl<T> List<T> {
 // definition per method name per type, whatever block it lives in).
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn contains_from<T: Eq>(list: List<T>, item: T, i: Number): Bool {
-    match get(list, i) {
-        Some(x) => {
-            if x.eq(item) { true } else { contains_from(list, item, i + 1) }
-        }
-        None => false,
-    }
-}
-
-fn index_of_from<T: Eq>(list: List<T>, item: T, i: Number): Option<Number> {
-    match get(list, i) {
-        Some(x) => {
-            if x.eq(item) { Some(i) } else { index_of_from(list, item, i + 1) }
-        }
-        None => None,
-    }
-}
-
-fn max_from<T: Ord>(list: List<T>, best: T, i: Number): T {
-    match get(list, i) {
-        Some(x) => max_from(list, if x.cmp(best) > 0 { x } else { best }, i + 1),
-        None => best,
-    }
-}
-
-fn min_from<T: Ord>(list: List<T>, best: T, i: Number): T {
-    match get(list, i) {
-        Some(x) => min_from(list, if x.cmp(best) < 0 { x } else { best }, i + 1),
-        None => best,
-    }
-}
-
-// Insert `item` before the first element it does not exceed (insertion
-// sort's inner step): scans from `i`, splicing with slice/concat.
-fn insert_sorted<T: Ord>(sorted: List<T>, item: T, i: Number): List<T> {
-    match get(sorted, i) {
-        Some(x) => {
-            if item.cmp(x) <= 0 {
-                concat(
-                    append(slice(sorted, 0, i), item),
-                    slice(sorted, i, length(sorted)),
-                )
-            } else {
-                insert_sorted(sorted, item, i + 1)
-            }
-        }
-        None => append(sorted, item),
-    }
-}
-
-fn sorted_from<T: Ord>(list: List<T>, i: Number, acc: List<T>): List<T> {
-    match get(list, i) {
-        Some(x) => sorted_from(list, i + 1, insert_sorted(acc, x, 0)),
-        None => acc,
-    }
-}
-
 // Accumulate [start, end) front-to-back so the recursive call sits in tail
 // position (no `concat` wrapping it) — `range` runs in constant stack space.
 fn range_from(start: Number, end: Number, acc: List<Number>): List<Number> {
@@ -217,39 +160,65 @@ fn range_from(start: Number, end: Number, acc: List<Number>): List<Number> {
     }
 }
 
-// Equality-based operations: any element type with an `Eq` impl.
+// Equality-based operations: any element type with an `Eq` impl. Each is a
+// combinator over the unbounded methods above; the element's `Eq`
+// dictionary is captured into the lambda and dispatched there.
 impl<T: Eq> List<T> {
     // True if any element equals `item` (by its Eq impl).
     fn contains(self, item: T): Bool {
-        contains_from(self, item, 0)
+        self.any((x: T) => x.eq(item))
     }
-    // Index of the first element equal to `item`, if any.
+    // Index of the first element equal to `item`, if any. Folds a running
+    // `(next_index, found)` pair, latching the first hit.
     fn index_of(self, item: T): Option<Number> {
-        index_of_from(self, item, 0)
+        let found = self.fold(
+            (0, None),
+            (acc: (Number, Option<Number>), x: T) => match acc.1 {
+                Some(hit) => (acc.0 + 1, Some(hit)),
+                None => if x.eq(item) {
+                    (acc.0 + 1, Some(acc.0))
+                } else {
+                    (acc.0 + 1, None)
+                },
+            },
+        );
+        found.1
     }
 }
 
 // Ordering-based operations: any element type with an `Ord` impl. (The
 // unbounded `sort` above uses the native structural ordering, which only
 // meaningfully orders numbers and strings; `sorted` orders by `Ord::cmp`.)
+// Each is a combinator; the `Ord` dictionary is captured into the lambdas.
 impl<T: Ord> List<T> {
     // The largest element by `Ord::cmp`, if any.
     fn max(self): Option<T> {
         match head(self) {
-            Some(first) => Some(max_from(self, first, 1)),
+            Some(first) => Some(self.fold(first, (best: T, x: T) => {
+                if x.cmp(best) > 0 { x } else { best }
+            })),
             None => None,
         }
     }
     // The smallest element by `Ord::cmp`, if any.
     fn min(self): Option<T> {
         match head(self) {
-            Some(first) => Some(min_from(self, first, 1)),
+            Some(first) => Some(self.fold(first, (best: T, x: T) => {
+                if x.cmp(best) < 0 { x } else { best }
+            })),
             None => None,
         }
     }
-    // The elements sorted ascending by `Ord::cmp` (stable insertion sort).
+    // The elements sorted ascending by `Ord::cmp`. Insertion sort expressed
+    // as a fold: each element splits the accumulated-sorted prefix into the
+    // run it exceeds and the rest, and is spliced between them (before the
+    // first element it does not exceed — matching the previous behaviour).
+    // `fold`/`filter` are tail-recursive, so this runs in constant stack.
     fn sorted(self): List<T> {
-        sorted_from(self, 0, [])
+        self.fold([], (acc: List<T>, item: T) => concat(
+            append(acc.filter((x: T) => item.cmp(x) > 0), item),
+            acc.filter((x: T) => item.cmp(x) <= 0),
+        ))
     }
 }
 
