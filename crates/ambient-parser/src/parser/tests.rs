@@ -290,6 +290,53 @@ fn test_parse_lambda() {
 }
 
 #[test]
+fn test_parse_tuple_with_lambda_first_element() {
+    // Regression: a tuple whose first element is a lambda must not be
+    // misread as a lambda header. `(() => 2, 40)` is a 2-tuple.
+    let mut parser = Parser::new("(() => 2, 40)").unwrap();
+    let expr = parser.parse_expression().expect("parse error");
+    match expr.kind {
+        CstExprKind::Tuple(elements) => {
+            assert_eq!(elements.len(), 2);
+            assert!(matches!(elements[0].kind, CstExprKind::Lambda(_)));
+        }
+        other => panic!("Expected tuple, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_parenthesized_lambda() {
+    // `(() => 2)` is a parenthesized lambda, not a lambda header.
+    let mut parser = Parser::new("(() => 2)").unwrap();
+    let expr = parser.parse_expression().expect("parse error");
+    assert!(matches!(expr.kind, CstExprKind::Lambda(_)));
+}
+
+#[test]
+fn test_parse_lambda_with_parenthesized_param_types() {
+    // Params containing parenthesized function types must still be depth
+    // matched so the trailing `=>` is found.
+    let mut parser = Parser::new("(f: (Number) -> Number) => f(1)").unwrap();
+    let expr = parser.parse_expression().expect("parse error");
+    match expr.kind {
+        CstExprKind::Lambda(lambda) => {
+            assert_eq!(lambda.params.len(), 1);
+            assert_eq!(&*lambda.params[0].name.name, "f");
+        }
+        other => panic!("Expected lambda, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_call_with_tuple_lambda_arg() {
+    // The reported repro: a call whose argument is a tuple with a lambda
+    // first element.
+    let mut parser = Parser::new("call_both((() => 2, 40))").unwrap();
+    let expr = parser.parse_expression().expect("parse error");
+    assert!(matches!(expr.kind, CstExprKind::Call { .. }));
+}
+
+#[test]
 fn test_parse_function() {
     let source = "fn add(x: Number, y: Number): Number { x + y }";
     let mut parser = Parser::new(source).unwrap();

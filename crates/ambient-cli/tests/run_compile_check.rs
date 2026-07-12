@@ -499,6 +499,22 @@ fn test_end_to_end_tuples() {
     .expect_output("6");
 }
 
+/// Regression: a tuple literal whose first element is a lambda must parse and
+/// run end to end. Calling that stored lambda proves the tuple wasn't misread
+/// as a lambda header (see `peek_for_lambda`).
+#[test]
+fn test_end_to_end_tuple_with_lambda_first_element() {
+    CliTest::new(
+        r#"
+        fn run(): Number {
+            let pair = (() => 2, 40);
+            pair.0() + pair.1
+        }
+    "#,
+    )
+    .expect_output("42");
+}
+
 #[test]
 fn test_end_to_end_records() {
     // Test record creation through full pipeline

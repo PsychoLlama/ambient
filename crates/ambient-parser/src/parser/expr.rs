@@ -738,11 +738,11 @@ impl Parser<'_> {
     }
 
     fn peek_for_lambda(&mut self) -> bool {
-        // We're at the opening paren
+        // The caller already consumed the outer `(`, so start one level deep
+        // and depth-match every token from here: a blind advance past the
+        // first drops its bump when it is a `(` (`(() => 2, 40)`), misreading.
         let mut depth = 1;
         let saved = self.pos;
-
-        self.advance(); // consume (
 
         while depth > 0 && !self.at_end() {
             self.skip_trivia();
