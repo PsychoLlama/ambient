@@ -197,16 +197,37 @@ impl Infer {
                             span,
                         )
                     })?;
+                // A fielded generic struct (`Box { a: 2, b: 3 }`) carries no
+                // explicit type arguments in constructor syntax, so instantiate
+                // its declared parameters to fresh variables and let the field
+                // values drive inference. The written arguments of an annotated
+                // application (`p: Box<Number, Number>`) later unify with these.
+                let generic = match target {
+                    crate::infer::AliasTarget::GenericStruct { type_params, body } => {
+                        Some((type_params.clone(), body.clone()))
+                    }
+                    _ => None,
+                };
                 // An opaque generic head (`List { … }`) has no record body to
                 // construct; it is `extern` by definition, so it fails the
                 // same way a nullary `extern` struct does below.
-                let Some(full_type) = target.whole().cloned() else {
-                    return Err(type_error(
-                        TypeErrorKind::CannotConstructExtern {
-                            name: type_name.joined(),
-                        },
-                        span,
-                    ));
+                let whole = target.whole().cloned();
+                let full_type = if let Some((type_params, body)) = generic {
+                    let map: std::collections::HashMap<Arc<str>, Type> = type_params
+                        .into_iter()
+                        .map(|param| (param, self.fresh()))
+                        .collect();
+                    super::check::substitute_named(&body, &map)
+                } else {
+                    let Some(full_type) = whole else {
+                        return Err(type_error(
+                            TypeErrorKind::CannotConstructExtern {
+                                name: type_name.joined(),
+                            },
+                            span,
+                        ));
+                    };
+                    full_type
                 };
 
                 // An `extern` struct is engine-provided: user code may name it

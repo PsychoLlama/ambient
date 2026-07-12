@@ -50,6 +50,24 @@ pub enum AliasTarget {
         /// annotation site.
         arity: usize,
     },
+    /// A declared struct with a *record body* and one or more named type
+    /// parameters (`struct Box<A, B> { a: A, b: B }`). Unlike an opaque
+    /// generic head, its parameters are real: they appear in the body as bare
+    /// `Named(param)` placeholders. Applying arguments substitutes
+    /// params→args into the body, yielding the concrete `Type::Nominal`
+    /// record — the same shape a non-generic struct's `Whole` body already is
+    /// (so projection, unification, and inherent-impl keying reuse the nominal
+    /// machinery). A bare (nullary) reference expands to `body` with its
+    /// params free. Non-generic structs still register as [`Whole`](Self::Whole).
+    GenericStruct {
+        /// Declared type parameters, in order, so applied args zip
+        /// positionally.
+        type_params: Vec<Arc<str>>,
+        /// The struct body: `Type::Nominal(uuid, Record{…})` for a `unique`
+        /// struct, a bare `Type::Record` for a structural one, with fields
+        /// written in terms of `type_params`.
+        body: Type,
+    },
 }
 
 impl AliasTarget {
@@ -66,6 +84,16 @@ impl AliasTarget {
                     arity: def.type_params.len(),
                 }
             }
+            // A fielded generic struct: its parameters are real body
+            // placeholders, applied by substitution in the checker.
+            _ if !def.type_params.is_empty() => Self::GenericStruct {
+                type_params: def
+                    .type_params
+                    .iter()
+                    .map(|tp| Arc::clone(&tp.name))
+                    .collect(),
+                body: def.ty.clone(),
+            },
             _ => Self::Whole(def.ty.clone()),
         }
     }
@@ -75,7 +103,7 @@ impl AliasTarget {
     #[must_use]
     pub fn whole(&self) -> Option<&Type> {
         match self {
-            Self::Whole(ty) => Some(ty),
+            Self::Whole(ty) | Self::GenericStruct { body: ty, .. } => Some(ty),
             Self::OpaqueGeneric { .. } => None,
         }
     }
@@ -85,9 +113,13 @@ impl AliasTarget {
     #[must_use]
     pub fn impl_uuid(&self) -> Option<uuid::Uuid> {
         match self {
-            Self::Whole(Type::Nominal(n)) => Some(n.uuid),
+            Self::Whole(Type::Nominal(n))
+            | Self::GenericStruct {
+                body: Type::Nominal(n),
+                ..
+            } => Some(n.uuid),
             Self::OpaqueGeneric { uuid, .. } => Some(*uuid),
-            Self::Whole(_) => None,
+            Self::Whole(_) | Self::GenericStruct { .. } => None,
         }
     }
 }

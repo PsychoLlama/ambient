@@ -13,7 +13,7 @@ use crate::infer::{Infer, inherent};
 
 use super::bodies::DeferredAbilityCheck;
 use super::locals::resolve_erroring;
-use super::locals::substitute_type_params;
+use super::subst::substitute_type_params;
 
 /// Check impl blocks and register implementations.
 pub(super) fn check_impls(

@@ -12,7 +12,7 @@ use crate::types::{AbilityId, Type};
 use crate::infer::Infer;
 use crate::infer::error::{BoxedTypeError, TypeError, TypeErrorKind};
 
-use super::locals::substitute_type_params;
+use super::subst::substitute_type_params;
 
 /// Seed the prelude's `extern` struct types into the alias table: the four
 /// primitive nominals (`Bool`/`Number`/`String`/`Binary`) and the opaque

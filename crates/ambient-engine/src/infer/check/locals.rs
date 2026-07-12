@@ -14,6 +14,7 @@ use crate::infer::error::{BoxedTypeError, TypeError, TypeErrorKind};
 
 use super::abilities::register_abilities;
 use super::impls::register_inherent_impls;
+use super::subst::substitute_type_params;
 
 /// Phase 1 registration of the current module's own declarations into the
 /// checker: named types, unit-struct values, traits, enums, abilities,
@@ -625,55 +626,6 @@ pub(super) fn build_extern_fn_scheme(infer: &mut Infer, def: &crate::ast::Extern
     }
 }
 
-/// Substitute type parameters in a type with type variables.
-pub(in crate::infer) fn substitute_type_params(
-    ty: &Type,
-    type_var_map: &HashMap<Arc<str>, TypeVarId>,
-) -> Type {
-    match ty {
-        Type::Named(named) => {
-            // Check if this is a type parameter reference
-            if named.args.is_empty()
-                && let Some(&var_id) = type_var_map.get(&named.name)
-            {
-                return Type::var(var_id);
-            }
-            // Otherwise, recursively substitute in type arguments, preserving
-            // any nominal identity (a declared enum's uuid).
-            Type::Named(
-                named.map_args(
-                    named
-                        .args
-                        .iter()
-                        .map(|arg| substitute_type_params(arg, type_var_map))
-                        .collect(),
-                ),
-            )
-        }
-        Type::Function(f) => Type::function_with_abilities(
-            f.params
-                .iter()
-                .map(|p| substitute_type_params(p, type_var_map))
-                .collect(),
-            substitute_type_params(&f.ret, type_var_map),
-            f.abilities.clone(),
-        ),
-        Type::Tuple(elems) => Type::Tuple(
-            elems
-                .iter()
-                .map(|e| substitute_type_params(e, type_var_map))
-                .collect(),
-        ),
-        Type::Record(rec) => Type::Record(crate::types::RecordType::new(
-            rec.fields
-                .iter()
-                .map(|(n, t)| (Arc::clone(n), substitute_type_params(t, type_var_map)))
-                .collect(),
-        )),
-        // Primitives and other types pass through unchanged
-        _ => ty.clone(),
-    }
-}
 // ─────────────────────────────────────────────────────────────────────────────
 // Resolve-or-error for type annotations
 // ─────────────────────────────────────────────────────────────────────────────

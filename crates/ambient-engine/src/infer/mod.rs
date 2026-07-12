@@ -629,6 +629,31 @@ impl Infer {
                         Some(uuid),
                     ));
                 }
+                // Apply a fielded generic struct in scope (`Box<Number, String>`):
+                // substitute the written arguments for the declared parameters in
+                // the struct's record body, yielding the concrete
+                // `Type::Nominal(uuid, Record{…})` — the same shape a non-generic
+                // struct expands to, so projection, unification, and inherent-impl
+                // keying all reuse the nominal machinery. Unlike the enum/opaque
+                // arms this fires regardless of a resolve-stamped uuid: the
+                // applied *body* (not the head name) is what the checker needs,
+                // and the resolve pass leaves fielded generic structs bare. An
+                // arity mismatch is left to fall through to the bare `Named`,
+                // where resolve-or-error reports an undefined/misapplied head.
+                let generic_struct = match self.get_type_alias(&n.name) {
+                    Some(AliasTarget::GenericStruct { type_params, body })
+                        if type_params.len() == args.len() =>
+                    {
+                        Some((type_params.clone(), body.clone()))
+                    }
+                    _ => None,
+                };
+                if let Some((type_params, body)) = generic_struct {
+                    let map: std::collections::HashMap<Arc<str>, Type> =
+                        type_params.into_iter().zip(args.iter().cloned()).collect();
+                    let expanded = check::substitute_named(&body, &map);
+                    return self.resolve_holes(&expanded);
+                }
                 // Otherwise keep as named type, preserving any existing identity.
                 Type::Named(n.map_args(args))
             }

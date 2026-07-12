@@ -22,11 +22,13 @@ mod bodies;
 mod foreign;
 mod impls;
 mod locals;
+mod subst;
 #[cfg(test)]
 mod tests;
 
 pub use abilities::{resolve_ability_declarations, resolve_registry_abilities};
-pub(in crate::infer) use locals::{resolve_body_annotation, substitute_type_params};
+pub(in crate::infer) use locals::resolve_body_annotation;
+pub(in crate::infer) use subst::{substitute_named, substitute_type_params};
 
 use crate::ability_resolver::AbilityResolver;
 use crate::module_path::ModulePath;
