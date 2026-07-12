@@ -145,6 +145,13 @@ pub struct ExternFnDef {
 pub struct TypeParam {
     /// Parameter name.
     pub name: Arc<str>,
+    /// Whether this is an **ability (row) variable** (`E!` in the source),
+    /// declaring a polymorphic effect row rather than a type. An ability
+    /// variable names an [`crate::types::AbilitySet`] tail in ability
+    /// positions (the item's `with` clause and function-type `with` lists);
+    /// it is never a type and carries no trait bounds (so it contributes
+    /// nothing to [`dict_params`]).
+    pub is_ability: bool,
     /// Trait bounds (`T: Eq + Ord`), as written. The checker resolves each
     /// to a trait identity; an impl's `where` clauses fold into these at
     /// lowering, so bounds have exactly one AST representation.
@@ -159,6 +166,7 @@ impl TypeParam {
     pub fn plain(name: impl Into<Arc<str>>, span: Span) -> Self {
         Self {
             name: name.into(),
+            is_ability: false,
             bounds: Vec::new(),
             span,
         }

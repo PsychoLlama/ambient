@@ -22,13 +22,27 @@ use crate::cst::{
 };
 use crate::error::{ParseError, ParseErrorKind};
 
-/// Lower a type parameter, carrying its trait bounds (`T: Eq + Ord`).
-fn lower_type_param(tp: &crate::cst::CstTypeParam) -> TypeParam {
-    TypeParam {
+/// Lower a type parameter, carrying its trait bounds (`T: Eq + Ord`) and
+/// the ability-variable flag (`E!`). An ability variable declares an effect
+/// row, not a type, so it may carry no trait bounds — a bound there is a
+/// clear error at the declaration site.
+fn lower_type_param(tp: &crate::cst::CstTypeParam) -> Result<TypeParam, ParseError> {
+    if tp.is_ability && !tp.bounds.is_empty() {
+        return Err(ParseError::new(
+            ParseErrorKind::LoweringError(format!(
+                "ability variable `{}` cannot have trait bounds; \
+                 an ability variable names an effect row, not a type",
+                tp.name.name
+            )),
+            tp.span,
+        ));
+    }
+    Ok(TypeParam {
         name: tp.name.name.clone(),
+        is_ability: tp.is_ability,
         bounds: tp.bounds.iter().map(lower_qualified_name).collect(),
         span: tp.span,
-    }
+    })
 }
 
 /// Lower a type parameter in a position where trait bounds are meaningless
@@ -49,7 +63,17 @@ fn lower_unbounded_type_param(
             tp.span,
         ));
     }
-    Ok(lower_type_param(tp))
+    if tp.is_ability {
+        return Err(ParseError::new(
+            ParseErrorKind::LoweringError(format!(
+                "ability variables are not supported on {context}; \
+                 an ability variable declares a polymorphic effect row, \
+                 meaningful only on functions and methods"
+            )),
+            tp.span,
+        ));
+    }
+    lower_type_param(tp)
 }
 
 pub(super) fn lower_item_impl(
@@ -91,7 +115,11 @@ fn lower_function(
     ctx: &mut LoweringContext,
     f: &CstFunctionDef,
 ) -> Result<FunctionDef, ParseError> {
-    let type_params = f.type_params.iter().map(lower_type_param).collect();
+    let type_params = f
+        .type_params
+        .iter()
+        .map(lower_type_param)
+        .collect::<Result<Vec<_>, _>>()?;
 
     let params = f
         .params
@@ -343,7 +371,11 @@ fn lower_ability_def(
         .methods
         .iter()
         .map(|m| {
-            let type_params = m.type_params.iter().map(lower_type_param).collect();
+            let type_params = m
+                .type_params
+                .iter()
+                .map(lower_type_param)
+                .collect::<Result<Vec<_>, _>>()?;
 
             // A method signature is an interface other code compiles
             // against, so every parameter carries a declared type — there
@@ -516,7 +548,11 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
         .methods
         .iter()
         .map(|m| {
-            let method_type_params = m.type_params.iter().map(lower_type_param).collect();
+            let method_type_params = m
+                .type_params
+                .iter()
+                .map(lower_type_param)
+                .collect::<Result<Vec<_>, _>>()?;
 
             // Check if first param is self
             let (has_self, other_params) = if let Some(first) = m.params.first() {
@@ -570,7 +606,11 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
 }
 
 fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, ParseError> {
-    let mut type_params: Vec<TypeParam> = i.type_params.iter().map(lower_type_param).collect();
+    let mut type_params: Vec<TypeParam> = i
+        .type_params
+        .iter()
+        .map(lower_type_param)
+        .collect::<Result<_, _>>()?;
 
     let trait_name = i.trait_name.as_ref().map(lower_qualified_name);
     let for_type = lower_type(&i.for_type)?;
@@ -608,7 +648,11 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
         .methods
         .iter()
         .map(|m| {
-            let method_type_params = m.type_params.iter().map(lower_type_param).collect();
+            let method_type_params = m
+                .type_params
+                .iter()
+                .map(lower_type_param)
+                .collect::<Result<Vec<_>, _>>()?;
 
             // Allocate self binding ID
             let self_id = ctx.fresh_binding();

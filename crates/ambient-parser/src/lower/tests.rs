@@ -213,6 +213,36 @@ fn test_lower_bounded_type_params() {
 }
 
 #[test]
+fn test_lower_ability_variable_param() {
+    // `<T, E!>` — the `!` suffix lowers to `is_ability` on the AST
+    // TypeParam; ordinary parameters stay `is_ability: false`.
+    let source = "fn run<T, E!>(t: () -> T with E): T with E { t() }";
+    let module = parse(source).expect("parse error");
+    match &module.items[0].kind {
+        ItemKind::Function(f) => {
+            assert_eq!(f.type_params.len(), 2);
+            assert!(!f.type_params[0].is_ability, "`T` is a type variable");
+            assert!(f.type_params[1].is_ability, "`E!` is an ability variable");
+        }
+        _ => panic!("Expected function"),
+    }
+}
+
+#[test]
+fn test_lower_ability_variable_with_bounds_is_error() {
+    // An ability variable names an effect row, not a type, so it may carry
+    // no trait bounds.
+    let source = "fn bad<E!: Eq>(t: () -> Number with E): Number with E { t() }";
+    let err = parse(source).expect_err("expected a lowering error");
+    match err.kind {
+        ParseErrorKind::LoweringError(msg) => {
+            assert!(msg.contains("cannot have trait bounds"), "got: {msg}");
+        }
+        other => panic!("expected LoweringError, got {other:?}"),
+    }
+}
+
+#[test]
 fn test_lower_impl_where_clause_folds_into_bounds() {
     // A trailing `where T: Eq` is the same declaration as `impl<T: Eq>`:
     // lowering folds it into the parameter, so there is exactly one AST

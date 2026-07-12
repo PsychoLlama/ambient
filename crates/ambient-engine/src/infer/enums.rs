@@ -554,6 +554,7 @@ mod tests {
                 .iter()
                 .map(|p| crate::ast::TypeParam {
                     name: Arc::from(*p),
+                    is_ability: false,
                     bounds: Vec::new(),
                     span: crate::ast::Span::default(),
                 })
@@ -657,6 +658,7 @@ mod tests {
                 .iter()
                 .map(|p| crate::ast::TypeParam {
                     name: Arc::from(*p),
+                    is_ability: false,
                     bounds: Vec::new(),
                     span: crate::ast::Span::default(),
                 })
