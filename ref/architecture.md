@@ -259,6 +259,16 @@ Stack-based VM with:
 - Call stack for function frames
 - Continuation stack for ability handlers
 
+**Proper tail calls.** Every call in tail position — the trailing
+expression of a function, lambda, or handler arm, threaded through `if`
+branches, `match` arms, block results, and `sandbox` — reuses the
+current frame (`TailCall`/`TailCallClosure`) instead of pushing a new
+one, so tail recursion runs in constant stack space. Non-tail
+recursion still caps at `max_call_depth` (1000). Two carve-outs are
+_not_ tail positions: a `handle` expression's body (trailing
+continuation cleanup runs after it) and `resume` (a handler that
+resumes each iteration accumulates one frame per cycle).
+
 ### Content-Addressing
 
 A function's hash is the blake3 of its **canonical object encoding**
@@ -484,11 +494,14 @@ Roughly in priority order:
   points (the `Live` ability), runtime-owned state cells with an
   explicit migration contract, drainable named tasks, exact generation
   retirement, and three deploy frontends (the dev loop, the REPL, and
-  remote deploy over the `Deploy` ability). Still open: a tail-call (or
-  equivalent) story so a task's loop can be spelled in-language, typed
+  remote deploy over the `Deploy` ability). The in-language loop idiom
+  is now spellable — proper tail calls mean a task's loop can re-enter
+  through `Live::latest!` in tail position and run in constant stack
+  space (see `examples/deploy_server`'s `converse`). Still open: typed
   `latest`/task bodies (blocked on effect-polymorphic function
-  parameters in ability signatures), and snapshot groups for multi-read
-  consistency.
+  parameters in ability signatures), snapshot groups for multi-read
+  consistency, and tail-`resume` (a handler-driven effect loop still
+  accumulates one frame per cycle, so those loops stay frame-bounded).
 - Trait bounds (`fn foo<T: Eq>(x: T)`) are **done** — dictionary-passing,
   uniform across functions, impl methods, and ability methods. Still open:
   generic traits (`trait Container<T>`), supertraits, conditional impls as

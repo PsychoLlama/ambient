@@ -232,14 +232,19 @@ pub unique(…) ability Task {
   cross-task state. Fault handling: restart on fault, park after a
   fault budget.
 
-Mechanics, as implemented: the language has no tail calls (and a
-bounded call depth), so the loop idiom above cannot yet be spelled in
-Ambient — **the task runtime is the loop**
-(`crates/ambient-platform/src/task.rs`). A task body is one bounded
-pass; the runtime re-invokes it forever, resolving the body's deployed
-name against the current generation before every pass (exactly the
-`live_latest` resolution) and topping the task's VM up with any newly
-loaded generation first. The visible consequences:
+Mechanics, as implemented: the loop idiom above is now spellable —
+proper tail calls let a body re-enter through `Live::latest!` in tail
+position and run in constant stack space (see `examples/deploy_server`'s
+`converse`). But **the task runtime is still the pass driver**
+(`crates/ambient-platform/src/task.rs`): a task body is one bounded
+pass, and the runtime re-invokes it forever, resolving the body's
+deployed name against the current generation before every pass (exactly
+the `live_latest` resolution) and topping the task's VM up with any
+newly loaded generation first. Collapsing that runtime loop into an
+in-language one would need drain delivery, epoch top-up, and
+retirement-trace design to move inside the body — a body that never
+returned would never yield between passes — so it stays open. The
+visible consequences:
 
 - Editing a task's body (or anything below it) lands on the very next
   pass, with no restart and no re-declaration — `ensure` on a live
@@ -261,8 +266,8 @@ loaded generation first. The visible consequences:
   interruptible perform, so a redeploy may reuse the name while the
   old task drains.
 
-When tail calls land, the in-language idiom can replace the runtime
-loop without changing the ability's surface.
+The in-language idiom could replace the runtime loop without changing
+the ability's surface, once drain/epoch/retirement move inside the body.
 
 ## Drain
 
@@ -392,7 +397,7 @@ transition is reported once and recorded forever. Consequences:
 | ------------------------------------ | ----------------------------------------------------------------------------------------- |
 | The entry function                   | every deploy (it is the reconciliation pass)                                              |
 | Anything reached via `Live::latest!` | the next call through that point                                                          |
-| A task's loop body                   | the next iteration, if the tail call goes through `latest!`                               |
+| A task's loop body                   | the next iteration, when the loop re-enters through `latest!` (a tail call)               |
 | A `const`                            | whenever a function reading it is fresh (the new function hash embeds the new const hash) |
 | Cell contents                        | never, by design — only a migration changes live state                                    |
 | A closure held in a cell or registry | never — pinned to its hash; prefer names at durable boundaries                            |

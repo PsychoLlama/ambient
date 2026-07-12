@@ -7,15 +7,17 @@
 //! [`DeployRuntime`], wired drain-aware ([`install_drain_natives`]), so
 //! the shared cell and handle tables are the only cross-task state.
 //!
-//! **The body is one bounded pass, not the loop.** Ambient has no tail
-//! calls, so the ref doc's idiom — a loop that re-enters itself through
-//! `Live::latest!` — cannot be spelled in the language yet. The runtime
-//! is the loop: it re-invokes the body forever, resolving the body's
-//! deployed name against the current generation before every iteration
-//! (exactly the `live_latest` resolution). Edit the body — or anything
-//! below it — and the next iteration runs the new code; the runtime
-//! never swaps code mid-pass. A closure body has no deployed name and
-//! stays pinned to its hash.
+//! **The body is one bounded pass, not the loop.** The ref doc's idiom
+//! — a loop that re-enters itself through `Live::latest!` in tail
+//! position — is spellable now that Ambient has proper tail calls, but
+//! the runtime is still the pass driver: it re-invokes the body forever,
+//! resolving the body's deployed name against the current generation
+//! before every iteration (exactly the `live_latest` resolution). The
+//! loop stays in the runtime for drain delivery, epoch top-up, and
+//! retirement tracing — a body that never returned would never yield
+//! between passes. Edit the body — or anything below it — and the next
+//! iteration runs the new code; the runtime never swaps code mid-pass.
+//! A closure body has no deployed name and stays pinned to its hash.
 //!
 //! Tasks are **reconciled by name** during deploy passes: the driving
 //! host brackets the deploy with [`TaskRuntime::begin_reconcile`] /
