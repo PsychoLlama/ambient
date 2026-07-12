@@ -297,13 +297,24 @@ forwards its own dictionary parameter instead. Content addressing gains no
 new channels: dictionary construction and slot access are ordinary
 bytecode, covered by the existing hashes.
 
-Current limits (each is a clear compile error, never a miscompile):
-generic (conditional) trait impls such as `impl<T: Eq> Eq for Pair<T>`
-cannot yet serve as dictionary sources; bound methods and dictionary
-forwarding don't work inside lambdas (write a named helper function);
-bounded generics have no first-class value form (`let f = same;` is
-rejected — call them directly); and handler arms cannot yet cover a
-bounded ability method (the default implementation still runs).
+A **conditional (generic) impl** — `impl<T: Eq> Eq for Pair<T>`, or an
+applied target like `impl Eq for Option<Number>` — is also a dictionary
+source. Solving `Pair<Money>: Eq` unifies the impl's target against the
+concrete type to recover its type-parameter assignments (`T = Money`),
+recursively solves the impl's own bounds against them (`Money: Eq`), and
+builds a dictionary whose slots are closures over those inner
+dictionaries: each slot forwards its value arguments plus the captured
+inner dictionaries to the impl method (which compiles with those exact
+trailing dictionary parameters). Coherence stays at head-uuid granularity
+— one impl per `(trait, head)` — so `impl<T> Eq for Pair<T>` and `impl Eq
+for Pair<Number>` conflict; a wrong instantiation (`Option<String>` against
+`impl Eq for Option<Number>`) simply fails to match and reports an
+unsatisfied bound. Recursion is depth-limited against pathological nesting.
+
+Current limits (each is a clear compile error, never a miscompile): bounded
+generics have no first-class value form (`let f = same;` is rejected — call
+them directly); and handler arms cannot yet cover a bounded ability method
+(the default implementation still runs).
 
 ## Dispatch, Coherence, and Content-Addressing
 
