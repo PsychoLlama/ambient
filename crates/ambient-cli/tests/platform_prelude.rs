@@ -93,7 +93,7 @@ fn declarations_expose_the_expected_interfaces() {
         ("State", &["init", "get", "set", "update", "init_versioned"]),
         ("Drain", &["requested"]),
         ("Task", &["ensure", "drain"]),
-        ("Deploy", &["apply"]),
+        ("Deploy", &["apply", "plan"]),
     ];
 
     assert_eq!(

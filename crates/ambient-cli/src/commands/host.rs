@@ -26,7 +26,7 @@ use ambient_engine::compiler::CompiledModule;
 use ambient_engine::natives::NativeRegistry;
 use ambient_engine::store::Store;
 use ambient_engine::vm::Vm;
-use ambient_platform::deploy::{DeployReport, DeployRuntime, functions_from_module};
+use ambient_platform::deploy::{DeployReport, DeployRuntime, PlanReport, functions_from_module};
 use ambient_platform::task::{
     TaskEventSink, TaskReconcileOutcome, TaskRuntime, TaskRuntimeConfig, install_task_natives,
 };
@@ -132,9 +132,11 @@ impl RuntimeHost {
         // exist before the runtimes (the VM factory captures them), but
         // the hook needs the runtimes. Filled below, once they exist.
         let deploy_slot: ambient_platform::DeployApplySlot = Arc::default();
-        sets.push(ambient_platform::remote_deploy_natives(Arc::clone(
-            &deploy_slot,
-        )));
+        let deploy_plan_slot: ambient_platform::DeployPlanSlot = Arc::default();
+        sets.push(ambient_platform::remote_deploy_natives(
+            Arc::clone(&deploy_slot),
+            Arc::clone(&deploy_plan_slot),
+        ));
         let sets = Arc::new(sets);
 
         let factory = {
@@ -195,6 +197,32 @@ impl RuntimeHost {
             })
         };
         let _ = deploy_slot.set(hook);
+
+        // Wire the remote-plan hook: a dry run of the same declarative pass.
+        // Decode, recompute hashes from bytes, resolve the entry, and hand
+        // the generation to the deploy core's `plan` — which loads inertly,
+        // validates, and computes the would-be diff without swapping,
+        // recording, or running the entry. It takes no deploy lock (no
+        // reconcile bracket, no swap), so unlike `apply` it has no
+        // reentrancy guard: planning from inside a deploy pass is fine, and
+        // a plan never touches the store (Execute serves committed code, and
+        // a dry run commits nothing). A malformed pack or an unresolvable
+        // entry is the perform's `Err`; a validation failure is a successful
+        // plan whose report names the problems.
+        let plan_hook: ambient_platform::DeployPlanHook = {
+            let core = Arc::clone(&core);
+            Arc::new(move |bytes, entry| {
+                let pack = ambient_engine::store::Pack::decode(bytes)
+                    .map_err(|e| format!("invalid generation pack: {e}"))?;
+                let compiled = CompiledModule::from_pack(&pack)
+                    .map_err(|e| format!("invalid generation pack: {e}"))?;
+                let (_, entry_hash) = resolve_entry(&compiled, entry).map_err(|e| e.to_string())?;
+                let functions = functions_from_module(&compiled);
+                let report = core.plan(&functions, &entry_hash);
+                Ok(render_plan_report(&report))
+            })
+        };
+        let _ = deploy_plan_slot.set(plan_hook);
 
         Ok(Self {
             _tokio: tokio,
@@ -431,6 +459,35 @@ fn render_deploy_report(outcome: &HostDeployOutcome) -> String {
     report
 }
 
+/// Render a dry-run plan as the plain-text report `Deploy::plan!` returns.
+/// Mirrors [`render_deploy_report`]'s shape and sorting, but generation-
+/// less (a plan records nothing) and with no task/warning lines (a plan
+/// never reconciles): a header, the per-name diff lines, then any
+/// validation problems the plan *would* be rejected on.
+fn render_plan_report(report: &PlanReport) -> String {
+    let names = &report.names;
+    let mut out = format!(
+        "plan: {} rebound, {} retired, {} added, {} unchanged",
+        names.rebound.len(),
+        names.retired.len(),
+        names.added.len(),
+        names.unchanged,
+    );
+    for (label, list) in [
+        ("rebound", &names.rebound),
+        ("retired", &names.retired),
+        ("added", &names.added),
+    ] {
+        for name in list.iter() {
+            out.push_str(&format!("\n{label}: {name}"));
+        }
+    }
+    for problem in &report.problems {
+        out.push_str(&format!("\nwould be rejected: {problem}"));
+    }
+    out
+}
+
 /// Resolve `entry` against a build's function names. Names in a merged
 /// build carry their full canonical qualifier
 /// (`workspace::<pkg>::main::run`), so the resolution order is: an exact
@@ -529,5 +586,112 @@ pub fn run(): String with Deploy {
             "the entry should observe the reentrancy rejection as its \
              `apply!` Err, got: {rendered}"
         );
+    }
+
+    /// End-to-end `Deploy::plan!` through a real host: an in-language entry
+    /// dry-runs a candidate generation pack and gets its report — proving
+    /// the whole native → hook → deploy-core → render chain, and that a
+    /// plan is safe from *inside* a deploy pass (the entry runs holding the
+    /// deploy lock, yet `plan!` succeeds where `apply!` is rejected). The
+    /// running system is untouched: the plan records no generation and
+    /// binds no name, so the subsequent real deploy is generation 2 (not 3)
+    /// and still sees the candidate's names as fresh additions.
+    #[test]
+    fn plan_runs_end_to_end_and_leaves_the_system_untouched() {
+        // The candidate generation the entry will plan: a trivial program
+        // whose user names are disjoint enough to read in the report.
+        let candidate = compile_source(
+            "pub fn run(): Number { 0 }
+             pub fn alpha(): Number { 1 }
+             pub fn beta(): Number { 2 }",
+            Path::new("candidate.ab"),
+        )
+        .expect("compile the candidate generation");
+
+        // Ship it to disk as a generation pack, the exact bytes `ambient
+        // compile -o` writes, so the entry can read them back as a Binary.
+        let pack_path = std::env::temp_dir().join(format!(
+            "ambient-plan-e2e-{}-{:?}.pack",
+            std::process::id(),
+            thread::current().id()
+        ));
+        std::fs::write(&pack_path, candidate.to_pack().encode()).expect("write the candidate pack");
+
+        // The driver: read the pack, `plan!` it (must succeed and report),
+        // and `apply!` it (must be rejected from within the pass) — the
+        // contrast the reentrancy guard draws.
+        let driver_src = format!(
+            r#"
+use core::system::Deploy;
+use core::system::FileSystem;
+
+pub fn run(): String with Deploy, FileSystem {{
+  match FileSystem::read_binary!("{path}") {{
+    Ok(pack) => {{
+      let planned = match Deploy::plan!(pack, "run") {{
+        Ok(report) => report,
+        Err(problem) => problem,
+      }};
+      let applied = match Deploy::apply!(pack, "run") {{
+        Ok(report) => report,
+        Err(problem) => problem,
+      }};
+      planned.concat("\n===\n").concat(applied)
+    }},
+    Err(e) => e,
+  }}
+}}
+"#,
+            path = pack_path.display()
+        );
+        let driver = compile_source(&driver_src, Path::new("plan_driver.ab"))
+            .expect("compile the plan-driver program");
+
+        let events: TaskEventSink = Arc::new(|_: &ambient_platform::TaskEvent| {});
+        let stdio = StdioSink::new(Arc::new(|_: &str| {}), Arc::new(|_: &str| {}));
+        let host = RuntimeHost::new(events, stdio, Vec::new()).expect("build host");
+
+        // Generation 1: the driver. Its entry plans the candidate mid-pass.
+        let first = host.deploy(&driver, "run").expect("driver deploys");
+        assert_eq!(first.report.generation, 1);
+        let rendered = ambient_engine::format::format_value(&first.report.value);
+
+        // The plan half is a real plan report naming the candidate's adds.
+        assert!(
+            rendered.contains("plan:"),
+            "the entry must observe a plan report, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("alpha") && rendered.contains("beta"),
+            "the plan must report the candidate's added names, got: {rendered}"
+        );
+        // The apply half is the reentrancy rejection — plan succeeds where
+        // apply cannot, from the very same in-pass call site.
+        assert!(
+            rendered.contains("cannot deploy from within a deploy pass"),
+            "apply must still be rejected from within the pass, got: {rendered}"
+        );
+
+        // Untouched: the plan recorded no generation (so the real deploy of
+        // the candidate is generation 2, not 3) and bound no name (so alpha
+        // and beta are still fresh additions the real deploy makes).
+        let second = host.deploy(&candidate, "run").expect("candidate deploys");
+        assert_eq!(
+            second.report.generation, 2,
+            "the intervening plan must not have consumed a generation"
+        );
+        assert!(
+            second
+                .report
+                .names
+                .added
+                .iter()
+                .any(|n| n.contains("alpha"))
+                && second.report.names.added.iter().any(|n| n.contains("beta")),
+            "the plan must not have pre-bound the candidate's names, got added={:?}",
+            second.report.names.added
+        );
+
+        let _ = std::fs::remove_file(&pack_path);
     }
 }

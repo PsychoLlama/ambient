@@ -5,6 +5,11 @@
 /// named entry as the reconciliation pass.
 extern fn deploy_apply(pack: Binary, entry: String): Result<String, String>;
 
+/// Dry-run a generation pack against this runtime: validate and report
+/// without swapping the name table, recording a generation, or running the
+/// entry.
+extern fn deploy_plan(pack: Binary, entry: String): Result<String, String>;
+
 /// Receiving a deploy is the runtime mutating itself, so it is an
 /// ability: `with Deploy` in a signature says the code can replace the
 /// running program. A deploy server is ordinary Ambient code — it reads
@@ -29,5 +34,32 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000F) ability Deploy {
   /// failure, or a faulted entry).
   fn apply(pack: Binary, entry: String): Result<String, String> {
     deploy_apply(pack, entry)
+  }
+
+  /// Dry-run a generation pack: a **plan** is everything `apply!` does
+  /// *before* the swap — decode the pack, recompute hashes from its bytes,
+  /// load the objects additively (loading is inert; a planned generation's
+  /// objects are harmless residents of the store), validate (loaded-object
+  /// checks plus the pre-swap migration-fingerprint checks against the live
+  /// cell table), and compute the *would-be* name diff — with none of the
+  /// commit: the name table is not swapped, no generation is recorded, and
+  /// `entry` is never run.
+  ///
+  /// `Ok` carries a rendered plan report: a generation-less header
+  /// (`plan: N rebound, N retired, N added, N unchanged`), the per-name
+  /// lines, and — when the plan *would* be rejected — the migration/
+  /// validation problems it would fail on. A validation failure is a
+  /// successful plan whose report names the problems, not an `Err`:
+  /// reporting what would happen is the whole point. `Err` is reserved for
+  /// a plan that could not even be formed — a malformed pack or an entry
+  /// name that resolves to nothing.
+  ///
+  /// A plan is **advisory**: the running world can change between the plan
+  /// and a subsequent `apply!` (another deploy, a cell write, a task
+  /// draining), so the plan describes what a deploy *would* do against the
+  /// system as it stood when planned. Unlike `apply!`, planning takes no
+  /// deploy lock and is safe from *within* a deploy pass.
+  fn plan(pack: Binary, entry: String): Result<String, String> {
+    deploy_plan(pack, entry)
   }
 }

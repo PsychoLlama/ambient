@@ -142,7 +142,7 @@ fn platform_module_path(relative: &Path) -> Option<(ModulePath, bool)> {
 
 pub use deploy::{
     Binding, DeployError, DeployReport, DeployRuntime, Functions, Generation, NameDiff, NameTable,
-    VmFactory, functions_from_module,
+    PlanReport, VmFactory, functions_from_module,
 };
 pub use drain::{DrainSignal, drain_interrupt, install_drain_natives};
 pub use execute::{ExecuteConfig, ExecuteGrants, execute_natives};
@@ -150,7 +150,9 @@ pub use fs::fs_natives;
 pub use network::network_natives;
 pub use network_state::NetworkState;
 pub use random::random_natives;
-pub use remote_deploy::{DeployApplyHook, DeployApplySlot, remote_deploy_natives};
+pub use remote_deploy::{
+    DeployApplyHook, DeployApplySlot, DeployPlanHook, DeployPlanSlot, remote_deploy_natives,
+};
 pub use state::StateCells;
 pub use stdio::{StdioConfig, StdioSink, stdio_natives, stdio_natives_with_collector};
 pub use task::{
@@ -484,6 +486,12 @@ pub(crate) const EXTERN_BINDINGS: &[ExternBinding] = &[
         slot: 0x38,
         arity: 2,
     },
+    ExternBinding {
+        name: "deploy_plan",
+        module: "deploy",
+        slot: 0x39,
+        arity: 2,
+    },
 ];
 
 /// The binding-table entry for an extern name.
@@ -805,6 +813,10 @@ mod tests {
         assert_eq!(
             native_uuid("deploy_apply").to_string(),
             "ffffffff-ffff-ffff-fffc-000000000038"
+        );
+        assert_eq!(
+            native_uuid("deploy_plan").to_string(),
+            "ffffffff-ffff-ffff-fffc-000000000039"
         );
     }
 
