@@ -12,7 +12,9 @@
 //!   install path: inline `with` arms and first-class handler values both
 //!   compile to a `HandlerValue` (one per ability), dispatched by method.
 //! - `Resume` reinstates a captured continuation, rebased onto the
-//!   current stack and frame heights.
+//!   current stack and frame heights. `TailResume` does the same but first
+//!   discards the arm frame (a fused `Resume; Return`), so a handler that
+//!   resumes every perform/resume cycle runs in constant frame space.
 //!
 //! The delimitation invariants:
 //!
@@ -35,7 +37,9 @@
 
 use std::sync::Arc;
 
-use ambient_ability::{CapturedFrame, CapturedHandler, SuspendedAbility, Value, VmError};
+use ambient_ability::{
+    CapturedFrame, CapturedHandler, Continuation, SuspendedAbility, Value, VmError,
+};
 use ambient_core::MethodKey;
 
 use super::core::{CallFrame, HandlerFrame, Vm};
@@ -310,8 +314,59 @@ impl Vm {
     ///
     /// Reinstates the captured stack, frames, and handler entries above the
     /// current (arm) frame, rebased onto the current heights, then pushes
-    /// the resume value as the result of the original perform.
+    /// the resume value as the result of the original perform. The arm frame
+    /// stays parked underneath — its eventual `Return` forwards the resumed
+    /// region's completion value to the arm's caller.
     pub(super) fn op_resume(&mut self) -> Result<(), VmError> {
+        let (continuation, value) = self.take_resume_operands()?;
+        self.reinstate_continuation(&continuation, value)
+    }
+
+    /// Handle the `TailResume` opcode: `Resume` fused with the arm frame's
+    /// `Return`, so a resuming handler loop runs in constant frame space.
+    ///
+    /// Identical continuation semantics to [`Self::op_resume`] — the fired
+    /// handler is reinstalled, the resume value becomes the original
+    /// perform's result, and the resumed region's completion value returns to
+    /// the arm's caller — but the arm frame is discarded *before* the
+    /// continuation is reinstated instead of being parked underneath. A tail
+    /// resume never exits the enclosing `run_until`/invoke region: the
+    /// captured continuation always contains at least the handle-thunk frame,
+    /// which is immediately re-pushed, and the arm frame always sits strictly
+    /// above any region base (handler boundaries sit above invoke barriers —
+    /// see [`Self::perform_suspended`] and `handler_barrier`), so there is no
+    /// `run_until`-exit value to route.
+    pub(super) fn op_tail_resume(&mut self) -> Result<(), VmError> {
+        let (continuation, value) = self.take_resume_operands()?;
+
+        // Discard the current (arm) frame first: pop it and truncate the
+        // value stack back to its base pointer. `reinstate_continuation` then
+        // rebases onto these now-lower heights, so the resumed region's
+        // completion value returns directly to the arm's caller with no
+        // dormant frame left behind.
+        let arm = self
+            .frames
+            .pop()
+            .expect("tail-resume runs inside an arm frame");
+        self.stack.truncate(arm.bp);
+        debug_assert!(
+            !self.frames.is_empty(),
+            "an arm frame always sits above at least the region entry frame"
+        );
+        let arm_idx = self.frames.len();
+        debug_assert!(
+            self.handlers.iter().all(|h| h.boundary_frame_idx < arm_idx),
+            "no live handler may delimit the popped arm frame"
+        );
+
+        self.reinstate_continuation(&continuation, value)
+    }
+
+    /// Pop the `[continuation, value]` operands shared by `Resume` and
+    /// `TailResume`, enforcing single-shot use. Errors `ExpectedContinuation`
+    /// on a non-continuation slot (the never-arm backstop) and
+    /// `ContinuationAlreadyResumed` on a second resume.
+    fn take_resume_operands(&mut self) -> Result<(Arc<Continuation>, Value), VmError> {
         let value = self.pop()?;
         let continuation = match self.pop()? {
             Value::Continuation(c) => c,
@@ -327,6 +382,22 @@ impl Vm {
             return Err(VmError::ContinuationAlreadyResumed);
         }
 
+        Ok((continuation, value))
+    }
+
+    /// Reinstate a captured continuation above the current frame and stack
+    /// heights, then push `value` as the result of the original perform.
+    ///
+    /// Shared by [`Self::op_resume`] and [`Self::op_tail_resume`]; the two
+    /// differ only in whether the arm frame survives underneath (resume) or
+    /// was popped first (tail-resume). Reinstalling the captured handlers
+    /// preserves deep handler semantics: performs in the resumed body
+    /// dispatch to the same handlers as before capture.
+    fn reinstate_continuation(
+        &mut self,
+        continuation: &Continuation,
+        value: Value,
+    ) -> Result<(), VmError> {
         let base_frame = self.frames.len();
         let base_stack = self.stack.len();
 
@@ -350,8 +421,6 @@ impl Vm {
         }
 
         // Reinstall the captured handler entries, rebasing boundaries.
-        // This preserves deep handler semantics: performs in the resumed
-        // body dispatch to the same handlers as before capture.
         for captured in &continuation.handlers {
             self.handlers.push(HandlerFrame {
                 ability_id: captured.ability_id,

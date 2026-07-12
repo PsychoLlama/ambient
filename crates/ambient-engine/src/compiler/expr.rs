@@ -574,21 +574,34 @@ pub(super) fn compile_expr_tail(
 
         ExprKind::Resume(value) => {
             // Resume transfers control back to a captured continuation.
-            // In a handler function, the continuation is passed as the first argument (local slot 0).
+            // In a handler function, the continuation is passed as the first
+            // argument (local slot 0).
             //
             // Compile to:
             // 1. Load continuation from local slot 0
-            // 2. Push the resume value
-            // 3. Emit Resume opcode
+            // 2. Push the resume value (always non-tail — it is an operand)
+            // 3. Emit Resume, or TailResume in tail position
+            //
+            // A tail-position `resume` (the arm body *is* the resume) fuses
+            // the arm frame's `Return` into the opcode, so a resuming handler
+            // loop runs in constant frame space. A non-tail `resume` (e.g.
+            // `let x = resume(v); ...`) keeps `Resume` and parks the arm frame
+            // until the resumed region completes.
 
             // Load continuation from local slot 0 (implicit first parameter in handlers)
             fc.builder.emit_u16(Opcode::LoadLocal, 0);
 
-            // Compile the value to resume with
+            // Compile the value to resume with. This stays non-tail even when
+            // the `resume` itself is in tail position: it is the resume
+            // operand, not a control-transfer target.
             compile_expr(fc, value, ctx)?;
 
-            // Emit Resume opcode
-            fc.builder.emit(Opcode::Resume);
+            // Emit the resume opcode, fusing the frame return in tail position.
+            fc.builder.emit(if tail {
+                Opcode::TailResume
+            } else {
+                Opcode::Resume
+            });
         }
 
         ExprKind::HandlerLiteral(handler_lit) => {

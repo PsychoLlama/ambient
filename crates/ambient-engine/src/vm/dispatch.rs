@@ -355,6 +355,10 @@ impl Vm {
                     self.op_resume()?;
                 }
 
+                Opcode::TailResume => {
+                    self.op_tail_resume()?;
+                }
+
                 Opcode::GetAbilityArg => {
                     let arg_index = self.read_u8()? as usize;
                     self.op_get_ability_arg(arg_index)?;

@@ -473,6 +473,7 @@ mod tests {
             // Abilities
             Opcode::Suspend,
             Opcode::Perform,
+            Opcode::TailResume,
             Opcode::Unhandle,
             Opcode::Resume,
             // Closures

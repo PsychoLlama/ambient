@@ -73,4 +73,6 @@ mod never_tests;
 #[cfg(test)]
 mod tail_call_tests;
 #[cfg(test)]
+mod tail_resume_tests;
+#[cfg(test)]
 mod tests;

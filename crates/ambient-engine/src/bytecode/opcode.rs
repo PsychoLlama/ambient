@@ -181,6 +181,17 @@ pub enum Opcode {
     /// captures the continuation, and jumps to the handler code.
     Perform = 0x81,
 
+    /// Tail-resume a suspended continuation with a value.
+    ///
+    /// Same stack contract as [`Self::Resume`] (`[.., continuation, value]`)
+    /// and identical continuation semantics, but fused with the current
+    /// frame's `Return`: the arm frame is discarded *before* the continuation
+    /// is reinstated, so a handler that tail-resumes on every perform/resume
+    /// cycle runs in constant frame space instead of parking one arm frame
+    /// per cycle. Emitted when a `resume` sits in tail position of a handler
+    /// arm; a non-tail `resume` keeps [`Self::Resume`].
+    TailResume = 0x82,
+
     /// Remove the most recent ability handler.
     ///
     /// Called when exiting a handled region normally (not via ability performance).
@@ -341,6 +352,7 @@ impl Opcode {
             // Abilities
             0x80 => Some(Self::Suspend),
             0x81 => Some(Self::Perform),
+            0x82 => Some(Self::TailResume),
             0x83 => Some(Self::Unhandle),
             0x84 => Some(Self::Resume),
             0x85 => Some(Self::GetAbilityArg),

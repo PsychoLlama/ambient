@@ -770,6 +770,14 @@ impl FunctionBuilder {
         self
     }
 
+    /// Tail-resume a continuation (fuses the arm frame's return into the
+    /// resume — constant frame space for a resuming handler loop).
+    #[must_use]
+    pub fn tail_resume(mut self) -> Self {
+        self.builder.emit(Opcode::TailResume);
+        self
+    }
+
     // =========================================================================
     // Function Calls
     // =========================================================================

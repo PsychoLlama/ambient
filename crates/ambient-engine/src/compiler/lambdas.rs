@@ -580,8 +580,10 @@ fn compile_handler_method(
 
     // A handler arm compiles as `<body> Return` with nothing in between, so
     // its body is in tail position. A tail call replaces the arm frame and
-    // returns to the arm's caller exactly as a normal arm return would;
-    // `resume` is its own opcode (never a tail position), so this is safe.
+    // returns to the arm's caller exactly as a normal arm return would. A
+    // tail-position `resume` likewise compiles to `TailResume`, which fuses
+    // the arm frame's `Return` into the resume so a resuming handler loop
+    // runs in constant frame space (see `compile_expr` and `op_tail_resume`).
     compile_expr_tail(&mut method_fc, &method.body, ctx, true)?;
     method_fc.builder.emit(Opcode::Return);
 
