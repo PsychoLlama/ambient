@@ -130,6 +130,17 @@ fn reverse(mut args: Vec<Value>) -> Result<Value, VmError> {
     Ok(Value::string(result))
 }
 
+fn compare(mut args: Vec<Value>) -> Result<Value, VmError> {
+    let a = string(&mut args, 0, "string_compare")?;
+    let b = string(&mut args, 1, "string_compare")?;
+    let ordering = match a.cmp(&b) {
+        std::cmp::Ordering::Less => -1.0,
+        std::cmp::Ordering::Equal => 0.0,
+        std::cmp::Ordering::Greater => 1.0,
+    };
+    Ok(Value::Number(ordering))
+}
+
 pub(super) fn register(reg: &mut NativeRegistry) {
     let m = module(&["core", "primitives", "string"]);
     bind(reg, &m, "length", 0x0201, 1, length);
@@ -148,4 +159,5 @@ pub(super) fn register(reg: &mut NativeRegistry) {
     bind(reg, &m, "index_of", 0x020E, 2, index_of);
     bind(reg, &m, "repeat", 0x020F, 2, repeat);
     bind(reg, &m, "reverse", 0x0210, 1, reverse);
+    bind(reg, &m, "compare", 0x0211, 2, compare);
 }

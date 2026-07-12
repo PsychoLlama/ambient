@@ -48,6 +48,10 @@ extern fn index_of(value: String, needle: String): Option<Number>;
 extern fn repeat(value: String, count: Number): String;
 /// Reverse the string.
 extern fn reverse(value: String): String;
+/// Lexicographic comparison: negative if `a` precedes `b`, zero if equal,
+/// positive if `a` follows `b` (the `Ord::cmp` convention). Backs
+/// `impl Ord for String` in `core::traits`.
+extern fn compare(a: String, b: String): Number;
 
 // Method forms: `s.length()`, `s.to_upper()`, ... plus the associated
 // functions with no `String` receiver (`String::join`, `String::from_number`,
@@ -129,6 +133,12 @@ impl String {
     // Reverse the string.
     fn reverse(self): String {
         reverse(self)
+    }
+    // Lexicographic comparison with `other`: negative if this string
+    // precedes `other`, zero if equal, positive if it follows. This is the
+    // public surface `impl Ord for String` calls through.
+    fn compare(self, other: String): Number {
+        compare(self, other)
     }
     // Pad on the left with `pad` until the string is at least `width` long.
     fn pad_start(self, width: Number, pad: String): String {

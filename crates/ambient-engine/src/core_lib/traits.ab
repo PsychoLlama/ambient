@@ -116,6 +116,12 @@ impl Eq for String {
     }
 }
 
+impl Ord for String {
+    fn cmp(self, other: String): Number {
+        self.compare(other)
+    }
+}
+
 impl Add for String {
     fn add(self, other: String): String {
         self + other

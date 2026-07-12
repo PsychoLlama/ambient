@@ -224,10 +224,8 @@ mod tests {
         );
         assert_eq!(call(0x0307, vec![nums(&[])]), Ok(Value::Bool(true)));
         assert_eq!(call(0x0309, vec![list()]), Ok(nums(&[3.0, 2.0, 1.0])));
-        assert_eq!(
-            call(0x030A, vec![nums(&[3.0, 1.0, 2.0])]),
-            Ok(nums(&[1.0, 2.0, 3.0]))
-        );
+        // 0x030A (the former structural `sort` native) is retired; sorting
+        // moved into `core_lib` as `List::sort<T: Ord>`.
         // Slice bounds clamp; negative starts clamp to zero.
         assert_eq!(
             call(0x030B, vec![list(), num(-5.0), num(2.0)]),
@@ -265,6 +263,10 @@ mod tests {
             Ok(Value::some(num(2.0)))
         );
         assert_eq!(call(0x0210, vec![s("abc")]), Ok(s("cba")));
+        // compare: lexicographic, -1/0/1 like Ord::cmp.
+        assert_eq!(call(0x0211, vec![s("a"), s("b")]), Ok(num(-1.0)));
+        assert_eq!(call(0x0211, vec![s("b"), s("a")]), Ok(num(1.0)));
+        assert_eq!(call(0x0211, vec![s("ab"), s("ab")]), Ok(num(0.0)));
     }
 
     #[test]
@@ -384,6 +386,7 @@ mod tests {
         expect(string, "concat", 0x0202, 2);
         expect(string, "join", 0x0205, 2);
         expect(string, "reverse", 0x0210, 1);
+        expect(string, "compare", 0x0211, 2);
 
         let list = &["core", "collections", "list"];
         expect(list, "length", 0x0301, 1);

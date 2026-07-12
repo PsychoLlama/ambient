@@ -215,7 +215,10 @@ name and shape exactly (`validate_reserved_trait`), the same hijack guard
 reserved enums and primitives get.
 
 The primitives implement the operator traits in `core::traits`
-(`impl Eq for Number`, `impl Ord for Number`, `impl Add for String`, ...).
+(`impl Eq for Number`, `impl Ord for Number`, `impl Ord for String`,
+`impl Add for String`, ...). `Ord for String` compares lexicographically
+through the `core::primitives::string::compare` native, so `List::sort`
+and `min_of` work on strings as well as numbers.
 These impls exist to satisfy trait bounds — `min_of(7, 3)` works because
 Number has an Ord dictionary — while concrete operator uses on primitives
 (`1 + 2`) always compile to the builtin opcodes, never through the impls
