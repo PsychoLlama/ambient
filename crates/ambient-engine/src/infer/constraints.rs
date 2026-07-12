@@ -36,6 +36,11 @@ const MAX_SOLVE_DEPTH: u32 = 64;
 use super::Infer;
 use super::error::{BoxedTypeError, TypeError, TypeErrorKind};
 
+/// A conditional (generic) impl's dictionary contribution at a trait-dispatch
+/// call site: its applied target shape (used to recover type-parameter
+/// assignments from the receiver) and its own bounds, in `dict_params` order.
+type ConditionalImplDicts = (Option<Type>, Vec<(Arc<str>, TraitBound)>);
+
 /// One unresolved `τ: Trait` obligation from instantiating a bounded scheme.
 #[derive(Debug)]
 pub(crate) struct PendingConstraint {
@@ -120,6 +125,71 @@ impl Infer {
                 span,
             });
         }
+        Some(Dicts::Pending(group))
+    }
+
+    /// Record the hidden dictionaries a *direct* trait-dispatched call needs,
+    /// as a single ordered group: the receiver's conditional-impl (impl-level)
+    /// bounds first, then the method's own method-level bounds — exactly the
+    /// combined order [`crate::compiler`] allocates the impl method's trailing
+    /// dictionary parameters in (`alloc_dict_locals(impl ++ method)`).
+    ///
+    /// `generic_impl` is `Some((target, impl bounds))` when the receiver's impl
+    /// is conditional; `method_bounds` is the method's own bounds already paired
+    /// with their fresh instantiation variables. Returns `None` (plain arity)
+    /// when neither contributes a dictionary.
+    pub(crate) fn record_trait_dispatch_dicts(
+        &mut self,
+        generic_impl: Option<ConditionalImplDicts>,
+        receiver_ty: &Type,
+        method_bounds: Vec<(Type, TraitBound)>,
+        span: (u32, u32),
+    ) -> Option<Dicts> {
+        let impl_bound_count = generic_impl.as_ref().map_or(0, |(_, b)| b.len());
+        if impl_bound_count == 0 && method_bounds.is_empty() {
+            return None;
+        }
+        let group = self.next_dict_group;
+        self.next_dict_group += 1;
+        let mut index = 0;
+
+        if let Some((target, bounds)) = generic_impl {
+            let ty = self.apply(receiver_ty);
+            let mut subst: HashMap<Arc<str>, Type> = HashMap::new();
+            let matched = target
+                .as_ref()
+                .is_some_and(|t| match_target(t, &ty, &mut subst));
+            for (param, bound) in &bounds {
+                // A matched param yields its concrete assignment (`T -> Money`);
+                // a failed match poisons the constraint with the receiver so
+                // solving reports the unsatisfied bound rather than silently
+                // dropping a required dictionary.
+                let cty = matched
+                    .then(|| subst.get(param).cloned())
+                    .flatten()
+                    .unwrap_or_else(|| ty.clone());
+                self.pending_constraints.push(PendingConstraint {
+                    ty: cty,
+                    bound: bound.clone(),
+                    group,
+                    index,
+                    span,
+                });
+                index += 1;
+            }
+        }
+
+        for (ty, bound) in method_bounds {
+            self.pending_constraints.push(PendingConstraint {
+                ty,
+                bound,
+                group,
+                index,
+                span,
+            });
+            index += 1;
+        }
+
         Some(Dicts::Pending(group))
     }
 
@@ -289,6 +359,29 @@ impl Infer {
                 span,
             ))
         };
+
+        // A conditional impl's dictionary slots are fixed-arity closures that
+        // forward only the impl's own inner dictionaries. If any trait method
+        // carries its own bounds, its slot would need extra per-call
+        // dictionaries it cannot receive — reject rather than build a
+        // mis-arity closure.
+        if let Some(bounded) = trait_def
+            .methods
+            .iter()
+            .find(|m| !m.method_bounds.is_empty())
+        {
+            return Err(Box::new(TypeError::new(
+                TypeErrorKind::BoundedTraitMethodThroughDict {
+                    method: Arc::clone(&bounded.name),
+                    detail: format!(
+                        "building a dictionary for the conditional impl of `{}` on `{}`",
+                        bound.name,
+                        self.apply(ty)
+                    ),
+                },
+                span,
+            )));
+        }
 
         // Recover the impl's type-parameter assignments (`T -> Money` for
         // `Pair<T>` matched against `Pair<Money>`). A target that keys on the

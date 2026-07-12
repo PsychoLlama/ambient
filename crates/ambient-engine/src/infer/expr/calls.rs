@@ -139,16 +139,33 @@ impl Infer {
 
         // The method must exist and be associated (no `self`); an instance
         // method reached this way is not a valid associated call.
-        let (method_def, symbol) = match self.trait_registry.find_method(nominal.uuid, method_name)
-        {
-            crate::types::MethodLookup::Found { method, symbol, .. } if !method.has_self => {
-                (method.clone(), symbol)
-            }
-            _ => return Ok(None),
-        };
+        let (trait_uuid, method_def, symbol) =
+            match self.trait_registry.find_method(nominal.uuid, method_name) {
+                crate::types::MethodLookup::Found {
+                    trait_uuid,
+                    method,
+                    symbol,
+                } if !method.has_self => (trait_uuid, method.clone(), symbol),
+                _ => return Ok(None),
+            };
 
         let self_ty = Type::Nominal(nominal);
-        let (params, ret, abilities) = self.instantiate_trait_method(&method_def, &self_ty);
+
+        // A conditional impl's own bounds and the method's own bounds both
+        // thread as trailing dictionaries, exactly like an instance call.
+        let type_uuid = match &self_ty {
+            Type::Nominal(n) => Some(n.uuid),
+            _ => None,
+        };
+        let generic_impl = type_uuid
+            .and_then(|uuid| self.trait_registry.get_impl(trait_uuid, uuid))
+            .filter(|imp| imp.is_generic)
+            .map(|imp| (imp.target.clone(), imp.bounds.clone()));
+
+        let (params, ret, abilities, type_var_map) =
+            self.instantiate_trait_method_mapped(&method_def, &self_ty);
+        let method_dicts = self.resolve_method_bound_dicts(&method_def, &type_var_map);
+        *dicts = self.record_trait_dispatch_dicts(generic_impl, &self_ty, method_dicts, span);
 
         let mut arg_tys = Vec::with_capacity(args.len());
         for arg in args.iter_mut() {
@@ -290,24 +307,27 @@ impl Infer {
         *resolved_method = Some(ResolvedMethod::Symbol(method_symbol));
 
         // A conditional (generic) impl's method carries hidden trailing
-        // dictionaries; thread them at this direct call site the same way a
-        // bounded-generic call site does.
+        // dictionaries for the impl's own bounds; a method-level-bounded trait
+        // method (`fn tag<U: Eq>`) carries dictionaries for *its* bounds. Both
+        // thread through this direct call site as trailing arguments, in the
+        // combined order the compiled impl method allocates them
+        // (`alloc_dict_locals(impl ++ method)`).
         let generic_impl = self
             .trait_registry
             .get_impl(trait_uuid, type_uuid)
             .filter(|imp| imp.is_generic)
             .map(|imp| (imp.target.clone(), imp.bounds.clone()));
-        if let Some((target, bounds)) = generic_impl {
-            *dicts =
-                self.record_conditional_impl_dicts(target.as_ref(), &bounds, &receiver_ty, span);
-        }
 
         // Instantiate the method's generics fresh for this call site: `Self` →
         // the receiver, each method-level type parameter → a fresh inference
         // variable, each `E!` → a fresh ability (row) variable. An effectful
         // argument's row unifies into that variable and then propagates to the
-        // caller via `require_abilities` below.
-        let (params, ret, abilities) = self.instantiate_trait_method(&method_def, &receiver_ty);
+        // caller via `require_abilities` below. The type-var map lets us record
+        // the method's own bound dictionaries against those fresh variables.
+        let (params, ret, abilities, type_var_map) =
+            self.instantiate_trait_method_mapped(&method_def, &receiver_ty);
+        let method_dicts = self.resolve_method_bound_dicts(&method_def, &type_var_map);
+        *dicts = self.record_trait_dispatch_dicts(generic_impl, &receiver_ty, method_dicts, span);
 
         // Infer argument types
         let mut arg_tys = Vec::new();
@@ -363,6 +383,20 @@ impl Infer {
         method: &TraitMethodDef,
         self_ty: &Type,
     ) -> (Vec<Type>, Type, AbilitySet) {
+        let (params, ret, abilities, _map) = self.instantiate_trait_method_mapped(method, self_ty);
+        (params, ret, abilities)
+    }
+
+    /// Like [`instantiate_trait_method`](Self::instantiate_trait_method), but
+    /// also returns the map from the method's type-parameter names to the
+    /// fresh inference variables they were instantiated to. A concrete-receiver
+    /// call site needs it to record the method's own trait-bound dictionaries
+    /// against those variables (see `record_trait_dispatch_dicts`).
+    pub(in crate::infer) fn instantiate_trait_method_mapped(
+        &mut self,
+        method: &TraitMethodDef,
+        self_ty: &Type,
+    ) -> (Vec<Type>, Type, AbilitySet, HashMap<Arc<str>, TypeVarId>) {
         let type_var_map: HashMap<Arc<str>, TypeVarId> = method
             .type_param_names
             .iter()
@@ -374,29 +408,64 @@ impl Infer {
             .map(|n| (Arc::clone(n), self.r#gen.fresh_ability_id()))
             .collect();
 
-        self.with_ability_var_scope(ability_var_map.clone(), false, |infer| {
-            let instantiate = |infer: &mut Self, ty: &Type| {
-                let ty = substitute_type_params(ty, &type_var_map);
-                let ty = infer.resolve_holes(&ty);
-                substitute_self(&ty, self_ty)
+        let (params, ret, abilities) =
+            self.with_ability_var_scope(ability_var_map.clone(), false, |infer| {
+                let instantiate = |infer: &mut Self, ty: &Type| {
+                    let ty = substitute_type_params(ty, &type_var_map);
+                    let ty = infer.resolve_holes(&ty);
+                    substitute_self(&ty, self_ty)
+                };
+                let params = method
+                    .params
+                    .iter()
+                    .map(|p| instantiate(infer, p))
+                    .collect();
+                let ret = instantiate(infer, &method.ret);
+                let abilities =
+                    resolve_declared_with(infer, &method.abilities, &ability_var_map, &method.name);
+                (params, ret, abilities)
+            });
+        (params, ret, abilities, type_var_map)
+    }
+
+    /// Resolve a trait method's own bounds (`fn tag<U: Eq>`) into the pending
+    /// dictionary constraints a concrete-receiver call must supply: one
+    /// `(fresh instantiation variable, resolved bound)` per bound in
+    /// `dict_params` order. The variable is the method type parameter's fresh
+    /// instantiation, so once argument unification pins it the constraint
+    /// solves to the argument type's impl (or a forwarded enclosing dictionary).
+    /// An unresolvable bound name is skipped — the same trait bound on the
+    /// implementing method reports it, and an error-carrying module never
+    /// compiles.
+    fn resolve_method_bound_dicts(
+        &self,
+        method: &TraitMethodDef,
+        type_var_map: &HashMap<Arc<str>, TypeVarId>,
+    ) -> Vec<(Type, crate::types::TraitBound)> {
+        let mut out = Vec::new();
+        for (param, bound_name) in &method.method_bounds {
+            let (Some(trait_uuid), Some(&var)) = (
+                self.trait_registry.lookup_trait_lenient(bound_name),
+                type_var_map.get(param),
+            ) else {
+                continue;
             };
-            let params = method
-                .params
-                .iter()
-                .map(|p| instantiate(infer, p))
-                .collect();
-            let ret = instantiate(infer, &method.ret);
-            let abilities =
-                resolve_declared_with(infer, &method.abilities, &ability_var_map, &method.name);
-            (params, ret, abilities)
-        })
+            out.push((
+                Type::var(var),
+                crate::types::TraitBound {
+                    trait_uuid,
+                    name: Arc::clone(bound_name),
+                },
+            ));
+        }
+        out
     }
 
     /// Type a method call whose receiver is a rigid type parameter: the
     /// method must come from one of the parameter's declared bounds, and
     /// dispatch is a dictionary-slot access on the enclosing function's
     /// hidden dictionary parameter.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     fn infer_bound_method_call(
         &mut self,
         env: &TypeEnv,
@@ -486,6 +555,24 @@ impl Infer {
                 )
             })?;
         let slot = trait_def.dictionary_slot(method_name).unwrap_or_default();
+
+        // Dispatch here is a slot access into the enclosing function's
+        // dictionary — a fixed-arity `FunctionRef`/closure. A method with its
+        // own trait bounds (`fn tag<U: Eq>`) needs its own trailing
+        // dictionaries, which this path cannot thread, so reject it loudly
+        // rather than mis-arity at runtime.
+        if !method_def.method_bounds.is_empty() {
+            return Err(type_error(
+                TypeErrorKind::BoundedTraitMethodThroughDict {
+                    method: Arc::clone(method_name),
+                    detail: format!(
+                        "calling it on a value of type parameter `{param}` (through `{}`'s bound)",
+                        bound.name
+                    ),
+                },
+                span,
+            ));
+        }
 
         // Type against the trait signature with Self = the parameter, the
         // method's own generics instantiated fresh for this call.

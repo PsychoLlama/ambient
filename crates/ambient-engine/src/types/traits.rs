@@ -207,6 +207,15 @@ impl TraitDef {
 /// or an impl body) resolves the signature under its own scope — fresh
 /// inference variables at a call site, rigid parameters plus a fresh row scope
 /// in an impl body — instead of baking one set of variables into the registry.
+///
+/// A method-level type parameter may carry trait bounds (`fn tag<U: Eq>`).
+/// Those thread through exactly like a bounded function's: a concrete-receiver
+/// trait-dispatched call records one hidden dictionary per bound (in
+/// [`method_bounds`](Self::method_bounds) / [`crate::ast::dict_params`] order)
+/// and pushes it as a trailing argument, and the compiled impl method allocates
+/// the matching trailing dictionary parameters. Dictionary-*mediated* dispatch
+/// of a bounded method (a rigid-parameter receiver, or a conditional impl's
+/// dictionary) is not yet supported and is rejected loudly.
 #[derive(Debug, Clone)]
 pub struct TraitMethodDef {
     /// Method name.
@@ -225,11 +234,21 @@ pub struct TraitMethodDef {
     /// A name matching `ability_var_names` is the row's polymorphic tail.
     pub abilities: Vec<crate::ast::QualifiedName>,
 
-    /// Unbounded method-level type parameter names (`fn tag<U>` → `["U"]`).
+    /// Method-level type parameter names (`fn tag<U>` → `["U"]`), bounded or
+    /// not. Bounds are recorded separately in [`method_bounds`](Self::method_bounds).
     pub type_param_names: Vec<Arc<str>>,
 
     /// Method-level ability (row) variable names (`fn each<E!>` → `["E"]`).
     pub ability_var_names: Vec<Arc<str>>,
+
+    /// The method's own trait bounds as `(param name, bound trait name)`
+    /// pairs, in [`crate::ast::dict_params`] order — the single authority the
+    /// compiled impl method allocates its trailing dictionary parameters from,
+    /// so a concrete-receiver call site's recorded dictionaries and the
+    /// method's slots can never disagree. Names, not identities: the call site
+    /// resolves each against the trait registry, and impl-method conformance
+    /// compares this list to the impl method's own `dict_params`.
+    pub method_bounds: Vec<(Arc<str>, Arc<str>)>,
 }
 
 impl TraitMethodDef {
@@ -244,20 +263,25 @@ impl TraitMethodDef {
             abilities: Vec::new(),
             type_param_names: Vec::new(),
             ability_var_names: Vec::new(),
+            method_bounds: Vec::new(),
         }
     }
 
-    /// Attach the method's declared effect row and method-level generics.
+    /// Attach the method's declared effect row and method-level generics
+    /// (type-parameter and ability-variable names, plus each type parameter's
+    /// trait bounds in `dict_params` order).
     #[must_use]
     pub fn with_generics(
         mut self,
         abilities: Vec<crate::ast::QualifiedName>,
         type_param_names: Vec<Arc<str>>,
         ability_var_names: Vec<Arc<str>>,
+        method_bounds: Vec<(Arc<str>, Arc<str>)>,
     ) -> Self {
         self.abilities = abilities;
         self.type_param_names = type_param_names;
         self.ability_var_names = ability_var_names;
+        self.method_bounds = method_bounds;
         self
     }
 }

@@ -135,6 +135,18 @@ fn register_traits(
 ) {
     for item in &module.items {
         if let crate::ast::ItemKind::Trait(trait_def) = &item.kind {
+            // Trait-level type parameters (generic traits) and supertraits both
+            // parse but are not implemented — silent acceptance would drop them
+            // and miscompile, so reject loudly at the declaration site. (Method
+            // bounds — `fn m<U: Eq>` — *are* supported and live on the methods,
+            // not here.)
+            if let Err(message) = validate_supported_trait_shape(trait_def) {
+                errors.push(Box::new(TypeError::new(
+                    TypeErrorKind::InvalidDeclaration { message },
+                    (trait_def.name_span.start, trait_def.name_span.end),
+                )));
+                continue;
+            }
             // A declaration claiming a reserved trait uuid must *be* the
             // canonical prelude trait — the same hijack guard reserved
             // enums and primitives get.
@@ -148,6 +160,30 @@ fn register_traits(
             register_trait_def(infer, trait_def);
         }
     }
+}
+
+/// Reject the two trait-declaration features that parse but are not yet
+/// implemented: trait-level type parameters (generic traits like
+/// `trait Container<T>`) and supertraits (`trait Sub with Base`). Both would
+/// otherwise be silently dropped by `checked_trait_def` and miscompile.
+fn validate_supported_trait_shape(def: &crate::ast::TraitDef) -> Result<(), String> {
+    if !def.type_params.is_empty() {
+        return Err(format!(
+            "generic traits are not supported yet: trait `{}` declares trait-level \
+             type parameters. Method-level type parameters (`fn method<T: Bound>(...)`) \
+             are supported; move the parameter onto the method if that fits.",
+            def.name
+        ));
+    }
+    if !def.supertraits.is_empty() {
+        return Err(format!(
+            "supertraits are not supported yet: trait `{}` declares a `with` \
+             supertrait clause. Declare the required methods on the trait directly, \
+             or bound the implementing code on both traits.",
+            def.name
+        ));
+    }
+    Ok(())
 }
 
 /// Validate a trait declaration against the reserved core trait identities.
@@ -243,10 +279,12 @@ fn checked_trait_def(trait_def: &crate::ast::TraitDef) -> TraitDef {
         .methods
         .iter()
         .map(|m| {
-            // Method-level generics: unbounded type parameters (`U`) and
-            // ability (row) variables (`E!`). Lowering rejects bounds on a
-            // trait-method type parameter, so only the two name lists survive
-            // — the signature stays un-instantiated (see `TraitMethodDef`).
+            // Method-level generics: type parameters (`U`, bounded or not) and
+            // ability (row) variables (`E!`). Each type parameter's bounds are
+            // captured separately in `dict_params` order (the single authority
+            // the compiled impl method allocates its trailing dictionaries
+            // from); the signature itself stays un-instantiated (see
+            // `TraitMethodDef`).
             let mut type_param_names = Vec::new();
             let mut ability_var_names = Vec::new();
             for tp in &m.type_params {
@@ -256,13 +294,19 @@ fn checked_trait_def(trait_def: &crate::ast::TraitDef) -> TraitDef {
                     type_param_names.push(Arc::clone(&tp.name));
                 }
             }
+            let method_bounds = crate::ast::dict_params(&m.type_params);
             TraitMethodDef::new(
                 Arc::clone(&m.name),
                 m.has_self,
                 m.params.iter().map(|(_, ty)| ty.clone()).collect(),
                 m.ret_ty.clone(),
             )
-            .with_generics(m.abilities.clone(), type_param_names, ability_var_names)
+            .with_generics(
+                m.abilities.clone(),
+                type_param_names,
+                ability_var_names,
+                method_bounds,
+            )
         })
         .collect();
 

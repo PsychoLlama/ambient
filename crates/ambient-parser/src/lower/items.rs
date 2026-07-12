@@ -64,27 +64,6 @@ fn lower_type_param_no_ability(
     lower_type_param(tp)
 }
 
-/// Lower a trait-method type parameter. Effect-polymorphic ability variables
-/// (`E!`) are wired here (they bind `with E` positions in the method signature,
-/// like free functions and inherent methods), but trait *bounds* are not: a
-/// bounded method-level type parameter would need per-call dictionary threading
-/// the trait-dispatch path does not build, so it is rejected with a clear
-/// message pointing at the unsupported feature rather than miscompiling.
-fn lower_trait_method_type_param(tp: &crate::cst::CstTypeParam) -> Result<TypeParam, ParseError> {
-    if !tp.bounds.is_empty() {
-        return Err(ParseError::new(
-            ParseErrorKind::LoweringError(
-                "trait bounds are not yet supported on trait-method type \
-                 parameters; a bounded method-level parameter needs per-call \
-                 dictionary passing that trait dispatch does not yet build"
-                    .into(),
-            ),
-            tp.span,
-        ));
-    }
-    lower_type_param(tp)
-}
-
 /// Lower a type parameter in a position where trait bounds are meaningless
 /// (type declarations, which have no code to constrain, and `extern fn`s,
 /// which have no dictionary calling convention). A bound there is an error
@@ -576,10 +555,14 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
         }
     };
 
+    // Trait-level type parameters (generic traits) and supertraits are not
+    // supported yet, but they lower permissively so the checker can reject them
+    // with a single clear declaration-site diagnostic (rather than an opaque
+    // parse error) — see `register_traits`.
     let type_params = t
         .type_params
         .iter()
-        .map(|tp| lower_unbounded_type_param(tp, "trait-level type parameters"))
+        .map(lower_type_param)
         .collect::<Result<Vec<_>, _>>()?;
 
     let supertraits = t.supertraits.iter().map(lower_qualified_name).collect();
@@ -588,10 +571,14 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
         .methods
         .iter()
         .map(|m| {
+            // A trait method is a wired position for both effect polymorphism
+            // (`E!`) and trait bounds (`<U: Eq>`): a concrete-receiver call
+            // threads one hidden dictionary per bound as a trailing argument,
+            // exactly like a bounded free function.
             let method_type_params = m
                 .type_params
                 .iter()
-                .map(lower_trait_method_type_param)
+                .map(lower_type_param)
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Check if first param is self

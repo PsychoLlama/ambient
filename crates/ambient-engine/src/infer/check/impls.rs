@@ -207,6 +207,8 @@ fn check_impl_methods(
             continue;
         };
 
+        check_method_bound_conformance(method, tm, errors);
+
         check_impl_method_body(
             infer,
             method,
@@ -218,6 +220,39 @@ fn check_impl_methods(
             deferred,
         );
     }
+}
+
+/// Enforce that an impl method declares exactly the trait method's own
+/// method-level trait bounds, in the same order. The bounds are the method's
+/// hidden dictionary calling convention — a concrete-receiver call site records
+/// dictionaries from the *trait* method's bounds and the compiled *impl* method
+/// allocates trailing parameters from its own — so a mismatch would mis-arity
+/// at runtime. Compared syntactically through [`crate::ast::dict_params`], the
+/// single authority both sides derive from.
+fn check_method_bound_conformance(
+    method: &crate::ast::ImplMethod,
+    tm: &crate::types::TraitMethodDef,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    let impl_bounds = crate::ast::dict_params(&method.type_params);
+    if impl_bounds == tm.method_bounds {
+        return;
+    }
+    let render = |bounds: &[(Arc<str>, Arc<str>)]| {
+        bounds
+            .iter()
+            .map(|(param, bound)| format!("{param}: {bound}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    errors.push(Box::new(TypeError::new(
+        TypeErrorKind::TraitMethodBoundMismatch {
+            method: Arc::clone(&method.name),
+            expected: render(&tm.method_bounds),
+            found: render(&impl_bounds),
+        },
+        (method.span.start, method.span.end),
+    )));
 }
 
 /// Check one trait-impl method body against the (Self-substituted) trait
