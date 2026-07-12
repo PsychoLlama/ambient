@@ -321,6 +321,21 @@ fn check_module_core(
 /// canonical `where` suffix in dictionary order (`crate::ast::dict_params`'s
 /// order, which [`Scheme::bounds`](super::env::Scheme) preserves), each bound
 /// keyed by its variable's occurrence number and the trait's nominal uuid.
+///
+/// These signatures are the deploy layer's rebind key (see
+/// `ref/live-upgrade.md` and `ambient-platform`'s `Binding::signature`), so
+/// they must render the function's **declared interface**, not whatever a
+/// caller happened to monomorphize it to in this compile. An unannotated
+/// private function has a mono scheme whose param/return variables are pinned
+/// only by call sites in the same module: a caller present renders `unit`, no
+/// caller renders `var0`. That instability made a same-source redeploy of an
+/// effectful task body read as a signature change and retire instead of
+/// rebind. [`interface_position_type`] neutralizes it: every unannotated
+/// param/return position renders as a fresh unconstrained variable, so the
+/// signature depends only on the source — never on incidental callers. The
+/// effect row stays the body's inferred abilities (a genuine effect change is
+/// still a signature change); only the caller-driven monomorphization of an
+/// undeclared type position is dropped.
 fn render_item_signatures(
     infer: &Infer,
     module: &crate::ast::Module,
@@ -332,16 +347,19 @@ fn render_item_signatures(
 
     let mut signatures = std::collections::HashMap::new();
     for item in &module.items {
-        let name = match &item.kind {
-            crate::ast::ItemKind::Function(f) => &f.name,
-            crate::ast::ItemKind::ExternFn(f) => &f.name,
-            crate::ast::ItemKind::Const(c) => &c.name,
+        let (name, func) = match &item.kind {
+            crate::ast::ItemKind::Function(f) => (&f.name, Some(f)),
+            crate::ast::ItemKind::ExternFn(f) => (&f.name, None),
+            crate::ast::ItemKind::Const(c) => (&c.name, None),
             _ => continue,
         };
         let Some(scheme) = locals::own_item_scheme(env, module_id, name) else {
             continue;
         };
-        let ty = infer.apply(&scheme.ty);
+        let ty = func.map_or_else(
+            || infer.apply(&scheme.ty),
+            |func| interface_type(infer, func, &scheme.ty),
+        );
         let mut renderer = CanonicalTypeRenderer::new();
         let mut sig = renderer.render(&ty);
         for (var, bound) in &scheme.bounds {
@@ -351,4 +369,39 @@ fn render_item_signatures(
         signatures.insert(std::sync::Arc::clone(name), std::sync::Arc::from(sig));
     }
     signatures
+}
+
+/// The declared-interface type of a function for signature rendering: the
+/// applied scheme with each **unannotated** param/return position replaced by
+/// a fresh unconstrained variable ([`Type::Hole`] renders as a fresh `varN`),
+/// so caller-driven monomorphization of undeclared positions never leaks into
+/// the deploy signature (see [`render_item_signatures`]). Annotated positions
+/// and the inferred effect row are kept verbatim.
+fn interface_type(
+    infer: &Infer,
+    func: &crate::ast::FunctionDef,
+    scheme_ty: &crate::types::Type,
+) -> crate::types::Type {
+    let applied = infer.apply(scheme_ty);
+    let crate::types::Type::Function(f) = &applied else {
+        return applied;
+    };
+    let params = f
+        .params
+        .iter()
+        .enumerate()
+        .map(|(i, param)| {
+            if func.params.get(i).is_some_and(|p| p.ty.is_none()) {
+                crate::types::Type::Hole
+            } else {
+                param.clone()
+            }
+        })
+        .collect();
+    let ret = if func.ret_ty.is_none() {
+        crate::types::Type::Hole
+    } else {
+        (*f.ret).clone()
+    };
+    crate::types::Type::function_with_abilities(params, ret, f.abilities.clone())
 }
