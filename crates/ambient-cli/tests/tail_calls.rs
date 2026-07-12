@@ -6,12 +6,13 @@
 //! of overflowing. Each test drives a program deep enough that a non-tail
 //! version would overflow, and asserts the correct result.
 //!
-//! The one thing tail calls do *not* buy: a handler that `resume`s on every
-//! iteration still accumulates one continuation frame per cycle (`resume` is
-//! not a tail position in this phase), so a deep *actively-handled* effect
-//! loop still overflows at 1000. That limit is a property of the effect
-//! system, orthogonal to tail calls; see `deep_effect_loop_runs_default_impl`
-//! and `handled_effect_loop_has_correct_semantics`.
+//! Handler-driven effect loops are constant-space too: a tail-position
+//! `resume` compiles to `TailResume`, which discards the arm frame before
+//! reinstating the continuation, so a handler that `resume`s on every cycle
+//! no longer parks a frame per cycle — see
+//! `handled_effect_loop_is_constant_space` and `tail_perform_and_tail_resume`.
+//! A *non-tail* `resume` (e.g. `let x = resume(v); ...`) still keeps the
+//! parking `Resume`, by design; see `non_tail_resume_still_works`.
 
 mod common;
 use common::*;
@@ -176,17 +177,114 @@ fn deep_effect_loop_runs_default_impl() {
 }
 
 #[test]
-fn handled_effect_loop_has_correct_semantics() {
-    // The same loop under a resuming handler. The tail recursion is
-    // constant-space, but each `resume` (not a tail position in this phase)
-    // adds one continuation frame per cycle, so this depth must stay under
-    // `max_call_depth`. At 500 iterations, each `resume(1)` contributes 1 to
-    // the accumulator: the result is 500, proving handler semantics are
-    // correct. (A deeper actively-handled loop overflows on `resume`, not on
-    // the recursion — orthogonal to tail calls.)
+fn handled_effect_loop_is_constant_space() {
+    // The same loop under a resuming handler. The arm's `resume(1)` sits in
+    // tail position, so it compiles to `TailResume`: the arm frame is
+    // discarded before the continuation is reinstated, and the loop runs in
+    // constant frame space. At 100_000 iterations — far past `max_call_depth`
+    // (1000), which the parking `Resume` would have overflowed — each
+    // `resume(1)` contributes 1 to the accumulator, so the result is 100_000.
+    CliTest::new(format!(
+        r#"
+        unique(AB000000-0000-0000-0000-0000000000E2) ability Tick {{
+            fn tick(): Number {{ 0 }}
+        }}
+
+        fn loop_perform(n: Number, acc: Number): Number with Tick {{
+            if n <= 0 {{
+                acc
+            }} else {{
+                let x = Tick::tick!();
+                loop_perform(n - 1, acc + x)
+            }}
+        }}
+
+        pub fn run(): Number {{
+            with {{ Tick::tick() => resume(1) }} handle loop_perform({DEEP}, 0)
+        }}
+    "#
+    ))
+    .expect_output("100000");
+}
+
+#[test]
+fn tail_resume_under_if_and_match_branches_is_constant_space() {
+    // The arm's `resume` sits inside `if`/`match` branches rather than being
+    // the whole arm body. `if`/`match` propagate the tail flag, so every
+    // branch's `resume` is still a tail position and compiles to
+    // `TailResume` — the loop stays constant-space at 100_000 cycles. The
+    // `tick` argument alternates the branch taken; both branches resume with
+    // 1, so the accumulator still reaches 100_000.
+    CliTest::new(format!(
+        r#"
+        unique(AB000000-0000-0000-0000-0000000000E5) ability Tick {{
+            fn tick(flag: Bool): Number {{ 0 }}
+        }}
+
+        fn loop_perform(n: Number, acc: Number): Number with Tick {{
+            if n <= 0 {{
+                acc
+            }} else {{
+                let x = Tick::tick!(n % 2 == 0);
+                loop_perform(n - 1, acc + x)
+            }}
+        }}
+
+        pub fn run(): Number {{
+            with {{
+                Tick::tick(flag) => if flag {{ resume(1) }} else {{
+                    match flag {{
+                        true => resume(1),
+                        false => resume(1),
+                    }}
+                }}
+            }} handle loop_perform({DEEP}, 0)
+        }}
+    "#
+    ))
+    .expect_output("100000");
+}
+
+#[test]
+fn tail_perform_and_tail_resume() {
+    // The canonical constant-space effect loop: a tail-recursive performing
+    // function driven by a tail-resuming handler, both running in constant
+    // frame space. Neither the recursion (proper tail calls) nor the handler
+    // (tail resume) grows the stack, so 100_000 iterations complete. The
+    // handler resumes with the running iteration count doubled back down —
+    // here just `resume(2)` — so the accumulator reaches 200_000.
+    CliTest::new(format!(
+        r#"
+        unique(AB000000-0000-0000-0000-0000000000E6) ability Step {{
+            fn step(): Number {{ 0 }}
+        }}
+
+        fn drive(n: Number, acc: Number): Number with Step {{
+            if n <= 0 {{
+                acc
+            }} else {{
+                let delta = Step::step!();
+                drive(n - 1, acc + delta)
+            }}
+        }}
+
+        pub fn run(): Number {{
+            with {{ Step::step() => resume(2) }} handle drive({DEEP}, 0)
+        }}
+    "#
+    ))
+    .expect_output("200000");
+}
+
+#[test]
+fn non_tail_resume_still_works() {
+    // A `resume` that is *not* in tail position — its result is bound and
+    // then used — keeps the parking `Resume` opcode and its per-cycle frame
+    // cost. It stays semantically correct at shallow depth: each cycle
+    // resumes with `resume(1) + 0`, so a 3-iteration loop accumulates 3.
     CliTest::new(
         r#"
-        unique(AB000000-0000-0000-0000-0000000000E2) ability Tick {
+        unique(AB000000-0000-0000-0000-0000000000E7) ability Tick {
             fn tick(): Number { 0 }
         }
 
@@ -200,11 +298,11 @@ fn handled_effect_loop_has_correct_semantics() {
         }
 
         pub fn run(): Number {
-            with { Tick::tick() => resume(1) } handle loop_perform(500, 0)
+            with { Tick::tick() => { let x = resume(1); x + 0 } } handle loop_perform(3, 0)
         }
     "#,
     )
-    .expect_output("500");
+    .expect_output("3");
 }
 
 #[test]
