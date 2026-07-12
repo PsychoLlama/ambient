@@ -327,7 +327,12 @@ impl Infer {
                 && let Some(&var) = self.ability_var_scope.get(name.as_ref())
             {
                 match &tail {
-                    Some((first, existing)) if *existing != var => {
+                    // Reported only while checking a body, so a function-type
+                    // annotation resolved once for the scheme and again for
+                    // the body reports this exactly once.
+                    Some((first, existing))
+                        if *existing != var && self.report_ability_var_type_errors =>
+                    {
                         self.pending_errors.push(Box::new(TypeError::new(
                             TypeErrorKind::MultipleRowVariables {
                                 first: Arc::clone(first),
@@ -336,6 +341,7 @@ impl Infer {
                             (0, 0),
                         )));
                     }
+                    Some((_, existing)) if *existing != var => {}
                     _ => tail = Some((Arc::clone(name), var)),
                 }
                 continue;
