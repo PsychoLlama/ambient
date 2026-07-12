@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-use super::{NominalType, Type};
+use super::Type;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Reserved trait identities
@@ -268,8 +268,17 @@ pub struct TraitImpl {
     /// The identity of the trait being implemented.
     pub trait_uuid: Uuid,
 
-    /// The type implementing the trait (must be nominal).
-    pub implementing_type: NominalType,
+    /// The nominal identity of the implementing type — its UUID. Coherence
+    /// and dispatch key off this, so it is the same identity the inherent
+    /// path derives (`inherent::impl_key_for(..).uuid()`): a declared struct,
+    /// an `extern`/primitive nominal, or a declared/prelude enum all carry
+    /// one. Impl targets without a UUID (unknown heads, bare parameters) are
+    /// rejected before an impl is built.
+    pub type_uuid: Uuid,
+
+    /// The implementing type's head name, for diagnostics and `Debug` only —
+    /// nothing semantic keys off it.
+    pub type_name: Arc<str>,
 
     /// Whether the impl block declares its own type parameters
     /// (`impl<T> Show for Wrapper<T>`). A generic impl cannot yet serve as
@@ -287,12 +296,14 @@ pub struct TraitImpl {
 }
 
 impl TraitImpl {
-    /// Create a new trait implementation.
+    /// Create a new trait implementation for the nominal type identified by
+    /// `type_uuid` (its head name `type_name` is display-only).
     #[must_use]
-    pub fn new(trait_uuid: Uuid, implementing_type: NominalType) -> Self {
+    pub fn new(trait_uuid: Uuid, type_uuid: Uuid, type_name: impl Into<Arc<str>>) -> Self {
         Self {
             trait_uuid,
-            implementing_type,
+            type_uuid,
+            type_name: type_name.into(),
             is_generic: false,
             methods: HashMap::new(),
         }
@@ -464,7 +475,7 @@ impl TraitRegistry {
     /// `(trait, type)` pair, if any — a coherence violation the caller
     /// should report.
     pub fn register_impl(&mut self, impl_: TraitImpl) -> Option<TraitImpl> {
-        let key = (impl_.trait_uuid, impl_.implementing_type.uuid);
+        let key = (impl_.trait_uuid, impl_.type_uuid);
         self.impls.insert(key, impl_)
     }
 

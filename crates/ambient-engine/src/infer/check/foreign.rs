@@ -198,15 +198,22 @@ fn register_foreign_impl(
         return;
     };
     let for_type = infer.resolve_holes(&impl_def.for_type);
-    let Type::Nominal(nominal_type) = &for_type else {
+
+    // Generic (conditional) targets and non-identity types are skipped
+    // silently: the defining module reports them during its own check pass.
+    // This mirrors `check_single_impl`'s acceptance criteria exactly, so the
+    // dispatch key a foreign impl registers matches the one call sites resolve.
+    let has_type_args = matches!(&for_type, Type::Named(n) if !n.args.is_empty());
+    if !impl_def.type_params.is_empty() || has_type_args {
+        return;
+    }
+    let Some((type_uuid, type_name)) = inherent::trait_impl_identity(&for_type) else {
         return;
     };
 
-    let mut impl_record = crate::types::TraitImpl::new(trait_uuid, nominal_type.clone())
-        .with_generic(!impl_def.type_params.is_empty());
+    let mut impl_record = crate::types::TraitImpl::new(trait_uuid, type_uuid, type_name);
     for method in &impl_def.methods {
-        let symbol =
-            crate::types::impl_method_symbol(&nominal_type.uuid, &trait_uuid, &method.name);
+        let symbol = crate::types::impl_method_symbol(&type_uuid, &trait_uuid, &method.name);
         impl_record.methods.insert(Arc::clone(&method.name), symbol);
     }
     if infer.trait_registry.register_impl(impl_record).is_some() {

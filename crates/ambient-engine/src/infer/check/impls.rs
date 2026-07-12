@@ -65,9 +65,33 @@ fn check_single_impl(
         return;
     };
 
-    // Verify the implementing type is nominal
     let for_type = infer.resolve_holes(&impl_def.for_type);
-    let Type::Nominal(nominal_type) = &for_type else {
+
+    // Generic (conditional) trait impls need machinery this path lacks:
+    // an impl block that declares its own type parameters
+    // (`impl<T: Eq> Eq for Pair<T>`), or a target applied to type arguments
+    // (`impl Eq for List<T>`, and every container — they're all generic).
+    // Coherence keys on the target's UUID alone, which cannot tell
+    // `Option<Number>` from `Option<String>`, so registering one would
+    // misdispatch. Reject loudly; a non-generic target (a plain enum or
+    // struct) is fine. Containers await the conditional-impls task.
+    let has_type_args = matches!(&for_type, Type::Named(n) if !n.args.is_empty());
+    if !impl_def.type_params.is_empty() || has_type_args {
+        errors.push(Box::new(TypeError::new(
+            TypeErrorKind::ConditionalImplUnsupported {
+                trait_name: Arc::clone(&trait_name.name),
+                ty: for_type.clone(),
+            },
+            span,
+        )));
+        return;
+    }
+
+    // The target must carry a nominal identity — the same "what can be an
+    // impl target" question the inherent path answers. A declared struct,
+    // an `extern`/primitive nominal, and a declared/prelude enum all do;
+    // a structural type or an unknown head does not.
+    let Some((type_uuid, type_name)) = inherent::trait_impl_identity(&for_type) else {
         errors.push(Box::new(TypeError::new(
             TypeErrorKind::TraitOnStructuralType {
                 trait_name: Arc::clone(&trait_name.name),
@@ -95,11 +119,9 @@ fn check_single_impl(
     // The compiler registers method bodies under these symbols so they are
     // content-addressed like ordinary functions; call sites resolve the
     // symbol through the same name→hash table as regular calls.
-    let mut impl_record = crate::types::TraitImpl::new(trait_uuid, nominal_type.clone())
-        .with_generic(!impl_def.type_params.is_empty());
+    let mut impl_record = crate::types::TraitImpl::new(trait_uuid, type_uuid, type_name);
     for method in &mut impl_def.methods {
-        let symbol =
-            crate::types::impl_method_symbol(&nominal_type.uuid, &trait_uuid, &method.name);
+        let symbol = crate::types::impl_method_symbol(&type_uuid, &trait_uuid, &method.name);
         impl_record
             .methods
             .insert(Arc::clone(&method.name), Arc::clone(&symbol));

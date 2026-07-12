@@ -257,6 +257,13 @@ pub enum TypeErrorKind {
     /// Cannot implement trait for non-nominal type.
     TraitOnStructuralType { trait_name: Arc<str>, ty: Type },
 
+    /// A trait impl whose target is generic — an impl block declaring type
+    /// parameters (`impl<T: Eq> Eq for Pair<T>`) or a target applied to type
+    /// arguments (`impl Eq for List<T>`). These are *conditional* impls,
+    /// which need machinery this path doesn't have yet; a non-generic
+    /// target (a plain enum or struct) works.
+    ConditionalImplUnsupported { trait_name: Arc<str>, ty: Type },
+
     /// A bound `τ: Trait` failed: the type has no impl of the trait in the
     /// build.
     BoundNotSatisfied { ty: Type, trait_name: Arc<str> },
@@ -608,6 +615,14 @@ impl std::fmt::Display for TypeErrorKind {
                 write!(
                     f,
                     "cannot implement trait `{trait_name}` for structural type `{ty}`; traits can only be implemented for nominal types"
+                )
+            }
+            Self::ConditionalImplUnsupported { trait_name, ty } => {
+                write!(
+                    f,
+                    "conditional (generic) trait impls are not yet supported: \
+                     `impl {trait_name} for {ty}` is generic; only non-generic \
+                     targets (a plain enum or struct) can implement a trait for now"
                 )
             }
             Self::BoundNotSatisfied { ty, trait_name } => {

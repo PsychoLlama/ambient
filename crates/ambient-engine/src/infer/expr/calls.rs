@@ -238,8 +238,13 @@ impl Infer {
             );
         }
 
-        // Check if the receiver is a nominal type
-        let Type::Nominal(nominal) = &receiver_ty else {
+        // Trait methods dispatch on the receiver's nominal identity — a
+        // struct/primitive/`extern` nominal, or a declared/prelude enum, all
+        // of which carry a UUID. Structural receivers (records, tuples,
+        // functions) have no identity and no methods.
+        let Some(type_uuid) =
+            crate::infer::inherent::impl_key_for(&receiver_ty).and_then(|k| k.uuid())
+        else {
             return Err(type_error(
                 TypeErrorKind::MethodNotFound {
                     method: Arc::clone(method_name),
@@ -251,7 +256,7 @@ impl Infer {
 
         // Look up the method in the trait registry
         let (trait_uuid, method_def, method_symbol) =
-            match self.trait_registry.find_method(nominal.uuid, method_name) {
+            match self.trait_registry.find_method(type_uuid, method_name) {
                 crate::types::MethodLookup::Found {
                     trait_uuid,
                     method,

@@ -107,6 +107,27 @@ pub fn impl_key_for(ty: &Type) -> Option<ImplKey> {
     }
 }
 
+/// The nominal identity a trait impl keys off, for a fully-resolved target
+/// type: its UUID plus its head name (display only). This is the *same*
+/// "what can be an impl target" authority the inherent path uses
+/// ([`impl_key_for`]), so trait and inherent impls can never disagree about a
+/// type's identity. Returns `None` for a target with no nominal identity — a
+/// structural type (record, tuple, function), or a `Named` head that carries
+/// no UUID (an unknown name or a bare type parameter).
+#[must_use]
+pub fn trait_impl_identity(ty: &Type) -> Option<(Uuid, Arc<str>)> {
+    let uuid = impl_key_for(ty)?.uuid()?;
+    let name = match ty {
+        Type::Nominal(n) => n
+            .name
+            .clone()
+            .unwrap_or_else(|| Arc::from(crate::types::uuid_to_source(&uuid).as_str())),
+        Type::Named(n) => Arc::clone(&n.name),
+        _ => return None,
+    };
+    Some((uuid, name))
+}
+
 /// Registry of inherent methods, keyed by impl target.
 #[derive(Debug, Clone, Default)]
 pub struct InherentRegistry {

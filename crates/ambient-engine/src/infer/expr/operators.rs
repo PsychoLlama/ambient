@@ -43,14 +43,17 @@ impl Infer {
         // those impls exist to serve as dictionary sources for bounded
         // generics — their bodies are the builtin operators, so routing a
         // concrete `1 + 2` through them would recurse forever.
-        if let Type::Nominal(nominal) = &left_ty
+        if let Some(type_uuid) =
+            crate::infer::inherent::impl_key_for(&left_ty).and_then(|k| k.uuid())
             && left_ty.as_primitive().is_none()
             && let Some((op_trait, method_name)) = operator_trait(op)
         {
-            // Check if the type implements the reserved operator trait
+            // Check if the type implements the reserved operator trait. Any
+            // nominal identity qualifies — a struct or a declared enum — so
+            // `shape_a == shape_b` dispatches through the enum's `Eq` impl.
             let method_symbol = self
                 .trait_registry
-                .get_impl(op_trait.uuid(), nominal.uuid)
+                .get_impl(op_trait.uuid(), type_uuid)
                 .and_then(|impl_| impl_.methods.get(method_name).cloned());
 
             if let Some(symbol) = method_symbol {
