@@ -408,3 +408,118 @@ fn rejected_deploy_leaves_the_name_table_untouched() {
     assert_eq!(core.resolve("a").expect("a resolves").hash, entry);
     assert!(core.resolve("fresh").is_none());
 }
+
+/// An effectful function whose return type no caller constrains is a
+/// rebinding across a redeploy, not a retirement — even when one build
+/// monomorphized the return (a caller in the module) and the other left it
+/// unconstrained. The deploy signature is the function's declared interface,
+/// so an unannotated return renders the same (`var…`) regardless of
+/// incidental callers; the effect row (the real interface) stays. This is
+/// the bug behind the REPL's live-upgraded task body: without it a task's
+/// redefinition retired the name and the running task kept the old code.
+#[test]
+fn unconstrained_effectful_return_rebinds_across_caller_context() {
+    // `pinned` carries a caller (`use_tick`) that monomorphizes `tick`'s
+    // return to `unit`; `open` leaves it unconstrained and gives `tick` a
+    // different body (a second perform) so the hash genuinely changes.
+    let pinned = compile(
+        "pub fn run(): Number { 0 }
+         unique(11111111-1111-1111-1111-111111111111) ability Beep { fn boop(): () { } }
+         fn tick() { Beep::boop!() }
+         fn use_tick(): () with Beep { tick() }",
+    );
+    let open = compile(
+        "pub fn run(): Number { 0 }
+         unique(11111111-1111-1111-1111-111111111111) ability Beep { fn boop(): () { } }
+         fn tick() { Beep::boop!(); Beep::boop!() }",
+    );
+    let (h_pinned, h_open) = (named_hash(&pinned, "tick"), named_hash(&open, "tick"));
+    assert_ne!(h_pinned, h_open, "the two `tick` bodies must differ");
+    assert_eq!(
+        pinned.signatures.get("tick"),
+        open.signatures.get("tick"),
+        "same source must render the same deploy signature regardless of \
+         caller context"
+    );
+
+    // Monomorphized-then-open: the running (pinned) task redefined open.
+    let core = runtime();
+    core.deploy(
+        &functions_from_module(&pinned),
+        &entry_hash(&pinned),
+        |_| {},
+    )
+    .expect("pinned deploys");
+    let report = core
+        .deploy(&functions_from_module(&open), &entry_hash(&open), |_| {})
+        .expect("open deploys");
+    assert!(
+        report.names.rebound.contains(&Arc::from("tick")),
+        "tick must rebind, got retired={:?}",
+        report.names.retired
+    );
+    assert!(!report.names.retired.contains(&Arc::from("tick")));
+    assert_eq!(core.latest(&h_pinned), h_open, "old refs follow the rebind");
+
+    // Open-then-monomorphized: the reverse order must rebind too.
+    let core = runtime();
+    core.deploy(&functions_from_module(&open), &entry_hash(&open), |_| {})
+        .expect("open deploys");
+    let report = core
+        .deploy(
+            &functions_from_module(&pinned),
+            &entry_hash(&pinned),
+            |_| {},
+        )
+        .expect("pinned deploys");
+    assert!(
+        report.names.rebound.contains(&Arc::from("tick")),
+        "tick must rebind in the reverse order too, got retired={:?}",
+        report.names.retired
+    );
+    assert_eq!(core.latest(&h_open), h_pinned);
+}
+
+/// The same instability afflicts an unannotated *parameter*: a caller pins
+/// it to a concrete type, no caller leaves it a variable. The declared
+/// interface renders the parameter as a variable either way, so a redeploy
+/// that flips the caller context rebinds rather than retires.
+#[test]
+fn unconstrained_parameter_rebinds_across_caller_context() {
+    // `echo` has an unannotated parameter and an annotated `Number` return.
+    // `pinned`'s caller `echo(7)` monomorphizes the parameter to `number`;
+    // `open` has no caller and a different body (an extra binding) so the
+    // hash changes.
+    let pinned = compile(
+        "pub fn run(): Number { echo(7) }
+         fn echo(x): Number { x }",
+    );
+    let open = compile(
+        "pub fn run(): Number { 0 }
+         fn echo(x): Number { let _z = 1; x }",
+    );
+    let (h_pinned, h_open) = (named_hash(&pinned, "echo"), named_hash(&open, "echo"));
+    assert_ne!(h_pinned, h_open, "the two `echo` bodies must differ");
+    assert_eq!(
+        pinned.signatures.get("echo"),
+        open.signatures.get("echo"),
+        "an unannotated parameter must render the same regardless of caller"
+    );
+
+    let core = runtime();
+    core.deploy(
+        &functions_from_module(&pinned),
+        &entry_hash(&pinned),
+        |_| {},
+    )
+    .expect("pinned deploys");
+    let report = core
+        .deploy(&functions_from_module(&open), &entry_hash(&open), |_| {})
+        .expect("open deploys");
+    assert!(
+        report.names.rebound.contains(&Arc::from("echo")),
+        "echo must rebind, got retired={:?}",
+        report.names.retired
+    );
+    assert_eq!(core.latest(&h_pinned), h_open);
+}

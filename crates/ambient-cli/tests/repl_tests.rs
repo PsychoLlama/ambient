@@ -398,15 +398,16 @@ fn test_abstract_never_method_declared_and_performed_across_repl_turns() {
 /// qualified performs keep the definition to one import; every turn the
 /// tests type produces output to sync on.
 ///
-/// The `: ()` return annotation is load-bearing: without it, an effectful
-/// function whose return type no caller constrains is generalized to a
-/// polymorphic return (rendered `var0`), so the redefinition's canonical
-/// signature differs from the running task's (`unit`) and the deploy core
-/// retires the name instead of rebinding it — defeating the live upgrade
-/// this test exercises. Pinning the return keeps the signature stable.
+/// The return is deliberately unannotated: an effectful function whose
+/// return type no caller constrains once rendered a polymorphic `var0`
+/// here but `unit` once the running task monomorphized it, so the deploy
+/// core read the redefinition as a signature change and retired the name
+/// instead of rebinding it — defeating the very live upgrade this test
+/// exercises. The deploy signature now renders the declared interface (an
+/// unannotated return is `var…` regardless of callers), so this rebinds.
 fn ticker_body(msg: &str) -> String {
     format!(
-        "fn tick(): () {{ core::system::Stdio::out!(\"{msg}\"); \
+        "fn tick() {{ core::system::Stdio::out!(\"{msg}\"); \
          core::system::Time::wait!(mk_wait()) }}"
     )
 }
