@@ -158,23 +158,42 @@ pub(super) fn compile_expr_tail(
                 fc.builder.emit_load_object(hash);
             } else if let Some(&hash) = fc.function_hashes.get(&key) {
                 // A bare identifier resolving to a function hash is a function
-                // reference - push it for later use. A *bounded* generic has
-                // no value form yet: its dictionaries are supplied by call
-                // sites, and nothing would supply them here.
-                if matches!(&expr.dicts, Some(crate::ast::Dicts::Resolved(s)) if !s.is_empty())
-                    || matches!(&expr.dicts, Some(crate::ast::Dicts::Pending(_)))
-                {
-                    return Err(CompileError::new(
-                        CompileErrorKind::Unsupported {
-                            feature: format!(
-                                "using the bounded generic function `{var_name}` as a value \
-                                 (call it directly instead)"
-                            ),
-                        },
-                        (expr.span.start, expr.span.end),
-                    ));
+                // reference. An *unbounded* one pushes a plain `FunctionRef`.
+                // A *bounded* generic used as a value can't: its dictionaries
+                // must travel with it. When the checker solved the bound (the
+                // instantiation type is concrete), lower the reference to a
+                // closure that captures the resolved dictionaries and forwards
+                // its value arguments plus those dictionaries to the function —
+                // the same shape a conditional-impl dictionary slot uses
+                // (`build_dict_slot_closure`), hash-linked like a direct call.
+                // The genuinely-ambiguous case (`let f = same;` with no type
+                // information to fix the bound) never reaches here: the checker
+                // rejects it with the `CannotInfer` hint before annotating any
+                // sources.
+                match &expr.dicts {
+                    Some(crate::ast::Dicts::Resolved(sources)) if !sources.is_empty() => {
+                        compile_bounded_value_ref(
+                            fc,
+                            hash,
+                            expr.ty.as_ref(),
+                            sources,
+                            expr.span,
+                            ctx,
+                        )?;
+                    }
+                    Some(crate::ast::Dicts::Pending(_)) => {
+                        return Err(CompileError::new(
+                            CompileErrorKind::Internal {
+                                message: "unsolved dictionary constraints reached \
+                                          compilation (checker bug)",
+                            },
+                            (expr.span.start, expr.span.end),
+                        ));
+                    }
+                    _ => {
+                        fc.builder.emit_const(Value::FunctionRef(hash));
+                    }
                 }
-                fc.builder.emit_const(Value::FunctionRef(hash));
             } else if let Some(variant) = name
                 .resolved
                 .as_ref()
@@ -842,6 +861,50 @@ fn build_dict_slot_closure(
     // local frame, so `local_count == arity`.
     #[allow(clippy::cast_possible_truncation)]
     builder.build(arity as u16, arity as u8)
+}
+
+/// Lower a bounded generic function used as a *value* (not a direct callee)
+/// to a closure that captures its resolved dictionaries and forwards to the
+/// function. The closure takes the function's own value arguments (its
+/// inferred function type's parameter count) and appends the captured
+/// dictionaries as the function's hidden trailing dictionary parameters —
+/// exactly the shape a conditional-impl dictionary slot uses
+/// ([`build_dict_slot_closure`]), and hash-linked to the function like a
+/// direct call. Works for every [`DictSource`](crate::ast::DictSource): the
+/// captured value is a concrete impl's method tuple, a forwarded enclosing
+/// dictionary (an ordinary capture inside a lambda), or a conditional impl's
+/// closure tuple — [`compile_dict_source`] builds each identically here.
+fn compile_bounded_value_ref(
+    fc: &mut FunctionCompiler,
+    fn_hash: blake3::Hash,
+    ty: Option<&crate::types::Type>,
+    sources: &[crate::ast::DictSource],
+    span: crate::ast::Span,
+    ctx: &mut ModuleContext,
+) -> Result<(), CompileError> {
+    // The value arity is the reference's inferred function type's parameter
+    // count; the dictionaries the closure supplies are never part of the
+    // surface type. The checker only annotates dictionary sources on a
+    // function-typed reference, so a missing/non-function type is a bug.
+    let Some(crate::types::Type::Function(ft)) = ty else {
+        return Err(CompileError::new(
+            CompileErrorKind::Internal {
+                message: "bounded generic used as a value lacks a function type (checker bug)",
+            },
+            (span.start, span.end),
+        ));
+    };
+    let closure = build_dict_slot_closure(fn_hash, ft.params.len(), sources.len());
+    let closure_hash = ctx.register_lambda(closure);
+    // Push the dictionaries the closure captures, in order — the same
+    // per-source lowering direct call sites use.
+    for source in sources {
+        compile_dict_source(fc, source, span, ctx)?;
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    fc.builder
+        .emit_make_closure(closure_hash, sources.len() as u8);
+    Ok(())
 }
 
 /// Push a bound method (dictionary slot) as the callee for a

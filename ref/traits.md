@@ -314,10 +314,20 @@ for Pair<Number>` conflict; a wrong instantiation (`Option<String>` against
 `impl Eq for Option<Number>`) simply fails to match and reports an
 unsatisfied bound. Recursion is depth-limited against pathological nesting.
 
-Current limits (each is a clear compile error, never a miscompile): bounded
-generics have no first-class value form (`let f = same;` is rejected — call
-them directly); and handler arms cannot yet cover a bounded ability method
-(the default implementation still runs).
+A bounded generic can also be used as a **first-class value** — bound to a
+`let`, or passed to a higher-order function — as long as the instantiation is
+concrete at the reference. Wherever the checker can fix the type argument
+(from an annotation, or from how the value is used), it solves the bound and
+the compiler lowers the bare reference to a closure that captures the
+resolved dictionaries and forwards its value arguments plus those
+dictionaries to the function — the same closure shape a conditional impl's
+dictionary slots use, and hash-linked like a direct call. Every dictionary
+source works (a concrete impl, a forwarded enclosing dictionary — inside
+lambdas too — or a conditional impl). The one residual limit is a genuinely
+ambiguous binding whose type nothing fixes (`let f = same;` with no further
+information): the constrained variable generalizes away from its constraint,
+and the checker reports it as a clear compile error with an "add an
+annotation" hint — never a miscompile.
 
 ## Dispatch, Coherence, and Content-Addressing
 
