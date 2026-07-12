@@ -781,6 +781,20 @@ impl FunctionBuilder {
         self
     }
 
+    /// Tail-call a function by hash, reusing the current frame.
+    #[must_use]
+    pub fn tail_call_func(mut self, hash: blake3::Hash, arg_count: u8) -> Self {
+        self.builder.emit_tail_call(hash, arg_count);
+        self
+    }
+
+    /// Tail-call a closure/function value on the stack, reusing the frame.
+    #[must_use]
+    pub fn tail_call_closure(mut self, arg_count: u8) -> Self {
+        self.builder.emit_tail_call_closure(arg_count);
+        self
+    }
+
     /// Emit return instruction.
     #[must_use]
     pub fn ret(mut self) -> Self {

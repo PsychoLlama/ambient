@@ -71,4 +71,6 @@ mod invoke_tests;
 #[cfg(test)]
 mod never_tests;
 #[cfg(test)]
+mod tail_call_tests;
+#[cfg(test)]
 mod tests;
