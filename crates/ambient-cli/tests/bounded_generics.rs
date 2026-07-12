@@ -310,6 +310,94 @@ fn handler_for_bounded_method_rejected() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Bound dispatch inside lambdas: a dictionary is captured into the closure
+// and reached through the ordinary capture path, at any nesting depth.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn bound_method_call_inside_lambda() {
+    // `x.eq(item)` inside a lambda dispatches through the enclosing bounded
+    // function's Eq dictionary, captured into the closure.
+    CliTest::new(format!(
+        r#"
+        {MONEY}
+        fn has<T: Eq>(list: List<T>, item: T): Bool {{
+            list.any((x: T) => x.eq(item))
+        }}
+
+        fn run(): Bool {{
+            has([Money {{ cents: 1 }}, Money {{ cents: 2 }}], Money {{ cents: 2 }})
+        }}
+    "#
+    ))
+    .expect_output("true");
+}
+
+#[test]
+fn bound_method_call_inside_nested_lambdas() {
+    // A lambda inside a lambda still reaches the outermost function's
+    // dictionary: the capture chains through both closure levels.
+    CliTest::new(format!(
+        r#"
+        {MONEY}
+        fn has<T: Eq>(list: List<T>, item: T): Bool {{
+            list.any((x: T) => {{
+                let check = (y: T) => y.eq(item);
+                check(x)
+            }})
+        }}
+
+        fn run(): Bool {{
+            has([Money {{ cents: 5 }}, Money {{ cents: 6 }}], Money {{ cents: 6 }})
+        }}
+    "#
+    ))
+    .expect_output("true");
+}
+
+#[test]
+fn dictionary_forwarded_from_inside_lambda() {
+    // A `DictSource::Param` forward (calling another bounded generic) from
+    // inside a lambda captures and forwards the enclosing dictionary.
+    CliTest::new(format!(
+        r#"
+        {MONEY}
+        fn same<T: Eq>(a: T, b: T): Bool {{
+            a.eq(b)
+        }}
+
+        fn has<T: Eq>(list: List<T>, item: T): Bool {{
+            list.any((x: T) => same(x, item))
+        }}
+
+        fn run(): Bool {{
+            has([Money {{ cents: 7 }}], Money {{ cents: 7 }})
+        }}
+    "#
+    ))
+    .expect_output("true");
+}
+
+#[test]
+fn operator_on_bounded_param_inside_lambda() {
+    // Operator sugar (`>`) on a bounded parameter also dispatches through a
+    // captured dictionary when it appears inside a lambda.
+    CliTest::new(format!(
+        r#"
+        {MONEY}
+        fn any_greater<T: Ord>(list: List<T>, pivot: T): Bool {{
+            list.any((x: T) => x > pivot)
+        }}
+
+        fn run(): Bool {{
+            any_greater([Money {{ cents: 1 }}, Money {{ cents: 9 }}], Money {{ cents: 4 }})
+        }}
+    "#
+    ))
+    .expect_output("true");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Core library methods unlocked by bounds
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -77,12 +77,7 @@ pub(super) fn compile_lambda(
 ) -> Result<(), CompileError> {
     // Create a new FunctionCompiler for the lambda body.
     // Pass the current scope's locals as the parent scope.
-    let mut lambda_fc = FunctionCompiler::new_for_closure(
-        fc.function_hashes.clone(),
-        fc.locals.clone(),
-        fc.local_names.clone(),
-        fc.block_consts.clone(),
-    );
+    let mut lambda_fc = FunctionCompiler::for_closure(fc);
 
     // Allocate slots for lambda parameters.
     for param in &lambda.params {
@@ -127,23 +122,11 @@ pub(super) fn compile_lambda(
     let lambda_hash = ctx.register_lambda(compiled_func);
 
     // Now emit code in the enclosing function to create the closure.
-    // Push captured values onto the stack in capture slot order.
+    // Push captured values onto the stack in capture slot order. Each load
+    // comes from the enclosing function's own scope, or is forwarded from
+    // *its* enclosing scope when the lambda is nested inside another.
     for (name, _slot) in &capture_names {
-        // Load the captured value from the current function's scope.
-        if let Some(&slot) = fc.local_names.get(name) {
-            fc.builder.emit_u16(Opcode::LoadLocal, slot);
-        } else if let Some(&capture_slot) = fc.capture_names.get(name) {
-            // If the enclosing function is itself a closure, load from its captures.
-            fc.builder.emit_load_capture(capture_slot);
-        } else {
-            // Should not happen if capture analysis is correct.
-            return Err(CompileError::new(
-                CompileErrorKind::Unsupported {
-                    feature: format!("unknown capture: {name}"),
-                },
-                (0, 0),
-            ));
-        }
+        fc.emit_captured_or_local(name, (0, 0))?;
     }
 
     // 2. Emit MakeClosure instruction.
@@ -177,12 +160,7 @@ pub(super) fn compile_handle_expr(
     // CallClosure), and `resume` reinstates the thunk's frames above the
     // arm so the thunk's eventual return becomes the resume expression's
     // value. See vm/abilities.rs for the runtime half.
-    let mut thunk_fc = FunctionCompiler::new_for_closure(
-        fc.function_hashes.clone(),
-        fc.locals.clone(),
-        fc.local_names.clone(),
-        fc.block_consts.clone(),
-    );
+    let mut thunk_fc = FunctionCompiler::for_closure(fc);
 
     // Install each handler in the flat `with` list, in source order (so a
     // later handler shadows an earlier one for the same ability — "last
@@ -288,18 +266,7 @@ pub(super) fn compile_handle_expr(
     let thunk_hash = ctx.register_lambda(thunk_func);
 
     for (name, _slot) in &capture_names {
-        if let Some(&slot) = fc.local_names.get(name) {
-            fc.builder.emit_u16(Opcode::LoadLocal, slot);
-        } else if let Some(&capture_slot) = fc.capture_names.get(name) {
-            fc.builder.emit_load_capture(capture_slot);
-        } else {
-            return Err(CompileError::new(
-                CompileErrorKind::Unsupported {
-                    feature: format!("unknown capture in handle expression: {name}"),
-                },
-                (0, 0),
-            ));
-        }
+        fc.emit_captured_or_local(name, (0, 0))?;
     }
     fc.builder
         .emit_make_closure(thunk_hash, capture_names.len() as u8);
@@ -456,21 +423,10 @@ pub(super) fn compile_handler_literal(
     )?;
 
     // Load the shared captures onto the stack (from the installer's own
-    // locals, or through its captures if it is itself a closure), then
-    // build the handler value.
+    // locals, through its captures if it is itself a closure, or forwarded
+    // from an enclosing scope), then build the handler value.
     for (name, _slot) in &captures {
-        if let Some(&slot) = fc.local_names.get(name) {
-            fc.builder.emit_u16(Opcode::LoadLocal, slot);
-        } else if let Some(&capture_slot) = fc.capture_names.get(name) {
-            fc.builder.emit_load_capture(capture_slot);
-        } else {
-            return Err(CompileError::new(
-                CompileErrorKind::Unsupported {
-                    feature: format!("unknown capture in handler literal: {name}"),
-                },
-                (expr.span.start, expr.span.end),
-            ));
-        }
+        fc.emit_captured_or_local(name, (expr.span.start, expr.span.end))?;
     }
 
     fc.builder
@@ -557,12 +513,7 @@ fn compile_handler_method(
     seed_captures: &HashMap<Arc<str>, u16>,
     ctx: &mut ModuleContext,
 ) -> Result<(CompiledFunction, HashMap<Arc<str>, u16>), CompileError> {
-    let mut method_fc = FunctionCompiler::new_for_closure(
-        fc.function_hashes.clone(),
-        fc.locals.clone(),
-        fc.local_names.clone(),
-        fc.block_consts.clone(),
-    );
+    let mut method_fc = FunctionCompiler::for_closure(fc);
     // Seed the shared captures so a name reused across arms keeps its slot.
     method_fc.capture_names.clone_from(seed_captures);
 

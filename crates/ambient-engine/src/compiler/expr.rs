@@ -762,42 +762,25 @@ fn compile_dict_source(
             Ok(())
         }
         crate::ast::DictSource::Param { dict_index } => {
-            let Some(&slot) = fc.dict_locals.get(*dict_index) else {
-                return Err(CompileError::new(
-                    CompileErrorKind::Unsupported {
-                        feature: "forwarding a trait-bound dictionary inside a lambda \
-                                  (call the bounded function from a named function instead)"
-                            .into(),
-                    },
-                    (span.start, span.end),
-                ));
-            };
-            fc.builder.emit_u16(Opcode::LoadLocal, slot);
-            Ok(())
+            // Forward the enclosing bounded item's dictionary. It is an
+            // ordinary local there and a captured value inside a lambda; the
+            // capture path handles both (and nested lambdas).
+            fc.emit_load_dict(*dict_index, (span.start, span.end))
         }
     }
 }
 
 /// Push a bound method (dictionary slot) as the callee for a
-/// `CallClosure`: load this function's `dict_index`-th dictionary
-/// parameter and take tuple slot `slot`.
+/// `CallClosure`: load this function's `dict_index`-th dictionary — an
+/// ordinary local, or a captured value inside a lambda — and take tuple
+/// slot `slot`.
 fn emit_dict_method(
     fc: &mut FunctionCompiler,
     dict_index: usize,
     slot: usize,
     span: crate::ast::Span,
 ) -> Result<(), CompileError> {
-    let Some(&local) = fc.dict_locals.get(dict_index) else {
-        return Err(CompileError::new(
-            CompileErrorKind::Unsupported {
-                feature: "calling a trait-bound method inside a lambda \
-                          (move the call into a named function)"
-                    .into(),
-            },
-            (span.start, span.end),
-        ));
-    };
-    fc.builder.emit_u16(Opcode::LoadLocal, local);
+    fc.emit_load_dict(dict_index, (span.start, span.end))?;
     #[allow(clippy::cast_possible_truncation)]
     fc.builder.emit_u8(Opcode::TupleGet, slot as u8);
     Ok(())

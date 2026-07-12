@@ -521,14 +521,16 @@ fn compile_module_impl(
 /// Allocate the hidden trailing dictionary parameters a bounded item takes:
 /// one local per entry of [`crate::ast::dict_params`] — the same authority
 /// the checker orders scheme bounds and call-site dictionaries by, so slots
-/// and indices can never disagree. The locals have no `BindingId` (nothing
-/// in source names them); `fc.dict_locals` is how dictionary-slot dispatch
-/// and forwarding reach them.
+/// and indices can never disagree. The locals have no source `BindingId`;
+/// `fc.dict_locals` records their slots for arity, and each is also bound
+/// under an index-keyed pseudo-name ([`super::context::dict_capture_name`])
+/// so dictionary-slot dispatch and forwarding reach them through the
+/// ordinary name-capture path — the same one that threads them into lambdas.
 fn alloc_dict_locals(
     fc: &mut FunctionCompiler,
     type_params: &[crate::ast::TypeParam],
 ) -> Result<(), CompileError> {
-    for (param, bound) in crate::ast::dict_params(type_params) {
+    for (index, (param, bound)) in crate::ast::dict_params(type_params).into_iter().enumerate() {
         let slot = fc.next_local;
         if slot == u16::MAX {
             return Err(CompileError::new(
@@ -540,6 +542,8 @@ fn alloc_dict_locals(
         }
         fc.next_local += 1;
         fc.record_local_name(slot, &format!("<dict {param}: {bound}>"));
+        fc.local_names
+            .insert(super::context::dict_capture_name(index), slot);
         fc.dict_locals.push(slot);
     }
     Ok(())

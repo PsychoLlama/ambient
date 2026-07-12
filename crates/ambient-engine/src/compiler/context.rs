@@ -6,8 +6,21 @@ use std::sync::Arc;
 use super::entry::own_item_key;
 use super::error::{CompileError, CompileErrorKind};
 use crate::ast::{BindingId, ItemKind, Module};
-use crate::bytecode::{BytecodeBuilder, CompiledFunction, DebugInfo};
+use crate::bytecode::{BytecodeBuilder, CompiledFunction, DebugInfo, Opcode};
 use crate::fqn::{Fqn, ModuleId, NameKey};
+
+/// The unspellable name a hidden dictionary parameter is bound under.
+///
+/// A bounded item's dictionaries have no source name, but the closure
+/// machinery captures free variables *by name*. Binding each dictionary
+/// under a stable, index-keyed pseudo-name (the index is the same at every
+/// lambda nesting level — it always counts the enclosing bounded item's
+/// bounds) lets a dictionary flow through the exact same name-capture path
+/// as an ordinary variable, including forwarding through nested lambdas.
+/// The `<…>` form can never collide with a parsed identifier.
+pub(super) fn dict_capture_name(index: usize) -> Arc<str> {
+    Arc::from(format!("<dict#{index}>"))
+}
 
 /// Compiler state for a single function.
 pub(super) struct FunctionCompiler {
@@ -76,26 +89,41 @@ impl FunctionCompiler {
         }
     }
 
-    /// Create a function compiler for a closure, with access to parent scope.
-    pub(super) fn new_for_closure(
-        function_hashes: HashMap<NameKey, blake3::Hash>,
-        parent_locals: HashMap<BindingId, u16>,
-        parent_local_names: HashMap<Arc<str>, u16>,
-        parent_block_consts: HashMap<Arc<str>, blake3::Hash>,
-    ) -> Self {
+    /// Create a function compiler for a closure nested directly inside
+    /// `parent`'s scope.
+    ///
+    /// A closure may reference any binding its enclosing scopes can supply,
+    /// not just the immediate parent's own locals: the name-capture view
+    /// unions the parent's locals, the parent's own captures, and everything
+    /// the parent could itself capture (its parent view). That transitive
+    /// union is what lets a free variable — or a hidden dictionary — thread
+    /// through several nested lambdas: each level forwards it as an ordinary
+    /// capture (see `emit_captured_or_local`). The by-id (`parent_locals`)
+    /// channel stays one level deep, as it only serves hand-built ASTs that
+    /// never nest-capture.
+    pub(super) fn for_closure(parent: &FunctionCompiler) -> Self {
+        let mut parent_local_names = parent.local_names.clone();
+        for (name, slot) in &parent.capture_names {
+            parent_local_names.entry(Arc::clone(name)).or_insert(*slot);
+        }
+        if let Some(grand) = &parent.parent_local_names {
+            for (name, slot) in grand {
+                parent_local_names.entry(Arc::clone(name)).or_insert(*slot);
+            }
+        }
         Self {
             builder: BytecodeBuilder::new(),
             locals: HashMap::new(),
             local_names: HashMap::new(),
             next_local: 0,
-            function_hashes,
+            function_hashes: parent.function_hashes.clone(),
             captures: HashMap::new(),
             capture_names: HashMap::new(),
-            parent_locals: Some(parent_locals),
+            parent_locals: Some(parent.locals.clone()),
             parent_local_names: Some(parent_local_names),
             // A lambda inherits the enclosing block consts in scope; each is a
             // bare `LoadObject` of a hash, so no capture slot is needed.
-            block_consts: parent_block_consts,
+            block_consts: parent.block_consts.clone(),
             dict_locals: Vec::new(),
             debug_info: DebugInfo::new(),
         }
@@ -198,6 +226,52 @@ impl FunctionCompiler {
             self.capture_names.insert(name, slot);
             slot
         }
+    }
+
+    /// Emit code that pushes the value bound to `name` onto the stack: from
+    /// this function's own locals, from a capture it already holds, or — when
+    /// it is a closure and `name` is free — by capturing it from the
+    /// enclosing scope (which, transitively, forwards it down the nesting
+    /// chain). This is the single place free-variable and dictionary loads
+    /// resolve, so every closure form (lambdas, handler arms, handle thunks)
+    /// captures identically. An unknown name is a compiler bug — the checker
+    /// only leaves references it resolved.
+    pub(super) fn emit_captured_or_local(
+        &mut self,
+        name: &Arc<str>,
+        span: (u32, u32),
+    ) -> Result<(), CompileError> {
+        if let Some(&slot) = self.local_names.get(name) {
+            self.builder.emit_u16(Opcode::LoadLocal, slot);
+        } else if let Some(&capture_slot) = self.capture_names.get(name) {
+            self.builder.emit_load_capture(capture_slot);
+        } else if self.is_parent_name(name) {
+            let capture_slot = self.get_or_create_capture_by_name(Arc::clone(name));
+            self.builder.emit_load_capture(capture_slot);
+        } else {
+            return Err(CompileError::new(
+                CompileErrorKind::Unsupported {
+                    feature: format!("unknown capture: {name}"),
+                },
+                span,
+            ));
+        }
+        Ok(())
+    }
+
+    /// Push this function's `dict_index`-th hidden dictionary onto the stack.
+    ///
+    /// In the bounded item itself the dictionary is an ordinary local; inside
+    /// a lambda in its body it is a captured value. Routing through
+    /// [`Self::emit_captured_or_local`] under the dictionary's pseudo-name
+    /// (see [`dict_capture_name`]) means both cases — and nested lambdas —
+    /// are handled by the one capture path.
+    pub(super) fn emit_load_dict(
+        &mut self,
+        dict_index: usize,
+        span: (u32, u32),
+    ) -> Result<(), CompileError> {
+        self.emit_captured_or_local(&dict_capture_name(dict_index), span)
     }
 
     /// Get the list of captured names in capture slot order.
