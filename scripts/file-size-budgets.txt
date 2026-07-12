@@ -7,5 +7,5 @@
 crates/ambient-engine/src/vm/tests.rs 1201
 crates/ambient-engine/src/compiler/tests.rs 1262
 crates/ambient-lsp/src/server.rs 1352
-crates/ambient-parser/src/parser/expr.rs 1111
+crates/ambient-parser/src/parser/expr.rs 1102
 crates/ambient-parser/src/lexer.rs 1263

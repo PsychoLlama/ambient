@@ -290,6 +290,27 @@ fn test_parse_lambda() {
 }
 
 #[test]
+fn test_lambda_return_type_annotation_is_not_lambda_syntax() {
+    // A `: Type` between the params `)` and `=>` is not lambda grammar: the
+    // lambda lookahead only fires when `=>` immediately follows the closing
+    // `)`. `(x): Number => x + 1` therefore parses `(x)` as a parenthesized
+    // expression, and the trailing `: Number => ...` is a stray colon that
+    // makes the enclosing `let` statement a parse error. (Pin a type to a
+    // lambda via the binding annotation instead: `let f: (Number) -> Number
+    // = x => x + 1;`.)
+    let mut parser = Parser::new("let f = (x): Number => x + 1;").unwrap();
+    assert!(
+        parser.parse_module().is_err(),
+        "annotated lambda syntax must be a parse error, not a lambda"
+    );
+
+    // A plain `(x) => x + 1` still parses as a lambda.
+    let mut parser = Parser::new("(x) => x + 1").unwrap();
+    let expr = parser.parse_expression().expect("parse error");
+    assert!(matches!(expr.kind, CstExprKind::Lambda(_)));
+}
+
+#[test]
 fn test_parse_tuple_with_lambda_first_element() {
     // Regression: a tuple whose first element is a lambda must not be
     // misread as a lambda header. `(() => 2, 40)` is a 2-tuple.

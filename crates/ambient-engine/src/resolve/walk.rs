@@ -333,9 +333,6 @@ impl Resolver<'_> {
                         self.resolve_type(ty);
                     }
                 }
-                if let Some(ty) = &mut lambda.ret_ty {
-                    self.resolve_type(ty);
-                }
                 self.push_scope(lambda.params.iter().map(|p| Arc::clone(&p.name)).collect());
                 self.resolve_expr(&mut lambda.body);
                 self.pop_scope();

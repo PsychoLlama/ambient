@@ -688,8 +688,6 @@ pub enum CstUnaryOp {
 pub struct CstLambda {
     /// Parameters.
     pub params: Vec<CstParam>,
-    /// Return type.
-    pub ret_ty: Option<CstTypeExpr>,
     /// Body.
     pub body: Box<CstExpr>,
     /// Source span.

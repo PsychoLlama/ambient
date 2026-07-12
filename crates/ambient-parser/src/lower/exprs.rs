@@ -443,12 +443,10 @@ fn lower_lambda(ctx: &mut LoweringContext, lambda: &CstLambda) -> Result<Lambda,
         .map(|p| lower_param(ctx, p))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let ret_ty = lambda.ret_ty.as_ref().map(lower_type).transpose()?;
     let body = lower_expression(ctx, &lambda.body)?;
 
     Ok(Lambda {
         params,
-        ret_ty,
         body: Box::new(body),
     })
 }

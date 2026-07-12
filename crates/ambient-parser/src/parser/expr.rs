@@ -764,14 +764,6 @@ impl Parser<'_> {
         // Parse parameters
         let params = self.parse_params()?;
         self.expect(TokenKind::RParen)?;
-
-        // Optional return type
-        let ret_ty = if self.consume(TokenKind::Colon).is_some() {
-            Some(self.parse_type()?)
-        } else {
-            None
-        };
-
         self.expect(TokenKind::FatArrow)?;
 
         // Body can be a block or a single expression
@@ -787,7 +779,6 @@ impl Parser<'_> {
         Ok(CstExpr {
             kind: CstExprKind::Lambda(CstLambda {
                 params,
-                ret_ty,
                 body: Box::new(body),
                 span,
             }),

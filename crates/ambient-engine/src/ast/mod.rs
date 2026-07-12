@@ -412,8 +412,6 @@ pub enum Literal {
 pub struct Lambda {
     /// Parameters with optional type annotations.
     pub params: Vec<Param>,
-    /// Optional return type annotation.
-    pub ret_ty: Option<Type>,
     /// The body expression.
     pub body: Box<Expr>,
 }
@@ -667,7 +665,6 @@ impl Expr {
         Self::new(
             ExprKind::Lambda(Lambda {
                 params,
-                ret_ty: None,
                 body: Box::new(body),
             }),
             Span::default(),
