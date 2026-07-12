@@ -44,6 +44,38 @@ fn ambient_bin() -> &'static str {
     env!("CARGO_BIN_EXE_ambient")
 }
 
+/// A kernel-allocated ephemeral port: bind `127.0.0.1:0`, read the port the
+/// kernel assigned, then release the socket so the child can bind it.
+///
+/// Residual TOCTOU: between this drop and the child's bind there is a window
+/// in which another process could claim the port. The kernel avoids recently
+/// released ports when handing out ephemeral ones, so in practice the window
+/// is negligible — this is the ecosystem-standard way to hand a free port to
+/// a subprocess, and it replaces fixed ports that collided across concurrent
+/// checkouts/worktrees and with host services.
+fn ephemeral_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("bind ephemeral port")
+        .local_addr()
+        .expect("read local addr")
+        .port()
+}
+
+/// Two *distinct* ephemeral ports. Both listeners are held simultaneously so
+/// the kernel is forced to assign different numbers, then both are released
+/// (same residual TOCTOU as [`ephemeral_port`]).
+fn ephemeral_port_pair() -> (u16, u16) {
+    let first = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
+    let second = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
+    let ports = (
+        first.local_addr().expect("read local addr").port(),
+        second.local_addr().expect("read local addr").port(),
+    );
+    drop(first);
+    drop(second);
+    ports
+}
+
 /// Strip ANSI escape sequences (colors) from output.
 fn strip_ansi(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -212,7 +244,7 @@ fn live_site_upgrades_under_the_dev_loop() {
     let tmp = tempfile::tempdir().expect("temp dir");
     let site = tmp.path().join("live_site");
     copy_dir(&examples_dir().join("live_site"), &site);
-    let port: u16 = 7899;
+    let port = ephemeral_port();
     let main_ab = site.join("main.ab");
     let rewritten = fs::read_to_string(&main_ab)
         .expect("read main.ab")
@@ -315,12 +347,31 @@ fn copy_dir(from: &Path, to: &Path) {
 
 #[test]
 fn network_pair_echoes() {
+    // The intro networking sample hardcodes port 9000 in both `main.ab`s and
+    // is deliberately minimal — no Env plumbing. So copy both dirs to a
+    // tempdir and rewrite 9000 to an ephemeral port (the copy+rewrite pattern
+    // `live_site_upgrades_under_the_dev_loop` uses), keeping the example
+    // pedagogically simple while avoiding fixed-port collisions.
+    let port = ephemeral_port();
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let server_dir = tmp.path().join("network_server");
+    let client_dir = tmp.path().join("network_client");
+    copy_dir(&examples_dir().join("network_server"), &server_dir);
+    copy_dir(&examples_dir().join("network_client"), &client_dir);
+    for dir in [&server_dir, &client_dir] {
+        let main_ab = dir.join("main.ab");
+        let rewritten = fs::read_to_string(&main_ab)
+            .expect("read main.ab")
+            .replace("9000", &port.to_string());
+        fs::write(&main_ab, rewritten).expect("rewrite port");
+    }
+
     // No TCP probe here: the echo server serves exactly one connection, and
     // a probe would be accepted (and its disconnect read as the quit
     // signal). The client retries until the server is up instead.
     let server = Command::new(ambient_bin())
         .arg("run")
-        .arg(examples_dir().join("network_server"))
+        .arg(&server_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -332,7 +383,7 @@ fn network_pair_echoes() {
     let stdout = loop {
         let output = Command::new(ambient_bin())
             .arg("run")
-            .arg(examples_dir().join("network_client"))
+            .arg(&client_dir)
             .output()
             .expect("run client");
         if output.status.success() {
@@ -379,10 +430,13 @@ fn recv_frame(conn: &mut std::net::TcpStream) -> Vec<u8> {
 /// dev loop anywhere — and its cell state survives the deploy.
 #[test]
 fn deploy_pair_upgrades_a_remote_service_mid_conversation() {
-    // Private ports so a developer's own `ambient run examples/deploy_server`
-    // (on the 7910/7911 defaults) can coexist with the test.
-    let service_port = "7913";
-    let deploy_port = "7914";
+    // Ephemeral ports so a developer's own `ambient run examples/deploy_server`
+    // (on the 7910/7911 defaults) can coexist with the test, and so concurrent
+    // checkouts never collide. Both allocated while both listeners are held, so
+    // they're guaranteed distinct.
+    let (service_port, deploy_port) = ephemeral_port_pair();
+    let service_port = service_port.to_string();
+    let deploy_port = deploy_port.to_string();
 
     // Build generation two: the same package with a new greeting,
     // compiled to a shippable artifact pack.
@@ -414,8 +468,8 @@ fn deploy_pair_upgrades_a_remote_service_mid_conversation() {
     let server = Command::new(ambient_bin())
         .arg("run")
         .arg(examples_dir().join("deploy_server"))
-        .env("SERVICE_PORT", service_port)
-        .env("DEPLOY_PORT", deploy_port)
+        .env("SERVICE_PORT", &service_port)
+        .env("DEPLOY_PORT", &deploy_port)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -429,8 +483,8 @@ fn deploy_pair_upgrades_a_remote_service_mid_conversation() {
         let output = Command::new(ambient_bin())
             .arg("run")
             .arg(examples_dir().join("deploy_client"))
-            .env("SERVICE_PORT", service_port)
-            .env("DEPLOY_PORT", deploy_port)
+            .env("SERVICE_PORT", &service_port)
+            .env("DEPLOY_PORT", &deploy_port)
             .env("DEPLOY_PACK", &pack)
             .output()
             .expect("run client");
@@ -506,9 +560,14 @@ fn deploy_pair_upgrades_a_remote_service_mid_conversation() {
 
 #[test]
 fn remote_pair_executes() {
+    // An ephemeral port on both sides: the default `REMOTE_PORT` is 8080, a
+    // heavily-used host port, and a fixed port collides across checkouts. Both
+    // server and client read `REMOTE_PORT` (remote_client/main.ab ~line 32).
+    let port = ephemeral_port().to_string();
     let server = Command::new(ambient_bin())
         .arg("run")
         .arg(examples_dir().join("remote_server"))
+        .env("REMOTE_PORT", &port)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -521,6 +580,7 @@ fn remote_pair_executes() {
         let output = Command::new(ambient_bin())
             .arg("run")
             .arg(examples_dir().join("remote_client"))
+            .env("REMOTE_PORT", &port)
             .output()
             .expect("run client");
         if output.status.success() {
