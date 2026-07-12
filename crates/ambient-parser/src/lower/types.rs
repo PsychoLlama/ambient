@@ -133,21 +133,6 @@ pub(super) fn lower_type(ty: &CstTypeExpr) -> Result<Type, ParseError> {
             }))
         }
 
-        CstTypeExprKind::AbilityValue {
-            result_ty,
-            ability_ty: _,
-        } => {
-            let result = lower_type(result_ty)?;
-            // Ability value type - for now just return the result type
-            // Full implementation would track the ability set
-            Ok(Type::AbilityValue(
-                ambient_engine::types::AbilityValueType {
-                    result: Box::new(result),
-                    ability: ambient_engine::types::AbilitySet::empty(), // TODO
-                },
-            ))
-        }
-
         // `Handler<A>` / `Handler<A, R>`: a dedicated node, not a nominal
         // name. `A` is an ability reference (`::`-joined if qualified),
         // resolved by the checker through the ability namespace; `R` the

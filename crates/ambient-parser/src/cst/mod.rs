@@ -308,12 +308,6 @@ pub enum CstTypeExprKind {
         abilities: Vec<CstQualifiedName>,
     },
 
-    /// Ability value type: `Ability<T, A!>`.
-    AbilityValue {
-        result_ty: Box<CstTypeExpr>,
-        ability_ty: Box<CstTypeExpr>,
-    },
-
     /// Handler value type: `Handler<A>` / `Handler<A, R>`. `Handler` is type
     /// syntax, not a name: `ability` is an ability reference (resolved
     /// through the ability namespace), `answer` the optional answer type `R`.
