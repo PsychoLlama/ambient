@@ -17,6 +17,7 @@
 //!    [`check_module_core`].
 
 mod abilities;
+mod ability_vars;
 mod bodies;
 mod foreign;
 mod impls;

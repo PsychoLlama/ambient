@@ -6,11 +6,11 @@ use std::sync::Arc;
 
 use crate::ast::BindingId;
 use crate::fqn::{Fqn, ModuleId, NameKey};
-use crate::types::{AbilityId, AbilitySet, TraitDef, TraitMethodDef, Type, TypeVarId};
+use crate::types::{AbilitySet, TraitDef, TraitMethodDef, Type, TypeVarId};
 
 use crate::infer::Infer;
 use crate::infer::env::{AliasTarget, Scheme, TypeEnv};
-use crate::infer::error::{BoxedTypeError, BoxedTypeErrorExt, TypeError, TypeErrorKind};
+use crate::infer::error::{BoxedTypeError, TypeError, TypeErrorKind};
 
 use super::abilities::register_abilities;
 use super::impls::register_inherent_impls;
@@ -464,80 +464,76 @@ pub(super) fn build_function_scheme(
     infer_abilities: bool,
     lenient_bounds: bool,
 ) -> Scheme {
-    // Collect type variables from type parameters
-    let mut type_var_map: HashMap<Arc<str>, TypeVarId> = HashMap::new();
-    let mut quantified_vars = Vec::new();
+    // Split the generics into type variables and ability (row) variables
+    // (`E!`), allocating fresh quantified ids for each.
+    let scope = super::ability_vars::generic_scope(infer, &func.type_params);
 
-    for tp in &func.type_params {
-        // Quantified ids come from the shared generator so they can never
-        // collide with inference variables allocated elsewhere (a low fixed
-        // id like 0 would alias the first `fresh()` of the check pass).
-        let var_id = infer.r#gen.fresh_id();
-        type_var_map.insert(Arc::clone(&tp.name), var_id);
-        quantified_vars.push(var_id);
-    }
+    // Resolve the signature with the item's ability variables in scope, so
+    // `with E` positions bind to the row variable. `report_type_misuse` is
+    // false here: an `E`-used-as-a-type mistake reports once, from the body
+    // check (this same resolution runs twice, scheme and body).
+    let (param_types, ret_ty, abilities) =
+        infer.with_ability_var_scope(scope.ability_var_map.clone(), false, |infer| {
+            // Parameter and return types, resolving type aliases. An
+            // undefined name becomes `Type::Error` (reported once by the
+            // declared-types sweep) so a caller never instantiates an opaque
+            // `Named`.
+            let param_types: Vec<Type> = func
+                .params
+                .iter()
+                .map(|p| match &p.ty {
+                    Some(ty) => {
+                        let substituted = substitute_type_params(ty, &scope.type_var_map);
+                        resolve_erroring(infer, &substituted)
+                    }
+                    None => infer.fresh(),
+                })
+                .collect();
+            let ret_ty = match &func.ret_ty {
+                Some(ty) => {
+                    let substituted = substitute_type_params(ty, &scope.type_var_map);
+                    resolve_erroring(infer, &substituted)
+                }
+                None => infer.fresh(),
+            };
 
-    // Build parameter types, resolving type aliases. An undefined type name
-    // becomes `Type::Error` (reported once by the declared-types sweep) so the
-    // scheme callers instantiate never carries an opaque `Named`.
-    let param_types: Vec<Type> = func
-        .params
-        .iter()
-        .map(|p| match &p.ty {
-            Some(ty) => {
-                let substituted = substitute_type_params(ty, &type_var_map);
-                resolve_erroring(infer, &substituted)
-            }
-            None => infer.fresh(),
-        })
-        .collect();
-
-    // Build return type, resolving type aliases
-    let ret_ty = match &func.ret_ty {
-        Some(ty) => {
-            let substituted = substitute_type_params(ty, &type_var_map);
-            resolve_erroring(infer, &substituted)
-        }
-        None => infer.fresh(),
-    };
-
-    // Build ability set from declared abilities. Unknown names are
-    // reported (via pending errors) rather than silently dropped — a typo
-    // in a `with` clause must not quietly declare the function pure.
-    // Foreign signatures (`infer_abilities` false via `get_symbol_scheme`)
-    // report too: the name resolves against this module's resolver, and a
-    // missing ability is equally an error at the import site.
-    let abilities = if func.abilities.is_empty() {
-        if infer_abilities && !func.is_public {
-            infer.fresh_ability_var()
-        } else {
-            AbilitySet::Empty
-        }
-    } else {
-        let mut ability_ids: Vec<AbilityId> = Vec::with_capacity(func.abilities.len());
-        for qn in &func.abilities {
-            match infer.resolve_ability_ref(qn, (0, 0)) {
-                Ok(id) => ability_ids.push(id),
-                Err(e) => infer
-                    .pending_errors
-                    .push(e.with_context(format!("in `with` clause of function `{}`", func.name))),
-            }
-        }
-        AbilitySet::from_abilities(ability_ids)
-    };
+            // The declared `with` clause. Bare names that name an ability
+            // variable form the row tail; other names resolve concrete
+            // (unknown ones report). An absent clause means "inferred" for a
+            // private function, "pure" for a public or foreign one.
+            let abilities = if func.abilities.is_empty() {
+                if infer_abilities && !func.is_public {
+                    infer.fresh_ability_var()
+                } else {
+                    AbilitySet::Empty
+                }
+            } else {
+                super::ability_vars::resolve_declared_with(
+                    infer,
+                    &func.abilities,
+                    &scope.ability_var_map,
+                    &func.name,
+                )
+            };
+            (param_types, ret_ty, abilities)
+        });
 
     let fn_ty = Type::function_with_abilities(param_types, ret_ty, abilities);
 
-    let scheme = if quantified_vars.is_empty() {
+    let scheme = if scope.is_empty() {
         Scheme::mono(fn_ty)
     } else {
-        Scheme::poly(quantified_vars, fn_ty)
+        Scheme::poly_with_abilities(
+            scope.quantified_type_vars.clone(),
+            scope.ability_vars.clone(),
+            fn_ty,
+        )
     };
     attach_scheme_bounds(
         infer,
         scheme,
         &func.type_params,
-        &type_var_map,
+        &scope.type_var_map,
         lenient_bounds,
     )
 }

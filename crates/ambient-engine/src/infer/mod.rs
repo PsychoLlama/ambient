@@ -146,6 +146,22 @@ pub struct Infer {
     /// paths substitute to `Var` instead), so it never affects hashing.
     pub(crate) rigid_params: HashSet<Arc<str>>,
 
+    /// The enclosing item's ability (row) variables (`E!`), mapping each
+    /// declared name to its [`AbilityVarId`]. A bare name in an ability
+    /// position — the item's `with` clause or a function-type `with` list —
+    /// resolves to this variable (shadowing any in-scope ability of the same
+    /// name), and a bare name in a *type* position is a type error. Set by
+    /// [`with_ability_var_scope`](Self::with_ability_var_scope) around both
+    /// signature-scheme building and body checking, and empty everywhere
+    /// else.
+    pub(crate) ability_var_scope: HashMap<Arc<str>, AbilityVarId>,
+
+    /// Whether a bare ability-variable name in a *type* position should be
+    /// reported (rather than silently rewritten to `Type::Error`). True only
+    /// while a body is checked, so the same misuse in a signature — resolved
+    /// once for the scheme and again for the body — reports exactly once.
+    pub(crate) report_ability_var_type_errors: bool,
+
     /// The enclosing item's dictionary parameters, in declaration order:
     /// one `(param name, bound)` per hidden trailing dictionary the item
     /// takes. Set alongside `rigid_params` while a bounded item's body is
@@ -247,6 +263,8 @@ impl Infer {
             pending_sandbox_checks: Vec::new(),
             workspace_name: Arc::from(""),
             rigid_params: HashSet::new(),
+            ability_var_scope: HashMap::new(),
+            report_ability_var_type_errors: false,
             current_bound_params: Vec::new(),
             pending_constraints: Vec::new(),
             next_dict_group: 0,
@@ -536,6 +554,22 @@ impl Infer {
                 }
             }
             Type::Named(n) => {
+                // A bare name naming a declared ability (row) variable is
+                // being used where a type is expected — an error. Rewrite to
+                // `Type::Error` (which unifies away) so no opaque `Named`
+                // leaks; report only while checking a body, so the same
+                // misuse in a signature reports exactly once.
+                if n.args.is_empty() && self.ability_var_scope.contains_key(&n.name) {
+                    if self.report_ability_var_type_errors {
+                        self.pending_errors.push(Box::new(TypeError::new(
+                            TypeErrorKind::AbilityVarAsType {
+                                name: Arc::clone(&n.name),
+                            },
+                            (0, 0),
+                        )));
+                    }
+                    return Type::Error;
+                }
                 // A bare name rigid in the current body is a type parameter,
                 // not a nominal reference — mint a `Param`. Checked first so a
                 // parameter named like a primitive/alias still stays rigid, and
@@ -610,62 +644,6 @@ impl Infer {
             )),
             // Other types remain unchanged
             _ => ty.clone(),
-        }
-    }
-
-    /// Resolve ability names from a source annotation to concrete ability IDs.
-    ///
-    /// Lowering has no ability resolver, so annotations like
-    /// `(T) -> U with core::system::Stdio` arrive as
-    /// `AbilitySet::Unresolved(["core::system::Stdio"])` — qualified names
-    /// keep their `::`-joined spelling so the namespace policy applies
-    /// here exactly like every other position that names an ability.
-    /// Errors are recorded in `pending_errors` (drained by the
-    /// module-level check functions) rather than silently dropped.
-    fn resolve_ability_annotation(&mut self, abilities: &AbilitySet) -> AbilitySet {
-        let AbilitySet::Unresolved(names) = abilities else {
-            return abilities.clone();
-        };
-
-        let ids = names
-            .iter()
-            .filter_map(|name| self.resolve_annotated_ability(name))
-            .collect::<Vec<_>>();
-        AbilitySet::from_abilities(ids)
-    }
-
-    /// Resolve one `::`-joined ability name from a source annotation to its
-    /// id under the namespace policy — the same rule performs, `with`
-    /// clauses, and handler arms enforce: a bare name names a local
-    /// dynamic; a qualified one names its declaring module. Returns `None`
-    /// and records a diagnostic in `pending_errors` on failure, so a bad
-    /// annotation reports the real namespace error instead of silently
-    /// resolving through a spelling-blind lookup.
-    fn resolve_annotated_ability(&mut self, name: &str) -> Option<AbilityId> {
-        let mut segments: Vec<&str> = name.split("::").collect();
-        let bare = segments.pop().unwrap_or_default();
-        let namespace = (!segments.is_empty())
-            .then(|| crate::fqn::ModuleId::from_dotted_segments(&segments, &self.workspace_name));
-        match self.ability_resolver.resolve_ref(namespace.as_ref(), bare) {
-            Ok(id) => Some(id),
-            Err(err) => {
-                let kind = match err {
-                    crate::ability_resolver::AbilityRefError::RequiresNamespace { namespace } => {
-                        TypeErrorKind::AbilityRequiresNamespace {
-                            ability: Arc::from(bare),
-                            expected_namespace: namespace,
-                        }
-                    }
-                    crate::ability_resolver::AbilityRefError::Unknown => {
-                        TypeErrorKind::UnknownAbility {
-                            name: Arc::from(name),
-                        }
-                    }
-                };
-                self.pending_errors
-                    .push(Box::new(TypeError::new(kind, (0, 0))));
-                None
-            }
         }
     }
 

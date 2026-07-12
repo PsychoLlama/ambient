@@ -30,51 +30,66 @@ pub(super) fn check_function_body(
 ) {
     infer.reset_abilities();
 
+    // Ordinary type parameters are rigid in the body (`T` → `Type::Param`);
+    // ability (row) variables are not types, so they are excluded here and
+    // installed as an ability-variable scope instead — bodies allocate their
+    // own fresh row variables (like `Type::Param` for type vars, this keeps
+    // the body's `with E` positions self-consistent, distinct from the
+    // scheme's).
     let rigid: Vec<Arc<str>> = func
         .type_params
         .iter()
+        .filter(|tp| !tp.is_ability)
         .map(|tp| Arc::clone(&tp.name))
         .collect();
+    let ability_scope =
+        super::ability_vars::generic_scope(infer, &func.type_params).ability_var_map;
     let bounds = infer.resolve_bound_params(&func.type_params, errors);
-    infer.with_rigid_params(rigid, |infer| {
-        infer.with_bound_params(bounds, |infer| {
-            let mut func_env = env.extend();
-            let expected_ret_ty = func.ret_ty.clone().map(|ty| resolve_erroring(infer, &ty));
+    infer.with_ability_var_scope(ability_scope, true, |infer| {
+        infer.with_rigid_params(rigid, |infer| {
+            infer.with_bound_params(bounds, |infer| {
+                let mut func_env = env.extend();
+                let expected_ret_ty = func.ret_ty.clone().map(|ty| resolve_erroring(infer, &ty));
 
-            for param in &func.params {
-                let param_ty = match &param.ty {
-                    Some(ty) => resolve_erroring(infer, ty),
-                    None => infer.fresh(),
-                };
-                func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
-            }
+                for param in &func.params {
+                    let param_ty = match &param.ty {
+                        Some(ty) => resolve_erroring(infer, ty),
+                        None => infer.fresh(),
+                    };
+                    func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
+                }
 
-            // The declared return type flows into the body as its expected
-            // type (seeding lambda parameters, list elements, match results
-            // along the way); the unify below stays the definitive check.
-            match infer.infer_expr_expecting(&func_env, &mut func.body, expected_ret_ty.as_ref()) {
-                Ok(body_ty) => {
-                    if let Some(ref expected) = expected_ret_ty {
-                        let span = (func.body.span.start, func.body.span.end);
-                        if let Err(e) = infer.unify(expected, &body_ty, span) {
-                            errors.push(e.with_context(format!(
-                                "in function `{}`: return type mismatch",
-                                func.name
-                            )));
+                // The declared return type flows into the body as its expected
+                // type (seeding lambda parameters, list elements, match results
+                // along the way); the unify below stays the definitive check.
+                match infer.infer_expr_expecting(
+                    &func_env,
+                    &mut func.body,
+                    expected_ret_ty.as_ref(),
+                ) {
+                    Ok(body_ty) => {
+                        if let Some(ref expected) = expected_ret_ty {
+                            let span = (func.body.span.start, func.body.span.end);
+                            if let Err(e) = infer.unify(expected, &body_ty, span) {
+                                errors.push(e.with_context(format!(
+                                    "in function `{}`: return type mismatch",
+                                    func.name
+                                )));
+                            }
                         }
+
+                        bind_inferred_abilities(infer, env, func, current_module_id);
+                        inferred_abilities.push((idx, infer.current_abilities().clone()));
                     }
-
-                    bind_inferred_abilities(infer, env, func, current_module_id);
-                    inferred_abilities.push((idx, infer.current_abilities().clone()));
+                    Err(e) => {
+                        errors.push(e.with_context(format!("in function `{}`", func.name)));
+                    }
                 }
-                Err(e) => {
-                    errors.push(e.with_context(format!("in function `{}`", func.name)));
-                }
-            }
 
-            // Solve the bound constraints this body recorded and finalize
-            // its dictionary annotations for the compiler.
-            infer.finish_body_constraints(&mut func.body, errors);
+                // Solve the bound constraints this body recorded and finalize
+                // its dictionary annotations for the compiler.
+                infer.finish_body_constraints(&mut func.body, errors);
+            });
         });
     });
 }

@@ -141,6 +141,16 @@ pub enum TypeErrorKind {
     /// Unknown ability method.
     UnknownAbilityMethod { ability: Arc<str>, method: Arc<str> },
 
+    /// A declared ability (row) variable (`E!`) was used where a type is
+    /// expected (e.g. `x: E`). An ability variable names an effect row, not
+    /// a type.
+    AbilityVarAsType { name: Arc<str> },
+
+    /// A single `with` row named more than one ability (row) variable
+    /// (`with E, F`). An effect row has one polymorphic tail, so at most one
+    /// ability variable may appear in a row.
+    MultipleRowVariables { first: Arc<str>, second: Arc<str> },
+
     /// Two or more abilities depend on each other through their `with`
     /// clauses, directly or transitively. The dependency graph must be
     /// acyclic: a method's identity folds in the default-implementation
@@ -394,6 +404,20 @@ impl std::fmt::Display for TypeErrorKind {
             }
             Self::UnknownAbilityMethod { ability, method } => {
                 write!(f, "unknown method `{method}` for ability `{ability}`")
+            }
+            Self::AbilityVarAsType { name } => {
+                write!(
+                    f,
+                    "`{name}` is an ability variable, not a type; \
+                     it may only appear in a `with` clause"
+                )
+            }
+            Self::MultipleRowVariables { first, second } => {
+                write!(
+                    f,
+                    "a `with` row may name at most one ability variable, \
+                     but this row names both `{first}` and `{second}`"
+                )
             }
             Self::AbilityDependencyCycle { cycle } => {
                 let path = cycle

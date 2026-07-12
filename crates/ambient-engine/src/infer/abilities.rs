@@ -5,11 +5,13 @@
 //! - Method signature lookup
 //! - Ability tracking during inference
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use super::error::TypeError;
 use super::{Infer, InferResult, TypeErrorKind, type_error};
 use crate::ast::QualifiedName;
-use crate::types::{AbilityId, AbilitySet, Type};
+use crate::types::{AbilityId, AbilitySet, AbilityVarId, Type};
 
 impl Infer {
     // ─────────────────────────────────────────────────────────────────────────
@@ -280,6 +282,108 @@ impl Infer {
         let ret = self.apply(&ret);
         let additional = AbilitySet::from_abilities(dynamic.dependencies.iter().copied());
         Ok((dynamic.id, ret, additional))
+    }
+
+    /// Run `f` with an item's ability (row) variables in scope.
+    ///
+    /// `report_type_misuse` controls whether a bare ability-variable name in
+    /// a type position is reported: true while checking a body, false while
+    /// building a scheme, so the same misuse reports exactly once. The
+    /// previous scope is restored afterward.
+    pub(super) fn with_ability_var_scope<T>(
+        &mut self,
+        scope: HashMap<Arc<str>, AbilityVarId>,
+        report_type_misuse: bool,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let saved_scope = std::mem::replace(&mut self.ability_var_scope, scope);
+        let saved_report =
+            std::mem::replace(&mut self.report_ability_var_type_errors, report_type_misuse);
+        let result = f(self);
+        self.ability_var_scope = saved_scope;
+        self.report_ability_var_type_errors = saved_report;
+        result
+    }
+
+    /// Resolve ability names from a source annotation to an [`AbilitySet`].
+    ///
+    /// Lowering has no ability resolver, so annotations like
+    /// `(T) -> U with core::system::Stdio` arrive as
+    /// `AbilitySet::Unresolved(["core::system::Stdio"])` — qualified names
+    /// keep their `::`-joined spelling so the namespace policy applies here
+    /// exactly like every other position that names an ability. A bare name
+    /// naming a declared ability (row) variable becomes the row's
+    /// polymorphic tail (at most one per row). Errors are recorded in
+    /// `pending_errors` rather than silently dropped.
+    pub(super) fn resolve_ability_annotation(&mut self, abilities: &AbilitySet) -> AbilitySet {
+        let AbilitySet::Unresolved(names) = abilities else {
+            return abilities.clone();
+        };
+
+        let mut ids = Vec::new();
+        let mut tail: Option<(Arc<str>, AbilityVarId)> = None;
+        for name in names {
+            if !name.contains("::")
+                && let Some(&var) = self.ability_var_scope.get(name.as_ref())
+            {
+                match &tail {
+                    Some((first, existing)) if *existing != var => {
+                        self.pending_errors.push(Box::new(TypeError::new(
+                            TypeErrorKind::MultipleRowVariables {
+                                first: Arc::clone(first),
+                                second: Arc::clone(name),
+                            },
+                            (0, 0),
+                        )));
+                    }
+                    _ => tail = Some((Arc::clone(name), var)),
+                }
+                continue;
+            }
+            if let Some(id) = self.resolve_annotated_ability(name) {
+                ids.push(id);
+            }
+        }
+        match tail {
+            // `row` collapses to a bare `Var` when there are no concrete ids.
+            Some((_, var)) => AbilitySet::row(ids, var),
+            None => AbilitySet::from_abilities(ids),
+        }
+    }
+
+    /// Resolve one `::`-joined ability name from a source annotation to its
+    /// id under the namespace policy — the same rule performs, `with`
+    /// clauses, and handler arms enforce: a bare name names a local
+    /// dynamic; a qualified one names its declaring module. Returns `None`
+    /// and records a diagnostic in `pending_errors` on failure, so a bad
+    /// annotation reports the real namespace error instead of silently
+    /// resolving through a spelling-blind lookup.
+    pub(super) fn resolve_annotated_ability(&mut self, name: &str) -> Option<AbilityId> {
+        let mut segments: Vec<&str> = name.split("::").collect();
+        let bare = segments.pop().unwrap_or_default();
+        let namespace = (!segments.is_empty())
+            .then(|| crate::fqn::ModuleId::from_dotted_segments(&segments, &self.workspace_name));
+        match self.ability_resolver.resolve_ref(namespace.as_ref(), bare) {
+            Ok(id) => Some(id),
+            Err(err) => {
+                let kind = match err {
+                    crate::ability_resolver::AbilityRefError::RequiresNamespace { namespace } => {
+                        TypeErrorKind::AbilityRequiresNamespace {
+                            ability: Arc::from(bare),
+                            expected_namespace: namespace,
+                        }
+                    }
+                    crate::ability_resolver::AbilityRefError::Unknown => {
+                        TypeErrorKind::UnknownAbility {
+                            name: Arc::from(name),
+                        }
+                    }
+                };
+                self.pending_errors
+                    .push(Box::new(TypeError::new(kind, (0, 0))));
+                None
+            }
+        }
     }
 }
 
