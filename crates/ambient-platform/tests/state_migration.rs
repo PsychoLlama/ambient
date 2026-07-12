@@ -401,16 +401,9 @@ fn fingerprints_are_byte_stable_across_compiles() {
     );
 }
 
-/// A cell write at a type mentioning the enclosing function's type
-/// parameter cannot be fingerprinted (it would mean a different type per
-/// instantiation) and is rejected at check time.
-#[test]
-fn generic_cell_writes_are_check_errors() {
-    let src = r#"
-    pub fn stash<T>(value: T): () with core::system::State {
-      core::system::State::set!("g", value)
-    }
-    "#;
+/// Run the parse/check pipeline against core + `core::system` and return
+/// the checker's diagnostics as strings.
+fn check_errors(src: &str) -> Vec<String> {
     let module = ambient_parser::parse(src).expect("test program parses");
     let mut registry = ModuleRegistry::new();
     let mut module_function_hashes = HashMap::new();
@@ -430,13 +423,59 @@ fn generic_cell_writes_are_check_errors() {
     .expect("core::system compiles");
     let path = ModulePath::root();
     registry.register(&path, Arc::new(module.clone()));
+    check_module_with_registry(module, &path, &registry)
+        .errors
+        .iter()
+        .map(ToString::to_string)
+        .collect()
+}
 
-    let checked = check_module_with_registry(module, &path, &registry);
-    let errors: Vec<String> = checked.errors.iter().map(ToString::to_string).collect();
+/// A cell write at a type mentioning the enclosing function's type
+/// parameter cannot be fingerprinted (it would mean a different type per
+/// instantiation) and is rejected at check time.
+#[test]
+fn generic_cell_writes_are_check_errors() {
+    let src = r#"
+    pub fn stash<T>(value: T): () with core::system::State {
+      core::system::State::set!("g", value)
+    }
+    "#;
+    let errors = check_errors(src);
     assert!(
         errors
             .iter()
             .any(|e| e.contains("cannot fingerprint a `State` cell at generic type")),
         "a generic write must be a check error: {errors:?}"
+    );
+}
+
+/// `init_versioned` type-checks with **both** function params effectful
+/// and at distinct old/new types — the shape that drove the parser fix
+/// (two effectful function-typed params, each with a `with` clause,
+/// followed by the compiler-supplied fingerprint params). `make`'s and
+/// `migrate`'s effect rows stay local to the call, so the entry's own row
+/// is `State` alone.
+#[test]
+fn init_versioned_accepts_effectful_make_and_migrate() {
+    let src = r#"
+    pub fn run(): () with core::system::State {
+      core::system::State::init_versioned!(
+        "stats",
+        () => {
+          core::system::Stdio::out!("make");
+          ({ count: 0 })
+        },
+        (old: Number) => {
+          core::system::Stdio::out!("migrate");
+          ({ count: old + 1 })
+        }
+      )
+    }
+    "#;
+    let errors = check_errors(src);
+    assert!(
+        errors.is_empty(),
+        "effectful make and migrate at distinct types must type-check: \
+         {errors:?}"
     );
 }

@@ -28,16 +28,20 @@ extern fn task_drain(name: String): ();
 /// its consecutive-fault budget, or overruns a drain deadline, is
 /// parked.
 ///
-/// `body` is generic rather than function-typed because ability
-/// signatures cannot yet express effect-polymorphic function
-/// parameters; the runtime checks it received a zero-parameter
-/// function.
+/// `body` is a zero-parameter, effect-polymorphic function: `E` appears
+/// only in parameter position, so the checker rejects a non-function or
+/// wrong-arity body up front. `E` does not propagate to the performer's
+/// row — a task body's effects run in the task's own VM against default
+/// implementations, never against the caller's handler stack — so the
+/// method's own effect contract stays empty. The extern `task_ensure<B>`
+/// stays bare-generic (externs cannot take `E!`); the function type
+/// unifies with `B` in the default implementation.
 pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000E) ability Task {
   /// Ensure a named task is running: start it if no task holds the
   /// name, no-op if one does. During a deploy pass this is a
   /// declaration — the reconciler drains tasks the entry stops
   /// declaring.
-  fn ensure<B>(name: String, body: B): () {
+  fn ensure<E!>(name: String, body: () -> () with E): () {
     task_ensure(name, body)
   }
   /// Ask a named task to unwind at its next interruptible perform.

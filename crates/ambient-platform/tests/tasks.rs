@@ -89,6 +89,40 @@ fn compile(src: &str) -> CompiledModule {
     merged
 }
 
+/// Run the parse/check pipeline against core + `core::system` and return
+/// the checker's diagnostics as strings (empty when the program is
+/// well-typed). Used by the compile-time rejection tests, which assert the
+/// checker — not just the runtime backstop — refuses a malformed task body.
+fn check_errors(src: &str) -> Vec<String> {
+    let module = ambient_parser::parse(src).expect("test program parses");
+
+    let mut registry = ModuleRegistry::new();
+    let mut module_function_hashes = HashMap::new();
+    ambient_engine::build::compile_core_modules(&mut registry, &mut module_function_hashes, |s| {
+        ambient_parser::parse(s).map_err(|e| e.to_string())
+    })
+    .expect("core modules compile");
+    registry
+        .natives_mut()
+        .merge(&ambient_platform::stub_natives());
+    ambient_engine::build::compile_declaration_modules(
+        &mut registry,
+        &mut module_function_hashes,
+        ambient_platform::platform_modules(),
+        |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
+    )
+    .expect("core::system compiles");
+    let path = ModulePath::root();
+    registry.register(&path, Arc::new(module.clone()));
+
+    let checked = check_module_with_registry(module, &path, &registry);
+    checked
+        .errors
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect()
+}
+
 fn named_hash(compiled: &CompiledModule, name: &str) -> blake3::Hash {
     *compiled
         .function_names
@@ -524,9 +558,11 @@ fn a_non_cooperative_task_is_hard_stopped_at_the_drain_deadline() {
     );
 }
 
-/// The ensure contract is enforced at the perform: a body that takes
-/// parameters faults the reconciliation entry, and the deploy reports
-/// it.
+/// The ensure contract is now enforced by the **checker**: a body that
+/// takes parameters does not unify with `Task::ensure`'s `() -> () with E`
+/// parameter, so the program is rejected before it ever compiles or
+/// deploys. (`require_task_body` remains as a runtime backstop for
+/// hand-written handlers and dynamic invocation paths.)
 #[test]
 fn ensure_rejects_a_parameterized_body() {
     const SRC: &str = r#"
@@ -539,20 +575,48 @@ fn ensure_rejects_a_parameterized_body() {
     }
     "#;
 
-    let h = harness(Duration::from_secs(5));
-    let compiled = compile(SRC);
-    h.tasks.begin_reconcile();
-    let result = h.core.deploy(
-        &functions_from_module(&compiled),
-        &named_hash(&compiled, "run"),
-        |vm| install_task_natives(vm, &h.tasks, true),
-    );
-    let outcome = h.tasks.finish_reconcile(result.is_ok());
-    let error = result.expect_err("the deploy entry must fault").to_string();
+    let errors = check_errors(SRC);
     assert!(
-        error.contains("body must take no parameters"),
-        "got: {error}"
+        !errors.is_empty(),
+        "a parameterized task body must be a compile error"
     );
-    assert!(outcome.started.is_empty());
-    assert_eq!(h.tasks.task_count(), 0);
+}
+
+/// A non-function task body (a plain `Number`) is likewise a checker
+/// error: it cannot unify with the `() -> () with E` parameter type.
+#[test]
+fn ensure_rejects_a_non_function_body() {
+    const SRC: &str = r#"
+    pub fn run(): () with core::system::Task {
+      core::system::Task::ensure!("bad", 42)
+    }
+    "#;
+
+    let errors = check_errors(SRC);
+    assert!(
+        !errors.is_empty(),
+        "a non-function task body must be a compile error"
+    );
+}
+
+/// An effectful, zero-parameter task body type-checks: `E` appears only in
+/// parameter position, so the body may perform (here `Stdio`) without the
+/// effect propagating to `Task::ensure`'s own row.
+#[test]
+fn ensure_accepts_an_effectful_body() {
+    const SRC: &str = r#"
+    pub fn run(): () with core::system::Task {
+      core::system::Task::ensure!("chatter", chatter)
+    }
+
+    fn chatter(): () with core::system::Stdio {
+      core::system::Stdio::out!("tick")
+    }
+    "#;
+
+    let errors = check_errors(SRC);
+    assert!(
+        errors.is_empty(),
+        "an effectful zero-arg task body must type-check: {errors:?}"
+    );
 }

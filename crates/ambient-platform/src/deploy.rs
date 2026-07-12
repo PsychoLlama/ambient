@@ -213,10 +213,11 @@ impl NameResolver {
 }
 
 /// Extract `live_latest`'s single argument and check it is
-/// function-shaped. The ability's parameter is a bare generic (ability
-/// signatures cannot yet express effect-polymorphic function
-/// parameters — the `Task::ensure` precedent), so the runtime enforces
-/// the contract instead of the checker.
+/// function-shaped. `Live::latest` stays identity-typed over `F` (it is
+/// applied at every arity and the language has no arity polymorphism), so
+/// the checker cannot pin it to a function type — the runtime enforces the
+/// function-shaped contract as a backstop for both static and dynamic
+/// call paths.
 fn function_arg(args: Vec<Value>) -> Result<Value, VmError> {
     let Some(value) = args.into_iter().next() else {
         return Err(VmError::exception("Live.latest: missing function argument"));

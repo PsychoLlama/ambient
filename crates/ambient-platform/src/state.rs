@@ -316,11 +316,12 @@ impl StateCells {
     }
 }
 
-/// The `make`/`migrate`/`f` parameters are bare generics (ability
-/// signatures cannot yet express effect-polymorphic function parameters);
-/// the checker constrains them to function shapes at perform sites, and
-/// the runtime re-enforces the contract for handlers and direct native
-/// calls, like `Live::latest`.
+/// Backstop for dynamic paths: the checker now enforces the
+/// `make`/`migrate`/`f` function shapes for ordinary `State` perform
+/// sites (they are real effect-polymorphic function types in the ability
+/// signature), but values can still reach the native from hand-written
+/// handlers or remote/dynamic invocation, so the runtime re-checks that
+/// each is a function, like `Live::latest`.
 fn require_function(value: &Value, op: &str, role: &str) -> Result<(), VmError> {
     match value {
         Value::FunctionRef(_) | Value::Closure(_) => Ok(()),

@@ -7,12 +7,13 @@
 //! fingerprint parameters that call sites never spell:
 //!
 //! - the **checker** (this module, called from `lookup_dynamic_method`)
-//!   hides those parameters from perform-site arity, constrains the
-//!   method's bare-generic function parameters to real function shapes
-//!   (with a fresh ability-row variable, so `make`/`migrate`/`f` stay
-//!   effect-polymorphic), and records the instantiated cell types as a
-//!   pending fingerprint group — resolved only once the enclosing body is
-//!   fully inferred, exactly like trait-bound dictionaries;
+//!   hides those parameters from perform-site arity and records the
+//!   instantiated cell types as a pending fingerprint group — resolved
+//!   only once the enclosing body is fully inferred, exactly like
+//!   trait-bound dictionaries. The methods' `make`/`migrate`/`f`
+//!   parameters are real effect-polymorphic function types (`() -> S with
+//!   E`), so ordinary argument unification constrains them and solves the
+//!   cell type; this module never synthesizes a function shape;
 //! - the **compiler** pushes each rendered fingerprint as a hidden
 //!   trailing string argument at the perform site (before dictionaries),
 //!   so the default implementations receive them as ordinary parameters
@@ -37,7 +38,7 @@ use std::sync::Arc;
 
 use crate::ability_resolver::{CanonicalTypeRenderer, DynMethod};
 use crate::ast::{Expr, ExprKind, Fingerprints, walk_exprs_mut};
-use crate::types::{FunctionType, Type, TypeVarId};
+use crate::types::{Type, TypeVarId};
 
 use super::error::{BoxedTypeError, TypeError, TypeErrorKind, type_error};
 use super::{Infer, InferResult};
@@ -92,29 +93,19 @@ fn quantified_ty(
 }
 
 impl Infer {
-    /// Constrain a bare-generic State parameter (`make`, `migrate`, `f`)
-    /// to a function shape with a fresh ability-row variable — effect
-    /// polymorphism the ability signature syntax cannot yet express.
-    fn constrain_state_function(
-        &mut self,
-        target: &Type,
-        params: Vec<Type>,
-        ret: &Type,
-        span: (u32, u32),
-    ) -> InferResult<()> {
-        let shape = Type::Function(FunctionType {
-            params,
-            ret: Box::new(ret.clone()),
-            abilities: self.fresh_ability_var(),
-        });
-        self.unify(target, &shape, span)
-    }
-
-    /// Record the fingerprint obligations of a State perform site: the
-    /// method's structural constraints (which also solve the cell type
-    /// from the supplied functions) plus a pending fingerprint group on
-    /// the perform expression. Call only for methods with
-    /// [`hidden_fingerprint_params`] > 0, after instantiation.
+    /// Record the fingerprint obligations of a State perform site: a
+    /// pending fingerprint group on the perform expression, holding the
+    /// instantiated cell types that render into the hidden trailing
+    /// strings. Call only for methods with [`hidden_fingerprint_params`]
+    /// > 0, after instantiation.
+    ///
+    /// The retyped State signatures carry real [`Type::Function`]
+    /// parameters (`make: () -> S with E`, `f: (S) -> S with E`, ...), so
+    /// `lookup_dynamic_method`'s ordinary argument unification already
+    /// constrains `make`/`migrate`/`f` to their argument shapes and solves
+    /// the cell type — this method never synthesizes a function shape of
+    /// its own. It only names which instantiated type parameters render
+    /// into the fingerprint strings, in hidden-parameter order.
     pub(crate) fn record_state_fingerprints(
         &mut self,
         method: &DynMethod,
@@ -123,33 +114,20 @@ impl Infer {
         span: (u32, u32),
     ) -> InferResult<()> {
         let tys = match method.name.as_ref() {
-            // init<F>(name, make: F, fingerprint): F ~ () -> S
-            "init" => {
-                let make = quantified_ty(method, subst, 0, span)?;
-                let cell = self.fresh();
-                self.constrain_state_function(&make, Vec::new(), &cell, span)?;
-                vec![cell]
-            }
-            // set<S>(name, value: S, fingerprint)
-            "set" => vec![quantified_ty(method, subst, 0, span)?],
-            // update<S, F>(name, f: F, fingerprint): F ~ (S) -> S
-            "update" => {
-                let cell = quantified_ty(method, subst, 0, span)?;
-                let f = quantified_ty(method, subst, 1, span)?;
-                self.constrain_state_function(&f, vec![cell.clone()], &cell, span)?;
-                vec![cell]
-            }
-            // init_versioned<F, G>(name, make: F, migrate: G, old, new):
-            // F ~ () -> New, G ~ (Old) -> New
-            "init_versioned" => {
-                let old = self.fresh();
-                let new = self.fresh();
-                let make = quantified_ty(method, subst, 0, span)?;
-                let migrate = quantified_ty(method, subst, 1, span)?;
-                self.constrain_state_function(&make, Vec::new(), &new, span)?;
-                self.constrain_state_function(&migrate, vec![old.clone()], &new, span)?;
-                vec![old, new]
-            }
+            // init<S, E!>(name, make: () -> S with E, fingerprint):
+            //   fingerprint = S
+            // set<S>(name, value: S, fingerprint): fingerprint = S
+            // update<S, E!>(name, f: (S) -> S with E, fingerprint):
+            //   fingerprint = S
+            "init" | "set" | "update" => vec![quantified_ty(method, subst, 0, span)?],
+            // init_versioned<S, O, E!, F!>(name, make: () -> S with E,
+            //   migrate: (O) -> S with F, old_fingerprint, new_fingerprint):
+            //   old_fingerprint = O (quantified[1]), new_fingerprint = S
+            //   (quantified[0]).
+            "init_versioned" => vec![
+                quantified_ty(method, subst, 1, span)?,
+                quantified_ty(method, subst, 0, span)?,
+            ],
             _ => return Ok(()),
         };
 

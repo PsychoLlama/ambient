@@ -358,6 +358,88 @@ fn update_rejects_non_functions() {
     );
 }
 
+/// `init`'s `make` must be a function too: the retyped signature declares
+/// `make: () -> S with E`, so a plain value no longer type-checks.
+#[test]
+fn init_rejects_non_function_make() {
+    let src = r#"
+    pub fn run(): () with core::system::State {
+      core::system::State::init!("n", 41)
+    }
+    "#;
+    let errors = check_errors(src);
+    assert!(
+        errors.iter().any(|e| e.contains("type mismatch")),
+        "a non-function `make` must be a check error: {errors:?}"
+    );
+}
+
+/// `update`'s `f` must be a `(S) -> S` self-map: a function whose argument
+/// and result types disagree cannot unify with the cell type, so it is a
+/// check error (here `(Number) -> Bool`).
+#[test]
+fn update_rejects_argument_result_mismatch() {
+    let src = r#"
+    pub fn run(): () with core::system::State {
+      core::system::State::init!("counter", () => 1)
+    }
+    pub fn misuse(): Bool with core::system::State {
+      core::system::State::update!("counter", (x: Number) => true)
+    }
+    "#;
+    let errors = check_errors(src);
+    assert!(
+        errors.iter().any(|e| e.contains("type mismatch")),
+        "an `f` whose argument and result types disagree must be a check \
+         error: {errors:?}"
+    );
+}
+
+/// An **effectful** `f` type-checks: `f: (S) -> S with E` binds `E` to the
+/// lambda's own effect row (here `Stdio`), which stays local to the call —
+/// it does not join `bump_loud`'s declared row, which is `State` alone.
+#[test]
+fn update_accepts_an_effectful_function() {
+    let src = r#"
+    pub fn run(): () with core::system::State {
+      core::system::State::init!("counter", () => 1)
+    }
+    pub fn bump_loud(): Number with core::system::State {
+      core::system::State::update!("counter", (x: Number) => {
+        core::system::Stdio::out!("bump");
+        x + 1
+      })
+    }
+    "#;
+    let errors = check_errors(src);
+    assert!(
+        errors.is_empty(),
+        "an effectful `f` must type-check without propagating its effect: \
+         {errors:?}"
+    );
+}
+
+/// `update`'s result unifies with the cell type at the call site: used
+/// directly in a `Number` arithmetic position with no annotation, it must
+/// check (the result is the cell's `S`, solved from `f`).
+#[test]
+fn update_result_unifies_with_cell_type() {
+    let src = r#"
+    pub fn run(): () with core::system::State {
+      core::system::State::init!("counter", () => 1)
+    }
+    pub fn plus_ten(): Number with core::system::State {
+      core::system::State::update!("counter", (x: Number) => x + 1) + 10
+    }
+    "#;
+    let errors = check_errors(src);
+    assert!(
+        errors.is_empty(),
+        "the update result must unify with the cell type in a Number \
+         position: {errors:?}"
+    );
+}
+
 /// IO handles live in cells for free: a TCP listener bound by
 /// generation 1's entry and stashed in a cell is served by generation 2
 /// after a deploy — the runtime owns both the name and the resource, so

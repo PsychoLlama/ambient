@@ -19,15 +19,17 @@ extern fn state_init_versioned<F, G>(name: String, make: F, migrate: G, old_fing
 /// live in cells for free (they are plain numbers into runtime-owned
 /// handle tables shared the same way).
 ///
-/// `make`, `migrate`, and `f` are generic rather than function-typed
-/// because ability signatures cannot yet express effect-polymorphic
-/// function parameters (the `Task::ensure` precedent); the checker
-/// constrains each to a function shape at the perform site. All run
-/// *delimited*: performs inside them dispatch to handlers installed
-/// within the function itself, otherwise to default implementations —
-/// never to the caller's handler stack — so keep them morally pure. An
-/// uncaught exception inside any of them re-raises at the caller's
-/// perform site.
+/// `make`, `migrate`, and `f` are effect-polymorphic function types
+/// (the `Task::ensure` precedent): the checker rejects a non-function
+/// argument, and a `make`/`f` whose shape disagrees with the cell type,
+/// at the perform site. `E`/`F` appear only in parameter position, so
+/// they do not propagate to the performer's row: all three run
+/// *delimited*, and their effects fall through to default implementations
+/// at the native-invoke boundary — performs inside them dispatch to
+/// handlers installed within the function itself, otherwise to default
+/// implementations, never to the caller's handler stack — so keep them
+/// morally pure. An uncaught exception inside any of them re-raises at
+/// the caller's perform site.
 ///
 /// The trailing `fingerprint` parameters are **compiler-supplied**: call
 /// sites never spell them. Each write path stamps the cell with the
@@ -40,7 +42,7 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000C) ability State {
   /// Adopt the cell if it exists (the every-deploy no-op, so the entry
   /// can re-run on each deploy), else create it with `make()`. Editing
   /// `make` changes nothing for a live cell — only a migration does.
-  fn init<F>(name: String, make: F, fingerprint: String): () {
+  fn init<S, E!>(name: String, make: () -> S with E, fingerprint: String): () {
     state_init(name, make, fingerprint)
   }
   /// The cell's current value; raises if no such cell exists.
@@ -57,7 +59,7 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000C) ability State {
   /// again from inside `f` is a fault (the lock is held); touching
   /// *other* cells risks deadlock against concurrent updates — keep `f`
   /// a pure transformation.
-  fn update<S, F>(name: String, f: F, fingerprint: String): S {
+  fn update<S, E!>(name: String, f: (S) -> S with E, fingerprint: String): S {
     state_update(name, f, fingerprint)
   }
   /// Adopt, migrate, or create, dispatching on the cell's recorded
@@ -69,7 +71,7 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000C) ability State {
   /// neither type. Keep the old type's declaration in the source as a
   /// relic (`StatsV1`); `migrate` is an ordinary typed function from
   /// relic to current.
-  fn init_versioned<F, G>(name: String, make: F, migrate: G, old_fingerprint: String, new_fingerprint: String): () {
+  fn init_versioned<S, O, E!, F!>(name: String, make: () -> S with E, migrate: (O) -> S with F, old_fingerprint: String, new_fingerprint: String): () {
     state_init_versioned(name, make, migrate, old_fingerprint, new_fingerprint)
   }
 }

@@ -11,10 +11,12 @@ extern fn live_latest<F>(f: F): F;
 /// across time, exactly like `Random::next!` — so it is an ability.
 /// `with Live` in a signature says the code participates in hot
 /// replacement; a sandbox can deny it, and a test can handle it to pin a
-/// fake generation. `latest` is generic rather than function-typed
-/// because ability signatures cannot yet express effect-polymorphic
-/// function parameters (the `Task::ensure` precedent); the runtime
-/// checks it received a function ref.
+/// fake generation. `latest` stays identity-typed over `F` deliberately:
+/// it is applied at multiple arities (any deployed function, whatever its
+/// shape) and the language has no arity polymorphism, so `(f: F): F` is
+/// already the most precise typing available — a function-typed parameter
+/// would have to fix one arity. The runtime checks it received a function
+/// ref.
 pub unique(FFFFFFFF-FFFF-FFFF-FFFD-00000000000B) ability Live {
   /// The current binding of the name `f` was deployed under: an ordinary
   /// function ref whose entire subtree is internally consistent. A ref

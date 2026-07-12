@@ -553,9 +553,11 @@ fn task_main(
 }
 
 /// Check that a task body is a zero-parameter function in some deployed
-/// generation. The body parameter is a bare generic (ability signatures
-/// cannot yet express effect-polymorphic function parameters), so the
-/// runtime enforces the arity contract instead of the checker.
+/// generation. Backstop for dynamic paths (hand-written handlers,
+/// remote/dynamic invocation): the checker now enforces the
+/// `() -> () with E` shape for ordinary `Task::ensure` perform sites, but
+/// values can still reach the native by other routes, so the runtime
+/// re-checks the arity contract.
 fn require_task_body(core: &Arc<DeployRuntime>, body: &Value) -> Result<(), VmError> {
     let hash = match body {
         Value::Closure(c) => c.function_hash,
