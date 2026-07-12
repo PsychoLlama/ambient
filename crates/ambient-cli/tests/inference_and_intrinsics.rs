@@ -260,3 +260,28 @@ fn test_string_index_of_returns_option() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("6 true"));
     drop(dir);
 }
+
+#[test]
+fn test_string_interpolation_with_braced_block_and_nested_string() {
+    // Regression: a brace-delimited construct (here a lambda whose body is a
+    // block) inside a `${...}` interpolation used to truncate the
+    // interpolation at the block's closing `}`, swallowing the rest of the
+    // expression as literal text (`expected RParen, found StringEnd`). A
+    // nested string literal (`"hi"`) inside the interpolation must also lex.
+    CliTest::new(
+        r#"
+        fn pick(f: () -> Number, n: Number): Number {
+            f() + n
+        }
+
+        fn tag(s: String, n: Number): String {
+            s
+        }
+
+        pub fn run(): () with core::system::Stdio {
+            core::system::Stdio::out!("out: ${ tag("hi", pick(() => { let x = 2; x }, 40)) }");
+        }
+    "#,
+    )
+    .expect_output("out: hi");
+}
