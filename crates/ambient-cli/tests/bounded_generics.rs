@@ -191,12 +191,11 @@ fn forwarding_requires_caller_bound() {
 }
 
 #[test]
-fn bounded_generic_as_value_is_an_error() {
-    // Dictionaries are supplied at call sites; a bounded generic has no
-    // first-class value form yet. Binding one generalizes the constrained
-    // variable away from its constraint, so the checker reports the
-    // unresolvable bound at the reference. (A reference whose type *does*
-    // resolve is caught by the compiler's value-position guard instead.)
+fn bounded_generic_as_ambiguous_value_is_an_error() {
+    // `let f = same;` with no type information generalizes the constrained
+    // variable away from its constraint (nothing fixes `T`), so the checker
+    // reports the unresolvable bound at the reference — the one case that
+    // stays an error, with the helpful "add an annotation" hint.
     CliTest::new(format!(
         r#"
         {MONEY}
@@ -211,6 +210,101 @@ fn bounded_generic_as_value_is_an_error() {
     "#
     ))
     .expect_error("constrained by `Eq`");
+}
+
+#[test]
+fn bounded_generic_as_value_through_annotated_let() {
+    // A `let` whose annotation fixes the instantiation (`T = Money`) lets the
+    // checker solve the bound; the reference lowers to a closure capturing
+    // Money's Eq dictionary and forwarding to `same`.
+    CliTest::new(format!(
+        r#"
+        {MONEY}
+        fn same<T: Eq>(a: T, b: T): Bool {{
+            a.eq(b)
+        }}
+
+        fn run(): Bool {{
+            let f: (Money, Money) -> Bool = same;
+            f(Money {{ cents: 4 }}, Money {{ cents: 4 }})
+        }}
+    "#
+    ))
+    .expect_output("true");
+}
+
+#[test]
+fn bounded_generic_passed_to_higher_order_function() {
+    // Passing a bounded generic directly to a higher-order function: the
+    // expected parameter type (`(A, A) -> Bool`, with `A = Money` from the
+    // value arguments) fixes the bound, so `same` becomes a closure argument.
+    CliTest::new(format!(
+        r#"
+        {MONEY}
+        fn same<T: Eq>(a: T, b: T): Bool {{
+            a.eq(b)
+        }}
+
+        fn apply_pair<A>(f: (A, A) -> Bool, x: A, y: A): Bool {{
+            f(x, y)
+        }}
+
+        fn run(): Bool {{
+            apply_pair(same, Money {{ cents: 2 }}, Money {{ cents: 3 }})
+        }}
+    "#
+    ))
+    .expect_output("false");
+}
+
+#[test]
+fn bounded_generic_transform_passed_to_map() {
+    // A bounded unary generic (`T: Eq`) handed to core `List::map`: the
+    // element type (`Number`, which impls `Eq`) fixes the bound, and the
+    // closure carries Number's Eq dictionary into each application.
+    CliTest::new(
+        r#"
+        fn echo<T: Eq>(x: T): T {
+            if x.eq(x) { x } else { x }
+        }
+
+        fn run(): Number {
+            let doubled = [10, 20, 30].map(echo);
+            match doubled.get(1) { Some(v) => v, None => 0 }
+        }
+    "#,
+    )
+    .expect_output("20");
+}
+
+#[test]
+fn bounded_generic_value_inside_lambda_forwards_dict() {
+    // A bounded generic used as a value *inside a lambda*, at the enclosing
+    // bounded function's type parameter: its Eq dictionary is a
+    // `DictSource::Param` forward, captured into both the lambda and the
+    // synthesized forwarding closure.
+    CliTest::new(format!(
+        r#"
+        {MONEY}
+        fn same<T: Eq>(a: T, b: T): Bool {{
+            a.eq(b)
+        }}
+
+        fn apply_pair<A>(f: (A, A) -> Bool, x: A, y: A): Bool {{
+            f(x, y)
+        }}
+
+        fn check<T: Eq>(x: T, y: T): Bool {{
+            let run = () => apply_pair(same, x, y);
+            run()
+        }}
+
+        fn run(): Bool {{
+            check(Money {{ cents: 6 }}, Money {{ cents: 6 }})
+        }}
+    "#
+    ))
+    .expect_output("true");
 }
 
 #[test]

@@ -69,6 +69,31 @@ fn conditional_impl_reports_inequality() {
 }
 
 #[test]
+fn conditional_impl_dictionary_through_bounded_value() {
+    // A bounded generic used as a *value* whose instantiation is
+    // `Pair<Money>` captures a `DictSource::Generic` dictionary: the
+    // synthesized forwarding closure carries the conditional impl's
+    // closure-tuple dictionary into `same`.
+    CliTest::new(format!(
+        r#"
+        {PRELUDE}
+        fn apply_pair<A>(f: (A, A) -> Bool, x: A, y: A): Bool {{
+            f(x, y)
+        }}
+
+        fn run(): Bool {{
+            apply_pair(
+                same,
+                Pair {{ first: Money {{ cents: 1 }}, second: Money {{ cents: 2 }} }},
+                Pair {{ first: Money {{ cents: 1 }}, second: Money {{ cents: 2 }} }}
+            )
+        }}
+    "#
+    ))
+    .expect_output("true");
+}
+
+#[test]
 fn conditional_impl_two_levels_deep() {
     // `Pair<Pair<Money>>: Eq` recurses: the outer dictionary's slot closes
     // over the inner `Pair<Money>: Eq` dictionary, which itself closes over
