@@ -24,7 +24,7 @@ use std::sync::Arc;
 use crate::ast::{
     BinaryOp, ConstDef, Expr, ExprKind, LetBinding, ResolvedMethod, Stmt, StmtKind, UnaryOp,
 };
-use crate::bytecode::Opcode;
+use crate::bytecode::{BytecodeBuilder, CompiledFunction, Opcode};
 use crate::fqn::NameKey;
 use crate::value::Value;
 
@@ -329,7 +329,13 @@ pub(super) fn compile_expr_tail(
                                         (expr.span.start, expr.span.end),
                                     ));
                                 };
-                                fc.builder.emit_call(hash, 2);
+                                // A conditional impl's operator method takes
+                                // hidden trailing dictionaries after the two
+                                // operands.
+                                let dict_count =
+                                    compile_dicts(fc, expr.dicts.as_ref(), expr.span, ctx)?;
+                                #[allow(clippy::cast_possible_truncation)]
+                                fc.builder.emit_call(hash, (2 + dict_count) as u8);
                             }
                             ResolvedMethod::DictSlot { dict_index, slot } => {
                                 // Callee first (CallClosure convention).
@@ -468,7 +474,7 @@ pub(super) fn compile_expr_tail(
                     // A bounded generic callee takes its dictionaries as
                     // hidden trailing arguments (annotated on the callee
                     // reference by the checker).
-                    let dict_count = compile_dicts(fc, callee.dicts.as_ref(), callee.span)?;
+                    let dict_count = compile_dicts(fc, callee.dicts.as_ref(), callee.span, ctx)?;
                     let hash = fc.function_hashes[&key];
                     // Trailing trait dictionaries are ordinary arguments and
                     // are counted identically for both call forms.
@@ -661,7 +667,7 @@ pub(super) fn compile_expr_tail(
 
                     // A bounded method (e.g. `impl<T: Eq> List<T>` methods)
                     // takes its dictionaries as hidden trailing arguments.
-                    let dict_count = compile_dicts(fc, expr.dicts.as_ref(), expr.span)?;
+                    let dict_count = compile_dicts(fc, expr.dicts.as_ref(), expr.span, ctx)?;
 
                     // Emit call with arity = self + args + dictionaries
                     #[allow(clippy::cast_possible_truncation)]
@@ -719,6 +725,7 @@ pub(super) fn compile_dicts(
     fc: &mut FunctionCompiler,
     dicts: Option<&crate::ast::Dicts>,
     span: crate::ast::Span,
+    ctx: &mut ModuleContext,
 ) -> Result<usize, CompileError> {
     let sources = match dicts {
         None => return Ok(0),
@@ -733,7 +740,7 @@ pub(super) fn compile_dicts(
         }
     };
     for source in sources {
-        compile_dict_source(fc, source, span)?;
+        compile_dict_source(fc, source, span, ctx)?;
     }
     Ok(sources.len())
 }
@@ -743,18 +750,12 @@ fn compile_dict_source(
     fc: &mut FunctionCompiler,
     source: &crate::ast::DictSource,
     span: crate::ast::Span,
+    ctx: &mut ModuleContext,
 ) -> Result<(), CompileError> {
     match source {
         crate::ast::DictSource::Impl { symbols } => {
             for symbol in symbols {
-                let Some(&hash) = fc.function_hashes.get(&NameKey::Bare(Arc::clone(symbol))) else {
-                    return Err(CompileError::new(
-                        CompileErrorKind::UndefinedFunction {
-                            name: Arc::clone(symbol),
-                        },
-                        (span.start, span.end),
-                    ));
-                };
+                let hash = dict_method_hash(fc, symbol, span)?;
                 fc.builder.emit_const(Value::FunctionRef(hash));
             }
             #[allow(clippy::cast_possible_truncation)]
@@ -767,7 +768,80 @@ fn compile_dict_source(
             // capture path handles both (and nested lambdas).
             fc.emit_load_dict(*dict_index, (span.start, span.end))
         }
+        crate::ast::DictSource::Generic { methods, inner } => {
+            // A conditional impl (`impl<T: Eq> Eq for Pair<T>`): each
+            // dictionary slot is a closure over the impl's *inner*
+            // dictionaries (its own bounds, already solved) that forwards its
+            // value arguments plus those captured dictionaries to the impl
+            // method. Build one closure per method and assemble the tuple.
+            for method in methods {
+                let method_hash = dict_method_hash(fc, &method.symbol, span)?;
+                let closure = build_dict_slot_closure(method_hash, method.arity, inner.len());
+                let closure_hash = ctx.register_lambda(closure);
+                // Push the inner dictionaries the closure captures, in order.
+                for source in inner {
+                    compile_dict_source(fc, source, span, ctx)?;
+                }
+                #[allow(clippy::cast_possible_truncation)]
+                fc.builder
+                    .emit_make_closure(closure_hash, inner.len() as u8);
+            }
+            #[allow(clippy::cast_possible_truncation)]
+            fc.builder.emit_u8(Opcode::MakeTuple, methods.len() as u8);
+            Ok(())
+        }
     }
+}
+
+/// Resolve an impl-method dispatch symbol to its (temporary) content hash,
+/// the same name→hash table a direct call links through.
+fn dict_method_hash(
+    fc: &FunctionCompiler,
+    symbol: &Arc<str>,
+    span: crate::ast::Span,
+) -> Result<blake3::Hash, CompileError> {
+    fc.function_hashes
+        .get(&NameKey::Bare(Arc::clone(symbol)))
+        .copied()
+        .ok_or_else(|| {
+            CompileError::new(
+                CompileErrorKind::UndefinedFunction {
+                    name: Arc::clone(symbol),
+                },
+                (span.start, span.end),
+            )
+        })
+}
+
+/// Synthesize one conditional-impl dictionary slot: a closure taking `arity`
+/// value arguments and capturing `capture_count` inner dictionaries, whose
+/// body applies the impl method to those arguments followed by the captured
+/// dictionaries (the method's hidden trailing dictionary parameters).
+///
+/// `[LoadLocal 0..arity] [LoadCapture 0..capture_count] Call(method) Return`.
+/// The method hash is recorded as a dependency by `emit_call`, so this
+/// closure is content-addressed like every other function.
+fn build_dict_slot_closure(
+    method_hash: blake3::Hash,
+    arity: usize,
+    capture_count: usize,
+) -> CompiledFunction {
+    let mut builder = BytecodeBuilder::new();
+    for i in 0..arity {
+        #[allow(clippy::cast_possible_truncation)]
+        builder.emit_u16(Opcode::LoadLocal, i as u16);
+    }
+    for j in 0..capture_count {
+        #[allow(clippy::cast_possible_truncation)]
+        builder.emit_load_capture(j as u16);
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    builder.emit_call(method_hash, (arity + capture_count) as u8);
+    builder.emit(Opcode::Return);
+    // The value arguments occupy locals `0..arity`; captures live outside the
+    // local frame, so `local_count == arity`.
+    #[allow(clippy::cast_possible_truncation)]
+    builder.build(arity as u16, arity as u8)
 }
 
 /// Push a bound method (dictionary slot) as the callee for a

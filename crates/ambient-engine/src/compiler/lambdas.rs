@@ -334,7 +334,7 @@ pub(super) fn compile_ability_call(
     // A bounded method's dictionaries ride as hidden trailing perform
     // arguments; the default implementation binds them as its own hidden
     // trailing parameters.
-    let dict_count = super::expr::compile_dicts(fc, dicts, ability_call.span)?;
+    let dict_count = super::expr::compile_dicts(fc, dicts, ability_call.span, ctx)?;
 
     // Resolve the method reference. Every ability — locals, foreign, and
     // prelude (including `Exception`) — resolves through the context; the
