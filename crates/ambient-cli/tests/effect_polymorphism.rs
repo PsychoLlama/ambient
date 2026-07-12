@@ -771,20 +771,30 @@ fn reserved_operator_trait_method_cannot_be_generic() {
     .expect_error("must not declare method-level generics");
 }
 
-/// A *bounded* method-level type parameter on a trait method is a deliberate
-/// scope cut: it would need per-call dictionary threading the trait-dispatch
-/// path doesn't build, so lowering rejects it with a clear diagnostic.
+/// A *bounded* method-level type parameter on a trait method threads one
+/// hidden dictionary per bound as a trailing argument at a concrete-receiver
+/// call site — exactly like a bounded free function. See
+/// `crates/ambient-cli/tests/traits_and_impls.rs` for the full end-to-end
+/// coverage; this pins that the effect-polymorphism sibling still compiles.
 #[test]
-fn bounded_trait_method_type_param_is_rejected() {
+fn bounded_trait_method_type_param_threads_a_dictionary() {
     CliTest::new(
         r#"
-        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000018) trait Tagger {
-          fn tag<U: core::traits::Default>(self, u: U): U;
+        use core::traits::Eq;
+        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000018) trait Tagger {
+          fn tagged<U: Eq>(self, a: U, b: U): Bool;
+        }
+        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000019) struct Machine { id: Number }
+        impl Tagger for Machine {
+          fn tagged<U: Eq>(self, a: U, b: U): Bool { a.eq(b) }
+        }
+        fn run(): Bool {
+          let m = Machine { id: 1 };
+          m.tagged(3, 3)
         }
         "#,
     )
-    .check()
-    .expect_error("trait bounds are not yet supported on trait-method type parameters");
+    .expect_output("true");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -31,6 +31,22 @@ The `Self` type refers to the implementing type. The operator traits
 identities — implement those, don't redeclare them (see
 [Prelude Traits](#prelude-traits)).
 
+A trait method may declare its own type parameters, and those parameters may
+carry trait bounds (`fn same<U: Eq>(self, a: U, b: U): Bool`). The bound
+threads a hidden dictionary through the call, exactly like a bounded free
+function — see [Generic Constraints](#generic-constraints). The current
+limit is that a bounded trait method dispatches only on a **concrete
+receiver**: calling it through a generic type-parameter receiver, or using a
+conditional impl of such a trait as a dictionary source, is rejected (the
+method's own dictionaries cannot yet thread through a fixed-arity dictionary
+slot).
+
+Two trait-declaration features parse but are **not supported yet** and are
+rejected at the declaration site: trait-level type parameters (generic
+traits, `trait Container<T>`) and supertraits (`trait Sub with Base`). A
+method-level type parameter (`fn method<T: Bound>(...)`) covers many cases a
+generic trait otherwise would.
+
 ## Implementing Traits
 
 ```ambient
@@ -251,7 +267,8 @@ Comparison operators adapt the trait method's result: `!=` negates
 ## Generic Constraints
 
 Type parameters take trait bounds, Rust-style, on functions, impl blocks,
-impl methods, and ability methods — the same syntax in every position:
+impl methods, trait methods, and ability methods — the same syntax in every
+position:
 
 ```ambient
 fn min_of<T: Ord>(a: T, b: T): T {
