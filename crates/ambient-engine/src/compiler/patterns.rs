@@ -7,15 +7,21 @@ use crate::bytecode::Opcode;
 use crate::value::Value;
 
 use super::error::{CompileError, CompileErrorKind};
+use super::expr::compile_expr_tail;
 use super::{FunctionCompiler, ModuleContext, compile_expr, str_to_value};
 
 /// Compile a match expression.
+///
+/// `tail` marks whether the whole `match` is in tail position; when set,
+/// every arm's result expression inherits it (the scrutinee and guards
+/// never do), so a call last in an arm body is emitted as a tail call.
 pub(super) fn compile_match(
     fc: &mut FunctionCompiler,
     scrutinee: &Expr,
     arms: &[MatchArm],
     span: (u32, u32),
     ctx: &mut ModuleContext,
+    tail: bool,
 ) -> Result<(), CompileError> {
     if arms.is_empty() {
         return Err(CompileError::new(
@@ -52,7 +58,7 @@ pub(super) fn compile_match(
                 // If pattern matched but guard fails, need to jump to next arm.
                 let guard_fail = fc.builder.emit_jump_placeholder(Opcode::JumpIfNot);
                 // Pattern and guard both succeeded - compile body.
-                compile_expr(fc, &arm.body, ctx)?;
+                compile_expr_tail(fc, &arm.body, ctx, tail)?;
                 let end_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
                 end_jumps.push(end_jump);
                 fc.builder.patch_jump(guard_fail);
@@ -60,7 +66,7 @@ pub(super) fn compile_match(
             } else {
                 // Last arm with guard.
                 let guard_fail = fc.builder.emit_jump_placeholder(Opcode::JumpIfNot);
-                compile_expr(fc, &arm.body, ctx)?;
+                compile_expr_tail(fc, &arm.body, ctx, tail)?;
                 let end_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
                 end_jumps.push(end_jump);
                 fc.builder.patch_jump(guard_fail);
@@ -69,13 +75,13 @@ pub(super) fn compile_match(
             }
         } else if let Some(fj) = fail_jump {
             // Pattern match can fail, compile body and jump to end.
-            compile_expr(fc, &arm.body, ctx)?;
+            compile_expr_tail(fc, &arm.body, ctx, tail)?;
             let end_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
             end_jumps.push(end_jump);
             fc.builder.patch_jump(fj);
         } else {
             // Pattern always matches (wildcard or binding) and it's the last arm.
-            compile_expr(fc, &arm.body, ctx)?;
+            compile_expr_tail(fc, &arm.body, ctx, tail)?;
         }
     }
 

@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::context::{FunctionCompiler, ModuleContext};
 use super::error::{CompileError, CompileErrorKind};
-use super::expr::compile_expr;
+use super::expr::compile_expr_tail;
 use super::hash::{compute_temporary_hash, finalize_const_values, finalize_module_hashes};
 use super::module_output::CompiledModule;
 use crate::ast::{AbilityDef, AbilityMethod, FunctionDef, ImplDef, ImplMethod, ItemKind, Module};
@@ -563,8 +563,10 @@ pub(super) fn compile_function_with_hash(
     // Hidden trailing dictionary parameters, one per trait bound.
     alloc_dict_locals(&mut fc, &func.type_params)?;
 
-    // Compile the function body.
-    compile_expr(&mut fc, &func.body, ctx)?;
+    // Compile the function body. A function body is in tail position: a call
+    // that is its final act becomes a frame-reusing tail call, followed by
+    // the unconditional trailing `Return` (dead after a tail call, harmless).
+    compile_expr_tail(&mut fc, &func.body, ctx, true)?;
 
     // Emit return instruction.
     fc.builder.emit(Opcode::Return);
@@ -647,7 +649,9 @@ fn compile_ability_method(
             (method.span.start, method.span.end),
         ));
     };
-    compile_expr(&mut fc, body, ctx)?;
+    // The default implementation's body is in tail position, like any
+    // function body.
+    compile_expr_tail(&mut fc, body, ctx, true)?;
     fc.builder.emit(Opcode::Return);
 
     let hash = function_hashes[&NameKey::Bare(Arc::clone(symbol))];
@@ -726,8 +730,9 @@ fn compile_impl_method(
         .collect();
     alloc_dict_locals(&mut fc, &combined_params)?;
 
-    // Compile the method body
-    compile_expr(&mut fc, &method.body, ctx)?;
+    // Compile the method body, which is in tail position like any function
+    // body.
+    compile_expr_tail(&mut fc, &method.body, ctx, true)?;
 
     // Emit return instruction
     fc.builder.emit(Opcode::Return);

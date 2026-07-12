@@ -35,12 +35,33 @@ use super::lambdas::{
 use super::patterns::compile_match;
 use super::{FunctionCompiler, ModuleContext, str_to_value};
 
-/// Compile an expression, pushing its value onto the stack.
-#[allow(clippy::too_many_lines)]
+/// Compile an expression in non-tail position, pushing its value onto the
+/// stack. This is the ordinary entry point; positions that are guaranteed
+/// tail positions call [`compile_expr_tail`] with `tail = true` instead.
 pub(super) fn compile_expr(
     fc: &mut FunctionCompiler,
     expr: &Expr,
     ctx: &mut ModuleContext,
+) -> Result<(), CompileError> {
+    compile_expr_tail(fc, expr, ctx, false)
+}
+
+/// Compile an expression, pushing its value onto the stack.
+///
+/// `tail` marks whether this expression sits in tail position — i.e. its
+/// value becomes the enclosing function's return value with no further work
+/// in between. When `tail` is set, a call in tail position is emitted as a
+/// `TailCall` / `TailCallClosure` (frame reuse) so proper tail recursion
+/// runs in constant call-stack space. The flag propagates only through
+/// constructs that preserve tail position (`if`/`match`/`block`/`sandbox`
+/// results); every other sub-expression is compiled in non-tail position via
+/// [`compile_expr`]. See the module-level notes and `AGENTS.md` for the rules.
+#[allow(clippy::too_many_lines)]
+pub(super) fn compile_expr_tail(
+    fc: &mut FunctionCompiler,
+    expr: &Expr,
+    ctx: &mut ModuleContext,
+    tail: bool,
 ) -> Result<(), CompileError> {
     // Record source location for debugging
     fc.record_span(expr.span);
@@ -367,15 +388,18 @@ pub(super) fn compile_expr(
         // Control flow
         // ─────────────────────────────────────────────────────────────────────
         ExprKind::If(cond, then_branch, else_branch) => {
+            // The condition is never tail; both branches inherit the `If`'s
+            // tail position (a branch ending in a tail call simply never
+            // reaches the merge-point jump — dead code after it is harmless).
             compile_expr(fc, cond, ctx)?;
 
             let else_jump = fc.builder.emit_jump_placeholder(Opcode::JumpIfNot);
-            compile_expr(fc, then_branch, ctx)?;
+            compile_expr_tail(fc, then_branch, ctx, tail)?;
 
             if let Some(else_expr) = else_branch {
                 let end_jump = fc.builder.emit_jump_placeholder(Opcode::Jump);
                 fc.builder.patch_jump(else_jump);
-                compile_expr(fc, else_expr, ctx)?;
+                compile_expr_tail(fc, else_expr, ctx, tail)?;
                 fc.builder.patch_jump(end_jump);
             } else {
                 // No else branch - if condition is false, push unit.
@@ -387,15 +411,26 @@ pub(super) fn compile_expr(
         }
 
         ExprKind::Match(scrutinee, arms) => {
-            compile_match(fc, scrutinee, arms, (expr.span.start, expr.span.end), ctx)?;
+            // The scrutinee and guards are never tail; if the `match` is in
+            // tail position, each arm's result expression inherits it.
+            compile_match(
+                fc,
+                scrutinee,
+                arms,
+                (expr.span.start, expr.span.end),
+                ctx,
+                tail,
+            )?;
         }
 
         ExprKind::Block(stmts, result) => {
+            // Statements run for effect (never tail); only the trailing
+            // result expression inherits the block's tail position.
             for stmt in stmts {
                 compile_stmt(fc, stmt, ctx)?;
             }
             if let Some(result_expr) = result {
-                compile_expr(fc, result_expr, ctx)?;
+                compile_expr_tail(fc, result_expr, ctx, tail)?;
             } else {
                 fc.builder.emit_const(Value::Unit);
             }
@@ -427,8 +462,15 @@ pub(super) fn compile_expr(
                     // reference by the checker).
                     let dict_count = compile_dicts(fc, callee.dicts.as_ref(), callee.span)?;
                     let hash = fc.function_hashes[&key];
+                    // Trailing trait dictionaries are ordinary arguments and
+                    // are counted identically for both call forms.
                     #[allow(clippy::cast_possible_truncation)]
-                    fc.builder.emit_call(hash, (args.len() + dict_count) as u8);
+                    let total_args = (args.len() + dict_count) as u8;
+                    if tail {
+                        fc.builder.emit_tail_call(hash, total_args);
+                    } else {
+                        fc.builder.emit_call(hash, total_args);
+                    }
                 } else if name.resolved.is_none()
                     && name.path.is_empty()
                     && (fc.get_local_by_name(&name.name).is_some()
@@ -444,7 +486,7 @@ pub(super) fn compile_expr(
                     for arg in args {
                         compile_expr(fc, arg, ctx)?;
                     }
-                    fc.builder.emit_call_closure(args.len() as u8);
+                    emit_closure_call(fc, args.len() as u8, tail);
                 } else if let Some(variant) = name
                     .resolved
                     .as_ref()
@@ -498,7 +540,7 @@ pub(super) fn compile_expr(
                     for arg in args {
                         compile_expr(fc, arg, ctx)?;
                     }
-                    fc.builder.emit_call_closure(args.len() as u8);
+                    emit_closure_call(fc, args.len() as u8, tail);
                 }
             } else {
                 // General indirect call (e.g., calling a lambda inline or result of expression).
@@ -507,7 +549,7 @@ pub(super) fn compile_expr(
                 for arg in args {
                     compile_expr(fc, arg, ctx)?;
                 }
-                fc.builder.emit_call_closure(args.len() as u8);
+                emit_closure_call(fc, args.len() as u8, tail);
             }
         }
 
@@ -559,7 +601,10 @@ pub(super) fn compile_expr(
             // Future enhancements could add runtime enforcement via:
             // - Handler frame markers to prevent ability escalation
             // - Dynamic capability tracking
-            compile_expr(fc, &sandbox_expr.body, ctx)?;
+            //
+            // A sandbox emits no cleanup opcodes after its body, so the body
+            // inherits the sandbox's tail position directly.
+            compile_expr_tail(fc, &sandbox_expr.body, ctx, tail)?;
         }
 
         ExprKind::MethodCall {
@@ -600,7 +645,11 @@ pub(super) fn compile_expr(
                     // Emit call with arity = self + args + dictionaries
                     #[allow(clippy::cast_possible_truncation)]
                     let arity = (1 + args.len() + dict_count) as u8;
-                    fc.builder.emit_call(hash, arity);
+                    if tail {
+                        fc.builder.emit_tail_call(hash, arity);
+                    } else {
+                        fc.builder.emit_call(hash, arity);
+                    }
                 }
                 Some(ResolvedMethod::DictSlot { dict_index, slot }) => {
                     // Callee first (CallClosure convention): the bound
@@ -612,7 +661,7 @@ pub(super) fn compile_expr(
                     }
                     #[allow(clippy::cast_possible_truncation)]
                     let arity = (1 + args.len()) as u8;
-                    fc.builder.emit_call_closure(arity);
+                    emit_closure_call(fc, arity, tail);
                 }
                 None => {
                     return Err(CompileError::new(
@@ -627,6 +676,17 @@ pub(super) fn compile_expr(
     }
 
     Ok(())
+}
+
+/// Emit a closure call, choosing the frame-reusing `TailCallClosure` when
+/// the call is in tail position and the ordinary `CallClosure` otherwise.
+/// Both take the same stack layout (`[callee, args...]`) and `arg_count`.
+fn emit_closure_call(fc: &mut FunctionCompiler, arg_count: u8, tail: bool) {
+    if tail {
+        fc.builder.emit_tail_call_closure(arg_count);
+    } else {
+        fc.builder.emit_call_closure(arg_count);
+    }
 }
 
 /// Push the dictionary arguments a call site's annotation demands, in

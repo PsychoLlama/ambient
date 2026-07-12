@@ -14,6 +14,7 @@ use crate::value::AbilityMethodRef;
 
 use super::context::CompiledAbilityInfo;
 use super::error::{CompileError, CompileErrorKind};
+use super::expr::compile_expr_tail;
 use super::{FunctionCompiler, ModuleContext, compile_expr};
 
 /// A handler's method table (method reference → arm-function hash) paired
@@ -88,9 +89,11 @@ pub(super) fn compile_lambda(
         lambda_fc.alloc_local_with_name(param.id, &param.name)?;
     }
 
-    // Compile the lambda body.
+    // Compile the lambda body. A plain lambda compiles as `<body> Return`
+    // with nothing in between, so the body is in tail position: a call that
+    // is the lambda's final act becomes a frame-reusing tail call.
     // During this compilation, lambda_fc will track any captured variables.
-    compile_expr(&mut lambda_fc, &lambda.body, ctx)?;
+    compile_expr_tail(&mut lambda_fc, &lambda.body, ctx, true)?;
 
     // Emit return instruction.
     lambda_fc.builder.emit(Opcode::Return);
@@ -252,7 +255,11 @@ pub(super) fn compile_handle_expr(
         }
     }
 
-    // Compile the body expression inside the thunk.
+    // Compile the body expression inside the thunk. This is NOT a tail
+    // position: the thunk emits `<Unhandle...> [<else>] Return` after the
+    // body, so the thunk frame must survive to run its cleanup. A tail call
+    // here would discard the frame before the `Unhandle`s ran (leaking the
+    // installed handlers), so the body compiles with the tail flag off.
     compile_expr(&mut thunk_fc, &handle_expr.body, ctx)?;
 
     // Pop this handle expression's handlers (normal completion path; a
@@ -571,7 +578,11 @@ fn compile_handler_method(
         method_fc.builder.emit_u16(Opcode::StoreLocal, 2 + i as u16);
     }
 
-    compile_expr(&mut method_fc, &method.body, ctx)?;
+    // A handler arm compiles as `<body> Return` with nothing in between, so
+    // its body is in tail position. A tail call replaces the arm frame and
+    // returns to the arm's caller exactly as a normal arm return would;
+    // `resume` is its own opcode (never a tail position), so this is safe.
+    compile_expr_tail(&mut method_fc, &method.body, ctx, true)?;
     method_fc.builder.emit(Opcode::Return);
 
     let local_count = method_fc.next_local;
