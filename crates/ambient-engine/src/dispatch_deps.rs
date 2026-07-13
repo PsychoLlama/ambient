@@ -27,7 +27,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::ast::{Expr, ExprKind, Item, ItemKind, Module, ResolvedMethod, walk_exprs_mut};
+use crate::ast::{Expr, ExprKind, Item, ItemKind, Module, ResolvedMethod, walk_exprs};
 
 /// Given each group module's checked AST keyed by its ordering key (the
 /// string the compile-order graph uses), return the extra dependency edges
@@ -38,18 +38,18 @@ use crate::ast::{Expr, ExprKind, Item, ItemKind, Module, ResolvedMethod, walk_ex
 /// (already-compiled dependencies like a prior core module) need no edge —
 /// their hashes are already in the linking table.
 #[must_use]
-pub fn dispatch_edges(checked: &mut [(String, Module)]) -> HashMap<String, Vec<String>> {
+pub fn dispatch_edges(checked: &[(String, &Module)]) -> HashMap<String, Vec<String>> {
     // symbol -> the group module that defines it. Impl-method dispatch
     // symbols are globally unique, so one owner per symbol.
     let mut owner: HashMap<Arc<str>, String> = HashMap::new();
-    for (key, module) in checked.iter() {
+    for (key, module) in checked {
         for symbol in defined_symbols(module) {
             owner.insert(Arc::clone(symbol), key.clone());
         }
     }
 
     let mut edges: HashMap<String, Vec<String>> = HashMap::new();
-    for (key, module) in checked.iter_mut() {
+    for (key, module) in checked {
         let mut referenced = Vec::new();
         collect_referenced_symbols(module, &mut referenced);
         for symbol in referenced {
@@ -85,8 +85,8 @@ fn defined_symbols(module: &Module) -> impl Iterator<Item = &Arc<str>> {
 /// - rewritten associated calls (`List::range(...)`), which the checker
 ///   lowers to a bare [`ExprKind::Name`] whose spelling *is* the dispatch
 ///   symbol (an ordinary name never contains `::`).
-fn collect_referenced_symbols(module: &mut Module, out: &mut Vec<Arc<str>>) {
-    let mut visit = |e: &mut Expr| match &e.kind {
+fn collect_referenced_symbols(module: &Module, out: &mut Vec<Arc<str>>) {
+    let mut visit = |e: &Expr| match &e.kind {
         ExprKind::MethodCall {
             resolved_method: Some(ResolvedMethod::Symbol(s)),
             ..
@@ -100,24 +100,20 @@ fn collect_referenced_symbols(module: &mut Module, out: &mut Vec<Arc<str>>) {
         }
         _ => {}
     };
-    for item in &mut module.items {
+    for item in &module.items {
         for body in item_bodies(item) {
-            walk_exprs_mut(body, &mut visit);
+            walk_exprs(body, &mut visit);
         }
     }
 }
 
 /// The expression roots inside an item: a function body, each impl-method
 /// body, and each ability-method default implementation.
-fn item_bodies(item: &mut Item) -> Vec<&mut Expr> {
-    match &mut item.kind {
-        ItemKind::Function(def) => vec![&mut def.body],
-        ItemKind::Impl(def) => def.methods.iter_mut().map(|m| &mut m.body).collect(),
-        ItemKind::Ability(def) => def
-            .methods
-            .iter_mut()
-            .filter_map(|m| m.body.as_mut())
-            .collect(),
+fn item_bodies(item: &Item) -> Vec<&Expr> {
+    match &item.kind {
+        ItemKind::Function(def) => vec![&def.body],
+        ItemKind::Impl(def) => def.methods.iter().map(|m| &m.body).collect(),
+        ItemKind::Ability(def) => def.methods.iter().filter_map(|m| m.body.as_ref()).collect(),
         _ => Vec::new(),
     }
 }

@@ -16,7 +16,7 @@ use crate::types::Type;
 mod dicts;
 mod name;
 pub use dicts::{
-    DictSource, Dicts, Fingerprints, GenericDictMethod, ResolvedMethod, walk_exprs_mut,
+    DictSource, Dicts, Fingerprints, GenericDictMethod, ResolvedMethod, walk_exprs, walk_exprs_mut,
 };
 pub use name::QualifiedName;
 

@@ -154,96 +154,120 @@ impl ResolvedMethod {
 
 use super::{Expr, ExprKind};
 
-/// Visit `expr` and every expression nested inside it, pre-order.
-///
-/// The checker uses this to finalize dictionary annotations after a body is
-/// fully inferred; it deliberately lives next to the AST so a new
-/// [`ExprKind`] variant fails to compile here until its children are listed.
-pub fn walk_exprs_mut(expr: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
-    f(expr);
-    match &mut expr.kind {
-        ExprKind::Unit
-        | ExprKind::Bool(_)
-        | ExprKind::Number(_)
-        | ExprKind::String(_)
-        | ExprKind::Local(_)
-        | ExprKind::Name(_) => {}
-        ExprKind::Tuple(elems) | ExprKind::List(elems) => {
-            for e in elems {
-                walk_exprs_mut(e, f);
-            }
-        }
-        ExprKind::TupleIndex(e, _)
-        | ExprKind::RecordField(e, _)
-        | ExprKind::Unary(_, e)
-        | ExprKind::Resume(e) => walk_exprs_mut(e, f),
-        ExprKind::Record(fields) | ExprKind::TypedRecord { fields, .. } => {
-            for (_, e) in fields {
-                walk_exprs_mut(e, f);
-            }
-        }
-        ExprKind::MethodCall { receiver, args, .. } => {
-            walk_exprs_mut(receiver, f);
-            for a in args {
-                walk_exprs_mut(a, f);
-            }
-        }
-        ExprKind::Binary { left, right, .. } => {
-            walk_exprs_mut(left, f);
-            walk_exprs_mut(right, f);
-        }
-        ExprKind::If(cond, then_br, else_br) => {
-            walk_exprs_mut(cond, f);
-            walk_exprs_mut(then_br, f);
-            if let Some(e) = else_br {
-                walk_exprs_mut(e, f);
-            }
-        }
-        ExprKind::Match(scrutinee, arms) => {
-            walk_exprs_mut(scrutinee, f);
-            for arm in arms {
-                walk_exprs_mut(&mut arm.body, f);
-            }
-        }
-        ExprKind::Block(stmts, result) => {
-            for stmt in stmts {
-                match &mut stmt.kind {
-                    super::StmtKind::Let(binding) => walk_exprs_mut(&mut binding.init, f),
-                    super::StmtKind::Expr(e) => walk_exprs_mut(e, f),
-                    super::StmtKind::Const(c) => walk_exprs_mut(&mut c.value, f),
-                    super::StmtKind::Use(_) => {}
+/// Generate a pre-order expression walker over `&`/`&mut Expr` from one match
+/// body. `$mutable` is either empty (shared walk) or `mut` (exclusive walk);
+/// it threads through the parameter type, the callback type, and the match
+/// scrutinee, so both walkers share a single copy of the child-enumeration
+/// match — a new [`ExprKind`] variant fails to compile in *both* until its
+/// children are listed, and the two can never drift. Default binding modes
+/// give every bound child the right mutability automatically.
+macro_rules! define_expr_walk {
+    ($(#[$meta:meta])* $name:ident $(, $mutable:tt)?) => {
+        $(#[$meta])*
+        pub fn $name(expr: &$($mutable)? Expr, f: &mut impl FnMut(&$($mutable)? Expr)) {
+            f(expr);
+            match &$($mutable)? expr.kind {
+                ExprKind::Unit
+                | ExprKind::Bool(_)
+                | ExprKind::Number(_)
+                | ExprKind::String(_)
+                | ExprKind::Local(_)
+                | ExprKind::Name(_) => {}
+                ExprKind::Tuple(elems) | ExprKind::List(elems) => {
+                    for e in elems {
+                        $name(e, f);
+                    }
                 }
-            }
-            if let Some(e) = result {
-                walk_exprs_mut(e, f);
+                ExprKind::TupleIndex(e, _)
+                | ExprKind::RecordField(e, _)
+                | ExprKind::Unary(_, e)
+                | ExprKind::Resume(e) => $name(e, f),
+                ExprKind::Record(fields) | ExprKind::TypedRecord { fields, .. } => {
+                    for (_, e) in fields {
+                        $name(e, f);
+                    }
+                }
+                ExprKind::MethodCall { receiver, args, .. } => {
+                    $name(receiver, f);
+                    for a in args {
+                        $name(a, f);
+                    }
+                }
+                ExprKind::Binary { left, right, .. } => {
+                    $name(left, f);
+                    $name(right, f);
+                }
+                ExprKind::If(cond, then_br, else_br) => {
+                    $name(cond, f);
+                    $name(then_br, f);
+                    if let Some(e) = else_br {
+                        $name(e, f);
+                    }
+                }
+                ExprKind::Match(scrutinee, arms) => {
+                    $name(scrutinee, f);
+                    for arm in arms {
+                        $name(&$($mutable)? arm.body, f);
+                    }
+                }
+                ExprKind::Block(stmts, result) => {
+                    for stmt in stmts {
+                        match &$($mutable)? stmt.kind {
+                            super::StmtKind::Let(binding) => $name(&$($mutable)? binding.init, f),
+                            super::StmtKind::Expr(e) => $name(e, f),
+                            super::StmtKind::Const(c) => $name(&$($mutable)? c.value, f),
+                            super::StmtKind::Use(_) => {}
+                        }
+                    }
+                    if let Some(e) = result {
+                        $name(e, f);
+                    }
+                }
+                ExprKind::Lambda(lambda) => $name(&$($mutable)? lambda.body, f),
+                ExprKind::Call(callee, args) => {
+                    $name(callee, f);
+                    for a in args {
+                        $name(a, f);
+                    }
+                }
+                ExprKind::Perform(call) => {
+                    for a in &$($mutable)? call.args {
+                        $name(a, f);
+                    }
+                }
+                ExprKind::Handle(handle) => {
+                    for handler in &$($mutable)? handle.handlers {
+                        $name(handler, f);
+                    }
+                    $name(&$($mutable)? handle.body, f);
+                    if let Some(else_clause) = &$($mutable)? handle.else_clause {
+                        $name(else_clause, f);
+                    }
+                }
+                ExprKind::HandlerLiteral(lit) => {
+                    for arm in &$($mutable)? lit.methods {
+                        $name(&$($mutable)? arm.body, f);
+                    }
+                }
+                ExprKind::Sandbox(sandbox) => $name(&$($mutable)? sandbox.body, f),
             }
         }
-        ExprKind::Lambda(lambda) => walk_exprs_mut(&mut lambda.body, f),
-        ExprKind::Call(callee, args) => {
-            walk_exprs_mut(callee, f);
-            for a in args {
-                walk_exprs_mut(a, f);
-            }
-        }
-        ExprKind::Perform(call) => {
-            for a in &mut call.args {
-                walk_exprs_mut(a, f);
-            }
-        }
-        ExprKind::Handle(handle) => {
-            for handler in &mut handle.handlers {
-                walk_exprs_mut(handler, f);
-            }
-            walk_exprs_mut(&mut handle.body, f);
-            if let Some(else_clause) = &mut handle.else_clause {
-                walk_exprs_mut(else_clause, f);
-            }
-        }
-        ExprKind::HandlerLiteral(lit) => {
-            for arm in &mut lit.methods {
-                walk_exprs_mut(&mut arm.body, f);
-            }
-        }
-        ExprKind::Sandbox(sandbox) => walk_exprs_mut(&mut sandbox.body, f),
-    }
+    };
+}
+
+define_expr_walk! {
+    /// Visit `expr` and every expression nested inside it, pre-order, by shared
+    /// reference. The read-only twin of [`walk_exprs_mut`], generated from the
+    /// same `define_expr_walk!` body; used where a traversal only inspects the
+    /// tree (e.g. `crate::dispatch_deps`) so no `&mut`/clone is needed.
+    walk_exprs
+}
+
+define_expr_walk! {
+    /// Visit `expr` and every expression nested inside it, pre-order.
+    ///
+    /// The checker uses this to finalize dictionary annotations after a body is
+    /// fully inferred; it deliberately lives next to the AST so a new
+    /// [`ExprKind`] variant fails to compile here until its children are listed.
+    walk_exprs_mut, mut
 }

@@ -566,11 +566,11 @@ fn compile_module_group(
         }
         checked.push((key.clone(), check_result));
     }
-    let mut modules_for_edges: Vec<(String, crate::ast::Module)> = checked
+    let modules_for_edges: Vec<(String, &crate::ast::Module)> = checked
         .iter()
-        .map(|(key, cr)| (key.clone(), cr.module.clone()))
+        .map(|(key, cr)| (key.clone(), &cr.module))
         .collect();
-    for (key, definers) in crate::dispatch_deps::dispatch_edges(&mut modules_for_edges) {
+    for (key, definers) in crate::dispatch_deps::dispatch_edges(&modules_for_edges) {
         let entry = deps.entry(key).or_default();
         for definer in definers {
             if !entry.contains(&definer) {
