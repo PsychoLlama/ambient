@@ -114,8 +114,10 @@ fn pure_trait_impl_method_is_accepted() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Handler arm parameters take the ability method's declared types.
-/// Previously they were fresh unconstrained variables, so treating a
-/// thrown string as a number type-checked.
+/// `throw<E: Show>` binds `e: E` rigid (opaque, `Show`-bounded only), so
+/// using it at another type — `e * 2` needs `Mul` — is rejected. Previously
+/// they were fresh unconstrained variables, so treating a thrown value as a
+/// number type-checked.
 #[test]
 fn handler_arm_param_takes_declared_type() {
     assert_err_containing(
@@ -130,10 +132,13 @@ fn handler_arm_param_takes_declared_type() {
         }
         "
         .replace('\'', "\""),
-        "type mismatch",
+        "does not declare the bound `Mul`",
     );
 }
 
+/// The thrown value is usable through its `Show` bound: the rigid `E` in a
+/// catch arm has no known shape, but `e.show()` renders it via the forwarded
+/// dictionary, yielding a `String`.
 #[test]
 fn handler_arm_param_usable_at_declared_type() {
     assert_ok(
@@ -144,7 +149,7 @@ fn handler_arm_param_usable_at_declared_type() {
         }
 
         pub fn run(): String {
-          with { Exception::throw(e) => e + '!' } handle boom()
+          with { Exception::throw(e) => e.show() + '!' } handle boom()
         }
         "
         .replace('\'', "\""),
@@ -472,20 +477,23 @@ fn handler_annotation_ability_obeys_namespace_policy() {
 // Perform argument checking
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Builtin descriptor abilities check arguments too: Exception::throw
-/// takes a string. Previously the builtin path resolved only the return
-/// type and ignored arguments entirely.
+/// Builtin descriptor abilities check arguments too: `Exception::throw<E:
+/// Show>` requires its argument to satisfy the `Show` bound. A tuple has no
+/// `Show` impl, so the perform is rejected. (`throw!(42)` now *succeeds* —
+/// `Number: Show` — so the check is the bound, not a fixed `String`.)
+/// Previously the builtin path resolved only the return type and ignored
+/// arguments entirely.
 #[test]
 fn builtin_perform_arguments_are_checked() {
     assert_err_containing(
         &r"
         pub fn run(): Number with Exception {
-          Exception::throw!(42);
+          Exception::throw!((1, 2));
           1
         }
         "
         .replace('\'', "\""),
-        "type mismatch",
+        "`(Number, Number): Show` is not satisfied",
     );
 }
 
