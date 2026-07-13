@@ -41,6 +41,24 @@ use super::error::{BoxedTypeError, TypeError, TypeErrorKind};
 /// assignments from the receiver) and its own bounds, in `dict_params` order.
 type ConditionalImplDicts = (Option<Type>, Vec<(Arc<str>, TraitBound)>);
 
+/// A deferred "does this generic impl's applied target cover the receiver?"
+/// check. Recorded at a direct-dispatch site when the matched impl is generic
+/// with an applied target but contributes no dictionary (a bound-less applied
+/// impl like `impl Eq for Option<Number>`, whose bounded cousins are already
+/// covered by their poisoned dictionary constraints). Solved once the body
+/// settles, so the receiver's instantiation is as resolved as it will be.
+#[derive(Debug)]
+pub(crate) struct CoverageObligation {
+    /// The impl's applied target shape, carrying the impl's [`Type::Param`]s.
+    pub target: Type,
+    /// The dispatch receiver whose instantiation must match `target`.
+    pub receiver: Type,
+    /// The trait's name, for the diagnostic.
+    pub trait_name: Arc<str>,
+    /// Span of the dispatch site.
+    pub span: (u32, u32),
+}
+
 /// One unresolved `τ: Trait` obligation from instantiating a bounded scheme.
 #[derive(Debug)]
 pub(crate) struct PendingConstraint {
@@ -92,15 +110,21 @@ impl Infer {
     /// receiver's matched type arguments once the body settles.
     ///
     /// Returns `None` (no annotation) when the impl declares no bounds, so a
-    /// method that takes no dictionaries keeps its plain arity.
+    /// method that takes no dictionaries keeps its plain arity. A bound-less
+    /// *applied* impl still needs its instantiation checked — coherence found
+    /// it by head, but `impl Eq for Option<Number>` does not cover an
+    /// `Option<String>` receiver — so a coverage obligation is recorded in
+    /// that case (see [`Infer::record_impl_coverage`]).
     pub(crate) fn record_conditional_impl_dicts(
         &mut self,
         target: Option<&Type>,
         bounds: &[(Arc<str>, TraitBound)],
         receiver_ty: &Type,
+        trait_name: &Arc<str>,
         span: (u32, u32),
     ) -> Option<Dicts> {
         if bounds.is_empty() {
+            self.record_impl_coverage(target, receiver_ty, trait_name, span);
             return None;
         }
         let ty = self.apply(receiver_ty);
@@ -143,10 +167,18 @@ impl Infer {
         generic_impl: Option<ConditionalImplDicts>,
         receiver_ty: &Type,
         method_bounds: Vec<(Type, TraitBound)>,
+        trait_name: &Arc<str>,
         span: (u32, u32),
     ) -> Option<Dicts> {
         let impl_bound_count = generic_impl.as_ref().map_or(0, |(_, b)| b.len());
         if impl_bound_count == 0 && method_bounds.is_empty() {
+            // No dictionaries to thread, but a bound-less *applied* impl still
+            // needs its instantiation checked: coherence found it by head, yet
+            // `impl Eq for Option<Number>` does not cover an `Option<String>`
+            // receiver.
+            if let Some((target, _)) = &generic_impl {
+                self.record_impl_coverage(target.as_ref(), receiver_ty, trait_name, span);
+            }
             return None;
         }
         let group = self.next_dict_group;
@@ -191,6 +223,50 @@ impl Infer {
         }
 
         Some(Dicts::Pending(group))
+    }
+
+    /// Record a deferred coverage obligation for a generic impl matched at a
+    /// direct-dispatch site. A no-op when the impl has no applied `target` (a
+    /// plain `impl Eq for Money` covers everything it matches). Otherwise the
+    /// obligation is solved once the body settles, so the receiver's
+    /// instantiation is resolved before [`match_target`] runs — mirroring how
+    /// the bounded path defers its constraints, and avoiding a false rejection
+    /// of a receiver whose type is pinned later in the body.
+    pub(crate) fn record_impl_coverage(
+        &mut self,
+        target: Option<&Type>,
+        receiver_ty: &Type,
+        trait_name: &Arc<str>,
+        span: (u32, u32),
+    ) {
+        if let Some(target) = target {
+            self.pending_coverage.push(CoverageObligation {
+                target: target.clone(),
+                receiver: receiver_ty.clone(),
+                trait_name: Arc::clone(trait_name),
+                span,
+            });
+        }
+    }
+
+    /// Discharge every coverage obligation recorded since the last call. Each
+    /// applies the receiver (now as resolved as it will be) and matches it
+    /// against the impl's applied target; a mismatch is an
+    /// [`TypeErrorKind::ImplInstantiationNotCovered`] error.
+    pub(crate) fn solve_coverage(&mut self, errors: &mut Vec<BoxedTypeError>) {
+        for obligation in std::mem::take(&mut self.pending_coverage) {
+            let ty = self.apply(&obligation.receiver);
+            let mut subst: HashMap<Arc<str>, Type> = HashMap::new();
+            if !match_target(&obligation.target, &ty, &mut subst) {
+                errors.push(Box::new(TypeError::new(
+                    TypeErrorKind::ImplInstantiationNotCovered {
+                        ty,
+                        trait_name: Arc::clone(&obligation.trait_name),
+                    },
+                    obligation.span,
+                )));
+            }
+        }
     }
 
     /// Solve every constraint recorded since the last call, producing the
@@ -510,6 +586,10 @@ impl Infer {
     ) {
         let solved = self.solve_dict_constraints(errors);
         finalize_dicts(body, &solved);
+        // Applied-impl coverage settles on the same schedule: the receiver's
+        // instantiation is now resolved, so an uncovered match is caught here
+        // rather than silently misdispatching.
+        self.solve_coverage(errors);
         // State-cell fingerprints settle on the same schedule: render the
         // instantiated cell types now that the body's inference is done.
         let fingerprints = self.solve_fingerprints(errors);

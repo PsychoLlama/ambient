@@ -166,10 +166,20 @@ impl Infer {
             .filter(|imp| imp.is_generic)
             .map(|imp| (imp.target.clone(), imp.bounds.clone()));
 
+        let assoc_trait_name = self
+            .trait_registry
+            .get_trait(trait_uuid)
+            .map_or_else(|| Arc::from("?"), |t| Arc::clone(&t.name));
         let (params, ret, abilities, type_var_map) =
             self.instantiate_trait_method_mapped(&method_def, &self_ty);
         let method_dicts = self.resolve_method_bound_dicts(&method_def, &type_var_map);
-        *dicts = self.record_trait_dispatch_dicts(generic_impl, &self_ty, method_dicts, span);
+        *dicts = self.record_trait_dispatch_dicts(
+            generic_impl,
+            &self_ty,
+            method_dicts,
+            &assoc_trait_name,
+            span,
+        );
 
         if args.len() != params.len() {
             return Err(type_error(
@@ -326,20 +336,27 @@ impl Infer {
         // argument's row unifies into that variable and then propagates to the
         // caller via `require_abilities` below. The type-var map lets us record
         // the method's own bound dictionaries against those fresh variables.
+        // The trait's name, for coverage/arity diagnostics.
+        let trait_name = self
+            .trait_registry
+            .get_trait(trait_uuid)
+            .map_or_else(|| Arc::from("?"), |t| Arc::clone(&t.name));
+
         let (params, ret, abilities, type_var_map) =
             self.instantiate_trait_method_mapped(&method_def, &receiver_ty);
         let method_dicts = self.resolve_method_bound_dicts(&method_def, &type_var_map);
-        *dicts = self.record_trait_dispatch_dicts(generic_impl, &receiver_ty, method_dicts, span);
+        *dicts = self.record_trait_dispatch_dicts(
+            generic_impl,
+            &receiver_ty,
+            method_dicts,
+            &trait_name,
+            span,
+        );
 
         // Check argument count (excluding self) before inferring the
         // arguments, so a lambda argument can be seeded from its parameter's
         // instantiated type.
         if args.len() != params.len() {
-            // Get trait name for error message
-            let trait_name = self
-                .trait_registry
-                .get_trait(trait_uuid)
-                .map_or_else(|| Arc::from("?"), |t| Arc::clone(&t.name));
             return Err(type_error(
                 TypeErrorKind::ArityMismatch {
                     expected: params.len(),

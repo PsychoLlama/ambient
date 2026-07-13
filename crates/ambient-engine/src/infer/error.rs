@@ -261,6 +261,14 @@ pub enum TypeErrorKind {
     /// build.
     BoundNotSatisfied { ty: Type, trait_name: Arc<str> },
 
+    /// A direct-dispatch site (operator, dot-call, or associated call) matched
+    /// a generic impl by *head* identity — coherence granularity — but the
+    /// impl's applied target does not cover this instantiation: `impl Eq for
+    /// Option<Number>` matched against an `Option<String>` receiver. The impl
+    /// is *found*, yet it implements only its own exact instantiation, so
+    /// dispatching to it would be a silent misdispatch.
+    ImplInstantiationNotCovered { ty: Type, trait_name: Arc<str> },
+
     /// A `State` cell write whose cell type mentions the enclosing item's
     /// type parameter: the migration fingerprint must mean exactly one
     /// type per perform site (see `ref/live-upgrade.md`, "Migration").
@@ -635,6 +643,14 @@ impl std::fmt::Display for TypeErrorKind {
                     f,
                     "the trait bound `{ty}: {trait_name}` is not satisfied; \
                      no `impl {trait_name} for {ty}` exists in this build"
+                )
+            }
+            Self::ImplInstantiationNotCovered { ty, trait_name } => {
+                write!(
+                    f,
+                    "the `{trait_name}` impl in scope does not cover `{ty}`: an \
+                     applied impl (e.g. `impl {trait_name} for Option<Number>`) \
+                     implements only its exact instantiation, not `{ty}`"
                 )
             }
             Self::GenericStateWrite { ty } => {

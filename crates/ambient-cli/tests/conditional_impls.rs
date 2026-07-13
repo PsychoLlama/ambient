@@ -209,3 +209,103 @@ fn unsatisfied_inner_bound_is_rejected() {
     .check()
     .expect_failure();
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Applied-impl coverage: a bound-less applied impl (`impl Eq for
+// Option<Number>`) is found by head identity at a direct-dispatch site, but
+// implements only its exact instantiation. Using it on a *different*
+// instantiation must be a compile error, not a silent misdispatch.
+// ─────────────────────────────────────────────────────────────────────────
+
+// A bound-less applied `Eq` impl for one concrete instantiation of `Option`.
+const APPLIED_EQ: &str = r#"
+    impl Eq for Option<Number> {
+        fn eq(self, other: Option<Number>): Bool {
+            match self {
+                Some(a) => match other { Some(b) => a == b, None => false },
+                None => match other { Some(_) => false, None => true },
+            }
+        }
+    }
+"#;
+
+#[test]
+fn applied_impl_operator_covers_matching_instantiation() {
+    // `Option<Number> == Option<Number>` dispatches to the applied impl.
+    CliTest::new(format!(
+        r#"
+        {APPLIED_EQ}
+        fn run(): Bool {{
+            let a: Option<Number> = Some(1);
+            let b: Option<Number> = Some(1);
+            a == b
+        }}
+    "#
+    ))
+    .expect_output("true");
+}
+
+#[test]
+fn applied_impl_operator_rejects_wrong_instantiation() {
+    // Only `impl Eq for Option<Number>` is in scope. `==` on `Option<String>`
+    // must be rejected — coherence found the impl by head, but it does not
+    // cover this instantiation (previously a silent misdispatch).
+    CliTest::new(format!(
+        r#"
+        {APPLIED_EQ}
+        fn run(): Bool {{
+            let a: Option<String> = Some("x");
+            let b: Option<String> = Some("y");
+            a == b
+        }}
+    "#
+    ))
+    .check()
+    .expect_error("does not cover");
+}
+
+#[test]
+fn applied_impl_dot_call_rejects_wrong_instantiation() {
+    // The same soundness gap through a trait *method* dot-call rather than an
+    // operator: `x.show2()` on `Option<String>` with only an applied impl for
+    // `Option<Number>`.
+    CliTest::new(
+        r#"
+        unique(A0000000-0000-0000-0000-0000000000C1) trait Show2 {
+            fn show2(self): String;
+        }
+        impl Show2 for Option<Number> {
+            fn show2(self): String {
+                match self { Some(_) => "some", None => "none" }
+            }
+        }
+        fn run(): String {
+            let a: Option<String> = Some("x");
+            a.show2()
+        }
+    "#,
+    )
+    .check()
+    .expect_error("does not cover");
+}
+
+#[test]
+fn applied_impl_dot_call_covers_matching_instantiation() {
+    CliTest::new(
+        r#"
+        unique(A0000000-0000-0000-0000-0000000000C1) trait Show2 {
+            fn show2(self): String;
+        }
+        impl Show2 for Option<Number> {
+            fn show2(self): String {
+                match self { Some(_) => "some", None => "none" }
+            }
+        }
+        fn run(): String {
+            let a: Option<Number> = Some(5);
+            a.show2()
+        }
+    "#,
+    )
+    .expect_output("some");
+}

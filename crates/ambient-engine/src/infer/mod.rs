@@ -177,6 +177,14 @@ pub struct Infer {
     /// Fresh ids for [`crate::ast::Dicts::Pending`] groups.
     pub(crate) next_dict_group: u32,
 
+    /// Applied-impl coverage obligations recorded at direct-dispatch sites
+    /// (operators, dot-calls, associated calls) whose matched impl is generic
+    /// with an applied target but contributes no dictionary. Coherence is
+    /// head-granular, so `impl Eq for Option<Number>` is *found* for an
+    /// `Option<String>` receiver; whether it *covers* the instantiation is
+    /// checked once the body settles. See [`constraints`].
+    pub(crate) pending_coverage: Vec<constraints::CoverageObligation>,
+
     /// State-cell fingerprints recorded at perform sites, awaiting
     /// rendering once the enclosing body's inference settles the cell
     /// types. See [`fingerprints`].
@@ -268,6 +276,7 @@ impl Infer {
             current_bound_params: Vec::new(),
             pending_constraints: Vec::new(),
             next_dict_group: 0,
+            pending_coverage: Vec::new(),
             pending_fingerprints: Vec::new(),
             next_fingerprint_group: 0,
         }

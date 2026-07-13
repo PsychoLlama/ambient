@@ -74,10 +74,16 @@ impl Infer {
                     .filter(|imp| imp.is_generic)
                     .map(|imp| (imp.target.clone(), imp.bounds.clone()));
                 if let Some((target, bounds)) = generic_impl {
+                    // A bound-less applied impl (`impl Eq for Option<Number>`)
+                    // threads no dictionary but still has its instantiation
+                    // checked against the receiver — otherwise `==` on an
+                    // `Option<String>` would misdispatch to it.
+                    let trait_name: Arc<str> = Arc::from(op_trait.name());
                     *dicts = self.record_conditional_impl_dicts(
                         target.as_ref(),
                         &bounds,
                         &left_ty,
+                        &trait_name,
                         span,
                     );
                 }
