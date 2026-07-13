@@ -332,11 +332,10 @@ pub fn register_declaration_modules(
 /// references may target another (`core::result` → `core::option`, a platform
 /// ability's `with` row → `core::time`). Resolution is idempotent
 /// ([`crate::resolve::resolve_module`]), so re-registering here and letting the
-/// compile pipeline resolve again is sound. The historical reason builtins were
-/// left raw — that re-registering would drop `add_exports`-injected intrinsic
-/// exports — is obsolete: core intrinsics are now ordinary `extern fn`
-/// declarations in the `.ab` sources, so `extract_exports` recovers them from
-/// the AST on every (re-)registration.
+/// compile pipeline resolve again is sound. Core intrinsics are ordinary
+/// `extern fn` declarations in the `.ab` sources, so `extract_exports` recovers
+/// them from the AST on every (re-)registration — nothing is injected
+/// out-of-band that a re-registration could drop.
 #[allow(clippy::arc_with_non_send_sync)]
 pub fn resolve_builtin_modules(
     registry: &mut crate::module_registry::ModuleRegistry,

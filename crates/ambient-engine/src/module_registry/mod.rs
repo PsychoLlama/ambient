@@ -372,30 +372,6 @@ impl ModuleRegistry {
         }
     }
 
-    /// Add exports to an already-registered module.
-    ///
-    /// Core modules use this to expose their intrinsics: an intrinsic has
-    /// no AST item (it compiles to a dedicated opcode), but it is still an
-    /// item of its module — `use core::primitives::number::sqrt;` must resolve exactly
-    /// like a compiled function would.
-    pub fn add_exports(&mut self, path: &ModulePath, exports: Vec<ExportInfo>) {
-        // Injected exports feed import resolution (the surface a signature's
-        // type names resolve against), so invalidate the ability memo to stay
-        // correctness-first even though today's intrinsics are functions.
-        self.ability_revision += 1;
-        if let Some(info) = self.modules.get_mut(&path.to_string()) {
-            for export in exports {
-                // Declared items win over injected ones: an intrinsic and a
-                // compiled function at the same path prefer the declaration's
-                // spans and docs for tooling. (Execution-side precedence is
-                // the compiler's concern, not the registry's.)
-                info.exports
-                    .entry(Arc::clone(&export.name))
-                    .or_insert(export);
-            }
-        }
-    }
-
     /// Resolve one path segment as a child module of `parent`.
     ///
     /// `None` as the parent means the package root: children are the
