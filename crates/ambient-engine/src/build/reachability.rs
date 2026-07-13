@@ -48,6 +48,212 @@ use uuid::Uuid;
 use crate::ast::{ItemKind, Module};
 use crate::types::Type;
 
+/// The compile-order graph the build loop feeds to
+/// [`compilation_order`](super::pipeline::compilation_order): the resolve-
+/// dependency graph `deps` augmented with **structural** type-directed dispatch
+/// edges, so an orphan trait impl compiles before any module that may dispatch
+/// it.
+///
+/// ## Why the resolve graph is not enough
+///
+/// A cross-module method / operator / associated call links against a
+/// content-addressed `<uuid>::method` dispatch symbol defined in whichever
+/// module wrote the `impl` — which the dispatcher **need not import** (there is
+/// no orphan rule). That reference is resolved by the *checker*, not the resolve
+/// pass, so it never became a `deps` edge. If the impl module happens to sort
+/// after the dispatcher, the symbol is missing at link time (`undefined
+/// function: <uuid>::method`). The core/platform groups avoid this with
+/// [`crate::dispatch_deps`] (edges recovered from *checked* ASTs), but a user
+/// build cannot check every module up front — unreached modules must not be
+/// checked (diagnostics policy) and cache-hit modules should not be re-checked.
+///
+/// ## The structural edge
+///
+/// We recover a **conservative superset** of the real edges from the resolved
+/// (unchecked) ASTs, via the same structural fact [`reachable_module_ids`]
+/// uses: to dispatch an impl for type `T`, reachable code must hold a `T`, so
+/// any dispatcher of that impl transitively resolve-depends on `T`'s defining
+/// module. So for each impl module `I` with a *package* target type declared in
+/// module `Tmod`, every module that transitively depends on `Tmod` gets an edge
+/// to `I` (`dispatcher -> I`, so `I` compiles first). For an impl on a
+/// builtin/prelude type or a blanket impl — which reachable code can hold with
+/// no package dep — every module is a candidate. A superset only over-orders
+/// (spurious edges cost nothing as long as the graph stays acyclic).
+///
+/// ## Cycle policy
+///
+/// Structural edges only *order*; they never enter cycle **diagnostics** (those
+/// stay on `deps` alone — see [`crate::module_cycles`]). A candidate that `I`
+/// itself transitively resolve-depends on is dropped up front: that ordering is
+/// unsatisfiable in a single pass (`I` needs its dep compiled first *and* the
+/// dep needs `I`'s symbol) and would only manufacture a cycle a real dispatch
+/// edge would not. As a final guard, if the augmented graph is cyclic while
+/// `deps` alone is not, the structural edges are discarded wholesale and the
+/// plain resolve order is used — such a program has a genuinely cyclic dispatch
+/// dependency single-pass linking cannot satisfy, and it fails to link exactly
+/// as it did before this pass (never a new false cycle *error*).
+///
+/// `modules` carries each package module's resolved AST keyed by the same string
+/// `deps` uses (its dotted [`ModulePath`](crate::module_path::ModulePath)).
+pub(super) fn dispatch_ordering_graph(
+    deps: &BTreeMap<String, Vec<String>>,
+    modules: &[(String, &Module)],
+) -> BTreeMap<String, Vec<String>> {
+    let extra = structural_dispatch_edges(deps, modules);
+    if extra.is_empty() {
+        return deps.clone();
+    }
+    let mut augmented = deps.clone();
+    for (caller, definers) in &extra {
+        let slot = augmented.entry(caller.clone()).or_default();
+        for definer in definers {
+            if !slot.contains(definer) {
+                slot.push(definer.clone());
+            }
+        }
+    }
+    // `deps` alone is acyclic (the build rejects import cycles before ordering),
+    // so any cycle here was introduced by a structural edge; fall back rather
+    // than order a genuinely-cyclic dispatch dependency arbitrarily.
+    if crate::module_cycles::detect_import_cycles(&augmented).is_empty() {
+        augmented
+    } else {
+        deps.clone()
+    }
+}
+
+/// The structural dispatch ordering edges (`dispatcher -> impl-module`) derived
+/// from resolved ASTs. See [`dispatch_ordering_graph`] for the reasoning and
+/// the cycle policy the caller applies on top.
+fn structural_dispatch_edges(
+    deps: &BTreeMap<String, Vec<String>>,
+    modules: &[(String, &Module)],
+) -> BTreeMap<String, Vec<String>> {
+    // Types each module declares, for resolving an impl's target-type head to
+    // the module(s) that could construct it.
+    let declared: HashMap<&str, Vec<TypeDecl>> = modules
+        .iter()
+        .map(|(id, ast)| (id.as_str(), declared_types(ast)))
+        .collect();
+    let all_keys: BTreeSet<&str> = modules.iter().map(|(id, _)| id.as_str()).collect();
+    // Reverse resolve edges (`dep -> dependents`), for walking from a target
+    // type's module out to every module that transitively depends on it.
+    let mut rev: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (node, node_deps) in deps {
+        for dep in node_deps {
+            if deps.contains_key(dep) {
+                rev.entry(dep.as_str()).or_default().push(node.as_str());
+            }
+        }
+    }
+
+    let mut edges: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (impl_id, ast) in modules {
+        // Anchor the target-type search to this module plus its direct resolve
+        // deps — where any type it names must be defined.
+        let mut scope: Vec<&str> = deps
+            .get(impl_id)
+            .into_iter()
+            .flatten()
+            .map(String::as_str)
+            .collect();
+        scope.push(impl_id.as_str());
+        // Modules this impl module transitively resolve-depends on: forcing the
+        // impl before one of them is unsatisfiable, so such candidates are cut.
+        let impl_deps = forward_closure(deps, impl_id);
+
+        for item in &ast.items {
+            let ItemKind::Impl(imp) = &item.kind else {
+                continue;
+            };
+            let candidates = dispatchers_of(&imp.for_type, &scope, &declared, &rev, &all_keys);
+            for cand in candidates {
+                if cand == *impl_id || impl_deps.contains(&cand) {
+                    continue;
+                }
+                let slot = edges.entry(cand).or_default();
+                if !slot.contains(impl_id) {
+                    slot.push(impl_id.clone());
+                }
+            }
+        }
+    }
+    edges
+}
+
+/// The candidate dispatcher modules for one impl block's target type: every
+/// module that can hold a value of that type. For a *package* target type, that
+/// is the modules transitively depending on the type's module (walking `rev`);
+/// for a builtin/prelude type or a blanket/param impl, any module qualifies.
+fn dispatchers_of(
+    for_type: &Type,
+    scope: &[&str],
+    declared: &HashMap<&str, Vec<TypeDecl>>,
+    rev: &HashMap<&str, Vec<&str>>,
+    all_keys: &BTreeSet<&str>,
+) -> BTreeSet<String> {
+    let Some((head_name, head_uuid)) = type_head(for_type) else {
+        // A blanket/param impl (`impl<T> Show for T`) dispatches on any type.
+        return all_keys.iter().map(|k| (*k).to_string()).collect();
+    };
+    let anchors: Vec<&str> = scope
+        .iter()
+        .copied()
+        .filter(|d| {
+            declared.get(d).is_some_and(|types| {
+                types
+                    .iter()
+                    .any(|t| type_matches(t, head_name.as_ref(), head_uuid))
+            })
+        })
+        .collect();
+    if anchors.is_empty() {
+        // The target type is not a package type — a builtin/prelude type that
+        // reachable code can hold with no dependency edge, so any module could
+        // dispatch this impl.
+        return all_keys.iter().map(|k| (*k).to_string()).collect();
+    }
+    let mut out = BTreeSet::new();
+    for anchor in anchors {
+        reverse_reachable(rev, anchor, &mut out);
+    }
+    out
+}
+
+/// Every package module `start` transitively resolve-depends on (excluding
+/// `start`). Non-node targets (core/platform) are ignored.
+fn forward_closure(deps: &BTreeMap<String, Vec<String>>, start: &str) -> BTreeSet<String> {
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut stack: Vec<&str> = deps
+        .get(start)
+        .into_iter()
+        .flatten()
+        .map(String::as_str)
+        .collect();
+    while let Some(node) = stack.pop() {
+        if !deps.contains_key(node) || !seen.insert(node.to_string()) {
+            continue;
+        }
+        stack.extend(deps.get(node).into_iter().flatten().map(String::as_str));
+    }
+    seen
+}
+
+/// Every module that transitively depends on `target` (its ancestors in the
+/// resolve graph), accumulated into `out`. `target` itself is excluded.
+fn reverse_reachable(rev: &HashMap<&str, Vec<&str>>, target: &str, out: &mut BTreeSet<String>) {
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    let mut stack = vec![target];
+    while let Some(node) = stack.pop() {
+        for &parent in rev.get(node).into_iter().flatten() {
+            if seen.insert(parent) {
+                out.insert(parent.to_string());
+                stack.push(parent);
+            }
+        }
+    }
+}
+
 /// A resolved package module the reachability pass reads: its canonical module
 /// identity (matching the `dep_ids` keys) and its resolved AST.
 pub(super) struct PackageModule<'a> {

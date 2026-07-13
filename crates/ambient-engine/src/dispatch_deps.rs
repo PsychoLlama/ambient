@@ -14,15 +14,24 @@
 //! definer, the symbol is missing from the linking table, and the call fails
 //! to link (`undefined function: <uuid>::method`).
 //!
-//! For user modules this never bites: a foreign type is always named by a
-//! qualified path or a `use` (both are dependency edges, see
-//! [`crate::resolve`]), and the whole core library is compiled before any
-//! user module. It bites *within* a single compile group — the core library,
-//! the platform interface — where prelude/built-in types (`Number`, `List`)
-//! are referenced bare, which by design adds no dependency edge (a bare type
-//! reference must not manufacture compile-order cycles; see
-//! `resolve::types`). This module recovers exactly the edges a type-directed
-//! dispatch needs, from the checked ASTs, so the definer compiles first.
+//! This module recovers exactly the edges a type-directed dispatch needs, from
+//! the checked ASTs, so the definer compiles first. It runs for the **core
+//! library and the platform interface** groups, whose modules are all checked
+//! up front (a group cache-hits or misses as one unit, so nothing is lost by
+//! checking every member).
+//!
+//! It does *not* run for user package builds, which check per-module inside the
+//! compile loop (so a lazy `ambient run` never checks an unreachable module and
+//! a cache hit never re-checks): those recover a **structural** over-
+//! approximation of the same edge from the resolved (unchecked) ASTs instead —
+//! see [`crate::build`]'s reachability pass (`dispatch_ordering_graph`).
+//!
+//! An earlier version of this note claimed the user case "never bites" because
+//! a foreign type is always named by a `use` or qualified path (a dependency
+//! edge). That reasoned about the *type's* module, not the *impl's*: with no
+//! orphan rule, `impl Trait for T` can live in a module the dispatcher never
+//! imports, so no `use` edge orders the impl before the dispatch. Such a
+//! program linked only by alphabetical luck until the structural edge above.
 
 use std::collections::HashMap;
 use std::sync::Arc;

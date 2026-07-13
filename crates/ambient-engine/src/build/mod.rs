@@ -450,7 +450,17 @@ pub fn build_package(
     // in a full build, keeping its objects byte-identical. Unreached modules
     // are never checked, so their diagnostics are (by policy) not reported by
     // `run`. See [`reachability`] and `ref/modules.md`.
-    let full_order = pipeline::compilation_order(&deps);
+    // Order by resolve deps *plus* structural type-directed dispatch edges, so
+    // an orphan trait impl compiles before any module that dispatches it — even
+    // one the dispatcher never imports and that sorts after it alphabetically.
+    // See [`reachability::dispatch_ordering_graph`] (cycle-guarded; falls back
+    // to the plain resolve order rather than order a cyclic dispatch dep).
+    let ordering_modules: Vec<(String, &crate::ast::Module)> = pkg
+        .all_modules()
+        .map(|m| (m.path.to_string(), &m.ast))
+        .collect();
+    let ordering_graph = reachability::dispatch_ordering_graph(&deps, &ordering_modules);
+    let full_order = pipeline::compilation_order(&ordering_graph);
     let reachable = options.entry.and_then(|entry| {
         let modules: Vec<reachability::PackageModule<'_>> = pkg
             .all_modules()

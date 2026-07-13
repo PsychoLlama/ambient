@@ -177,6 +177,90 @@ fn lazy_run_pulls_in_a_trait_impl_the_entry_never_imports() {
 }
 
 #[test]
+fn orphan_impl_links_when_impl_module_sorts_after_the_dispatcher() {
+    // The orphan impl lives in `zebra.ab`; the dispatch site is in `main.ab`.
+    // `main` never imports `zebra`, and `zebra` sorts *after* `main`
+    // alphabetically — so a resolve-deps-only compile order puts `main` first
+    // and its `w.describe()` fails to link against `zebra`'s dispatch symbol.
+    // The structural dispatch-ordering edge must force `zebra` to compile first.
+    let files: &[(&str, &str)] = &[
+        (
+            "common.ab",
+            "pub unique(DEADBEEF-0000-0000-0000-0000000000AA) struct Widget { size: Number }\n\
+             pub unique(DEADBEEF-0000-0000-0000-0000000000AB) trait Describe { fn describe(self): Number; }\n",
+        ),
+        (
+            "main.ab",
+            "use pkg::common::Widget;\n\
+             use pkg::common::Describe;\n\
+             pub fn run(): Number { let w = Widget { size: 5 }; w.describe() }\n",
+        ),
+        (
+            "zebra.ab",
+            "use pkg::common::Widget;\n\
+             use pkg::common::Describe;\n\
+             impl Describe for Widget { fn describe(self): Number { 10 + self.size } }\n",
+        ),
+    ];
+
+    // Whole-package build: must link `apple` against `zebra`'s orphan impl.
+    let full = build(files, None).expect("full build must link the orphan impl");
+    assert_eq!(package_modules(&full).len(), 3);
+
+    // Lazy build reaches all three (the impl is pulled in via `Widget`).
+    let lazy = build(files, Some("run")).expect("lazy build must link the orphan impl");
+    assert_eq!(package_modules(&lazy), package_modules(&full));
+    for id in package_modules(&lazy) {
+        assert_eq!(
+            lazy.module_outputs[&id].objects,
+            full.module_outputs[&id].objects
+        );
+    }
+}
+
+#[test]
+fn ambient_run_executes_orphan_impl_module_sorted_after_dispatcher() {
+    // End-to-end: the run result (15 = 10 + size 5) proves the dispatch reached
+    // `zebra`'s impl even though `zebra` sorts after the dispatching `main`.
+    let dir = TempDir::new().expect("temp");
+    write_pkg(
+        dir.path(),
+        &[
+            (
+                "common.ab",
+                "pub unique(CAFE0000-0000-0000-0000-0000000000AA) struct Widget { size: Number }\n\
+                 pub unique(CAFE0000-0000-0000-0000-0000000000AB) trait Describe { fn describe(self): Number; }\n",
+            ),
+            (
+                "main.ab",
+                "use pkg::common::Widget;\n\
+                 use pkg::common::Describe;\n\
+                 pub fn run(): Number { let w = Widget { size: 5 }; w.describe() }\n",
+            ),
+            (
+                "zebra.ab",
+                "use pkg::common::Widget;\n\
+                 use pkg::common::Describe;\n\
+                 impl Describe for Widget { fn describe(self): Number { 10 + self.size } }\n",
+            ),
+        ],
+    );
+
+    let out = Command::new(ambient_bin())
+        .arg("run")
+        .arg(dir.path())
+        .output()
+        .expect("spawn ambient run");
+    assert!(
+        out.status.success(),
+        "ambient run failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("15"), "expected result 15, got: {stdout}");
+}
+
+#[test]
 fn lazy_run_ignores_a_type_error_in_an_unreachable_module() {
     // `main` is valid; `broken` (imported by nobody) has a type error.
     let files: &[(&str, &str)] = &[
