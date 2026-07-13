@@ -134,6 +134,28 @@ pub fn import_cycle_containing(
         .find(|cycle| cycle.members().contains(&current_key))
 }
 
+/// Map every module that participates in a cycle to the canonical cycle it is
+/// in, from a prebuilt dependency graph (`module_path_string` keys, edges to
+/// same-package modules only — the same shape [`detect_import_cycles`] takes).
+///
+/// This is the batch form the incremental analysis session uses: it computes
+/// the whole package's cycle set **once per registry revision** from dependency
+/// edges it already has (no per-module re-resolve), replacing the O(modules²)
+/// [`import_cycle_containing`] loop. A module absent from the result is in no
+/// cycle. Every member of one cycle maps to the *same* [`ImportCycle`], so each
+/// participating file renders byte-identical text — exactly as
+/// [`import_cycle_containing`] would report it per module.
+#[must_use]
+pub fn cycles_by_member(deps: &BTreeMap<String, Vec<String>>) -> BTreeMap<String, ImportCycle> {
+    let mut out = BTreeMap::new();
+    for cycle in detect_import_cycles(deps) {
+        for member in cycle.members() {
+            out.insert(member.clone(), cycle.clone());
+        }
+    }
+    out
+}
+
 /// A directed graph over module keys, indexed by dense node ids for the SCC
 /// pass. Only intra-graph edges (targets that are themselves nodes) are kept.
 struct Graph {
@@ -388,6 +410,30 @@ mod tests {
         assert_eq!(cycles.len(), 1);
         // Shortest cycle through `a` is a -> b -> a.
         assert_eq!(cycles[0].members(), &["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn cycles_by_member_maps_every_participant_to_its_cycle() {
+        // Two disjoint cycles plus an acyclic module: each cyclic member maps
+        // to its own cycle; the acyclic module is absent.
+        let deps = graph(&[
+            ("a", &["b"]),
+            ("b", &["a"]),
+            ("x", &["y"]),
+            ("y", &["x"]),
+            ("free", &["a"]),
+        ]);
+        let by_member = cycles_by_member(&deps);
+        assert_eq!(by_member.len(), 4);
+        assert_eq!(by_member["a"], by_member["b"]);
+        assert_eq!(by_member["x"], by_member["y"]);
+        assert_ne!(by_member["a"], by_member["x"]);
+        assert!(!by_member.contains_key("free"));
+        // The mapped cycle is the same one `detect_import_cycles` reports.
+        assert_eq!(
+            by_member["a"].members(),
+            &["a".to_string(), "b".to_string()]
+        );
     }
 
     #[test]

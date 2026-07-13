@@ -27,7 +27,7 @@ use crate::module_path::ModulePath;
 use crate::module_registry::ModuleRegistry;
 use crate::package::Package;
 
-pub use cache::CacheMode;
+pub use cache::{CacheMode, module_cache_key};
 pub use pipeline::{
     compile_core_modules, compile_declaration_modules, compile_session_module,
     discover_module_paths, linking_table,
@@ -495,7 +495,10 @@ pub fn build_package(
 /// A package module's sorted `(dependency id, interface hash)` list, for its
 /// cache key. Returns `None` if any dependency has no interface summary (which
 /// would make the key unstable) — the module then can never hit.
-fn dep_interface_hashes(
+///
+/// Public so the analysis pipeline keys its check memo from the identical
+/// derivation (see [`module_cache_key`]).
+pub fn dep_interface_hashes(
     dep_ids: &BTreeMap<String, Vec<String>>,
     module_id: &str,
     interfaces: &BTreeMap<String, crate::module_interface::ModuleInterfaceSummary>,

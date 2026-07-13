@@ -262,7 +262,14 @@ pub(super) fn core_cache_key(
 }
 
 /// A package module's cache key. `deps` must be sorted by identity.
-pub(super) fn module_cache_key(
+///
+/// Shared with the analysis pipeline (`ambient-analysis`), which keys its
+/// per-module check memo on the same discipline so a warm editor analysis is
+/// byte-identical to a cold one. Analysis passes a zero `natives_contract_hash`
+/// (diagnostics never consume a native's content identity — `extern fn`
+/// signatures live in the AST), but reuses the exact fold so the two never
+/// drift.
+pub fn module_cache_key(
     resolved_ast_hash: [u8; 32],
     natives_contract_hash: [u8; 32],
     dispatch_surface_hash: [u8; 32],
