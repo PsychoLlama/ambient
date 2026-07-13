@@ -14,7 +14,6 @@ pub mod ability_resolver;
 pub mod ast;
 pub mod build;
 pub mod bytecode;
-pub mod compilation_cache;
 pub mod compiler;
 mod const_eval;
 pub mod core_library;
