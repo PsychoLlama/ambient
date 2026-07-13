@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::ast::Module;
@@ -23,8 +23,8 @@ use super::{BuildError, ModuleBuildOutput, ParseFn};
 pub(super) fn load_all_modules(pkg: &mut Package, parse: ParseFn) -> Result<(), BuildError> {
     let mut paths = discover_module_paths(&pkg.src_path())
         .map_err(|e| BuildError::PackageOpen(format!("failed to scan src: {e}")))?;
-    paths.sort_by_key(ToString::to_string);
-    for module_path in paths {
+    paths.sort_by_key(|(module_path, _)| module_path.to_string());
+    for (module_path, relative) in paths {
         if module_path.collides_with_reserved_root() {
             return Err(BuildError::PackageOpen(format!(
                 "module `{module_path}` collides with the reserved `{}` namespace; rename the file",
@@ -34,19 +34,21 @@ pub(super) fn load_all_modules(pkg: &mut Package, parse: ParseFn) -> Result<(), 
         if pkg.is_loaded(&module_path) {
             continue;
         }
-        let loaded = load_module(pkg, &module_path, parse)?;
+        let loaded = load_module(pkg, &module_path, &relative, parse)?;
         pkg.add_module(loaded);
     }
     Ok(())
 }
 
-/// Every module path under a source directory: each `.ab` file, mapped
-/// through the canonical file↔module mapping.
+/// Every module under a source directory: its canonical [`ModulePath`] paired
+/// with the real `src/`-relative file path it was discovered at. The file path
+/// is authoritative because [`ModulePath::to_file_path`] can't reconstruct a
+/// directory module's `<dir>/main.ab` — it collapses to `<dir>.ab`.
 ///
 /// # Errors
 ///
 /// Returns an error if the directory tree cannot be read.
-pub fn discover_module_paths(src: &Path) -> std::io::Result<Vec<ModulePath>> {
+pub fn discover_module_paths(src: &Path) -> std::io::Result<Vec<(ModulePath, PathBuf)>> {
     let mut found = Vec::new();
     let mut stack = vec![src.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -59,7 +61,7 @@ pub fn discover_module_paths(src: &Path) -> std::io::Result<Vec<ModulePath>> {
                 && let Ok(relative) = path.strip_prefix(src)
                 && let Some(module_path) = ModulePath::from_relative_file_path(relative)
             {
-                found.push(module_path);
+                found.push((module_path, relative.to_path_buf()));
             }
         }
     }
@@ -417,20 +419,22 @@ pub(super) fn compile_module_group(
     Ok(merged)
 }
 
-/// Load a single module from a package.
+/// Load a single module from a package, reading from the real `src/`-relative
+/// path it was discovered at (`relative`) — not a path reconstructed from the
+/// module path, which would collapse a directory module's `<dir>/main.ab` to a
+/// nonexistent `<dir>.ab`.
 fn load_module(
     pkg: &Package,
     path: &ModulePath,
+    relative: &Path,
     parse: ParseFn,
 ) -> Result<LoadedModule, BuildError> {
-    let source = pkg
-        .read_module_source(path)
-        .map_err(|e| BuildError::Compile {
-            module: path.to_string(),
-            error: format!("failed to read source: {e}"),
-        })?;
+    let file_path = pkg.src_path().join(relative);
+    let source = fs::read_to_string(&file_path).map_err(|e| BuildError::Compile {
+        module: path.to_string(),
+        error: format!("failed to read source: {e}"),
+    })?;
 
-    let file_path = pkg.module_file_path(path);
     let ast = parse(&source).map_err(|error| BuildError::Parse {
         module: path.to_string(),
         path: file_path,
@@ -438,10 +442,15 @@ fn load_module(
         error: Box::new(error),
     })?;
 
+    // Record the real path (forward-slashed, `src/`-relative) so the snapshot
+    // manifest and any source correlation resolve a directory module to its
+    // actual `<dir>/main.ab`.
+    let source_path = Some(relative.to_string_lossy().replace('\\', "/"));
     Ok(LoadedModule {
         path: path.clone(),
         source,
         ast,
+        source_path,
     })
 }
 

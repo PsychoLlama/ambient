@@ -52,6 +52,14 @@ pub struct LoadedModule {
     pub source: String,
     /// The parsed AST.
     pub ast: Module,
+    /// The module's real on-disk source path, relative to the package `src/`
+    /// directory (`shapes/main.ab`), when loaded from disk. `None` for an
+    /// in-memory module with no backing file. This is the authority on a
+    /// directory module's `<dir>/main.ab` layout — the canonical
+    /// [`ModulePath::to_file_path`] reconstruction collapses to the wrong
+    /// `<dir>.ab` — so it is both what the loader reads and what
+    /// [`crate::module_interface::module_source_path`] records in the snapshot.
+    pub source_path: Option<String>,
 }
 
 /// A package with lazily-loaded modules.
@@ -353,6 +361,7 @@ version = "0.1.0"
                 doc: None,
                 items: vec![],
             },
+            source_path: None,
         };
         pkg.add_module(loaded);
 

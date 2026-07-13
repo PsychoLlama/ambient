@@ -377,6 +377,13 @@ pub fn build_package(
     // ── Package modules: register raw, resolve, re-register resolved. ──
     for module in pkg.all_modules() {
         registry.register(&module.path, Arc::new(module.ast.clone()));
+        // Record the real on-disk path so the snapshot manifest resolves a
+        // directory module to its `<dir>/main.ab` rather than reconstructing a
+        // nonexistent `<dir>.ab`. `register` preserves it across the resolved
+        // re-registration below, so it only needs setting once.
+        if let Some(source_path) = &module.source_path {
+            registry.set_source_path(&module.path, source_path.clone());
+        }
     }
     let mut deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut paths_by_key: BTreeMap<String, ModulePath> = BTreeMap::new();
@@ -670,7 +677,13 @@ fn compile_package_module(
     let module = pkg
         .get_module(module_path)
         .ok_or_else(|| BuildError::PackageOpen(format!("module not found: {module_path}")))?;
-    let file_path = pkg.module_file_path(module_path);
+    // Prefer the real discovered path (a directory module's `<dir>/main.ab`)
+    // for diagnostics; fall back to the canonical reconstruction only for a
+    // module with no recorded on-disk path.
+    let file_path = module.source_path.as_ref().map_or_else(
+        || pkg.module_file_path(module_path),
+        |sp| pkg.src_path().join(sp),
+    );
     pipeline::compile_loaded_module_with_registry(
         module,
         &file_path,

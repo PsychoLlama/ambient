@@ -99,6 +99,43 @@ fn manifest_covers_core_platform_and_user_modules() {
     );
 }
 
+/// A directory module (`<dir>/main.ab`) records its real on-disk path in the
+/// manifest, not the `<dir>.ab` the canonical file↔module reconstruction would
+/// produce. (It also has to *build* — reading through the reconstructed path
+/// couldn't find `<dir>/main.ab` at all.)
+#[test]
+fn directory_module_records_its_main_ab_source_path() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(
+        dir.path().join("ambient.toml"),
+        "[package]\nname = \"dirmod\"\nversion = \"0.1.0\"\n",
+    )
+    .expect("manifest");
+    let src = dir.path().join("src");
+    fs::create_dir_all(src.join("shapes")).expect("src/shapes");
+    fs::write(
+        src.join("main.ab"),
+        "pub fn run(): Number { pkg::shapes::area() }\n",
+    )
+    .expect("main");
+    fs::write(
+        src.join("shapes").join("main.ab"),
+        "pub fn area(): Number { 42 }\n",
+    )
+    .expect("shapes/main.ab");
+
+    let manifest = manifest_of(&dir);
+    let shapes = manifest
+        .modules
+        .iter()
+        .find(|m| m.module == "workspace::dirmod::shapes")
+        .expect("shapes directory module present");
+    assert_eq!(
+        shapes.source_path, "shapes/main.ab",
+        "directory module records its real main.ab path, not a reconstructed shapes.ab"
+    );
+}
+
 #[test]
 fn run_records_a_snapshot_the_store_can_load() {
     let dir = package();
