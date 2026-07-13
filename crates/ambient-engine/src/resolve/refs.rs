@@ -229,13 +229,18 @@ impl Resolver<'_> {
     ///
     /// Tightly gated: the prefix minus the enum segment must name a module
     /// that publicly exports an enum of that name whose variants include
-    /// the final ident. An empty prefix (`Enum::Variant`, `Money::default`)
-    /// never qualifies — it is an associated path the checker owns.
+    /// the final ident. An empty prefix (`Enum::Variant`) names an enum in
+    /// the current scope — a local declaration or an imported enum — and is
+    /// handled by [`Self::resolve_scoped_enum_variant`]; a `Type::method`
+    /// path (whose head is a struct/trait, not an enum) is left `resolved`
+    /// `None` for the checker's associated-path handling.
     fn resolve_explicit_enum_variant(&mut self, name: &mut QualifiedName) {
         let Some((enum_seg, prefix)) = name.path.split_last() else {
             return;
         };
         if prefix.is_empty() {
+            let enum_seg = Arc::clone(enum_seg);
+            self.resolve_scoped_enum_variant(&enum_seg, name);
             return;
         }
         let Some(target) = self.resolve_module_prefix(prefix) else {
@@ -253,6 +258,36 @@ impl Resolver<'_> {
         }
         let variant = Arc::clone(&name.name);
         name.resolved = Some(self.canonical(&origin, vec![enum_name, variant]));
+    }
+
+    /// Resolve the `Enum::Variant` spelling where `Enum` names an enum in
+    /// the current scope — a local declaration or one brought in by `use`.
+    ///
+    /// Lands on the same canonical two-segment ident `Fqn(enum_module,
+    /// [Enum, Variant])` as the module-qualified (`m::Enum::Variant`) and
+    /// bare spellings, so the checker and compiler resolve it by identity,
+    /// never by a bare-name reverse lookup that a same-named local variant
+    /// could hijack. Leaves `resolved` `None` when `enum_seg` is not an enum
+    /// carrying variant `name` (e.g. the associated path `Money::default`),
+    /// which the checker owns.
+    fn resolve_scoped_enum_variant(&mut self, enum_seg: &Arc<str>, name: &mut QualifiedName) {
+        // A local enum resolves into the current module.
+        if self.enum_has_variant(self.current, enum_seg, &name.name) {
+            let current = self.current;
+            let ident = vec![Arc::clone(enum_seg), Arc::clone(&name.name)];
+            name.resolved = Some(self.canonical(current, ident));
+            return;
+        }
+        // An imported enum resolves into its defining module.
+        if let Some(import) = self.scope_item(enum_seg, Namespace::Type)
+            && import.kind == ExportKind::Enum
+        {
+            let (module, enum_name) = (import.module.clone(), import.name.clone());
+            if self.enum_has_variant(&module, &enum_name, &name.name) {
+                let ident = vec![enum_name, Arc::clone(&name.name)];
+                name.resolved = Some(self.canonical(&module, ident));
+            }
+        }
     }
 
     /// Whether `module` declares an enum named `enum_name` that has a
