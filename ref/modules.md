@@ -124,6 +124,70 @@ own ordering; cycle detection is scoped to a single package's modules,
 which is where a cross-module cycle can arise (no `core`/`platform` module
 can import user code).
 
+## Lazy compilation (module-level reachability)
+
+`ambient run` compiles only the package modules **reachable** from its entry
+point; a module the entry can't reach is never checked or compiled. Every
+other frontend stays whole-package: `ambient check` and the LSP diagnose the
+entire package, `ambient compile` emits a whole-package artifact, and
+`ambient dev` builds every module (its deploy diff needs every module's
+bindings, and it is a snapshot writer — see below). The reachability decision
+lives in `crates/ambient-engine/src/build/reachability.rs`, gated by
+`BuildOptions::entry` (only `ambient run` sets it, via `build_reachable`).
+
+**The reachability rule.** Starting from the module(s) declaring the entry
+function, a module is reachable if it is in the transitive closure of two
+edge kinds:
+
+1. **Resolve-pass dependencies** (the forward graph: `use`, inline qualified
+   paths, enum-variant construction, foreign consts, ability performs, and
+   ability default-implementation bodies — the resolve pass walks those like
+   any function body). This alone covers abilities end to end: you cannot
+   perform an ability without a dependency on its module, and that module's
+   default-impl body carries its own dependencies.
+2. **Trait/inherent-impl dispatch** (the coherence channel). A `x.method()`,
+   `a + b` on a nominal type, or `Type::assoc(..)` links a content-addressed
+   `<type-uuid>::<trait-uuid>::method` symbol defined in whichever module
+   wrote the `impl` — and there is **no orphan rule**, so that module need not
+   be imported by the dispatcher (an `impl Show for Widget` can live in a
+   third module). We cannot read the checker's dispatch symbols without
+   type-checking (which the policy forbids for unreachable modules), so we
+   recover the edge structurally: to dispatch an impl for a type `T`,
+   reachable code must hold a `T` value, so `T`'s defining module is always
+   reachable — therefore every impl-defining module is made reachable **from
+   its impl's target-type module** (a reverse edge). When the target type is a
+   builtin/prelude type (or the impl is a blanket/param impl), reachable code
+   can hold the value with no package dependency, so we cannot prove the impl
+   unreachable and include the module **unconditionally**.
+
+This is a sound over-approximation: spurious inclusion only costs compile
+time, never correctness. It is module-grain, not item/FQN-grain — a reachable
+module compiles whole (the checker's intra-module monomorphic coupling blocks
+finer laziness). A reached module's objects are **byte-identical** to a
+whole-package build's, because the lazy pass filters the whole-package compile
+order rather than recomputing it, so each reached module compiles in the same
+relative order and against the same accumulated linking state.
+
+**Diagnostics policy.** `ambient run` does **not** report diagnostics in
+unreachable modules — a type error, import error, or coherence conflict in a
+module the entry can't reach never fails a run (that module is never checked).
+`ambient check` and the LSP are whole-package and report them. The rule: if a
+program's behavior depends on a module, that module is reachable and is
+checked; a module nothing reachable observes is the compiler's business only
+when you ask for a full check.
+
+**Snapshot semantics.** A lazy build **reads** the package-local store (warm
+cache hits still apply to reached modules) but writes **no** snapshot. This is
+the simplest sound choice for a partial build: a lazy build never records the
+unreached modules, so persisting its manifest would either strand ghost
+records or, if the manifest were marked partial, mislead `ambient store diff`
+(which computes removals) and the store gc (whose roots are a snapshot's
+referenced objects). The snapshot writers are the whole-package commands
+(`ambient compile`, `ambient dev`); a lazy `ambient run` fully exploits a
+snapshot they left but can never corrupt one. The trade-off — a run-only loop
+doesn't warm the store from `run` itself — is acceptable and reversible: a
+future step could carry a prior snapshot's unreached records forward.
+
 Core modules (`core::collections::list`, `core::primitives::number`,
 `core::primitives::string`) are ordinary Ambient modules — compiled,
 content-addressed, and stored exactly like user code (see
