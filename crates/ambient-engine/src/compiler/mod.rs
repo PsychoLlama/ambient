@@ -44,15 +44,18 @@ mod hash;
 mod lambdas;
 mod module_output;
 mod patterns;
+mod prelink;
 
+pub use assemble::{AbilityMethodCheck, AssembleInputs, assemble_module};
 pub use context::VariantInfo;
 pub use entry::{
-    CompileOptions, compile_module, compile_module_with_imports,
+    CompileOptions, compile_module, compile_module_capturing, compile_module_with_imports,
     compile_module_with_imports_and_source, compile_module_with_options,
     compile_module_with_source,
 };
 pub use error::{CompileError, CompileErrorKind};
 pub use module_output::{CompiledModule, MigrationRecord};
+pub use prelink::{PrelinkError, PrelinkModule};
 
 // Re-exports for sibling submodules (`use super::…`).
 use context::{FunctionCompiler, ModuleContext};

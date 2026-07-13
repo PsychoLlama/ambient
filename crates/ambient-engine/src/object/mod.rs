@@ -573,6 +573,22 @@ pub fn function_from_compiled(
     })
 }
 
+/// Reconstruct a [`CompiledFunction`] from a plain object function, tagging
+/// it with `hash`. Every reference must be external — the pre-link symbolic
+/// form the relink cache persists has no group-internal indices — so an
+/// internal ref is a decode error. `debug_info` is dropped (never part of a
+/// function's identity), exactly as a store-loaded function drops it.
+///
+/// # Errors
+///
+/// Returns [`ObjectError::InternalRefOutOfRange`] if a reference is internal.
+pub fn compiled_from_object_function(
+    func: &ObjectFunction,
+    hash: blake3::Hash,
+) -> Result<CompiledFunction, ObjectError> {
+    to_compiled(func, hash, &|_| None)
+}
+
 /// Reconstruct a runnable function from an object body.
 fn to_compiled(
     func: &ObjectFunction,

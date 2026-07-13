@@ -4,12 +4,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::assemble::{AbilityMethodCheck, AssembleInputs, assemble_module};
+use super::assemble::{AbilityMethodCheck, assemble_module};
 use super::context::{FunctionCompiler, ModuleContext};
 use super::error::{CompileError, CompileErrorKind};
 use super::expr::compile_expr_tail;
 use super::hash::{compute_temporary_hash, finalize_const_values};
 use super::module_output::CompiledModule;
+use super::prelink::{PrelinkFn, PrelinkLambda, PrelinkModule};
 use crate::ast::{AbilityDef, AbilityMethod, FunctionDef, ImplDef, ImplMethod, ItemKind, Module};
 use crate::bytecode::{CompiledFunction, Opcode};
 use crate::fqn::{Fqn, ModuleId, NameKey};
@@ -74,7 +75,7 @@ pub struct CompileOptions<'a> {
 ///
 /// Returns a `CompileError` if compilation fails.
 pub fn compile_module(module: &Module) -> Result<CompiledModule, CompileError> {
-    compile_module_impl(module, CompileOptions::default())
+    compile_module_impl(module, CompileOptions::default()).map(|(m, _)| m)
 }
 
 /// Compile a module with explicit [`CompileOptions`].
@@ -86,7 +87,7 @@ pub fn compile_module_with_options(
     module: &Module,
     options: CompileOptions,
 ) -> Result<CompiledModule, CompileError> {
-    compile_module_impl(module, options)
+    compile_module_impl(module, options).map(|(m, _)| m)
 }
 
 /// Compile a module with imported function references.
@@ -114,6 +115,7 @@ pub fn compile_module_with_imports(
             ..CompileOptions::default()
         },
     )
+    .map(|(m, _)| m)
 }
 
 /// Compile a module to bytecode with debug information.
@@ -143,6 +145,7 @@ pub fn compile_module_with_source(
             ..CompileOptions::default()
         },
     )
+    .map(|(m, _)| m)
 }
 
 /// Compile a module with imported function references and debug information.
@@ -175,6 +178,7 @@ pub fn compile_module_with_imports_and_source(
             ..CompileOptions::default()
         },
     )
+    .map(|(m, _)| m)
 }
 
 /// The lookup key for one of the current module's own items (function,
@@ -187,12 +191,26 @@ pub(super) fn own_item_key(module_id: Option<&ModuleId>, name: &Arc<str>) -> Nam
     }
 }
 
+/// Compile a module, returning both the finished module and its pre-link
+/// symbolic form (the relink fast path's persisted input). The ordinary
+/// `compile_module*` entry points discard the second element.
+///
+/// # Errors
+///
+/// Returns a `CompileError` if compilation fails.
+pub fn compile_module_capturing(
+    module: &Module,
+    options: CompileOptions,
+) -> Result<(CompiledModule, PrelinkModule), CompileError> {
+    compile_module_impl(module, options)
+}
+
 /// Implementation of module compilation with optional debug info.
 #[allow(clippy::too_many_lines)]
 fn compile_module_impl(
     module: &Module,
     options: CompileOptions,
-) -> Result<CompiledModule, CompileError> {
+) -> Result<(CompiledModule, PrelinkModule), CompileError> {
     let CompileOptions {
         source,
         source_file,
@@ -474,25 +492,41 @@ fn compile_module_impl(
         })
         .collect();
 
-    // Phase 3: Compute content-addressed hashes and fold the module together.
-    // The symbolic form here is exactly what the relink fast path persists and
-    // replays; keeping one `assemble_module` authority is what makes a warm
-    // relink byte-identical to this cold compile.
-    let inputs = AssembleInputs {
-        compiled_functions,
-        lambdas,
+    // Phase 3: capture the pre-link symbolic form, then fold the module
+    // together from it. The symbolic form is exactly what the relink fast path
+    // persists and replays; assembling *through* it here (rather than beside
+    // it) guarantees the cold and warm paths share one `assemble_module`
+    // authority and can never drift.
+    let prelink = PrelinkModule::from_compile(
+        compiled_functions
+            .into_iter()
+            .map(|(name, func, is_main)| PrelinkFn {
+                name,
+                is_main,
+                func,
+            })
+            .collect(),
+        lambdas
+            .into_iter()
+            .map(|(temp_hash, parent, func)| PrelinkLambda {
+                temp_hash,
+                parent,
+                func,
+            })
+            .collect(),
         ability_impl_group_names,
-        const_objects: const_objects
+        const_objects
             .into_values()
             .chain(block_const_objects.into_values())
             .collect(),
-        const_names: const_names.into_iter().collect(),
-        native_objects: native_objects.into_values().collect(),
-        native_names: native_names.into_iter().collect(),
+        const_names,
+        native_objects.into_values().collect(),
+        native_names,
         migrations,
         ability_checks,
-    };
-    assemble_module(inputs)
+    );
+    let module = assemble_module(prelink.to_assemble_inputs())?;
+    Ok((module, prelink))
 }
 
 /// Allocate the hidden trailing dictionary parameters a bounded item takes:
