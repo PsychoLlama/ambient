@@ -191,6 +191,22 @@ impl AnalysisPackage {
         registry
     }
 
+    /// The content-keyed interface of every module in the package, computed
+    /// from the resolved registry — the same derivation `build_package` runs
+    /// (the decision logic lives once in the engine's
+    /// [`module_interface`](ambient_engine::module_interface)). Keyed by the
+    /// module's canonical identity string. Phase 4 of incremental
+    /// compilation will consume this to key an editor-side cache; today it is
+    /// an additive accessor with no other consumer.
+    #[must_use]
+    pub fn module_interfaces(
+        &self,
+    ) -> std::collections::BTreeMap<String, ambient_engine::module_interface::ModuleInterfaceSummary>
+    {
+        let registry = self.build_registry();
+        ambient_engine::module_interface::build_interfaces(&registry)
+    }
+
     /// Analyze every module in the package against a shared registry.
     ///
     /// Returns results keyed by module path string, in no particular

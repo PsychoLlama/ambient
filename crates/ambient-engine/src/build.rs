@@ -78,6 +78,15 @@ pub struct BuildResult {
     /// package). Consumers that compile *additional* modules against this
     /// build — the REPL, notably — pass it as `imported_hashes`.
     pub link_table: HashMap<NameKey, blake3::Hash>,
+    /// The content-keyed interface of every registered module (core,
+    /// platform, and package), keyed by the module's canonical identity
+    /// string. Phase 1 of incremental compilation: computed from the
+    /// resolved ASTs, not persisted (persistence is Phase 2). Purely
+    /// additive — nothing in the compile pipeline reads it yet.
+    pub interfaces: BTreeMap<String, crate::module_interface::ModuleInterfaceSummary>,
+    /// The build-global dispatch-surface hash: a fold of every module's
+    /// impl + ability sections (the coherence/dispatch channel).
+    pub dispatch_surface_hash: blake3::Hash,
 }
 
 /// Error during package building.
@@ -158,7 +167,7 @@ impl std::error::Error for BuildError {}
 /// - A module fails to parse
 /// - Type checking fails
 /// - Compilation fails
-#[allow(clippy::arc_with_non_send_sync)]
+#[allow(clippy::arc_with_non_send_sync, clippy::too_many_lines)]
 pub fn build_package(
     path: &Path,
     parse: ParseFn,
@@ -324,11 +333,21 @@ pub fn build_package(
         all_compiled.merge(&compiled);
     }
 
+    // Compute the content-keyed interface of every registered module from
+    // the resolved ASTs. This is Phase 1 of incremental compilation:
+    // additive and non-persisted (Phase 2 persists snapshots, Phase 3 wires
+    // cache hits into this pipeline). Nothing above reads it, so it cannot
+    // affect what the build produces.
+    let interfaces = crate::module_interface::build_interfaces(&registry);
+    let dispatch_surface_hash = crate::module_interface::dispatch_surface_hash(&interfaces);
+
     Ok(BuildResult {
         compiled: all_compiled,
         module_count: total_modules,
         package_name,
         link_table: linking_table(&module_function_hashes, &registry),
+        interfaces,
+        dispatch_surface_hash,
     })
 }
 
