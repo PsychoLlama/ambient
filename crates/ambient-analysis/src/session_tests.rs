@@ -267,6 +267,91 @@ fn unrelated_impl_body_edit_leaves_unrelated_modules_cached() {
 }
 
 #[test]
+fn impl_add_on_a_package_type_leaves_unrelated_modules_memoized() {
+    // Phase 5 dispatch-shape narrowing (analysis memo). Adding an impl on a
+    // *package* type `P` moves only the keys of modules that can dispatch it —
+    // the ones that hold a `P`. `shapes` (declares `P`) and `consumer` (holds a
+    // `P`) re-check; the two `free*` modules hold no `P` and stay memoized. Under
+    // the old build-global dispatch hash every module would have re-checked.
+    let dir = write_package(&[
+        (
+            "shapes.ab",
+            "pub unique(A1B2C3D4-0000-4000-8000-000000000042) struct P { x: Number }\n\
+             impl P {\n    fn get(self): Number { self.x }\n}\n",
+        ),
+        (
+            "consumer.ab",
+            "use pkg::shapes::P;\npub fn run(): Number { P { x: 1 }.get() }\n",
+        ),
+        ("free1.ab", "pub fn a(): Number { 1 }\n"),
+        ("free2.ab", "pub fn b(): Number { 2 }\n"),
+    ]);
+    let mut session = open(&dir);
+    let _ = session.analyze_all();
+    let base = session.rechecks();
+
+    // A second, non-colliding inherent impl on `P`, in a brand-new module.
+    session.edit_module(
+        &module_path("extra"),
+        "use pkg::shapes::P;\nimpl P {\n    fn doubled(self): Number { self.x * 2 }\n}\n"
+            .to_string(),
+    );
+    let warm = session.analyze_all();
+    assert_eq!(
+        session.rechecks() - base,
+        3,
+        "`extra` (new) + `shapes` (declares P) + `consumer` (holds P) re-check; `free1`/`free2` stay memoized"
+    );
+    assert_matches_cold(&session, &warm);
+}
+
+#[test]
+fn duplicate_impl_add_resurfaces_the_error_in_every_module() {
+    // Coherence stays build-global under narrowing: a cold check reports a
+    // duplicate `impl Named for W` in *every* module's diagnostics (each seeds a
+    // fresh registry with all package impls). So a duplicate add must move every
+    // module's key — even a non-holder like `other` — or a memo hit would serve
+    // stale, error-free diagnostics. The narrowing promotes both colliding impls
+    // to the build-global bytes, so `other` re-checks and re-surfaces the error.
+    let dir = write_package(&[
+        (
+            "defs.ab",
+            "pub unique(E0E0E0E0-0000-4000-8000-000000000001) struct W { n: Number }\n\
+             pub unique(E0E0E0E0-0000-4000-8000-000000000002) trait Named { fn name(self): Number; }\n",
+        ),
+        (
+            "impl_one.ab",
+            "use pkg::defs::W;\nuse pkg::defs::Named;\n\
+             impl Named for W { fn name(self): Number { self.n } }\n",
+        ),
+        ("other.ab", "pub fn f(): Number { 2 }\n"),
+    ]);
+    let mut session = open(&dir);
+    let cold = session.analyze_all();
+    assert!(
+        diags(&cold["other"]).is_empty(),
+        "before the duplicate, `other` is clean"
+    );
+
+    // A duplicate impl in a brand-new, otherwise-unrelated module.
+    session.edit_module(
+        &module_path("impl_two"),
+        "use pkg::defs::W;\nuse pkg::defs::Named;\n\
+         impl Named for W { fn name(self): Number { self.n + 1 } }\n"
+            .to_string(),
+    );
+    let warm = session.analyze_all();
+    assert!(
+        diags(&warm["other"])
+            .iter()
+            .any(|(_, _, m)| m.contains("duplicate implementation")),
+        "the coherence error must resurface in the non-holder `other`, got {:?}",
+        diags(&warm["other"])
+    );
+    assert_matches_cold(&session, &warm);
+}
+
+#[test]
 fn import_cycle_appears_and_clears_across_edits() {
     // Start acyclic, introduce a cycle via a body edit (no interface
     // change), then remove it. Cycles are recomputed per revision, so both

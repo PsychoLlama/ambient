@@ -104,11 +104,11 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use ambient_engine::ast::Span;
-use ambient_engine::build::{dep_interface_hashes, module_cache_key};
+use ambient_engine::build::{dep_interface_hashes, module_cache_key, per_module_dispatch_hashes};
 use ambient_engine::module_cycles::cycles_by_member;
 use ambient_engine::module_interface::{
-    ModuleInterface, ModuleInterfaceSummary, build_interfaces, dispatch_surface_hash,
-    module_ast_hash, module_source_path, structured_items,
+    ModuleInterface, ModuleInterfaceSummary, build_interfaces, module_ast_hash, module_source_path,
+    structured_items,
 };
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
@@ -137,8 +137,19 @@ pub struct AnalysisSession {
     /// keyed by canonical module identity — the build-global view the keys
     /// fold over.
     interfaces: BTreeMap<String, ModuleInterfaceSummary>,
-    /// The build-global dispatch/coherence surface hash.
-    dispatch: [u8; 32],
+    /// Each package module's **narrowed** dispatch-key input, keyed by canonical
+    /// identity — the per-module analogue of the old build-global dispatch hash.
+    /// A module's key folds only the impl shapes it can dispatch (plus the global
+    /// unconditional/colliding/ability bytes), so an impl add on an unrelated
+    /// package type no longer re-checks it. See `build::dispatch_scope`.
+    ///
+    /// Recomputed only by [`rebuild`](Self::rebuild); the incremental
+    /// unchanged-interface edit path leaves it untouched, which is sound because
+    /// that path guarantees no impl/interface change anywhere (an impl add or
+    /// signature/body edit all move the edited module's interface hash → a full
+    /// rebuild), so no module's dispatch relevance can change beneath a stale
+    /// entry.
+    module_dispatch: BTreeMap<String, [u8; 32]>,
     /// Each package module's resolve-pass dependency edges, keyed by canonical
     /// identity. The cache keys fold dep interface hashes; the cycle graph
     /// reads the dotted-path + scope form.
@@ -193,7 +204,7 @@ impl AnalysisSession {
             package,
             registry: Arc::new(ModuleRegistry::new()),
             interfaces: BTreeMap::new(),
-            dispatch: [0u8; 32],
+            module_dispatch: BTreeMap::new(),
             deps: BTreeMap::new(),
             cycles: BTreeMap::new(),
             snapshot: None,
@@ -429,10 +440,17 @@ impl AnalysisSession {
         // The own-source slot is the raw source hash (spans + parse errors
         // matter for diagnostics); natives contract is a non-input, pass zero.
         // See the module docs for why analysis deviates from the build key here.
+        // The narrowed per-module dispatch input (a missing entry — never in
+        // practice — falls back to zero, so the module simply always re-checks).
+        let dispatch = self
+            .module_dispatch
+            .get(id_str)
+            .copied()
+            .unwrap_or([0u8; 32]);
         Some(module_cache_key(
             source_hash,
             [0u8; 32],
-            self.dispatch,
+            dispatch,
             &dep_hashes,
         ))
     }
@@ -453,7 +471,15 @@ impl AnalysisSession {
         self.registry = Arc::new(registry);
         self.deps = deps;
         self.interfaces = build_interfaces(&self.registry);
-        self.dispatch = *dispatch_surface_hash(&self.interfaces).as_bytes();
+        // The per-module narrowed dispatch inputs. Built from the same
+        // `(module id -> dep module ids)` graph the cache keys fold, so the
+        // editor and the compiler derive identical narrowing.
+        let dep_ids: BTreeMap<String, Vec<String>> = self
+            .deps
+            .iter()
+            .map(|(id, d)| (id.clone(), d.deps.iter().map(ToString::to_string).collect()))
+            .collect();
+        self.module_dispatch = per_module_dispatch_hashes(&self.registry, &dep_ids);
         self.recompute_cycles();
         self.rebuild_all_occurrences();
     }
