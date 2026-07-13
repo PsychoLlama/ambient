@@ -102,6 +102,7 @@ pub fn cmd_store(path: &Path, command: &StoreCommand) -> Result<()> {
         StoreCommand::Deps { reference } => deps(&store, reference),
         StoreCommand::Verify => verify(&store),
         StoreCommand::Gc => gc(&store),
+        StoreCommand::Snapshot => snapshot(&store),
     }
 }
 
@@ -283,14 +284,22 @@ fn verify(store: &DiskStore) -> Result<()> {
     for hash in &report.dangling {
         println!("DANGLING reference: {}", short(hash));
     }
+    if let Some(reason) = &report.dangling_snapshot {
+        println!("DANGLING snapshot: {reason}");
+    }
     if report.is_clean() {
         println!("store is clean");
         Ok(())
     } else {
         bail!(
-            "store has {} corrupt object(s) and {} dangling reference(s)",
+            "store has {} corrupt object(s), {} dangling reference(s){}",
             report.corrupt.len(),
-            report.dangling.len()
+            report.dangling.len(),
+            if report.dangling_snapshot.is_some() {
+                ", and a broken snapshot"
+            } else {
+                ""
+            }
         );
     }
 }
@@ -298,5 +307,55 @@ fn verify(store: &DiskStore) -> Result<()> {
 fn gc(store: &DiskStore) -> Result<()> {
     let removed = store.gc(&[])?;
     println!("removed {removed} unreachable object(s)");
+    Ok(())
+}
+
+/// Short display form of a raw 32-byte hash.
+fn short_bytes(bytes: &[u8; 32]) -> String {
+    blake3::Hash::from_bytes(*bytes).to_hex().as_str()[..12].to_string()
+}
+
+fn snapshot(store: &DiskStore) -> Result<()> {
+    let Some(hash) = store.snapshot_pointer()? else {
+        println!("(no snapshot — run `ambient run` to record one)");
+        return Ok(());
+    };
+    let Some(manifest) = store.current_snapshot()? else {
+        // Pointer present but the manifest is missing/corrupt: report it
+        // rather than silently claim "no snapshot" (which `verify` also flags).
+        bail!(
+            "snapshot pointer names manifest {} but it is missing or corrupt (run `ambient store verify`)",
+            short(&hash)
+        );
+    };
+
+    println!("snapshot:         {}", short(&hash));
+    println!("package:          {}", manifest.package_name);
+    println!(
+        "dispatch surface: {}",
+        short_bytes(&manifest.dispatch_surface_hash)
+    );
+    println!(
+        "natives contract: {}",
+        short_bytes(&manifest.natives_contract_hash)
+    );
+    println!("modules:          {}", manifest.modules.len());
+    println!();
+
+    let width = manifest
+        .modules
+        .iter()
+        .map(|m| m.module.len())
+        .max()
+        .unwrap_or(0);
+    for module in &manifest.modules {
+        println!(
+            "  {:<width$}  iface {}  ast {}  objects {}",
+            module.module,
+            short_bytes(&module.interface_hash),
+            short_bytes(&module.resolved_ast_hash),
+            module.objects.len(),
+        );
+    }
     Ok(())
 }

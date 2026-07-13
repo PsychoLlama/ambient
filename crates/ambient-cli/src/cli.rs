@@ -149,4 +149,8 @@ pub enum StoreCommand {
 
     /// Delete objects unreachable from the names index.
     Gc,
+
+    /// Summarize the current build snapshot (incremental-compilation
+    /// manifest): its hash, package, and per-module interface/AST hashes.
+    Snapshot,
 }

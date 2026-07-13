@@ -87,7 +87,7 @@ pub(super) fn compile_package(path: &Path) -> Result<CompiledModule> {
     // Failure to persist is a warning, not a failed run.
     match ambient_engine::disk_store::DiskStore::open(path.join(".ambient").join("store")) {
         Ok(disk) => {
-            if let Err(e) = disk.put_module(&result.compiled) {
+            if let Err(e) = persist_build(&disk, &result) {
                 eprintln!("warning: failed to persist build to store: {e}");
             }
         }
@@ -95,6 +95,21 @@ pub(super) fn compile_package(path: &Path) -> Result<CompiledModule> {
     }
 
     Ok(result.compiled)
+}
+
+/// Persist a completed build: objects and name bindings first, then the
+/// crash-safe snapshot. Ordering matters — the snapshot's root pointer is
+/// only swapped after every object it references and the manifest bytes are
+/// durably in place ([`DiskStore::write_snapshot`]), so a snapshot always
+/// resolves to a consistent build.
+fn persist_build(
+    disk: &ambient_engine::disk_store::DiskStore,
+    result: &ambient_engine::build::BuildResult,
+) -> Result<(), ambient_engine::disk_store::DiskStoreError> {
+    disk.put_module(&result.compiled)?;
+    let manifest = ambient_engine::disk_store::BuildManifest::from_build(result);
+    disk.write_snapshot(&manifest)?;
+    Ok(())
 }
 
 /// Run a compiled module.
