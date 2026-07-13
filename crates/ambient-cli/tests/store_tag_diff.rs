@@ -31,9 +31,9 @@ fn write_main(dir: &Path, main: &str) {
     fs::write(dir.join("src").join("main.ab"), main).expect("main");
 }
 
-fn run(dir: &Path) {
+fn build(dir: &Path) {
     let out = Command::new(ambient_bin())
-        .arg("run")
+        .arg("compile")
         .arg(dir)
         .output()
         .expect("run");
@@ -63,7 +63,7 @@ const BASE: &str = "pub fn f(a: Number): Number { a }\npub fn run(): Number { f(
 #[test]
 fn tag_roundtrip_and_list() {
     let dir = package(BASE);
-    run(dir.path());
+    build(dir.path());
 
     let out = store(dir.path(), &["tag", "v1.0"]);
     assert!(out.status.success(), "tag failed: {}", stderr(&out));
@@ -77,7 +77,7 @@ fn tag_roundtrip_and_list() {
 #[test]
 fn diff_body_edit_is_rebound_and_body_only() {
     let dir = package(BASE);
-    run(dir.path());
+    build(dir.path());
     store(dir.path(), &["tag", "base"]);
 
     // Change `f`'s body but not its signature.
@@ -85,7 +85,7 @@ fn diff_body_edit_is_rebound_and_body_only() {
         dir.path(),
         "pub fn f(a: Number): Number { a + 1 }\npub fn run(): Number { f(1) }\n",
     );
-    run(dir.path());
+    build(dir.path());
 
     let out = store(dir.path(), &["diff", "base", "current"]);
     assert!(out.status.success(), "diff failed: {}", stderr(&out));
@@ -100,14 +100,14 @@ fn diff_body_edit_is_rebound_and_body_only() {
 #[test]
 fn diff_signature_edit_is_retired_and_interface() {
     let dir = package(BASE);
-    run(dir.path());
+    build(dir.path());
     store(dir.path(), &["tag", "base"]);
 
     write_main(
         dir.path(),
         "pub fn f(a: Number): String { \"x\" }\npub fn run(): Number { 0 }\n",
     );
-    run(dir.path());
+    build(dir.path());
 
     let out = store(dir.path(), &["diff", "base", "current"]);
     assert!(out.status.success(), "diff failed: {}", stderr(&out));
@@ -125,7 +125,7 @@ fn diff_signature_edit_is_retired_and_interface() {
 #[test]
 fn diff_identical_is_empty_and_json_is_valid() {
     let dir = package(BASE);
-    run(dir.path());
+    build(dir.path());
 
     let out = store(dir.path(), &["diff", "current", "current"]);
     assert!(out.status.success());
@@ -142,7 +142,7 @@ fn diff_identical_is_empty_and_json_is_valid() {
 #[test]
 fn diff_without_two_refs_errors() {
     let dir = package(BASE);
-    run(dir.path());
+    build(dir.path());
     let out = store(dir.path(), &["diff"]);
     assert!(!out.status.success(), "diff with no refs must fail");
     assert!(
@@ -155,12 +155,12 @@ fn diff_without_two_refs_errors() {
 #[test]
 fn gc_keeps_a_tagged_snapshot_loadable() {
     let dir = package(BASE);
-    run(dir.path());
+    build(dir.path());
     store(dir.path(), &["tag", "keep"]);
 
     // A new build supersedes the tagged one, then gc runs.
     write_main(dir.path(), "pub fn run(): Number { 42 }\n");
-    run(dir.path());
+    build(dir.path());
     let out = store(dir.path(), &["gc"]);
     assert!(out.status.success(), "gc failed: {}", stderr(&out));
 

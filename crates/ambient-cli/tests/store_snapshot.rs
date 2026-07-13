@@ -103,15 +103,16 @@ fn manifest_covers_core_platform_and_user_modules() {
 fn run_records_a_snapshot_the_store_can_load() {
     let dir = package();
 
-    // `ambient run` builds and persists a snapshot.
+    // `ambient compile` builds the whole package and persists a snapshot
+    // (`ambient run` is lazy and read-only — it writes no snapshot).
     let out = Command::new(ambient_bin())
-        .arg("run")
+        .arg("compile")
         .arg(dir.path())
         .output()
-        .expect("run");
+        .expect("compile");
     assert!(
         out.status.success(),
-        "run failed: {}",
+        "compile failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
 
@@ -132,10 +133,10 @@ fn run_records_a_snapshot_the_store_can_load() {
 fn store_snapshot_command_summarizes_the_build() {
     let dir = package();
     Command::new(ambient_bin())
-        .arg("run")
+        .arg("compile")
         .arg(dir.path())
         .output()
-        .expect("run");
+        .expect("compile");
 
     let out = Command::new(ambient_bin())
         .arg("store")

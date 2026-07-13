@@ -39,9 +39,9 @@ fn package() -> TempDir {
     dir
 }
 
-fn run(dir: &Path) {
+fn build(dir: &Path) {
     let out = Command::new(ambient_bin())
-        .arg("run")
+        .arg("compile")
         .arg(dir)
         .output()
         .expect("run");
@@ -69,7 +69,7 @@ fn stdout(out: &Output) -> String {
 #[test]
 fn show_resolves_a_struct_with_kind_uuid_span_and_source() {
     let dir = package();
-    run(dir.path());
+    build(dir.path());
 
     let out = store(dir.path(), &["show", "shapes::Shape"]);
     assert!(out.status.success(), "show failed: {}", stdout(&out));
@@ -86,7 +86,7 @@ fn show_resolves_a_struct_with_kind_uuid_span_and_source() {
 #[test]
 fn show_resolves_enum_and_trait_by_bare_name() {
     let dir = package();
-    run(dir.path());
+    build(dir.path());
 
     let color = stdout(&store(dir.path(), &["show", "Color"]));
     assert!(color.contains("(enum)"), "{color}");
@@ -104,7 +104,7 @@ fn show_resolves_enum_and_trait_by_bare_name() {
 #[test]
 fn show_of_a_function_adds_a_source_location_then_disassembles() {
     let dir = package();
-    run(dir.path());
+    build(dir.path());
 
     let out = stdout(&store(dir.path(), &["show", "shapes::area"]));
     assert!(
@@ -117,7 +117,7 @@ fn show_of_a_function_adds_a_source_location_then_disassembles() {
 #[test]
 fn ls_unfiltered_lists_typed_items_and_retains_dispatch_symbols() {
     let dir = package();
-    run(dir.path());
+    build(dir.path());
 
     let out = stdout(&store(dir.path(), &["ls"]));
     // Typed items appear with their kind.
@@ -134,7 +134,7 @@ fn ls_unfiltered_lists_typed_items_and_retains_dispatch_symbols() {
 #[test]
 fn ls_kinds_filters_by_kind_and_namespace() {
     let dir = package();
-    run(dir.path());
+    build(dir.path());
 
     // Precise kind filter: only structs.
     let structs = stdout(&store(dir.path(), &["ls", "--kinds", "struct"]));
