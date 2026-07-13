@@ -87,6 +87,8 @@ pub enum DiskStoreError {
     MalformedSignatures(String),
     /// The `migrations` file is malformed.
     MalformedMigrations(String),
+    /// A build manifest under `meta/` failed to decode.
+    MalformedManifest(String),
 }
 
 impl std::fmt::Display for DiskStoreError {
@@ -115,6 +117,7 @@ impl std::fmt::Display for DiskStoreError {
             Self::MalformedMigrations(line) => {
                 write!(f, "malformed migrations entry: {line:?}")
             }
+            Self::MalformedManifest(msg) => write!(f, "malformed build manifest: {msg}"),
         }
     }
 }
@@ -139,19 +142,24 @@ pub struct PutStats {
 /// Result of verifying every object in the store.
 #[derive(Debug, Clone, Default)]
 pub struct VerifyReport {
-    /// Objects that decoded and hashed correctly.
+    /// Objects (and manifests) that decoded and hashed correctly.
     pub valid: usize,
     /// Files whose content did not match their path, with the error.
     pub corrupt: Vec<(blake3::Hash, String)>,
     /// External references that no object in the store provides.
     pub dangling: Vec<blake3::Hash>,
+    /// Set when the snapshot root pointer names a manifest that is missing,
+    /// corrupt, or of an unknown version — a broken snapshot the build path
+    /// silently ignores but `verify` flags loudly. Carries a human message.
+    pub dangling_snapshot: Option<String>,
 }
 
 impl VerifyReport {
-    /// True when every object is valid and every reference resolves.
+    /// True when every object is valid, every reference resolves, and the
+    /// snapshot pointer (if any) resolves to a good manifest.
     #[must_use]
     pub fn is_clean(&self) -> bool {
-        self.corrupt.is_empty() && self.dangling.is_empty()
+        self.corrupt.is_empty() && self.dangling.is_empty() && self.dangling_snapshot.is_none()
     }
 }
 
@@ -700,6 +708,17 @@ impl DiskStore {
         report
             .dangling
             .sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+
+        // Manifests under `meta/`: decode and re-hash every one, and check
+        // that the root pointer (if present) resolves to a good manifest.
+        for hash in self.all_manifest_hashes()? {
+            match self.load_manifest(&hash) {
+                Ok(Some(_)) => report.valid += 1,
+                Ok(None) => {} // vanished between listing and load; ignore
+                Err(e) => report.corrupt.push((hash, e.to_string())),
+            }
+        }
+        report.dangling_snapshot = self.snapshot_health()?;
         Ok(report)
     }
 
@@ -714,6 +733,15 @@ impl DiskStore {
         let mut reachable: HashSet<blake3::Hash> = HashSet::new();
         let mut pending: Vec<blake3::Hash> = extra_roots.to_vec();
         pending.extend(self.names()?.values().copied());
+
+        // The current snapshot is a gc root: every object its manifest
+        // references must survive so the snapshot stays loadable. A broken
+        // snapshot roots nothing (it protects no objects, and its pointer is
+        // already treated as absent by the build path).
+        let current_manifest = self.current_snapshot()?;
+        if let Some(manifest) = &current_manifest {
+            pending.extend(manifest.referenced_objects());
+        }
 
         while let Some(hash) = pending.pop() {
             if !reachable.insert(hash) {
@@ -745,6 +773,17 @@ impl DiskStore {
         for hash in self.all_hashes()? {
             if !reachable.contains(&hash) {
                 std::fs::remove_file(self.object_path(&hash))?;
+                removed += 1;
+            }
+        }
+
+        // Prune stale manifests under `meta/`: only the one the pointer names
+        // matters, and it was already loaded (and protected) above. Any other
+        // manifest is a superseded build's leftover.
+        let keep = current_manifest.as_ref().map(BuildManifest::hash);
+        for hash in self.all_manifest_hashes()? {
+            if keep != Some(hash) {
+                std::fs::remove_file(self.meta_path(&hash))?;
                 removed += 1;
             }
         }
@@ -817,5 +856,13 @@ fn unescape_field(s: &str) -> Option<String> {
     Some(out)
 }
 
+mod snapshot;
+pub use snapshot::{
+    BuildManifest, MANIFEST_VERSION, ManifestError, ManifestModule, SNAPSHOT_POINTER,
+};
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod snapshot_tests;
