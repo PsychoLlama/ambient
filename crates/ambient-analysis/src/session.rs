@@ -70,6 +70,35 @@
 //! memo still absorbs the cost — only the changed module and its dependents
 //! re-check; unrelated modules hit — so the rebuild re-runs the cheap resolve
 //! pass, never the checker, for the untouched majority.
+//!
+//! ## Reverse-dep-scoped re-resolve (deferred)
+//!
+//! The full rebuild on an interface change re-resolves *every* module even
+//! though only the changed module's transitive reverse-deps can resolve
+//! differently. A scoped alternative is expressible from state the session
+//! already holds — invert [`deps`](AnalysisSession::deps) to a reverse-dep
+//! graph, re-register the changed module resolved, then re-resolve only its
+//! transitive reverse-deps (transitive because a direct importer that
+//! `pub use`-re-exports a changed symbol shifts *its* exports too), leaving
+//! unrelated modules' resolved ASTs, interfaces, and occurrences untouched;
+//! dispatch and cycles recompute from the (mostly unchanged) interfaces.
+//!
+//! It is deferred deliberately, not for lack of a path:
+//! - **The dominant cost is already gone.** The memo spares the *checker*
+//!   (type inference — the expensive pass) for every non-dependent. A rebuild's
+//!   residual cost is the *resolve* pass (name canonicalization, no inference)
+//!   plus interface/occurrence folds — all O(modules) and cheap next to
+//!   checking. Scoping them trims a small constant.
+//! - **The correctness surface is large.** Serving one stale resolved AST is a
+//!   silent miscompile (this module's whole reason for the full rebuild). A
+//!   partial re-resolve must get the transitive reverse-dep frontier exactly
+//!   right — including re-export chains and dispatch-surface interactions — and
+//!   would need its own standing oracle to be trustworthy.
+//!
+//! The occurrence index *is* scoped on the body-only path (its identities are
+//! span-free `Fqn`s, so the reverse-dep frontier there is empty by
+//! construction); extending that scoping across an interface change is the
+//! natural follow-up, gated on the reverse-dep re-resolve above.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -303,6 +332,12 @@ impl AnalysisSession {
             // the registry state the checker reads for it — may now differ.
             // Rebuild to keep every resolved AST current; the memo still spares
             // the checker for everything but the changed module + dependents.
+            //
+            // A reverse-dep-scoped re-resolve (only re-resolving the transitive
+            // reverse-deps of this module, leaving unrelated modules' resolved
+            // ASTs and occurrences untouched) is possible from `self.deps`, but
+            // deferred — see the module-level "Registry incrementality" docs for
+            // why the win is marginal and the correctness risk is not.
             self.rebuild();
         }
     }

@@ -547,7 +547,11 @@ fn cross_module_references_survive_a_span_shifting_edit() {
     let before = references_to(&session, "utils", "helper");
     // def in utils + import in main + call in main = 3 sites.
     assert_eq!(before.len(), 3, "baseline references: {before:?}");
-    assert!(before.iter().any(|(m, _, _, is_def)| m == "main" && !is_def));
+    assert!(
+        before
+            .iter()
+            .any(|(m, _, _, is_def)| m == "main" && !is_def)
+    );
 
     // Shift `helper`'s definition span with two leading newlines. The signature
     // is unchanged, so this is a body-only edit and `main` is NOT re-collected.
