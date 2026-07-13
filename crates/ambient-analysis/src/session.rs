@@ -84,6 +84,7 @@ use ambient_engine::module_interface::{
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
 
+use crate::occurrences::{Occurrence, collect_occurrences};
 use crate::package::{AnalysisPackage, ModuleDeps};
 use crate::{AnalysisResult, Diagnostic, check_without_cycle};
 
@@ -119,6 +120,19 @@ pub struct AnalysisSession {
     cycles: BTreeMap<String, ambient_engine::module_cycles::ImportCycle>,
     /// Per-module check memo, keyed by canonical identity.
     memo: HashMap<String, MemoEntry>,
+    /// The occurrence index backing find-references and rename: every
+    /// definition and reference site of every symbol, keyed by dotted module
+    /// path (`ModulePath::to_string` — the key [`AnalysisPackage::modules`]
+    /// uses, so the LSP renderer maps a module back to its file with no
+    /// re-derivation). Owned here, not in the LSP: it is an analysis fact the
+    /// server only renders.
+    ///
+    /// Rebuilt module-scoped: `Item` occurrence identities are span-free
+    /// [`Fqn`](ambient_engine::fqn::Fqn)s, so a body edit that shifts spans in
+    /// one module leaves every *other* module's entries valid. A body-only edit
+    /// re-collects only the edited module; an interface change or a module-set
+    /// change rebuilds all (through [`rebuild`](Self::rebuild)).
+    occurrences: BTreeMap<String, Vec<Occurrence>>,
     /// The package's last-build snapshot manifest, if one was loaded via
     /// [`load_snapshot`](Self::load_snapshot). Its structured item index backs
     /// workspace-symbol search for modules the live session does not cover
@@ -129,6 +143,10 @@ pub struct AnalysisSession {
     /// How many module checks actually ran (memo misses). Cumulative
     /// instrumentation for the incremental tests; never affects behavior.
     rechecks: usize,
+    /// How many per-module occurrence lists were re-collected. Cumulative
+    /// instrumentation proving a body-only edit re-walks exactly one module's
+    /// occurrences; never affects behavior.
+    occurrence_rebuilds: usize,
     /// The `AMBIENT_ANALYSIS_VERIFY=1` oracle: on every memo *hit*, recompute
     /// the module cold and assert byte-identical diagnostics — the analysis
     /// mirror of the build cache's `AMBIENT_CACHE_VERIFY`. Resolved once at
@@ -151,7 +169,9 @@ impl AnalysisSession {
             cycles: BTreeMap::new(),
             snapshot: None,
             memo: HashMap::new(),
+            occurrences: BTreeMap::new(),
             rechecks: 0,
+            occurrence_rebuilds: 0,
             verify: std::env::var("AMBIENT_ANALYSIS_VERIFY")
                 .is_ok_and(|v| v.eq_ignore_ascii_case("1")),
         };
@@ -176,6 +196,21 @@ impl AnalysisSession {
     #[must_use]
     pub fn rechecks(&self) -> usize {
         self.rechecks
+    }
+
+    /// Total per-module occurrence re-collections so far. Instrumentation:
+    /// a full rebuild bumps this once per module, a body-only edit once.
+    #[must_use]
+    pub fn occurrence_rebuilds(&self) -> usize {
+        self.occurrence_rebuilds
+    }
+
+    /// The occurrence list for one module, or `None` if the module is not in
+    /// the package. The LSP renders these into reference/rename locations; it
+    /// never collects occurrences itself.
+    #[must_use]
+    pub fn occurrences_for(&self, path: &ModulePath) -> Option<&[Occurrence]> {
+        self.occurrences.get(&path.to_string()).map(Vec::as_slice)
     }
 
     /// Load the package's last-build snapshot index (read-only) so
@@ -256,6 +291,13 @@ impl AnalysisSession {
             // Import edges can change without the interface changing (adding a
             // `use` + call in a body), so the cycle graph must be recomputed.
             self.recompute_cycles();
+            // Only this module's spans (and same-module references) moved; every
+            // other module's occurrences target the unchanged `Fqn`s, so they
+            // stay valid. Re-collect just the edited module.
+            self.rebuild_occurrences_for(path);
+            if self.verify {
+                self.assert_occurrences_scoped_matches_full();
+            }
         } else {
             // The exported surface moved: a dependent's resolution — and thus
             // the registry state the checker reads for it — may now differ.
@@ -378,6 +420,46 @@ impl AnalysisSession {
         self.interfaces = build_interfaces(&self.registry);
         self.dispatch = *dispatch_surface_hash(&self.interfaces).as_bytes();
         self.recompute_cycles();
+        self.rebuild_all_occurrences();
+    }
+
+    /// Re-collect every module's occurrence list against the current registry,
+    /// dropping any entry whose module is gone. Used by the full [`rebuild`].
+    fn rebuild_all_occurrences(&mut self) {
+        self.occurrences.clear();
+        let paths: Vec<ModulePath> = self
+            .package
+            .modules
+            .values()
+            .map(|m| m.path.clone())
+            .collect();
+        for path in paths {
+            self.rebuild_occurrences_for(&path);
+        }
+    }
+
+    /// Re-collect one module's occurrence list against the current registry.
+    /// Every other module's list is left untouched — sound because `Item`
+    /// occurrence identities are span-free `Fqn`s (see [`crate::occurrences`]).
+    fn rebuild_occurrences_for(&mut self, path: &ModulePath) {
+        let key = path.to_string();
+        // Borrow package + registry immutably to collect, release, then insert
+        // into the disjoint `occurrences` field. `collect_occurrences` returns
+        // an owned Vec, so no AST clone is needed.
+        let collected = self
+            .package
+            .modules
+            .get(&key)
+            .map(|m| collect_occurrences(&m.ast, &m.path, &self.registry));
+        match collected {
+            Some(occ) => {
+                self.occurrences.insert(key, occ);
+                self.occurrence_rebuilds += 1;
+            }
+            None => {
+                self.occurrences.remove(&key);
+            }
+        }
     }
 
     /// The interface summary of one module, read from the current registry —
@@ -405,6 +487,57 @@ impl AnalysisSession {
     fn recompute_cycles(&mut self) {
         self.cycles = cycles_for(&self.deps);
     }
+
+    /// The `AMBIENT_ANALYSIS_VERIFY` oracle for the occurrence index: after a
+    /// scoped (single-module) rebuild, the incrementally-maintained index must
+    /// be byte-for-byte what a full cold re-collection of every module would
+    /// produce. A divergence means a body edit stranded some module's
+    /// references — the exact bug span-free `Fqn` keying is meant to prevent.
+    /// Panics loudly on mismatch; never runs off the verify path.
+    fn assert_occurrences_scoped_matches_full(&self) {
+        let full: BTreeMap<String, Vec<(u32, u32, String, bool)>> = self
+            .package
+            .modules
+            .values()
+            .map(|m| {
+                let occ = collect_occurrences(&m.ast, &m.path, &self.registry);
+                (m.path.to_string(), normalize_occurrences(&occ))
+            })
+            .collect();
+        let scoped: BTreeMap<String, Vec<(u32, u32, String, bool)>> = self
+            .occurrences
+            .iter()
+            .map(|(k, occ)| (k.clone(), normalize_occurrences(occ)))
+            .collect();
+        assert!(
+            scoped == full,
+            "AMBIENT_ANALYSIS_VERIFY: scoped occurrence index diverged from a \
+             full rebuild:\n  scoped {scoped:?}\n  full   {full:?}"
+        );
+    }
+}
+
+/// A stable, order-independent projection of a module's occurrences for the
+/// verify oracle: every site's span, identity, and definition flag. The
+/// identity string is the `Fqn` for an item and a module-scoped binding tag for
+/// a local — distinct across classes, so two normalized lists are equal iff the
+/// underlying indexes are.
+fn normalize_occurrences(occ: &[Occurrence]) -> Vec<(u32, u32, String, bool)> {
+    use crate::occurrences::SymbolTarget;
+    let mut out: Vec<(u32, u32, String, bool)> = occ
+        .iter()
+        .map(|o| {
+            let identity = match &o.target {
+                SymbolTarget::Item { fqn, .. } => format!("item:{fqn}"),
+                SymbolTarget::Local {
+                    module, binding_id, ..
+                } => format!("local:{module}:{binding_id:?}"),
+            };
+            (o.span.start, o.span.end, identity, o.is_definition)
+        })
+        .collect();
+    out.sort();
+    out
 }
 
 /// Read a package's current build snapshot, read-only and best-effort.

@@ -126,33 +126,34 @@ fn standalone_analysis(state: &ServerState, uri: &Uri) -> DocumentAnalysis {
     }
 }
 
-/// Rebuild the whole-package occurrence index from the current parsed modules
-/// and registry.
+/// Project the session's occurrence index into the LSP's render cache,
+/// attaching each module's file URI.
 ///
-/// Rebuilt in full every edit (not scoped to the changed module) on purpose: an
-/// `Item` occurrence's identity is `(module, definition name span)`, and a body
-/// edit that shifts a definition's span changes the target every *other*
-/// module's references to it must match. A partial rebuild would leave those
-/// cross-module references pointing at a stale span, so references/rename would
-/// silently miss them. The walk is a pure AST pass that resolves names through
-/// the already-built registry, so a full rebuild is cheap. Walks every package
-/// module (opened or not) so references and rename reach files never opened in
-/// the editor; with no package, each open document is indexed as a root.
+/// The index itself lives in `ambient-analysis` (`AnalysisSession`), which
+/// rebuilds it module-scoped: `Item` occurrence identities are span-free
+/// `Fqn`s, so a body edit re-collects only the edited module and every other
+/// module's references stay valid. This renderer therefore never re-walks or
+/// re-resolves — it reads the session's already-built lists (cloning them, so
+/// the query handlers can borrow the cache freely) and maps each module to its
+/// file. Walks every package module (opened or not) so references and rename
+/// reach files never opened in the editor; with no package, each open document
+/// is indexed as a root via a direct collect.
 pub(crate) fn rebuild_occurrence_index(state: &mut ServerState) {
     let mut index = Vec::new();
 
     if let Some(session) = state.session.as_ref() {
         let package = session.package();
-        let registry = session.registry();
         for module in package.modules.values() {
             let Some(uri) = module_uri(Some(package), &module.path) else {
                 continue;
             };
-            let occurrences = collect_occurrences(&module.ast, &module.path, registry);
+            let Some(occurrences) = session.occurrences_for(&module.path) else {
+                continue;
+            };
             index.push(ModuleOccurrences {
                 module_path: module.path.clone(),
                 uri,
-                occurrences,
+                occurrences: occurrences.to_vec(),
             });
         }
     } else {

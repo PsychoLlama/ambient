@@ -470,3 +470,166 @@ fn live_edit_supersedes_a_stale_on_disk_snapshot() {
         "stale snapshot symbol served for a live module: {names:?}"
     );
 }
+
+// ── occurrence index (find-references / rename) ─────────────────────────────
+
+/// Every occurrence of the symbol whose name is `name` and that is *defined*
+/// in module `def_module`, gathered across the whole package by identity —
+/// exactly what find-references renders. Returns `(module_key, span, is_def)`.
+fn references_to(
+    session: &AnalysisSession,
+    def_module: &str,
+    name: &str,
+) -> Vec<(String, u32, u32, bool)> {
+    // The identity is the target on the definition occurrence in `def_module`.
+    let def_occ = session
+        .occurrences_for(&module_path(def_module))
+        .expect("def module occurrences")
+        .iter()
+        .find(|o| o.is_definition && o.target.name().as_ref() == name)
+        .expect("definition occurrence");
+    let target = def_occ.target.clone();
+
+    let mut out = Vec::new();
+    for m in session.package().modules.values() {
+        let key = m.path.to_string();
+        for occ in session.occurrences_for(&m.path).unwrap_or(&[]) {
+            if occ.target == target {
+                out.push((key.clone(), occ.span.start, occ.span.end, occ.is_definition));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+#[test]
+fn body_only_edit_rebuilds_exactly_one_modules_occurrences() {
+    let dir = write_package(&[
+        (
+            "main.ab",
+            "use pkg::utils::helper;\npub fn run(): Number { helper() }\n",
+        ),
+        ("utils.ab", "pub fn helper(): Number { 1 }\n"),
+        ("other.ab", "pub fn unrelated(): Number { 2 }\n"),
+    ]);
+    let mut session = open(&dir);
+    let base = session.occurrence_rebuilds();
+
+    // A body-only edit to `main` (interface unchanged): only `main`'s
+    // occurrences are re-collected; `utils`/`other` entries are left intact.
+    session.edit_module(
+        &module_path("main"),
+        "use pkg::utils::helper;\npub fn run(): Number { helper() + 0 }\n".to_string(),
+    );
+    assert_eq!(
+        session.occurrence_rebuilds() - base,
+        1,
+        "exactly one module's occurrences re-collected on a body-only edit"
+    );
+}
+
+#[test]
+fn cross_module_references_survive_a_span_shifting_edit() {
+    // The stranded-reference guard: a span-shifting body edit in the *defining*
+    // module must not orphan another module's references to it. Under the old
+    // span-keyed identity, `main`'s (un-rebuilt) reference would point at the
+    // stale definition span; Fqn keying keeps them collapsed.
+    let dir = write_package(&[
+        (
+            "main.ab",
+            "use pkg::utils::helper;\npub fn run(): Number { helper() }\n",
+        ),
+        ("utils.ab", "pub fn helper(): Number { 1 }\n"),
+    ]);
+    let mut session = open(&dir);
+
+    let before = references_to(&session, "utils", "helper");
+    // def in utils + import in main + call in main = 3 sites.
+    assert_eq!(before.len(), 3, "baseline references: {before:?}");
+    assert!(before.iter().any(|(m, _, _, is_def)| m == "main" && !is_def));
+
+    // Shift `helper`'s definition span with two leading newlines. The signature
+    // is unchanged, so this is a body-only edit and `main` is NOT re-collected.
+    let rebuilds_before = session.occurrence_rebuilds();
+    session.edit_module(
+        &module_path("utils"),
+        "\n\npub fn helper(): Number { 1 }\n".to_string(),
+    );
+    assert_eq!(
+        session.occurrence_rebuilds() - rebuilds_before,
+        1,
+        "only `utils` re-collected"
+    );
+
+    let after = references_to(&session, "utils", "helper");
+    // Still three sites, and `main`'s call is still among them — not stranded.
+    assert_eq!(after.len(), 3, "references after the edit: {after:?}");
+    assert!(
+        after.iter().any(|(m, _, _, is_def)| m == "main" && !is_def),
+        "main's cross-module reference survived the span shift: {after:?}"
+    );
+    // The definition span in utils moved (proving the edit landed), yet the
+    // reference set still resolves onto it.
+    let def_before = before.iter().find(|(m, ..)| m == "utils").unwrap();
+    let def_after = after.iter().find(|(m, ..)| m == "utils").unwrap();
+    assert_ne!(
+        (def_before.1, def_before.2),
+        (def_after.1, def_after.2),
+        "the def span must have shifted"
+    );
+}
+
+#[test]
+fn scoped_occurrence_rebuild_matches_a_full_rebuild() {
+    // The occurrence oracle, driven directly: after a scoped rebuild the
+    // incrementally-maintained index must equal a full cold re-collection of
+    // every module. `assert_occurrences_scoped_matches_full` panics on
+    // divergence; call it explicitly (independent of the verify env flag).
+    let dir = write_package(&[
+        (
+            "main.ab",
+            "use pkg::utils::helper;\npub fn run(): Number { helper() }\n",
+        ),
+        ("utils.ab", "pub fn helper(): Number { 1 }\n"),
+        ("other.ab", "pub fn unrelated(): Number { 2 }\n"),
+    ]);
+    let mut session = open(&dir);
+
+    session.edit_module(
+        &module_path("utils"),
+        "\n\npub fn helper(): Number { 1 }\n".to_string(),
+    );
+    session.assert_occurrences_scoped_matches_full();
+
+    session.edit_module(
+        &module_path("main"),
+        "use pkg::utils::helper;\npub fn run(): Number { helper() + 0 }\n".to_string(),
+    );
+    session.assert_occurrences_scoped_matches_full();
+}
+
+#[test]
+fn occurrence_verify_oracle_passes_on_body_edits() {
+    // With verify on, `edit_module`'s body-only path runs the occurrence oracle
+    // internally. A clean pass proves the scoped rebuild is equivalent to a full
+    // one; a stranded reference would panic inside `edit_module`.
+    let dir = write_package(&[
+        (
+            "main.ab",
+            "use pkg::utils::helper;\npub fn run(): Number { helper() }\n",
+        ),
+        ("utils.ab", "pub fn helper(): Number { 1 }\n"),
+    ]);
+    let mut session = open(&dir);
+    session.verify = true;
+
+    session.edit_module(
+        &module_path("utils"),
+        "\n\npub fn helper(): Number { 1 }\n".to_string(),
+    );
+    session.edit_module(
+        &module_path("main"),
+        "use pkg::utils::helper;\npub fn run(): Number { helper() + 0 }\n".to_string(),
+    );
+}
