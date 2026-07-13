@@ -457,7 +457,7 @@ pub(super) fn compile_loaded_module_with_registry(
     registry: &ModuleRegistry,
     imported_hashes: HashMap<NameKey, blake3::Hash>,
     deps: &std::collections::BTreeSet<crate::fqn::ModuleId>,
-) -> Result<CompiledModule, BuildError> {
+) -> Result<(CompiledModule, crate::compiler::PrelinkModule), BuildError> {
     let check_result =
         crate::infer::check_module_with_registry(loaded.ast.clone(), module_path, registry);
 
@@ -471,7 +471,7 @@ pub(super) fn compile_loaded_module_with_registry(
     }
 
     let source_file = file_path.display().to_string();
-    let mut compiled = crate::compiler::compile_module_with_options(
+    let (mut compiled, mut prelink) = crate::compiler::compile_module_capturing(
         &check_result.module,
         crate::compiler::CompileOptions {
             source: Some(&loaded.source),
@@ -484,9 +484,13 @@ pub(super) fn compile_loaded_module_with_registry(
         module: module_path.to_string(),
         error: e.to_string(),
     })?;
-    compiled.signatures = check_result.signatures;
+    // Attach the checker signatures to both the runnable module and the
+    // persisted symbolic form: a relink reconstructs `signatures` from the
+    // prelink (the compiler never computes them), so the two must agree.
+    compiled.signatures = check_result.signatures.clone();
+    prelink.set_signatures(&check_result.signatures);
 
-    Ok(compiled)
+    Ok((compiled, prelink))
 }
 
 /// Check and compile a single in-memory session module against a registry,

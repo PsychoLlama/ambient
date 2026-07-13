@@ -58,6 +58,7 @@ fn sample_manifest(objects: &[blake3::Hash]) -> BuildManifest {
                     span: (10, 40),
                     summary: "(Number) -> Number".to_string(),
                 }],
+                prelink: None,
             },
             ManifestModule {
                 module: "workspace::demo::math".to_string(),
@@ -91,6 +92,7 @@ fn sample_manifest(objects: &[blake3::Hash]) -> BuildManifest {
                         summary: "{ radius: Number }".to_string(),
                     },
                 ],
+                prelink: Some([0x33; 32]),
             },
         ],
     }

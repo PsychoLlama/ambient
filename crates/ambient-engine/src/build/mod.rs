@@ -124,6 +124,9 @@ pub struct ModuleBuildOutput {
     /// This module's incremental-cache key. Zero for builtin (core/platform)
     /// modules, which cache as one unit keyed separately.
     pub cache_key: [u8; 32],
+    /// The content hash of this module's persisted pre-link symbolic form, if
+    /// it has one (the relink fast path's input). `None` for builtin modules.
+    pub prelink: Option<blake3::Hash>,
 }
 
 /// Result of building a package.
@@ -162,6 +165,16 @@ pub struct BuildResult {
     /// The core+platform unit cache key this build computed. The manifest
     /// records it so the next build can load the whole builtin block on a hit.
     pub core_cache_key: [u8; 32],
+    /// Fresh pre-link blobs produced this build (by compiled *and* relinked
+    /// modules), keyed by content hash. [`persist_build`] writes these to the
+    /// store's `prelink/` area before the snapshot pointer flips, so a rooted
+    /// manifest's prelink references always resolve. A cache *hit* re-uses the
+    /// prior blob already in the store and contributes nothing here.
+    pub prelink_blobs: BTreeMap<[u8; 32], Vec<u8>>,
+    /// Number of modules served by the relink fast path this build (key match,
+    /// link-only miss, remapped and re-finalized without re-check/codegen).
+    /// Instrumentation for the incremental-cache tests.
+    pub modules_relinked: usize,
 }
 
 /// Error during package building.
@@ -309,6 +322,10 @@ pub fn build_package(
         HashMap::new();
     let mut module_outputs: BTreeMap<String, ModuleBuildOutput> = BTreeMap::new();
     let mut modules_compiled = 0usize;
+    let mut modules_relinked = 0usize;
+    // Fresh pre-link blobs (compiled + relinked modules), persisted before the
+    // snapshot pointer flips.
+    let mut prelink_blobs: BTreeMap<[u8; 32], Vec<u8>> = BTreeMap::new();
 
     let builtins_loaded = cache.core_key_matches(core_key)
         && cache.load_builtins(
@@ -437,63 +454,123 @@ pub fn build_package(
         });
 
         let imported = link.table();
-        let hit = cache_key.and_then(|k| cache.try_package_module(&module_id, k, &link));
+        let key = cache_key.unwrap_or([0u8; 32]);
+        let deps_list = dep_ids.get(&module_id).cloned().unwrap_or_default();
 
-        // Report progress once the outcome is known: `from_cache` is the hit
-        // path the match below actually takes (a hit the verify oracle would
-        // still recompile is *not* reported as cached).
+        // A full hit: key matches and every consumed link still resolves to the
+        // same hash. Failing that, the relink fast path: the key still matches
+        // (check output unchanged) but a dependency's body moved a callee hash,
+        // so remap the moved foreign hashes and re-finalize — no re-check, no
+        // codegen. Any relink obstacle (or an assembly failure the recompile
+        // would report properly) falls back to a full compile.
+        let hit = cache_key.and_then(|k| cache.try_package_module(&module_id, k, &link));
+        let relink = if hit.is_none() {
+            cache_key
+                .and_then(|k| cache.try_relink_module(&module_id, k, &link))
+                .and_then(|prelink| {
+                    let mut compiled =
+                        crate::compiler::assemble_module(prelink.to_assemble_inputs()).ok()?;
+                    compiled.signatures = prelink.signature_map();
+                    Some((compiled, prelink))
+                })
+        } else {
+            None
+        };
+
+        // Report progress once the outcome is known: `from_cache` marks a
+        // module served without check+compile (a full hit or a relink). The
+        // verify oracle recompiles regardless, so it reports what happened.
         if let Some(ref cb) = options.progress {
             cb(
                 module_key,
                 idx + 1,
                 total_modules,
-                hit.is_some() && !cache.verify(),
+                (hit.is_some() || relink.is_some()) && !cache.verify(),
             );
         }
 
-        let (compiled, output) = match hit {
-            // A validated hit and no verify oracle: use the loaded module.
-            Some((loaded, loaded_output)) if !cache.verify() => (loaded, loaded_output),
-            // Miss, or verify mode (recompile and compare against the hit).
-            hit => {
-                modules_compiled += 1;
-                let module = pkg.get_module(&module_path).ok_or_else(|| {
-                    BuildError::PackageOpen(format!("module not found: {module_path}"))
-                })?;
-                let file_path = pkg.module_file_path(&module_path);
-                let mut compiled = pipeline::compile_loaded_module_with_registry(
-                    module,
-                    &file_path,
+        let (compiled, output) = if cache.verify() {
+            // Verify oracle: always recompile, then assert every available warm
+            // path (a full hit and/or a relink) is byte-identical to it.
+            modules_compiled += 1;
+            let (bare, prelink) = compile_package_module(
+                &pkg,
+                &registry,
+                &module_path,
+                &imported,
+                dep_closures
+                    .get(&module_id)
+                    .unwrap_or(&std::collections::BTreeSet::new()),
+            )?;
+            let (compiled, output, blob) = finish_module(
+                bare,
+                &prelink,
+                &module_path,
+                &registry,
+                deps_list.clone(),
+                &imported,
+                key,
+            );
+            if let Some((_, loaded_output)) = &hit
+                && let Err(msg) = cache::assert_equivalent(&module_id, loaded_output, &output)
+            {
+                panic!("{msg}");
+            }
+            if let Some((relink_bare, relink_prelink)) = &relink {
+                let (_, relink_output, _) = finish_module(
+                    relink_bare.clone(),
+                    relink_prelink,
                     &module_path,
                     &registry,
-                    imported.clone(),
-                    dep_closures
-                        .get(&module_id)
-                        .unwrap_or(&std::collections::BTreeSet::new()),
-                )?;
-                // Qualify this module's bare names with its path (`math::gcd`),
-                // the canonical identity, matching the merged store index.
-                compiled.function_names =
-                    pipeline::qualify_names(&compiled.function_names, &module_path, &registry);
-                compiled.const_names =
-                    pipeline::qualify_names(&compiled.const_names, &module_path, &registry);
-                compiled.signatures =
-                    pipeline::qualify_names(&compiled.signatures, &module_path, &registry);
-                let output = cache::module_output(
-                    &compiled,
-                    dep_ids.get(&module_id).cloned().unwrap_or_default(),
+                    deps_list,
                     &imported,
-                    cache_key.unwrap_or([0u8; 32]),
+                    key,
                 );
-                // Verify oracle: a hit that disagrees with the fresh compile is
-                // an under-invalidation bug — fail loudly with a precise diff.
-                if let Some((_, loaded_output)) = hit
-                    && let Err(msg) = cache::assert_equivalent(&module_id, &loaded_output, &output)
-                {
+                if let Err(msg) = cache::assert_equivalent(&module_id, &relink_output, &output) {
                     panic!("{msg}");
                 }
-                (compiled, output)
             }
+            insert_blob(&mut prelink_blobs, blob);
+            (compiled, output)
+        } else if let Some((loaded, loaded_output)) = hit {
+            // A validated hit: use the loaded module (its prelink blob is
+            // already durable from the build that produced it).
+            (loaded, loaded_output)
+        } else if let Some((relink_bare, relink_prelink)) = relink {
+            modules_relinked += 1;
+            let (compiled, output, blob) = finish_module(
+                relink_bare,
+                &relink_prelink,
+                &module_path,
+                &registry,
+                deps_list,
+                &imported,
+                key,
+            );
+            insert_blob(&mut prelink_blobs, blob);
+            (compiled, output)
+        } else {
+            modules_compiled += 1;
+            let (bare, prelink) = compile_package_module(
+                &pkg,
+                &registry,
+                &module_path,
+                &imported,
+                dep_closures
+                    .get(&module_id)
+                    .unwrap_or(&std::collections::BTreeSet::new()),
+            )?;
+            let (compiled, output, blob) = finish_module(
+                bare,
+                &prelink,
+                &module_path,
+                &registry,
+                deps_list,
+                &imported,
+                key,
+            );
+            insert_blob(&mut prelink_blobs, blob);
+            (compiled, output)
         };
 
         link.extend_module(
@@ -517,7 +594,70 @@ pub fn build_package(
         module_outputs,
         natives_contract_hash,
         core_cache_key: core_key,
+        prelink_blobs,
+        modules_relinked,
     })
+}
+
+/// Check + compile one package module, capturing its pre-link symbolic form.
+/// The returned module has bare names (the caller qualifies via
+/// [`finish_module`]); its `signatures` and the prelink's are already set.
+fn compile_package_module(
+    pkg: &Package,
+    registry: &ModuleRegistry,
+    module_path: &ModulePath,
+    imported: &HashMap<NameKey, blake3::Hash>,
+    deps: &std::collections::BTreeSet<ModuleId>,
+) -> Result<(CompiledModule, crate::compiler::PrelinkModule), BuildError> {
+    let module = pkg
+        .get_module(module_path)
+        .ok_or_else(|| BuildError::PackageOpen(format!("module not found: {module_path}")))?;
+    let file_path = pkg.module_file_path(module_path);
+    pipeline::compile_loaded_module_with_registry(
+        module,
+        &file_path,
+        module_path,
+        registry,
+        imported.clone(),
+        deps,
+    )
+}
+
+/// Qualify a freshly compiled or relinked module's names, encode its pre-link
+/// blob, and derive its [`ModuleBuildOutput`] (with the blob's hash recorded).
+/// A prelink that cannot be encoded yields `None` — the module simply has no
+/// relink input next time (a safe, slower fallback), never a build error.
+fn finish_module(
+    mut compiled: CompiledModule,
+    prelink: &crate::compiler::PrelinkModule,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+    deps: Vec<String>,
+    imported: &HashMap<NameKey, blake3::Hash>,
+    cache_key: [u8; 32],
+) -> (
+    CompiledModule,
+    ModuleBuildOutput,
+    Option<(blake3::Hash, Vec<u8>)>,
+) {
+    compiled.function_names =
+        pipeline::qualify_names(&compiled.function_names, module_path, registry);
+    compiled.const_names = pipeline::qualify_names(&compiled.const_names, module_path, registry);
+    compiled.signatures = pipeline::qualify_names(&compiled.signatures, module_path, registry);
+    let blob = prelink
+        .encode()
+        .ok()
+        .map(|bytes| (blake3::hash(&bytes), bytes));
+    let mut output = cache::module_output(&compiled, deps, imported, cache_key);
+    output.prelink = blob.as_ref().map(|(h, _)| *h);
+    (compiled, output, blob)
+}
+
+/// Record a fresh pre-link blob for persistence, if the module produced one.
+fn insert_blob(blobs: &mut BTreeMap<[u8; 32], Vec<u8>>, blob: Option<(blake3::Hash, Vec<u8>)>) {
+    if let Some((hash, bytes)) = blob {
+        blobs.insert(*hash.as_bytes(), bytes);
+    }
 }
 
 /// A package module's sorted `(dependency id, interface hash)` list, for its
@@ -569,6 +709,12 @@ pub struct PersistedBuild {
 /// Returns any store write failure.
 pub fn persist_build(disk: &DiskStore, result: &BuildResult) -> Result<(), DiskStoreError> {
     disk.put_module(&result.compiled)?;
+    // Pre-link blobs before the snapshot: the manifest's `prelink` references
+    // must be durable before the root pointer flips (same crash-safety ordering
+    // as objects), so a rooted snapshot's relink inputs always resolve.
+    for bytes in result.prelink_blobs.values() {
+        disk.put_prelink(bytes)?;
+    }
     let manifest = BuildManifest::from_build(result);
     disk.write_snapshot(&manifest)?;
     Ok(())

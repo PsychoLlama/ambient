@@ -171,6 +171,11 @@ pub struct VerifyReport {
     /// `(tag name, reason)`, sorted by name. A tag pins a manifest against
     /// gc, so a dangling tag is a real integrity fault `verify` flags.
     pub bad_tags: Vec<(String, String)>,
+    /// Pre-link blob hashes a rooted manifest references but the store does
+    /// not provide, sorted. A dangling prelink means a warm relink would miss;
+    /// the build stays correct (it recompiles) but `verify` flags the torn
+    /// snapshot.
+    pub dangling_prelink: Vec<blake3::Hash>,
 }
 
 impl VerifyReport {
@@ -183,6 +188,7 @@ impl VerifyReport {
             && self.dangling.is_empty()
             && self.dangling_snapshot.is_none()
             && self.bad_tags.is_empty()
+            && self.dangling_prelink.is_empty()
     }
 }
 
@@ -762,6 +768,42 @@ impl DiskStore {
         }
         report.dangling_snapshot = self.snapshot_health()?;
         report.bad_tags = self.tag_health()?;
+
+        let current_manifest = self.current_snapshot()?;
+        // Pre-link blobs: decode and re-hash every one, then check that every
+        // blob a rooted manifest (the snapshot pointer or a tag) references is
+        // present. A blob is self-verifying, so a bad file is corruption; a
+        // referenced-but-absent blob is a torn snapshot.
+        let present_prelink: HashSet<blake3::Hash> =
+            self.all_prelink_hashes()?.into_iter().collect();
+        for hash in &present_prelink {
+            match self.get_prelink(hash) {
+                // A good blob decodes; a corrupt/mismatched one self-heals to
+                // `None` on read, which here reads as an unexpected miss.
+                Ok(Some(_)) => report.valid += 1,
+                Ok(None) => report
+                    .corrupt
+                    .push((*hash, "prelink blob is corrupt or undecodable".to_string())),
+                Err(e) => report.corrupt.push((*hash, e.to_string())),
+            }
+        }
+        let mut referenced_prelink: HashSet<blake3::Hash> = HashSet::new();
+        if let Some(manifest) = &current_manifest {
+            referenced_prelink.extend(manifest.referenced_prelink());
+        }
+        for tagged in self.tagged_manifest_hashes()? {
+            if let Some(manifest) = self.load_manifest(&tagged)? {
+                referenced_prelink.extend(manifest.referenced_prelink());
+            }
+        }
+        for hash in referenced_prelink {
+            if !present_prelink.contains(&hash) {
+                report.dangling_prelink.push(hash);
+            }
+        }
+        report
+            .dangling_prelink
+            .sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
         Ok(report)
     }
 
@@ -783,15 +825,21 @@ impl DiskStore {
         // objects, and its pointer is already treated as absent). Collect the
         // manifest hashes to keep alongside their objects.
         let mut keep_manifests: HashSet<blake3::Hash> = HashSet::new();
+        // Pre-link blobs a kept manifest references are gc roots too: a warm
+        // relink must still find them. Collected separately because they live
+        // in their own store area, not the object graph.
+        let mut keep_prelink: HashSet<blake3::Hash> = HashSet::new();
         let current_manifest = self.current_snapshot()?;
         if let Some(manifest) = &current_manifest {
             keep_manifests.insert(manifest.hash());
             pending.extend(manifest.referenced_objects());
+            keep_prelink.extend(manifest.referenced_prelink());
         }
         for tagged in self.tagged_manifest_hashes()? {
             if let Some(manifest) = self.load_manifest(&tagged)? {
                 keep_manifests.insert(tagged);
                 pending.extend(manifest.referenced_objects());
+                keep_prelink.extend(manifest.referenced_prelink());
             }
         }
 
@@ -835,6 +883,15 @@ impl DiskStore {
         for hash in self.all_manifest_hashes()? {
             if !keep_manifests.contains(&hash) {
                 std::fs::remove_file(self.meta_path(&hash))?;
+                removed += 1;
+            }
+        }
+
+        // Prune stale pre-link blobs: keep only those a kept manifest
+        // references. A superseded build's blobs are unreachable leftovers.
+        for hash in self.all_prelink_hashes()? {
+            if !keep_prelink.contains(&hash) {
+                std::fs::remove_file(self.prelink_path(&hash))?;
                 removed += 1;
             }
         }
@@ -906,6 +963,8 @@ fn unescape_field(s: &str) -> Option<String> {
     }
     Some(out)
 }
+
+mod prelink;
 
 mod snapshot;
 pub use snapshot::{

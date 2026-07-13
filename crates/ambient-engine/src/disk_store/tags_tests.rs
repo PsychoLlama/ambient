@@ -44,6 +44,7 @@ fn manifest_naming(package: &str, object: blake3::Hash) -> BuildManifest {
             entry_point: None,
             source_path: "main.ab".to_string(),
             items: vec![],
+            prelink: None,
         }],
     }
 }

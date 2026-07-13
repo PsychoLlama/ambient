@@ -103,6 +103,10 @@ fn zero_change_rebuild_is_a_full_warm_hit() {
         warm.modules_compiled, 0,
         "every user + builtin module must hit on an unchanged rebuild"
     );
+    assert_eq!(
+        warm.modules_relinked, 0,
+        "an unchanged rebuild needs no relink — every module is a full hit"
+    );
     assert_warm_equals_cold(&warm, files);
 }
 
@@ -142,10 +146,22 @@ fn body_only_edit_recompiles_only_the_leaf_and_its_dependents() {
     fs::write(dir.path().join("src/leaf.ab"), edited[0].1).expect("edit");
 
     let warm = build_and_persist(dir.path());
+    // Only the edited leaf re-checks+compiles (its AST hash moved). `mid` and
+    // `main` fail link validation — base's final hash moved — but their cache
+    // keys still match, so they take the relink fast path: remap the moved
+    // foreign hash and re-finalize, with no re-check and no codegen. The check
+    // counter for both dependents is zero.
     assert_eq!(
-        warm.modules_compiled, 3,
-        "leaf (ast), mid + main (link validation) recompile; builtins hit"
+        warm.modules_compiled, 1,
+        "only the leaf re-checks+compiles; dependents relink"
     );
+    assert_eq!(
+        warm.modules_relinked, 2,
+        "mid + main relink (link-only miss, key match)"
+    );
+    // The relinked build is byte-identical to a fresh cold build of the final
+    // source — objects, names, signatures, consumed links, and each module's
+    // prelink-blob hash all match.
     assert_warm_equals_cold(&warm, edited);
 }
 
@@ -267,10 +283,17 @@ fn transitive_relink_through_a_trait_impl_the_dispatcher_never_imports() {
 
     let warm = build_and_persist(dir.path());
     assert_warm_equals_cold(&warm, edited);
-    // helper (ast), impls (link to base), main (link to dispatch symbol).
+    // Only D's helper re-checks+compiles (its AST moved). `impls` (links `base`)
+    // and `main` (links the dispatch symbol) fail link validation but keep their
+    // cache keys, so both take the relink fast path — no re-check, no codegen —
+    // while widget + describe stay full hits.
     assert_eq!(
-        warm.modules_compiled, 3,
-        "the whole chain relinks; widget + describe still hit"
+        warm.modules_compiled, 1,
+        "only helper re-checks+compiles; the rest of the chain relinks"
+    );
+    assert_eq!(
+        warm.modules_relinked, 2,
+        "impls + main relink through the moved base/dispatch hashes"
     );
     // The proof it actually re-linked: the run result changed with D's body.
     let cold = cold_manifest(edited);
@@ -347,6 +370,60 @@ fn verify_mode_recompiles_and_agrees_on_a_multi_module_build() {
             String::from_utf8_lossy(&out.stderr)
         );
     }
+}
+
+#[test]
+fn verify_mode_covers_the_relink_fast_path_on_a_body_only_edit() {
+    // The relink fast path must be under the standing under-invalidation oracle:
+    // a dependency's body-only edit makes the dependents relink, and under
+    // `AMBIENT_CACHE_VERIFY=1` the build recompiles each relinked module fully
+    // and asserts the relink output is byte-identical (a mismatch panics →
+    // nonzero exit). Driven through a real subprocess so the env var is
+    // process-local.
+    let dir = TempDir::new().expect("temp");
+    write_pkg(
+        dir.path(),
+        &[
+            ("leaf.ab", "pub fn base(): Number { 1 }\n"),
+            (
+                "mid.ab",
+                "use pkg::leaf::base;\npub fn doubled(): Number { base() + base() }\n",
+            ),
+            (
+                "main.ab",
+                "use pkg::mid::doubled;\npub fn run(): Number { doubled() }\n",
+            ),
+        ],
+    );
+    // Cold build persists a snapshot (objects + prelink blobs) to relink against.
+    build_and_persist(dir.path());
+
+    // Body-only edit of the leaf: dependents will relink on the warm build.
+    fs::write(
+        dir.path().join("src/leaf.ab"),
+        "pub fn base(): Number { 2 }\n",
+    )
+    .expect("edit");
+
+    // Warm build under the verify oracle: relinked dependents are recompiled and
+    // compared. Any stale relink panics inside the build → nonzero exit.
+    let out = Command::new(env!("CARGO_BIN_EXE_ambient"))
+        .arg("run")
+        .arg(dir.path())
+        .env("AMBIENT_CACHE_VERIFY", "1")
+        .output()
+        .expect("spawn ambient run");
+    assert!(
+        out.status.success(),
+        "relink under verify mode disagreed with a fresh compile: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // The edited program still produces the right answer (2 + 2 = 4).
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains('4'),
+        "run must yield the edited value: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
 }
 
 #[test]
@@ -440,10 +517,19 @@ fn unrelated_impl_body_edit_leaves_unrelated_modules_cached_warm() {
     fs::write(dir.path().join("src/shapes.ab"), edited[0].1).expect("edit");
 
     let warm = build_and_persist(dir.path());
+    // An impl *body* enters the defining module's interface hash (a consumer
+    // may dispatch the method by type without importing it), so `shapes`'
+    // interface hash moves and `main`'s cache key with it — `main` re-checks
+    // rather than relinks. The relink fast path is reserved for *plain*
+    // function body edits, which are absent from the interface hash.
     assert_eq!(
         warm.modules_compiled, 2,
-        "shapes (source) + main (link) recompile; unrelated stays cached, got {}",
+        "shapes (source) + main (interface-hash key move) recompile; unrelated stays cached, got {}",
         warm.modules_compiled
+    );
+    assert_eq!(
+        warm.modules_relinked, 0,
+        "an impl-body edit moves the dependent's key, so it recompiles, not relinks"
     );
     assert_warm_equals_cold(&warm, edited);
 }

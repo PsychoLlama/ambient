@@ -63,7 +63,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::compiler::{CompiledModule, MigrationRecord};
+use crate::compiler::{CompiledModule, MigrationRecord, PrelinkModule};
 use crate::disk_store::{BuildManifest, DiskStore, ManifestModule};
 use crate::fqn::NameKey;
 use crate::module_interface::module_ast_hash;
@@ -217,6 +217,65 @@ impl BuildCache {
         }
         Some((loaded, ModuleBuildOutput::from_manifest(m)))
     }
+
+    /// Try the **relink fast path** for a module whose full hit failed. The
+    /// cache key must still match (so every check-level input is unchanged and
+    /// the check output is provably identical); only a dependency's *body* moved
+    /// its final content hash, so this module's objects fail link validation
+    /// even though nothing it was checked against changed.
+    ///
+    /// Reloads the module's persisted pre-link symbolic form, remaps the moved
+    /// foreign hashes (recorded consumed-links against the current linking
+    /// state), and hands the remapped form back for re-finalization. The result
+    /// is byte-identical to a cold recompile by construction — with no re-check
+    /// and no codegen.
+    ///
+    /// Returns `None` (fall back to a full recompile) on any obstacle: key
+    /// mismatch, no persisted prelink, a missing/corrupt blob, or a consumed
+    /// link the current build can no longer resolve to a single hash.
+    pub(super) fn try_relink_module(
+        &self,
+        module_id: &str,
+        cache_key: [u8; 32],
+        link: &LinkState,
+    ) -> Option<PrelinkModule> {
+        if !self.reads {
+            return None;
+        }
+        let store = self.store.as_ref()?;
+        let m = self.prev_module(module_id)?;
+        if m.cache_key != cache_key {
+            return None;
+        }
+        let prelink_hash = blake3::Hash::from_bytes(m.prelink?);
+        let mut prelink = store.get_prelink(&prelink_hash).ok()??;
+        let remap = build_remap(m, link)?;
+        prelink.remap(&remap);
+        Some(prelink)
+    }
+}
+
+/// Build the `old foreign hash → new foreign hash` remap for a relink from the
+/// module's recorded consumed-links against the current linking state. Returns
+/// `None` (bail to recompile) if any consumed link no longer resolves to a
+/// single hash — poisoned (two hashes for one rendering) or absent — or if two
+/// links that shared an old hash now disagree on the new one.
+fn build_remap(
+    m: &ManifestModule,
+    link: &LinkState,
+) -> Option<HashMap<blake3::Hash, blake3::Hash>> {
+    let mut remap: HashMap<blake3::Hash, blake3::Hash> = HashMap::new();
+    for (disp, old_bytes) in &m.consumed_links {
+        let old = blake3::Hash::from_bytes(*old_bytes);
+        let new = link.resolve_display(disp)?;
+        match remap.get(&old) {
+            Some(existing) if *existing != new => return None,
+            _ => {
+                remap.insert(old, new);
+            }
+        }
+    }
+    Some(remap)
 }
 
 fn env_flag(var: &str, on: &str) -> bool {
@@ -359,6 +418,16 @@ impl LinkState {
     /// Whether `disp` currently resolves to exactly `hash` (and is unpoisoned).
     fn resolves(&self, disp: &str, hash: &blake3::Hash) -> bool {
         !self.poison.contains(disp) && self.by_display.get(disp) == Some(hash)
+    }
+
+    /// The single hash `disp` currently resolves to, or `None` if it is
+    /// poisoned (maps to two hashes, so a remap target would be ambiguous) or
+    /// absent (the dependency vanished). The relink remap keys off this.
+    fn resolve_display(&self, disp: &str) -> Option<blake3::Hash> {
+        if self.poison.contains(disp) {
+            return None;
+        }
+        self.by_display.get(disp).copied()
     }
 }
 
@@ -597,6 +666,7 @@ impl ModuleBuildOutput {
                 .collect(),
             entry_point: m.entry_point.map(blake3::Hash::from_bytes),
             cache_key: m.cache_key,
+            prelink: m.prelink.map(blake3::Hash::from_bytes),
         }
     }
 }
@@ -655,6 +725,9 @@ pub(super) fn module_output(
         lambda_parents,
         entry_point: compiled.entry_point,
         cache_key,
+        // Filled in by the build loop once the fresh prelink blob is hashed;
+        // a cache hit reconstructs it from the manifest instead.
+        prelink: None,
     }
 }
 

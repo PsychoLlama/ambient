@@ -37,6 +37,7 @@ fn module(
         entry_point: None,
         source_path: String::new(),
         items: vec![],
+        prelink: None,
     }
 }
 

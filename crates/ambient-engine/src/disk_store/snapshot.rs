@@ -58,7 +58,13 @@ const MANIFEST_MAGIC: [u8; 4] = *b"ABSM";
 /// LSP symbol resolution and hash↔identifier debug-symbol correlation. A
 /// manifest at any other version reads back as "no snapshot", which is the
 /// designed cold-start behavior.
-pub const MANIFEST_VERSION: u8 = 3;
+///
+/// v4 (Phase 5 step 3): per module, the content hash of its persisted pre-link
+/// symbolic form (`prelink/` store area), which lets a dependent absorb a
+/// dependency's body-only edit by remapping the moved foreign hashes and
+/// re-finalizing — no re-check, no codegen. A builtin module (cached as one
+/// unit) or one that produced no relinkable body carries `None`.
+pub const MANIFEST_VERSION: u8 = 4;
 
 /// The root-pointer file name under the store root.
 pub const SNAPSHOT_POINTER: &str = "snapshot";
@@ -121,6 +127,11 @@ pub struct ManifestModule {
     /// The structured, spanned item index (v3): every top-level item,
     /// namespace-tagged with its span and identity, sorted by ident.
     pub items: Vec<ManifestItem>,
+    /// The content hash of this module's persisted pre-link symbolic form
+    /// (v4), under the store's `prelink/` area. `None` for builtin modules and
+    /// any module with no relinkable form. A relink hit reloads this blob,
+    /// remaps the moved foreign hashes, and re-finalizes.
+    pub prelink: Option<[u8; 32]>,
 }
 
 /// One structured, spanned item in a module's index. The debug-symbol /
@@ -244,6 +255,7 @@ impl BuildManifest {
                 entry_point: output.and_then(|o| o.entry_point.map(|h| *h.as_bytes())),
                 source_path: summary.source_path.clone(),
                 items,
+                prelink: output.and_then(|o| o.prelink.map(|h| *h.as_bytes())),
             });
         }
         // `interfaces` is a BTreeMap, so `modules` is already key-sorted.
@@ -279,6 +291,18 @@ impl BuildManifest {
             }
         }
         out
+    }
+
+    /// Every pre-link blob hash the manifest references (one per module that
+    /// has a relinkable form). A gc root alongside [`Self::referenced_objects`]:
+    /// a rooted manifest's prelink blobs must survive so a warm relink stays
+    /// possible; `verify` flags any that are missing.
+    #[must_use]
+    pub fn referenced_prelink(&self) -> Vec<blake3::Hash> {
+        self.modules
+            .iter()
+            .filter_map(|m| m.prelink.map(blake3::Hash::from_bytes))
+            .collect()
     }
 
     /// Encode to the canonical byte representation.
@@ -353,6 +377,14 @@ impl BuildManifest {
                 w.u32(item.span.1);
                 w.str(&item.summary);
             }
+            // v4: the pre-link blob hash.
+            match &module.prelink {
+                Some(hash) => {
+                    w.buf.push(1);
+                    w.buf.extend_from_slice(hash);
+                }
+                None => w.buf.push(0),
+            }
         }
         w.buf
     }
@@ -426,6 +458,11 @@ impl BuildManifest {
             for _ in 0..item_count {
                 items.push(decode_item(&mut r)?);
             }
+            let prelink = match r.u8()? {
+                0 => None,
+                1 => Some(r.hash()?),
+                other => return Err(ManifestError::BadTag(other)),
+            };
             modules.push(ManifestModule {
                 module,
                 resolved_ast_hash,
@@ -441,6 +478,7 @@ impl BuildManifest {
                 entry_point,
                 source_path,
                 items,
+                prelink,
             });
         }
         if r.pos != bytes.len() {
