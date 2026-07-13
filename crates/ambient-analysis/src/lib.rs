@@ -212,15 +212,22 @@ pub fn core_platform_registry() -> ModuleRegistry {
 fn build_core_platform_registry() -> ModuleRegistry {
     let mut registry = ModuleRegistry::new();
 
-    let _ = ambient_engine::core_library::register_core_modules(&mut registry, |source| {
-        ambient_parser::parse(source).map_err(|e| e.to_string())
-    });
-
-    let _ = ambient_engine::core_library::register_declaration_modules(
+    let parse = |source: &str| ambient_parser::parse(source).map_err(|e| e.to_string());
+    let core_paths = ambient_engine::core_library::register_core_modules(&mut registry, parse)
+        .unwrap_or_default();
+    let platform_paths = ambient_engine::core_library::register_declaration_modules(
         &mut registry,
         ambient_platform::platform_modules(),
-        |source| ambient_parser::parse(source).map_err(|e| e.to_string()),
-    );
+        parse,
+    )
+    .unwrap_or_default();
+
+    // Re-register the builtins resolved — the same canonicalization
+    // `build_package` performs — so both frontends derive byte-identical
+    // builtin interfaces and hydrate foreign builtin signatures in canonical
+    // (`Fqn`) form. Built once per thread and cloned out, so this runs once.
+    let builtin_paths: Vec<_> = core_paths.into_iter().chain(platform_paths).collect();
+    ambient_engine::core_library::resolve_builtin_modules(&mut registry, &builtin_paths);
 
     registry
 }
