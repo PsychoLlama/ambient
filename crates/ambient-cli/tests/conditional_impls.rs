@@ -261,7 +261,9 @@ fn applied_impl_operator_rejects_wrong_instantiation() {
     "#
     ))
     .check()
-    .expect_error("does not cover");
+    // An enum receiver already renders its applied arguments (`Type::Named`);
+    // this pins that the nominal-struct fix keeps enum rendering intact.
+    .expect_error("does not cover `Option<String>`");
 }
 
 #[test]
@@ -286,7 +288,7 @@ fn applied_impl_dot_call_rejects_wrong_instantiation() {
     "#,
     )
     .check()
-    .expect_error("does not cover");
+    .expect_error("does not cover `Option<String>`");
 }
 
 #[test]
@@ -416,5 +418,9 @@ fn associated_fn_on_applied_impl_rejects_wrong_instantiation() {
     "#,
     )
     .check()
-    .expect_error("does not cover");
+    // The receiver renders with its applied type argument (`Pair<String>`),
+    // not the bare nominal head (`Pair`): a generic struct's arguments are
+    // substituted into its record body, so the diagnostic reconstructs the
+    // applied surface form.
+    .expect_error("does not cover `Pair<String>`");
 }

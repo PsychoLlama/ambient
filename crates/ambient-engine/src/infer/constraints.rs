@@ -260,13 +260,70 @@ impl Infer {
             if !match_target(&obligation.target, &ty, &mut subst) {
                 errors.push(Box::new(TypeError::new(
                     TypeErrorKind::ImplInstantiationNotCovered {
-                        ty,
+                        // Render the receiver's *applied* surface form
+                        // (`Pair<String>`, not the bare head `Pair`): a generic
+                        // struct's arguments were substituted into its record
+                        // body, so `Display` alone can only show the head.
+                        ty: self.applied_nominal_display(&ty),
                         trait_name: Arc::clone(&obligation.trait_name),
                     },
                     obligation.span,
                 )));
             }
         }
+    }
+
+    /// Reconstruct a nominal *struct* type's applied surface form for a
+    /// diagnostic. A generic struct's applied form (`Pair<String>`) reaches
+    /// the checker as a bare [`Type::Nominal`] whose arguments were already
+    /// substituted into its record body ([`substitute_named`]), so
+    /// [`Type`]'s `Display` — which has no environment — can only print the
+    /// head. This reverses that substitution against the struct's declared
+    /// body (recovered from the [`AliasTarget::GenericStruct`] table by uuid,
+    /// name-independent) to recover the arguments and rebuild the applied
+    /// `Named<…>` shape `Display` renders in full. Recurses into recovered
+    /// arguments so a nested `Pair<Pair<Money>>` renders in full too.
+    /// Non-struct types, and structs whose body we can't reverse, pass
+    /// through unchanged (the bare-head `Display` is the graceful fallback).
+    ///
+    /// This is a human-facing rendering path used only when building an error;
+    /// content hashes and the on-disk store render through
+    /// [`CanonicalTypeRenderer`](crate::ability_resolver::CanonicalTypeRenderer)
+    /// instead, so this never touches a persisted or hashed form.
+    ///
+    /// [`substitute_named`]: super::check::subst::substitute_named
+    pub(crate) fn applied_nominal_display(&self, ty: &Type) -> Type {
+        let Type::Nominal(nom) = ty else {
+            return ty.clone();
+        };
+        for target in self.type_aliases.values() {
+            let super::AliasTarget::GenericStruct {
+                type_params,
+                body: Type::Nominal(body),
+            } = target
+            else {
+                continue;
+            };
+            if body.uuid != nom.uuid {
+                continue;
+            }
+            let mut subst: HashMap<Arc<str>, Type> = HashMap::new();
+            if invert_named(&body.inner, &nom.inner, type_params, &mut subst) {
+                let args = type_params
+                    .iter()
+                    .map(|param| {
+                        self.applied_nominal_display(subst.get(param).unwrap_or(&Type::Hole))
+                    })
+                    .collect();
+                let name = nom.name.clone().unwrap_or_else(|| Arc::from("_"));
+                return Type::Named(crate::types::NamedType::with_identity(
+                    name,
+                    args,
+                    Some(nom.uuid),
+                ));
+            }
+        }
+        ty.clone()
     }
 
     /// Solve every constraint recorded since the last call, producing the
@@ -630,6 +687,75 @@ fn match_target(pattern: &Type, concrete: &Type, subst: &mut HashMap<Arc<str>, T
                     .zip(&c.params)
                     .all(|(a, b)| match_target(a, b, subst))
                 && match_target(&p.ret, &c.ret, subst)
+        }
+        _ => pattern == concrete,
+    }
+}
+
+/// Invert [`substitute_named`] for diagnostics: match a generic struct's
+/// declared body `pattern` (its fields written as bare `Named(param)`
+/// placeholders) against a concrete instantiation, binding each declared
+/// `param` to the type it lines up with. The dual of [`match_target`], which
+/// binds [`Type::Param`]s; here the binders are the placeholder `Named`s a
+/// fielded generic struct's body carries. A structural mismatch is a clean
+/// `false`, leaving the caller to fall back to the bare-head rendering.
+///
+/// [`substitute_named`]: super::check::subst::substitute_named
+fn invert_named(
+    pattern: &Type,
+    concrete: &Type,
+    params: &[Arc<str>],
+    subst: &mut HashMap<Arc<str>, Type>,
+) -> bool {
+    // A bare placeholder naming one of the struct's parameters binds it.
+    if let Type::Named(p) = pattern
+        && p.args.is_empty()
+        && p.uuid.is_none()
+        && params.iter().any(|q| q == &p.name)
+    {
+        return if let Some(existing) = subst.get(&p.name) {
+            existing == concrete
+        } else {
+            subst.insert(Arc::clone(&p.name), concrete.clone());
+            true
+        };
+    }
+    match (pattern, concrete) {
+        (Type::Named(p), Type::Named(c)) => {
+            let head_ok = match (p.uuid, c.uuid) {
+                (Some(a), Some(b)) => a == b,
+                _ => p.name == c.name,
+            };
+            head_ok
+                && p.args.len() == c.args.len()
+                && p.args
+                    .iter()
+                    .zip(&c.args)
+                    .all(|(a, b)| invert_named(a, b, params, subst))
+        }
+        (Type::Nominal(p), Type::Nominal(c)) => {
+            p.uuid == c.uuid && invert_named(&p.inner, &c.inner, params, subst)
+        }
+        (Type::Record(p), Type::Record(c)) => {
+            p.fields.len() == c.fields.len()
+                && p.fields
+                    .iter()
+                    .zip(&c.fields)
+                    .all(|((pn, pt), (cn, ct))| pn == cn && invert_named(pt, ct, params, subst))
+        }
+        (Type::Tuple(p), Type::Tuple(c)) => {
+            p.len() == c.len()
+                && p.iter()
+                    .zip(c)
+                    .all(|(a, b)| invert_named(a, b, params, subst))
+        }
+        (Type::Function(p), Type::Function(c)) => {
+            p.params.len() == c.params.len()
+                && p.params
+                    .iter()
+                    .zip(&c.params)
+                    .all(|(a, b)| invert_named(a, b, params, subst))
+                && invert_named(&p.ret, &c.ret, params, subst)
         }
         _ => pattern == concrete,
     }
