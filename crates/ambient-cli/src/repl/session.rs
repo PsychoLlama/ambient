@@ -471,6 +471,17 @@ fn build_base(
                     platform_modules: ambient_platform::platform_modules(),
                     natives: Some(&stubs),
                     progress: None,
+                    // Warm the base build off a prior `ambient run`/`compile`
+                    // snapshot: REPL startup on a built project skips
+                    // recompiling unchanged modules. The REPL is a read-only
+                    // cache *consumer* — it never writes a snapshot. A REPL
+                    // session is not a canonical build (its accumulating `repl`
+                    // module and per-turn trial compiles are ephemeral), so
+                    // persisting one would only churn the store the real build
+                    // owns; the per-turn trial compiles stay uncached as before.
+                    store_path: Some(ambient_engine::disk_store::DiskStore::package_store_path(
+                        root,
+                    )),
                     ..Default::default()
                 },
             )
