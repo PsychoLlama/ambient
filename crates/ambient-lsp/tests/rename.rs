@@ -291,45 +291,74 @@ fn run(): Money { Money { cents: 1 } }
     fx.client.shutdown();
 }
 
-// Cross-module variant *references* barely type-check today (a foreign
-// `m::Variant` needs the variant name known locally — a pre-existing checker
-// quirk), so the round-trip fixture stays same-module to keep the post-rename
-// package clean. Cross-module variant find-references is covered at the
-// occurrence-index level in `ambient-analysis` instead.
 const SHAPES: &str = "\
-unique(A1B2C3D4-0000-0000-0000-0000000000C1) enum Shape { Circle(Number), Square }
+pub unique(A1B2C3D4-0000-0000-0000-0000000000C1) enum Shape { Circle(Number), Square }
 fn mk(): Shape { Circle(2.0) }
 fn area(s: Shape): Number { match s { Circle(n) => n, Square => 0 } }
 ";
 
-#[test]
-fn rename_enum_variant_roundtrips() {
-    // Renaming a variant rewrites its declaration, every constructor, and every
-    // pattern — but never the enum, whose identity is distinct.
-    let mut fx = Fixture::new(&[("src/main.ab", SHAPES)], "src/main.ab");
+// The consumer module reaches the variant fully-qualified — as a constructor
+// and as a match pattern — with no `use` of the variant itself. Now that
+// foreign qualified variants resolve by `Fqn` identity, the post-rename
+// package type-checks clean, so the round-trip can span modules.
+const SHAPES_CONSUMER: &str = "\
+use pkg::shapes;
+fn make(): shapes::Shape { shapes::Circle(5.0) }
+fn describe(s: shapes::Shape): Number { match s { shapes::Circle(n) => n, shapes::Square => 0 } }
+";
 
-    // Rename `Circle` from the `Circle(2.0)` construction site (the 2nd
-    // occurrence, after the declaration).
+#[test]
+fn rename_enum_variant_roundtrips_across_modules() {
+    // Renaming a variant rewrites its declaration, every constructor, and every
+    // pattern — bare (same-module) and fully-qualified (`shapes::Circle` in
+    // another module) alike — but never the enum, whose identity is distinct.
+    let mut fx = Fixture::new(
+        &[("src/shapes.ab", SHAPES), ("src/main.ab", SHAPES_CONSUMER)],
+        "src/main.ab",
+    );
+
+    // Rename `Circle` from the qualified `shapes::Circle(5.0)` construction
+    // site in the *consumer* module.
     let uri = fx.uri("src/main.ab");
-    let (line, ch) = pos_of(SHAPES, "Circle", 1);
+    let (line, ch) = pos_of(SHAPES_CONSUMER, "Circle", 0);
     let edit = fx
         .client
         .rename(&uri, line, ch, "Round")
         .expect("variant rename produced an edit");
     apply_workspace_edit(&edit);
 
+    let shapes = fx.read("src/shapes.ab");
     let main = fx.read("src/main.ab");
     assert!(
-        main.contains("Round(Number)"),
-        "declaration renamed: {main:?}"
+        shapes.contains("Round(Number)"),
+        "declaration renamed: {shapes:?}"
     );
-    assert!(main.contains("Round(2.0)"), "constructor renamed: {main:?}");
-    assert!(main.contains("Round(n)"), "pattern renamed: {main:?}");
     assert!(
-        main.contains("enum Shape"),
-        "the enum name is untouched: {main:?}"
+        shapes.contains("Round(2.0)"),
+        "constructor renamed: {shapes:?}"
     );
-    assert!(!main.contains("Circle"), "old name gone: {main:?}");
+    assert!(shapes.contains("Round(n)"), "pattern renamed: {shapes:?}");
+    assert!(
+        shapes.contains("enum Shape"),
+        "the enum name is untouched: {shapes:?}"
+    );
+    assert!(
+        !shapes.contains("Circle"),
+        "old name gone from shapes: {shapes:?}"
+    );
+
+    assert!(
+        main.contains("shapes::Round(5.0)"),
+        "qualified constructor renamed: {main:?}"
+    );
+    assert!(
+        main.contains("shapes::Round(n)"),
+        "qualified pattern renamed: {main:?}"
+    );
+    assert!(
+        !main.contains("Circle"),
+        "old name gone from main: {main:?}"
+    );
 
     fx.assert_package_clean();
     fx.client.shutdown();
