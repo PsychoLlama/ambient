@@ -8,6 +8,7 @@ description = "Shared analysis layer for the Ambient language: one parse/check/d
 ambient-engine.workspace = true
 ambient-parser.workspace = true
 ambient-platform.workspace = true
+blake3.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

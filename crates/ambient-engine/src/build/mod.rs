@@ -498,6 +498,7 @@ pub fn build_package(
 ///
 /// Public so the analysis pipeline keys its check memo from the identical
 /// derivation (see [`module_cache_key`]).
+#[must_use]
 pub fn dep_interface_hashes(
     dep_ids: &BTreeMap<String, Vec<String>>,
     module_id: &str,

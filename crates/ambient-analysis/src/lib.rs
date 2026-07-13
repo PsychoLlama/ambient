@@ -41,6 +41,7 @@
 pub mod occurrences;
 pub mod package;
 pub mod queries;
+pub mod session;
 
 use ambient_engine::ability_resolver::AbilityResolver;
 use ambient_engine::ast::{Module, Span};
@@ -122,7 +123,15 @@ pub fn type_error_diagnostics(errors: &[BoxedTypeError]) -> Vec<Diagnostic> {
 }
 
 /// The result of analyzing one module's source.
-#[derive(Debug)]
+///
+/// `Clone` so the incremental analysis [`session`] can memoize a module's
+/// check-level result (parse errors, type errors, typed AST) and replay it
+/// on a warm hit — byte-identical to a cold analysis. The `import_cycle`
+/// field is *not* part of the memoized value: a cycle is a package-graph
+/// fact the session recomputes per registry revision and overlays, because a
+/// dependent's edit can create or dissolve a cycle without moving this
+/// module's own cache-key inputs.
+#[derive(Debug, Clone)]
 pub struct AnalysisResult {
     /// All parse and lowering errors, in source order.
     pub parse_errors: Vec<ParseError>,
@@ -240,6 +249,37 @@ pub fn analyze_with_registry_and_resolver(
     registry: Option<&ModuleRegistry>,
     resolver: Option<AbilityResolver>,
 ) -> AnalysisResult {
+    let mut result = check_without_cycle(source, module_path, registry, resolver);
+
+    // Import cycles are a package-level property, so they only apply when a
+    // real package registry + module path were supplied (the single-file
+    // fallback has no cross-module edges). The decision lives in the engine
+    // (`module_cycles`), shared with `build_package`, so `ambient check` and
+    // the LSP — both of which route through this function — report the same
+    // rendering the compiler does, at every module participating in the cycle.
+    // The incremental [`session`] bypasses this per-module derivation and
+    // overlays a batch-computed cycle set instead (same rendering).
+    result.import_cycle = match (module_path, registry) {
+        (Some(path), Some(reg)) => ambient_engine::module_cycles::import_cycle_containing(reg, path)
+            .map(|cycle| Diagnostic::error(Span::new(0, 0), cycle.describe(), None)),
+        _ => None,
+    };
+    result
+}
+
+/// The check-level analysis of a module: parse errors, type errors, and the
+/// typed AST — everything [`analyze_with_registry_and_resolver`] computes
+/// **except** the import-cycle overlay. This is the memoizable core: its
+/// output is a pure function of the module's own resolved source and the
+/// registry's view of its dependencies, exactly what the [`session`] cache
+/// key captures. `import_cycle` is always `None`; callers attach it.
+#[must_use]
+pub fn check_without_cycle(
+    source: &str,
+    module_path: Option<&ModulePath>,
+    registry: Option<&ModuleRegistry>,
+    resolver: Option<AbilityResolver>,
+) -> AnalysisResult {
     let recovered = parse_recovering(source);
     let mut parse_errors = recovered.errors;
     let module = recovered.module;
@@ -284,25 +324,11 @@ pub fn analyze_with_registry_and_resolver(
         None => check_module_with_registry(module, path, reg),
     };
 
-    // Import cycles are a package-level property, so they only apply when a
-    // real package registry + module path were supplied (the single-file
-    // fallback has no cross-module edges). The decision lives in the engine
-    // (`module_cycles`), shared with `build_package`, so `ambient check` and
-    // the LSP — both of which route through this function — report the same
-    // rendering the compiler does, at every module participating in the cycle.
-    let import_cycle = match (module_path, registry) {
-        (Some(path), Some(reg)) => {
-            ambient_engine::module_cycles::import_cycle_containing(reg, path)
-                .map(|cycle| Diagnostic::error(Span::new(0, 0), cycle.describe(), None))
-        }
-        _ => None,
-    };
-
     AnalysisResult {
         parse_errors,
         type_errors: check_result.errors,
         module: check_result.module,
-        import_cycle,
+        import_cycle: None,
     }
 }
 

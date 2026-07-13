@@ -269,6 +269,7 @@ pub(super) fn core_cache_key(
 /// (diagnostics never consume a native's content identity — `extern fn`
 /// signatures live in the AST), but reuses the exact fold so the two never
 /// drift.
+#[must_use]
 pub fn module_cache_key(
     resolved_ast_hash: [u8; 32],
     natives_contract_hash: [u8; 32],

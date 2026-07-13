@@ -10,12 +10,25 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ambient_engine::ast::Module;
+use ambient_engine::fqn::ModuleId;
 use ambient_engine::manifest::Manifest;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
 use ambient_parser::ParseError;
 
 use crate::AnalysisResult;
+
+/// One package module's resolve-pass dependency set: the foreign modules its
+/// references canonicalized into, plus its own [`ModuleId`] (so both the
+/// canonical-identity form the cache key uses and the dotted-path form the
+/// cycle graph uses are recoverable without re-resolving).
+#[derive(Debug, Clone)]
+pub struct ModuleDeps {
+    /// The module's own canonical identity.
+    pub module_id: ModuleId,
+    /// The foreign modules it depends on (all scopes: core + package).
+    pub deps: std::collections::BTreeSet<ModuleId>,
+}
 
 /// A package opened for analysis: manifest info plus every parsed module.
 #[derive(Debug)]
@@ -171,6 +184,24 @@ impl AnalysisPackage {
     /// packages.
     #[must_use]
     pub fn build_registry(&self) -> ModuleRegistry {
+        self.build_registry_with_deps().0
+    }
+
+    /// Build the registry *and* capture each package module's resolve-pass
+    /// dependency set (as canonical [`ModuleId`]s), keyed by the module's
+    /// canonical identity string.
+    ///
+    /// The incremental [`crate::session`] needs these edges for two things it
+    /// must not re-derive by re-resolving the world per module: each module's
+    /// cache-key dependency-interface fold, and the package's import-cycle
+    /// graph. [`build_registry`] discards them.
+    #[must_use]
+    pub fn build_registry_with_deps(
+        &self,
+    ) -> (
+        ModuleRegistry,
+        std::collections::BTreeMap<String, ModuleDeps>,
+    ) {
         let mut registry = crate::core_platform_registry();
         // Mint user items' `Fqn`s under the package's workspace scope — the
         // same scope `build_package` uses — so the resolve pass below stamps
@@ -183,12 +214,22 @@ impl AnalysisPackage {
         for module in self.modules.values() {
             registry.register(&module.path, Arc::new(module.ast.clone()));
         }
+        let mut deps = std::collections::BTreeMap::new();
         for module in self.modules.values() {
             let mut ast = module.ast.clone();
-            let _ = ambient_engine::resolve::resolve_module(&mut ast, &module.path, &registry);
+            let outcome =
+                ambient_engine::resolve::resolve_module(&mut ast, &module.path, &registry);
+            let id = registry.module_id(&module.path);
+            deps.insert(
+                id.to_string(),
+                ModuleDeps {
+                    module_id: id,
+                    deps: outcome.deps,
+                },
+            );
             registry.register(&module.path, Arc::new(ast));
         }
-        registry
+        (registry, deps)
     }
 
     /// The content-keyed interface of every module in the package, computed
@@ -212,17 +253,33 @@ impl AnalysisPackage {
     /// Returns results keyed by module path string, in no particular
     /// order. This is what `ambient check <package>` reports, and what the
     /// LSP reports across open files — one computation, two renderers.
+    ///
+    /// A single cold pass: it shares the check + batch import-cycle path with
+    /// the incremental [`crate::session::AnalysisSession`] (so cold and warm
+    /// analysis are byte-identical, and cold `ambient check` also drops the
+    /// per-module O(modules²) cycle re-resolve). The session adds a per-module
+    /// memo on top; this one-shot has nothing to reuse, so it skips it.
     #[must_use]
     pub fn analyze_all(&self) -> HashMap<String, AnalysisResult> {
-        let registry = self.build_registry();
+        let (registry, deps) = self.build_registry_with_deps();
+        let cycles = crate::session::cycles_for(&deps);
         self.modules
             .iter()
             .map(|(key, module)| {
-                let result = crate::analyze_with_registry(
+                let mut result = crate::check_without_cycle(
                     &module.source,
                     Some(&module.path),
                     Some(&registry),
+                    None,
                 );
+                let cycle_key = registry.module_id(&module.path).module_path_string();
+                result.import_cycle = cycles.get(&cycle_key).map(|cycle| {
+                    crate::Diagnostic::error(
+                        ambient_engine::ast::Span::new(0, 0),
+                        cycle.describe(),
+                        None,
+                    )
+                });
                 (key.clone(), result)
             })
             .collect()

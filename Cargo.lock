@@ -19,6 +19,7 @@ dependencies = [
  "ambient-engine",
  "ambient-parser",
  "ambient-platform",
+ "blake3",
  "tempfile",
 ]
 
