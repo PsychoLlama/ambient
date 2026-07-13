@@ -306,6 +306,53 @@ pub fn register_declaration_modules(
     Ok(paths)
 }
 
+/// Resolve every already-registered builtin (core + platform) module and
+/// re-register it in its canonical, resolved form.
+///
+/// The registry initially holds each builtin module's *raw* (unresolved) AST.
+/// Package modules, by contrast, are always re-registered resolved (see
+/// `build_package` and `AnalysisPackage::build_registry`). This pass closes
+/// that gap so the whole registry speaks one AST form:
+///
+/// - **Interface derivation** ([`crate::module_interface::build_interfaces`])
+///   reads a builtin's exported surface off the registered AST. Deriving it
+///   from the raw AST rendered cross-module type references in their *spelled*
+///   form (bare `Stdio`) rather than their canonical `Fqn`, so a builtin's
+///   interface hash silently depended on which AST form its frontend happened
+///   to register. Resolving here makes the compiler (`build_package`) and the
+///   editor (`ambient-analysis`) derive byte-identical builtin interfaces — a
+///   prerequisite for reusing a build snapshot to warm-start analysis.
+/// - **Foreign-signature hydration**: `ModuleEnv` reads a foreign item's
+///   signature straight from the registry, so a bare ability in a raw builtin
+///   signature would be re-resolved against the *importing* module's scope
+///   (the same bug [`AnalysisPackage::build_registry`] documents for user
+///   modules).
+///
+/// Must run after **all** builtin modules are registered: one builtin's
+/// references may target another (`core::result` → `core::option`, a platform
+/// ability's `with` row → `core::time`). Resolution is idempotent
+/// ([`crate::resolve::resolve_module`]), so re-registering here and letting the
+/// compile pipeline resolve again is sound. The historical reason builtins were
+/// left raw — that re-registering would drop `add_exports`-injected intrinsic
+/// exports — is obsolete: core intrinsics are now ordinary `extern fn`
+/// declarations in the `.ab` sources, so `extract_exports` recovers them from
+/// the AST on every (re-)registration.
+#[allow(clippy::arc_with_non_send_sync)]
+pub fn resolve_builtin_modules(
+    registry: &mut crate::module_registry::ModuleRegistry,
+    paths: &[ModulePath],
+) {
+    for path in paths {
+        let Some(info) = registry.get(path) else {
+            continue;
+        };
+        let is_dir_module = info.is_dir_module;
+        let mut ast = (*info.module).clone();
+        crate::resolve::resolve_module(&mut ast, path, registry);
+        registry.register_module(path, Arc::new(ast), is_dir_module);
+    }
+}
+
 /// Convert a path to a module name.
 fn path_to_name(path: &[Arc<str>]) -> String {
     path.iter()

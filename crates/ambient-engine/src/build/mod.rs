@@ -339,6 +339,14 @@ pub fn build_package(
         modules_compiled += module_outputs.len() - before;
     }
 
+    // Re-register the builtin ASTs in their resolved form, unconditionally
+    // (a cache hit above skips their compile — and thus their resolve — so this
+    // is the only place the loaded-from-store path canonicalizes them). This is
+    // what makes builtin interface derivation and foreign-signature hydration
+    // read one AST form, matching package modules and `ambient-analysis`; the
+    // builtin objects were already compiled/loaded above and are untouched.
+    crate::core_library::resolve_builtin_modules(&mut registry, &builtin_paths);
+
     // ── Package modules: register raw, resolve, re-register resolved. ──
     for module in pkg.all_modules() {
         registry.register(&module.path, Arc::new(module.ast.clone()));
