@@ -72,7 +72,7 @@ pub(super) fn compile_package(path: &Path) -> Result<CompiledModule> {
     // Stub natives satisfy the extern contract at build time (real
     // implementations are registered per VM by the runtime host).
     let stubs = ambient_platform::stub_natives();
-    let store_path = path.join(".ambient").join("store");
+    let store_path = ambient_engine::disk_store::DiskStore::package_store_path(path);
     let result = ambient_engine::build::build_package(
         path,
         super::parse_source,
@@ -90,7 +90,7 @@ pub(super) fn compile_package(path: &Path) -> Result<CompiledModule> {
 
     // Persist the build to the package-local content-addressed store.
     // Failure to persist is a warning, not a failed run.
-    match ambient_engine::disk_store::DiskStore::open(path.join(".ambient").join("store")) {
+    match ambient_engine::disk_store::DiskStore::open_package(path) {
         Ok(disk) => {
             if let Err(e) = persist_build(&disk, &result) {
                 eprintln!("warning: failed to persist build to store: {e}");
@@ -107,7 +107,7 @@ pub(super) fn compile_package(path: &Path) -> Result<CompiledModule> {
 /// only swapped after every object it references and the manifest bytes are
 /// durably in place ([`DiskStore::write_snapshot`]), so a snapshot always
 /// resolves to a consistent build.
-fn persist_build(
+pub(super) fn persist_build(
     disk: &ambient_engine::disk_store::DiskStore,
     result: &ambient_engine::build::BuildResult,
 ) -> Result<(), ambient_engine::disk_store::DiskStoreError> {

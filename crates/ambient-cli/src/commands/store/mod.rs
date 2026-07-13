@@ -29,7 +29,7 @@ fn find_store_root(path: &Path) -> Result<PathBuf> {
     let mut dir: &Path = &canonical;
     loop {
         if dir.join("ambient.toml").exists() {
-            return Ok(dir.join(".ambient").join("store"));
+            return Ok(DiskStore::package_store_path(dir));
         }
         match dir.parent() {
             Some(parent) => dir = parent,

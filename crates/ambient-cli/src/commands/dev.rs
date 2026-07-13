@@ -232,7 +232,7 @@ fn report_retirement(report: &ambient_platform::retire::RetirementReport) {
 /// files and packs have no package store — nothing to do. Failures are
 /// warnings: the store is a rebuildable cache.
 fn gc_package_store(path: &Path, report: &ambient_platform::retire::RetirementReport) {
-    let store_path = path.join(".ambient").join("store");
+    let store_path = ambient_engine::disk_store::DiskStore::package_store_path(path);
     if !store_path.is_dir() {
         return;
     }

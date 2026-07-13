@@ -219,6 +219,25 @@ impl DiskStore {
         Ok(Self { root })
     }
 
+    /// The conventional store path for a package rooted at `pkg_dir`:
+    /// `<pkg_dir>/.ambient/store`. The single authority on that join — every
+    /// CLI site that needs the path for a build's `store_path` or to open the
+    /// store derives it here rather than hand-assembling it.
+    #[must_use]
+    pub fn package_store_path(pkg_dir: &Path) -> PathBuf {
+        pkg_dir.join(".ambient").join("store")
+    }
+
+    /// Open (or initialize) the store for a package rooted at `pkg_dir`,
+    /// resolving its path via [`Self::package_store_path`].
+    ///
+    /// # Errors
+    ///
+    /// Fails for the same reasons as [`Self::open`].
+    pub fn open_package(pkg_dir: &Path) -> Result<Self, DiskStoreError> {
+        Self::open(Self::package_store_path(pkg_dir))
+    }
+
     /// The store's root directory.
     #[must_use]
     pub fn root(&self) -> &Path {
