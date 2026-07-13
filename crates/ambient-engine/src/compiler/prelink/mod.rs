@@ -158,6 +158,7 @@ impl PrelinkModule {
     /// and deduplicates so the encoding is canonical regardless of the source
     /// order the compiler emitted them in.
     #[must_use]
+    #[allow(clippy::too_many_arguments)] // one flat capture of the compile outputs
     pub(crate) fn from_compile(
         functions: Vec<PrelinkFn>,
         lambdas: Vec<PrelinkLambda>,
@@ -265,6 +266,7 @@ impl PrelinkModule {
     /// Returns [`ObjectError`] if a function's constant pool holds a value that
     /// cannot be content-addressed (impossible for a module that finalized, but
     /// checked defensively so a bad blob is never written).
+    #[allow(clippy::too_many_lines)] // one linear field-by-field encoder
     pub fn encode(&self) -> Result<Vec<u8>, ObjectError> {
         let mut w = Writer::default();
         w.buf.extend_from_slice(&PRELINK_MAGIC);
@@ -342,6 +344,7 @@ impl PrelinkModule {
     ///
     /// Returns a [`PrelinkError`] if the bytes are not a complete, well-formed
     /// blob of the current version. Callers treat any error as a cache miss.
+    #[allow(clippy::too_many_lines)] // one linear field-by-field decoder
     pub fn decode(bytes: &[u8]) -> Result<Self, PrelinkError> {
         let mut r = Reader { bytes, pos: 0 };
         if r.take(4)? != PRELINK_MAGIC {

@@ -486,9 +486,10 @@ pub(super) fn compile_loaded_module_with_registry(
     })?;
     // Attach the checker signatures to both the runnable module and the
     // persisted symbolic form: a relink reconstructs `signatures` from the
-    // prelink (the compiler never computes them), so the two must agree.
-    compiled.signatures = check_result.signatures.clone();
+    // prelink (the compiler never computes them), so the two must agree. Set
+    // the prelink (borrows) before moving the map into the module.
     prelink.set_signatures(&check_result.signatures);
+    compiled.signatures = check_result.signatures;
 
     Ok((compiled, prelink))
 }

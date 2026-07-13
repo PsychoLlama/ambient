@@ -296,6 +296,9 @@ fn verify(store: &DiskStore) -> Result<()> {
     for (name, reason) in &report.bad_tags {
         println!("DANGLING tag {name}: {reason}");
     }
+    for hash in &report.dangling_prelink {
+        println!("DANGLING prelink: {}", short(hash));
+    }
     if report.is_clean() {
         println!("store is clean");
         Ok(())
@@ -306,6 +309,9 @@ fn verify(store: &DiskStore) -> Result<()> {
         }
         if !report.bad_tags.is_empty() {
             extras.push("dangling tag(s)");
+        }
+        if !report.dangling_prelink.is_empty() {
+            extras.push("dangling prelink blob(s)");
         }
         let extras = if extras.is_empty() {
             String::new()

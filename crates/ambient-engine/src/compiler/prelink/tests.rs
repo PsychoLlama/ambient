@@ -45,7 +45,9 @@ fn sample_module() -> Module {
 #[test]
 fn prelink_encode_decode_round_trips() {
     let module = sample_module();
-    let (_, prelink) = compile_module_capturing(&module, Default::default()).expect("compile");
+    let (_, prelink) =
+        compile_module_capturing(&module, crate::compiler::CompileOptions::default())
+            .expect("compile");
 
     let bytes = prelink.encode().expect("encode");
     let decoded = PrelinkModule::decode(&bytes).expect("decode");
@@ -56,7 +58,9 @@ fn prelink_encode_decode_round_trips() {
 #[test]
 fn reassembling_prelink_matches_the_cold_compile() {
     let module = sample_module();
-    let (cold, prelink) = compile_module_capturing(&module, Default::default()).expect("compile");
+    let (cold, prelink) =
+        compile_module_capturing(&module, crate::compiler::CompileOptions::default())
+            .expect("compile");
 
     // Replaying the persisted symbolic form (decoded from bytes) through the
     // shared `assemble_module` reproduces the module byte-for-byte.
@@ -73,7 +77,9 @@ fn reassembling_prelink_matches_the_cold_compile() {
 #[test]
 fn remap_moves_the_final_hash_and_stays_deterministic() {
     let module = sample_module();
-    let (_, prelink) = compile_module_capturing(&module, Default::default()).expect("compile");
+    let (_, prelink) =
+        compile_module_capturing(&module, crate::compiler::CompileOptions::default())
+            .expect("compile");
 
     // `double`'s temporary hash is the reference `run` embeds. Remapping it to
     // a fresh hash must change the assembled objects (it is a genuine input to

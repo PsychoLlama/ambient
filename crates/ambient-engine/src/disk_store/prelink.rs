@@ -71,12 +71,13 @@ impl DiskStore {
             let _ = std::fs::remove_file(&path);
             return Ok(None);
         }
-        match PrelinkModule::decode(&bytes) {
-            Ok(module) => Ok(Some(module)),
-            Err(_) => {
-                let _ = std::fs::remove_file(&path);
-                Ok(None)
-            }
+        if let Ok(module) = PrelinkModule::decode(&bytes) {
+            Ok(Some(module))
+        } else {
+            // Undecodable (including an unknown version): drop it so the next
+            // persist rewrites correct bytes.
+            let _ = std::fs::remove_file(&path);
+            Ok(None)
         }
     }
 
