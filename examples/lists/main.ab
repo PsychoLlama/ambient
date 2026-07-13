@@ -114,7 +114,7 @@ fn zip_lists(xs: List<Number>, ys: List<Number>): List<(Number, Number)> {
 
 pub fn run(): Number {
     let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    let mixed = [0 - 3, 0 - 1, 0, 2, 5, 0 - 2, 8];
+    let mixed = [-3, -1, 0, 2, 5, -2, 8];
 
     // Test sum and product
     let s = sum(numbers);       // 55

@@ -118,11 +118,11 @@ impl Eq for Duration {
 impl Ord for Duration {
     fn cmp(self, other: Duration): Number {
         if self.secs < other.secs {
-            0 - 1
+            -1
         } else if self.secs > other.secs {
             1
         } else if self.nanos < other.nanos {
-            0 - 1
+            -1
         } else if self.nanos > other.nanos {
             1
         } else {

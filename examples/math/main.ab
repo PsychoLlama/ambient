@@ -65,17 +65,17 @@ fn compound_interest(principal: Number, rate: Number, times: Number, years: Numb
 
 /// Sigmoid function (logistic function).
 fn sigmoid(x: Number): Number {
-    1 / (1 + (0 - x).exp())
+    1 / (1 + (-x).exp())
 }
 
 /// Hyperbolic sine.
 fn sinh(x: Number): Number {
-    (x.exp() - (0 - x).exp()) / 2
+    (x.exp() - (-x).exp()) / 2
 }
 
 /// Hyperbolic cosine.
 fn cosh(x: Number): Number {
-    (x.exp() + (0 - x).exp()) / 2
+    (x.exp() + (-x).exp()) / 2
 }
 
 /// Checks if two numbers are approximately equal (within epsilon).
@@ -125,11 +125,11 @@ fn is_prime_helper(n: Number, divisor: Number): Bool {
 pub fn run(): Number {
     // Test basic math methods
     let sq = (16).sqrt();  // 4
-    let ab = (0 - 5).abs();  // 5
+    let ab = (-5).abs();  // 5
     let fl = (3.7).floor();  // 3
     let ce = (3.2).ceil();   // 4
     let ro = (3.5).round();  // 4
-    let tr = (0 - 3.7).trunc();  // -3
+    let tr = (-3.7).trunc();  // -3
 
     // Test trigonometry (using radians)
     let angle = to_radians(30);  // pi/6

@@ -26,7 +26,7 @@ use geometry::circle::area;
 /// Entry point that demonstrates using functions from multiple modules.
 pub fn run(): Number {
     // Test math_utils functions
-    let a = abs(0 - 42);        // 42
+    let a = abs(-42);        // 42
     let b = min(10, 5);         // 5
     let c = max(10, 5);         // 10
     let d = gcd(48, 18);        // 6

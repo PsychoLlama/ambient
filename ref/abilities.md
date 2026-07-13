@@ -447,7 +447,7 @@ raise exceptions and do not kill the VM.
 fn fetch_or_default(): Number with core::system::Tcp {
   match core::system::Tcp::connect!(("10.0.0.1", 9)) {
     Ok(conn) => conn,
-    Err(msg) => 0 - 1,          // substitute connection id
+    Err(msg) => -1,          // substitute connection id
   }
 }
 ```

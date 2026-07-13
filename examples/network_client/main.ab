@@ -16,7 +16,7 @@ fn need(result: Result<Number, String>): Number with Exception {
         Ok(value) => value,
         Err(msg) => {
             Exception::throw!(msg);
-            0 - 1
+            -1
         }
     }
 }

@@ -64,7 +64,7 @@ impl Number {
     }
     // -1, 0, or 1 depending on the sign of the number.
     fn sign(self): Number {
-        if self > 0 { 1 } else if self < 0 { 0 - 1 } else { 0 }
+        if self > 0 { 1 } else if self < 0 { -1 } else { 0 }
     }
     // True if the number is less than zero.
     fn is_negative(self): Bool {

@@ -6,7 +6,7 @@
 
 /// Returns the absolute value of a number.
 pub fn abs(x: Number): Number {
-    if x < 0 { 0 - x } else { x }
+    if x < 0 { -x } else { x }
 }
 
 /// Returns the minimum of two numbers.

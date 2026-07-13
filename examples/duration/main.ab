@@ -28,7 +28,7 @@ pub fn run(): () with Stdio {
     Stdio::out!("slack = ".concat(millis_str(timeout - latency)));
 
     // Ordering: `cmp` returns -1 / 0 / 1, like Ord elsewhere in the library.
-    let compared = if latency.cmp(timeout) == 0 - 1 {
+    let compared = if latency.cmp(timeout) == -1 {
         "latency < timeout"
     } else {
         "latency >= timeout"

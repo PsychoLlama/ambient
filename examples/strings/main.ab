@@ -159,7 +159,7 @@ pub fn run(): Number {
     let is_jfk = if init == "JFK" { 1 } else { 0 };  // 1
 
     // Test index_of: found gives Some(index), missing gives None.
-    let idx = "hello world".index_of("wor").unwrap_or(0 - 1);  // 6
+    let idx = "hello world".index_of("wor").unwrap_or(-1);  // 6
 
     // Sum all results: 1+0+1+4+2+1+1+1+1+1+1+4+1+1+6 = 26
     p1 + p2 + p3 + c1 + c2 + is_upper + is_lower + is_hello + is_replaced + sw + ew + wc + is_titled + is_jfk + idx
