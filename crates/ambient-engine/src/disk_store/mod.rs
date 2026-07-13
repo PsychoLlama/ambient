@@ -89,6 +89,8 @@ pub enum DiskStoreError {
     MalformedMigrations(String),
     /// A build manifest under `meta/` failed to decode.
     MalformedManifest(String),
+    /// A tag name failed the conservative charset/length rules.
+    InvalidTagName(String),
 }
 
 impl std::fmt::Display for DiskStoreError {
@@ -118,6 +120,10 @@ impl std::fmt::Display for DiskStoreError {
                 write!(f, "malformed migrations entry: {line:?}")
             }
             Self::MalformedManifest(msg) => write!(f, "malformed build manifest: {msg}"),
+            Self::InvalidTagName(name) => write!(
+                f,
+                "invalid tag name {name:?} (use letters, digits, `.`, `_`, `-`)"
+            ),
         }
     }
 }
@@ -152,14 +158,22 @@ pub struct VerifyReport {
     /// corrupt, or of an unknown version — a broken snapshot the build path
     /// silently ignores but `verify` flags loudly. Carries a human message.
     pub dangling_snapshot: Option<String>,
+    /// Tags naming a missing/corrupt manifest (or a malformed tag file), as
+    /// `(tag name, reason)`, sorted by name. A tag pins a manifest against
+    /// gc, so a dangling tag is a real integrity fault `verify` flags.
+    pub bad_tags: Vec<(String, String)>,
 }
 
 impl VerifyReport {
-    /// True when every object is valid, every reference resolves, and the
-    /// snapshot pointer (if any) resolves to a good manifest.
+    /// True when every object is valid, every reference resolves, the
+    /// snapshot pointer (if any) resolves to a good manifest, and every tag
+    /// resolves to a good manifest.
     #[must_use]
     pub fn is_clean(&self) -> bool {
-        self.corrupt.is_empty() && self.dangling.is_empty() && self.dangling_snapshot.is_none()
+        self.corrupt.is_empty()
+            && self.dangling.is_empty()
+            && self.dangling_snapshot.is_none()
+            && self.bad_tags.is_empty()
     }
 }
 
@@ -719,6 +733,7 @@ impl DiskStore {
             }
         }
         report.dangling_snapshot = self.snapshot_health()?;
+        report.bad_tags = self.tag_health()?;
         Ok(report)
     }
 
@@ -734,13 +749,22 @@ impl DiskStore {
         let mut pending: Vec<blake3::Hash> = extra_roots.to_vec();
         pending.extend(self.names()?.values().copied());
 
-        // The current snapshot is a gc root: every object its manifest
-        // references must survive so the snapshot stays loadable. A broken
-        // snapshot roots nothing (it protects no objects, and its pointer is
-        // already treated as absent by the build path).
+        // The current snapshot and every tag are gc roots: every object a
+        // rooted manifest references must survive so the snapshot stays
+        // loadable. A broken snapshot/tag roots nothing (it protects no
+        // objects, and its pointer is already treated as absent). Collect the
+        // manifest hashes to keep alongside their objects.
+        let mut keep_manifests: HashSet<blake3::Hash> = HashSet::new();
         let current_manifest = self.current_snapshot()?;
         if let Some(manifest) = &current_manifest {
+            keep_manifests.insert(manifest.hash());
             pending.extend(manifest.referenced_objects());
+        }
+        for tagged in self.tagged_manifest_hashes()? {
+            if let Some(manifest) = self.load_manifest(&tagged)? {
+                keep_manifests.insert(tagged);
+                pending.extend(manifest.referenced_objects());
+            }
         }
 
         while let Some(hash) = pending.pop() {
@@ -777,12 +801,11 @@ impl DiskStore {
             }
         }
 
-        // Prune stale manifests under `meta/`: only the one the pointer names
-        // matters, and it was already loaded (and protected) above. Any other
+        // Prune stale manifests under `meta/`: keep the one the pointer names
+        // and every tagged one (all loaded and protected above). Any other
         // manifest is a superseded build's leftover.
-        let keep = current_manifest.as_ref().map(BuildManifest::hash);
         for hash in self.all_manifest_hashes()? {
-            if keep != Some(hash) {
+            if !keep_manifests.contains(&hash) {
                 std::fs::remove_file(self.meta_path(&hash))?;
                 removed += 1;
             }
@@ -861,8 +884,14 @@ pub use snapshot::{
     BuildManifest, MANIFEST_VERSION, ManifestError, ManifestItem, ManifestModule, SNAPSHOT_POINTER,
 };
 
+mod tags;
+pub use tags::is_valid_tag_name;
+
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
 mod snapshot_tests;
+
+#[cfg(test)]
+mod tags_tests;
