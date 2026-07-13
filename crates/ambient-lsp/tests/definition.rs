@@ -235,6 +235,33 @@ fn run() { defined_here/*use*/() }
 }
 
 #[test]
+fn test_goto_cross_file_qualified_enum_variant() {
+    // Go-to-definition on a fully-qualified foreign enum variant
+    // (`shapes::Shape::Circle`, no `use` of the variant) jumps to the
+    // variant's declaration. `resolve_qualified_name` used to return nothing
+    // for the `Enum::Variant` spelling (the last path segment names the enum,
+    // not a module); it now delegates to `resolve_item_ref`.
+    LspTest::new()
+        .with_package()
+        .with_file(
+            "src/shapes.ab",
+            "pub unique(A1B2C3D4-0000-0000-0000-0000000000D1) enum Shape { Circle(Number), Square }\n",
+        )
+        .with_file(
+            "src/main.ab",
+            r#"
+use pkg::shapes;
+fn run(): Number { match shapes::Shape::Circle/*use*/(3.0) { shapes::Circle(n) => n, shapes::Square => 0 } }
+"#,
+        )
+        .open_file("src/main.ab")
+        .goto_definition_at("use")
+        .expect_file("shapes.ab")
+        .done()
+        .shutdown();
+}
+
+#[test]
 fn test_goto_cross_file_into_directory_module() {
     // A directory module lives at `<dir>/main.ab`, not `<dir>.ab`. Navigation
     // must target the real file — recorded at load time — rather than a path

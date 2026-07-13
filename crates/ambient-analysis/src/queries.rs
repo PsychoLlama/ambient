@@ -287,12 +287,59 @@ pub fn resolve_qualified_name(
     // segment of an absolute path (pkg/core handled upstream by
     // the parser as prefixes on `use`; in expression position the head is
     // an alias bound by a `use`).
-    let target = resolve_module_reference(module_path, registry, &qname.path)?;
-    let (export, origin) = registry.lookup_symbol(&target, &qname.name).ok()?;
-    Some(Definition {
-        span: export.name_span,
-        module: Some(origin),
-    })
+    if let Some(target) = resolve_module_reference(module_path, registry, &qname.path)
+        && let Ok((export, origin)) = registry.lookup_symbol(&target, &qname.name)
+    {
+        return Some(Definition {
+            span: export.name_span,
+            module: Some(origin),
+        });
+    }
+
+    // The explicit-enum variant spelling `Enum::Variant` / `m::Enum::Variant`,
+    // where the last *path* segment names the enum rather than a module, so
+    // the module-path resolution above fails. `resolve_item_ref` canonicalizes
+    // every variant spelling to its `[Enum, Variant]` identity; map that to
+    // the variant's declaration span so goto-definition lands on the variant.
+    let item_ref = resolve_item_ref(module, module_path, registry, qname)?;
+    definition_from_item_ref(module_path, registry, &item_ref)
+}
+
+/// Turn a resolved [`ItemRef`] into a navigable [`Definition`] by locating the
+/// referenced item — or enum variant — in its origin module's AST. The origin
+/// is `None` (current-module) when it is the module being queried, matching
+/// the convention `find_local_item` uses.
+fn definition_from_item_ref(
+    current: &ModulePath,
+    registry: &ModuleRegistry,
+    item_ref: &ItemRef,
+) -> Option<Definition> {
+    let origin_module = &registry.get(&item_ref.module)?.module;
+    let module = (&item_ref.module != current).then(|| item_ref.module.clone());
+    // A two-segment ident is a variant (`[Enum, Variant]`); anything else is
+    // an ordinary item keyed by its single name.
+    if let [enum_name, variant_name] = item_ref.ident.as_slice() {
+        for item in &origin_module.items {
+            if let ItemKind::Enum(e) = &item.kind
+                && e.name.as_ref() == enum_name.as_ref()
+                && let Some(variant) = e.variants.iter().find(|v| v.name == *variant_name)
+            {
+                return Some(Definition {
+                    span: variant.span,
+                    module,
+                });
+            }
+        }
+        return None;
+    }
+    let name = item_ref.ident.first()?;
+    for item in &origin_module.items {
+        if item_name(item).is_some_and(|n| n.as_ref() == name.as_ref()) {
+            let span = item_name_span(item).unwrap_or(item.span);
+            return Some(Definition { span, module });
+        }
+    }
+    None
 }
 
 /// A local item defined in this module.
