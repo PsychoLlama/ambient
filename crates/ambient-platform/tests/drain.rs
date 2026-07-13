@@ -152,7 +152,7 @@ const WAIT_LOOP: &str = r#"
       core::system::State::set!("checkpoint", 1);
       core::system::Time::wait!(Duration::from_secs(3600));
       core::system::State::set!("checkpoint", 2);
-      0 - 1
+      -1
     }
 
     pub fn main(): Number with core::system::Time, core::system::State {
@@ -230,7 +230,7 @@ fn drain_unwinds_a_blocked_accept() {
         Ok(listener) => listener,
         Err(message) => {
           Exception::throw!(message);
-          0 - 1
+          -1
         }
       }
     }
@@ -239,7 +239,7 @@ fn drain_unwinds_a_blocked_accept() {
     }
     fn serve(): Number with core::system::State, core::system::Tcp {
       let listener = core::system::State::get!("listener");
-      let conn = core::system::Tcp::accept!(listener).unwrap_or(0 - 1);
+      let conn = core::system::Tcp::accept!(listener).unwrap_or(-1);
       conn
     }
     pub fn main(): Number with core::system::State, core::system::Tcp {
@@ -282,17 +282,17 @@ fn drain_unwinds_a_blocked_receive() {
         Ok(listener) => listener,
         Err(message) => {
           Exception::throw!(message);
-          0 - 1
+          -1
         }
       }
     }
     pub fn run(): () with core::system::State {
       core::system::State::init!("listener", bind);
-      core::system::State::init!("conn", () => 0 - 1)
+      core::system::State::init!("conn", () => -1)
     }
     fn serve(): Number with core::system::State, core::system::Tcp {
       let listener = core::system::State::get!("listener");
-      let conn = core::system::Tcp::accept!(listener).unwrap_or(0 - 1);
+      let conn = core::system::Tcp::accept!(listener).unwrap_or(-1);
       core::system::State::set!("conn", conn);
       let msg = core::system::Tcp::receive!(conn).unwrap_or(Binary::from([]));
       msg.length()

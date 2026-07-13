@@ -357,10 +357,10 @@ fn test_throw_in_value_position_in_repl_function() {
         )
         .expect_output("Defined: clamp")
         .clear_output()
-        .type_line("with { Exception::throw(msg) => 0 - 1 } handle clamp(41)")
+        .type_line("with { Exception::throw(msg) => -1 } handle clamp(41)")
         .expect_output("42")
         .clear_output()
-        .type_line("with { Exception::throw(msg) => 0 - 1 } handle clamp(0 - 5)")
+        .type_line("with { Exception::throw(msg) => -1 } handle clamp(-5)")
         .expect_output("-1")
         .shutdown();
 }

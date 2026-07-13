@@ -317,7 +317,7 @@ fn exception_in_update_leaves_the_cell_unchanged() {
         r#"{V1}
     pub fn boom(x: Number): Number with Exception {{
       Exception::throw!("boom");
-      0 - 1
+      -1
     }}
     pub fn explode(): Number with core::system::State {{
       core::system::State::update!("counter", boom)
@@ -453,7 +453,7 @@ fn listener_bound_in_gen_one_is_served_after_a_deploy() {
         Ok(listener) => listener,
         Err(message) => {
           Exception::throw!(message);
-          0 - 1
+          -1
         }
       }
     }
@@ -467,7 +467,7 @@ fn listener_bound_in_gen_one_is_served_after_a_deploy() {
         r#"{GEN1}
     pub fn serve(): Number with core::system::State, core::system::Tcp {{
       let listener = core::system::State::get!("listener");
-      let conn = core::system::Tcp::accept!(listener).unwrap_or(0 - 1);
+      let conn = core::system::Tcp::accept!(listener).unwrap_or(-1);
       let msg = core::system::Tcp::receive!(conn).unwrap_or(Binary::from([]));
       core::system::Tcp::send!(conn, msg);
       core::system::Tcp::close!(conn);

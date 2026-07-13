@@ -183,7 +183,7 @@ fn test_result_constructors_and_chaining() {
         r#"
         pub fn run(): String {
             let ok = parse(5).map((x: Number) => x * 10);
-            let err = parse(0 - 3);
+            let err = parse(-3);
             match ok.and_then((x: Number) => parse(x)) {
                 Ok(v) => String::from_number(v),
                 Err(e) => e,
@@ -210,7 +210,7 @@ fn test_match_takes_correct_arm() {
         pub fn run(): Number {
             let hit = match Some(41) {
                 Some(v) => v,
-                None => 0 - 1,
+                None => -1,
             };
             let miss = match nothing() {
                 Some(v) => v,

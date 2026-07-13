@@ -129,11 +129,11 @@ fn test_list_accessors_return_option() {
         pub fn run(): String {
             let hit = match [1, 2, 3].get(1) {
                 Some(v) => v,
-                None => 0 - 1,
+                None => -1,
             };
             let miss = match [].head() {
                 Some(v) => v,
-                None => 0 - 1,
+                None => -1,
             };
             let first = [7, 8].first().unwrap_or(0);
             let last = [7, 8].last().unwrap_or(0);
@@ -249,7 +249,7 @@ fn test_string_index_of_returns_option() {
     let (dir, pkg) = temp_package(
         r#"
         pub fn run(): String {
-            let found = "hello world".index_of("wor").unwrap_or(0 - 1);
+            let found = "hello world".index_of("wor").unwrap_or(-1);
             let missing = "hello".index_of("xyz").is_none();
             core::convert::to_string(found) + " " + core::convert::to_string(missing)
         }

@@ -405,7 +405,7 @@ fn test_handle_catch_and_continue() {
 
         pub fn run(): Number {
             let caught = with {
-                Exception::throw(msg) => 0 - 1
+                Exception::throw(msg) => -1
             } handle risky();
             caught + 100
         }

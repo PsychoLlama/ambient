@@ -776,7 +776,7 @@ fn test_operator_overloading_ordering() {
 
         impl Ord for Money {
             fn cmp(self, other: Money): Number {
-                if self.cents < other.cents { 0 - 1 } else {
+                if self.cents < other.cents { -1 } else {
                     if self.cents > other.cents { 1 } else { 0 }
                 }
             }

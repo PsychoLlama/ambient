@@ -28,7 +28,7 @@ fn test_throw_in_value_position_adopts_the_branch_type() {
 
         pub fn run(): Number {
             with {
-                Exception::throw(msg) => 0 - 1
+                Exception::throw(msg) => -1
             } handle clamp(41)
         }
         "#,
@@ -52,8 +52,8 @@ fn test_throw_branch_unwinds_to_the_handler_value() {
 
         pub fn run(): Number {
             with {
-                Exception::throw(msg) => 0 - 1
-            } handle clamp(0 - 5)
+                Exception::throw(msg) => -1
+            } handle clamp(-5)
         }
         "#,
     )
@@ -279,7 +279,7 @@ fn test_never_arm_can_rethrow() {
 
         pub fn run(): Number {
             with {
-                Exception::throw(msg) => 0 - 1
+                Exception::throw(msg) => -1
             } handle shield()
         }
         "#,

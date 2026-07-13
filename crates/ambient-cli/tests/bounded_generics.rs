@@ -18,7 +18,7 @@ const MONEY: &str = r#"
 
     impl Ord for Money {
         fn cmp(self, other: Money): Number {
-            if self.cents < other.cents { 0 - 1 } else {
+            if self.cents < other.cents { -1 } else {
                 if self.cents > other.cents { 1 } else { 0 }
             }
         }
@@ -585,7 +585,7 @@ fn core_list_index_of_custom_type() {
             let ms = [Money {{ cents: 1 }}, Money {{ cents: 5 }}, Money {{ cents: 9 }}];
             match ms.index_of(Money {{ cents: 5 }}) {{
                 Some(i) => i,
-                None => 0 - 1,
+                None => -1,
             }}
         }}
     "#
