@@ -48,6 +48,12 @@ pub const TRAIT_ORD_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff
 /// Canonical identity of the `core::traits::Default` trait (not in the
 /// prelude — no operator desugars to it). See [`TRAIT_ADD_UUID`].
 pub const TRAIT_DEFAULT_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0017);
+/// Canonical identity of the `core::traits::Show` trait — the stringifier
+/// (`fn show(self): String`) that bounds `Exception::throw<E: Show>`. Not an
+/// operator (no desugar anchors on it), but reserved and prelude-exported so
+/// `throw`'s bound is always in scope. See [`TRAIT_ADD_UUID`]; it claims the
+/// slot after `Default` in the reserved trait block.
+pub const TRAIT_SHOW_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0018);
 
 /// A reserved core trait: name/uuid pairs for the declarations in
 /// `core_lib/traits.ab`, the trait analogue of [`super::Primitive`] /
@@ -71,11 +77,13 @@ pub enum ReservedTrait {
     Ord,
     /// `Default` — no operator; standard-library convenience.
     Default,
+    /// `Show` — no operator; the stringifier that bounds `Exception::throw`.
+    Show,
 }
 
 impl ReservedTrait {
     /// Every reserved core trait.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -84,6 +92,7 @@ impl ReservedTrait {
         Self::Eq,
         Self::Ord,
         Self::Default,
+        Self::Show,
     ];
 
     /// The reserved identity uuid for this trait.
@@ -98,6 +107,7 @@ impl ReservedTrait {
             Self::Eq => TRAIT_EQ_UUID,
             Self::Ord => TRAIT_ORD_UUID,
             Self::Default => TRAIT_DEFAULT_UUID,
+            Self::Show => TRAIT_SHOW_UUID,
         }
     }
 
@@ -113,6 +123,7 @@ impl ReservedTrait {
             Self::Eq => "Eq",
             Self::Ord => "Ord",
             Self::Default => "Default",
+            Self::Show => "Show",
         }
     }
 

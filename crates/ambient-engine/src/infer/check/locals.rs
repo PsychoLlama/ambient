@@ -253,6 +253,7 @@ fn reserved_trait_method_shape(
         R::Eq => ("eq", true, 1),
         R::Ord => ("cmp", true, 1),
         R::Default => ("default", false, 0),
+        R::Show => ("show", true, 0),
     }
 }
 /// Register a single trait definition into the trait registry, binding its

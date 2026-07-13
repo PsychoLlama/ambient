@@ -3,11 +3,15 @@
 // Traits for operator overloading and common behaviors.
 // Implement these traits to enable operators on custom types.
 //
+// `to_string` is the generic host renderer; the `Show` impls below delegate
+// to it so a bounded caller can stringify any primitive through a dictionary.
 // Traits are nominal: the `unique(<uuid>)` prefix is the identity that
 // bounds, impls, and operator dispatch key off. These declarations claim
 // the engine's reserved trait uuids (the `FFFF…-0010` block), so `+` always
 // dispatches through *this* `Add` no matter what is lexically in scope —
 // the engine validates the pairing, so these sources cannot drift.
+
+use core::convert::to_string;
 
 /// Trait for the `+` operator.
 pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0010) trait Add {
@@ -51,6 +55,17 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0016) trait Ord {
 /// associated function invoked as `Type::default()`.
 pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0017) trait Default {
     fn default(): Self;
+}
+
+/// Trait for rendering a value as a human-readable string.
+///
+/// `Show` is the bound on `Exception::throw<E: Show>`: every thrown value
+/// can be rendered, so an uncaught or logging handler always has a string.
+/// It has no operator, but it is prelude-exported (next to `Exception`) so
+/// the bound is always in scope. Reserved uuid, pinned like the operator
+/// traits by `validate_reserved_trait`.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0018) trait Show {
+    fn show(self): String;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -131,5 +146,33 @@ impl Add for String {
 impl Eq for Bool {
     fn eq(self, other: Bool): Bool {
         self == other
+    }
+}
+
+// `Show` impls: a thrown value satisfies `Exception::throw`'s `E: Show`
+// bound through one of these dictionaries. `String` renders as itself; the
+// rest delegate to the host `to_string` renderer.
+
+impl Show for String {
+    fn show(self): String {
+        self
+    }
+}
+
+impl Show for Number {
+    fn show(self): String {
+        to_string(self)
+    }
+}
+
+impl Show for Bool {
+    fn show(self): String {
+        to_string(self)
+    }
+}
+
+impl Show for Binary {
+    fn show(self): String {
+        to_string(self)
     }
 }

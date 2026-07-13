@@ -26,7 +26,9 @@ pub use core::collections::{List, Map, Set};
 // The operator traits desugar `+`, `-`, `==`, `<`, ... so the checker must
 // always have them in scope. `Default` is deliberately omitted: it has no
 // desugaring hook and is reachable through `use core::traits::Default`.
-pub use core::traits::{Add, Sub, Mul, Div, Mod, Eq, Ord};
+// `Show` has no desugaring either, but it is the bound on `Exception::throw`,
+// so it rides the prelude next to `Exception` to stay always in scope.
+pub use core::traits::{Add, Sub, Mul, Div, Mod, Eq, Ord, Show};
 
 // The `Exception` ability: the language's error-signalling effect. Like the
 // containers, its runtime semantics are engine-built (the VM's throw/unwind
