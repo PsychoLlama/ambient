@@ -207,10 +207,7 @@ fn merge_sort<T: Ord>(list: List<T>): List<T> {
     if n <= 1 {
         list
     } else {
-        // floor(n / 2) using only builtin arithmetic: `n - n % 2` is even, so
-        // the division is exact. (A cross-module `Number::floor` call would
-        // pull a method-dispatch dependency into this core module.)
-        let mid = (n - n % 2) / 2;
+        let mid = (n / 2).floor();
         merge(merge_sort(slice(list, 0, mid)), merge_sort(slice(list, mid, n)), 0, 0, [])
     }
 }
