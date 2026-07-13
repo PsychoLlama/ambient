@@ -171,6 +171,9 @@ pub fn report_build_error(error: BuildError) -> anyhow::Error {
         BuildError::Compile { module, error } => {
             anyhow::anyhow!("compile error in {module}: {error}")
         }
+        // A package-structural error with no single source site; the message
+        // is already the canonical `import cycle: pkg::a -> …` rendering.
+        BuildError::ImportCycle { message } => anyhow::anyhow!("{message}"),
     }
 }
 

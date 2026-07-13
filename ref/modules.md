@@ -106,6 +106,24 @@ Re-export paths must be rooted (`pkg`/`core`/`self`/`super`),
 not alias-relative, so downstream modules can resolve them without this
 module's scope.
 
+The module dependency graph is a hard DAG: an import cycle **between**
+modules is a compile error (Go's rule). If `pkg::a` references anything in
+`pkg::b` and `pkg::b` references anything back in `pkg::a`, the build
+rejects it with `import cycle: pkg::a -> pkg::b -> pkg::a` — a named path,
+rendered deterministically (rotated to start at the lexically-least module)
+regardless of file order — rather than an arbitrary compile order that
+surfaces as confusing link failures. Recursion stays **within** a module:
+a function calling itself or a sibling, or a `use self::…` of the module's
+own items, is a same-module reference and never a dependency edge, so it is
+always allowed. The decision lives once in the engine
+(`crates/ambient-engine/src/module_cycles.rs`), shared by `build_package`
+and the analysis pipeline, so `ambient run`, `ambient check`, and the LSP
+report the identical cycle at every module that participates in it. Core
+and platform module groups are authored cycle-free and compiled on their
+own ordering; cycle detection is scoped to a single package's modules,
+which is where a cross-module cycle can arise (no `core`/`platform` module
+can import user code).
+
 Core modules (`core::collections::list`, `core::primitives::number`,
 `core::primitives::string`) are ordinary Ambient modules — compiled,
 content-addressed, and stored exactly like user code (see

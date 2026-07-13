@@ -174,6 +174,22 @@ fn parse_errors_match_and_suppress_type_errors() {
 }
 
 #[test]
+fn import_cycle_diagnostics_match() {
+    // A module import cycle is the engine's decision (`module_cycles`),
+    // reported per participating module through the shared analysis layer.
+    // The LSP must publish the identical `import cycle: …` text and span at
+    // each file in the cycle — no LSP-private opinion.
+    assert_parity(&[
+        ("a.ab", "use pkg::b::bee;\npub fn ay(): Number { bee() }\n"),
+        ("b.ab", "use pkg::a::ay;\npub fn bee(): Number { 1 }\n"),
+        (
+            "main.ab",
+            "pub fn run(): Number { pkg::a::ay() + pkg::b::bee() }\n",
+        ),
+    ]);
+}
+
+#[test]
 fn cross_module_import_errors_match() {
     assert_parity(&[
         (

@@ -494,10 +494,11 @@ fn unresolved_alias_head_is_an_error() {
 
 #[test]
 fn cross_module_ability_dependency_cycle_is_reported() {
-    // `a::Ay` depends on `b::Bee` and vice versa. Without dedicated
-    // detection this only ever surfaced as a module-cycle link failure that
-    // never mentioned the abilities; cycle detection reports it as an
-    // ability dependency cycle, at each participating declaration.
+    // `a::Ay` depends on `b::Bee` and vice versa. This is also a module
+    // import cycle (each `use`s the other), so both the `import cycle`
+    // diagnostic and the ability-specific one are reported; this test pins
+    // that the ability-cycle detection still fires and names the abilities,
+    // at each participating declaration.
     let dir = package(&[
         (
             "a.ab",

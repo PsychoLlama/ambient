@@ -110,6 +110,11 @@ pub enum BuildError {
     /// Codegen failed, or an embedded core/platform module failed to build.
     /// Compiler-internal: no user source to render against.
     Compile { module: String, error: String },
+    /// The package's modules form an import cycle. The module dependency
+    /// graph is a hard DAG (see [`crate::module_cycles`]); the message is the
+    /// canonical rendering the analysis pipeline reports too. Spanless: the
+    /// cycle is a package-structural fact, not a single-site error.
+    ImportCycle { message: String },
 }
 
 impl std::fmt::Display for BuildError {
@@ -128,6 +133,7 @@ impl std::fmt::Display for BuildError {
                 write!(f, "type errors in {module}: {joined}")
             }
             Self::Compile { module, error } => write!(f, "compile error in {module}: {error}"),
+            Self::ImportCycle { message } => write!(f, "{message}"),
         }
     }
 }
@@ -238,6 +244,17 @@ pub fn build_package(
     }
     for module in pkg.all_modules() {
         registry.register(&module.path, Arc::new(module.ast.clone()));
+    }
+
+    // The module dependency graph is a hard DAG: reject import cycles with a
+    // clear diagnostic instead of the old arbitrary-order compile that
+    // surfaced as confusing link failures at the call sites. The analysis
+    // pipeline reports the same rendering per participating module, so
+    // `ambient run`/`compile` and `ambient check`/LSP agree.
+    if let Some(cycle) = crate::module_cycles::detect_import_cycles(&deps).first() {
+        return Err(BuildError::ImportCycle {
+            message: cycle.describe(),
+        });
     }
 
     // Every module and every native binding is now registered: enforce the
@@ -364,8 +381,14 @@ pub fn discover_module_paths(src: &Path) -> std::io::Result<Vec<ModulePath>> {
 
 /// Topologically order modules by their resolved dependencies
 /// (dependencies first). Modules outside the package (core, platform) are
-/// skipped; cycles fall back to name order and surface as link errors at
-/// the offending call sites.
+/// skipped.
+///
+/// The graph handed in is expected to be acyclic: package cycles are
+/// rejected up front in [`build_package`] (see [`crate::module_cycles`]), and
+/// the core/platform module groups are authored cycle-free. A cycle that
+/// slipped through anyway would still terminate here — the `visited` guard
+/// breaks the recursion — merely yielding an arbitrary order rather than
+/// looping.
 #[allow(clippy::items_after_statements)]
 fn compilation_order(deps: &BTreeMap<String, Vec<String>>) -> Vec<String> {
     let mut order = Vec::new();

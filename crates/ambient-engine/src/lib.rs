@@ -23,6 +23,7 @@ pub mod format;
 pub mod fqn;
 pub mod infer;
 pub mod manifest;
+pub mod module_cycles;
 pub mod module_env;
 pub mod module_path;
 pub mod module_registry;

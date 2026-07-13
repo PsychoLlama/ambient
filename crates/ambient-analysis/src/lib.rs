@@ -131,13 +131,19 @@ pub struct AnalysisResult {
     /// The typed AST. Always present — files that fail to lex entirely
     /// yield an empty module. Items that failed to parse are missing.
     pub module: Module,
+    /// An import-cycle diagnostic when this module participates in a
+    /// module dependency cycle (the engine's [`ambient_engine::module_cycles`]
+    /// decision). Reported independently of parse/type errors — the cycle is
+    /// a package-structural fact, so it is not subject to the "suppress type
+    /// errors while parse errors exist" policy.
+    pub import_cycle: Option<Diagnostic>,
 }
 
 impl AnalysisResult {
     /// Whether any reportable problem was found.
     #[must_use]
     pub fn has_errors(&self) -> bool {
-        !self.parse_errors.is_empty() || !self.type_errors.is_empty()
+        !self.parse_errors.is_empty() || !self.type_errors.is_empty() || self.import_cycle.is_some()
     }
 
     /// The diagnostics both frontends report, in source order.
@@ -157,6 +163,12 @@ impl AnalysisResult {
 
         if out.is_empty() {
             out.extend(self.type_errors.iter().map(Diagnostic::from_type_error));
+        }
+
+        // An import cycle is a structural fact independent of parse/type
+        // errors, so it is always reported (its span-0 anchor sorts it first).
+        if let Some(cycle) = &self.import_cycle {
+            out.push(cycle.clone());
         }
 
         out.sort_by_key(|d| (d.span.start, d.span.end));
@@ -272,10 +284,25 @@ pub fn analyze_with_registry_and_resolver(
         None => check_module_with_registry(module, path, reg),
     };
 
+    // Import cycles are a package-level property, so they only apply when a
+    // real package registry + module path were supplied (the single-file
+    // fallback has no cross-module edges). The decision lives in the engine
+    // (`module_cycles`), shared with `build_package`, so `ambient check` and
+    // the LSP — both of which route through this function — report the same
+    // rendering the compiler does, at every module participating in the cycle.
+    let import_cycle = match (module_path, registry) {
+        (Some(path), Some(reg)) => {
+            ambient_engine::module_cycles::import_cycle_containing(reg, path)
+                .map(|cycle| Diagnostic::error(Span::new(0, 0), cycle.describe(), None))
+        }
+        _ => None,
+    };
+
     AnalysisResult {
         parse_errors,
         type_errors: check_result.errors,
         module: check_result.module,
+        import_cycle,
     }
 }
 
