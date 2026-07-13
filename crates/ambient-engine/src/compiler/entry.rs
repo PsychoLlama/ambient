@@ -4,10 +4,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use super::assemble::{AbilityMethodCheck, AssembleInputs, assemble_module};
 use super::context::{FunctionCompiler, ModuleContext};
 use super::error::{CompileError, CompileErrorKind};
 use super::expr::compile_expr_tail;
-use super::hash::{compute_temporary_hash, finalize_const_values, finalize_module_hashes};
+use super::hash::{compute_temporary_hash, finalize_const_values};
 use super::module_output::CompiledModule;
 use crate::ast::{AbilityDef, AbilityMethod, FunctionDef, ImplDef, ImplMethod, ItemKind, Module};
 use crate::bytecode::{CompiledFunction, Opcode};
@@ -459,63 +460,39 @@ fn compile_module_impl(
         .map(|(def, _, symbol)| (Arc::clone(symbol), Arc::from(def.uuid.to_string())))
         .collect();
 
-    // Phase 3: Compute content-addressed hashes and finalize the module.
-    let mut module =
-        finalize_module_hashes(compiled_functions, lambdas, &ability_impl_group_names)?;
-    module.migrations = migrations;
-    // Fold in every const value object — module-level ones from the pre-pass
-    // and block-scoped ones from the bodies. They ship and deduplicate
-    // alongside function objects; a referencing function already records the
-    // const hash in its dependencies.
-    for (hash, object) in const_objects.into_iter().chain(block_const_objects) {
-        module.objects.entry(hash).or_insert(object);
-    }
-    module.const_names = const_names;
-    // Fold in the module's extern fns. They bind names like functions (an
-    // extern fn exports, imports, and links exactly like a compiled one),
-    // and their native objects ship alongside everything else.
-    for (hash, object) in native_objects {
-        module.objects.entry(hash).or_insert(object);
-    }
-    for (name, hash) in native_names {
-        module.function_names.entry(name).or_insert(hash);
-    }
+    // Owned ambiguity-check inputs, so the relink path (which has no AST) runs
+    // the same post-finalize check as this cold compile.
+    let ability_checks: Vec<AbilityMethodCheck> = ability_methods
+        .iter()
+        .map(|(def, method, symbol)| AbilityMethodCheck {
+            symbol: Arc::clone(symbol),
+            uuid: def.uuid,
+            signature: method.resolved_signature,
+            ability_name: Arc::clone(&def.name),
+            method_name: Arc::clone(&method.name),
+            span: (method.span.start, method.span.end),
+        })
+        .collect();
 
-    // A method's identity is (ability uuid, signature, implementation) —
-    // the name is deliberately excluded. Two methods of one ability with
-    // the same signature *and* the same default implementation would
-    // therefore derive one `MethodKey`: handler arms for them silently
-    // merge and performs become indistinguishable. Reject the ambiguity
-    // now that final implementation hashes exist.
-    {
-        let mut seen: HashMap<(uuid::Uuid, ambient_core::SignatureHash, blake3::Hash), Arc<str>> =
-            HashMap::new();
-        for (def, method, symbol) in &ability_methods {
-            let (Some(signature), Some(impl_hash)) = (
-                method.resolved_signature,
-                module.function_names.get(symbol.as_ref()),
-            ) else {
-                continue;
-            };
-            if let Some(previous) =
-                seen.insert((def.uuid, signature, *impl_hash), Arc::clone(&method.name))
-            {
-                return Err(CompileError::new(
-                    CompileErrorKind::Unsupported {
-                        feature: format!(
-                            "ability `{}` methods `{previous}` and `{}` share a signature \
-                             and an identical default implementation, so they would be one \
-                             method at runtime; make the implementations differ",
-                            def.name, method.name
-                        ),
-                    },
-                    (method.span.start, method.span.end),
-                ));
-            }
-        }
-    }
-
-    Ok(module)
+    // Phase 3: Compute content-addressed hashes and fold the module together.
+    // The symbolic form here is exactly what the relink fast path persists and
+    // replays; keeping one `assemble_module` authority is what makes a warm
+    // relink byte-identical to this cold compile.
+    let inputs = AssembleInputs {
+        compiled_functions,
+        lambdas,
+        ability_impl_group_names,
+        const_objects: const_objects
+            .into_values()
+            .chain(block_const_objects.into_values())
+            .collect(),
+        const_names: const_names.into_iter().collect(),
+        native_objects: native_objects.into_values().collect(),
+        native_names: native_names.into_iter().collect(),
+        migrations,
+        ability_checks,
+    };
+    assemble_module(inputs)
 }
 
 /// Allocate the hidden trailing dictionary parameters a bounded item takes:

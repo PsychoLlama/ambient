@@ -34,6 +34,7 @@
 //! - [`hash`] - Content-addressed hash computation
 //! - [`error`] - Compilation error types
 
+mod assemble;
 mod context;
 mod dicts;
 mod entry;
