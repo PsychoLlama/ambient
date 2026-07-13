@@ -42,6 +42,7 @@ use ambient_engine::ast::{
     BindingId, Expr, ExprKind, Item, ItemKind, Module, Param, Pattern, PatternKind, QualifiedName,
     Span, Stmt, StmtKind, UseDef,
 };
+use ambient_engine::fqn::Fqn;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
 
@@ -50,21 +51,33 @@ use crate::queries::{Definition, resolve_qualified_name};
 /// The definition an occurrence points at — the identity used to group
 /// occurrences of "the same thing" across the package.
 ///
-/// Equality is deliberately structural on identity only (`Item` on module +
-/// definition span, `Local` on module + binding id); the carried `name` is
-/// metadata for rename/collision checks and is not compared. This mirrors how
-/// the AST's `QualifiedName` ignores spans in its own equality.
+/// Equality is deliberately structural on identity only (`Item` on its
+/// fully-qualified [`Fqn`], `Local` on module + binding id); the carried
+/// `module`/`name` are metadata for rendering and rename/collision checks and
+/// are not compared. This mirrors how the AST's `QualifiedName` ignores spans
+/// in its own equality.
+///
+/// Keying [`Item`](Self::Item) on the [`Fqn`] rather than a definition span is
+/// what lets the incremental session rebuild only the edited module's
+/// occurrences: a body edit that shifts a definition's span leaves its `Fqn`
+/// (module identity + ident path) untouched, so every *other* module's
+/// references to it stay valid without a re-walk. Every resolved reference and
+/// the definition itself canonicalize to the same `Fqn` (via
+/// [`ModuleRegistry::fqn`]), so a definition and all its references collapse to
+/// one identity — the same canonicalization the engine's resolve pass performs.
 #[derive(Debug, Clone)]
 pub enum SymbolTarget {
-    /// A module-level item, identified by the module that defines it and the
-    /// span of its defining name there. The span matches exactly what
-    /// [`queries::resolve_qualified_name`] returns for a reference, so a
-    /// definition and all its references collapse to one identity.
+    /// A module-level item, identified by its fully-qualified [`Fqn`]. The
+    /// `Fqn` is what [`queries::resolve_qualified_name`] resolves a reference to
+    /// (canonicalized to the item's origin module), so a definition and all its
+    /// references — across every module — collapse to one identity.
     Item {
-        /// The module that defines the item.
+        /// The item's fully-qualified identity (the sole equality key).
+        fqn: Fqn,
+        /// The module that defines the item (metadata for the renderer, which
+        /// must map back to the registry/package — both `ModulePath`-keyed —
+        /// and for same-module gating; not part of identity).
         module: ModulePath,
-        /// The identity span: the defining name span.
-        def_span: Span,
         /// The item's name (metadata; not part of identity).
         name: Arc<str>,
     },
@@ -107,18 +120,7 @@ impl SymbolTarget {
 impl PartialEq for SymbolTarget {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (
-                Self::Item {
-                    module: m1,
-                    def_span: s1,
-                    ..
-                },
-                Self::Item {
-                    module: m2,
-                    def_span: s2,
-                    ..
-                },
-            ) => m1 == m2 && s1 == s2,
+            (Self::Item { fqn: f1, .. }, Self::Item { fqn: f2, .. }) => f1 == f2,
             (
                 Self::Local {
                     module: m1,
@@ -235,13 +237,10 @@ impl Collector<'_> {
 
     /// Record a module-item definition at its name span.
     fn item_def(&mut self, name: &Arc<str>, name_span: Span) {
+        let target = self.item_target_in(self.module_path, name);
         self.out.push(Occurrence {
             span: name_span,
-            target: SymbolTarget::Item {
-                module: self.module_path.clone(),
-                def_span: name_span,
-                name: Arc::clone(name),
-            },
+            target,
             is_definition: true,
         });
     }
@@ -249,12 +248,17 @@ impl Collector<'_> {
     /// Turn a resolved [`Definition`] into an `Item` target (a same-module
     /// `None` maps to the current module).
     fn item_target(&self, def: &Definition, name: &Arc<str>) -> SymbolTarget {
+        let module = def.module.as_ref().unwrap_or(self.module_path);
+        self.item_target_in(module, name)
+    }
+
+    /// Build an `Item` target for `name` defined in `module`, canonicalizing
+    /// its identity to the [`Fqn`] the registry mints for it — the same identity
+    /// a resolved reference lands on, so definition and references collapse.
+    fn item_target_in(&self, module: &ModulePath, name: &Arc<str>) -> SymbolTarget {
         SymbolTarget::Item {
-            module: def
-                .module
-                .clone()
-                .unwrap_or_else(|| self.module_path.clone()),
-            def_span: def.span,
+            fqn: self.registry.fqn(module, std::slice::from_ref(name)),
+            module: module.clone(),
             name: Arc::clone(name),
         }
     }
@@ -592,6 +596,27 @@ mod tests {
             .collect();
         assert_eq!(ys.len(), 2, "let def + one use in the result");
         assert_ne!(xs[0].target, ys[0].target);
+    }
+
+    #[test]
+    fn item_identity_is_span_independent() {
+        // The whole point of Fqn keying: shifting a definition's span (here by
+        // leading blank lines) must not change its target identity, so another
+        // module's reference — built at a different revision — still matches.
+        let a = occurrences_of("fn helper(): Number { 1 }\nfn run(): Number { helper() }");
+        let b = occurrences_of("\n\nfn helper(): Number { 1 }\nfn run(): Number { helper() }");
+        let da = find(&a, "helper", true);
+        let db = find(&b, "helper", true);
+        assert_eq!(da.len(), 1);
+        assert_eq!(db.len(), 1);
+        // The definition spans differ (b is shifted by two newlines)...
+        assert_ne!(da[0].span, db[0].span);
+        // ...but the identities are equal, because they key on the Fqn.
+        assert_eq!(da[0].target, db[0].target);
+        // And a reference in b still collapses onto that identity.
+        let rb = find(&b, "helper", false);
+        assert_eq!(rb.len(), 1);
+        assert_eq!(rb[0].target, da[0].target);
     }
 
     #[test]
