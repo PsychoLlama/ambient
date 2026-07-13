@@ -52,15 +52,18 @@ impl Infer {
             PatternKind::Variant(variant_name, inner) => {
                 // Resolved-first: the resolve pass stamps a variant pattern
                 // with its two-segment ident `Fqn(module, [Enum, Variant])`,
-                // so pick the enum by that ident's first segment and the
-                // variant by its second — a variant name shared by two enums
-                // never mis-dispatches. A registry-less check leaves
-                // `resolved` `None` and falls back to the bare-name reverse
-                // lookup (which the resolved path deliberately avoids).
+                // so pick the enum by that ident's *full identity* (declaring
+                // module + first segment) and the variant by its second — a
+                // variant name shared by two enums, even across modules,
+                // never mis-dispatches, and a foreign qualified variant
+                // resolves to the foreign enum regardless of any same-named
+                // local variant. A registry-less check leaves `resolved`
+                // `None` and falls back to the bare-name reverse lookup
+                // (which the resolved path deliberately avoids).
                 let resolved = variant_name.resolved.as_ref().and_then(|fqn| {
                     let enum_name = fqn.ident.first()?;
                     let variant = fqn.ident.get(1)?;
-                    let info = self.enum_registry.get(enum_name)?;
+                    let info = self.enum_registry.get_qualified(&fqn.module, enum_name)?;
                     let idx = info.variants.iter().position(|v| v.name == *variant)?;
                     Some((Arc::clone(info), idx))
                 });

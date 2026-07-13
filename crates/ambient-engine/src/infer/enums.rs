@@ -359,17 +359,38 @@ pub struct EnumRegistry {
     enums: HashMap<Arc<str>, Arc<EnumInfo>>,
     /// Variant name → enum name (later registrations shadow earlier).
     variant_owners: HashMap<Arc<str>, Arc<str>>,
+    /// Enums keyed by their full nominal identity `(declaring module, enum
+    /// name)` — the qualified channel a resolved variant `Fqn` looks up.
+    /// Populated for *every* public enum in the build (local, imported, and
+    /// fully-qualified-only foreign), never by bare name, so a qualified
+    /// reference resolves by identity and a same-named local variant can
+    /// neither hijack it nor be hijacked by it. Empty in registry-less
+    /// checks, where variant references stay bare.
+    by_module: HashMap<(ModuleId, Arc<str>), Arc<EnumInfo>>,
 }
 
 impl EnumRegistry {
     /// Register an enum. Its variants shadow same-named variants
-    /// registered earlier.
+    /// registered earlier, and it enters the qualified [`Self::by_module`]
+    /// channel under its `(module, name)` identity when it has one.
     pub fn register(&mut self, info: Arc<EnumInfo>) {
         for variant in &info.variants {
             self.variant_owners
                 .insert(Arc::clone(&variant.name), Arc::clone(&info.name));
         }
+        self.register_qualified(&info);
         self.enums.insert(Arc::clone(&info.name), info);
+    }
+
+    /// Register an enum in the qualified [`Self::by_module`] channel *only*
+    /// — never under a bare name. Used for public foreign enums a module can
+    /// reach fully-qualified without a `use`: their variants must resolve by
+    /// identity, but their bare names must not leak into scope.
+    pub fn register_qualified(&mut self, info: &Arc<EnumInfo>) {
+        if let Some(module) = &info.module {
+            self.by_module
+                .insert((module.clone(), Arc::clone(&info.name)), Arc::clone(info));
+        }
     }
 
     /// Register an enum from its AST definition, tagged with its declaring
@@ -382,6 +403,16 @@ impl EnumRegistry {
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&Arc<EnumInfo>> {
         self.enums.get(name)
+    }
+
+    /// Look up an enum by its full nominal identity — the `(module, name)`
+    /// pair a resolved variant `Fqn` carries. This is the honest lookup for
+    /// a canonicalized variant reference: it never consults bare names, so a
+    /// foreign qualified variant resolves to the foreign enum even when a
+    /// same-named local variant is in scope.
+    #[must_use]
+    pub fn get_qualified(&self, module: &ModuleId, name: &str) -> Option<&Arc<EnumInfo>> {
+        self.by_module.get(&(module.clone(), Arc::from(name)))
     }
 
     /// Resolve a variant name to its enum and variant index (= tag).

@@ -55,6 +55,11 @@ pub(super) fn register_cross_module(
     // must resolve an imported enum target to its uuid, or the impl's
     // dispatch key won't match the call sites'.
     register_imported_enums(infer, module_path, registry);
+    // Every *other* public enum registers into the qualified-only channel:
+    // a fully-qualified variant reference (`pkg::m::Enum::Variant`, needing
+    // no `use`) resolves through it by identity. Bare names stay untouched,
+    // so this can't leak an un-imported enum into scope.
+    register_qualified_foreign_enums(infer, module_path, registry);
     // Imported trait *definitions* register next: like enums, they are
     // import-scoped, so a module sees only the traits it can name (via `use`
     // or the prelude). Impl coherence stays build-global below.
@@ -92,6 +97,40 @@ fn register_imported_enums(
 ) {
     for (enum_module, def) in crate::module_env::imported_enum_defs(registry, current_module) {
         infer.enum_registry.register_def(&def, Some(enum_module));
+    }
+}
+/// Register every *other* module's public enums into the enum registry's
+/// qualified-only channel ([`crate::infer::enums::EnumRegistry::get_qualified`]).
+///
+/// The pattern checker resolves a variant against the enum named by its
+/// resolved `Fqn`'s declaring module — but only imported enums register by
+/// bare name, so a fully-qualified reference to an *un-imported* foreign enum
+/// (`pkg::m::Enum::Variant`, `m::Variant`) would otherwise miss and fall to
+/// the bare-name reverse lookup, which a same-named local variant could
+/// hijack. This channel closes that gap by identity, mirroring the compiler's
+/// [`crate::module_env::ModuleEnv::foreign_enum_variants`]: every public enum
+/// keyed by `(module, name)`, never bare, so no un-imported name leaks into
+/// scope. Idempotent with [`register_imported_enums`] (same `(module, name)`
+/// key, same definition).
+fn register_qualified_foreign_enums(
+    infer: &mut Infer,
+    current_module: &ModulePath,
+    registry: &ModuleRegistry,
+) {
+    for info in registry.all_modules() {
+        if &info.path == current_module {
+            continue;
+        }
+        let enum_module = registry.module_id(&info.path);
+        for item in &info.module.items {
+            if let crate::ast::ItemKind::Enum(enum_def) = &item.kind
+                && enum_def.is_public
+            {
+                let enum_info =
+                    crate::infer::enums::EnumInfo::from_def(enum_def, Some(enum_module.clone()));
+                infer.enum_registry.register_qualified(&Arc::new(enum_info));
+            }
+        }
     }
 }
 /// Register the traits a module imports (`use pkg::m::{SomeTrait}`, or the

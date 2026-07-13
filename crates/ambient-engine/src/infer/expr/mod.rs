@@ -570,7 +570,11 @@ impl Infer {
                 // compiler emits an ordinary call with no receiver.
                 let mut associated_ret = None;
                 let associated_target = match &callee.kind {
-                    ExprKind::Name(name) if name.path.len() == 1 => {
+                    // A resolved callee is already an item (e.g. the resolve
+                    // pass canonicalized `Enum::Variant` to its constructor
+                    // `Fqn`); associated dispatch is only for the unresolved
+                    // `Type::method` path the checker owns.
+                    ExprKind::Name(name) if name.path.len() == 1 && name.resolved.is_none() => {
                         Some((Arc::clone(&name.path[0]), Arc::clone(&name.name)))
                     }
                     _ => None,

@@ -342,6 +342,78 @@ pub fn run(): Number {
 }
 
 #[test]
+fn foreign_enum_variant_resolves_qualified_as_pattern_and_constructor() {
+    // The access rule for enum variants: every qualified spelling of a
+    // *foreign* variant — module-qualified (`shapes::Circle`), explicit-enum
+    // (`pkg::shapes::Shape::Circle`), and enum-imported (`Shape::Circle`
+    // after `use pkg::shapes::Shape`) — resolves through the canonical
+    // channel, both as a constructor and as a match pattern, with no `use` of
+    // the variant itself. This is the regression that a foreign qualified
+    // variant used to require a same-named *local* variant to resolve at all
+    // (a bare-name reverse lookup deciding a fully-qualified reference).
+    let dir = package(&[
+        ("shapes.ab", SHAPES),
+        (
+            "main.ab",
+            r"
+use pkg::shapes;
+use pkg::shapes::Shape;
+
+pub fn a(s: Shape): Number {
+  match s { shapes::Circle(r) => r, shapes::Dot => 0 }
+}
+
+pub fn b(s: Shape): Number {
+  match s { shapes::Shape::Circle(r) => r, shapes::Shape::Dot => 0 }
+}
+
+pub fn c(s: Shape): Number {
+  match s { Shape::Circle(r) => r, Shape::Dot => 0 }
+}
+
+pub fn run(): Number {
+  a(shapes::Circle(1))
+    + b(pkg::shapes::Shape::Circle(2))
+    + c(Shape::Circle(4))
+}
+",
+        ),
+    ]);
+    assert_eq!(run(dir.path()), "7");
+}
+
+#[test]
+fn foreign_qualified_variant_wins_over_a_same_named_local_variant() {
+    // The teeth of the fix: a local enum declares a variant `Circle` too —
+    // and, to make a mis-resolution *observable at runtime*, at a different
+    // tag than the foreign `Shape::Circle`. A qualified reference to the
+    // foreign variant must resolve to the foreign enum by identity, never to
+    // the local decoy. If the checker or compiler fell back to the bare name,
+    // the pattern would take the local `Circle`'s tag and the match would
+    // miss (returning 0), or the checker would report a spurious type
+    // mismatch against the local enum.
+    let dir = package(&[
+        ("shapes.ab", SHAPES),
+        (
+            "main.ab",
+            r"
+use pkg::shapes;
+
+pub unique(D098767B-4093-4D5C-BA37-AD92AA7B5DEC) enum Decoy { Dot, Circle(Number) }
+
+pub fn run(): Number {
+  match shapes::Circle(42) {
+    shapes::Circle(r) => r,
+    shapes::Dot => 0,
+  }
+}
+",
+        ),
+    ]);
+    assert_eq!(run(dir.path()), "42");
+}
+
+#[test]
 fn unit_struct_constructs_across_modules_both_spellings() {
     // A unit struct is a value reachable by bare name. It must construct from
     // another module both ways the access invariant requires: through

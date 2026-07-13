@@ -160,10 +160,20 @@ fn compile_pattern_match(
             //   cleanup_and_fail: Pop  (remove dup on fail path)
             //   past_cleanup: <returned as fail_jump for compile_match to patch>
 
-            let tag = ctx
-                .enums
-                .get(&variant_name.name)
+            // Resolve the tag by the variant's `Fqn` first — the qualified
+            // channel — so a fully-qualified variant pattern
+            // (`pkg::m::Enum::Variant`, `m::Variant`) picks the foreign
+            // enum's tag by identity, exactly like the constructor path in
+            // `expr.rs`. Only a registry-less / same-module reference (no
+            // `Fqn`, or a `Fqn` outside the foreign table) falls to the bare
+            // `ctx.enums` table, whose bare name a same-named local variant
+            // could otherwise hijack.
+            let tag = variant_name
+                .resolved
+                .as_ref()
+                .and_then(|fqn| ctx.foreign_variants.get(fqn))
                 .map(|v| v.tag)
+                .or_else(|| ctx.enums.get(&variant_name.name).map(|v| v.tag))
                 .ok_or_else(|| {
                     CompileError::new(
                         CompileErrorKind::Unsupported {
