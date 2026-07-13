@@ -609,6 +609,13 @@ pub fn module_source_path(module: &ModuleId, info: &crate::module_registry::Modu
     if matches!(module.scope, Scope::Builtin) {
         return String::new();
     }
+    // The loader-recorded real path is authoritative: it is the only source
+    // that distinguishes a directory module's `<dir>/main.ab` from a
+    // file-backed `<dir>.ab` without relying on the `is_dir_module` flag
+    // (which the analysis/build registration path leaves `false`).
+    if let Some(recorded) = &info.source_path {
+        return recorded.clone();
+    }
     let segments: Vec<&str> = info.path.segments().iter().map(AsRef::as_ref).collect();
     if info.is_dir_module {
         // A directory module is backed by `<dir>/main.ab`.

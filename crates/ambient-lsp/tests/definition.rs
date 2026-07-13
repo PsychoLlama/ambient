@@ -233,3 +233,25 @@ fn run() { defined_here/*use*/() }
         .done()
         .shutdown();
 }
+
+#[test]
+fn test_goto_cross_file_into_directory_module() {
+    // A directory module lives at `<dir>/main.ab`, not `<dir>.ab`. Navigation
+    // must target the real file — recorded at load time — rather than a path
+    // reconstructed from the module name (which would point at `collections.ab`).
+    LspTest::new()
+        .with_package()
+        .with_file("src/collections/main.ab", "pub fn seed(): Number { 1 }")
+        .with_file(
+            "src/main.ab",
+            r#"
+use pkg::collections::{seed};
+fn run() { seed/*use*/() }
+"#,
+        )
+        .open_file("src/main.ab")
+        .goto_definition_at("use")
+        .expect_file("collections/main.ab")
+        .done()
+        .shutdown();
+}

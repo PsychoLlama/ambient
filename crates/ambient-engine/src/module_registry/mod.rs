@@ -93,6 +93,14 @@ pub struct ModuleInfo {
     /// which anchors `self`/`super` at its own path rather than its
     /// parent. Namespace entries are directory-like and set this too.
     pub is_dir_module: bool,
+    /// The module's real on-disk source path, relative to the package `src/`
+    /// directory (`collections/main.ab`), when the loader knows it. `None`
+    /// for embedded builtins (no on-disk file) and for callers that register
+    /// without a path — then consumers reconstruct it from the module path
+    /// (see [`crate::module_interface::module_source_path`]). Recording the
+    /// real path is what lets a directory module resolve to `<dir>/main.ab`
+    /// instead of the reconstructed `<dir>.ab`.
+    pub source_path: Option<String>,
 }
 
 /// Registry of all loaded modules.
@@ -288,6 +296,13 @@ impl ModuleRegistry {
         let exports = extract_exports(&module);
         let re_exports = extract_re_exports(&module);
 
+        // Preserve a previously recorded on-disk source path across a
+        // re-registration (raw → resolved AST, or an editor edit): the path is
+        // a filesystem fact that a resolve pass never changes.
+        let source_path = self
+            .modules
+            .get(&path.to_string())
+            .and_then(|prev| prev.source_path.clone());
         let info = ModuleInfo {
             path: path.clone(),
             module,
@@ -295,6 +310,7 @@ impl ModuleRegistry {
             re_exports,
             is_namespace: false,
             is_dir_module,
+            source_path,
         };
 
         self.modules.insert(path.to_string(), info);
@@ -302,6 +318,18 @@ impl ModuleRegistry {
         // A newly registered (or replaced) module may add, change, or drop
         // `ability` declarations.
         self.ability_revision += 1;
+    }
+
+    /// Record a module's real on-disk source path (relative to the package
+    /// `src/` directory). The loader knows the actual file — including whether
+    /// a directory module lives at `<dir>/main.ab` — so recording it here lets
+    /// [`crate::module_interface::module_source_path`] serve the true path
+    /// rather than reconstructing one from the module path. A no-op for an
+    /// unregistered path.
+    pub fn set_source_path(&mut self, path: &ModulePath, source_path: String) {
+        if let Some(info) = self.modules.get_mut(&path.to_string()) {
+            info.source_path = Some(source_path);
+        }
     }
 
     /// Whether `path` names a directory module (backed by a `main.ab`).
@@ -336,6 +364,8 @@ impl ModuleRegistry {
                     // A namespace is a directory: `self` inside it anchors
                     // at its own path.
                     is_dir_module: true,
+                    // A pure namespace has no backing file of its own.
+                    source_path: None,
                 },
             );
             ancestor = dir.parent();

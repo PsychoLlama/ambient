@@ -61,6 +61,12 @@ pub struct ParsedModule {
     pub ast: Module,
     /// Parse errors, if any.
     pub parse_errors: Vec<ParseError>,
+    /// The module's real on-disk source path, relative to `src_dir`
+    /// (`collections/main.ab`), when loaded from disk. `None` for an
+    /// in-memory module (the REPL's synthetic module) with no backing file.
+    /// Threaded into the registry so navigation resolves a directory module
+    /// to its actual `main.ab` rather than a reconstructed `<dir>.ab`.
+    pub source_path: Option<String>,
 }
 
 impl AnalysisPackage {
@@ -125,8 +131,19 @@ impl AnalysisPackage {
     }
 
     /// The source file for a module path inside this package.
+    ///
+    /// Prefers the module's recorded real on-disk path (so a directory module
+    /// resolves to its actual `<dir>/main.ab`); falls back to the canonical
+    /// file↔module reconstruction for a module never loaded from disk.
     #[must_use]
     pub fn file_for_module(&self, path: &ModulePath) -> PathBuf {
+        if let Some(source_path) = self
+            .modules
+            .get(&path.to_string())
+            .and_then(|m| m.source_path.as_ref())
+        {
+            return self.src_dir.join(source_path);
+        }
         self.src_dir.join(path.to_file_path())
     }
 
@@ -142,12 +159,35 @@ impl AnalysisPackage {
             let Ok(source) = std::fs::read_to_string(&file) else {
                 continue;
             };
-            self.insert_module(module_path, source);
+            // The real on-disk path (relative to `src/`) is the authority on a
+            // directory module's `<dir>/main.ab` layout — record it so
+            // navigation never has to reconstruct one from the module path.
+            let source_path = file
+                .strip_prefix(&self.src_dir)
+                .ok()
+                .map(|rel| rel.to_string_lossy().replace('\\', "/"));
+            self.insert_module_with_path(module_path, source, source_path);
         }
     }
 
-    /// Insert or replace a module from source (e.g. an in-editor buffer).
+    /// Insert or replace a module from source (e.g. an in-editor buffer),
+    /// preserving any previously recorded on-disk source path — an editor edit
+    /// re-parses the buffer but the file it came from is unchanged.
     pub fn insert_module(&mut self, path: ModulePath, source: String) {
+        let source_path = self
+            .modules
+            .get(&path.to_string())
+            .and_then(|prev| prev.source_path.clone());
+        self.insert_module_with_path(path, source, source_path);
+    }
+
+    /// Insert or replace a module, recording its real on-disk source path.
+    fn insert_module_with_path(
+        &mut self,
+        path: ModulePath,
+        source: String,
+        source_path: Option<String>,
+    ) {
         let recovered = ambient_parser::parse_recovering(&source);
         let parse_errors = recovered.errors;
         let mut ast = recovered.module;
@@ -163,6 +203,7 @@ impl AnalysisPackage {
                 source,
                 ast,
                 parse_errors,
+                source_path,
             },
         );
     }
@@ -213,6 +254,9 @@ impl AnalysisPackage {
         }
         for module in self.modules.values() {
             registry.register(&module.path, Arc::new(module.ast.clone()));
+            if let Some(source_path) = &module.source_path {
+                registry.set_source_path(&module.path, source_path.clone());
+            }
         }
         let mut deps = std::collections::BTreeMap::new();
         for module in self.modules.values() {
