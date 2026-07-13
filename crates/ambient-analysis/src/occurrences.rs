@@ -23,17 +23,34 @@
 //! so it costs the compile pipeline nothing (`build_package` never calls it)
 //! and refreshes with the per-edit registry rebuild.
 //!
-//! ## Scope (v1)
+//! ## Scope
 //!
-//! Indexed: module-level items (functions, consts, type aliases, enums,
-//! abilities, traits) at their name span; references to them in expression
-//! position (`Name`/`Call`/`TypedRecord`) and in `use` imports; and local
-//! bindings with their same-file references.
+//! Indexed:
+//! - Module-level items (functions, consts, type aliases, enums, abilities,
+//!   traits) at their name span; references to them in expression position
+//!   (`Name`/`Call`/`TypedRecord`) and in `use` imports.
+//! - **Enum variant constructors and patterns**, keyed on the two-segment
+//!   `[Enum, Variant]` `Fqn` (distinct from the enum's `[Enum]`), across every
+//!   spelling — bare, `Enum::V`, `m::V`, `m::Enum::V`, imported — plus the
+//!   variant declaration inside the enum. Rename of a variant is therefore
+//!   sound (rewrites constructors + patterns, never the enum).
+//! - **Ability references at perform sites and handler-literal arms**, keyed on
+//!   the ability's own item `Fqn` (the ability is spelled statically). This is
+//!   a reference to the *ability*, not a method occurrence.
+//! - Local bindings with their same-file references.
 //!
-//! Not yet indexed (so references to these are incomplete — the LSP gates
-//! rename to functions/consts/locals accordingly): enum *variant*
-//! constructors and patterns, method-call / operator dispatch, and type
-//! references in signatures and annotations. These are natural follow-ups.
+//! Deliberately **not** indexed (the honesty line — see the task record):
+//! - **Trait/ability method references.** Trait-method dispatch (`x.show()`,
+//!   overloaded operators) is type-directed: the resolved symbol is filled by
+//!   the *checker* (`ResolvedMethod`), which this collector — running on the
+//!   parsed/resolve-only AST — cannot see, and explicit associated paths
+//!   (`Enum::default`) are checker territory too. Ability-method *names* carry
+//!   no span on `AbilityCall` and no engine-minted `Fqn`. Indexing any of these
+//!   by name would be a name-keyed guess, so we index neither their
+//!   definitions nor their references. Rename of a method is refused, not
+//!   approximated.
+//! - Type references in signatures and annotations (including the `Enum` in an
+//!   `Enum::Variant` path prefix), so enum/type rename stays gated off.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -46,7 +63,7 @@ use ambient_engine::fqn::Fqn;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
 
-use crate::queries::{Definition, resolve_qualified_name};
+use crate::queries::{ItemRef, resolve_item_ref};
 
 /// The definition an occurrence points at — the identity used to group
 /// occurrences of "the same thing" across the package.
@@ -245,13 +262,6 @@ impl Collector<'_> {
         });
     }
 
-    /// Turn a resolved [`Definition`] into an `Item` target (a same-module
-    /// `None` maps to the current module).
-    fn item_target(&self, def: &Definition, name: &Arc<str>) -> SymbolTarget {
-        let module = def.module.as_ref().unwrap_or(self.module_path);
-        self.item_target_in(module, name)
-    }
-
     /// Build an `Item` target for `name` defined in `module`, canonicalizing
     /// its identity to the [`Fqn`] the registry mints for it — the same identity
     /// a resolved reference lands on, so definition and references collapse.
@@ -263,13 +273,32 @@ impl Collector<'_> {
         }
     }
 
+    /// Build an `Item` target from a resolved [`ItemRef`], keying on the exact
+    /// [`Fqn`] ident the engine mints — `[name]` for an item, `[Enum, Variant]`
+    /// for a variant — so a variant's declaration and all spellings collapse.
+    fn ref_target(&self, r: &ItemRef) -> SymbolTarget {
+        SymbolTarget::Item {
+            fqn: self.registry.fqn(&r.module, &r.ident),
+            module: r.module.clone(),
+            name: r.name(),
+        }
+    }
+
+    /// Build an `Item` target for a multi-segment ident in the current module
+    /// (an enum variant's `[Enum, Variant]` at its declaration site).
+    fn item_target_in_multi(&self, ident: &[Arc<str>]) -> SymbolTarget {
+        SymbolTarget::Item {
+            fqn: self.registry.fqn(self.module_path, ident),
+            module: self.module_path.clone(),
+            name: ident.last().map_or_else(|| Arc::from(""), Arc::clone),
+        }
+    }
+
     /// Resolve a name reference through the registry and, if it lands on a
-    /// package item, record a reference occurrence at `span`.
+    /// package item (or enum variant), record a reference occurrence at `span`.
     fn name_ref(&mut self, qname: &QualifiedName, span: Span) {
-        if let Some(def) =
-            resolve_qualified_name(self.module, self.module_path, self.registry, qname)
-        {
-            let target = self.item_target(&def, &qname.name);
+        if let Some(r) = resolve_item_ref(self.module, self.module_path, self.registry, qname) {
+            let target = self.ref_target(&r);
             self.out.push(Occurrence {
                 span,
                 target,
@@ -311,7 +340,24 @@ impl Collector<'_> {
             }
             ItemKind::Struct(s) => self.item_def(&s.name, s.name_span),
             ItemKind::TypeAlias(t) => self.item_def(&t.name, t.name_span),
-            ItemKind::Enum(e) => self.item_def(&e.name, e.name_span),
+            ItemKind::Enum(e) => {
+                self.item_def(&e.name, e.name_span);
+                // Each variant is its own symbol, keyed on the two-segment
+                // `[Enum, Variant]` `Fqn` — distinct from the enum's `[Enum]`,
+                // so renaming a variant never rewrites the enum. The variant's
+                // `span` covers name+payload, so narrow to the name.
+                for variant in &e.variants {
+                    let span = Self::name_span_at(variant.span.start, &variant.name);
+                    self.out.push(Occurrence {
+                        span,
+                        target: self.item_target_in_multi(&[
+                            Arc::clone(&e.name),
+                            Arc::clone(&variant.name),
+                        ]),
+                        is_definition: true,
+                    });
+                }
+            }
             ItemKind::Ability(a) => self.item_def(&a.name, a.name_span),
             ItemKind::Trait(t) => self.item_def(&t.name, t.name_span),
             ItemKind::ExternFn(e) => self.item_def(&e.name, e.name_span),
@@ -359,11 +405,22 @@ impl Collector<'_> {
     #[allow(clippy::too_many_lines)]
     fn expr(&mut self, expr: &Expr) {
         match &expr.kind {
-            ExprKind::Unit
-            | ExprKind::Bool(_)
-            | ExprKind::Number(_)
-            | ExprKind::String(_)
-            | ExprKind::Perform(_) => {}
+            ExprKind::Unit | ExprKind::Bool(_) | ExprKind::Number(_) | ExprKind::String(_) => {}
+
+            ExprKind::Perform(call) => {
+                // The ability is named statically at the perform site and
+                // canonicalizes to its declaring module's `Fqn` — the same
+                // identity as the ability's declaration — so this closes a
+                // find-references gap (the arm previously indexed nothing,
+                // dropping the args too). The *method* name carries no span on
+                // `AbilityCall` and no engine-minted `Fqn`, so it is not indexed
+                // (see the module-level scope note).
+                let span = call.ability.name_span.unwrap_or(call.span);
+                self.name_ref(&call.ability, span);
+                for a in &call.args {
+                    self.expr(a);
+                }
+            }
 
             // Produced only by builders today (the parser lowers bare locals
             // to `Name`); handled for completeness.
@@ -471,6 +528,11 @@ impl Collector<'_> {
             }
             ExprKind::HandlerLiteral(literal) => {
                 for method in &literal.methods {
+                    // The handled ability is named statically (like a perform),
+                    // so index it as a reference to its declaration. The method
+                    // name is not indexed (no engine-minted `Fqn`).
+                    let span = method.ability.name_span.unwrap_or(method.method_span);
+                    self.name_ref(&method.ability, span);
                     self.push_scope();
                     for param in &method.params {
                         self.bind_param(param);
@@ -517,9 +579,13 @@ impl Collector<'_> {
                     self.pattern(p);
                 }
             }
-            PatternKind::Variant(_, payload) => {
-                // The variant constructor reference is a follow-up; still bind
-                // its payload's patterns.
+            PatternKind::Variant(qname, payload) => {
+                // A variant pattern names the variant exactly as a constructor
+                // expression does (`resolve_item_ref` lands both on the same
+                // `[Enum, Variant]` identity). The name span sits inside the
+                // `QualifiedName`; the pattern span would include the payload.
+                let span = qname.name_span.unwrap_or(pattern.span);
+                self.name_ref(qname, span);
                 if let Some(payload) = payload {
                     self.pattern(payload);
                 }
@@ -617,6 +683,57 @@ mod tests {
         let rb = find(&b, "helper", false);
         assert_eq!(rb.len(), 1);
         assert_eq!(rb[0].target, da[0].target);
+    }
+
+    #[test]
+    fn variant_construction_and_declaration_share_a_target() {
+        let occ = occurrences_of(
+            "unique(A1B2C3D4-0000-0000-0000-0000000000A1) enum Shape { Circle(Number), Square }\n\
+             fn run(): Shape { Shape::Circle(2.0) }",
+        );
+        let def = find(&occ, "Circle", true);
+        let refs = find(&occ, "Circle", false);
+        assert_eq!(def.len(), 1, "one variant declaration");
+        assert_eq!(refs.len(), 1, "one construction site");
+        assert_eq!(def[0].target, refs[0].target);
+        // The variant identity is distinct from the enum's.
+        let enum_def = find(&occ, "Shape", true);
+        assert_eq!(enum_def.len(), 1);
+        assert_ne!(enum_def[0].target, def[0].target);
+    }
+
+    #[test]
+    fn bare_and_qualified_variant_spellings_collapse() {
+        // The same variant referenced bare (imported-style, here same-module)
+        // and via `Enum::Variant` must land on one identity.
+        let occ = occurrences_of(
+            "unique(A1B2C3D4-0000-0000-0000-0000000000A2) enum Dir { Up, Down }\n\
+             fn a(): Dir { Up }\n\
+             fn b(): Dir { Dir::Up }",
+        );
+        let def = find(&occ, "Up", true);
+        let refs = find(&occ, "Up", false);
+        assert_eq!(def.len(), 1);
+        assert_eq!(refs.len(), 2, "bare `Up` and `Dir::Up`");
+        for r in &refs {
+            assert_eq!(r.target, def[0].target);
+        }
+    }
+
+    #[test]
+    fn variant_pattern_references_the_variant() {
+        let occ = occurrences_of(
+            "unique(A1B2C3D4-0000-0000-0000-0000000000A3) enum Opt { Has(Number), Empty }\n\
+             fn run(x: Opt): Number { match x { Has(n) => n, Empty => 0 } }",
+        );
+        let has_def = find(&occ, "Has", true);
+        let has_refs = find(&occ, "Has", false);
+        assert_eq!(has_def.len(), 1);
+        assert_eq!(has_refs.len(), 1, "the `Has(n)` pattern");
+        assert_eq!(has_def[0].target, has_refs[0].target);
+        // `n` bound by the pattern is a local, not the variant.
+        let empty_refs = find(&occ, "Empty", false);
+        assert_eq!(empty_refs.len(), 1, "the `Empty` pattern");
     }
 
     #[test]

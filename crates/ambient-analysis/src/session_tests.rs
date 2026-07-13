@@ -770,3 +770,80 @@ fn occurrence_verify_oracle_passes_on_body_edits() {
         "use pkg::utils::helper;\npub fn run(): Number { helper() + 0 }\n".to_string(),
     );
 }
+
+/// A package with an enum variant declared in one module and referenced (as a
+/// constructor and a pattern) from two others.
+fn variant_package() -> TempDir {
+    write_package(&[
+        (
+            "shapes.ab",
+            "pub unique(A1B2C3D4-0000-0000-0000-0000000000C1) enum Shape \
+             { Circle(Number), Square }\n",
+        ),
+        (
+            "main.ab",
+            "use pkg::shapes::Shape;\npub fn mk(): Shape { Shape::Circle(2.0) }\n",
+        ),
+        (
+            "other.ab",
+            "use pkg::shapes::Shape;\n\
+             pub fn area(s: Shape): Number { match s { Shape::Circle(n) => n, Square => 0 } }\n",
+        ),
+    ])
+}
+
+#[test]
+fn cross_module_variant_references_are_found() {
+    // The correctness bar for variant indexing: a variant's declaration, a
+    // constructor in another module, and a pattern site in a third all collapse
+    // onto the one `[Enum, Variant]` identity.
+    let session = open(&variant_package());
+    let refs = references_to(&session, "shapes", "Circle");
+    assert_eq!(refs.len(), 3, "variant sites across the package: {refs:?}");
+    assert!(
+        refs.iter()
+            .any(|(m, _, _, is_def)| m == "shapes" && *is_def),
+        "declaration in shapes: {refs:?}"
+    );
+    assert!(
+        refs.iter().any(|(m, _, _, is_def)| m == "main" && !is_def),
+        "constructor in main: {refs:?}"
+    );
+    assert!(
+        refs.iter().any(|(m, _, _, is_def)| m == "other" && !is_def),
+        "pattern in other: {refs:?}"
+    );
+    // The variant identity is distinct from the enum's — renaming one never
+    // touches the other.
+    let enum_refs = references_to(&session, "shapes", "Shape");
+    assert!(
+        enum_refs.iter().all(|site| !refs.contains(site)),
+        "enum and variant occurrence sets are disjoint"
+    );
+}
+
+#[test]
+fn variant_occurrence_oracle_survives_a_body_edit() {
+    // The scoped-rebuild oracle must stay green with variant occurrences
+    // present: a body-only edit in one referencing module re-collects only it,
+    // yet the cross-module variant references stay collapsed.
+    let mut session = open(&variant_package());
+    session.verify = true;
+
+    let before = references_to(&session, "shapes", "Circle");
+    assert_eq!(before.len(), 3, "{before:?}");
+
+    // A span-shifting body-only edit to `main` (interface unchanged).
+    session.edit_module(
+        &module_path("main"),
+        "use pkg::shapes::Shape;\n\npub fn mk(): Shape { Shape::Circle(2.0) }\n".to_string(),
+    );
+    session.assert_occurrences_scoped_matches_full();
+
+    let after = references_to(&session, "shapes", "Circle");
+    assert_eq!(after.len(), 3, "references survived the edit: {after:?}");
+    assert!(
+        after.iter().any(|(m, _, _, is_def)| m == "main" && !is_def),
+        "main's constructor is not stranded: {after:?}"
+    );
+}

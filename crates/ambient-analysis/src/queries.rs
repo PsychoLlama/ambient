@@ -4,12 +4,14 @@
 //! are pure AST walks — resolution against other modules goes through the
 //! engine's `ModuleRegistry`, never a parallel index.
 
+use std::sync::Arc;
+
 use ambient_engine::ast::{
     BindingId, Expr, ExprKind, FunctionDef, Item, ItemKind, Module, Pattern, PatternKind,
     QualifiedName, Span, StmtKind,
 };
 use ambient_engine::module_path::ModulePath;
-use ambient_engine::module_registry::{ModuleRegistry, ResolvedImport};
+use ambient_engine::module_registry::{ExportKind, ModuleRegistry, ResolvedImport};
 use ambient_engine::types::Type;
 
 /// Find the expression at a given byte offset in the module.
@@ -327,6 +329,231 @@ fn resolve_symbol_through_imports(
         }
     }
     None
+}
+
+/// A resolved reference's identity input for the occurrence index: the
+/// origin module plus the item's ident path — `[name]` for an ordinary item,
+/// `[Enum, Variant]` for an enum variant. This mirrors the [`Fqn`] ident the
+/// engine's resolve pass mints for every spelling of a name
+/// (`ambient_engine::resolve`), so a variant's declaration, constructors,
+/// patterns, and imports all collapse onto one identity.
+///
+/// [`Fqn`]: ambient_engine::fqn::Fqn
+#[derive(Debug, Clone)]
+pub struct ItemRef {
+    /// The module that defines the referenced item. For a variant this is its
+    /// declaring enum's module.
+    pub module: ModulePath,
+    /// The item's ident path: `[name]`, or `[Enum, Variant]` for a variant.
+    pub ident: Vec<Arc<str>>,
+}
+
+impl ItemRef {
+    fn item(module: ModulePath, name: Arc<str>) -> Self {
+        Self {
+            module,
+            ident: vec![name],
+        }
+    }
+
+    fn variant(module: ModulePath, enum_name: Arc<str>, variant: Arc<str>) -> Self {
+        Self {
+            module,
+            ident: vec![enum_name, variant],
+        }
+    }
+
+    /// The referenced item's simple name (the variant name for a variant) —
+    /// the last ident segment.
+    #[must_use]
+    pub fn name(&self) -> Arc<str> {
+        self.ident.last().cloned().unwrap_or_else(|| Arc::from(""))
+    }
+}
+
+/// Resolve a reference to the item (or enum variant) it names, returning the
+/// origin module and canonical ident path used to key the occurrence index.
+///
+/// This is the occurrence collector's resolver. It extends
+/// [`resolve_qualified_name`] with enum-variant canonicalization: every
+/// variant spelling — bare `Circle`, `Shape::Circle`, `pkg::shapes::Circle`,
+/// `pkg::shapes::Shape::Circle`, or an imported `use shapes::{Circle}` — lands
+/// on the two-segment ident `[Shape, Circle]` the engine's resolve pass mints
+/// (`resolve/refs.rs`), so a variant's declaration and all its references
+/// collapse to one `Fqn`. Ordinary items keep their single-segment `[name]`,
+/// matching what a same-module `item_def` produces.
+///
+/// Like `resolve_qualified_name`, aliased imports (`use m::{E as F}`) are not
+/// resolved — a pre-existing limitation of the analysis-layer walk that
+/// affects every symbol kind, not just variants.
+#[must_use]
+pub fn resolve_item_ref(
+    module: &Module,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+    qname: &QualifiedName,
+) -> Option<ItemRef> {
+    if qname.path.is_empty() {
+        return resolve_bare_item_ref(module, module_path, registry, &qname.name);
+    }
+    // A path whose prefix names a module, with the final segment an item or
+    // variant that module exports (chasing `pub use` re-exports to the origin).
+    if let Some(target) = resolve_module_reference(module_path, registry, &qname.path)
+        && let Ok((export, origin)) = registry.lookup_symbol(&target, &qname.name)
+    {
+        return Some(export_item_ref(registry, &origin, export.kind, &qname.name));
+    }
+    // The explicit-enum spelling `Enum::Variant` / `m::Enum::Variant`, where
+    // the last *path* segment names the enum rather than a module — the case
+    // the engine's resolve pass leaves to the checker, but which is still a
+    // deterministic name-scope resolution (the enum is spelled), landing on
+    // the same `[Enum, Variant]` identity.
+    resolve_explicit_variant_ref(module, module_path, registry, qname)
+}
+
+/// Resolve a bare (unqualified) reference — a same-module item or variant
+/// (which shadow imports), then an imported symbol or variant.
+fn resolve_bare_item_ref(
+    module: &Module,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+    name: &Arc<str>,
+) -> Option<ItemRef> {
+    for item in &module.items {
+        if item_name(item).is_some_and(|n| n.as_ref() == name.as_ref()) {
+            return Some(ItemRef::item(module_path.clone(), Arc::clone(name)));
+        }
+        if let ItemKind::Enum(e) = &item.kind
+            && e.variants.iter().any(|v| v.name.as_ref() == name.as_ref())
+        {
+            return Some(ItemRef::variant(
+                module_path.clone(),
+                Arc::clone(&e.name),
+                Arc::clone(name),
+            ));
+        }
+    }
+    let imports = registry.resolve_imports(module_path).ok()?;
+    for import in imports.imports.get(name.as_ref())? {
+        if let ResolvedImport::Symbol {
+            from_module,
+            export_kind,
+            ..
+        } = import
+        {
+            return Some(export_item_ref(registry, from_module, *export_kind, name));
+        }
+    }
+    None
+}
+
+/// Build an [`ItemRef`] for an export of `origin` given its kind — a variant
+/// lands on `[Enum, Variant]`, everything else on `[name]`.
+fn export_item_ref(
+    registry: &ModuleRegistry,
+    origin: &ModulePath,
+    kind: ExportKind,
+    name: &Arc<str>,
+) -> ItemRef {
+    if kind == ExportKind::EnumVariant
+        && let Some(enum_name) = variant_enum_name(registry, origin, name)
+    {
+        return ItemRef::variant(origin.clone(), enum_name, Arc::clone(name));
+    }
+    ItemRef::item(origin.clone(), Arc::clone(name))
+}
+
+/// Resolve the explicit-enum variant spelling where the last *path* segment
+/// names the enum: `Enum::Variant` (enum in scope) or `m::Enum::Variant`
+/// (enum exported by module `m`).
+fn resolve_explicit_variant_ref(
+    module: &Module,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+    qname: &QualifiedName,
+) -> Option<ItemRef> {
+    let (enum_seg, prefix) = qname.path.split_last()?;
+    if prefix.is_empty() {
+        // `Enum::Variant`: the enum is in scope (same-module or imported).
+        for item in &module.items {
+            if let ItemKind::Enum(e) = &item.kind
+                && e.name.as_ref() == enum_seg.as_ref()
+                && e.variants
+                    .iter()
+                    .any(|v| v.name.as_ref() == qname.name.as_ref())
+            {
+                return Some(ItemRef::variant(
+                    module_path.clone(),
+                    Arc::clone(&e.name),
+                    Arc::clone(&qname.name),
+                ));
+            }
+        }
+        let imports = registry.resolve_imports(module_path).ok()?;
+        for import in imports.imports.get(enum_seg.as_ref())? {
+            if let ResolvedImport::Symbol {
+                from_module,
+                export_kind: ExportKind::Enum,
+                ..
+            } = import
+                && enum_has_variant(registry, from_module, enum_seg, &qname.name)
+            {
+                return Some(ItemRef::variant(
+                    from_module.clone(),
+                    Arc::clone(enum_seg),
+                    Arc::clone(&qname.name),
+                ));
+            }
+        }
+        return None;
+    }
+    // `m::..::Enum::Variant`: the prefix names a module, `enum_seg` an enum.
+    let target = resolve_module_reference(module_path, registry, prefix)?;
+    let (export, origin) = registry.lookup_symbol(&target, enum_seg).ok()?;
+    if export.kind == ExportKind::Enum && enum_has_variant(registry, &origin, enum_seg, &qname.name)
+    {
+        return Some(ItemRef::variant(
+            origin,
+            Arc::clone(enum_seg),
+            Arc::clone(&qname.name),
+        ));
+    }
+    None
+}
+
+/// The name of the enum in `module` that declares `variant`, if any.
+fn variant_enum_name(
+    registry: &ModuleRegistry,
+    module: &ModulePath,
+    variant: &Arc<str>,
+) -> Option<Arc<str>> {
+    let info = registry.get(module)?;
+    info.module.items.iter().find_map(|item| match &item.kind {
+        ItemKind::Enum(e)
+            if e.variants
+                .iter()
+                .any(|v| v.name.as_ref() == variant.as_ref()) =>
+        {
+            Some(Arc::clone(&e.name))
+        }
+        _ => None,
+    })
+}
+
+/// Whether `module` declares an enum named `enum_name` with variant `variant`.
+fn enum_has_variant(
+    registry: &ModuleRegistry,
+    module: &ModulePath,
+    enum_name: &str,
+    variant: &str,
+) -> bool {
+    registry.get(module).is_some_and(|info| {
+        info.module.items.iter().any(|item| {
+            matches!(&item.kind,
+                ItemKind::Enum(e) if e.name.as_ref() == enum_name
+                    && e.variants.iter().any(|v| v.name.as_ref() == variant))
+        })
+    })
 }
 
 /// Find the module referenced at `offset` inside a `use` item's path.
