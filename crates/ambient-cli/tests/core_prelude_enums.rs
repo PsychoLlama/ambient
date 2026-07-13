@@ -177,6 +177,9 @@ fn prelude_reexports_the_full_global_set() {
         "Mod",
         "Eq",
         "Ord",
+        // `Show` — no operator, but the bound on `Exception::throw`, so it
+        // rides the prelude alongside `Exception`.
+        "Show",
     ]
     .into_iter()
     .map(String::from)

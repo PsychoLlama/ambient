@@ -37,10 +37,19 @@ pub fn ability_id() -> AbilityId {
     *ID.get_or_init(|| AbilityId::from_uuid(&EXCEPTION_UUID))
 }
 
-/// The canonical signature of `throw`: `(string) -> never`.
+/// The canonical signature of `throw`: `<E: Show>(E) -> never`.
+///
+/// The generic parameter `E` renders as `var0` (the first type variable, by
+/// first occurrence — the checker substitutes the type parameter to an
+/// inference variable before rendering), and its `Show` bound enters the
+/// canonical signature as the `bound:0:Show` pseudo-parameter after the real
+/// ones (index `0` into the method's type parameters, *spelled* name by the
+/// same convention as `named:Duration`). This must reproduce byte-for-byte
+/// what the checker derives for `core::exception`'s declaration
+/// (`ability_id_infer`'s seeded renderer) — a golden test pins the two.
 #[must_use]
 pub fn throw_signature() -> SignatureHash {
-    SignatureHash::new(&["string"], "never")
+    SignatureHash::new(&["var0", "bound:0:Show"], "never")
 }
 
 /// The content-addressed identity of `Exception::throw`.
@@ -79,7 +88,7 @@ mod tests {
             throw_method_key(),
             MethodKey::derive(
                 &EXCEPTION_UUID,
-                &SignatureHash::new(&["string"], "never"),
+                &SignatureHash::new(&["var0", "bound:0:Show"], "never"),
                 None
             )
         );

@@ -13,6 +13,12 @@
 // (never): performing it unwinds — no continuation is captured, handler
 // arms cannot `resume`, and the method needs no default implementation.
 pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000001) ability Exception {
-  /// Raise an error message, unwinding to the nearest Exception handler.
-  fn throw(message: String): !;
+  /// Raise an error value, unwinding to the nearest Exception handler.
+  ///
+  /// The value is any `E: Show` — a `String` message, a record, an enum —
+  /// so an uncaught (or logging) handler can always render it. The bound's
+  /// dictionary rides as a hidden trailing perform argument, exactly like a
+  /// bounded free function's; a single `Exception::throw(e) => …` arm catches
+  /// every `E`.
+  fn throw<E: Show>(error: E): !;
 }
