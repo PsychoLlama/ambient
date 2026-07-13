@@ -32,7 +32,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, RwLock};
 
-use ambient_ability::{Value, VmError};
+use ambient_ability::{RuntimeError, Value, VmError};
 use ambient_engine::bytecode::CompiledFunction;
 use ambient_engine::compiler::{CompiledModule, MigrationRecord};
 use ambient_engine::vm::Vm;
@@ -343,8 +343,11 @@ pub enum DeployError {
     Validation(Vec<String>),
     /// The entry function faulted during reconciliation. The name table
     /// *was* swapped (the new code is live for late-bound resolution);
-    /// client-side reconciliation is incomplete.
-    Entry(String),
+    /// client-side reconciliation is incomplete. Carries the structured
+    /// [`RuntimeError`] — payload plus the origin stack trace — so a host
+    /// can inspect the frames (and their content hashes) rather than a
+    /// pre-flattened string; `Display` renders it at the edge.
+    Entry(RuntimeError),
 }
 
 impl std::fmt::Display for DeployError {
@@ -353,7 +356,7 @@ impl std::fmt::Display for DeployError {
             Self::Validation(problems) => {
                 write!(f, "deploy rejected: {}", problems.join("; "))
             }
-            Self::Entry(error) => f.write_str(error),
+            Self::Entry(error) => write!(f, "{error}"),
         }
     }
 }
@@ -603,7 +606,7 @@ impl DeployRuntime {
         wire(&mut vm);
         let value = match vm.call(entry, Vec::new()) {
             Ok(value) => value,
-            Err(e) => return Err(DeployError::Entry(vm.runtime_error(e).to_string())),
+            Err(e) => return Err(DeployError::Entry(vm.runtime_error(e))),
         };
 
         // 5. Report, with diagnostics computed against the reconciled

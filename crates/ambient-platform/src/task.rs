@@ -37,7 +37,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use ambient_ability::{Value, VmError};
+use ambient_ability::{RuntimeError, Value, VmError};
 use ambient_engine::vm::Vm;
 
 use crate::deploy::DeployRuntime;
@@ -60,10 +60,13 @@ pub enum TaskEvent {
     Drained { name: Arc<str>, cleanly: bool },
     /// A pass faulted. `restarting` is false when the task was parked —
     /// its consecutive-fault budget ran out, or it overran a drain
-    /// deadline and was hard-stopped.
+    /// deadline and was hard-stopped. `error` carries the structured
+    /// [`RuntimeError`] — payload plus the pass's origin stack trace (with
+    /// per-frame content hashes) — so a sink can log the frames, not just a
+    /// pre-flattened message; render it via `Display` at the edge.
     Faulted {
         name: Arc<str>,
-        error: String,
+        error: RuntimeError,
         restarting: bool,
     },
 }
@@ -484,7 +487,13 @@ fn task_main(
             }
             // require_task_body pinned the shape at ensure time.
             other => {
-                let error = format!("task body is not callable: {}", other.type_name());
+                // A control error the body never got to run — no frames to
+                // trace; it travels the Exception channel like other control
+                // faults.
+                let error = RuntimeError::new(VmError::exception(format!(
+                    "task body is not callable: {}",
+                    other.type_name()
+                )));
                 (runtime.events)(&TaskEvent::Faulted {
                     name: Arc::clone(name),
                     error,
@@ -519,13 +528,13 @@ fn task_main(
             Err(VmError::HardStopped) => {
                 (runtime.events)(&TaskEvent::Faulted {
                     name: Arc::clone(name),
-                    error: "hard-stopped at the drain deadline".to_string(),
+                    error: vm.runtime_error(VmError::HardStopped),
                     restarting: false,
                 });
                 return Ending::Parked;
             }
             Err(e) => {
-                let error = vm.runtime_error(e).to_string();
+                let error = vm.runtime_error(e);
                 // Mid-drain faults (a cleanup arm that itself faults)
                 // end the task rather than restarting it into a signal
                 // that unwinds every interruptible perform.

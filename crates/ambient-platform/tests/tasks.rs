@@ -572,7 +572,10 @@ fn a_non_cooperative_task_is_hard_stopped_at_the_drain_deadline() {
     assert!(
         events
             .iter()
-            .any(|e| e.contains("Faulted") && e.contains("hard-stopped")),
+            // `Faulted.error` is now a structured `RuntimeError`; the
+            // hard-stop shows as its `VmError::HardStopped` in the event's
+            // debug form.
+            .any(|e| e.contains("Faulted") && e.contains("HardStopped")),
         "the deadline must hard-stop the spinner: {events:?}"
     );
     assert!(
