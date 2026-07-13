@@ -187,3 +187,88 @@ fn test_qualified_trait_bound() {
     );
     assert!(stdout.contains("7"), "expected 7 in output, got: {stdout}");
 }
+
+#[test]
+fn test_public_generic_fn_bound_on_trait_in_another_module() {
+    // A *public* generic function whose bound names a trait declared in a
+    // *separate* module. This is the case a co-located generic fn (the
+    // workaround in the other tests here) can't exercise: foreign *public*
+    // functions build their schemes eagerly while checking the trait's own
+    // module — before that module's local trait registration ran — so the
+    // bound resolved against an empty `fqn_to_uuid` and reported a spurious
+    // `unknown trait`, attributed (with a garbled span) to the trait's
+    // definition site. The four spellings below are the full blast radius:
+    //
+    //   * `traits.ab`  — trait only, so its module has no other reason to be
+    //     registered before the generic module is checked;
+    //   * `use_gen.ab` — `use`-imported bare bound;
+    //   * `path_gen.ab`— fully-qualified bound, never `use`d;
+    //   * `where_gen.ab`— `where`-clause bound;
+    //   * `main.ab`    — a *third* module supplying the concrete impl and
+    //     instantiating each generic, so dictionaries pass across modules.
+    let (_dir, pkg) = temp_multi_package(&[
+        (
+            "traits.ab",
+            r#"
+            pub unique(EEEE0000-0000-4000-8000-000000000401) trait Describe {
+                fn describe(self): Number;
+            }
+            "#,
+        ),
+        (
+            "use_gen.ab",
+            r#"
+            use pkg::traits::Describe;
+            pub fn via_use<T: Describe>(x: T): Number { x.describe() }
+            "#,
+        ),
+        (
+            "path_gen.ab",
+            r#"
+            pub fn via_path<T: pkg::traits::Describe>(x: T): Number { x.describe() }
+            "#,
+        ),
+        (
+            "where_gen.ab",
+            r#"
+            use pkg::traits::Describe;
+            pub fn via_where<T>(x: T): Number where T: Describe { x.describe() }
+            "#,
+        ),
+        (
+            "main.ab",
+            r#"
+            use pkg::traits::Describe;
+            use pkg::use_gen::via_use;
+            use pkg::path_gen::via_path;
+            use pkg::where_gen::via_where;
+
+            pub unique(EEEE0000-0000-4000-8000-000000000402) struct Widget { x: Number }
+            impl Describe for Widget { fn describe(self): Number { self.x } }
+
+            pub fn run(): Number {
+                via_use(Widget { x: 100 })
+                    + via_path(Widget { x: 20 })
+                    + via_where(Widget { x: 3 })
+            }
+            "#,
+        ),
+    ]);
+
+    let output = ambient_cmd()
+        .arg("run")
+        .arg(&pkg)
+        .output()
+        .expect("failed to run ambient");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // 100 + 20 + 3
+    assert!(
+        stdout.contains("123"),
+        "expected 123 in output, got: {stdout}"
+    );
+}
