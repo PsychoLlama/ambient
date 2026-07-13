@@ -109,6 +109,19 @@ fn assert_warm_equals_cold(warm: &BuildResult, files: &[(&str, &str)]) {
     );
 }
 
+/// `true` when `AMBIENT_CACHE_VERIFY=1` is in this process's environment.
+///
+/// These tests build in-process, so the flag reaches `BuildCache::open` and
+/// forces the recompile-and-compare oracle: every module recompiles rather than
+/// serving warm. The exact hit/miss-count assertions below are then meaningless
+/// (a full `AMBIENT_CACHE_VERIFY=1` suite run would fail them for the wrong
+/// reason), so each guards on this and skips — the byte-identity (`warm ==
+/// cold`) checks and the engine's own stale-hit panic remain the oracle. Read
+/// the flag exactly the way the cache's `env_flag` does.
+fn verify_mode() -> bool {
+    std::env::var("AMBIENT_CACHE_VERIFY").is_ok_and(|v| v.eq_ignore_ascii_case("1"))
+}
+
 #[test]
 fn zero_change_rebuild_is_a_full_warm_hit() {
     let files: &[(&str, &str)] = &[
@@ -128,14 +141,16 @@ fn zero_change_rebuild_is_a_full_warm_hit() {
     assert!(cold.modules_compiled > 0, "first build compiles everything");
 
     let warm = build_and_persist(dir.path());
-    assert_eq!(
-        warm.modules_compiled, 0,
-        "every user + builtin module must hit on an unchanged rebuild"
-    );
-    assert_eq!(
-        warm.modules_relinked, 0,
-        "an unchanged rebuild needs no relink — every module is a full hit"
-    );
+    if !verify_mode() {
+        assert_eq!(
+            warm.modules_compiled, 0,
+            "every user + builtin module must hit on an unchanged rebuild"
+        );
+        assert_eq!(
+            warm.modules_relinked, 0,
+            "an unchanged rebuild needs no relink — every module is a full hit"
+        );
+    }
     assert_warm_equals_cold(&warm, files);
 }
 
@@ -180,14 +195,16 @@ fn body_only_edit_recompiles_only_the_leaf_and_its_dependents() {
     // keys still match, so they take the relink fast path: remap the moved
     // foreign hash and re-finalize, with no re-check and no codegen. The check
     // counter for both dependents is zero.
-    assert_eq!(
-        warm.modules_compiled, 1,
-        "only the leaf re-checks+compiles; dependents relink"
-    );
-    assert_eq!(
-        warm.modules_relinked, 2,
-        "mid + main relink (link-only miss, key match)"
-    );
+    if !verify_mode() {
+        assert_eq!(
+            warm.modules_compiled, 1,
+            "only the leaf re-checks+compiles; dependents relink"
+        );
+        assert_eq!(
+            warm.modules_relinked, 2,
+            "mid + main relink (link-only miss, key match)"
+        );
+    }
     // The relinked build is byte-identical to a fresh cold build of the final
     // source — objects, names, signatures, consumed links, and each module's
     // prelink-blob hash all match.
@@ -224,7 +241,9 @@ fn pub_signature_edit_misses_dependents_via_interface_hash() {
     fs::write(dir.path().join("src/main.ab"), edited[1].1).expect("edit");
 
     let warm = build_and_persist(dir.path());
-    assert_eq!(warm.modules_compiled, 2, "lib and its dependent main miss");
+    if !verify_mode() {
+        assert_eq!(warm.modules_compiled, 2, "lib and its dependent main miss");
+    }
     assert_warm_equals_cold(&warm, edited);
 }
 
@@ -265,11 +284,13 @@ fn new_trait_impl_on_a_package_type_spares_unrelated_modules() {
     fs::write(dir.path().join("src/orphan.ab"), edited[1].1).expect("edit");
 
     let warm = build_and_persist(dir.path());
-    assert_eq!(
-        warm.modules_compiled, 1,
-        "only orphan (whose source moved) recompiles; widget + main stay cached, got {}",
-        warm.modules_compiled
-    );
+    if !verify_mode() {
+        assert_eq!(
+            warm.modules_compiled, 1,
+            "only orphan (whose source moved) recompiles; widget + main stay cached, got {}",
+            warm.modules_compiled
+        );
+    }
     assert_warm_equals_cold(&warm, edited);
 }
 
@@ -311,21 +332,23 @@ fn operator_dispatcher_recompiles_when_a_new_impl_lands_on_the_operated_type() {
     ];
 
     let (warm, seen) = build_capturing(dir.path());
-    assert_eq!(
-        seen.get("main"),
-        Some(&false),
-        "main dispatches `+` on Widget, so a new impl on Widget re-checks it"
-    );
-    assert_eq!(
-        seen.get("free1"),
-        Some(&true),
-        "free1 holds no Widget: warm"
-    );
-    assert_eq!(
-        seen.get("free2"),
-        Some(&true),
-        "free2 holds no Widget: warm"
-    );
+    if !verify_mode() {
+        assert_eq!(
+            seen.get("main"),
+            Some(&false),
+            "main dispatches `+` on Widget, so a new impl on Widget re-checks it"
+        );
+        assert_eq!(
+            seen.get("free1"),
+            Some(&true),
+            "free1 holds no Widget: warm"
+        );
+        assert_eq!(
+            seen.get("free2"),
+            Some(&true),
+            "free2 holds no Widget: warm"
+        );
+    }
     assert_warm_equals_cold(&warm, edited);
 }
 
@@ -368,16 +391,18 @@ fn a_new_impl_recompiles_the_concrete_call_site_but_not_the_generic_function() {
     ];
 
     let (warm, seen) = build_capturing(dir.path());
-    assert_eq!(
-        seen.get("main"),
-        Some(&false),
-        "the call site instantiates `Describe` at concrete `Widget`, so it re-checks"
-    );
-    assert_eq!(
-        seen.get("describe"),
-        Some(&true),
-        "the generic function's module holds no Widget (dictionary passing): warm"
-    );
+    if !verify_mode() {
+        assert_eq!(
+            seen.get("main"),
+            Some(&false),
+            "the call site instantiates `Describe` at concrete `Widget`, so it re-checks"
+        );
+        assert_eq!(
+            seen.get("describe"),
+            Some(&true),
+            "the generic function's module holds no Widget (dictionary passing): warm"
+        );
+    }
     assert_warm_equals_cold(&warm, edited);
 }
 
@@ -428,14 +453,16 @@ fn transitive_relink_through_a_trait_impl_the_dispatcher_never_imports() {
     // and `main` (links the dispatch symbol) fail link validation but keep their
     // cache keys, so both take the relink fast path — no re-check, no codegen —
     // while widget + describe stay full hits.
-    assert_eq!(
-        warm.modules_compiled, 1,
-        "only helper re-checks+compiles; the rest of the chain relinks"
-    );
-    assert_eq!(
-        warm.modules_relinked, 2,
-        "impls + main relink through the moved base/dispatch hashes"
-    );
+    if !verify_mode() {
+        assert_eq!(
+            warm.modules_compiled, 1,
+            "only helper re-checks+compiles; the rest of the chain relinks"
+        );
+        assert_eq!(
+            warm.modules_relinked, 2,
+            "impls + main relink through the moved base/dispatch hashes"
+        );
+    }
     // The proof it actually re-linked: the run result changed with D's body.
     let cold = cold_manifest(edited);
     assert_eq!(BuildManifest::from_build(&warm).encode(), cold.encode());
@@ -476,10 +503,12 @@ fn corrupt_object_behind_a_valid_manifest_self_heals() {
 
     // The re-persist healed the store: a clean rebuild now hits fully.
     let healed = build_and_persist(dir.path());
-    assert_eq!(
-        healed.modules_compiled, 0,
-        "store self-healed on re-persist"
-    );
+    if !verify_mode() {
+        assert_eq!(
+            healed.modules_compiled, 0,
+            "store self-healed on re-persist"
+        );
+    }
 }
 
 #[test]
@@ -603,7 +632,9 @@ fn reexported_enum_consumed_through_two_hops_compiles_and_caches() {
 
     // Warm zero-change rebuild: a full hit that is byte-identical to cold.
     let warm = build_and_persist(dir.path());
-    assert_eq!(warm.modules_compiled, 0, "unchanged rebuild is a full hit");
+    if !verify_mode() {
+        assert_eq!(warm.modules_compiled, 0, "unchanged rebuild is a full hit");
+    }
     assert_warm_equals_cold(&warm, files);
 
     // And it runs to the right value (variant tag inlined through the narrow
@@ -667,15 +698,17 @@ fn unrelated_impl_body_edit_leaves_unrelated_modules_cached_warm() {
     // interface hash moves and `main`'s cache key with it — `main` re-checks
     // rather than relinks. The relink fast path is reserved for *plain*
     // function body edits, which are absent from the interface hash.
-    assert_eq!(
-        warm.modules_compiled, 2,
-        "shapes (source) + main (interface-hash key move) recompile; unrelated stays cached, got {}",
-        warm.modules_compiled
-    );
-    assert_eq!(
-        warm.modules_relinked, 0,
-        "an impl-body edit moves the dependent's key, so it recompiles, not relinks"
-    );
+    if !verify_mode() {
+        assert_eq!(
+            warm.modules_compiled, 2,
+            "shapes (source) + main (interface-hash key move) recompile; unrelated stays cached, got {}",
+            warm.modules_compiled
+        );
+        assert_eq!(
+            warm.modules_relinked, 0,
+            "an impl-body edit moves the dependent's key, so it recompiles, not relinks"
+        );
+    }
     assert_warm_equals_cold(&warm, edited);
 }
 
@@ -791,10 +824,12 @@ fn compile_wiring_second_build_is_a_full_warm_hit() {
     assert!(cold.modules_compiled > 0, "first compile builds everything");
 
     let warm = build_and_persist(dir.path());
-    assert_eq!(
-        warm.modules_compiled, 0,
-        "an unchanged second compile must hit every module"
-    );
+    if !verify_mode() {
+        assert_eq!(
+            warm.modules_compiled, 0,
+            "an unchanged second compile must hit every module"
+        );
+    }
     assert_eq!(
         artifact_pack_bytes(&warm),
         artifact_pack_bytes(&cold),
