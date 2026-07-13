@@ -64,6 +64,7 @@ fn compile_package_cmd(path: &Path, output: Option<&Path>) -> Result<()> {
             platform_modules: ambient_platform::platform_modules(),
             natives: Some(&stubs),
             progress: Some(&progress_cb),
+            ..Default::default()
         },
     )
     .map_err(report_build_error)?;

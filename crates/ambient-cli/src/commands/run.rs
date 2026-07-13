@@ -72,6 +72,7 @@ pub(super) fn compile_package(path: &Path) -> Result<CompiledModule> {
     // Stub natives satisfy the extern contract at build time (real
     // implementations are registered per VM by the runtime host).
     let stubs = ambient_platform::stub_natives();
+    let store_path = path.join(".ambient").join("store");
     let result = ambient_engine::build::build_package(
         path,
         super::parse_source,
@@ -79,6 +80,10 @@ pub(super) fn compile_package(path: &Path) -> Result<CompiledModule> {
             platform_modules: ambient_platform::platform_modules(),
             natives: Some(&stubs),
             progress: None,
+            // Incremental cache: read the prior snapshot from the same store
+            // this build persists to below (`ambient dev` inherits this).
+            store_path: Some(store_path),
+            ..Default::default()
         },
     )
     .map_err(report_build_error)?;

@@ -337,12 +337,14 @@ fn extern_fn_ships_through_a_pack() {
     let rebuilt = BuildResult {
         compiled: module,
         module_count: result.module_count,
+        modules_compiled: result.modules_compiled,
         package_name: result.package_name.clone(),
         link_table: result.link_table.clone(),
         interfaces: result.interfaces.clone(),
         dispatch_surface_hash: result.dispatch_surface_hash,
         module_outputs: result.module_outputs.clone(),
         natives_contract_hash: result.natives_contract_hash,
+        core_cache_key: result.core_cache_key,
     };
     let value = run_entry(&rebuilt, &natives).expect("run succeeds");
     assert_eq!(value, Value::Number(42.0));

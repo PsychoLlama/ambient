@@ -471,6 +471,7 @@ fn build_base(
                     platform_modules: ambient_platform::platform_modules(),
                     natives: Some(&stubs),
                     progress: None,
+                    ..Default::default()
                 },
             )
             .map_err(report_build_error)?;

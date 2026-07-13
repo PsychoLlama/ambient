@@ -339,6 +339,10 @@ fn snapshot(store: &DiskStore) -> Result<()> {
         "natives contract: {}",
         short_bytes(&manifest.natives_contract_hash)
     );
+    println!(
+        "core cache key:   {}",
+        short_bytes(&manifest.core_cache_key)
+    );
     println!("modules:          {}", manifest.modules.len());
     println!();
 
@@ -349,11 +353,17 @@ fn snapshot(store: &DiskStore) -> Result<()> {
         .max()
         .unwrap_or(0);
     for module in &manifest.modules {
+        // Builtin modules carry a zero per-module key (they validate through
+        // the core unit key); show a dash rather than a run of zeros.
+        let key = if module.cache_key == [0u8; 32] {
+            "—".to_string()
+        } else {
+            short_bytes(&module.cache_key)
+        };
         println!(
-            "  {:<width$}  iface {}  ast {}  objects {}",
+            "  {:<width$}  key {key}  links {}  objects {}",
             module.module,
-            short_bytes(&module.interface_hash),
-            short_bytes(&module.resolved_ast_hash),
+            module.consumed_links.len(),
             module.objects.len(),
         );
     }

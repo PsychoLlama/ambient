@@ -53,6 +53,7 @@ fn manifest_of(dir: &TempDir) -> BuildManifest {
             platform_modules: ambient_platform::platform_modules(),
             natives: Some(&stubs),
             progress: None,
+            ..Default::default()
         },
     )
     .expect("build succeeds");
