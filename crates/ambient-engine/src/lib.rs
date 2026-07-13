@@ -25,6 +25,7 @@ pub mod infer;
 pub mod manifest;
 pub mod module_cycles;
 pub mod module_env;
+pub mod module_interface;
 pub mod module_path;
 pub mod module_registry;
 pub mod natives;
