@@ -260,8 +260,10 @@ pub fn analyze_with_registry_and_resolver(
     // The incremental [`session`] bypasses this per-module derivation and
     // overlays a batch-computed cycle set instead (same rendering).
     result.import_cycle = match (module_path, registry) {
-        (Some(path), Some(reg)) => ambient_engine::module_cycles::import_cycle_containing(reg, path)
-            .map(|cycle| Diagnostic::error(Span::new(0, 0), cycle.describe(), None)),
+        (Some(path), Some(reg)) => {
+            ambient_engine::module_cycles::import_cycle_containing(reg, path)
+                .map(|cycle| Diagnostic::error(Span::new(0, 0), cycle.describe(), None))
+        }
         _ => None,
     };
     result
