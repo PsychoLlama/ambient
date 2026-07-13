@@ -35,6 +35,7 @@
 //! - [`error`] - Compilation error types
 
 mod context;
+mod dicts;
 mod entry;
 mod error;
 mod expr;

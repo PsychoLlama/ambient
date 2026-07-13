@@ -24,10 +24,11 @@ use std::sync::Arc;
 use crate::ast::{
     BinaryOp, ConstDef, Expr, ExprKind, LetBinding, ResolvedMethod, Stmt, StmtKind, UnaryOp,
 };
-use crate::bytecode::{BytecodeBuilder, CompiledFunction, Opcode};
+use crate::bytecode::Opcode;
 use crate::fqn::NameKey;
 use crate::value::Value;
 
+use super::dicts::{compile_bounded_value_ref, compile_dicts, emit_dict_method};
 use super::error::{CompileError, CompileErrorKind};
 use super::lambdas::{
     compile_ability_call, compile_handle_expr, compile_handler_literal, compile_lambda,
@@ -685,8 +686,15 @@ pub(super) fn compile_expr_tail(
                     for arg in args {
                         compile_expr(fc, arg, ctx)?;
                     }
+                    // A bounded trait method (`fn m<U: Eq>`) threads its own
+                    // dictionaries as extra trailing arguments. The dictionary
+                    // slot — whether a concrete impl's `FunctionRef` or a
+                    // conditional impl's closure — accepts them after the value
+                    // arguments, matching the impl method's `impl ++ method`
+                    // trailing-dictionary layout.
+                    let dict_count = compile_dicts(fc, expr.dicts.as_ref(), expr.span, ctx)?;
                     #[allow(clippy::cast_possible_truncation)]
-                    let arity = (1 + args.len()) as u8;
+                    let arity = (1 + args.len() + dict_count) as u8;
                     emit_closure_call(fc, arity, tail);
                 }
                 None => {
@@ -713,194 +721,6 @@ fn emit_closure_call(fc: &mut FunctionCompiler, arg_count: u8, tail: bool) {
     } else {
         fc.builder.emit_call_closure(arg_count);
     }
-}
-
-/// Push the dictionary arguments a call site's annotation demands, in
-/// order, returning how many were pushed. Each dictionary is either built
-/// from a concrete impl (a tuple of function references, hash-linked like
-/// any direct call) or forwarded from this function's own dictionary
-/// parameters.
-pub(super) fn compile_dicts(
-    fc: &mut FunctionCompiler,
-    dicts: Option<&crate::ast::Dicts>,
-    span: crate::ast::Span,
-    ctx: &mut ModuleContext,
-) -> Result<usize, CompileError> {
-    let sources = match dicts {
-        None => return Ok(0),
-        Some(crate::ast::Dicts::Resolved(sources)) => sources,
-        Some(crate::ast::Dicts::Pending(_)) => {
-            return Err(CompileError::new(
-                CompileErrorKind::Internal {
-                    message: "unsolved dictionary constraints reached compilation (checker bug)",
-                },
-                (span.start, span.end),
-            ));
-        }
-    };
-    for source in sources {
-        compile_dict_source(fc, source, span, ctx)?;
-    }
-    Ok(sources.len())
-}
-
-/// Push one dictionary value.
-fn compile_dict_source(
-    fc: &mut FunctionCompiler,
-    source: &crate::ast::DictSource,
-    span: crate::ast::Span,
-    ctx: &mut ModuleContext,
-) -> Result<(), CompileError> {
-    match source {
-        crate::ast::DictSource::Impl { symbols } => {
-            for symbol in symbols {
-                let hash = dict_method_hash(fc, symbol, span)?;
-                fc.builder.emit_const(Value::FunctionRef(hash));
-            }
-            #[allow(clippy::cast_possible_truncation)]
-            fc.builder.emit_u8(Opcode::MakeTuple, symbols.len() as u8);
-            Ok(())
-        }
-        crate::ast::DictSource::Param { dict_index } => {
-            // Forward the enclosing bounded item's dictionary. It is an
-            // ordinary local there and a captured value inside a lambda; the
-            // capture path handles both (and nested lambdas).
-            fc.emit_load_dict(*dict_index, (span.start, span.end))
-        }
-        crate::ast::DictSource::Generic { methods, inner } => {
-            // A conditional impl (`impl<T: Eq> Eq for Pair<T>`): each
-            // dictionary slot is a closure over the impl's *inner*
-            // dictionaries (its own bounds, already solved) that forwards its
-            // value arguments plus those captured dictionaries to the impl
-            // method. Build one closure per method and assemble the tuple.
-            for method in methods {
-                let method_hash = dict_method_hash(fc, &method.symbol, span)?;
-                let closure = build_dict_slot_closure(method_hash, method.arity, inner.len());
-                let closure_hash = ctx.register_lambda(closure);
-                // Push the inner dictionaries the closure captures, in order.
-                for source in inner {
-                    compile_dict_source(fc, source, span, ctx)?;
-                }
-                #[allow(clippy::cast_possible_truncation)]
-                fc.builder
-                    .emit_make_closure(closure_hash, inner.len() as u8);
-            }
-            #[allow(clippy::cast_possible_truncation)]
-            fc.builder.emit_u8(Opcode::MakeTuple, methods.len() as u8);
-            Ok(())
-        }
-    }
-}
-
-/// Resolve an impl-method dispatch symbol to its (temporary) content hash,
-/// the same name→hash table a direct call links through.
-fn dict_method_hash(
-    fc: &FunctionCompiler,
-    symbol: &Arc<str>,
-    span: crate::ast::Span,
-) -> Result<blake3::Hash, CompileError> {
-    fc.function_hashes
-        .get(&NameKey::Bare(Arc::clone(symbol)))
-        .copied()
-        .ok_or_else(|| {
-            CompileError::new(
-                CompileErrorKind::UndefinedFunction {
-                    name: Arc::clone(symbol),
-                },
-                (span.start, span.end),
-            )
-        })
-}
-
-/// Synthesize one conditional-impl dictionary slot: a closure taking `arity`
-/// value arguments and capturing `capture_count` inner dictionaries, whose
-/// body applies the impl method to those arguments followed by the captured
-/// dictionaries (the method's hidden trailing dictionary parameters).
-///
-/// `[LoadLocal 0..arity] [LoadCapture 0..capture_count] Call(method) Return`.
-/// The method hash is recorded as a dependency by `emit_call`, so this
-/// closure is content-addressed like every other function.
-fn build_dict_slot_closure(
-    method_hash: blake3::Hash,
-    arity: usize,
-    capture_count: usize,
-) -> CompiledFunction {
-    let mut builder = BytecodeBuilder::new();
-    for i in 0..arity {
-        #[allow(clippy::cast_possible_truncation)]
-        builder.emit_u16(Opcode::LoadLocal, i as u16);
-    }
-    for j in 0..capture_count {
-        #[allow(clippy::cast_possible_truncation)]
-        builder.emit_load_capture(j as u16);
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    builder.emit_call(method_hash, (arity + capture_count) as u8);
-    builder.emit(Opcode::Return);
-    // The value arguments occupy locals `0..arity`; captures live outside the
-    // local frame, so `local_count == arity`.
-    #[allow(clippy::cast_possible_truncation)]
-    builder.build(arity as u16, arity as u8)
-}
-
-/// Lower a bounded generic function used as a *value* (not a direct callee)
-/// to a closure that captures its resolved dictionaries and forwards to the
-/// function. The closure takes the function's own value arguments (its
-/// inferred function type's parameter count) and appends the captured
-/// dictionaries as the function's hidden trailing dictionary parameters —
-/// exactly the shape a conditional-impl dictionary slot uses
-/// ([`build_dict_slot_closure`]), and hash-linked to the function like a
-/// direct call. Works for every [`DictSource`](crate::ast::DictSource): the
-/// captured value is a concrete impl's method tuple, a forwarded enclosing
-/// dictionary (an ordinary capture inside a lambda), or a conditional impl's
-/// closure tuple — [`compile_dict_source`] builds each identically here.
-fn compile_bounded_value_ref(
-    fc: &mut FunctionCompiler,
-    fn_hash: blake3::Hash,
-    ty: Option<&crate::types::Type>,
-    sources: &[crate::ast::DictSource],
-    span: crate::ast::Span,
-    ctx: &mut ModuleContext,
-) -> Result<(), CompileError> {
-    // The value arity is the reference's inferred function type's parameter
-    // count; the dictionaries the closure supplies are never part of the
-    // surface type. The checker only annotates dictionary sources on a
-    // function-typed reference, so a missing/non-function type is a bug.
-    let Some(crate::types::Type::Function(ft)) = ty else {
-        return Err(CompileError::new(
-            CompileErrorKind::Internal {
-                message: "bounded generic used as a value lacks a function type (checker bug)",
-            },
-            (span.start, span.end),
-        ));
-    };
-    let closure = build_dict_slot_closure(fn_hash, ft.params.len(), sources.len());
-    let closure_hash = ctx.register_lambda(closure);
-    // Push the dictionaries the closure captures, in order — the same
-    // per-source lowering direct call sites use.
-    for source in sources {
-        compile_dict_source(fc, source, span, ctx)?;
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    fc.builder
-        .emit_make_closure(closure_hash, sources.len() as u8);
-    Ok(())
-}
-
-/// Push a bound method (dictionary slot) as the callee for a
-/// `CallClosure`: load this function's `dict_index`-th dictionary — an
-/// ordinary local, or a captured value inside a lambda — and take tuple
-/// slot `slot`.
-fn emit_dict_method(
-    fc: &mut FunctionCompiler,
-    dict_index: usize,
-    slot: usize,
-    span: crate::ast::Span,
-) -> Result<(), CompileError> {
-    fc.emit_load_dict(dict_index, (span.start, span.end))?;
-    #[allow(clippy::cast_possible_truncation)]
-    fc.builder.emit_u8(Opcode::TupleGet, slot as u8);
-    Ok(())
 }
 
 /// Compile a statement.

@@ -317,6 +317,7 @@ impl Infer {
                 args,
                 span,
                 resolved_method,
+                dicts,
             );
         }
 
@@ -447,22 +448,12 @@ impl Infer {
     /// use, substituting `Self` with `self_ty`, each method-level type
     /// parameter with a fresh inference variable, and each `E!` with a fresh
     /// ability (row) variable. Returns the non-self parameter types, the return
-    /// type, and the declared effect row. Mirrors how a generic function's
-    /// scheme is instantiated at a call site.
-    pub(in crate::infer) fn instantiate_trait_method(
-        &mut self,
-        method: &TraitMethodDef,
-        self_ty: &Type,
-    ) -> (Vec<Type>, Type, AbilitySet) {
-        let (params, ret, abilities, _map) = self.instantiate_trait_method_mapped(method, self_ty);
-        (params, ret, abilities)
-    }
-
-    /// Like [`instantiate_trait_method`](Self::instantiate_trait_method), but
-    /// also returns the map from the method's type-parameter names to the
-    /// fresh inference variables they were instantiated to. A concrete-receiver
-    /// call site needs it to record the method's own trait-bound dictionaries
-    /// against those variables (see `record_trait_dispatch_dicts`).
+    /// type, the declared effect row, and the map from the method's
+    /// type-parameter names to the fresh inference variables they were
+    /// instantiated to — a call site needs the map to record the method's own
+    /// trait-bound dictionaries against those variables (see
+    /// `record_trait_dispatch_dicts`). Mirrors how a generic function's scheme
+    /// is instantiated at a call site.
     pub(in crate::infer) fn instantiate_trait_method_mapped(
         &mut self,
         method: &TraitMethodDef,
@@ -545,6 +536,7 @@ impl Infer {
         args: &mut [Expr],
         span: (u32, u32),
         resolved_method: &mut Option<ResolvedMethod>,
+        dicts: &mut Option<Dicts>,
     ) -> InferResult<Type> {
         // Find the (unique) bound of this parameter that provides the
         // method. Two bounds providing the same name is ambiguity, exactly
@@ -626,27 +618,20 @@ impl Infer {
             })?;
         let slot = trait_def.dictionary_slot(method_name).unwrap_or_default();
 
-        // Dispatch here is a slot access into the enclosing function's
-        // dictionary — a fixed-arity `FunctionRef`/closure. A method with its
-        // own trait bounds (`fn tag<U: Eq>`) needs its own trailing
-        // dictionaries, which this path cannot thread, so reject it loudly
-        // rather than mis-arity at runtime.
-        if !method_def.method_bounds.is_empty() {
-            return Err(type_error(
-                TypeErrorKind::BoundedTraitMethodThroughDict {
-                    method: Arc::clone(method_name),
-                    detail: format!(
-                        "calling it on a value of type parameter `{param}` (through `{}`'s bound)",
-                        bound.name
-                    ),
-                },
-                span,
-            ));
-        }
-
         // Type against the trait signature with Self = the parameter, the
-        // method's own generics instantiated fresh for this call.
-        let (params, ret, abilities) = self.instantiate_trait_method(&method_def, receiver_ty);
+        // method's own generics instantiated fresh for this call. A method
+        // with its own trait bounds (`fn tag<U: Eq>`) threads its own trailing
+        // dictionaries: the dictionary slot — a concrete impl's `FunctionRef`
+        // or a conditional impl's closure — accepts them after the value
+        // arguments, so record them here (there is no impl-level dictionary at
+        // this site; the enclosing function's dictionary already encapsulates
+        // that). Solved on the dictionary schedule like a concrete-receiver
+        // call.
+        let (params, ret, abilities, type_var_map) =
+            self.instantiate_trait_method_mapped(&method_def, receiver_ty);
+        let method_dicts = self.resolve_method_bound_dicts(&method_def, &type_var_map);
+        *dicts =
+            self.record_trait_dispatch_dicts(None, receiver_ty, method_dicts, &bound.name, span);
         if args.len() != params.len() {
             return Err(type_error(
                 TypeErrorKind::ArityMismatch {

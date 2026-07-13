@@ -345,18 +345,6 @@ pub enum TypeErrorKind {
         found: String,
     },
 
-    /// A trait method that carries its own trait bounds (`fn m<U: Eq>`) was
-    /// dispatched through a *dictionary* — a rigid-type-parameter receiver, or
-    /// a conditional impl's dictionary — rather than directly on a concrete
-    /// receiver. Threading the method's own dictionaries through a fixed-arity
-    /// dictionary slot is not yet supported.
-    BoundedTraitMethodThroughDict {
-        /// The method name.
-        method: Arc<str>,
-        /// What the dispatch was (a generic parameter, or a conditional impl).
-        detail: String,
-    },
-
     /// A `const` was initialized with something other than a literal value.
     /// Constants map an identifier to a single hashed primitive, so their
     /// initializer must be a literal (see `crate::const_eval`).
@@ -751,13 +739,6 @@ impl std::fmt::Display for TypeErrorKind {
                     f,
                     "impl method `{method}` must declare the same method-level trait bounds \
                      as the trait: expected [{expected}], found [{found}]"
-                )
-            }
-            Self::BoundedTraitMethodThroughDict { method, detail } => {
-                write!(
-                    f,
-                    "trait method `{method}` has its own trait bounds, so it can only be \
-                     called directly on a concrete receiver; {detail} is not yet supported"
                 )
             }
             Self::ConstNotLiteral { name } => {

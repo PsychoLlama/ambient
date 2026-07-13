@@ -67,8 +67,10 @@ pub enum DictSource {
 }
 
 /// One method of a conditional impl's dictionary (see
-/// [`DictSource::Generic`]): the impl-method symbol to call and how many
-/// value arguments the dictionary slot forwards to it (receiver included).
+/// [`DictSource::Generic`]): the impl-method symbol to call, how many value
+/// arguments the dictionary slot forwards to it (receiver included), and how
+/// many of the method's *own* bound dictionaries the slot forwards after the
+/// impl's inner dictionaries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenericDictMethod {
     /// The impl method's canonical dispatch symbol
@@ -77,9 +79,17 @@ pub struct GenericDictMethod {
     pub symbol: Arc<str>,
     /// The number of value arguments the slot closure forwards to the impl
     /// method — `self` (if any) plus the method's declared parameters. The
-    /// inner dictionaries follow these, filling the method's hidden trailing
-    /// dictionary parameters.
+    /// inner dictionaries follow these, filling the impl block's hidden
+    /// trailing dictionary parameters.
     pub arity: usize,
+    /// The number of the method's *own* bound dictionaries (`fn m<U: Eq>`),
+    /// derived from the method's [`method_bounds`](crate::types::TraitMethodDef::method_bounds)
+    /// — itself the single-authority [`dict_params`](crate::ast::dict_params)
+    /// list. The bound-method call site pushes these as extra runtime
+    /// arguments after the value arguments; the slot closure forwards them
+    /// after the captured inner dictionaries, matching the impl method's
+    /// `impl ++ method` trailing-dictionary layout.
+    pub method_dict_count: usize,
 }
 
 /// The dictionary annotation on an expression.

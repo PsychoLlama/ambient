@@ -436,29 +436,6 @@ impl Infer {
             ))
         };
 
-        // A conditional impl's dictionary slots are fixed-arity closures that
-        // forward only the impl's own inner dictionaries. If any trait method
-        // carries its own bounds, its slot would need extra per-call
-        // dictionaries it cannot receive — reject rather than build a
-        // mis-arity closure.
-        if let Some(bounded) = trait_def
-            .methods
-            .iter()
-            .find(|m| !m.method_bounds.is_empty())
-        {
-            return Err(Box::new(TypeError::new(
-                TypeErrorKind::BoundedTraitMethodThroughDict {
-                    method: Arc::clone(&bounded.name),
-                    detail: format!(
-                        "building a dictionary for the conditional impl of `{}` on `{}`",
-                        bound.name,
-                        self.apply(ty)
-                    ),
-                },
-                span,
-            )));
-        }
-
         // Recover the impl's type-parameter assignments (`T -> Money` for
         // `Pair<T>` matched against `Pair<Money>`). A target that keys on the
         // same head uuid but a different instantiation (`Option<Number>` vs a
@@ -480,8 +457,12 @@ impl Infer {
         }
 
         // One dictionary slot per trait method, in dictionary order — the
-        // impl-method symbol plus how many value arguments the slot forwards
-        // (receiver included) before the captured inner dictionaries.
+        // impl-method symbol, how many value arguments the slot forwards
+        // (receiver included) before the captured inner dictionaries, and how
+        // many of the method's *own* bound dictionaries (`fn m<U: Eq>`) follow
+        // them. The method-dictionary count is the method's `method_bounds`
+        // length — itself the single-authority `dict_params` list — so the
+        // slot closure's arity matches what the bound-method call site pushes.
         let methods = trait_def
             .dictionary_order()
             .into_iter()
@@ -495,6 +476,7 @@ impl Infer {
                 Ok(GenericDictMethod {
                     symbol,
                     arity: usize::from(m.has_self) + m.params.len(),
+                    method_dict_count: m.method_bounds.len(),
                 })
             })
             .collect::<Result<Vec<_>, BoxedTypeError>>()?;
