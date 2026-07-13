@@ -10,7 +10,16 @@
 //!   signatures                "<name>\t<canonical-signature>\n", sorted
 //!   migrations                "<cell>\t<old>\t<new>\n" per obligation, sorted
 //!   objects/<2hex>/<62hex>    one canonical object per file
+//!   meta/<2hex>/<62hex>       one build manifest (snapshot) per file
+//!   snapshot                  root pointer to the current manifest
+//!   tags/<name>               "ambient-tag-v1 <hex>\n": a named manifest
 //! ```
+//!
+//! The `meta/` manifests and the `snapshot` pointer are the build-snapshot
+//! layer (`snapshot.rs`); `tags/` names manifests to keep and diff against
+//! (`tags.rs`); `diff.rs` compares two manifests. The flat `names` file stays
+//! the authoritative value-binding index (gc roots, deploy, existing
+//! subcommands); the manifest's structured item index is additive.
 //!
 //! `signatures` and `migrations` are the two sections artifact packs
 //! gained in pack v2 (`CompiledModule::to_pack`), persisted so a future

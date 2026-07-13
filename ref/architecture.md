@@ -339,13 +339,28 @@ The store exists in three forms, all sharing the canonical object encoding:
      format                    version marker
      names                     "<hex-hash> <name>" per binding
      objects/<2hex>/<62hex>    one canonical object per file
+     meta/<2hex>/<62hex>       one build manifest (snapshot) per file
+     snapshot                  root pointer: the current manifest hash
+     tags/<name>               human alias for a manifest hash
    ```
 
    An object file's path is the blake3 of its bytes, so every read
    self-verifies and corruption is always detected. Objects are immutable;
    writes are atomic renames, so no locking is needed. `ambient run`
-   persists every build. Inspect with `ambient store`
-   (stats/ls/show/deps/verify/gc) — `show` includes a full disassembly.
+   persists every build and records a **snapshot** — a content-addressed
+   `ABSM` build manifest under `meta/` (per-module AST/interface hashes,
+   deps, objects, name bindings, signatures, migrations, and a structured,
+   spanned item index: every function/const/type/trait/ability, namespace
+   tagged, with its identity and source span for symbol resolution and
+   hash↔identifier correlation). The `snapshot` pointer names the current
+   manifest; a **tag** (`tags/<name>`) aliases any manifest hash under a
+   human name. The current snapshot and every tag are gc roots. Inspect
+   with `ambient store` (stats/ls/show/deps/verify/gc/snapshot/tag/diff):
+   `show` resolves a name to its object disassembly _or_ — for a type,
+   trait, or ability — its structured record; `tag` names a snapshot to
+   keep; `diff` compares two snapshots (tags or manifest-hash prefixes),
+   reporting module, item-binding (via the deploy rebinding rule), and
+   object deltas, with `--json` for scripting.
 
 3. **Packs** (`"ABPK"`) — a batch of objects for transfer: the wire format
    of the Execute ability (remote code shipping) and the content of
@@ -400,7 +415,7 @@ ambient check foo.ab       # Type-check only
 ambient compile foo.ab     # Compile to a foo.ambient artifact pack
 ambient ast foo.ab         # Dump the parsed AST
 ambient store stats        # Inspect the package store (also: ls, show,
-                           #   deps, verify, gc; show disassembles)
+                           #   deps, verify, gc, snapshot, tag, diff)
 ambient repl               # Interactive REPL
 ambient dev <pkg>          # Live-upgrade development: watches sources and
                            #   deploys each change onto the running system
