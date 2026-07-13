@@ -36,6 +36,11 @@
 //! is likewise dropped — `extern fn` signatures live in the AST; a native's
 //! content identity is a runtime/link fact, not a type-check input.)
 //!
+//! `AMBIENT_ANALYSIS_VERIFY=1` mirrors the build cache's `AMBIENT_CACHE_VERIFY`:
+//! every memo *hit* is recomputed cold and asserted byte-identical, so an
+//! under-invalidation bug panics loudly rather than serving a stale
+//! diagnostic. Off in ordinary runs (the hit path never recomputes).
+//!
 //! Invalidation is **by construction**: a dependent's key embeds its deps'
 //! interface hashes, so an interface-changing edit moves every dependent's key
 //! naturally, with no dependency-walking logic here. A body-only edit moves
@@ -117,6 +122,11 @@ pub struct AnalysisSession {
     /// How many module checks actually ran (memo misses). Cumulative
     /// instrumentation for the incremental tests; never affects behavior.
     rechecks: usize,
+    /// The `AMBIENT_ANALYSIS_VERIFY=1` oracle: on every memo *hit*, recompute
+    /// the module cold and assert byte-identical diagnostics — the analysis
+    /// mirror of the build cache's `AMBIENT_CACHE_VERIFY`. Resolved once at
+    /// construction (env is process-global); off in ordinary runs.
+    verify: bool,
 }
 
 impl AnalysisSession {
@@ -134,6 +144,8 @@ impl AnalysisSession {
             cycles: BTreeMap::new(),
             memo: HashMap::new(),
             rechecks: 0,
+            verify: std::env::var("AMBIENT_ANALYSIS_VERIFY")
+                .is_ok_and(|v| v.eq_ignore_ascii_case("1")),
         };
         session.rebuild();
         session
@@ -264,7 +276,17 @@ impl AnalysisSession {
         let key = self.cache_key(&id_str, *blake3::hash(source.as_bytes()).as_bytes());
 
         let cached = match (&key, self.memo.get(&id_str)) {
-            (Some(k), Some(entry)) if entry.key == *k => Arc::clone(&entry.value),
+            (Some(k), Some(entry)) if entry.key == *k => {
+                let hit = Arc::clone(&entry.value);
+                if self.verify {
+                    // Oracle: a memo hit must be byte-identical to a fresh cold
+                    // check of the same source. A mismatch is an
+                    // under-invalidation bug — fail loudly, never serve stale.
+                    let fresh = check_without_cycle(source, Some(path), Some(&self.registry), None);
+                    assert_diagnostics_equivalent(&id_str, &hit, &fresh);
+                }
+                hit
+            }
             _ => {
                 let result = check_without_cycle(source, Some(path), Some(&self.registry), None);
                 self.rechecks += 1;
@@ -388,6 +410,20 @@ pub(crate) fn cycles_for(
     cycles_by_member(&graph)
 }
 
+/// The `AMBIENT_ANALYSIS_VERIFY` oracle: assert a memo-served result carries
+/// the same (pre-cycle-overlay) diagnostics a fresh cold check produces.
+/// Panics with a precise diff on mismatch — a standing under-invalidation
+/// detector, never a recoverable condition.
+fn assert_diagnostics_equivalent(module_id: &str, hit: &AnalysisResult, fresh: &AnalysisResult) {
+    let hit_diags = hit.diagnostics();
+    let fresh_diags = fresh.diagnostics();
+    assert!(
+        hit_diags == fresh_diags,
+        "AMBIENT_ANALYSIS_VERIFY: stale memo hit for `{module_id}`: \
+         cached {hit_diags:?} vs fresh {fresh_diags:?}"
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,6 +480,34 @@ mod tests {
                 "warm vs cold diagnostics differ for `{key}`"
             );
         }
+    }
+
+    #[test]
+    fn verify_oracle_passes_on_warm_hits() {
+        // The `AMBIENT_ANALYSIS_VERIFY` oracle: with verify on, every memo hit
+        // is recomputed cold and asserted byte-identical. Set the field
+        // directly (env is process-global — unsafe to mutate under parallel
+        // tests) and drive a body-only edit so the unedited module hits under
+        // verify. A clean pass proves the hit path agrees with a fresh check;
+        // a stale hit would panic inside `serve`.
+        let dir = write_package(&[
+            (
+                "main.ab",
+                "use pkg::utils::helper;\npub fn run(): Number { helper() }\n",
+            ),
+            ("utils.ab", "pub fn helper(): Number { 1 }\n"),
+        ]);
+        let mut session = open(&dir);
+        let _ = session.analyze_all();
+        session.verify = true;
+
+        // Edit `main`'s body only; `utils` is untouched and hits under verify.
+        session.edit_module(
+            &module_path("main"),
+            "use pkg::utils::helper;\npub fn run(): Number { helper() + 0 }\n".to_string(),
+        );
+        let warm = session.analyze_all();
+        assert_matches_cold(&session, &warm);
     }
 
     #[test]
