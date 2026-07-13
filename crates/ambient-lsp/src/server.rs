@@ -781,63 +781,58 @@ fn handle_document_symbol(
 
 /// Handle workspace symbol request.
 ///
-/// Symbols come from the registry's export tables (the same ones import
-/// resolution reads), filtered to the package's own modules.
+/// Pure rendering: `ambient-analysis` decides *what symbols exist* (from the
+/// live per-module structured index, plus the build snapshot for any module it
+/// hasn't analyzed — live always wins). This maps each record's kind to an LSP
+/// [`SymbolKind`](LspSymbolKind) and its source-relative path + span to a
+/// [`Location`].
 fn handle_workspace_symbol(
     id: RequestId,
     params: &WorkspaceSymbolParams,
     state: &ServerState,
 ) -> Response {
-    let query = params.query.to_lowercase();
     let mut symbols: Vec<SymbolInformation> = Vec::new();
 
-    if let (Some(package), Some(registry)) = (state.package(), state.registry()) {
-        let mut module_keys: Vec<_> = package.modules.keys().collect();
-        module_keys.sort();
-
-        for key in module_keys {
-            let module = &package.modules[key];
-            let Some(info) = registry.get(&module.path) else {
+    if let Some(session) = state.session.as_ref() {
+        let src_dir = &session.package().src_dir;
+        for sym in session.workspace_symbols(&params.query) {
+            let Some(uri) = path_to_uri(&src_dir.join(&sym.source_path)) else {
                 continue;
             };
-            let Some(uri) = module_uri(Some(package), &module.path) else {
-                continue;
-            };
+            let range = range_in_file(
+                &state.documents,
+                &uri,
+                sym.span.0 as usize,
+                sym.span.1 as usize,
+            );
 
-            let mut exports: Vec<_> = info.exports.values().collect();
-            exports.sort_by_key(|e| e.name_span.start);
-
-            for export in exports {
-                // Filter by query (case-insensitive substring match)
-                if !query.is_empty() && !export.name.to_lowercase().contains(&query) {
-                    continue;
-                }
-
-                let range = range_in_file(
-                    &state.documents,
-                    &uri,
-                    export.name_span.start as usize,
-                    export.name_span.end as usize,
-                );
-
-                #[allow(deprecated)] // SymbolInformation::deprecated field is deprecated
-                symbols.push(SymbolInformation {
-                    name: export.name.to_string(),
-                    kind: export_kind_to_lsp(export.kind),
-                    tags: None,
-                    deprecated: None,
-                    location: Location {
-                        uri: uri.clone(),
-                        range,
-                    },
-                    container_name: Some(module.path.to_string()),
-                });
-            }
+            #[allow(deprecated)] // SymbolInformation::deprecated field is deprecated
+            symbols.push(SymbolInformation {
+                name: sym.name,
+                kind: item_kind_to_lsp(sym.kind),
+                tags: None,
+                deprecated: None,
+                location: Location { uri, range },
+                container_name: Some(sym.module),
+            });
         }
     }
 
     let response = WorkspaceSymbolResponse::Flat(symbols);
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
+}
+
+/// Map an analysis-layer [`ItemKindTag`] to an LSP symbol kind.
+fn item_kind_to_lsp(kind: ambient_engine::module_interface::ItemKindTag) -> LspSymbolKind {
+    use ambient_engine::module_interface::ItemKindTag;
+    match kind {
+        ItemKindTag::Function => LspSymbolKind::FUNCTION,
+        ItemKindTag::Const => LspSymbolKind::CONSTANT,
+        ItemKindTag::Struct => LspSymbolKind::STRUCT,
+        ItemKindTag::Enum => LspSymbolKind::ENUM,
+        ItemKindTag::Alias => LspSymbolKind::TYPE_PARAMETER,
+        ItemKindTag::Trait | ItemKindTag::Ability => LspSymbolKind::INTERFACE,
+    }
 }
 
 /// Handle semantic tokens request.
@@ -1102,19 +1097,6 @@ fn extract_ability_methods(
     }
 }
 
-/// Convert the engine's `ExportKind` to LSP `SymbolKind`.
-fn export_kind_to_lsp(kind: ExportKind) -> LspSymbolKind {
-    match kind {
-        ExportKind::Function => LspSymbolKind::FUNCTION,
-        ExportKind::Const => LspSymbolKind::CONSTANT,
-        ExportKind::Struct => LspSymbolKind::STRUCT,
-        ExportKind::TypeAlias => LspSymbolKind::TYPE_PARAMETER,
-        ExportKind::Enum => LspSymbolKind::ENUM,
-        ExportKind::EnumVariant => LspSymbolKind::ENUM_MEMBER,
-        ExportKind::Ability | ExportKind::Trait => LspSymbolKind::INTERFACE,
-    }
-}
-
 /// Format a function signature for display.
 fn format_function_signature(f: &ambient_engine::ast::FunctionDef) -> String {
     let params: Vec<String> = f
@@ -1168,7 +1150,12 @@ fn handle_notification(
                 && let Some(mut package) = AnalysisPackage::discover(&file_path)
             {
                 package.load_modules();
-                state.session = Some(ambient_analysis::session::AnalysisSession::new(package));
+                let mut session = ambient_analysis::session::AnalysisSession::new(package);
+                // Best-effort: back workspace-symbol search with the last
+                // build's snapshot index for any module not live-analyzed.
+                // Absent/corrupt snapshots are a silent no-op (cold workspace).
+                session.load_snapshot();
+                state.session = Some(session);
             }
 
             crate::reanalyze::reanalyze_all(&uri, state, connection)?;

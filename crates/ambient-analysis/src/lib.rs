@@ -42,6 +42,7 @@ pub mod occurrences;
 pub mod package;
 pub mod queries;
 pub mod session;
+pub mod symbols;
 
 use ambient_engine::ability_resolver::AbilityResolver;
 use ambient_engine::ast::{Module, Span};

@@ -119,6 +119,13 @@ pub struct AnalysisSession {
     cycles: BTreeMap<String, ambient_engine::module_cycles::ImportCycle>,
     /// Per-module check memo, keyed by canonical identity.
     memo: HashMap<String, MemoEntry>,
+    /// The package's last-build snapshot manifest, if one was loaded via
+    /// [`load_snapshot`](Self::load_snapshot). Its structured item index backs
+    /// workspace-symbol search for modules the live session does not cover
+    /// (live always wins — see [`crate::symbols`]). `None` when no build has
+    /// run, the store is absent, or the snapshot is missing/corrupt: the
+    /// session works identically without it.
+    snapshot: Option<ambient_engine::disk_store::BuildManifest>,
     /// How many module checks actually ran (memo misses). Cumulative
     /// instrumentation for the incremental tests; never affects behavior.
     rechecks: usize,
@@ -142,6 +149,7 @@ impl AnalysisSession {
             dispatch: [0u8; 32],
             deps: BTreeMap::new(),
             cycles: BTreeMap::new(),
+            snapshot: None,
             memo: HashMap::new(),
             rechecks: 0,
             verify: std::env::var("AMBIENT_ANALYSIS_VERIFY")
@@ -168,6 +176,25 @@ impl AnalysisSession {
     #[must_use]
     pub fn rechecks(&self) -> usize {
         self.rechecks
+    }
+
+    /// Load the package's last-build snapshot index (read-only) so
+    /// workspace-symbol search can cover any module the live session does not.
+    ///
+    /// Reads `<root>/.ambient/store` only if it already exists — never creates
+    /// it, so an in-memory package (the REPL, with a notional root) is
+    /// untouched. A missing store, absent pointer, or corrupt manifest all
+    /// leave the index empty; the session is fully functional without it.
+    pub fn load_snapshot(&mut self) {
+        self.snapshot = read_package_snapshot(&self.package.root);
+    }
+
+    /// Every workspace symbol matching `query`, from the live interfaces and
+    /// (for modules the live set lacks) the loaded snapshot. Live analysis
+    /// state always wins per module — see [`crate::symbols`].
+    #[must_use]
+    pub fn workspace_symbols(&self, query: &str) -> Vec<crate::symbols::WorkspaceSymbol> {
+        crate::symbols::workspace_symbols(query, &self.interfaces, self.snapshot.as_ref())
     }
 
     /// Re-parse and re-integrate one edited module, updating the registry and
@@ -378,6 +405,28 @@ impl AnalysisSession {
     fn recompute_cycles(&mut self) {
         self.cycles = cycles_for(&self.deps);
     }
+}
+
+/// Read a package's current build snapshot, read-only and best-effort.
+///
+/// Returns `None` — never an error, never a side effect — when the store
+/// directory does not yet exist (no build has run), when there is no snapshot
+/// pointer, or when the pointed-at manifest is missing/corrupt/unknown-version
+/// ([`DiskStore::current_snapshot`] already collapses those to `Ok(None)`).
+/// The existence guard matters: opening a store *creates* its directory, so an
+/// in-memory package (the REPL) must not open one it never built.
+fn read_package_snapshot(
+    root: &std::path::Path,
+) -> Option<ambient_engine::disk_store::BuildManifest> {
+    use ambient_engine::disk_store::DiskStore;
+    let store_path = DiskStore::package_store_path(root);
+    if !store_path.exists() {
+        return None;
+    }
+    DiskStore::open_package(root)
+        .ok()?
+        .current_snapshot()
+        .ok()?
 }
 
 /// The package's import cycles keyed by dotted module path
@@ -801,5 +850,97 @@ mod tests {
         let all = session.analyze_all();
         let one = session.analyze_module(&module_path("main")).expect("main");
         assert_eq!(diags(&one), diags(&all["main"]));
+    }
+
+    #[test]
+    fn workspace_symbols_work_cold_without_snapshot() {
+        // No build has run: the store is absent. `load_snapshot` is a silent
+        // no-op and symbol search serves the live analysis state.
+        let dir = write_package(&[("utils.ab", "pub fn helper(): Number { 1 }\n")]);
+        let mut session = open(&dir);
+        session.load_snapshot(); // no store on disk — leaves the index empty
+        assert!(session.snapshot.is_none(), "cold workspace has no snapshot");
+        let names: Vec<_> = session
+            .workspace_symbols("helper")
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
+        assert_eq!(names, vec!["helper"]);
+    }
+
+    #[test]
+    fn live_edit_supersedes_a_stale_on_disk_snapshot() {
+        use ambient_engine::disk_store::{
+            BuildManifest, DiskStore, MANIFEST_VERSION, ManifestItem, ManifestModule,
+        };
+        use ambient_engine::module_interface::ItemKindTag;
+
+        let dir = write_package(&[("utils.ab", "pub fn helper(): Number { 1 }\n")]);
+        let mut session = open(&dir);
+        let _ = session.analyze_all();
+
+        // A snapshot reflecting the last build, where `utils` still exposed
+        // `helper` — written to the real store and loaded read-only.
+        let utils_key = session
+            .interfaces
+            .keys()
+            .find(|k| k.ends_with("utils"))
+            .expect("utils interface")
+            .clone();
+        let manifest = BuildManifest {
+            version: MANIFEST_VERSION,
+            package_name: "test".to_string(),
+            dispatch_surface_hash: [0u8; 32],
+            natives_contract_hash: [0u8; 32],
+            core_cache_key: [0u8; 32],
+            modules: vec![ManifestModule {
+                module: utils_key,
+                resolved_ast_hash: [0u8; 32],
+                interface_hash: [0u8; 32],
+                deps: vec![],
+                objects: vec![],
+                names: vec![],
+                signatures: vec![],
+                cache_key: [0u8; 32],
+                consumed_links: vec![],
+                migrations: vec![],
+                lambda_parents: vec![],
+                entry_point: None,
+                source_path: "utils.ab".to_string(),
+                items: vec![ManifestItem {
+                    ident: vec!["helper".to_string()],
+                    kind: ItemKindTag::Function,
+                    hash: None,
+                    uuid: String::new(),
+                    span: (0, 1),
+                    summary: String::new(),
+                }],
+                prelink: None,
+            }],
+        };
+        let store = DiskStore::open_package(dir.path()).expect("open store");
+        store.write_snapshot(&manifest).expect("write snapshot");
+        session.load_snapshot();
+        assert!(session.snapshot.is_some(), "snapshot must load from disk");
+
+        // Rename the live symbol; the buffer is now ahead of the snapshot.
+        session.edit_module(
+            &module_path("utils"),
+            "pub fn renamed(): Number { 1 }\n".to_string(),
+        );
+
+        let names: Vec<_> = session
+            .workspace_symbols("")
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
+        assert!(
+            names.contains(&"renamed".to_string()),
+            "live symbol: {names:?}"
+        );
+        assert!(
+            !names.contains(&"helper".to_string()),
+            "stale snapshot symbol served for a live module: {names:?}"
+        );
     }
 }
