@@ -545,6 +545,70 @@ fn test_uncaught_exception_reports_value() {
 }
 
 #[test]
+fn test_throw_carries_a_record_caught_arm_shows_it() {
+    // `throw<E: Show>` carries an arbitrary value, not just a string. A single
+    // polymorphic arm binds `e: E` in a rigid scope with the `Show` dictionary
+    // forwarded, so `e.show()` renders the caught record through the bound.
+    CliTest::new(
+        r#"
+        unique(D098767B-4093-4D5C-BA37-AD92AA7B1001) struct AppError {
+            code: Number,
+            detail: String,
+        }
+
+        impl Show for AppError {
+            fn show(self): String {
+                "AppError(" + core::convert::to_string(self.code) + ": " + self.detail + ")"
+            }
+        }
+
+        fn risky(): String with Exception {
+            Exception::throw!(AppError { code: 7, detail: "kaboom" })
+        }
+
+        pub fn run(): String {
+            with { Exception::throw(e) => e.show() } handle risky()
+        }
+        "#,
+    )
+    .expect_output("AppError(7: kaboom)");
+}
+
+#[test]
+fn test_uncaught_record_exception_renders_structurally() {
+    // The uncaught path keys on the ability id, never the (re-keyed) method
+    // key, and renders *any* thrown value with `format_value` — the structural
+    // floor. A thrown record with no dictionary available at the crash site
+    // still prints its fields.
+    let output = CliTest::new(
+        r#"
+        unique(D098767B-4093-4D5C-BA37-AD92AA7B1002) struct AppError {
+            code: Number,
+            detail: String,
+        }
+
+        impl Show for AppError {
+            fn show(self): String { self.detail }
+        }
+
+        pub fn run(): Number with Exception {
+            Exception::throw!(AppError { code: 42, detail: "nope" });
+            0
+        }
+        "#,
+    )
+    .execute();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("uncaught exception")
+            && stderr.contains("code: 42")
+            && stderr.contains("detail: nope"),
+        "expected structurally-rendered uncaught record, got: {stderr}"
+    );
+}
+
+#[test]
 fn test_host_operation_failure_is_an_err_value() {
     // A failing host operation (network connect to a closed port) returns
     // an in-language `Result::Err` value the caller matches on — it does
