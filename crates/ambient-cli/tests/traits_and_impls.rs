@@ -216,6 +216,68 @@ fn test_associated_trait_method_with_argument() {
     .expect_output("42");
 }
 
+#[test]
+fn test_associated_trait_function_on_enum() {
+    // An enum is a nominal impl target like any other, so a no-`self` trait
+    // method resolves as `Enum::method()`. This mirrors instance-method,
+    // operator, and bound dispatch, which already work on enums — the
+    // associated path is the leftover.
+    CliTest::new(
+        r#"
+        use core::traits::Default;
+
+        unique(D0000000-0000-4000-8000-000000000031) enum Shape {
+            Circle,
+            Square,
+        }
+
+        impl Default for Shape {
+            fn default(): Shape { Circle }
+        }
+
+        fn run(): Bool {
+            match Shape::default() {
+                Circle => true,
+                Square => false,
+            }
+        }
+    "#,
+    )
+    .expect_output("true");
+}
+
+#[test]
+fn test_associated_trait_function_on_generic_enum() {
+    // A generic enum's associated function instantiates its type parameter
+    // from fresh variables the surrounding annotation pins — `Holder<Number>`
+    // here — exactly as a generic struct's does.
+    CliTest::new(
+        r#"
+        unique(D0000000-0000-4000-8000-000000000032) enum Holder<T> {
+            Empty,
+            Full(T),
+        }
+
+        unique(D0000000-0000-4000-8000-000000000033) trait MakeEmpty {
+            fn make_empty(): Self;
+        }
+
+        impl MakeEmpty for Holder<Number> {
+            fn make_empty(): Holder<Number> { Empty }
+        }
+
+        fn run(): Bool {
+            let h: Holder<Number> = Holder::make_empty();
+            match h {
+                Empty => true,
+                Full(_) => false,
+            }
+        }
+    "#,
+    )
+    .expect_output("true");
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Inherent Impl Tests
 // ─────────────────────────────────────────────────────────────────────────────

@@ -132,11 +132,18 @@ impl Infer {
                 .map(|s| (s, ret)));
         }
 
-        // The leading segment must name a nominal type.
-        let Some(Type::Nominal(nominal)) = self
-            .get_type_alias(type_name)
-            .and_then(crate::infer::AliasTarget::whole)
-            .cloned()
+        // The leading segment must name a nominal type that can carry a trait
+        // impl — a struct, primitive, `extern`, or a declared/prelude enum,
+        // all keyed by a uuid. Build its `Self` type with fresh type variables
+        // so the call's arguments (and any annotation) pin them, then derive
+        // the identity the impl keys on. This is the same "what can be an impl
+        // target" question the instance path answers (`impl_key_for`), so enum
+        // associated functions (`Shape::default()`) dispatch exactly like
+        // their instance-method cousins do since enums became impl targets.
+        let Some(self_ty) = self.associated_self_type(type_name) else {
+            return Ok(None);
+        };
+        let Some(type_uuid) = crate::infer::inherent::impl_key_for(&self_ty).and_then(|k| k.uuid())
         else {
             return Ok(None);
         };
@@ -144,7 +151,7 @@ impl Infer {
         // The method must exist and be associated (no `self`); an instance
         // method reached this way is not a valid associated call.
         let (trait_uuid, method_def, symbol) =
-            match self.trait_registry.find_method(nominal.uuid, method_name) {
+            match self.trait_registry.find_method(type_uuid, method_name) {
                 crate::types::MethodLookup::Found {
                     trait_uuid,
                     method,
@@ -153,16 +160,12 @@ impl Infer {
                 _ => return Ok(None),
             };
 
-        let self_ty = Type::Nominal(nominal);
-
         // A conditional impl's own bounds and the method's own bounds both
-        // thread as trailing dictionaries, exactly like an instance call.
-        let type_uuid = match &self_ty {
-            Type::Nominal(n) => Some(n.uuid),
-            _ => None,
-        };
-        let generic_impl = type_uuid
-            .and_then(|uuid| self.trait_registry.get_impl(trait_uuid, uuid))
+        // thread as trailing dictionaries, exactly like an instance call; a
+        // bound-less applied impl has its instantiation coverage checked.
+        let generic_impl = self
+            .trait_registry
+            .get_impl(trait_uuid, type_uuid)
             .filter(|imp| imp.is_generic)
             .map(|imp| (imp.target.clone(), imp.bounds.clone()));
 
@@ -208,6 +211,56 @@ impl Infer {
         self.require_abilities(&abilities);
 
         Ok(Some((symbol, self.apply(&ret))))
+    }
+
+    /// Build the `Self` type for a `Type::method(...)` associated call: the
+    /// named nominal type with its parameters instantiated to fresh inference
+    /// variables, so the call's arguments (and any surrounding annotation) pin
+    /// them. A non-generic type's body has no parameters and comes through
+    /// unchanged. Returns `None` when the name is not a nominal type (a
+    /// structural `type` alias, or an unknown name), so the caller falls back
+    /// to ordinary qualified-name resolution.
+    fn associated_self_type(&mut self, type_name: &str) -> Option<Type> {
+        use crate::infer::AliasTarget;
+
+        // A declared or prelude enum: its head plus one fresh argument per
+        // type parameter. A generic enum's associated function (`Wrap::
+        // make()`) instantiates just like a struct's.
+        if let Some(info) = self.enum_registry.get(type_name).cloned() {
+            let args = info.type_params.iter().map(|_| self.fresh()).collect();
+            return Some(Type::Named(crate::types::NamedType::with_identity(
+                Arc::clone(&info.name),
+                args,
+                info.uuid,
+            )));
+        }
+
+        match self.get_type_alias(type_name)?.clone() {
+            // A non-generic struct or primitive: the body is already the
+            // concrete nominal, no parameters to instantiate.
+            AliasTarget::Whole(ty) => Some(ty),
+            // A fielded generic struct: substitute fresh variables for its
+            // parameters into the record body, yielding the `Type::Nominal`
+            // the instance path would see — so a conditional impl's dictionary
+            // solves against the recovered assignments once arguments land.
+            AliasTarget::GenericStruct { type_params, body } => {
+                let map: HashMap<Arc<str>, Type> = type_params
+                    .into_iter()
+                    .map(|param| (param, self.fresh()))
+                    .collect();
+                Some(crate::infer::check::substitute_named(&body, &map))
+            }
+            // An opaque generic head (an `extern` container): the applied
+            // `Named(head, args, uuid)` shape, args fresh.
+            AliasTarget::OpaqueGeneric { uuid, arity } => {
+                let args = (0..arity).map(|_| self.fresh()).collect();
+                Some(Type::Named(crate::types::NamedType::with_identity(
+                    Arc::from(type_name),
+                    args,
+                    Some(uuid),
+                )))
+            }
+        }
     }
 
     /// Infer the type of a method call expression.

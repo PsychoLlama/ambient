@@ -309,3 +309,112 @@ fn applied_impl_dot_call_covers_matching_instantiation() {
     )
     .expect_output("some");
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Associated (no-`self`) functions on a conditional impl. `Pair::all_eq(x,
+// y)` on a concrete `Pair<Money>` must thread the impl's `T: Eq` dictionary
+// (Money's Eq methods) into the compiled associated function, exactly like an
+// instance dot-call or operator does — otherwise the hidden dictionary
+// parameter is missing at runtime.
+// ─────────────────────────────────────────────────────────────────────────
+
+// `AllEq` is a trait whose only method takes no `self` (two `Self` args), so
+// it is an associated function; its body uses the impl's `T: Eq` bound.
+const ALL_EQ: &str = r#"
+    unique(C0000000-0000-0000-0000-0000000000E1) struct Money { cents: Number }
+    impl Eq for Money {
+        fn eq(self, other: Money): Bool { self.cents == other.cents }
+    }
+
+    unique(C0000000-0000-0000-0000-0000000000E2) struct Pair<T> { first: T, second: T }
+
+    unique(A0000000-0000-0000-0000-0000000000B1) trait AllEq {
+        fn all_eq(a: Self, b: Self): Bool;
+    }
+    impl<T: Eq> AllEq for Pair<T> {
+        fn all_eq(a: Pair<T>, b: Pair<T>): Bool {
+            a.first.eq(b.first) && a.second.eq(b.second)
+        }
+    }
+"#;
+
+#[test]
+fn associated_fn_on_conditional_impl_dispatches_dictionary() {
+    // The associated call supplies Money's Eq dictionary; equal pairs report
+    // `true`. If the dictionary were dropped the compiled method would be
+    // mis-arity — this asserts on the *value*, so it pins real dispatch.
+    CliTest::new(format!(
+        r#"
+        {ALL_EQ}
+        fn run(): Bool {{
+            let x = Pair {{ first: Money {{ cents: 1 }}, second: Money {{ cents: 2 }} }};
+            let y = Pair {{ first: Money {{ cents: 1 }}, second: Money {{ cents: 2 }} }};
+            Pair::all_eq(x, y)
+        }}
+    "#
+    ))
+    .expect_output("true");
+}
+
+#[test]
+fn associated_fn_on_conditional_impl_reports_inequality() {
+    // The threaded Money::eq actually fires: a differing second field makes
+    // the `&&` short-circuit to `false`.
+    CliTest::new(format!(
+        r#"
+        {ALL_EQ}
+        fn run(): Bool {{
+            let x = Pair {{ first: Money {{ cents: 1 }}, second: Money {{ cents: 2 }} }};
+            let y = Pair {{ first: Money {{ cents: 1 }}, second: Money {{ cents: 9 }} }};
+            Pair::all_eq(x, y)
+        }}
+    "#
+    ))
+    .expect_output("false");
+}
+
+#[test]
+fn associated_fn_on_conditional_impl_rejects_unsatisfied_inner_bound() {
+    // `Pair<Plain>` needs `Plain: Eq`, which doesn't exist — the conditional
+    // impl's inner bound is unsatisfied at the associated call site.
+    CliTest::new(format!(
+        r#"
+        {ALL_EQ}
+        unique(C0000000-0000-0000-0000-0000000000E3) struct Plain {{ n: Number }}
+        fn run(): Bool {{
+            let x = Pair {{ first: Plain {{ n: 1 }}, second: Plain {{ n: 2 }} }};
+            let y = Pair {{ first: Plain {{ n: 1 }}, second: Plain {{ n: 2 }} }};
+            Pair::all_eq(x, y)
+        }}
+    "#
+    ))
+    .check()
+    .expect_error("not satisfied");
+}
+
+#[test]
+fn associated_fn_on_applied_impl_rejects_wrong_instantiation() {
+    // A bound-less *applied* impl (`impl AllEq for Pair<Number>`) covers only
+    // its own instantiation; calling `Pair::all_eq` on `Pair<String>` args is
+    // rejected at the associated site, not misdispatched.
+    CliTest::new(
+        r#"
+        unique(C0000000-0000-0000-0000-0000000000E2) struct Pair<T> { first: T, second: T }
+        unique(A0000000-0000-0000-0000-0000000000B1) trait AllEq {
+            fn all_eq(a: Self, b: Self): Bool;
+        }
+        impl AllEq for Pair<Number> {
+            fn all_eq(a: Pair<Number>, b: Pair<Number>): Bool {
+                a.first == b.first && a.second == b.second
+            }
+        }
+        fn run(): Bool {
+            let x = Pair { first: "a", second: "b" };
+            let y = Pair { first: "a", second: "b" };
+            Pair::all_eq(x, y)
+        }
+    "#,
+    )
+    .check()
+    .expect_error("does not cover");
+}
