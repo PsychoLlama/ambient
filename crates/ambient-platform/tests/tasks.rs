@@ -528,6 +528,51 @@ fn a_crash_looping_task_restarts_then_parks() {
     );
 }
 
+/// A faulting task logs the *structured* trace, not a flattened message:
+/// `TaskEvent::Faulted.error` is a `RuntimeError`, so a sink sees the
+/// origin frame (its name and content hash) and the payload.
+#[test]
+fn a_task_fault_logs_a_hash_bearing_trace() {
+    const SRC: &str = r#"
+    pub fn run(): () with core::system::Task {
+      core::system::Task::ensure!("boomer", boomer)
+    }
+
+    fn detonate(): () with Exception {
+      Exception::throw!("kaboom in the task")
+    }
+
+    fn boomer(): () with Exception {
+      detonate()
+    }
+    "#;
+
+    let h = harness(Duration::from_secs(5));
+    deploy(&h, &compile(SRC));
+    await_no_tasks(&h);
+
+    let events = recorded(&h);
+    let fault = events
+        .iter()
+        .find(|e| e.contains("Faulted"))
+        .unwrap_or_else(|| panic!("the task must fault: {events:?}"));
+
+    // Payload plus the structured origin frame (name + content hash) — the
+    // debug form of a `RuntimeError`, not a pre-rendered string.
+    assert!(
+        fault.contains("kaboom in the task"),
+        "the fault must carry the payload: {fault}"
+    );
+    assert!(
+        fault.contains("stack_trace") && fault.contains("function_hash"),
+        "the fault must carry the structured trace: {fault}"
+    );
+    assert!(
+        fault.contains("detonate"),
+        "the trace must name the throw's origin frame: {fault}"
+    );
+}
+
 /// A drained task that never reaches an interruptible perform is
 /// hard-stopped at the deadline and parked — cleanup is
 /// cooperative-only, so its `Drain::requested` arm never runs.

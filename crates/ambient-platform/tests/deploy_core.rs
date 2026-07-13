@@ -104,6 +104,79 @@ fn with_bindings(compiled: &CompiledModule, bindings: &[(&str, blake3::Hash)]) -
     })
 }
 
+/// A faulting entry surfaces as `DeployError::Entry` carrying the
+/// *structured* `RuntimeError`, not a pre-flattened string: a host can
+/// walk the frames and their content hashes. Pins the trace an uncaught
+/// throw three calls deep produces — order (innermost first), a distinct
+/// non-zero content hash per frame, and a source location per frame.
+#[test]
+fn entry_fault_carries_a_structured_hash_bearing_trace() {
+    // `+ 1` keeps each caller off the tail position so no frame is elided.
+    let compiled = compile(
+        r#"
+        fn level_three(): Number with Exception {
+            Exception::throw!("boom from level three")
+        }
+        fn level_two(): Number with Exception { level_three() + 1 }
+        fn level_one(): Number with Exception { level_two() + 1 }
+        pub fn run(): Number with Exception { level_one() + 1 }
+        "#,
+    );
+    let core = runtime();
+    let err = core
+        .deploy(
+            &functions_from_module(&compiled),
+            &entry_hash(&compiled),
+            |_| {},
+        )
+        .expect_err("the uncaught throw must fault the entry");
+
+    let DeployError::Entry(rt) = err else {
+        panic!("a faulting entry must be DeployError::Entry, got {err:?}");
+    };
+
+    // The payload rides on the error, structurally.
+    assert!(
+        matches!(&rt.error, ambient_engine::vm::VmError::Exception(_)),
+        "the fault must be an uncaught exception: {:?}",
+        rt.error
+    );
+
+    // Assert on the actual frames, innermost first.
+    let names: Vec<Option<&str>> = rt
+        .stack_trace
+        .iter()
+        .map(|f| f.function_name.as_deref())
+        .collect();
+    assert!(
+        names.len() >= 3,
+        "expected at least three frames, got {names:?}"
+    );
+    assert_eq!(
+        &names[..3],
+        &[Some("level_three"), Some("level_two"), Some("level_one")],
+        "frames must be innermost-first"
+    );
+
+    for frame in &rt.stack_trace[..3] {
+        assert_ne!(
+            frame.function_hash,
+            blake3::Hash::from_bytes([0; 32]),
+            "every frame must carry a real content hash"
+        );
+        assert!(
+            frame.line.is_some(),
+            "every frame must carry a source location: {frame:?}"
+        );
+    }
+
+    // Distinct functions ⇒ distinct hashes.
+    assert_ne!(
+        rt.stack_trace[0].function_hash, rt.stack_trace[1].function_hash,
+        "distinct frames must carry distinct content hashes"
+    );
+}
+
 /// Old hashes stay resident: code loaded by an earlier deploy is still
 /// callable after later deploys that no longer ship it.
 #[test]

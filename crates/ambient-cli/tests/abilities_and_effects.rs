@@ -545,6 +545,82 @@ fn test_uncaught_exception_reports_value() {
 }
 
 #[test]
+fn test_uncaught_throw_prints_a_hash_bearing_trace() {
+    // An uncaught throw three calls deep must surface the *whole* trace, in
+    // innermost-first order, with each frame carrying its content-hash
+    // prefix and a source location. `+ 1` on each call keeps the callers off
+    // the tail position, so no frame is elided by tail-call replacement.
+    let output = CliTest::new(
+        r#"
+        fn level_three(): Number with Exception {
+            Exception::throw!("boom from level three")
+        }
+        fn level_two(): Number with Exception { level_three() + 1 }
+        fn level_one(): Number with Exception { level_two() + 1 }
+        pub fn run(): Number with Exception { level_one() + 1 }
+        "#,
+    )
+    .execute();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Payload first.
+    assert!(
+        stderr.contains("uncaught exception: boom from level three"),
+        "payload must render first: {stderr}"
+    );
+
+    // Collect the frame lines in order and assert on the actual frames.
+    let frames: Vec<&str> = stderr
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("at "))
+        .collect();
+    assert!(
+        frames.len() >= 3,
+        "expected at least three frames, got {frames:?}"
+    );
+    for (idx, name) in ["level_three", "level_two", "level_one"].iter().enumerate() {
+        let line = frames[idx];
+        assert!(
+            line.starts_with(&format!("at {name} ")),
+            "frame {idx} must be `{name}` (innermost first): {line}"
+        );
+        // A content-hash prefix: `<` + 8 hex + `>`.
+        let hash = line
+            .split_once('<')
+            .and_then(|(_, rest)| rest.split_once('>'))
+            .map(|(h, _)| h)
+            .unwrap_or_default();
+        assert!(
+            hash.len() == 8 && hash.chars().all(|c| c.is_ascii_hexdigit()),
+            "frame {idx} must carry an 8-hex content-hash prefix: {line}"
+        );
+        // A source location `(file.ab:line:col)`.
+        assert!(
+            line.contains(".ab:") && line.trim_end().ends_with(')'),
+            "frame {idx} must carry a source location: {line}"
+        );
+    }
+    // Distinct functions have distinct hashes.
+    let h0 = frames[0]
+        .split_once('<')
+        .unwrap()
+        .1
+        .split_once('>')
+        .unwrap()
+        .0;
+    let h1 = frames[1]
+        .split_once('<')
+        .unwrap()
+        .1
+        .split_once('>')
+        .unwrap()
+        .0;
+    assert_ne!(h0, h1, "distinct frames must carry distinct hashes");
+}
+
+#[test]
 fn test_throw_carries_a_record_caught_arm_shows_it() {
     // `throw<E: Show>` carries an arbitrary value, not just a string. A single
     // polymorphic arm binds `e: E` in a rigid scope with the `Show` dictionary

@@ -332,8 +332,22 @@ fn exception_in_update_leaves_the_cell_unchanged() {
     let err = vm
         .call(&named_hash(&compiled, "explode"), Vec::new())
         .expect_err("the exception must surface");
-    let rendered = vm.runtime_error(err).to_string();
+    let rt = vm.runtime_error(err);
+    let rendered = rt.to_string();
     assert!(rendered.contains("boom"), "got {rendered}");
+
+    // `boom` throws *inside* `State::update`'s reentrant `invoke`, whose
+    // error path truncates the callee's frames before the error surfaces.
+    // The origin trace is snapshotted at the invoke boundary, so the frame
+    // where the throw actually happened must still be in the trace — this is
+    // the one path where a naive top-level capture would have lost it.
+    assert!(
+        rt.stack_trace
+            .iter()
+            .any(|f| f.function_name.as_deref() == Some("boom")),
+        "the trace must name the throw's origin frame `boom`: {:?}",
+        rt.stack_trace
+    );
     assert_eq!(call_number(&core, &compiled, "read"), 1.0);
 }
 
