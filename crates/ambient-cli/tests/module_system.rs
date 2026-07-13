@@ -945,3 +945,29 @@ fn container_names_cannot_be_redeclared() {
         "expected a reserved-identity error, got:\n{output}"
     );
 }
+
+#[test]
+fn cross_module_inherent_method_links_regardless_of_order() {
+    // A module calling another module's inherent method links against that
+    // method's compiled body under a content-addressed dispatch symbol, so
+    // the definer must compile first. That ordering edge is type-directed
+    // (the checker resolves the receiver, not the resolve pass), so it is not
+    // a `use`/value edge — but a foreign type is always named by a qualified
+    // path or a `use`, either of which *is* a dependency edge, so the definer
+    // is ordered first. Here `caller` (which sorts before `provider`) reaches
+    // `Widget::doubled` through a bare `use`d type; it must still link and run.
+    let dir = package(&[
+        (
+            "provider.ab",
+            "pub unique(B3C4D5E6-F7A8-4012-8CDE-F12345678901) struct Widget { n: Number }\n\
+             impl Widget {\n  fn doubled(self): Number { self.n * 2 }\n}\n",
+        ),
+        (
+            "caller.ab",
+            "use pkg::provider::Widget;\n\
+             pub fn go(): Number { Widget { n: 21 }.doubled() }\n",
+        ),
+        ("main.ab", "pub fn run(): Number { pkg::caller::go() }\n"),
+    ]);
+    assert_eq!(run(dir.path()), "42");
+}
