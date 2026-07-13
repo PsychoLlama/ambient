@@ -160,14 +160,14 @@ fn range_from(start: Number, end: Number, acc: List<Number>): List<Number> {
 impl<T: Eq> List<T> {
     // True if any element equals `item` (by its Eq impl).
     fn contains(self, item: T): Bool {
-        self.any((x: T) => x.eq(item))
+        self.any((x) => x.eq(item))
     }
     // Index of the first element equal to `item`, if any. Folds a running
     // `(next_index, found)` pair, latching the first hit.
     fn index_of(self, item: T): Option<Number> {
         let found = self.fold(
             (0, None),
-            (acc: (Number, Option<Number>), x: T) => match acc.1 {
+            (acc, x) => match acc.1 {
                 Some(hit) => (acc.0 + 1, Some(hit)),
                 None => if x.eq(item) {
                     (acc.0 + 1, Some(acc.0))
@@ -222,7 +222,7 @@ impl<T: Ord> List<T> {
     // The largest element by `Ord::cmp`, if any.
     fn max(self): Option<T> {
         match head(self) {
-            Some(first) => Some(self.fold(first, (best: T, x: T) => {
+            Some(first) => Some(self.fold(first, (best, x) => {
                 if x.cmp(best) > 0 { x } else { best }
             })),
             None => None,
@@ -231,7 +231,7 @@ impl<T: Ord> List<T> {
     // The smallest element by `Ord::cmp`, if any.
     fn min(self): Option<T> {
         match head(self) {
-            Some(first) => Some(self.fold(first, (best: T, x: T) => {
+            Some(first) => Some(self.fold(first, (best, x) => {
                 if x.cmp(best) < 0 { x } else { best }
             })),
             None => None,
@@ -254,6 +254,6 @@ impl List<Number> {
         range_from(start, end, [])
     }
     fn sum(self): Number {
-        self.fold(0, (acc: Number, x: Number) => acc + x)
+        self.fold(0, (acc, x) => acc + x)
     }
 }
