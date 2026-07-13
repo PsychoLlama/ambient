@@ -515,6 +515,42 @@ mod tests {
     }
 
     #[test]
+    fn dependency_body_only_edit_does_not_recheck_dependents() {
+        // Phase 5 step 3 (analysis side, already satisfied): a *dependency's*
+        // function-body edit changes neither its signature nor any other
+        // check-level input a dependent observes — a plain function body is
+        // absent from the interface hash — so the dependent's memo key holds
+        // and it is *not* re-checked. Only the edited module re-checks. (The
+        // build cache, by contrast, must still relink the dependent's objects
+        // through link validation, since a body edit moves the callee's final
+        // content hash; skipping *its* redundant re-check is the remaining,
+        // unlanded, build-cache half of step 3.)
+        let dir = write_package(&[
+            (
+                "main.ab",
+                "use pkg::utils::helper;\npub fn run(): Number { helper() }\n",
+            ),
+            ("utils.ab", "pub fn helper(): Number { 1 }\n"),
+        ]);
+        let mut session = open(&dir);
+        let _ = session.analyze_all();
+        let base = session.rechecks();
+
+        // Edit only `utils`'s body; its signature (interface) is unchanged.
+        session.edit_module(
+            &module_path("utils"),
+            "pub fn helper(): Number { 2 }\n".to_string(),
+        );
+        let warm = session.analyze_all();
+        assert_eq!(
+            session.rechecks() - base,
+            1,
+            "only the edited dependency re-checks; the dependent's memo holds"
+        );
+        assert_matches_cold(&session, &warm);
+    }
+
+    #[test]
     fn dispatch_surface_edit_flows_through_every_key() {
         // An impl edit moves the changed module's interface (impls are in it)
         // and the build-global dispatch surface, so it is an interface-class
