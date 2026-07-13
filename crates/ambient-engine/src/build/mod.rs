@@ -14,6 +14,7 @@
 //! is in [`pipeline`].
 
 mod cache;
+mod dispatch_scope;
 mod pipeline;
 mod reachability;
 
@@ -30,6 +31,7 @@ use crate::module_registry::ModuleRegistry;
 use crate::package::Package;
 
 pub use cache::{CacheMode, module_cache_key};
+pub use dispatch_scope::per_module_dispatch_hashes;
 pub use pipeline::{
     compile_core_modules, compile_declaration_modules, compile_session_module,
     discover_module_paths, linking_table,
@@ -432,8 +434,13 @@ pub fn build_package(
     // each package module's cache key folds the dispatch-surface hash and its
     // dependencies' interface hashes.
     let interfaces = crate::module_interface::build_interfaces(&registry);
+    // The build-global dispatch surface is retained for the manifest/`BuildResult`
+    // (informational + the whole-build interface tests), but the per-module cache
+    // key now folds a *narrowed* dispatch input: only the impl shapes each module
+    // can dispatch (plus the global unconditional/colliding/ability bytes). See
+    // [`dispatch_scope`].
     let dispatch_surface_hash = crate::module_interface::dispatch_surface_hash(&interfaces);
-    let dispatch_bytes = *dispatch_surface_hash.as_bytes();
+    let module_dispatch = dispatch_scope::per_module_dispatch_hashes(&registry, &dep_ids);
     let natives_bytes = *natives_contract_hash.as_bytes();
 
     // The incremental linking state, seeded from the builtin block and then
@@ -497,7 +504,11 @@ pub fn build_package(
             let ast = interfaces
                 .get(&module_id)
                 .map_or([0u8; 32], |s| *s.resolved_ast_hash.as_bytes());
-            cache::module_cache_key(ast, natives_bytes, dispatch_bytes, &deps)
+            let dispatch = module_dispatch
+                .get(&module_id)
+                .copied()
+                .unwrap_or([0u8; 32]);
+            cache::module_cache_key(ast, natives_bytes, dispatch, &deps)
         });
 
         let imported = link.table();

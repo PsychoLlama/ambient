@@ -312,6 +312,24 @@ fn write_impl(w: &mut Writer, i: &ImplShape) {
     w.vec(&i.methods, write_impl_method);
 }
 
+/// The body-free shape bytes for one impl block, standalone — the same
+/// encoding [`ModuleInterface::dispatch_bytes`] folds, but for a single impl so
+/// per-module dispatch-key narrowing can fold exactly the impls a module can
+/// dispatch. See [`super::impl_dispatch_shape`].
+pub(super) fn impl_shape_bytes(i: &ImplShape) -> Vec<u8> {
+    let mut w = Writer::default();
+    write_impl_shape(&mut w, i);
+    w.buf
+}
+
+/// The body-free shape bytes for one ability, standalone. See
+/// [`super::ability_dispatch_shape`].
+pub(super) fn ability_shape_bytes(a: &AbilityShape) -> Vec<u8> {
+    let mut w = Writer::default();
+    write_ability_shape(&mut w, a);
+    w.buf
+}
+
 /// A body-free impl encoding for the dispatch/coherence surface: the
 /// `(trait, type)` identity and every method's *signature*, but not its body
 /// hash. See [`ModuleInterface::dispatch_bytes`].

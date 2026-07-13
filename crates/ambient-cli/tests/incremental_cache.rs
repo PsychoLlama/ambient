@@ -70,6 +70,35 @@ fn cold_manifest(files: &[(&str, &str)]) -> BuildManifest {
     BuildManifest::from_build(&build_and_persist(dir.path()))
 }
 
+/// Build-and-persist while capturing each module's `from_cache` flag from the
+/// progress callback, so a test can assert *which* modules were served warm
+/// (not merely how many). Keyed by the module's dotted path (its basename for a
+/// top-level module).
+fn build_capturing(dir: &Path) -> (BuildResult, std::collections::HashMap<String, bool>) {
+    use std::cell::RefCell;
+    let seen: RefCell<std::collections::HashMap<String, bool>> = RefCell::new(Default::default());
+    let stubs = ambient_platform::stub_natives();
+    let result = {
+        let cb = |name: &str, _c: usize, _t: usize, from_cache: bool| {
+            seen.borrow_mut().insert(name.to_string(), from_cache);
+        };
+        let built = ambient_engine::build::build_and_persist(
+            dir,
+            parse_source,
+            BuildOptions {
+                platform_modules: ambient_platform::platform_modules(),
+                natives: Some(&stubs),
+                progress: Some(&cb),
+                ..Default::default()
+            },
+        )
+        .expect("build succeeds");
+        built.persisted.expect("persist build");
+        built.result
+    };
+    (result, seen.into_inner())
+}
+
 fn assert_warm_equals_cold(warm: &BuildResult, files: &[(&str, &str)]) {
     let warm_manifest = BuildManifest::from_build(warm);
     let cold = cold_manifest(files);
@@ -200,7 +229,14 @@ fn pub_signature_edit_misses_dependents_via_interface_hash() {
 }
 
 #[test]
-fn new_trait_impl_in_unimported_module_shifts_the_dispatch_surface() {
+fn new_trait_impl_on_a_package_type_spares_unrelated_modules() {
+    // Phase 5 dispatch-shape narrowing: adding a trait + impl on a *package*
+    // type `Gadget` in a module nobody imports invalidates only modules that
+    // can dispatch it — i.e. hold a `Gadget`. `widget` (an unrelated struct) and
+    // `main` (`run` → 7) hold no `Gadget` and depend on no module that declares
+    // one, so their narrowed dispatch key is unchanged and they stay warm hits.
+    // Only `orphan` (its own source moved) recompiles. Under the old build-global
+    // dispatch-surface hash the whole package would have re-checked.
     let dir = TempDir::new().expect("temp");
     let base: &[(&str, &str)] = &[
         (
@@ -216,9 +252,6 @@ fn new_trait_impl_in_unimported_module_shifts_the_dispatch_surface() {
     write_pkg(dir.path(), base);
     build_and_persist(dir.path());
 
-    // Add a trait + impl in a module nobody imports. The build-global
-    // dispatch-surface hash folds every impl, so every module's cache key
-    // moves and the whole package misses.
     let edited: &[(&str, &str)] = &[
         base[0],
         (
@@ -232,10 +265,118 @@ fn new_trait_impl_in_unimported_module_shifts_the_dispatch_surface() {
     fs::write(dir.path().join("src/orphan.ab"), edited[1].1).expect("edit");
 
     let warm = build_and_persist(dir.path());
-    assert!(
-        warm.modules_compiled >= 3,
-        "a dispatch-surface change invalidates every package module, got {}",
+    assert_eq!(
+        warm.modules_compiled, 1,
+        "only orphan (whose source moved) recompiles; widget + main stay cached, got {}",
         warm.modules_compiled
+    );
+    assert_warm_equals_cold(&warm, edited);
+}
+
+#[test]
+fn operator_dispatcher_recompiles_when_a_new_impl_lands_on_the_operated_type() {
+    // The operator edge case: `a + b` desugars to the reserved `Add` trait
+    // without ever naming `Add`, so a trait-name-based narrowing would miss it.
+    // The narrowing keys on the *receiver type* instead: `calc` holds a `Widget`
+    // (it does `w1 + w2`), so its dispatch key folds every impl on `Widget` —
+    // including the orphan `Add for Widget` in `ops`, which `calc` never imports.
+    // Adding a *second* impl on `Widget` (a `Sub`) therefore re-checks `main`
+    // (which does `w1 + w2`), while the two truly-unrelated modules stay warm.
+    let widget = "pub unique(FEED0000-0000-0000-0000-000000000001) struct Widget { x: Number }\n";
+    let ops = "use pkg::widget::Widget;\n\
+               impl Add for Widget { fn add(self, o: Widget): Widget { Widget { x: self.x + o.x } } }\n";
+    let main = "use pkg::widget::Widget;\n\
+                pub fn run(): Number { (Widget { x: 1 } + Widget { x: 2 }).x }\n";
+    let base: &[(&str, &str)] = &[
+        ("widget.ab", widget),
+        ("ops.ab", ops),
+        ("main.ab", main),
+        ("free1.ab", "pub fn a(): Number { 1 }\n"),
+        ("free2.ab", "pub fn b(): Number { 2 }\n"),
+    ];
+    let dir = TempDir::new().expect("temp");
+    write_pkg(dir.path(), base);
+    build_and_persist(dir.path());
+
+    let ops_edited = "use pkg::widget::Widget;\n\
+                      impl Add for Widget { fn add(self, o: Widget): Widget { Widget { x: self.x + o.x } } }\n\
+                      impl Sub for Widget { fn sub(self, o: Widget): Widget { Widget { x: self.x - o.x } } }\n";
+    fs::write(dir.path().join("src/ops.ab"), ops_edited).expect("edit");
+    let edited: &[(&str, &str)] = &[
+        ("widget.ab", widget),
+        ("ops.ab", ops_edited),
+        ("main.ab", main),
+        ("free1.ab", "pub fn a(): Number { 1 }\n"),
+        ("free2.ab", "pub fn b(): Number { 2 }\n"),
+    ];
+
+    let (warm, seen) = build_capturing(dir.path());
+    assert_eq!(
+        seen.get("main"),
+        Some(&false),
+        "main dispatches `+` on Widget, so a new impl on Widget re-checks it"
+    );
+    assert_eq!(
+        seen.get("free1"),
+        Some(&true),
+        "free1 holds no Widget: warm"
+    );
+    assert_eq!(
+        seen.get("free2"),
+        Some(&true),
+        "free2 holds no Widget: warm"
+    );
+    assert_warm_equals_cold(&warm, edited);
+}
+
+#[test]
+fn a_new_impl_recompiles_the_concrete_call_site_but_not_the_generic_function() {
+    // Dictionary passing: a bounded generic `use_describe<T: Describe>` receives
+    // its `Describe` dictionary from callers, so it links no concrete impl symbol
+    // — the *call site* that instantiates the bound at a concrete `Widget` does
+    // (`DictSource::Impl`). So a new impl on `Widget` must re-check the call site
+    // (it holds a `Widget`) but leave the generic function's module warm:
+    // `describe` (trait + generic fn) depends on no module that declares `Widget`,
+    // so `Widget` is not in its dispatch scope. This is the soundness of the
+    // call-site rule — the generic function never hard-links `Describe for Widget`.
+    let describe = "pub unique(BEEF0000-0000-4000-8000-000000000010) trait Describe { fn describe(self): Number; }\n\
+                    pub fn use_describe<T: Describe>(x: T): Number { x.describe() }\n";
+    let widget = "use pkg::describe::Describe;\n\
+                  pub unique(BEEF0000-0000-4000-8000-000000000011) struct Widget { x: Number }\n\
+                  impl Describe for Widget { fn describe(self): Number { self.x } }\n";
+    let main = "use pkg::widget::Widget;\nuse pkg::describe::use_describe;\n\
+                pub fn run(): Number { use_describe(Widget { x: 5 }) }\n";
+    let base: &[(&str, &str)] = &[
+        ("describe.ab", describe),
+        ("widget.ab", widget),
+        ("main.ab", main),
+    ];
+    let dir = TempDir::new().expect("temp");
+    write_pkg(dir.path(), base);
+    build_and_persist(dir.path());
+
+    // Add an orphan `Eq for Widget` in a brand-new module. It changes `Widget`'s
+    // impl surface without touching any existing module's source.
+    let more = "use pkg::widget::Widget;\n\
+                impl Eq for Widget { fn eq(self, o: Widget): Bool { self.x == o.x } }\n";
+    fs::write(dir.path().join("src/more.ab"), more).expect("write more");
+    let edited: &[(&str, &str)] = &[
+        ("describe.ab", describe),
+        ("widget.ab", widget),
+        ("main.ab", main),
+        ("more.ab", more),
+    ];
+
+    let (warm, seen) = build_capturing(dir.path());
+    assert_eq!(
+        seen.get("main"),
+        Some(&false),
+        "the call site instantiates `Describe` at concrete `Widget`, so it re-checks"
+    );
+    assert_eq!(
+        seen.get("describe"),
+        Some(&true),
+        "the generic function's module holds no Widget (dictionary passing): warm"
     );
     assert_warm_equals_cold(&warm, edited);
 }

@@ -37,7 +37,7 @@ mod tests;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-pub use ast_hash::{module_ast_hash, render_type};
+pub use ast_hash::{module_ast_hash, render_name, render_type};
 pub use encode::InterfaceError;
 pub use structured::{ItemKindTag, ItemNamespace, StructuredItem, structured_items};
 
@@ -497,6 +497,24 @@ fn ability_shape(a: &crate::ast::AbilityDef) -> AbilityShape {
             })
             .collect(),
     }
+}
+
+/// The body-free dispatch-shape bytes of a single impl block — the exact
+/// encoding [`ModuleInterface::dispatch_bytes`] folds, exposed per-impl so
+/// per-module dispatch-key narrowing (`build::dispatch_scope`) can fold only
+/// the impls a given module can actually dispatch.
+#[must_use]
+pub fn impl_dispatch_shape(i: &crate::ast::ImplDef) -> Vec<u8> {
+    encode::impl_shape_bytes(&impl_shape(i))
+}
+
+/// The body-free dispatch-shape bytes of a single ability — the abilities half
+/// of the dispatch surface, per-ability. Abilities stay build-global (a
+/// performer always names the ability, so the dependency channel already
+/// carries their changes), so this folds into every module's key uniformly.
+#[must_use]
+pub fn ability_dispatch_shape(a: &crate::ast::AbilityDef) -> Vec<u8> {
+    encode::ability_shape_bytes(&ability_shape(a))
 }
 
 fn impl_shape(i: &crate::ast::ImplDef) -> ImplShape {

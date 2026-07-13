@@ -222,7 +222,14 @@ fn dispatchers_of(
 
 /// Every package module `start` transitively resolve-depends on (excluding
 /// `start`). Non-node targets (core/platform) are ignored.
-fn forward_closure(deps: &BTreeMap<String, Vec<String>>, start: &str) -> BTreeSet<String> {
+///
+/// Shared with [`super::dispatch_scope`], which uses it to decide which types a
+/// module can hold (a type is holdable iff its defining module is in the
+/// module's transitive resolve closure).
+pub(super) fn forward_closure(
+    deps: &BTreeMap<String, Vec<String>>,
+    start: &str,
+) -> BTreeSet<String> {
     let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut stack: Vec<&str> = deps
         .get(start)
@@ -264,10 +271,11 @@ pub(super) struct PackageModule<'a> {
 }
 
 /// A nominal type a module declares: its name and (for enums / `unique` structs)
-/// its uuid, for matching an impl's target-type head.
-struct TypeDecl {
-    name: Arc<str>,
-    uuid: Option<Uuid>,
+/// its uuid, for matching an impl's target-type head. Shared with
+/// [`super::dispatch_scope`].
+pub(super) struct TypeDecl {
+    pub(super) name: Arc<str>,
+    pub(super) uuid: Option<Uuid>,
 }
 
 /// The set of package module ids reachable from `entry`, or `None` when no
@@ -352,7 +360,8 @@ fn entry_seeds(entry: &str, modules: &[PackageModule<'_>]) -> BTreeSet<String> {
 }
 
 /// Every nominal type (`struct`/`enum`) a module declares, with its uuid.
-fn declared_types(module: &Module) -> Vec<TypeDecl> {
+/// Shared with [`super::dispatch_scope`].
+pub(super) fn declared_types(module: &Module) -> Vec<TypeDecl> {
     let mut out = Vec::new();
     for item in &module.items {
         match &item.kind {
@@ -432,8 +441,9 @@ fn collect_impl_edges(
 
 /// The nominal head of an impl's target type — its name and (enum / `unique`
 /// struct) uuid — or `None` for a non-nominal head (a type parameter, tuple,
-/// function type, …), which signals a blanket impl.
-fn type_head(ty: &Type) -> Option<(Option<Arc<str>>, Option<Uuid>)> {
+/// function type, …), which signals a blanket impl. Shared with
+/// [`super::dispatch_scope`].
+pub(super) fn type_head(ty: &Type) -> Option<(Option<Arc<str>>, Option<Uuid>)> {
     match ty {
         Type::Named(n) => Some((Some(Arc::clone(&n.name)), n.uuid)),
         Type::Nominal(nom) => Some((nom.name.clone(), Some(nom.uuid))),
@@ -444,7 +454,12 @@ fn type_head(ty: &Type) -> Option<(Option<Arc<str>>, Option<Uuid>)> {
 /// Whether a declared type matches an impl's target-type head: uuid-equal when
 /// both carry one (the strict nominal test), else name-equal (a struct
 /// annotation carries no uuid before checking). Over-matching only over-includes.
-fn type_matches(decl: &TypeDecl, head_name: Option<&Arc<str>>, head_uuid: Option<Uuid>) -> bool {
+/// Shared with [`super::dispatch_scope`].
+pub(super) fn type_matches(
+    decl: &TypeDecl,
+    head_name: Option<&Arc<str>>,
+    head_uuid: Option<Uuid>,
+) -> bool {
     let uuid_match = matches!((head_uuid, decl.uuid), (Some(h), Some(d)) if h == d);
     let name_match = head_name.is_some_and(|hn| *hn == decl.name);
     uuid_match || name_match
