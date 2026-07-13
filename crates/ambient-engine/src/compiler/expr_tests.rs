@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use super::test_support::compile_test_function;
-use super::*;
 use crate::ast::{BinaryOp, Expr, ExprKind, FunctionDef, Param, Span};
 use crate::value::Value;
 
