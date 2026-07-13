@@ -11,18 +11,18 @@
 //! conversation runs in constant stack space no matter how long it runs,
 //! and the loop body itself is re-resolved every turn rather than pinned.
 
-use core::system::{Drain, Live, Network, State, Stdio};
+use core::system::{Drain, Live, Tcp, State, Stdio};
 use self::handlers;
 
-pub fn service(): () with Network, State, Live, Stdio {
+pub fn service(): () with Tcp, State, Live, Stdio {
   with { Drain::requested() => Stdio::out!("service: drained, goodbye") }
     handle serve_conn()
 }
 
 /// One bounded pass: accept a connection and hold the conversation.
-fn serve_conn(): () with Network, State, Live, Stdio {
+fn serve_conn(): () with Tcp, State, Live, Stdio {
   let listener = State::get!("service-listener");
-  match Network::accept!(listener) {
+  match Tcp::accept!(listener) {
     Ok(conn) => converse(conn),
     Err(message) => Stdio::err!("accept failed: ${message}"),
   }
@@ -32,8 +32,8 @@ fn serve_conn(): () with Network, State, Live, Stdio {
 /// each request resolves the handler's current binding, so the reply to
 /// "hello" and the reply to "hello again" can come from different
 /// generations — over the same connection, in the same pass.
-fn converse(conn: Number): () with Network, State, Live, Stdio {
-  match Network::receive!(conn) {
+fn converse(conn: Number): () with Tcp, State, Live, Stdio {
+  match Tcp::receive!(conn) {
     Ok(request) => {
       Live::latest!(handlers::respond)(conn, request);
       // Re-enter through the live channel (the canonical loop idiom): the
@@ -44,7 +44,7 @@ fn converse(conn: Number): () with Network, State, Live, Stdio {
     },
     Err(_) => {
       // The peer hung up; the conversation is over.
-      match Network::close!(conn) {
+      match Tcp::close!(conn) {
         Ok(_) => (),
         Err(message) => Stdio::err!("close failed: ${message}"),
       }

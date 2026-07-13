@@ -140,7 +140,7 @@ performing one unwinds to the handler (no continuation is captured), so an
 unhandled abstract perform is a runtime fault.
 Functions declare the abilities they perform with a `with` clause;
 `with ... handle` installs handlers using single-shot delimited
-continuations. The platform abilities (Stdio, FileSystem, Network, ...) are
+continuations. The platform abilities (Stdio, FileSystem, Tcp, ...) are
 ordinary in-language declarations under `core::system` whose default
 implementations call the platform's `extern fn`s.
 
@@ -152,7 +152,7 @@ error handling.
 ## Concurrency
 
 All IO is blocking. There is no `Async` ability and no async/await-style
-primitives — this is intentional. A perform like `core::system::Network::receive!`
+primitives — this is intentional. A perform like `core::system::Tcp::receive!`
 simply blocks the calling code until the native call returns.
 
 Concurrency comes from **tasks** (see [live-upgrade.md](live-upgrade.md),
@@ -180,7 +180,7 @@ value. A `!`-typed expression fits any context (bottom elimination:
 `if c { n } else { Exception::throw!("...") }` is a `Number`), and any
 user-declared ability method may return `!` for the same catch-only
 semantics. Fallible host operations return
-`Result<T, String>` (`FileSystem::read`, every `Network` method, ...) and
+`Result<T, String>` (`FileSystem::read`, every `Tcp` method, ...) and
 are matched on like ordinary data; only unwired capabilities and runtime
 control errors still travel the catchable `Exception` channel, as hard
 failures. `Option`/`Result` remain ordinary data types for domain modeling.
@@ -383,7 +383,7 @@ Blocking IO on plain threads:
 
 ## Remote Execution
 
-Remote execution servers are written in Ambient itself on the `Network`
+Remote execution servers are written in Ambient itself on the `Tcp`
 (TCP) and `Execute` (run-by-hash) abilities. Code ships as canonical object
 packs — receivers recompute every hash from the bytes — and runs in an
 isolated VM whose effects come from host grants or shipped handler values.
@@ -409,7 +409,7 @@ ambient dev <pkg>          # Live-upgrade development: watches sources and
 ambient lsp                # Start the language server
 ```
 
-Remote execution servers are written in Ambient itself using the `Network`
+Remote execution servers are written in Ambient itself using the `Tcp`
 and `Execute` abilities (see `examples/remote_server`); there is no
 dedicated `serve` command.
 

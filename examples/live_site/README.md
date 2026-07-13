@@ -58,7 +58,7 @@ ability, and the language has no tail calls yet, so the loop the ref
 doc spells in-language (`Live::latest!(accept_loop)()`) lives in the
 task runtime instead — a task body is **one bounded pass**, re-invoked
 by the runtime with the name resolution applied between passes. The
-HTTP framing is hand-rolled over `Network::receive_raw`/`send_raw`;
+HTTP framing is hand-rolled over `Tcp::receive_raw`/`send_raw`;
 the upgrade mechanics are the point, not the protocol.
 
 ## Files

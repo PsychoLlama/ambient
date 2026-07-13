@@ -1,4 +1,4 @@
-//! Network client example using the new Network ability.
+//! Tcp client example using the new Tcp ability.
 //!
 //! This client demonstrates low-level TCP operations with
 //! message-oriented I/O (length-prefixed messages).
@@ -6,7 +6,7 @@
 //! Run with: `ambient run examples/network_client`
 //! (Make sure the network_server is running first!)
 
-use core::system::{Stdio, Network};
+use core::system::{Stdio, Tcp};
 
 /// Unwrap a fallible handle, turning an `Err` into a fatal throw at the
 /// application boundary — a setup failure (e.g. connection refused) should
@@ -22,29 +22,29 @@ fn need(result: Result<Number, String>): Number with Exception {
 }
 
 /// Entry point that connects to a server and sends messages.
-pub fn run(): () with Stdio, Network, Exception {
+pub fn run(): () with Stdio, Tcp, Exception {
     Stdio::out!("Client: connecting to 127.0.0.1:9000...");
-    // Fallible Network ops return `Result<T, String>`; a failed connect is
+    // Fallible Tcp ops return `Result<T, String>`; a failed connect is
     // fatal here (via `need`), so the process exits non-zero.
-    let conn = need(Network::connect!(("127.0.0.1", 9000)));
+    let conn = need(Tcp::connect!(("127.0.0.1", 9000)));
 
-    let local = Network::local_addr!(conn).unwrap_or("unknown");
+    let local = Tcp::local_addr!(conn).unwrap_or("unknown");
     Stdio::out!("Client: connected from ".concat(local));
 
     // Send a message as Binary
     let message = string_to_binary("Hello from Ambient!");
     Stdio::out!("Client: sending ".concat(core::convert::to_string(message.length()).concat(" bytes...")));
-    Network::send!(conn, message);
+    Tcp::send!(conn, message);
 
     // Receive the echo (a receive error reads as an empty response).
-    let response = Network::receive!(conn).unwrap_or(Binary::from([]));
+    let response = Tcp::receive!(conn).unwrap_or(Binary::from([]));
     Stdio::out!("Client: received ".concat(core::convert::to_string(response.length()).concat(" bytes back")));
 
     // Send empty message to signal quit
     Stdio::out!("Client: sending empty message to quit...");
-    Network::send!(conn, Binary::from([]));
+    Tcp::send!(conn, Binary::from([]));
 
-    Network::close!(conn);
+    Tcp::close!(conn);
     Stdio::out!("Client: done")
 }
 

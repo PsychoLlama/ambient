@@ -13,7 +13,7 @@
 //! value (or migrate — see state.ab), `Task::ensure!` adopts a live task,
 //! and the listener is just a number in a cell.
 
-use core::system::{Drain, Live, Network, State, Stdio, Task};
+use core::system::{Drain, Live, Tcp, State, Stdio, Task};
 use self::{router, state, ticker};
 
 pub fn run(): () with State, Task {
@@ -25,7 +25,7 @@ pub fn run(): () with State, Task {
   // runtime's handle table; the cell holds an opaque handle to it.
   // Generation 1 binds it; generation 40 is still serving from it.
   // Nothing is ever handed off because nothing ever left the runtime.
-  State::init!("listener", () => need(Network::listen!(("127.0.0.1", 7878))));
+  State::init!("listener", () => need(Tcp::listen!(("127.0.0.1", 7878))));
 
   // Named tasks, reconciled by name. `ensure` never restarts a live
   // task; the bodies stay fresh because the task runtime re-resolves
@@ -45,14 +45,14 @@ pub fn run(): () with State, Task {
 /// arm is its graceful exit: an explicit `Task::drain!` or an
 /// undeclaring deploy lands here at the next blocking accept — never
 /// mid-request.
-pub fn acceptor(): () with Network, State, Live, Stdio {
+pub fn acceptor(): () with Tcp, State, Live, Stdio {
   with { Drain::requested() => Stdio::out!("acceptor: drained, goodbye") }
     handle serve_once()
 }
 
-fn serve_once(): () with Network, State, Live, Stdio {
+fn serve_once(): () with Tcp, State, Live, Stdio {
   let listener = State::get!("listener");
-  match Network::accept!(listener) {
+  match Tcp::accept!(listener) {
     Ok(conn) => {
       // THE late-bound point, spelled by the author. The task runtime
       // already re-resolves *this pass* per iteration; `latest!` here

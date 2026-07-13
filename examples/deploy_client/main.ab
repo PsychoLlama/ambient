@@ -13,10 +13,10 @@
 //!
 //!     DEPLOY_PACK=v2.ambient ambient run examples/deploy_client
 
-use core::system::{Env, FileSystem, Network, Stdio};
+use core::system::{Env, FileSystem, Tcp, Stdio};
 
-pub fn run(): () with Stdio, Network, FileSystem, Env, Exception {
-  let conn = need(Network::connect!(("127.0.0.1", port("SERVICE_PORT", 7910))));
+pub fn run(): () with Stdio, Tcp, FileSystem, Env, Exception {
+  let conn = need(Tcp::connect!(("127.0.0.1", port("SERVICE_PORT", 7910))));
 
   // Request one, against the generation that started the server.
   let first = request(conn, "hello");
@@ -24,14 +24,14 @@ pub fn run(): () with Stdio, Network, FileSystem, Env, Exception {
 
   // Ship the new generation, mid-conversation.
   let pack = read_pack(Env::var!("DEPLOY_PACK").unwrap_or("v2.ambient"));
-  let deploy_conn = need(Network::connect!(("127.0.0.1", port("DEPLOY_PORT", 7911))));
-  match Network::send!(deploy_conn, pack) {
+  let deploy_conn = need(Tcp::connect!(("127.0.0.1", port("DEPLOY_PORT", 7911))));
+  match Tcp::send!(deploy_conn, pack) {
     Ok(_) => (),
     Err(message) => Exception::throw!("pack send failed: ${message}"),
   };
   let report = receive_text(deploy_conn);
   Stdio::out!("report: ${report}");
-  match Network::close!(deploy_conn) {
+  match Tcp::close!(deploy_conn) {
     Ok(_) => (),
     Err(_) => (),
   };
@@ -41,7 +41,7 @@ pub fn run(): () with Stdio, Network, FileSystem, Env, Exception {
   let second = request(conn, "hello again");
   Stdio::out!("reply: ${second}");
 
-  match Network::close!(conn) {
+  match Tcp::close!(conn) {
     Ok(_) => (),
     Err(_) => (),
   };
@@ -49,8 +49,8 @@ pub fn run(): () with Stdio, Network, FileSystem, Env, Exception {
 }
 
 /// One framed request/reply round-trip.
-fn request(conn: Number, text: String): String with Network, Exception {
-  match Network::send!(conn, Binary::from_string(text)) {
+fn request(conn: Number, text: String): String with Tcp, Exception {
+  match Tcp::send!(conn, Binary::from_string(text)) {
     Ok(_) => (),
     Err(message) => Exception::throw!("send failed: ${message}"),
   };
@@ -58,8 +58,8 @@ fn request(conn: Number, text: String): String with Network, Exception {
 }
 
 /// One framed message, as text.
-fn receive_text(conn: Number): String with Network, Exception {
-  match Network::receive!(conn) {
+fn receive_text(conn: Number): String with Tcp, Exception {
+  match Tcp::receive!(conn) {
     Ok(data) => data.to_string().unwrap_or(""),
     Err(message) => Exception::throw!("receive failed: ${message}"),
   }

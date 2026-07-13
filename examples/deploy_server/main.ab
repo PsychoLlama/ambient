@@ -20,7 +20,7 @@
 //! generation pack is arbitrary code. Hashes are recomputed from the
 //! received bytes, but nothing here authenticates the sender.
 
-use core::system::{Env, Network, State, Task};
+use core::system::{Env, Tcp, State, Task};
 use self::{deploys, service};
 
 pub fn run(): () with State, Task, Env {
@@ -32,8 +32,8 @@ pub fn run(): () with State, Task, Env {
   // the deploy socket bound once, served by every generation after.
   let service_port = port("SERVICE_PORT", 7910);
   let deploy_port = port("DEPLOY_PORT", 7911);
-  State::init!("service-listener", () => need(Network::listen!(("127.0.0.1", service_port))));
-  State::init!("deploy-listener", () => need(Network::listen!(("127.0.0.1", deploy_port))));
+  State::init!("service-listener", () => need(Tcp::listen!(("127.0.0.1", service_port))));
+  State::init!("deploy-listener", () => need(Tcp::listen!(("127.0.0.1", deploy_port))));
 
   // Named tasks, reconciled by name: the conversation loop and the
   // deploy receiver. A deploy's entry re-declares both, so `ensure`

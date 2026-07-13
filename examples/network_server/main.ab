@@ -1,11 +1,11 @@
-//! Network server example using the new Network ability.
+//! Tcp server example using the new Tcp ability.
 //!
 //! This server demonstrates low-level TCP operations with
 //! message-oriented I/O (length-prefixed messages).
 //!
 //! Run with: `ambient run examples/network_server`
 
-use core::system::{Stdio, Network};
+use core::system::{Stdio, Tcp};
 
 /// Unwrap a fallible handle, turning an `Err` into a fatal throw at the
 /// application boundary — a failed bind or accept should abort the server,
@@ -21,36 +21,36 @@ fn need(result: Result<Number, String>): Number with Exception {
 }
 
 /// Entry point that starts a TCP server and echoes messages.
-pub fn run(): () with Stdio, Network, Exception {
+pub fn run(): () with Stdio, Tcp, Exception {
     Stdio::out!("Server: binding to 127.0.0.1:9000...");
-    // Fallible Network ops return `Result<T, String>`; a failed bind/accept
+    // Fallible Tcp ops return `Result<T, String>`; a failed bind/accept
     // is fatal here (via `need`).
-    let listener = need(Network::listen!(("127.0.0.1", 9000)));
+    let listener = need(Tcp::listen!(("127.0.0.1", 9000)));
 
     Stdio::out!("Server: waiting for connection...");
-    let conn = need(Network::accept!(listener));
+    let conn = need(Tcp::accept!(listener));
 
-    let peer = Network::peer_addr!(conn).unwrap_or("unknown");
+    let peer = Tcp::peer_addr!(conn).unwrap_or("unknown");
     Stdio::out!("Server: client connected from ".concat(peer));
 
     // Echo loop: receive message, send it back
     Stdio::out!("Server: entering echo loop (send empty message to quit)...");
     echo_loop(conn);
 
-    Network::close!(conn);
-    Network::close_listener!(listener);
+    Tcp::close!(conn);
+    Tcp::close_listener!(listener);
     Stdio::out!("Server: done")
 }
 
 /// Echo messages back to the client until an empty message is received.
-fn echo_loop(conn: Number): () with Stdio, Network {
+fn echo_loop(conn: Number): () with Stdio, Tcp {
     // A receive error reads as an empty message, which ends the loop.
-    let msg = Network::receive!(conn).unwrap_or(Binary::from([]));
+    let msg = Tcp::receive!(conn).unwrap_or(Binary::from([]));
     let len = msg.length();
 
     if len > 0 {
         Stdio::out!("Server: received ".concat(core::convert::to_string(len).concat(" bytes, echoing back...")));
-        Network::send!(conn, msg);
+        Tcp::send!(conn, msg);
         echo_loop(conn)
     } else {
         Stdio::out!("Server: received empty message, closing connection")

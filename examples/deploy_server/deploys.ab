@@ -1,31 +1,31 @@
 //! The deploy receiver: a generation pack in, a deploy report out.
 //!
 //! This is the whole remote-deploy server — ordinary Ambient code on
-//! the `Network` and `Deploy` abilities. The runtime does the real
+//! the `Tcp` and `Deploy` abilities. The runtime does the real
 //! work behind `apply!`: recompute hashes from the received bytes,
 //! validate (a rejection is the `Err` arm here — the running program
 //! is untouched and keeps serving), swap the name table, and re-run
 //! the entry as reconciliation.
 
-use core::system::{Deploy, Drain, Network, State, Stdio};
+use core::system::{Deploy, Drain, Tcp, State, Stdio};
 
-pub fn deploys(): () with Network, State, Deploy, Stdio {
+pub fn deploys(): () with Tcp, State, Deploy, Stdio {
   with { Drain::requested() => Stdio::out!("deploys: drained, goodbye") }
     handle serve_deploy()
 }
 
 /// One bounded pass: accept a sender, apply its pack, answer with the
 /// report.
-fn serve_deploy(): () with Network, State, Deploy, Stdio {
+fn serve_deploy(): () with Tcp, State, Deploy, Stdio {
   let listener = State::get!("deploy-listener");
-  match Network::accept!(listener) {
+  match Tcp::accept!(listener) {
     Ok(conn) => receive_pack(conn),
     Err(message) => Stdio::err!("deploy accept failed: ${message}"),
   }
 }
 
-fn receive_pack(conn: Number): () with Network, Deploy, Stdio {
-  match Network::receive!(conn) {
+fn receive_pack(conn: Number): () with Tcp, Deploy, Stdio {
+  match Tcp::receive!(conn) {
     Ok(pack) => {
       let report = match Deploy::apply!(pack, "run") {
         Ok(report) => {
@@ -37,14 +37,14 @@ fn receive_pack(conn: Number): () with Network, Deploy, Stdio {
           "rejected: ${problem}"
         },
       };
-      match Network::send!(conn, Binary::from_string(report)) {
+      match Tcp::send!(conn, Binary::from_string(report)) {
         Ok(_) => (),
         Err(message) => Stdio::err!("report send failed: ${message}"),
       }
     },
     Err(message) => Stdio::err!("pack receive failed: ${message}"),
   };
-  match Network::close!(conn) {
+  match Tcp::close!(conn) {
     Ok(_) => (),
     Err(message) => Stdio::err!("deploy close failed: ${message}"),
   }

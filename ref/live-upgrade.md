@@ -313,8 +313,8 @@ with { Drain::requested() => checkpoint_and_report() }
 Mechanics, as implemented: a `DrainSignal` is the per-computation
 handle a draining host holds (the raw hook the `Task` registry
 drives). Wiring a VM with `install_drain_natives` overrides the
-interruptible subset — `network_accept`, `network_receive`,
-`network_receive_raw`, `time_wait` — with variants that race the
+interruptible subset — `tcp_accept`, `tcp_receive`,
+`tcp_receive_raw`, `time_wait` — with variants that race the
 blocking operation against the signal;
 an interrupted native returns the engine's `VmError::Interrupted`
 carrying the anchors in `ambient_core::drain` (the Exception-anchor

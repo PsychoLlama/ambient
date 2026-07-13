@@ -7,7 +7,7 @@ Part of the [Ambient Language Reference](architecture.md).
 The authoritative declarations live in
 `crates/ambient-platform/src/platform.ab` — the platform bindings interface
 declares every core ability (Time, Random, Stdio, Log, FileSystem, Process,
-Env, Network, Execute) with doc comments on each method. See
+Env, Tcp, Execute) with doc comments on each method. See
 [abilities.md](abilities.md) for how those declarations become in-scope
 abilities, and [live-upgrade.md](live-upgrade.md) for the live-upgrade
 set (`Live`, `State`, `Task`, `Drain`, `Deploy`).

@@ -6,24 +6,24 @@
 //! Being freshly resolved is a property of how this function is
 //! *called*, not of anything it does.
 
-use core::system::{Network, State, Stdio};
+use core::system::{Tcp, State, Stdio};
 use self::handlers;
 
 /// Serve one connection: read the request, dispatch on its path, write
 /// a minimal HTTP response, close. (Today `core::system` stops at TCP,
 /// so the HTTP framing is hand-rolled — the upgrade mechanics are the
 /// point, not the protocol.)
-pub fn route(conn: Number): () with Network, State, Stdio {
+pub fn route(conn: Number): () with Tcp, State, Stdio {
   let response = match request_path(conn) {
     "/" => page("200 OK", handlers::home()),
     "/stats" => page("200 OK", handlers::stats_page()),
     _ => page("404 Not Found", "<h1>no such page</h1>"),
   };
-  match Network::send_raw!(conn, Binary::from_string(response)) {
+  match Tcp::send_raw!(conn, Binary::from_string(response)) {
     Ok(_) => (),
     Err(message) => Stdio::err!("send failed: ${message}"),
   };
-  match Network::close!(conn) {
+  match Tcp::close!(conn) {
     Ok(_) => (),
     Err(message) => Stdio::err!("close failed: ${message}"),
   }
@@ -31,8 +31,8 @@ pub fn route(conn: Number): () with Network, State, Stdio {
 
 /// The path of the request's first line ("GET /path HTTP/1.1"), or "/"
 /// when the request is unreadable.
-fn request_path(conn: Number): String with Network {
-  let request = match Network::receive_raw!(conn) {
+fn request_path(conn: Number): String with Tcp {
+  let request = match Tcp::receive_raw!(conn) {
     Ok(data) => data.to_string().unwrap_or(""),
     Err(_) => "",
   };

@@ -101,12 +101,12 @@ function, it ships in packs like any code: a perform site depends on its
 methods' implementations, so remote code always carries its fallback
 behavior with it.
 
-The platform abilities (Stdio, FileSystem, Network, ...) are themselves plain
+The platform abilities (Stdio, FileSystem, Tcp, ...) are themselves plain
 `ability` declarations — see "The `core::system` module" below. Handlers
 override defaults: `with ... handle` expressions and handler values
 intercept a perform before the default implementation runs. Abilities
 import across modules like any other item: `use
-pkg::b::SomeAbility;` (and `use core::system::Network;`) brings the ability into
+pkg::b::SomeAbility;` (and `use core::system::Tcp;`) brings the ability into
 scope under its bare name, and every ability is also reachable fully
 qualified with no import (`with pkg::b::SomeAbility`,
 `pkg::b::SomeAbility::method!(…)`) — the same rule as every other item.
@@ -148,7 +148,7 @@ fn read_config(path: Path): Config
 // Multiple abilities; platform abilities keep their namespace in
 // effect rows, and mix freely with local declarations like Log.
 fn fetch_and_log(url: Url): Response
-  with core::system::Network, Log
+  with core::system::Tcp, Log
 { ... }
 
 // No abilities (pure function)
@@ -340,7 +340,7 @@ function like any other code.
 
 Builtin abilities are not defined in engine code. The engine's only
 native ability is `Exception` (part of the language). Everything else —
-Stdio, Time, Random, Log, FileSystem, Network, Process, Execute, Live,
+Stdio, Time, Random, Log, FileSystem, Tcp, Process, Execute, Live,
 State —
 is declared once, in Ambient source, in the **platform bindings
 interface** (`crates/ambient-platform/src/platform/`).
@@ -393,7 +393,7 @@ separate ability-handler channel anymore:
 `ambient-platform` is one such embedder, packaged as a library: it ships
 `platform.ab` plus native implementations (std::fs, TCP via tokio, ...)
 exposed as `NativeRegistry` constructors (`stdio_natives`,
-`network_natives`, `execute_natives`, ... plus contract-satisfying
+`tcp_natives`, `execute_natives`, ... plus contract-satisfying
 `stub_natives` for compile-only paths). The engine crate does not depend
 on it — another crate can use the engine the same way with entirely
 different declarations and bindings. Effectful natives stay unreachable
@@ -444,8 +444,8 @@ value the caller matches on, exactly like any other data. They do not
 raise exceptions and do not kill the VM.
 
 ```ambient
-fn fetch_or_default(): Number with core::system::Network {
-  match core::system::Network::connect!(("10.0.0.1", 9)) {
+fn fetch_or_default(): Number with core::system::Tcp {
+  match core::system::Tcp::connect!(("10.0.0.1", 9)) {
     Ok(conn) => conn,
     Err(msg) => 0 - 1,          // substitute connection id
   }
@@ -453,7 +453,7 @@ fn fetch_or_default(): Number with core::system::Network {
 ```
 
 The migrated platform methods — `FileSystem::read`/`write`/`list`/... ,
-every `Network` method, `Stdio::read`, and `Env::cwd` — carry `Result`
+every `Tcp` method, `Stdio::read`, and `Env::cwd` — carry `Result`
 return types in `platform.ab`; their default implementations forward the
 `Result` the native produces. Infallible operations keep their bare types
 (`FileSystem::exists` returns `Bool`, `Stdio::out` returns `()`).

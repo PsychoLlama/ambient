@@ -8,7 +8,7 @@
 //! Run with: `ambient run examples/remote_client`
 //! (Make sure the remote_server is running first!)
 
-use core::system::{Stdio, Network, Execute, Log, Env};
+use core::system::{Stdio, Tcp, Execute, Log, Env};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Entry Point
@@ -47,12 +47,12 @@ fn need(result: Result<Number, String>): Number with Exception {
 }
 
 /// Entry point that connects to server and executes a function remotely.
-pub fn run(): () with Stdio, Network, Execute, Env, Exception {
+pub fn run(): () with Stdio, Tcp, Execute, Env, Exception {
     let addr = endpoint();
     Stdio::out!("Client: connecting to ".concat(addr.0).concat(":").concat(core::convert::to_string(addr.1)).concat("..."));
-    let conn = need(Network::connect!(addr));
+    let conn = need(Tcp::connect!(addr));
 
-    let local = Network::local_addr!(conn).unwrap_or("unknown");
+    let local = Tcp::local_addr!(conn).unwrap_or("unknown");
     Stdio::out!("Client: connected from ".concat(local));
 
     // The value we want to double remotely
@@ -68,7 +68,7 @@ pub fn run(): () with Stdio, Network, Execute, Env, Exception {
 
     Stdio::out!("Client: got result = ".concat(core::convert::to_string(result)));
 
-    Network::close!(conn);
+    Tcp::close!(conn);
     Stdio::out!("Client: done")
 }
 
@@ -77,7 +77,7 @@ pub fn run(): () with Stdio, Network, Execute, Env, Exception {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Send a function for remote execution and receive the result.
-fn send_and_receive<A>(conn: Number, arg: A, thunk: (A) -> Number with Log, Stdio): Number with Stdio, Network, Execute {
+fn send_and_receive<A>(conn: Number, arg: A, thunk: (A) -> Number with Log, Stdio): Number with Stdio, Tcp, Execute {
     let hash = core::protocol::closure_hash(thunk);
     let captures = core::protocol::serialize_value(arg);
 
@@ -87,15 +87,15 @@ fn send_and_receive<A>(conn: Number, arg: A, thunk: (A) -> Number with Log, Stdi
     let hash_bytes = core::protocol::serialize_value(hash);
     let hash_len = hash_bytes.length();
     let msg = Binary::from([1, hash_len]).concat(hash_bytes.concat(captures));
-    Network::send!(conn, msg);
+    Tcp::send!(conn, msg);
 
     // Wait for response
     handle_response(conn, thunk)
 }
 
 /// Handle server response.
-fn handle_response<A>(conn: Number, thunk: (A) -> Number with Log, Stdio): Number with Stdio, Network, Execute {
-    let response = Network::receive!(conn).unwrap_or(Binary::from([]));
+fn handle_response<A>(conn: Number, thunk: (A) -> Number with Log, Stdio): Number with Stdio, Tcp, Execute {
+    let response = Tcp::receive!(conn).unwrap_or(Binary::from([]));
 
     if response.length() == 0 {
         Stdio::out!("Client: connection closed");
@@ -119,7 +119,7 @@ fn handle_response<A>(conn: Number, thunk: (A) -> Number with Log, Stdio): Numbe
                 // Send Provide message with function bytecode
                 let data = Execute::get_functions!(hashes);
                 let provide_msg = Binary::from([3]).concat(data);
-                Network::send!(conn, provide_msg);
+                Tcp::send!(conn, provide_msg);
 
                 Stdio::out!("Client: sent function bytecode");
 

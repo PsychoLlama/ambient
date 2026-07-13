@@ -10,7 +10,7 @@ Client                          Server
   |<-- Result(value) -------------|
 ```
 
-Remote execution servers are written in Ambient itself on the `Network`
+Remote execution servers are written in Ambient itself on the `Tcp`
 (TCP) and `Execute` (run-by-hash) abilities; the message framing above is
 a convention of the example programs, not engine code. Code ships as
 canonical object packs — receivers recompute every hash from the bytes.
@@ -24,7 +24,7 @@ two ways:
   ability means registering the natives its default implementations
   call. The CLI grants Stdio (and Log through it, since Log's defaults
   perform Stdio) — shipped code can print/log on the executing host but
-  has no FileSystem, Network, Time, Random, or recursive Execute:
+  has no FileSystem, Tcp, Time, Random, or recursive Execute:
   ungranted performs run their default implementations into stub
   natives that raise a loud, catchable "not wired" exception. This is
   the wasm-style split: the engine is pure; hosts bind capabilities at
@@ -68,7 +68,7 @@ it through the same deploy core as the dev loop and the REPL: a
 validation failure is the perform's `Err` value and the previous
 generation keeps running untouched. Like Execute, the transport is the
 program's own business — `examples/deploy_server` is a working server
-written on `Network` + `Deploy`, upgraded mid-conversation by its
+written on `Tcp` + `Deploy`, upgraded mid-conversation by its
 paired client.
 
 **Trust:** whoever can reach a `Deploy::apply!` perform owns the
