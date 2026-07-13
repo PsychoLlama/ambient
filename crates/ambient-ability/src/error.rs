@@ -3,7 +3,7 @@
 use crate::value::Value;
 
 /// A single frame in a runtime stack trace.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StackTraceFrame {
     /// Name of the function, if known from debug info.
     pub function_name: Option<String>,
@@ -24,28 +24,36 @@ pub struct StackTraceFrame {
     pub bytecode_offset: usize,
 }
 
+impl StackTraceFrame {
+    /// The frame's short content-hash prefix (first 8 hex chars) — the
+    /// stable identity of the function the frame is running, independent of
+    /// debug info. This is what makes an uncaught trace meaningful even for
+    /// stripped code: every frame names a content-addressed function.
+    #[must_use]
+    pub fn short_hash(&self) -> String {
+        self.function_hash.to_string()[..8].to_string()
+    }
+}
+
 impl std::fmt::Display for StackTraceFrame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Format: "  at function_name (file.ab:10:5)"
+        // Format: "  at function_name <a1b2c3d4> (file.ab:10:5)".
+        // The short content-hash prefix is always shown — it is the frame's
+        // stable identity; the name and location ride along when debug info
+        // is present.
         write!(f, "  at ")?;
 
         if let Some(name) = &self.function_name {
-            write!(f, "{name}")?;
-        } else {
-            // Show abbreviated hash if no name
-            write!(f, "<{}>", &self.function_hash.to_string()[..8])?;
+            write!(f, "{name} ")?;
         }
+        write!(f, "<{}>", self.short_hash())?;
 
         match (&self.source_file, self.line, self.column) {
-            (Some(file), Some(line), Some(col)) => {
-                write!(f, " ({file}:{line}:{col})")
-            }
-            (Some(file), Some(line), None) => {
-                write!(f, " ({file}:{line})")
-            }
-            (Some(file), None, None) => {
-                write!(f, " ({file})")
-            }
+            (Some(file), Some(line), Some(col)) => write!(f, " ({file}:{line}:{col})"),
+            (Some(file), Some(line), None) => write!(f, " ({file}:{line})"),
+            (Some(file), None, None) => write!(f, " ({file})"),
+            (None, Some(line), Some(col)) => write!(f, " ({line}:{col})"),
+            (None, Some(line), None) => write!(f, " ({line})"),
             _ => Ok(()),
         }
     }
@@ -479,6 +487,9 @@ mod tests {
         let display = format!("{frame}");
         assert!(display.contains("my_function"));
         assert!(display.contains("main.ab:10:5"));
+        // The short content-hash prefix rides alongside the name.
+        assert!(display.contains(&format!("<{}>", &blake3::hash(b"test").to_string()[..8])));
+        assert_eq!(frame.short_hash(), blake3::hash(b"test").to_string()[..8]);
     }
 
     #[test]
