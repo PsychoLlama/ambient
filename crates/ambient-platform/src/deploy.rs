@@ -308,7 +308,7 @@ pub struct PlanReport {
 /// table. The single classification both the read-only plan diff
 /// ([`DeployRuntime::diff_bindings`]) and the mutating swap
 /// ([`DeployRuntime::swap_names`]) key off, so the two can never drift.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum NameChange {
     /// Bound to the identical hash — same behavior, same type.
     Unchanged,
@@ -965,3 +965,12 @@ fn same_signature(prev: &Binding, next: &Binding) -> bool {
         _ => false,
     }
 }
+
+// The rebinding rule is mirrored in the engine (`disk_store::classify_binding`,
+// for `ambient store diff`) because the engine is upstream of this crate and
+// cannot import `classify_name`. This test pins the two implementations
+// byte-for-byte, so a change to one that isn't reflected in the other fails
+// loudly. Kept in an external file so `deploy.rs` stays within its line budget.
+#[cfg(test)]
+#[path = "deploy_classify_tests.rs"]
+mod deploy_classify_tests;

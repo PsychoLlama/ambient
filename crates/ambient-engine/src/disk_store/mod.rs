@@ -887,6 +887,12 @@ pub use snapshot::{
 mod tags;
 pub use tags::is_valid_tag_name;
 
+mod diff;
+pub use diff::{
+    BindingChange, BindingDiff, ModuleChange, ModuleDiff, ObjectDiff, SnapshotDiff,
+    classify_binding, diff_manifests,
+};
+
 #[cfg(test)]
 mod tests;
 
@@ -895,3 +901,6 @@ mod snapshot_tests;
 
 #[cfg(test)]
 mod tags_tests;
+
+#[cfg(test)]
+mod diff_tests;
