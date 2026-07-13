@@ -207,6 +207,27 @@ fn await_at_least(h: &Harness, cell: &str, expected: f64) {
     }
 }
 
+/// Poll the retirement trace until `generation` has retired. Retirement
+/// is permanent, so this is a monotonic readiness signal: the exact
+/// condition the upgrade tests assert, not a cell-count proxy for it.
+fn await_retired(h: &Harness, generation: u64) -> ambient_platform::retire::RetirementReport {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let report = h.core.retirement();
+        if report.retired.contains(&generation) {
+            return report;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for generation {generation} to retire: \
+             current={:?}, pinned={:?}",
+            report.current,
+            report.pinned
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
 /// Poll until no task remains.
 fn await_no_tasks(h: &Harness) {
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -328,11 +349,15 @@ fn a_named_task_does_not_pin_the_generation_that_ensured_it() {
     await_at_least(&h, "count", 1.0);
 
     deploy(&h, &compile(&v2));
-    // Wait until passes of the new generation have run: the rebound
-    // body increments by 2, and every pass re-stamps the resolution.
-    await_at_least(&h, "count", 20.0);
-
-    let report = h.core.retirement();
+    // Wait for the actual upgrade, not a cell-count proxy: `count` is
+    // *not* a synchronization signal here. Generation 1's body keeps
+    // ticking `count` up (by 1) the whole time the — comparatively slow
+    // — `compile(&v2)` above is in flight, so by the time the swap lands
+    // the count has long passed any fixed threshold on generation-1 code
+    // alone. Poll the retirement trace instead: generation 1 retires the
+    // moment the task's first post-swap pass re-stamps its resolution to
+    // generation 2, and retirement is permanent, so this is monotonic.
+    let report = await_retired(&h, 1);
     assert_eq!(report.current, Some(2));
     assert!(
         report.retired.contains(&1),
