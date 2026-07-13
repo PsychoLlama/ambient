@@ -647,11 +647,11 @@ fn rename_error(id: RequestId, message: &str) -> Response {
 /// Whether `target` can be renamed (before a new name is known).
 ///
 /// Locals are renameable (except `self`); a module item is renameable only
-/// when it is a function or const defined in a package module — the symbols
-/// whose references the occurrence index captures completely. Types, enums,
-/// traits, abilities, and anything from core/platform are rejected: their
-/// references (type positions, variant constructors) aren't indexed yet, so a
-/// partial rename would break the code.
+/// when it is a function, const, or enum variant in a package module — the
+/// symbols the occurrence index captures completely (a variant's spellings all
+/// collapse onto its `[Enum, Variant]` identity, distinct from the enum's).
+/// Types, enums, traits, abilities, method dispatch, and core/platform items
+/// are rejected: their references aren't fully indexed, so rename would break.
 fn is_renameable_target(state: &ServerState, target: &SymbolTarget) -> bool {
     match target {
         SymbolTarget::Local { name, .. } => name.as_ref() != "self",
@@ -670,7 +670,7 @@ fn is_renameable_target(state: &ServerState, target: &SymbolTarget) -> bool {
                     .get(module)
                     .and_then(|info| info.exports.get(name.as_ref()))
                     .map(|export| export.kind),
-                Some(ExportKind::Function | ExportKind::Const)
+                Some(ExportKind::Function | ExportKind::Const | ExportKind::EnumVariant)
             )
         }
     }

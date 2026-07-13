@@ -290,3 +290,71 @@ fn run(): Money { Money { cents: 1 } }
 
     fx.client.shutdown();
 }
+
+// Cross-module variant *references* barely type-check today (a foreign
+// `m::Variant` needs the variant name known locally — a pre-existing checker
+// quirk), so the round-trip fixture stays same-module to keep the post-rename
+// package clean. Cross-module variant find-references is covered at the
+// occurrence-index level in `ambient-analysis` instead.
+const SHAPES: &str = "\
+unique(A1B2C3D4-0000-0000-0000-0000000000C1) enum Shape { Circle(Number), Square }
+fn mk(): Shape { Circle(2.0) }
+fn area(s: Shape): Number { match s { Circle(n) => n, Square => 0 } }
+";
+
+#[test]
+fn rename_enum_variant_roundtrips() {
+    // Renaming a variant rewrites its declaration, every constructor, and every
+    // pattern — but never the enum, whose identity is distinct.
+    let mut fx = Fixture::new(&[("src/main.ab", SHAPES)], "src/main.ab");
+
+    // Rename `Circle` from the `Circle(2.0)` construction site (the 2nd
+    // occurrence, after the declaration).
+    let uri = fx.uri("src/main.ab");
+    let (line, ch) = pos_of(SHAPES, "Circle", 1);
+    let edit = fx
+        .client
+        .rename(&uri, line, ch, "Round")
+        .expect("variant rename produced an edit");
+    apply_workspace_edit(&edit);
+
+    let main = fx.read("src/main.ab");
+    assert!(
+        main.contains("Round(Number)"),
+        "declaration renamed: {main:?}"
+    );
+    assert!(main.contains("Round(2.0)"), "constructor renamed: {main:?}");
+    assert!(main.contains("Round(n)"), "pattern renamed: {main:?}");
+    assert!(
+        main.contains("enum Shape"),
+        "the enum name is untouched: {main:?}"
+    );
+    assert!(!main.contains("Circle"), "old name gone: {main:?}");
+
+    fx.assert_package_clean();
+    fx.client.shutdown();
+}
+
+#[test]
+fn prepare_rename_allows_a_variant_rejects_the_enum() {
+    let mut fx = Fixture::new(&[("src/main.ab", SHAPES)], "src/main.ab");
+    let shapes_uri = fx.uri("src/main.ab");
+
+    // On the `Circle` variant declaration: renameable.
+    let (line, ch) = pos_of(SHAPES, "Circle", 0);
+    match fx.client.prepare_rename(&shapes_uri, line, ch) {
+        Some(PrepareRenameResponse::Range(range)) => {
+            assert_eq!(range.end.character - range.start.character, 6, "`Circle`");
+        }
+        other => panic!("expected a rename range on a variant, got: {other:?}"),
+    }
+
+    // On the `Shape` enum name: gated off (its references aren't fully indexed).
+    let (line, ch) = pos_of(SHAPES, "Shape", 0);
+    assert!(
+        fx.client.prepare_rename(&shapes_uri, line, ch).is_none(),
+        "enum rename is gated off"
+    );
+
+    fx.client.shutdown();
+}
