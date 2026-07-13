@@ -216,9 +216,10 @@ only free functions it keeps are the two with no method form: `List::range`
 
 ## Prelude Traits
 
-The operator traits (`Add`, `Sub`, `Mul`, `Div`, `Mod`, `Eq`, `Ord`) are
-part of the prelude: they are always in scope, and implementing one enables
-the corresponding operator. They are ordinary declarations in `core::traits`,
+The operator traits (`Add`, `Sub`, `Mul`, `Div`, `Mod`, `Eq`, `Ord`) plus
+`Show` are part of the prelude: they are always in scope, and implementing an
+operator trait enables the corresponding operator. They are ordinary
+declarations in `core::traits`,
 re-exported onto the prelude (`pub use core::traits::{Add, …, Ord};` in
 `core_lib/prelude.ab`) like every other global — there is no separate
 hardcoded copy. What _is_ special is their identity: each claims a reserved
@@ -239,6 +240,16 @@ These impls exist to satisfy trait bounds — `min_of(7, 3)` works because
 Number has an Ord dictionary — while concrete operator uses on primitives
 (`1 + 2`) always compile to the builtin opcodes, never through the impls
 (whose bodies _are_ those builtins).
+
+`Show { fn show(self): String }` is a general-purpose stringifier — the
+minimum a value needs to be rendered. It has no operator either, but unlike
+`Default` it _is_ prelude-exported, because it is the bound on
+`Exception::throw<E: Show>` (see [abilities.md](abilities.md#error-handling)):
+every thrown value must be renderable, so an uncaught or logging handler
+always has a string. `core::traits` provides `impl Show` for `String`
+(renders as itself), `Number`, `Bool`, and `Binary` (via the host
+`to_string`); implement it on your own types to throw them. It claims the
+reserved uuid after the operator block (`TRAIT_SHOW_UUID`, `FFFF…-0018`).
 
 `Default` lives in `core::traits` too but is _not_ in the prelude: it has no
 operator that desugars to it, so it is standard-library convenience rather
