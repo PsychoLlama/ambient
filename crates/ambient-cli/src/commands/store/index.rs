@@ -87,28 +87,34 @@ pub fn ls(store: &DiskStore, kinds: Option<&str>) -> Result<()> {
         .into_iter()
         .filter(|e| kind_matches(e.item.kind, &filter))
         .collect();
-    if entries.is_empty() {
+
+    // Every row: a kind label, an identity (short hash / short uuid), and the
+    // full name. Structured items first (typed), then — only when unfiltered —
+    // any name binding the index doesn't cover (content dispatch symbols,
+    // lambdas), tagged with a bare kind so `ls` never *loses* a binding the
+    // flat names file carries.
+    let mut rows: Vec<(String, String, String)> = entries
+        .iter()
+        .map(|e| (e.item.kind.label().to_string(), e.identity(), e.fqn()))
+        .collect();
+    if filter.is_empty() {
+        let indexed: std::collections::HashSet<String> = entries.iter().map(|e| e.fqn()).collect();
+        for (name, hash) in store.names()? {
+            if !indexed.contains(&name) {
+                rows.push(("—".to_string(), short_bytes(hash.as_bytes()), name));
+            }
+        }
+    }
+    rows.sort_by(|a, b| a.2.cmp(&b.2));
+
+    if rows.is_empty() {
         println!("(no matching items)");
         return Ok(());
     }
-
-    let kind_width = entries
-        .iter()
-        .map(|e| e.item.kind.label().len())
-        .max()
-        .unwrap_or(0);
-    let id_width = entries
-        .iter()
-        .map(|e| e.identity().len())
-        .max()
-        .unwrap_or(0);
-    for entry in &entries {
-        println!(
-            "{:<kind_width$}  {:<id_width$}  {}",
-            entry.item.kind.label(),
-            entry.identity(),
-            entry.fqn(),
-        );
+    let kind_width = rows.iter().map(|(k, _, _)| k.len()).max().unwrap_or(0);
+    let id_width = rows.iter().map(|(_, id, _)| id.len()).max().unwrap_or(0);
+    for (kind, id, name) in &rows {
+        println!("{kind:<kind_width$}  {id:<id_width$}  {name}");
     }
     Ok(())
 }

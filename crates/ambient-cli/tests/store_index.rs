@@ -115,6 +115,23 @@ fn show_of_a_function_adds_a_source_location_then_disassembles() {
 }
 
 #[test]
+fn ls_unfiltered_lists_typed_items_and_retains_dispatch_symbols() {
+    let dir = package();
+    run(dir.path());
+
+    let out = stdout(&store(dir.path(), &["ls"]));
+    // Typed items appear with their kind.
+    assert!(out.contains("struct  "), "kind column present: {out}");
+    assert!(out.contains("::Shape"), "type listed: {out}");
+    // Content dispatch symbols (<uuid>::method) are not structured items but
+    // must still be listed (with a bare kind), so `ls` never loses a binding.
+    assert!(
+        out.lines().any(|l| l.starts_with('—')),
+        "dispatch-symbol rows retained under a bare kind"
+    );
+}
+
+#[test]
 fn ls_kinds_filters_by_kind_and_namespace() {
     let dir = package();
     run(dir.path());
