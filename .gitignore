@@ -5,6 +5,8 @@
 /result-*
 # Build artifacts (compiled bytecode, symbol database)
 build/
+# ...but `ambient_engine::build` is a source module directory, not an artifact.
+!crates/ambient-engine/src/build/
 # Package-local content-addressed stores and compiled artifacts
 .ambient/
 *.ambient

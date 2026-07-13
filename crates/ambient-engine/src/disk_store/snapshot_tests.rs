@@ -30,6 +30,7 @@ fn sample_manifest(objects: &[blake3::Hash]) -> BuildManifest {
         package_name: "demo".to_string(),
         dispatch_surface_hash: [7u8; 32],
         natives_contract_hash: [9u8; 32],
+        core_cache_key: [11u8; 32],
         modules: vec![
             ManifestModule {
                 module: "core::primitives".to_string(),
@@ -42,6 +43,11 @@ fn sample_manifest(objects: &[blake3::Hash]) -> BuildManifest {
                     "core::primitives::sqrt".to_string(),
                     "(Number) -> Number".to_string(),
                 )],
+                cache_key: [0u8; 32],
+                consumed_links: vec![],
+                migrations: vec![],
+                lambda_parents: vec![],
+                entry_point: None,
             },
             ManifestModule {
                 module: "workspace::demo::math".to_string(),
@@ -51,6 +57,11 @@ fn sample_manifest(objects: &[blake3::Hash]) -> BuildManifest {
                 objects: vec![],
                 names: vec![("workspace::demo::math::gcd".to_string(), h(1))],
                 signatures: vec![],
+                cache_key: [5u8; 32],
+                consumed_links: vec![("core::primitives::sqrt".to_string(), h(0))],
+                migrations: vec![("cell".to_string(), "A".to_string(), "B".to_string())],
+                lambda_parents: vec![(h(1), "workspace::demo::math::gcd".to_string())],
+                entry_point: Some(h(1)),
             },
         ],
     }

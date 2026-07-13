@@ -1,12 +1,7 @@
-//! Package building.
-//!
-//! This is the *single* package pipeline: load every module, register the
-//! core/platform/user modules in one registry, canonicalize references
-//! (the resolve pass), order modules by their resolved dependencies, and
-//! check + compile each one. `ambient run`, `ambient compile`, and
-//! `ambient dev` are all frontends over [`build_package`]; behavior that
-//! must differ between them is expressed in [`BuildOptions`], never by
-//! forking the pipeline.
+//! The cold compile pipeline: the register → resolve → check → compile
+//! machinery shared by `build_package` and the public core/declaration/REPL
+//! entry points. Extracted from `build.rs` so the orchestrator (`mod.rs`) and
+//! the incremental cache (`cache.rs`) each stay within the file-size budget.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
@@ -16,441 +11,16 @@ use std::sync::Arc;
 use crate::ast::Module;
 use crate::compiler::CompiledModule;
 use crate::fqn::NameKey;
-use crate::infer::BoxedTypeError;
 use crate::module_env::ModuleEnv;
 use crate::module_path::ModulePath;
 use crate::module_registry::ModuleRegistry;
 use crate::package::{LoadedModule, Package};
 
-/// Progress callback for reporting build progress.
-///
-/// Called with (module name, current, total) for each module.
-pub type ProgressCallback<'a> = &'a dyn Fn(&str, usize, usize);
-
-/// A parse failure the build can render with source context: message, byte
-/// span, and optional note.
-///
-/// Engine-local so `ambient-engine` needn't depend on the parser (the
-/// dependency runs the other way). The caller's parse function fills this
-/// from `ambient_parser::ParseError`, and the CLI converts it back to a
-/// rendered diagnostic — the same spanned rendering `ambient check` gives.
-#[derive(Debug, Clone)]
-pub struct ParseFailure {
-    /// The primary message.
-    pub message: String,
-    /// Byte offset range in the module source.
-    pub span: (u32, u32),
-    /// Optional context/note.
-    pub context: Option<String>,
-}
-
-/// Parse function type for parsing source code into an AST.
-pub type ParseFn = fn(&str) -> Result<Module, ParseFailure>;
-
-/// Knobs for a package build.
-#[derive(Default)]
-pub struct BuildOptions<'a> {
-    /// The embedder's `core::system` declaration tree (the platform
-    /// bindings interface: the directory-module root plus its per-ability
-    /// submodules). Empty disables platform registration. Each module
-    /// compiles like a core module — its ability method bodies are the
-    /// default implementations unhandled performs run — so its `extern fn`
-    /// declarations must be bound by [`Self::natives`].
-    pub platform_modules: &'a [crate::core_library::DeclModule<'a>],
-    /// Embedder native bindings for `extern fn` declarations in the
-    /// platform and *user* modules (core's own bindings attach
-    /// automatically). The build enforces the full contract: every
-    /// declaration bound, every binding declared.
-    pub natives: Option<&'a crate::natives::NativeRegistry>,
-    /// Optional callback for reporting per-module progress.
-    pub progress: Option<ProgressCallback<'a>>,
-}
-
-/// The per-module compile products a build snapshot records: everything
-/// keyed to one module that the merged [`CompiledModule`] can no longer
-/// attribute back to its source module. Collected during the per-module
-/// compile loops (core, platform, and package) and keyed, like
-/// [`BuildResult::interfaces`], by the module's canonical identity string
-/// (`core::collections::list`, `workspace::pkg::utils`).
-///
-/// Phase 2 of incremental compilation: the manifest folds these together
-/// with each module's interface/AST hash. Purely additive — nothing in the
-/// compile pipeline reads it.
-#[derive(Debug, Clone, Default)]
-pub struct ModuleBuildOutput {
-    /// Canonical object hashes this module produced (redirect stubs
-    /// excluded — they are derived from their group), sorted.
-    pub objects: Vec<blake3::Hash>,
-    /// This module's fully-qualified name → hash bindings (functions and
-    /// consts), as the merged store index carries them.
-    pub names: BTreeMap<String, blake3::Hash>,
-    /// This module's fully-qualified name → canonical signature renderings.
-    pub signatures: BTreeMap<String, String>,
-    /// The resolve-pass dependency modules, as canonical identity strings.
-    pub deps: Vec<String>,
-}
-
-/// Result of building a package.
-pub struct BuildResult {
-    /// The compiled module containing all functions.
-    pub compiled: CompiledModule,
-    /// Number of modules compiled.
-    pub module_count: usize,
-    /// Package name.
-    pub package_name: String,
-    /// The canonical [`NameKey`] linking table for the whole build (core +
-    /// package). Consumers that compile *additional* modules against this
-    /// build — the REPL, notably — pass it as `imported_hashes`.
-    pub link_table: HashMap<NameKey, blake3::Hash>,
-    /// The content-keyed interface of every registered module (core,
-    /// platform, and package), keyed by the module's canonical identity
-    /// string. Phase 1 of incremental compilation: computed from the
-    /// resolved ASTs. Purely additive — nothing in the compile pipeline
-    /// reads it yet.
-    pub interfaces: BTreeMap<String, crate::module_interface::ModuleInterfaceSummary>,
-    /// The build-global dispatch-surface hash: a fold of every module's
-    /// impl + ability sections (the coherence/dispatch channel).
-    pub dispatch_surface_hash: blake3::Hash,
-    /// Per-module compile products (objects, name bindings, signatures,
-    /// dependency sets), keyed like [`Self::interfaces`]. Phase 2: the raw
-    /// material the persisted build manifest folds together with each
-    /// module's interface. Additive — nothing above reads it.
-    pub module_outputs: BTreeMap<String, ModuleBuildOutput>,
-    /// A deterministic hash of the whole native-binding surface the build
-    /// saw (core plus embedder), from
-    /// [`NativeRegistry::contract_hash`](crate::natives::NativeRegistry::contract_hash).
-    /// The manifest records it so a drifted host table is a cache miss.
-    pub natives_contract_hash: blake3::Hash,
-}
-
-/// Error during package building.
-///
-/// The `Parse` and `TypeCheck` variants carry the offending module's source
-/// and file path alongside structured (spanned) errors, so a frontend can
-/// render them with source context — byte-identically to `ambient check`.
-/// Message-only failures (opening the package, codegen, embedded
-/// core/platform modules) have no user source to point at and carry just a
-/// message.
-#[derive(Debug)]
-pub enum BuildError {
-    /// Failed to open the package.
-    PackageOpen(String),
-    /// A user module failed to parse. The failure is boxed to keep the
-    /// `Result`'s error variant small.
-    Parse {
-        module: String,
-        path: PathBuf,
-        source: String,
-        error: Box<ParseFailure>,
-    },
-    /// A user module failed to type-check.
-    TypeCheck {
-        module: String,
-        path: PathBuf,
-        source: String,
-        errors: Vec<BoxedTypeError>,
-    },
-    /// Codegen failed, or an embedded core/platform module failed to build.
-    /// Compiler-internal: no user source to render against.
-    Compile { module: String, error: String },
-    /// The package's modules form an import cycle. The module dependency
-    /// graph is a hard DAG (see [`crate::module_cycles`]); the message is the
-    /// canonical rendering the analysis pipeline reports too. Spanless: the
-    /// cycle is a package-structural fact, not a single-site error.
-    ImportCycle { message: String },
-}
-
-impl std::fmt::Display for BuildError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::PackageOpen(msg) => write!(f, "failed to open package: {msg}"),
-            Self::Parse { module, error, .. } => {
-                write!(f, "parse error in {module}: {}", error.message)
-            }
-            Self::TypeCheck { module, errors, .. } => {
-                let joined = errors
-                    .iter()
-                    .map(|e| e.kind.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "type errors in {module}: {joined}")
-            }
-            Self::Compile { module, error } => write!(f, "compile error in {module}: {error}"),
-            Self::ImportCycle { message } => write!(f, "{message}"),
-        }
-    }
-}
-
-impl std::error::Error for BuildError {}
-
-/// Build an Ambient package.
-///
-/// Pipeline:
-/// 1. Load and parse every `.ab` file under `src/`.
-/// 2. Register core modules (compiling them), the `core::system`
-///    declaration module, and every package module in one [`ModuleRegistry`].
-/// 3. Run the resolve pass over each package module: canonicalize every
-///    cross-module reference and collect the true dependency graph.
-/// 4. Compile modules in dependency order, linking canonical names to
-///    content-addressed hashes.
-///
-/// # Errors
-///
-/// Returns an error if:
-/// - The package cannot be opened (missing manifest, invalid format)
-/// - A module fails to parse
-/// - Type checking fails
-/// - Compilation fails
-#[allow(clippy::arc_with_non_send_sync, clippy::too_many_lines)]
-pub fn build_package(
-    path: &Path,
-    parse: ParseFn,
-    options: &BuildOptions<'_>,
-) -> Result<BuildResult, BuildError> {
-    // Open package (validates manifest and entry point).
-    let mut pkg = Package::open(path).map_err(|e| BuildError::PackageOpen(e.to_string()))?;
-
-    let package_name = pkg.manifest().name.clone();
-
-    // Load every module in the package. Loading everything (rather than
-    // chasing `use` statements from `main`) is what makes directory
-    // namespaces and inline `pkg::a::b::f()` references work: the module
-    // graph is defined by the filesystem, and the *dependency* graph by
-    // the resolve pass below.
-    load_all_modules(&mut pkg, parse)?;
-
-    let mut registry = ModuleRegistry::new();
-    // Scope every user item's `Fqn` under the package name (`workspace::<name>`);
-    // core modules are `Builtin`-scoped regardless. Set before any
-    // resolve/check/link so all three mint identical identities.
-    registry.set_workspace_name(package_name.clone());
-
-    // Core modules compile first: they are ordinary Ambient modules and
-    // every user module may reference them. Core registration only needs a
-    // string on failure (a parse error there is a compiler bug, not user
-    // error), so adapt the richer `ParseFn`.
-    let parse_str = |s: &str| parse(s).map_err(|e| e.message);
-
-    // Attach embedder native bindings before anything compiles (core's own
-    // bindings attach inside `register_core_modules`).
-    if let Some(natives) = options.natives {
-        registry.natives_mut().merge(natives);
-    }
-
-    let mut all_compiled = CompiledModule::new();
-    let mut module_function_hashes: HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>> =
-        HashMap::new();
-    // Per-module compile products for the build snapshot (Phase 2), keyed by
-    // canonical module identity. Filled by every per-module loop below.
-    let mut module_outputs: BTreeMap<String, ModuleBuildOutput> = BTreeMap::new();
-    let core_compiled = compile_core_modules_collecting(
-        &mut registry,
-        &mut module_function_hashes,
-        &mut module_outputs,
-        parse_str,
-    )?;
-    all_compiled.merge(&core_compiled);
-
-    // Register and compile the embedder-supplied `core::system` module so
-    // its abilities are in scope fully-qualified (`core::system::Tcp`)
-    // and importable (`use core::system::Tcp;`), and its default
-    // implementations exist for perform sites to link against.
-    if !options.platform_modules.is_empty() {
-        let platform_compiled = compile_declaration_modules_collecting(
-            &mut registry,
-            &mut module_function_hashes,
-            &mut module_outputs,
-            options.platform_modules,
-            parse_str,
-        )?;
-        all_compiled.merge(&platform_compiled);
-    }
-
-    // Register every package module, then canonicalize. Resolution needs
-    // all modules registered (imports may point anywhere in the package);
-    // the resolved ASTs then *replace* the raw ones in the registry so
-    // cross-module signature hydration sees canonical references too.
-    for module in pkg.all_modules() {
-        registry.register(&module.path, Arc::new(module.ast.clone()));
-    }
-    let mut deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut paths_by_key: BTreeMap<String, ModulePath> = BTreeMap::new();
-    // The same resolve-pass dependency sets, keyed and rendered by canonical
-    // module identity (matching `interfaces`/`module_outputs` keys) so the
-    // snapshot can cross-reference a dep's interface hash.
-    let mut dep_ids: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for module in pkg.all_modules_mut() {
-        // Block-use failures surface as diagnostics when the module
-        // checks (the pass runs again there); only the dependency set
-        // matters here.
-        let outcome = crate::resolve::resolve_module(&mut module.ast, &module.path, &registry);
-        // Reconcile the `Fqn`-based dependency edges with this
-        // `ModulePath`-keyed ordering graph: a `ModuleId` renders as
-        // `workspace::<pkg>::a::top`, but the graph keys on `a::top`.
-        deps.insert(
-            module.path.to_string(),
-            outcome
-                .deps
-                .iter()
-                .map(crate::fqn::ModuleId::module_path_string)
-                .collect(),
-        );
-        dep_ids.insert(
-            registry.module_id(&module.path).to_string(),
-            outcome.deps.iter().map(ToString::to_string).collect(),
-        );
-        paths_by_key.insert(module.path.to_string(), module.path.clone());
-    }
-    for module in pkg.all_modules() {
-        registry.register(&module.path, Arc::new(module.ast.clone()));
-    }
-
-    // The module dependency graph is a hard DAG: reject import cycles with a
-    // clear diagnostic instead of the old arbitrary-order compile that
-    // surfaced as confusing link failures at the call sites. The analysis
-    // pipeline reports the same rendering per participating module, so
-    // `ambient run`/`compile` and `ambient check`/LSP agree.
-    if let Some(cycle) = crate::module_cycles::detect_import_cycles(&deps).first() {
-        return Err(BuildError::ImportCycle {
-            message: cycle.describe(),
-        });
-    }
-
-    // Every module and every native binding is now registered: enforce the
-    // extern-fn contract in both directions before compiling anything, so a
-    // drifted host table or an unbound user declaration reports completely
-    // and up front.
-    let violations = registry.verify_native_contract();
-    if !violations.is_empty() {
-        let joined = violations
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join("; ");
-        return Err(BuildError::Compile {
-            module: "extern bindings".to_string(),
-            error: joined,
-        });
-    }
-
-    // Compile in dependency order (dependencies first).
-    let module_order = compilation_order(&deps);
-    let total_modules = module_order.len();
-
-    for (idx, module_key) in module_order.iter().enumerate() {
-        let module_path = paths_by_key
-            .get(module_key)
-            .cloned()
-            .ok_or_else(|| BuildError::PackageOpen(format!("module not found: {module_key}")))?;
-        let module = pkg
-            .get_module(&module_path)
-            .ok_or_else(|| BuildError::PackageOpen(format!("module not found: {module_path}")))?;
-        let file_path = pkg.module_file_path(&module_path);
-
-        // Report progress
-        if let Some(ref cb) = options.progress {
-            cb(module_key, idx + 1, total_modules);
-        }
-
-        let compiled = compile_loaded_module_with_registry(
-            module,
-            &file_path,
-            &module_path,
-            &registry,
-            linking_table(&module_function_hashes, &registry),
-        )?;
-
-        // Record this module's function hashes for dependents, keyed by
-        // their bare names (the linking table qualifies them itself).
-        let mut func_hashes = HashMap::new();
-        for (name, hash) in &compiled.function_names {
-            func_hashes.insert(Arc::clone(name), *hash);
-        }
-        module_function_hashes.insert(module_path.clone(), func_hashes);
-
-        // Merge into the final module, qualifying this module's function
-        // names with its module path (`math::gcd`) — the canonical identity
-        // (`resolution_key`), matching how core modules are merged below.
-        // Package modules were previously merged bare, which surfaced as
-        // unqualified store names (`gcd`) and silently clobbered same-named
-        // functions across modules in the merged map. Impl-method dispatch
-        // symbols are already globally unique (`<uuid>::Trait::method`), so
-        // they pass through unqualified like in `linking_table`.
-        let mut compiled = compiled;
-        compiled.function_names = qualify_names(&compiled.function_names, &module_path, &registry);
-        compiled.const_names = qualify_names(&compiled.const_names, &module_path, &registry);
-        compiled.signatures = qualify_names(&compiled.signatures, &module_path, &registry);
-
-        let module_id = registry.module_id(&module_path).to_string();
-        module_outputs.insert(
-            module_id.clone(),
-            module_output(
-                &compiled,
-                dep_ids.get(&module_id).cloned().unwrap_or_default(),
-            ),
-        );
-        all_compiled.merge(&compiled);
-    }
-
-    // Compute the content-keyed interface of every registered module from
-    // the resolved ASTs. This is Phase 1 of incremental compilation:
-    // additive and non-persisted (Phase 2 persists snapshots, Phase 3 wires
-    // cache hits into this pipeline). Nothing above reads it, so it cannot
-    // affect what the build produces.
-    let interfaces = crate::module_interface::build_interfaces(&registry);
-    let dispatch_surface_hash = crate::module_interface::dispatch_surface_hash(&interfaces);
-    // The full native surface the build saw: core's own bindings plus any
-    // embedder bindings, all merged into the registry above.
-    let natives_contract_hash = registry.natives().contract_hash();
-
-    Ok(BuildResult {
-        compiled: all_compiled,
-        module_count: total_modules,
-        package_name,
-        link_table: linking_table(&module_function_hashes, &registry),
-        interfaces,
-        dispatch_surface_hash,
-        module_outputs,
-        natives_contract_hash,
-    })
-}
-
-/// Extract one module's snapshot-relevant products from its compiled output
-/// (post-qualification) plus its resolve-pass dependency identities.
-fn module_output(compiled: &CompiledModule, deps: Vec<String>) -> ModuleBuildOutput {
-    let mut objects: Vec<blake3::Hash> = compiled
-        .objects
-        .iter()
-        .filter(|(_, o)| !matches!(o, crate::object::StoredObject::Redirect { .. }))
-        .map(|(h, _)| *h)
-        .collect();
-    objects.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
-
-    let names: BTreeMap<String, blake3::Hash> = compiled
-        .function_names
-        .iter()
-        .chain(&compiled.const_names)
-        .map(|(name, hash)| (name.to_string(), *hash))
-        .collect();
-    let signatures: BTreeMap<String, String> = compiled
-        .signatures
-        .iter()
-        .map(|(name, sig)| (name.to_string(), sig.to_string()))
-        .collect();
-    let mut deps = deps;
-    deps.sort_unstable();
-    deps.dedup();
-
-    ModuleBuildOutput {
-        objects,
-        names,
-        signatures,
-        deps,
-    }
-}
+use super::cache::module_output;
+use super::{BuildError, ModuleBuildOutput, ParseFn};
 
 /// Load and parse every `.ab` file under the package's `src/` directory.
-fn load_all_modules(pkg: &mut Package, parse: ParseFn) -> Result<(), BuildError> {
+pub(super) fn load_all_modules(pkg: &mut Package, parse: ParseFn) -> Result<(), BuildError> {
     let mut paths = discover_module_paths(&pkg.src_path())
         .map_err(|e| BuildError::PackageOpen(format!("failed to scan src: {e}")))?;
     paths.sort_by_key(ToString::to_string);
@@ -507,7 +77,7 @@ pub fn discover_module_paths(src: &Path) -> std::io::Result<Vec<ModulePath>> {
 /// breaks the recursion — merely yielding an arbitrary order rather than
 /// looping.
 #[allow(clippy::items_after_statements)]
-fn compilation_order(deps: &BTreeMap<String, Vec<String>>) -> Vec<String> {
+pub(super) fn compilation_order(deps: &BTreeMap<String, Vec<String>>) -> Vec<String> {
     let mut order = Vec::new();
     let mut visited = HashSet::new();
 
@@ -675,8 +245,8 @@ fn compile_declaration_modules_collecting(
 /// dependency-ordered compile as package modules get. Modules referenced
 /// only as dependencies (e.g. a platform module performing `core::time`)
 /// are already compiled and simply link through `module_function_hashes`.
-#[allow(clippy::implicit_hasher)]
-fn compile_module_group(
+#[allow(clippy::implicit_hasher, clippy::too_many_lines)]
+pub(super) fn compile_module_group(
     registry: &mut ModuleRegistry,
     module_function_hashes: &mut HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>>,
     outputs: &mut BTreeMap<String, ModuleBuildOutput>,
@@ -776,10 +346,14 @@ fn compile_module_group(
             .remove(&key)
             .ok_or_else(|| BuildError::PackageOpen(format!("module {key} vanished")))?;
 
+        // The linking table this module compiles against — its `imported`
+        // view. Also the snapshot's consumed-link witness (`module_output`
+        // intersects it with the module's external references).
+        let imported = linking_table(module_function_hashes, registry);
         let mut compiled = crate::compiler::compile_module_with_options(
             &check_result.module,
             crate::compiler::CompileOptions {
-                imported_hashes: Some(linking_table(module_function_hashes, registry)),
+                imported_hashes: Some(imported.clone()),
                 // These modules compile with the same full view of the build
                 // a user module gets. In particular core modules construct
                 // prelude enums (`collections/List.ab` builds bare
@@ -811,11 +385,15 @@ fn compile_module_group(
         compiled.signatures = qualify_names(&compiled.signatures, &path, registry);
 
         let module_id = registry.module_id(&path).to_string();
+        // Builtin (core/platform) modules cache as one unit keyed by the
+        // core-cache key, so their per-module `cache_key` is unused (zeros).
         outputs.insert(
             module_id.clone(),
             module_output(
                 &compiled,
                 dep_ids.get(&module_id).cloned().unwrap_or_default(),
+                &imported,
+                [0u8; 32],
             ),
         );
 
@@ -855,7 +433,7 @@ fn load_module(
 }
 
 /// Compile a loaded module to bytecode with cross-module type checking.
-fn compile_loaded_module_with_registry(
+pub(super) fn compile_loaded_module_with_registry(
     loaded: &LoadedModule,
     file_path: &Path,
     module_path: &ModulePath,
@@ -967,7 +545,7 @@ pub fn compile_session_module(
 /// Names already carrying `::` (impl-method dispatch symbols like
 /// `<uuid>::Trait::method`, already globally unique) pass through untouched.
 /// Applied identically to function, const, and signature maps.
-fn qualify_names<V: Clone>(
+pub(super) fn qualify_names<V: Clone>(
     names: &HashMap<Arc<str>, V>,
     path: &ModulePath,
     registry: &ModuleRegistry,
@@ -984,5 +562,3 @@ fn qualify_names<V: Clone>(
         })
         .collect()
 }
-
-// Tests are in ambient-cli since they require the parser
