@@ -11,6 +11,8 @@ use ambient_engine::object::StoredObject;
 
 use crate::cli::StoreCommand;
 
+mod query;
+
 /// Locate a package's store directory from a path (package root or any
 /// directory containing `ambient.toml` upward).
 fn find_store_root(path: &Path) -> Result<PathBuf> {
@@ -103,6 +105,10 @@ pub fn cmd_store(path: &Path, command: &StoreCommand) -> Result<()> {
         StoreCommand::Verify => verify(&store),
         StoreCommand::Gc => gc(&store),
         StoreCommand::Snapshot => snapshot(&store),
+        StoreCommand::Tag { name, target } => {
+            query::tag(&store, name.as_deref(), target.as_deref())
+        }
+        StoreCommand::Diff { a, b, json } => query::diff(&store, a.as_deref(), b.as_deref(), *json),
     }
 }
 
@@ -287,19 +293,29 @@ fn verify(store: &DiskStore) -> Result<()> {
     if let Some(reason) = &report.dangling_snapshot {
         println!("DANGLING snapshot: {reason}");
     }
+    for (name, reason) in &report.bad_tags {
+        println!("DANGLING tag {name}: {reason}");
+    }
     if report.is_clean() {
         println!("store is clean");
         Ok(())
     } else {
+        let mut extras = Vec::new();
+        if report.dangling_snapshot.is_some() {
+            extras.push("a broken snapshot");
+        }
+        if !report.bad_tags.is_empty() {
+            extras.push("dangling tag(s)");
+        }
+        let extras = if extras.is_empty() {
+            String::new()
+        } else {
+            format!(", and {}", extras.join(" and "))
+        };
         bail!(
-            "store has {} corrupt object(s), {} dangling reference(s){}",
+            "store has {} corrupt object(s), {} dangling reference(s){extras}",
             report.corrupt.len(),
             report.dangling.len(),
-            if report.dangling_snapshot.is_some() {
-                ", and a broken snapshot"
-            } else {
-                ""
-            }
         );
     }
 }

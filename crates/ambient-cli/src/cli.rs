@@ -153,4 +153,39 @@ pub enum StoreCommand {
     /// Summarize the current build snapshot (incremental-compilation
     /// manifest): its hash, package, and per-module interface/AST hashes.
     Snapshot,
+
+    /// Alias a build snapshot's manifest under a human name, or list tags.
+    ///
+    /// With no NAME, lists every tag. With NAME only, tags the current
+    /// snapshot. With NAME and TARGET (a tag or manifest-hash prefix), tags
+    /// that manifest. A tagged snapshot (and its objects) survives `gc`.
+    Tag {
+        /// The tag name. Omit to list all tags.
+        #[arg(value_name = "NAME")]
+        name: Option<String>,
+
+        /// The manifest to tag: a tag name or manifest-hash prefix. Defaults
+        /// to the current snapshot.
+        #[arg(value_name = "TARGET")]
+        target: Option<String>,
+    },
+
+    /// Diff two build snapshots: modules and per-item name bindings
+    /// added/removed/changed, plus object-count and byte-size deltas.
+    ///
+    /// A and B are tags, manifest-hash prefixes, or `current` (the snapshot
+    /// pointer). Both are required — there is no recorded "previous".
+    Diff {
+        /// The base snapshot (tag, manifest-hash prefix, or `current`).
+        #[arg(value_name = "A")]
+        a: Option<String>,
+
+        /// The target snapshot (tag, manifest-hash prefix, or `current`).
+        #[arg(value_name = "B")]
+        b: Option<String>,
+
+        /// Emit machine-readable JSON instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+    },
 }
