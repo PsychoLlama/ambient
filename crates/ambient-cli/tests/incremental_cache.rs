@@ -345,10 +345,13 @@ fn corrupt_object_behind_a_valid_manifest_self_heals() {
 fn verify_mode_recompiles_and_agrees_on_a_multi_module_build() {
     // The oracle is env-driven, and env vars are process-global — unsafe to
     // mutate from a parallel in-process test — so drive it through a real
-    // `ambient run` subprocess (its own process, its own env). Two clean runs
-    // under `AMBIENT_CACHE_VERIFY=1` prove the hit path agrees with a fresh
-    // compile on this multi-module package (the standing under-invalidation
-    // detector would panic → nonzero exit on any mismatch).
+    // `ambient run` subprocess (its own process, its own env). A whole-package
+    // build persists the snapshot first (`ambient run` is lazy and read-only,
+    // so it never writes one), then a warm run under `AMBIENT_CACHE_VERIFY=1`
+    // hits every module and proves the hit path agrees with a fresh compile
+    // (the standing under-invalidation detector would panic → nonzero exit on
+    // any mismatch). The entry reaches all three modules, so the lazy run
+    // exercises every one.
     let files: &[(&str, &str)] = &[
         ("a.ab", "pub fn a(): Number { 1 }\n"),
         ("b.ab", "use pkg::a::a;\npub fn b(): Number { a() + 1 }\n"),
@@ -356,20 +359,21 @@ fn verify_mode_recompiles_and_agrees_on_a_multi_module_build() {
     ];
     let dir = TempDir::new().expect("temp");
     write_pkg(dir.path(), files);
+    // Persist a whole-package snapshot so the verify run below has hits to check.
+    let cold = build_and_persist(dir.path());
+    assert_eq!(cold.module_count, 3, "the package has three modules");
 
-    for _ in 0..2 {
-        let out = Command::new(env!("CARGO_BIN_EXE_ambient"))
-            .arg("run")
-            .arg(dir.path())
-            .env("AMBIENT_CACHE_VERIFY", "1")
-            .output()
-            .expect("spawn ambient run");
-        assert!(
-            out.status.success(),
-            "ambient run under verify mode failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
+    let out = Command::new(env!("CARGO_BIN_EXE_ambient"))
+        .arg("run")
+        .arg(dir.path())
+        .env("AMBIENT_CACHE_VERIFY", "1")
+        .output()
+        .expect("spawn ambient run");
+    assert!(
+        out.status.success(),
+        "ambient run under verify mode failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 #[test]
