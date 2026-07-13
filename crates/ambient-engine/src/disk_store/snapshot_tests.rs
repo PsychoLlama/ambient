@@ -265,6 +265,36 @@ fn gc_prunes_superseded_manifests() {
 }
 
 #[test]
+fn a_previous_version_manifest_reads_as_absent() {
+    // Simulate a manifest written by an older `ABSM` version: take a valid
+    // v3 encoding, drop its version byte to 2, and store it at *its own*
+    // (recomputed) hash so it is self-consistent, only of an older version.
+    let (_dir, store) = temp_store();
+    let a = store.put_object(&plain(1.0)).expect("put");
+    let b = store.put_object(&plain(2.0)).expect("put");
+    let manifest = sample_manifest(&[a, b]);
+
+    let mut bytes = manifest.encode();
+    bytes[4] = 2; // the version byte, immediately after the 4-byte magic
+    let old_hash = blake3::hash(&bytes);
+    let meta = store.meta_path(&old_hash);
+    std::fs::create_dir_all(meta.parent().unwrap()).expect("mkdir meta");
+    std::fs::write(&meta, &bytes).expect("write old manifest");
+    let pointer = format!("ambient-snapshot-v1 {}\n", old_hash.to_hex());
+    std::fs::write(store.root().join(snapshot::SNAPSHOT_POINTER), pointer).expect("pointer");
+
+    // Decoding rejects the old version outright.
+    assert_eq!(
+        BuildManifest::decode(&bytes),
+        Err(snapshot::ManifestError::BadVersion(2))
+    );
+    // The build path reads it as "no snapshot" — the designed cold-start.
+    assert_eq!(store.current_snapshot().expect("load"), None);
+    // And `verify` flags it loudly rather than silently.
+    assert!(store.snapshot_health().expect("health").is_some());
+}
+
+#[test]
 fn identical_manifests_hash_identically() {
     let objects = [blake3::hash(b"x"), blake3::hash(b"y")];
     let a = sample_manifest(&objects);

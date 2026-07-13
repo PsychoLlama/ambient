@@ -11,6 +11,7 @@ use ambient_engine::object::StoredObject;
 
 use crate::cli::StoreCommand;
 
+mod index;
 mod query;
 
 /// Locate a package's store directory from a path (package root or any
@@ -99,7 +100,7 @@ pub fn cmd_store(path: &Path, command: &StoreCommand) -> Result<()> {
     let store = DiskStore::open(find_store_root(path)?)?;
     match command {
         StoreCommand::Stats => stats(&store),
-        StoreCommand::Ls => ls(&store),
+        StoreCommand::Ls { kinds } => index::ls(&store, kinds.as_deref()),
         StoreCommand::Show { reference } => show(&store, reference),
         StoreCommand::Deps { reference } => deps(&store, reference),
         StoreCommand::Verify => verify(&store),
@@ -151,23 +152,22 @@ fn stats(store: &DiskStore) -> Result<()> {
     Ok(())
 }
 
-fn ls(store: &DiskStore) -> Result<()> {
-    let names = store.names()?;
-    if names.is_empty() {
-        println!("(no named bindings — run `ambient run` to populate the store)");
+fn show(store: &DiskStore, reference: &str) -> Result<()> {
+    // A type/trait/ability is not an object: resolve it through the
+    // structured index and print its kind, identity, span, and shape.
+    if index::try_show(store, reference)? {
         return Ok(());
     }
-    let width = names.keys().map(String::len).max().unwrap_or(0);
-    for (name, hash) in &names {
-        println!("{} {name:<width$}", short(hash));
-    }
-    Ok(())
-}
 
-fn show(store: &DiskStore, reference: &str) -> Result<()> {
     let hash = resolve_ref(store, reference)?;
     let names = store.names()?;
     let inverted = hash_to_names(&names);
+
+    // Debug-symbol line: where this object is defined in source, if the
+    // structured index knows.
+    if let Some(location) = index::value_location(store, &hash) {
+        println!("defined in: {location}");
+    }
 
     let Some(object) = store.get_object(&hash)? else {
         bail!("no object stored at {hash}");

@@ -19,7 +19,15 @@
 use std::sync::Arc;
 
 use crate::ast::{ItemKind, Module, Param};
-use crate::module_interface::render_type;
+use crate::types::Type;
+
+/// Render a type for a human-facing summary — the `Display` form
+/// (`Number`, `{ radius: Number }`), not the verbose span-free hashing
+/// rendering. Summaries never enter a content hash, so a readable rendering
+/// is free.
+fn render(ty: &Type) -> String {
+    ty.to_string()
+}
 
 /// The namespace an item lives in — the coarse tag the flat `names` file
 /// never carried.
@@ -215,7 +223,7 @@ fn item_record(span: crate::ast::Span, kind: &ItemKind) -> Option<StructuredItem
             String::new(),
             c.ty.clone()
                 .or_else(|| crate::const_eval::literal_type(&c.value))
-                .map_or_else(|| "_".to_string(), |t| render_type(&t)),
+                .map_or_else(|| "_".to_string(), |t| render(&t)),
         ),
         ItemKind::Struct(s) => record(
             &s.name,
@@ -233,7 +241,7 @@ fn item_record(span: crate::ast::Span, kind: &ItemKind) -> Option<StructuredItem
             &t.name,
             ItemKindTag::Alias,
             String::new(),
-            format!("= {}", render_type(&t.ty)),
+            format!("= {}", render(&t.ty)),
         ),
         ItemKind::Trait(t) => record(
             &t.name,
@@ -252,11 +260,8 @@ fn item_record(span: crate::ast::Span, kind: &ItemKind) -> Option<StructuredItem
 }
 
 fn fn_summary(params: &[Param], ret: Option<&crate::types::Type>) -> String {
-    let params: Vec<String> = params
-        .iter()
-        .map(|p| render_type(p.declared_ty()))
-        .collect();
-    let ret = ret.map_or_else(|| "_".to_string(), render_type);
+    let params: Vec<String> = params.iter().map(|p| render(p.declared_ty())).collect();
+    let ret = ret.map_or_else(|| "_".to_string(), render);
     format!("({}) -> {ret}", params.join(", "))
 }
 
@@ -268,7 +273,7 @@ fn struct_summary(s: &crate::ast::StructDef) -> String {
     }
     let rendered: Vec<String> = fields
         .iter()
-        .map(|(n, t)| format!("{n}: {}", render_type(t)))
+        .map(|(n, t)| format!("{n}: {}", render(t)))
         .collect();
     format!("{prefix}{{ {} }}", rendered.join(", "))
 }
@@ -278,7 +283,7 @@ fn enum_summary(e: &crate::ast::EnumDef) -> String {
         .variants
         .iter()
         .map(|v| match &v.payload {
-            Some(ty) => format!("{}({})", v.name, render_type(ty)),
+            Some(ty) => format!("{}({})", v.name, render(ty)),
             None => v.name.to_string(),
         })
         .collect();
@@ -290,13 +295,8 @@ fn trait_summary(t: &crate::ast::TraitDef) -> String {
         .methods
         .iter()
         .map(|m| {
-            let params: Vec<String> = m.params.iter().map(|(_, ty)| render_type(ty)).collect();
-            format!(
-                "{}({}) -> {}",
-                m.name,
-                params.join(", "),
-                render_type(&m.ret_ty)
-            )
+            let params: Vec<String> = m.params.iter().map(|(_, ty)| render(ty)).collect();
+            format!("{}({}) -> {}", m.name, params.join(", "), render(&m.ret_ty))
         })
         .collect();
     format!("{{ {} }}", methods.join("; "))
@@ -307,17 +307,8 @@ fn ability_summary(a: &crate::ast::AbilityDef) -> String {
         .methods
         .iter()
         .map(|m| {
-            let params: Vec<String> = m
-                .params
-                .iter()
-                .map(|p| render_type(p.declared_ty()))
-                .collect();
-            format!(
-                "{}({}) -> {}",
-                m.name,
-                params.join(", "),
-                render_type(&m.ret_ty)
-            )
+            let params: Vec<String> = m.params.iter().map(|p| render(p.declared_ty())).collect();
+            format!("{}({}) -> {}", m.name, params.join(", "), render(&m.ret_ty))
         })
         .collect();
     format!("{{ {} }}", methods.join("; "))

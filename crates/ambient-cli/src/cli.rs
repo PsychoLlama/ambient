@@ -127,8 +127,17 @@ pub enum StoreCommand {
     /// Show object counts, sizes, and binding counts.
     Stats,
 
-    /// List named bindings and their hashes.
-    Ls,
+    /// List items: kind, identity (hash or uuid), and fully-qualified name.
+    ///
+    /// Reads the current snapshot's structured index, so types, traits, and
+    /// abilities appear alongside functions and consts. Falls back to the
+    /// flat names index when there is no snapshot.
+    Ls {
+        /// Comma-separated kinds to show (`fn,const,struct,enum,type,trait,
+        /// ability`, or a namespace `value,type,trait,ability`). Omit for all.
+        #[arg(long, value_name = "KINDS")]
+        kinds: Option<String>,
+    },
 
     /// Show an object: metadata, dependencies, and disassembly.
     ///
