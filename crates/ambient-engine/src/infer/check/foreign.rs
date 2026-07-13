@@ -142,12 +142,21 @@ fn register_package_items(
         .filter(|info| &info.path != current_module)
         .collect();
 
-    // Foreign types first: impl registration (loop 2) needs them resolvable.
-    // Imported trait defs already registered via `register_imported_traits`;
-    // every *other* foreign trait registers by identity only (no bare name
-    // in scope), so foreign impls and the bounds of foreign signatures
-    // resolve even when this module never imported the trait.
-    for info in &foreign_modules {
+    // Every package trait — *including the current module's own* — indexes
+    // its `Fqn` in the build-global table first. Imported trait defs already
+    // registered via `register_imported_traits`; every *other* foreign trait
+    // registers by identity only (no bare name in scope), so foreign impls
+    // and the bounds of foreign signatures resolve even when this module
+    // never imported the trait.
+    //
+    // The current module is included on purpose: `build_import_env` (next)
+    // builds the *foreign* public functions' schemes, and a foreign `pub fn
+    // f<T: Local>(…)` bounded on a trait declared *here* must resolve its
+    // bound before this module's own `register_local_declarations` runs. The
+    // current module's traits re-register named there (idempotent by uuid);
+    // their bare-name scope entry and declaration validation still come from
+    // that later pass.
+    for info in registry.all_modules() {
         let trait_module = registry.module_id(&info.path);
         for item in &info.module.items {
             if let crate::ast::ItemKind::Trait(trait_def) = &item.kind {
