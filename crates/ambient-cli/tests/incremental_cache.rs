@@ -43,25 +43,23 @@ fn store_path(dir: &Path) -> PathBuf {
 }
 
 /// Build reading the package's own store (cache Auto), then persist objects +
-/// snapshot exactly as `ambient run` does — so the next build can hit.
+/// snapshot exactly as `ambient run`/`compile` do — so the next build can hit.
+/// Shares the engine's build-and-persist wiring; a persist failure is a hard
+/// error here (the tests depend on the snapshot being durable).
 fn build_and_persist(dir: &Path) -> BuildResult {
     let stubs = ambient_platform::stub_natives();
-    let result = build_package(
+    let built = ambient_engine::build::build_and_persist(
         dir,
         parse_source,
-        &BuildOptions {
+        BuildOptions {
             platform_modules: ambient_platform::platform_modules(),
             natives: Some(&stubs),
-            store_path: Some(store_path(dir)),
             ..Default::default()
         },
     )
     .expect("build succeeds");
-    let store = DiskStore::open(store_path(dir)).expect("open store");
-    store.put_module(&result.compiled).expect("persist objects");
-    let manifest = BuildManifest::from_build(&result);
-    store.write_snapshot(&manifest).expect("write snapshot");
-    result
+    built.persisted.expect("persist build");
+    built.result
 }
 
 /// The canonical cold manifest for a source: build the given files in a fresh

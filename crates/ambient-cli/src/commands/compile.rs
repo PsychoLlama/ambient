@@ -1,12 +1,12 @@
 //! Compile command implementation.
 
+use std::cell::Cell;
 use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use ambient_engine::build::build_package;
-use ambient_engine::disk_store::DiskStore;
+use ambient_engine::build::build_and_persist;
 
 use super::{compile_source, parse_source, read_source};
 use crate::diagnostic::report_build_error;
@@ -61,42 +61,51 @@ pub fn cmd_compile(file: &Path, output: Option<&Path>) -> Result<()> {
 /// recompilation with a store load, never the merged output. (Single-`.ab`-file
 /// compilation in [`cmd_compile`] has no package store and is left cold.)
 fn compile_package_cmd(path: &Path, output: Option<&Path>) -> Result<()> {
-    let progress_cb = |module: &str, current: usize, total: usize| {
-        eprintln!("[{}/{}] Compiling {}", current, total, module);
+    // A warm build loads unchanged modules from the store rather than
+    // compiling them; the callback reports each honestly ("Cached" vs.
+    // "Compiling") and tallies the hits for the summary line, so a fully warm
+    // build no longer claims to compile everything.
+    let cached_count = Cell::new(0usize);
+    let progress_cb = |module: &str, current: usize, total: usize, from_cache: bool| {
+        if from_cache {
+            cached_count.set(cached_count.get() + 1);
+            eprintln!("[{current}/{total}] Cached {module}");
+        } else {
+            eprintln!("[{current}/{total}] Compiling {module}");
+        }
     };
 
     let stubs = ambient_platform::stub_natives();
-    let store_path = DiskStore::package_store_path(path);
-    let result = build_package(
+    let built = build_and_persist(
         path,
         parse_source,
-        &ambient_engine::build::BuildOptions {
+        ambient_engine::build::BuildOptions {
             platform_modules: ambient_platform::platform_modules(),
             natives: Some(&stubs),
             progress: Some(&progress_cb),
-            // Incremental cache: read the prior snapshot from the same store
-            // this build persists to below.
-            store_path: Some(store_path),
             ..Default::default()
         },
     )
     .map_err(report_build_error)?;
 
-    eprintln!(
-        "Compiled {} ({} modules)",
-        result.package_name, result.module_count
-    );
+    // Persisting the warm-feeding store is best-effort (it is a rebuildable
+    // cache), so a failure warns rather than fails the compile.
+    if let Err(e) = built.persisted {
+        eprintln!("warning: failed to persist build to store: {e}");
+    }
+    let result = built.result;
 
-    // Persist the build to the package-local content-addressed store so the
-    // next compile/run is warm. Failure to persist is a warning, not a failed
-    // compile (the store is a rebuildable cache).
-    match DiskStore::open_package(path) {
-        Ok(disk) => {
-            if let Err(e) = super::run::persist_build(&disk, &result) {
-                eprintln!("warning: failed to persist build to store: {e}");
-            }
-        }
-        Err(e) => eprintln!("warning: failed to open package store: {e}"),
+    let cached = cached_count.get();
+    if cached > 0 {
+        eprintln!(
+            "Compiled {} ({} modules, {} cached)",
+            result.package_name, result.module_count, cached
+        );
+    } else {
+        eprintln!(
+            "Compiled {} ({} modules)",
+            result.package_name, result.module_count
+        );
     }
 
     if let Some(output_path) = output {
