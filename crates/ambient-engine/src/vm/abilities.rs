@@ -183,6 +183,12 @@ impl Vm {
             return Err(VmError::Exception(error));
         };
 
+        // A handler caught this throw, so any origin trace stashed as it
+        // unwound out of an invoke (see `Vm::pending_trace`) is no longer
+        // escaping — drop it so it can never surface on an unrelated later
+        // failure.
+        self.pending_trace = None;
+
         let throw = Arc::new(SuspendedAbility {
             ability_id,
             method: throw_key,

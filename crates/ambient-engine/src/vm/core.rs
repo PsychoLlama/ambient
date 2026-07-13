@@ -102,6 +102,20 @@ pub struct Vm {
 
     /// Maximum call stack depth to prevent infinite recursion.
     pub(super) max_call_depth: usize,
+
+    /// A stack trace snapshotted at an exception's *unwind origin*, for the
+    /// one path where the live frames are gone by the time the error
+    /// surfaces: a reentrant [`Self::invoke`] restores every VM height on
+    /// error, so an uncaught exception thrown inside the invoked callee has
+    /// had its frames truncated before the top-level [`Self::runtime_error`]
+    /// runs. `invoke` captures the trace here *before* it truncates;
+    /// `runtime_error` consumes it in preference to a (now-outer-only) live
+    /// capture. Set only for exceptions crossing an invoke boundary, and
+    /// cleared the moment one is caught ([`Self::raise_exception`]) or a
+    /// fresh top-level `call` begins, so it never leaks a stale trace onto
+    /// an unrelated later failure. Direct calls never populate it — their
+    /// frames are intact at the top, so live capture already is at-origin.
+    pub(super) pending_trace: Option<Vec<StackTraceFrame>>,
 }
 
 impl Default for Vm {
@@ -133,6 +147,7 @@ impl Vm {
             handler_barriers: Vec::new(),
             interrupt: None,
             max_call_depth: 1000,
+            pending_trace: None,
         };
         vm.register_natives(crate::natives::core_natives());
         vm
@@ -247,6 +262,7 @@ impl Vm {
         self.frames.clear();
         self.handlers.clear();
         self.handler_barriers.clear();
+        self.pending_trace = None;
         self.install_base_frames();
 
         let arg_count = args.len() as u8;
@@ -293,6 +309,7 @@ impl Vm {
         self.frames.clear();
         self.handlers.clear();
         self.handler_barriers.clear();
+        self.pending_trace = None;
         self.install_base_frames();
 
         let arg_count = args.len() as u8;
@@ -372,6 +389,18 @@ impl Vm {
                 Ok(value)
             }
             Err(error) => {
+                // The invoked callee's frames are about to be discarded. If
+                // an uncaught exception is unwinding out of the callee, this
+                // is the *only* moment its origin frames are still live —
+                // snapshot the trace before truncating so `runtime_error`
+                // can report where the throw actually happened rather than
+                // the (outer) re-raise site. `get_or_insert` keeps the
+                // innermost capture across nested invokes: the inner region
+                // returns first, so its deeper trace wins.
+                if matches!(error, VmError::Exception(_)) {
+                    let trace = self.capture_stack_trace();
+                    self.pending_trace.get_or_insert(trace);
+                }
                 self.frames.truncate(base_frames);
                 self.stack.truncate(base_stack);
                 self.handlers.truncate(base_handlers);
@@ -767,8 +796,19 @@ impl Vm {
             .collect()
     }
 
-    /// Create a `RuntimeError` with the current stack trace.
-    pub fn runtime_error(&self, error: VmError) -> RuntimeError {
-        RuntimeError::with_stack_trace(error, self.capture_stack_trace())
+    /// Create a `RuntimeError` with the stack trace at the error's origin.
+    ///
+    /// Prefers a trace snapshotted at an invoke-boundary unwind (see
+    /// [`Self::pending_trace`]) — the one case where the live frames no
+    /// longer reach the throw site — and otherwise captures the (intact)
+    /// live frames, which for a direct call *are* the origin: the execution
+    /// loop returns errors without unwinding, so `self.frames` still holds
+    /// every active call when the error surfaces.
+    pub fn runtime_error(&mut self, error: VmError) -> RuntimeError {
+        let trace = self
+            .pending_trace
+            .take()
+            .unwrap_or_else(|| self.capture_stack_trace());
+        RuntimeError::with_stack_trace(error, trace)
     }
 }
