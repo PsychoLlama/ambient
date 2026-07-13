@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::compiler::{CompiledModule, MigrationRecord};
+use crate::disk_store::{BuildManifest, DiskStore, DiskStoreError};
 use crate::fqn::{ModuleId, NameKey};
 use crate::infer::BoxedTypeError;
 use crate::module_path::ModulePath;
@@ -35,8 +36,12 @@ pub use pipeline::{
 
 /// Progress callback for reporting build progress.
 ///
-/// Called with (module name, current, total) for each module.
-pub type ProgressCallback<'a> = &'a dyn Fn(&str, usize, usize);
+/// Called with `(module name, current, total, from_cache)` for each package
+/// module, where `from_cache` is `true` when the module was loaded from the
+/// store instead of check+compiled (a cache hit). The verify oracle recompiles
+/// every module, so under it `from_cache` is always `false` — the callback
+/// reports what actually happened, not merely that a hit was available.
+pub type ProgressCallback<'a> = &'a dyn Fn(&str, usize, usize, bool);
 
 /// A parse failure the build can render with source context: message, byte
 /// span, and optional note.
@@ -414,10 +419,6 @@ pub fn build_package(
             .ok_or_else(|| BuildError::PackageOpen(format!("module not found: {module_key}")))?;
         let module_id = registry.module_id(&module_path).to_string();
 
-        if let Some(ref cb) = options.progress {
-            cb(module_key, idx + 1, total_modules);
-        }
-
         // This module's cache key (None only if a dependency interface is
         // somehow absent — then it can never hit and always recompiles).
         let cache_key = dep_interface_hashes(&dep_ids, &module_id, &interfaces).map(|deps| {
@@ -429,6 +430,18 @@ pub fn build_package(
 
         let imported = link.table();
         let hit = cache_key.and_then(|k| cache.try_package_module(&module_id, k, &link));
+
+        // Report progress once the outcome is known: `from_cache` is the hit
+        // path the match below actually takes (a hit the verify oracle would
+        // still recompile is *not* reported as cached).
+        if let Some(ref cb) = options.progress {
+            cb(
+                module_key,
+                idx + 1,
+                total_modules,
+                hit.is_some() && !cache.verify(),
+            );
+        }
 
         let (compiled, output) = match hit {
             // A validated hit and no verify oracle: use the loaded module.
@@ -520,6 +533,64 @@ pub fn dep_interface_hashes(
         out.push((dep, *iface.interface_hash.as_bytes()));
     }
     Some(out)
+}
+
+/// A completed build paired with the outcome of persisting it to the
+/// package-local store.
+///
+/// Persisting is best-effort: the store is a rebuildable content-addressed
+/// cache, so a persist failure never fails the build. Callers decide how to
+/// react to [`Self::persisted`] — the CLI warns and continues, tests assert it
+/// succeeded.
+pub struct PersistedBuild {
+    /// The build result.
+    pub result: BuildResult,
+    /// Whether the objects + snapshot were durably written. `Err` carries the
+    /// store failure (opening the store or writing it).
+    pub persisted: Result<(), DiskStoreError>,
+}
+
+/// Persist a completed build to a store: objects and name bindings first, then
+/// the crash-safe snapshot. Ordering matters — the snapshot's root pointer is
+/// only swapped after every object it references and the manifest bytes are
+/// durably in place ([`DiskStore::write_snapshot`]), so a snapshot always
+/// resolves to a consistent build.
+///
+/// # Errors
+///
+/// Returns any store write failure.
+pub fn persist_build(disk: &DiskStore, result: &BuildResult) -> Result<(), DiskStoreError> {
+    disk.put_module(&result.compiled)?;
+    let manifest = BuildManifest::from_build(result);
+    disk.write_snapshot(&manifest)?;
+    Ok(())
+}
+
+/// Build a package and persist it to its package-local content-addressed store
+/// so the next build is warm.
+///
+/// This is the single wiring `ambient run`, `ambient compile`, and the
+/// incremental-cache tests share: the build reads the prior snapshot from the
+/// same store this then persists to, so `store_path` is derived here (from
+/// `path`) rather than by each caller — any `store_path` on `options` is
+/// overwritten. Persisting is best-effort; see [`PersistedBuild`].
+///
+/// # Errors
+///
+/// Returns a [`BuildError`] if the build itself fails. A persist failure is
+/// reported in [`PersistedBuild::persisted`], not here.
+pub fn build_and_persist(
+    path: &Path,
+    parse: ParseFn,
+    mut options: BuildOptions<'_>,
+) -> Result<PersistedBuild, BuildError> {
+    options.store_path = Some(DiskStore::package_store_path(path));
+    let result = build_package(path, parse, &options)?;
+    let persisted = match DiskStore::open_package(path) {
+        Ok(disk) => persist_build(&disk, &result),
+        Err(e) => Err(e),
+    };
+    Ok(PersistedBuild { result, persisted })
 }
 
 // Tests are in ambient-cli since they require the parser.
