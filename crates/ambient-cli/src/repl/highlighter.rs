@@ -26,7 +26,7 @@ const KEYWORDS: &[&str] = &[
 const BUILTINS: &[&str] = &[
     "Stdio",
     "FileSystem",
-    "Network",
+    "Tcp",
     "Time",
     "Random",
     "Log",

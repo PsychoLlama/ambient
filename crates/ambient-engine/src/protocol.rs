@@ -3,7 +3,7 @@
 //! This is the codec behind `core::protocol::serialize_value` /
 //! `deserialize_value`: a bincode encoding of the wire-safe subset of
 //! runtime values. Remote-execution *protocols* are written in Ambient
-//! itself on top of the `Network` and `Execute` abilities (see
+//! itself on top of the `Tcp` and `Execute` abilities (see
 //! `examples/remote_server`); there is no Rust-side message layer.
 //!
 //! Function references cross as content hashes; handler values cross as

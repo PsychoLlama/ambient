@@ -1,14 +1,14 @@
-//! State management for the Network ability.
+//! State management for the Tcp ability.
 //!
 //! This module provides thread-safe state for managing TCP listeners and connections
-//! used by the Network ability handlers.
+//! used by the Tcp ability handlers.
 //!
 //! This is a pure networking layer that handles:
 //! - TCP listener lifecycle
 //! - TCP connection lifecycle
 //! - Length-prefixed message I/O
 //!
-//! One `NetworkState` is shared by every VM a running system builds, so
+//! One `TcpState` is shared by every VM a running system builds, so
 //! a listener bound in one task can be accepted in another and a
 //! connection handle can be handed between tasks as a plain number.
 //! The handle table lock is held only for lookups; blocking IO happens
@@ -36,12 +36,12 @@ pub const MAX_MESSAGE_SIZE: u32 = 16 * 1024 * 1024;
 /// How many bytes one raw (unframed) read can return at most.
 const RAW_READ_BUFFER: usize = 64 * 1024;
 
-/// A TCP connection managed by the Network ability.
+/// A TCP connection managed by the Tcp ability.
 ///
 /// The stream is split so that a receiver blocked waiting for bytes does
 /// not lock out a sender on the same connection (full-duplex use from
 /// two tasks).
-struct NetworkConnection {
+struct TcpConnection {
     /// Read half, locked by the (single) blocked receiver.
     read: Mutex<OwnedReadHalf>,
     /// Write half, locked per send.
@@ -59,26 +59,26 @@ struct Tables {
     /// Active listeners by ID.
     listeners: HashMap<ListenerId, Arc<TcpListener>>,
     /// Active connections by ID.
-    connections: HashMap<ConnectionId, Arc<NetworkConnection>>,
+    connections: HashMap<ConnectionId, Arc<TcpConnection>>,
     /// Next handle ID to allocate.
     next_id: u64,
 }
 
-/// Thread-safe state for Network ability handlers.
+/// Thread-safe state for Tcp ability handlers.
 ///
-/// This state is shared across all Network ability method handlers (and,
+/// This state is shared across all Tcp ability method handlers (and,
 /// under a runtime host, across all task VMs) and tracks:
 /// - Active TCP listeners
 /// - Active connections
 /// - Handle ID generation
-pub struct NetworkState {
+pub struct TcpState {
     /// Handle tables behind a short-lived lock.
     tables: Mutex<Tables>,
     /// Tokio runtime handle for async operations.
     runtime: RuntimeHandle,
 }
 
-impl NetworkState {
+impl TcpState {
     /// Create new network state with the given runtime.
     #[must_use]
     pub fn new(runtime: RuntimeHandle) -> Self {
@@ -98,28 +98,28 @@ impl NetworkState {
         &self.runtime
     }
 
-    fn lock_tables(&self) -> Result<std::sync::MutexGuard<'_, Tables>, NetworkError> {
-        self.tables.lock().map_err(|_| NetworkError::Poisoned)
+    fn lock_tables(&self) -> Result<std::sync::MutexGuard<'_, Tables>, TcpError> {
+        self.tables.lock().map_err(|_| TcpError::Poisoned)
     }
 
-    fn listener(&self, id: ListenerId) -> Result<Arc<TcpListener>, NetworkError> {
+    fn listener(&self, id: ListenerId) -> Result<Arc<TcpListener>, TcpError> {
         self.lock_tables()?
             .listeners
             .get(&id)
             .cloned()
-            .ok_or(NetworkError::InvalidListener(id))
+            .ok_or(TcpError::InvalidListener(id))
     }
 
-    fn connection(&self, id: ConnectionId) -> Result<Arc<NetworkConnection>, NetworkError> {
+    fn connection(&self, id: ConnectionId) -> Result<Arc<TcpConnection>, TcpError> {
         self.lock_tables()?
             .connections
             .get(&id)
             .cloned()
-            .ok_or(NetworkError::InvalidConnection(id))
+            .ok_or(TcpError::InvalidConnection(id))
     }
 
     /// Register a connected stream and return its handle.
-    fn insert_stream(&self, stream: TcpStream) -> Result<ConnectionId, NetworkError> {
+    fn insert_stream(&self, stream: TcpStream) -> Result<ConnectionId, TcpError> {
         let local_addr = stream
             .local_addr()
             .map(|a| a.to_string())
@@ -135,7 +135,7 @@ impl NetworkState {
         tables.next_id += 1;
         tables.connections.insert(
             id,
-            Arc::new(NetworkConnection {
+            Arc::new(TcpConnection {
                 read: Mutex::new(read),
                 write: Mutex::new(write),
                 local_addr,
@@ -156,11 +156,11 @@ impl NetworkState {
     /// # Errors
     ///
     /// Returns an error if the endpoint cannot be bound.
-    pub fn listen(&self, host: &str, port: u16) -> Result<ListenerId, NetworkError> {
+    pub fn listen(&self, host: &str, port: u16) -> Result<ListenerId, TcpError> {
         let listener = self
             .runtime
             .block_on(TcpListener::bind((host, port)))
-            .map_err(NetworkError::Io)?;
+            .map_err(TcpError::Io)?;
         let mut tables = self.lock_tables()?;
         let id = tables.next_id;
         tables.next_id += 1;
@@ -176,30 +176,30 @@ impl NetworkState {
     /// # Errors
     ///
     /// Returns an error if the listener ID is invalid or accepting fails.
-    pub fn accept(&self, listener_id: ListenerId) -> Result<ConnectionId, NetworkError> {
+    pub fn accept(&self, listener_id: ListenerId) -> Result<ConnectionId, TcpError> {
         self.accept_interruptible(listener_id, std::future::pending())
     }
 
     /// [`Self::accept`], except the wait also races `cancel`: when it
     /// completes first, the accept is abandoned and the call returns
-    /// [`NetworkError::Interrupted`]. This is the interruption point for
+    /// [`TcpError::Interrupted`]. This is the interruption point for
     /// a drain request — the caller (an interruptible native) turns the
     /// error into a `Drain::requested` delivery.
     ///
     /// # Errors
     ///
     /// Returns an error if the listener ID is invalid, accepting fails,
-    /// or `cancel` completes first ([`NetworkError::Interrupted`]).
+    /// or `cancel` completes first ([`TcpError::Interrupted`]).
     pub fn accept_interruptible(
         &self,
         listener_id: ListenerId,
         cancel: impl Future<Output = ()>,
-    ) -> Result<ConnectionId, NetworkError> {
+    ) -> Result<ConnectionId, TcpError> {
         let listener = self.listener(listener_id)?;
         let (stream, _peer) = self.runtime.block_on(async {
             tokio::select! {
-                result = listener.accept() => result.map_err(NetworkError::Io),
-                () = cancel => Err(NetworkError::Interrupted),
+                result = listener.accept() => result.map_err(TcpError::Io),
+                () = cancel => Err(TcpError::Interrupted),
             }
         })?;
         self.insert_stream(stream)
@@ -212,8 +212,8 @@ impl NetworkState {
     ///
     /// Returns an error if the listener ID is invalid or the socket has no
     /// local address.
-    pub fn listener_addr(&self, id: ListenerId) -> Result<String, NetworkError> {
-        let addr = self.listener(id)?.local_addr().map_err(NetworkError::Io)?;
+    pub fn listener_addr(&self, id: ListenerId) -> Result<String, TcpError> {
+        let addr = self.listener(id)?.local_addr().map_err(TcpError::Io)?;
         Ok(addr.to_string())
     }
 
@@ -222,12 +222,12 @@ impl NetworkState {
     /// # Errors
     ///
     /// Returns an error if the listener ID is invalid.
-    pub fn close_listener(&self, id: ListenerId) -> Result<(), NetworkError> {
+    pub fn close_listener(&self, id: ListenerId) -> Result<(), TcpError> {
         self.lock_tables()?
             .listeners
             .remove(&id)
             .map(|_| ())
-            .ok_or(NetworkError::InvalidListener(id))
+            .ok_or(TcpError::InvalidListener(id))
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -241,11 +241,11 @@ impl NetworkState {
     /// # Errors
     ///
     /// Returns an error if the connection cannot be established.
-    pub fn connect(&self, host: &str, port: u16) -> Result<ConnectionId, NetworkError> {
+    pub fn connect(&self, host: &str, port: u16) -> Result<ConnectionId, TcpError> {
         let stream = self
             .runtime
             .block_on(TcpStream::connect((host, port)))
-            .map_err(NetworkError::Io)?;
+            .map_err(TcpError::Io)?;
         self.insert_stream(stream)
     }
 
@@ -258,12 +258,12 @@ impl NetworkState {
     /// # Errors
     ///
     /// Returns an error if the connection ID is invalid.
-    pub fn close(&self, id: ConnectionId) -> Result<(), NetworkError> {
+    pub fn close(&self, id: ConnectionId) -> Result<(), TcpError> {
         self.lock_tables()?
             .connections
             .remove(&id)
             .map(|_| ())
-            .ok_or(NetworkError::InvalidConnection(id))
+            .ok_or(TcpError::InvalidConnection(id))
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -278,13 +278,13 @@ impl NetworkState {
     ///
     /// Returns an error if the connection is invalid, the message is too large,
     /// or writing fails.
-    pub fn send(&self, conn_id: ConnectionId, data: &[u8]) -> Result<(), NetworkError> {
+    pub fn send(&self, conn_id: ConnectionId, data: &[u8]) -> Result<(), TcpError> {
         if data.len() > MAX_MESSAGE_SIZE as usize {
-            return Err(NetworkError::MessageTooLarge(data.len()));
+            return Err(TcpError::MessageTooLarge(data.len()));
         }
 
         let conn = self.connection(conn_id)?;
-        let mut write = conn.write.lock().map_err(|_| NetworkError::Poisoned)?;
+        let mut write = conn.write.lock().map_err(|_| TcpError::Poisoned)?;
 
         // Safe: we've verified data.len() <= MAX_MESSAGE_SIZE (u32::MAX >> 8)
         #[allow(clippy::cast_possible_truncation)]
@@ -308,13 +308,13 @@ impl NetworkState {
     ///
     /// Returns an error if the connection is invalid, the message is too large,
     /// or reading fails.
-    pub fn receive(&self, conn_id: ConnectionId) -> Result<Vec<u8>, NetworkError> {
+    pub fn receive(&self, conn_id: ConnectionId) -> Result<Vec<u8>, TcpError> {
         self.receive_interruptible(conn_id, std::future::pending())
     }
 
     /// [`Self::receive`], except the wait also races `cancel`: when it
     /// completes first, the read is abandoned and the call returns
-    /// [`NetworkError::Interrupted`]. An interrupted receive may abandon
+    /// [`TcpError::Interrupted`]. An interrupted receive may abandon
     /// a partially-read frame, corrupting the stream's framing — a drain
     /// means the connection is being torn down, so the caller must not
     /// reuse it.
@@ -323,14 +323,14 @@ impl NetworkState {
     ///
     /// Returns an error if the connection is invalid, the message is too
     /// large, reading fails, or `cancel` completes first
-    /// ([`NetworkError::Interrupted`]).
+    /// ([`TcpError::Interrupted`]).
     pub fn receive_interruptible(
         &self,
         conn_id: ConnectionId,
         cancel: impl Future<Output = ()>,
-    ) -> Result<Vec<u8>, NetworkError> {
+    ) -> Result<Vec<u8>, TcpError> {
         let conn = self.connection(conn_id)?;
-        let mut read = conn.read.lock().map_err(|_| NetworkError::Poisoned)?;
+        let mut read = conn.read.lock().map_err(|_| TcpError::Poisoned)?;
 
         self.runtime.block_on(async {
             let receive = async {
@@ -339,14 +339,14 @@ impl NetworkState {
                 match read.read_exact(&mut len_buf).await {
                     Ok(_) => {}
                     Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                        return Err(NetworkError::ConnectionClosed);
+                        return Err(TcpError::ConnectionClosed);
                     }
-                    Err(e) => return Err(NetworkError::Io(e)),
+                    Err(e) => return Err(TcpError::Io(e)),
                 }
 
                 let len = u32::from_be_bytes(len_buf);
                 if len > MAX_MESSAGE_SIZE {
-                    return Err(NetworkError::MessageTooLarge(len as usize));
+                    return Err(TcpError::MessageTooLarge(len as usize));
                 }
 
                 // Read payload
@@ -356,7 +356,7 @@ impl NetworkState {
             };
             tokio::select! {
                 result = receive => result,
-                () = cancel => Err(NetworkError::Interrupted),
+                () = cancel => Err(TcpError::Interrupted),
             }
         })
     }
@@ -370,9 +370,9 @@ impl NetworkState {
     /// # Errors
     ///
     /// Returns an error if the connection is invalid or writing fails.
-    pub fn send_raw(&self, conn_id: ConnectionId, data: &[u8]) -> Result<(), NetworkError> {
+    pub fn send_raw(&self, conn_id: ConnectionId, data: &[u8]) -> Result<(), TcpError> {
         let conn = self.connection(conn_id)?;
-        let mut write = conn.write.lock().map_err(|_| NetworkError::Poisoned)?;
+        let mut write = conn.write.lock().map_err(|_| TcpError::Poisoned)?;
         self.runtime.block_on(async {
             write.write_all(data).await?;
             write.flush().await?;
@@ -389,26 +389,26 @@ impl NetworkState {
     /// # Errors
     ///
     /// Returns an error if the connection is invalid or reading fails.
-    pub fn receive_raw(&self, conn_id: ConnectionId) -> Result<Vec<u8>, NetworkError> {
+    pub fn receive_raw(&self, conn_id: ConnectionId) -> Result<Vec<u8>, TcpError> {
         self.receive_raw_interruptible(conn_id, std::future::pending())
     }
 
     /// [`Self::receive_raw`], except the wait also races `cancel`: when
     /// it completes first, the read is abandoned and the call returns
-    /// [`NetworkError::Interrupted`] — the same drain contract as
+    /// [`TcpError::Interrupted`] — the same drain contract as
     /// [`Self::receive_interruptible`].
     ///
     /// # Errors
     ///
     /// Returns an error if the connection is invalid, reading fails, or
-    /// `cancel` completes first ([`NetworkError::Interrupted`]).
+    /// `cancel` completes first ([`TcpError::Interrupted`]).
     pub fn receive_raw_interruptible(
         &self,
         conn_id: ConnectionId,
         cancel: impl Future<Output = ()>,
-    ) -> Result<Vec<u8>, NetworkError> {
+    ) -> Result<Vec<u8>, TcpError> {
         let conn = self.connection(conn_id)?;
-        let mut read = conn.read.lock().map_err(|_| NetworkError::Poisoned)?;
+        let mut read = conn.read.lock().map_err(|_| TcpError::Poisoned)?;
 
         self.runtime.block_on(async {
             let receive = async {
@@ -419,7 +419,7 @@ impl NetworkState {
             };
             tokio::select! {
                 result = receive => result,
-                () = cancel => Err(NetworkError::Interrupted),
+                () = cancel => Err(TcpError::Interrupted),
             }
         })
     }
@@ -433,7 +433,7 @@ impl NetworkState {
     /// # Errors
     ///
     /// Returns an error if the connection ID is invalid.
-    pub fn local_addr(&self, conn_id: ConnectionId) -> Result<String, NetworkError> {
+    pub fn local_addr(&self, conn_id: ConnectionId) -> Result<String, TcpError> {
         Ok(self.connection(conn_id)?.local_addr.clone())
     }
 
@@ -442,14 +442,14 @@ impl NetworkState {
     /// # Errors
     ///
     /// Returns an error if the connection ID is invalid.
-    pub fn peer_addr(&self, conn_id: ConnectionId) -> Result<String, NetworkError> {
+    pub fn peer_addr(&self, conn_id: ConnectionId) -> Result<String, TcpError> {
         Ok(self.connection(conn_id)?.peer_addr.clone())
     }
 }
 
 /// Errors that can occur in network operations.
 #[derive(Debug)]
-pub enum NetworkError {
+pub enum TcpError {
     /// I/O error.
     Io(std::io::Error),
     /// Invalid listener ID.
@@ -467,7 +467,7 @@ pub enum NetworkError {
     Poisoned,
 }
 
-impl std::fmt::Display for NetworkError {
+impl std::fmt::Display for TcpError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(e) => write!(f, "I/O error: {e}"),
@@ -486,7 +486,7 @@ impl std::fmt::Display for NetworkError {
     }
 }
 
-impl std::error::Error for NetworkError {
+impl std::error::Error for TcpError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(e) => Some(e),
@@ -495,7 +495,7 @@ impl std::error::Error for NetworkError {
     }
 }
 
-impl From<std::io::Error> for NetworkError {
+impl From<std::io::Error> for TcpError {
     fn from(e: std::io::Error) -> Self {
         Self::Io(e)
     }
@@ -508,34 +508,34 @@ mod tests {
     #[test]
     fn test_invalid_listener_error() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        let state = NetworkState::new(runtime.handle().clone());
+        let state = TcpState::new(runtime.handle().clone());
 
         let result = state.accept(999);
-        assert!(matches!(result, Err(NetworkError::InvalidListener(999))));
+        assert!(matches!(result, Err(TcpError::InvalidListener(999))));
 
         let result = state.close_listener(999);
-        assert!(matches!(result, Err(NetworkError::InvalidListener(999))));
+        assert!(matches!(result, Err(TcpError::InvalidListener(999))));
     }
 
     #[test]
     fn test_invalid_connection_error() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        let state = NetworkState::new(runtime.handle().clone());
+        let state = TcpState::new(runtime.handle().clone());
 
         let result = state.close(999);
-        assert!(matches!(result, Err(NetworkError::InvalidConnection(999))));
+        assert!(matches!(result, Err(TcpError::InvalidConnection(999))));
 
         let result = state.send(999, b"hello");
-        assert!(matches!(result, Err(NetworkError::InvalidConnection(999))));
+        assert!(matches!(result, Err(TcpError::InvalidConnection(999))));
 
         let result = state.receive(999);
-        assert!(matches!(result, Err(NetworkError::InvalidConnection(999))));
+        assert!(matches!(result, Err(TcpError::InvalidConnection(999))));
     }
 
     #[test]
     fn test_handles_shared_across_threads() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        let state = Arc::new(NetworkState::new(runtime.handle().clone()));
+        let state = Arc::new(TcpState::new(runtime.handle().clone()));
 
         let listener = state.listen("127.0.0.1", 0).unwrap();
 
@@ -570,7 +570,7 @@ mod tests {
     #[test]
     fn raw_bytes_round_trip_without_framing() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        let state = Arc::new(NetworkState::new(runtime.handle().clone()));
+        let state = Arc::new(TcpState::new(runtime.handle().clone()));
 
         let listener = state.listen("127.0.0.1", 0).unwrap();
         let port = {
@@ -600,21 +600,14 @@ mod tests {
     #[test]
     fn test_error_display() {
         assert_eq!(
-            NetworkError::InvalidListener(42).to_string(),
+            TcpError::InvalidListener(42).to_string(),
             "invalid listener ID: 42"
         );
         assert_eq!(
-            NetworkError::InvalidConnection(99).to_string(),
+            TcpError::InvalidConnection(99).to_string(),
             "invalid connection ID: 99"
         );
-        assert_eq!(
-            NetworkError::ConnectionClosed.to_string(),
-            "connection closed"
-        );
-        assert!(
-            NetworkError::MessageTooLarge(1000)
-                .to_string()
-                .contains("1000")
-        );
+        assert_eq!(TcpError::ConnectionClosed.to_string(), "connection closed");
+        assert!(TcpError::MessageTooLarge(1000).to_string().contains("1000"));
     }
 }

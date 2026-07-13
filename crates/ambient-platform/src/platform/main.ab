@@ -2,7 +2,7 @@
 //!
 //! `core::system` is a directory module: its shape is the `platform/`
 //! source tree. Each ability lives in the sibling file of the same theme
-//! (`stdio`, `time`, `random`, `log`, `fs`, `network`, `env`,
+//! (`stdio`, `time`, `random`, `log`, `fs`, `tcp`, `env`,
 //! `execute`, `live`, `state`, `drain`, `task`, `deploy`) and is
 //! re-exported here, so `use core::system::Stdio;` and a
 //! fully-qualified `core::system::Stdio` both keep resolving through this
@@ -29,7 +29,7 @@
 //! Abilities are `pub` because `core::system` is an ordinary importable
 //! module: the registry only lets you `use` a public export
 //! (`lookup_symbol` rejects a non-`pub` symbol), so
-//! `use core::system::Network;` needs `pub ability Network` — exactly as the
+//! `use core::system::Tcp;` needs `pub ability Tcp` — exactly as the
 //! core library marks its surface with `pub fn` / `pub enum`. `pub` affects
 //! *only* the import path; fully-qualified use (`core::system::Stdio::out!`,
 //! `with core::system::Stdio`, handler arms, effect rows) resolves through
@@ -40,7 +40,7 @@ pub use self::time::Time;
 pub use self::random::Random;
 pub use self::log::Log;
 pub use self::fs::FileSystem;
-pub use self::network::Network;
+pub use self::tcp::Tcp;
 pub use self::env::Env;
 pub use self::execute::Execute;
 pub use self::live::Live;

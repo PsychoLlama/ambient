@@ -43,7 +43,7 @@ use ambient_engine::vm::Vm;
 use crate::deploy::DeployRuntime;
 use crate::drain::{DrainSignal, install_drain_natives};
 use crate::native_uuid;
-use crate::network_state::NetworkState;
+use crate::tcp_state::TcpState;
 
 /// Observable lifecycle events, for the embedder to log.
 #[derive(Debug)]
@@ -79,7 +79,7 @@ pub struct TaskRuntimeConfig {
     pub core: Arc<DeployRuntime>,
     /// The shared network handle table — the interruptible natives
     /// need it to race blocked operations against the drain signal.
-    pub network: Arc<NetworkState>,
+    pub network: Arc<TcpState>,
     /// Lifecycle event sink.
     pub events: TaskEventSink,
     /// How long a drained task gets to reach an interruptible perform
@@ -146,7 +146,7 @@ pub struct TaskRuntime {
     /// Signaled whenever a task winds down (for [`Self::wait_all`]).
     exited: Condvar,
     core: Arc<DeployRuntime>,
-    network: Arc<NetworkState>,
+    network: Arc<TcpState>,
     events: TaskEventSink,
     drain_deadline: Duration,
 }

@@ -48,7 +48,7 @@ pub(super) fn register_cross_module(
     // them as namespaced dynamics before imports and local abilities
     // resolve, so `core::system::Stdio` / `pkg::effects::Counter`
     // references (inline uses and cross-module ability deps) and the
-    // `use core::system::Network;` bridge all find their target — on every
+    // `use core::system::Tcp;` bridge all find their target — on every
     // path that has a registry, including the package build.
     seed_namespaced_ability_dynamics(infer, registry, errors);
     // Imported enums register first: foreign impl registration (next)

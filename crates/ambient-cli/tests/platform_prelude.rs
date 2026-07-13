@@ -62,7 +62,7 @@ fn declarations_expose_the_expected_interfaces() {
             ],
         ),
         (
-            "Network",
+            "Tcp",
             &[
                 "listen",
                 "accept",
@@ -147,7 +147,7 @@ fn ability_uuids_are_pinned() {
         ("Random", 0x4),
         ("Log", 0x5),
         ("FileSystem", 0x6),
-        ("Network", 0x7),
+        ("Tcp", 0x7),
         ("Env", 0x9),
         ("Execute", 0xA),
         ("Live", 0xB),

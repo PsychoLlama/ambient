@@ -196,8 +196,8 @@ pub fn build_package(
     all_compiled.merge(&core_compiled);
 
     // Register and compile the embedder-supplied `core::system` module so
-    // its abilities are in scope fully-qualified (`core::system::Network`)
-    // and importable (`use core::system::Network;`), and its default
+    // its abilities are in scope fully-qualified (`core::system::Tcp`)
+    // and importable (`use core::system::Tcp;`), and its default
     // implementations exist for perform sites to link against.
     if !options.platform_modules.is_empty() {
         let platform_compiled = compile_declaration_modules(

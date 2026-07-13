@@ -98,7 +98,7 @@ impl ModuleId {
     }
 
     /// The `core::system` declaration module — the namespace embedder
-    /// platform abilities (`Stdio`, `Network`, ...) are registered under.
+    /// platform abilities (`Stdio`, `Tcp`, ...) are registered under.
     #[must_use]
     pub fn core_system() -> Self {
         Self::builtin(&["system"])

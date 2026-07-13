@@ -444,12 +444,12 @@ fn update_result_unifies_with_cell_type() {
 /// generation 1's entry and stashed in a cell is served by generation 2
 /// after a deploy — the runtime owns both the name and the resource, so
 /// there is no handoff. This drives a real localhost connection through
-/// the shared `NetworkState` handle table, exactly the production wiring.
+/// the shared `TcpState` handle table, exactly the production wiring.
 #[test]
 fn listener_bound_in_gen_one_is_served_after_a_deploy() {
     const GEN1: &str = r#"
-    fn bind(): Number with core::system::Network, Exception {
-      match core::system::Network::listen!(("127.0.0.1", 0)) {
+    fn bind(): Number with core::system::Tcp, Exception {
+      match core::system::Tcp::listen!(("127.0.0.1", 0)) {
         Ok(listener) => listener,
         Err(message) => {
           Exception::throw!(message);
@@ -465,12 +465,12 @@ fn listener_bound_in_gen_one_is_served_after_a_deploy() {
     // accept on the cell's handle, echo one message back.
     let gen2_src = format!(
         r#"{GEN1}
-    pub fn serve(): Number with core::system::State, core::system::Network {{
+    pub fn serve(): Number with core::system::State, core::system::Tcp {{
       let listener = core::system::State::get!("listener");
-      let conn = core::system::Network::accept!(listener).unwrap_or(0 - 1);
-      let msg = core::system::Network::receive!(conn).unwrap_or(Binary::from([]));
-      core::system::Network::send!(conn, msg);
-      core::system::Network::close!(conn);
+      let conn = core::system::Tcp::accept!(listener).unwrap_or(0 - 1);
+      let msg = core::system::Tcp::receive!(conn).unwrap_or(Binary::from([]));
+      core::system::Tcp::send!(conn, msg);
+      core::system::Tcp::close!(conn);
       msg.length()
     }}
     "#
@@ -482,13 +482,13 @@ fn listener_bound_in_gen_one_is_served_after_a_deploy() {
     // Real tokio-backed network table, shared by every VM the runtime
     // builds — the same shape as the CLI host's wiring.
     let tokio = tokio::runtime::Runtime::new().expect("tokio runtime");
-    let network = Arc::new(ambient_platform::NetworkState::new(tokio.handle().clone()));
+    let network = Arc::new(ambient_platform::TcpState::new(tokio.handle().clone()));
     let core = {
         let network = Arc::clone(&network);
         DeployRuntime::new(Arc::new(move || {
             let mut vm = Vm::new();
             vm.register_natives(&ambient_platform::stub_natives());
-            vm.register_natives(&ambient_platform::network_natives(Arc::clone(&network)));
+            vm.register_natives(&ambient_platform::tcp_natives(Arc::clone(&network)));
             vm
         }))
     };

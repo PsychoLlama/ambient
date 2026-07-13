@@ -320,13 +320,13 @@ fn test_execute_run_with_granted_ability() {
 
 #[test]
 fn test_execute_run_ungranted_ability_is_unhandled() {
-    // Network is NOT granted to executed code: its default implementation
+    // Tcp is NOT granted to executed code: its default implementation
     // runs in the isolated VM, but the extern it calls is bound to a stub
     // that raises "not wired" — a loud failure, not a silent escape.
     CliTest::new(
         r#"
-        fn phone_home(x: Number): Number with core::system::Network {
-            let conn = core::system::Network::connect!(("127.0.0.1", 1));
+        fn phone_home(x: Number): Number with core::system::Tcp {
+            let conn = core::system::Tcp::connect!(("127.0.0.1", 1));
             x
         }
 
@@ -615,14 +615,14 @@ fn test_host_operation_failure_is_an_err_value() {
     // not raise a catchable exception or abort the VM.
     CliTest::new(
         r#"
-        fn try_connect(): String with core::system::Network {
-            match core::system::Network::connect!(("127.0.0.1", 9)) {
+        fn try_connect(): String with core::system::Tcp {
+            match core::system::Tcp::connect!(("127.0.0.1", 9)) {
                 Ok(conn) => "connected",
                 Err(msg) => "failed",
             }
         }
 
-        pub fn run(): String with core::system::Network {
+        pub fn run(): String with core::system::Tcp {
             try_connect()
         }
         "#,

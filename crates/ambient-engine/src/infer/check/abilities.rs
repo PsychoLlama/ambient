@@ -274,12 +274,12 @@ fn find_dependency_cycle(
     visit(start, start, id_by_fqn, deps_by_id, &mut visited, &mut path).then_some(path)
 }
 /// Register a cross-module ability import (`use pkg::b::SomeAbility;`,
-/// `use core::system::Network;`) as a *bare* local dynamic, resolved from
+/// `use core::system::Tcp;`) as a *bare* local dynamic, resolved from
 /// the origin module's declaration.
 ///
 /// The identity is content-addressed, so it unifies with the origin
 /// module's own registration — and with any namespaced copy
-/// (`core::system::Network`) — meaning handlers, effect-rows, and linking
+/// (`core::system::Tcp`) — meaning handlers, effect-rows, and linking
 /// need no changes. Called from `build_import_env` for each `ExportKind::Ability`
 /// import.
 pub(super) fn register_imported_ability(
@@ -308,7 +308,7 @@ pub(super) fn register_imported_ability(
 }
 /// Seed every registered module's `ability` declarations as namespaced
 /// dynamics under the declaring module's dotted path
-/// (`core::system.Network`, `effects.Counter`, `deep.nested.fx.Log`).
+/// (`core::system.Tcp`, `effects.Counter`, `deep.nested.fx.Log`).
 ///
 /// This is the ability-layer counterpart of canonical name resolution:
 /// the resolve pass rewrites every qualified or imported ability

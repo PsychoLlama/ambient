@@ -53,14 +53,14 @@ pub mod drain;
 pub mod env;
 pub mod execute;
 pub mod fs;
-pub mod network;
-pub mod network_state;
 pub mod random;
 pub mod remote_deploy;
 pub mod retire;
 pub mod state;
 pub mod stdio;
 pub mod task;
+pub mod tcp;
+pub mod tcp_state;
 pub mod time;
 
 use std::path::Path;
@@ -147,8 +147,6 @@ pub use deploy::{
 pub use drain::{DrainSignal, drain_interrupt, install_drain_natives};
 pub use execute::{ExecuteConfig, ExecuteGrants, execute_natives};
 pub use fs::fs_natives;
-pub use network::network_natives;
-pub use network_state::NetworkState;
 pub use random::random_natives;
 pub use remote_deploy::{
     DeployApplyHook, DeployApplySlot, DeployPlanHook, DeployPlanSlot, remote_deploy_natives,
@@ -159,6 +157,8 @@ pub use task::{
     TaskEvent, TaskEventSink, TaskReconcileOutcome, TaskRuntime, TaskRuntimeConfig,
     install_task_natives,
 };
+pub use tcp::tcp_natives;
+pub use tcp_state::TcpState;
 pub use time::time_natives;
 
 pub use env::env_natives;
@@ -285,56 +285,56 @@ pub(crate) const EXTERN_BINDINGS: &[ExternBinding] = &[
         arity: 1,
     },
     ExternBinding {
-        name: "network_listen",
-        module: "network",
+        name: "tcp_listen",
+        module: "tcp",
         slot: 0x10,
         arity: 1,
     },
     ExternBinding {
-        name: "network_accept",
-        module: "network",
+        name: "tcp_accept",
+        module: "tcp",
         slot: 0x11,
         arity: 1,
     },
     ExternBinding {
-        name: "network_close_listener",
-        module: "network",
+        name: "tcp_close_listener",
+        module: "tcp",
         slot: 0x12,
         arity: 1,
     },
     ExternBinding {
-        name: "network_connect",
-        module: "network",
+        name: "tcp_connect",
+        module: "tcp",
         slot: 0x13,
         arity: 1,
     },
     ExternBinding {
-        name: "network_close",
-        module: "network",
+        name: "tcp_close",
+        module: "tcp",
         slot: 0x14,
         arity: 1,
     },
     ExternBinding {
-        name: "network_send",
-        module: "network",
+        name: "tcp_send",
+        module: "tcp",
         slot: 0x15,
         arity: 2,
     },
     ExternBinding {
-        name: "network_receive",
-        module: "network",
+        name: "tcp_receive",
+        module: "tcp",
         slot: 0x16,
         arity: 1,
     },
     ExternBinding {
-        name: "network_local_addr",
-        module: "network",
+        name: "tcp_local_addr",
+        module: "tcp",
         slot: 0x17,
         arity: 1,
     },
     ExternBinding {
-        name: "network_peer_addr",
-        module: "network",
+        name: "tcp_peer_addr",
+        module: "tcp",
         slot: 0x18,
         arity: 1,
     },
@@ -469,14 +469,14 @@ pub(crate) const EXTERN_BINDINGS: &[ExternBinding] = &[
         arity: 1,
     },
     ExternBinding {
-        name: "network_send_raw",
-        module: "network",
+        name: "tcp_send_raw",
+        module: "tcp",
         slot: 0x36,
         arity: 2,
     },
     ExternBinding {
-        name: "network_receive_raw",
-        module: "network",
+        name: "tcp_receive_raw",
+        module: "tcp",
         slot: 0x37,
         arity: 1,
     },
@@ -840,7 +840,7 @@ mod tests {
         // (surfaces uncaught), not an in-language `Result::Err`.
         let stubs = stub_natives();
         let func = stubs
-            .impl_for(&native_uuid("network_listen"))
+            .impl_for(&native_uuid("tcp_listen"))
             .expect("stub bound");
         match func(vec![]) {
             Err(VmError::Exception(Value::String(msg))) => {

@@ -26,7 +26,7 @@ use ambient_engine::infer::check_module_with_registry;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::vm::Vm;
-use ambient_platform::NetworkState;
+use ambient_platform::TcpState;
 use ambient_platform::deploy::{DeployRuntime, functions_from_module};
 use ambient_platform::task::{
     TaskReconcileOutcome, TaskRuntime, TaskRuntimeConfig, install_task_natives,
@@ -146,14 +146,12 @@ struct Harness {
 
 fn harness(drain_deadline: Duration) -> Harness {
     let tokio = tokio::runtime::Runtime::new().expect("tokio runtime");
-    let network = Arc::new(NetworkState::new(tokio.handle().clone()));
+    let network = Arc::new(TcpState::new(tokio.handle().clone()));
     let factory_network = Arc::clone(&network);
     let core = Arc::new(DeployRuntime::new(Arc::new(move || {
         let mut vm = Vm::new();
         vm.register_natives(&ambient_platform::stub_natives());
-        vm.register_natives(&ambient_platform::network_natives(Arc::clone(
-            &factory_network,
-        )));
+        vm.register_natives(&ambient_platform::tcp_natives(Arc::clone(&factory_network)));
         vm
     })));
     let events: Events = Arc::default();

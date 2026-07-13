@@ -353,7 +353,7 @@ impl TokenKind {
             "Random",
             "Log",
             "FileSystem",
-            "Network",
+            "Tcp",
         ]
     }
 }

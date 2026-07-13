@@ -6,7 +6,7 @@
 //!
 //! 1. **Wakes blocked interruptible natives.** [`install_drain_natives`]
 //!    overrides the interruptible subset of blocking platform natives
-//!    (`network_accept`, `network_receive`, `network_receive_raw`,
+//!    (`tcp_accept`, `tcp_receive`, `tcp_receive_raw`,
 //!    `time_wait`) on the
 //!    computation's VM with variants that race the blocking operation
 //!    against the signal. An interrupted native returns
@@ -34,7 +34,7 @@ use std::time::{Duration, Instant};
 use ambient_ability::{Value, VmError};
 use ambient_engine::vm::Vm;
 
-use crate::network_state::{NetworkError, NetworkState};
+use crate::tcp_state::{TcpError, TcpState};
 use crate::{extract_number, into_result, native_uuid};
 
 /// The error an interrupted native returns: the VM responds by
@@ -189,15 +189,15 @@ impl DrainSignal {
 /// `Drain::requested` delivery, anything else keeps the ordinary
 /// operational-failure shape (`into_result` turns the exception into an
 /// in-language `Err`).
-fn network_error(op: &str, error: NetworkError) -> VmError {
+fn tcp_error(op: &str, error: TcpError) -> VmError {
     match error {
-        NetworkError::Interrupted => drain_interrupt(),
-        other => VmError::exception(format!("Network.{op}: {other}")),
+        TcpError::Interrupted => drain_interrupt(),
+        other => VmError::exception(format!("Tcp.{op}: {other}")),
     }
 }
 
 /// Make a VM's blocking natives drain-aware: override the interruptible
-/// subset (`network_accept`, `network_receive`, `network_receive_raw`,
+/// subset (`tcp_accept`, `tcp_receive`, `tcp_receive_raw`,
 /// `time_wait`) with variants bound to `signal`, and wire the signal's
 /// hard-stop flag into the VM. Implementations are uuid-keyed, so these
 /// overrides win over the registry-installed ones — per-VM wiring,
@@ -206,7 +206,7 @@ fn network_error(op: &str, error: NetworkError) -> VmError {
 /// Every override checks the signal *before* blocking, so once a drain
 /// is requested each subsequent interruptible perform unwinds
 /// immediately and deterministically.
-pub fn install_drain_natives(vm: &mut Vm, network: &Arc<NetworkState>, signal: &Arc<DrainSignal>) {
+pub fn install_drain_natives(vm: &mut Vm, network: &Arc<TcpState>, signal: &Arc<DrainSignal>) {
     vm.set_interrupt_flag(signal.hard_stop_flag());
 
     // time_wait(duration) -> (), interruptible.
@@ -225,11 +225,11 @@ pub fn install_drain_natives(vm: &mut Vm, network: &Arc<NetworkState>, signal: &
         }),
     );
 
-    // network_accept(listener) -> Result<ConnectionId, string>, interruptible.
+    // tcp_accept(listener) -> Result<ConnectionId, string>, interruptible.
     let s = Arc::clone(signal);
     let net = Arc::clone(network);
     vm.register_native_impl(
-        native_uuid("network_accept"),
+        native_uuid("tcp_accept"),
         Arc::new(move |args: Vec<Value>| {
             into_result((|| {
                 if s.is_requested() {
@@ -239,18 +239,18 @@ pub fn install_drain_natives(vm: &mut Vm, network: &Arc<NetworkState>, signal: &
                 let listener_id = extract_number(&args)? as u64;
                 let id = net
                     .accept_interruptible(listener_id, s.cancelled())
-                    .map_err(|e| network_error("accept", e))?;
+                    .map_err(|e| tcp_error("accept", e))?;
                 #[allow(clippy::cast_precision_loss)]
                 Ok(Value::Number(id as f64))
             })())
         }),
     );
 
-    // network_receive(conn) -> Result<Binary, string>, interruptible.
+    // tcp_receive(conn) -> Result<Binary, string>, interruptible.
     let s = Arc::clone(signal);
     let net = Arc::clone(network);
     vm.register_native_impl(
-        native_uuid("network_receive"),
+        native_uuid("tcp_receive"),
         Arc::new(move |args: Vec<Value>| {
             into_result((|| {
                 if s.is_requested() {
@@ -260,17 +260,17 @@ pub fn install_drain_natives(vm: &mut Vm, network: &Arc<NetworkState>, signal: &
                 let conn_id = extract_number(&args)? as u64;
                 let data = net
                     .receive_interruptible(conn_id, s.cancelled())
-                    .map_err(|e| network_error("receive", e))?;
+                    .map_err(|e| tcp_error("receive", e))?;
                 Ok(Value::binary(data))
             })())
         }),
     );
 
-    // network_receive_raw(conn) -> Result<Binary, string>, interruptible.
+    // tcp_receive_raw(conn) -> Result<Binary, string>, interruptible.
     let s = Arc::clone(signal);
     let net = Arc::clone(network);
     vm.register_native_impl(
-        native_uuid("network_receive_raw"),
+        native_uuid("tcp_receive_raw"),
         Arc::new(move |args: Vec<Value>| {
             into_result((|| {
                 if s.is_requested() {
@@ -280,7 +280,7 @@ pub fn install_drain_natives(vm: &mut Vm, network: &Arc<NetworkState>, signal: &
                 let conn_id = extract_number(&args)? as u64;
                 let data = net
                     .receive_raw_interruptible(conn_id, s.cancelled())
-                    .map_err(|e| network_error("receive_raw", e))?;
+                    .map_err(|e| tcp_error("receive_raw", e))?;
                 Ok(Value::binary(data))
             })())
         }),

@@ -37,7 +37,7 @@ use ambient_engine::bytecode::CompiledFunction;
 use ambient_engine::compiler::{CompiledModule, MigrationRecord};
 use ambient_engine::vm::Vm;
 
-/// Builds a base VM: platform natives registered (Stdio, Network, ...), no
+/// Builds a base VM: platform natives registered (Stdio, Tcp, ...), no
 /// code loaded. The deploy runtime layers every loaded generation on top;
 /// clients layer their own natives via the deploy wire hook.
 pub type VmFactory = Arc<dyn Fn() -> Vm + Send + Sync>;

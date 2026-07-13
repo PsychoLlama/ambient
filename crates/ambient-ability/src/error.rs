@@ -217,7 +217,7 @@ pub enum VmError {
     Exception(Value),
 
     /// A blocking native was interrupted by the host (a drain request
-    /// unblocking `Network::accept`, say). This is the interrupt channel
+    /// unblocking `Tcp::accept`, say). This is the interrupt channel
     /// for natives, the sibling of [`VmError::Exception`]: returning it
     /// makes the VM perform the identified ability method — an abstract
     /// never-returning operation, delivered as a host-constructed

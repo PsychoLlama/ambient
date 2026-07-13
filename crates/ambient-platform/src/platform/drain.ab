@@ -2,8 +2,8 @@
 
 /// Cooperative cancellation. User code never performs `requested`
 /// itself: the **runtime** delivers it — only at interruptible performs
-/// (a marked subset of blocking platform operations: `Network::accept`,
-/// `Network::receive`, `Network::receive_raw`, `Time::wait`) — when a
+/// (a marked subset of blocking platform operations: `Tcp::accept`,
+/// `Tcp::receive`, `Tcp::receive_raw`, `Time::wait`) — when a
 /// drain has been requested
 /// for the computation. Code between interruptible performs always runs
 /// to completion, so invariants never tear.

@@ -25,7 +25,7 @@ use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::vm::Vm;
 use ambient_platform::deploy::{DeployRuntime, functions_from_module};
-use ambient_platform::{DrainSignal, NetworkState, install_drain_natives};
+use ambient_platform::{DrainSignal, TcpState, install_drain_natives};
 
 /// Compile a test program against core + compiled `core::system` — the
 /// same world `ambient run` checks against.
@@ -87,12 +87,12 @@ fn compile(src: &str) -> CompiledModule {
 /// A deploy runtime whose VMs carry the platform stubs plus real network
 /// natives against `network` — the production wiring shape. Drain wiring
 /// is per computation, added by each test with [`install_drain_natives`].
-fn runtime(network: &Arc<NetworkState>) -> DeployRuntime {
+fn runtime(network: &Arc<TcpState>) -> DeployRuntime {
     let network = Arc::clone(network);
     DeployRuntime::new(Arc::new(move || {
         let mut vm = Vm::new();
         vm.register_natives(&ambient_platform::stub_natives());
-        vm.register_natives(&ambient_platform::network_natives(Arc::clone(&network)));
+        vm.register_natives(&ambient_platform::tcp_natives(Arc::clone(&network)));
         vm
     }))
 }
@@ -114,11 +114,7 @@ fn deploy(core: &DeployRuntime, compiled: &CompiledModule) {
 }
 
 /// A drain-wired VM for one computation.
-fn drainable_vm(
-    core: &DeployRuntime,
-    network: &Arc<NetworkState>,
-    signal: &Arc<DrainSignal>,
-) -> Vm {
+fn drainable_vm(core: &DeployRuntime, network: &Arc<TcpState>, signal: &Arc<DrainSignal>) -> Vm {
     let mut vm = core.build_vm();
     install_drain_natives(&mut vm, network, signal);
     vm
@@ -172,7 +168,7 @@ const WAIT_LOOP: &str = r#"
 fn drain_unwinds_a_blocked_wait_and_the_arm_yields_the_value() {
     let compiled = compile(WAIT_LOOP);
     let tokio = tokio::runtime::Runtime::new().expect("tokio runtime");
-    let network = Arc::new(NetworkState::new(tokio.handle().clone()));
+    let network = Arc::new(TcpState::new(tokio.handle().clone()));
     let core = runtime(&network);
     deploy(&core, &compiled);
 
@@ -206,7 +202,7 @@ fn drain_unwinds_a_blocked_wait_and_the_arm_yields_the_value() {
 fn code_before_the_interruptible_perform_runs_to_completion() {
     let compiled = compile(WAIT_LOOP);
     let tokio = tokio::runtime::Runtime::new().expect("tokio runtime");
-    let network = Arc::new(NetworkState::new(tokio.handle().clone()));
+    let network = Arc::new(TcpState::new(tokio.handle().clone()));
     let core = runtime(&network);
     deploy(&core, &compiled);
 
@@ -223,14 +219,14 @@ fn code_before_the_interruptible_perform_runs_to_completion() {
     );
 }
 
-/// A computation blocked in `Network::accept` (a listener bound into a
+/// A computation blocked in `Tcp::accept` (a listener bound into a
 /// cell, the Phase 3 pattern) is interrupted at the accept, and cleanup
 /// closes over the loop's state.
 #[test]
 fn drain_unwinds_a_blocked_accept() {
     const SRC: &str = r#"
-    fn bind(): Number with core::system::Network, Exception {
-      match core::system::Network::listen!(("127.0.0.1", 0)) {
+    fn bind(): Number with core::system::Tcp, Exception {
+      match core::system::Tcp::listen!(("127.0.0.1", 0)) {
         Ok(listener) => listener,
         Err(message) => {
           Exception::throw!(message);
@@ -241,19 +237,19 @@ fn drain_unwinds_a_blocked_accept() {
     pub fn run(): () with core::system::State {
       core::system::State::init!("listener", bind)
     }
-    fn serve(): Number with core::system::State, core::system::Network {
+    fn serve(): Number with core::system::State, core::system::Tcp {
       let listener = core::system::State::get!("listener");
-      let conn = core::system::Network::accept!(listener).unwrap_or(0 - 1);
+      let conn = core::system::Tcp::accept!(listener).unwrap_or(0 - 1);
       conn
     }
-    pub fn main(): Number with core::system::State, core::system::Network {
+    pub fn main(): Number with core::system::State, core::system::Tcp {
       with { core::system::Drain::requested() => 7 } handle serve()
     }
     "#;
 
     let compiled = compile(SRC);
     let tokio = tokio::runtime::Runtime::new().expect("tokio runtime");
-    let network = Arc::new(NetworkState::new(tokio.handle().clone()));
+    let network = Arc::new(TcpState::new(tokio.handle().clone()));
     let core = runtime(&network);
     deploy(&core, &compiled);
 
@@ -275,14 +271,14 @@ fn drain_unwinds_a_blocked_accept() {
     assert_eq!(result, Ok(Value::Number(7.0)));
 }
 
-/// A computation blocked in `Network::receive` mid-conversation: the
+/// A computation blocked in `Tcp::receive` mid-conversation: the
 /// accept completes normally (a real client connects), the receive is
 /// the interruption point.
 #[test]
 fn drain_unwinds_a_blocked_receive() {
     const SRC: &str = r#"
-    fn bind(): Number with core::system::Network, Exception {
-      match core::system::Network::listen!(("127.0.0.1", 0)) {
+    fn bind(): Number with core::system::Tcp, Exception {
+      match core::system::Tcp::listen!(("127.0.0.1", 0)) {
         Ok(listener) => listener,
         Err(message) => {
           Exception::throw!(message);
@@ -294,21 +290,21 @@ fn drain_unwinds_a_blocked_receive() {
       core::system::State::init!("listener", bind);
       core::system::State::init!("conn", () => 0 - 1)
     }
-    fn serve(): Number with core::system::State, core::system::Network {
+    fn serve(): Number with core::system::State, core::system::Tcp {
       let listener = core::system::State::get!("listener");
-      let conn = core::system::Network::accept!(listener).unwrap_or(0 - 1);
+      let conn = core::system::Tcp::accept!(listener).unwrap_or(0 - 1);
       core::system::State::set!("conn", conn);
-      let msg = core::system::Network::receive!(conn).unwrap_or(Binary::from([]));
+      let msg = core::system::Tcp::receive!(conn).unwrap_or(Binary::from([]));
       msg.length()
     }
-    pub fn main(): Number with core::system::State, core::system::Network {
+    pub fn main(): Number with core::system::State, core::system::Tcp {
       with { core::system::Drain::requested() => 8 } handle serve()
     }
     "#;
 
     let compiled = compile(SRC);
     let tokio = tokio::runtime::Runtime::new().expect("tokio runtime");
-    let network = Arc::new(NetworkState::new(tokio.handle().clone()));
+    let network = Arc::new(TcpState::new(tokio.handle().clone()));
     let core = runtime(&network);
     deploy(&core, &compiled);
 
@@ -382,7 +378,7 @@ fn an_unhandled_drain_is_a_fault() {
 
     let compiled = compile(SRC);
     let tokio = tokio::runtime::Runtime::new().expect("tokio runtime");
-    let network = Arc::new(NetworkState::new(tokio.handle().clone()));
+    let network = Arc::new(TcpState::new(tokio.handle().clone()));
     let core = runtime(&network);
     deploy(&core, &compiled);
 
@@ -435,7 +431,7 @@ fn the_deadline_hard_stops_a_non_cooperative_loop() {
 
     let compiled = compile(SRC);
     let tokio = tokio::runtime::Runtime::new().expect("tokio runtime");
-    let network = Arc::new(NetworkState::new(tokio.handle().clone()));
+    let network = Arc::new(TcpState::new(tokio.handle().clone()));
     let core = runtime(&network);
     deploy(&core, &compiled);
 

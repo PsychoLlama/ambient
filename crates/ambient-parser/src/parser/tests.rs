@@ -888,10 +888,10 @@ fn test_parse_use_in_block() {
 fn test_parse_use_core_system() {
     // Platform abilities live under `core::system`, an ordinary `core`
     // path — no dedicated root.
-    let uses = flatten_uses("use core::system::Network;");
+    let uses = flatten_uses("use core::system::Tcp;");
     assert_eq!(uses.len(), 1);
     assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Core);
-    assert_eq!(path_names(&uses[0]), ["system", "Network"]);
+    assert_eq!(path_names(&uses[0]), ["system", "Tcp"]);
 }
 
 #[test]
@@ -909,10 +909,10 @@ fn test_parse_use_platform_is_local_alias() {
     // With the reserved `platform` root removed, `use platform::X`
     // parses as an alias-rooted (`Local`) path like any other bare
     // head — it no longer names a reserved root.
-    let uses = flatten_uses("use platform::Network;");
+    let uses = flatten_uses("use platform::Tcp;");
     assert_eq!(uses.len(), 1);
     assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Local);
-    assert_eq!(path_names(&uses[0]), ["platform", "Network"]);
+    assert_eq!(path_names(&uses[0]), ["platform", "Tcp"]);
 }
 
 #[test]

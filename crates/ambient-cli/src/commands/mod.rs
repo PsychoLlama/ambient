@@ -67,8 +67,8 @@ pub fn core_context() -> Result<CoreContext> {
     )
     .map_err(|e| anyhow::anyhow!("core library failed to build: {e}"))?;
 
-    // Compile the `core::system` module so `core::system::Network` resolves
-    // fully-qualified, `use core::system::Network;` imports it, and the
+    // Compile the `core::system` module so `core::system::Tcp` resolves
+    // fully-qualified, `use core::system::Tcp;` imports it, and the
     // abilities' default implementations exist for perform sites to link
     // against. The stub natives satisfy the extern contract; runtime hosts
     // overwrite the implementations per VM.

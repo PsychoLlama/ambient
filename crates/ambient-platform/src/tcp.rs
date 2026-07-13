@@ -1,9 +1,9 @@
-//! Network natives for TCP client/server operations.
+//! TCP natives for client/server operations.
 //!
 //! General-purpose networking primitives with message-oriented I/O:
 //! low-level socket operations that can be used for any protocol.
 //! Listener and connection handles are plain numbers, valid in any VM
-//! registered against the same [`NetworkState`] — an acceptor can hand a
+//! registered against the same [`TcpState`] — an acceptor can hand a
 //! connection to a spawned worker by sending its handle in a message.
 //!
 //! # Errors
@@ -21,109 +21,109 @@ use std::sync::Arc;
 use ambient_ability::{Value, VmError};
 use ambient_engine::natives::NativeRegistry;
 
-use crate::network_state::NetworkState;
+use crate::tcp_state::TcpState;
 use crate::{bind, extract_bytes, extract_host_port, extract_number, into_result};
 
-/// The `Network` native implementations, bound against shared state.
+/// The `Tcp` native implementations, bound against shared state.
 ///
-/// The host hands every VM it builds the same [`NetworkState`], so
+/// The host hands every VM it builds the same [`TcpState`], so
 /// handles cross task boundaries freely.
 #[must_use]
 #[allow(clippy::needless_pass_by_value, clippy::too_many_lines)]
-pub fn network_natives(state: Arc<NetworkState>) -> NativeRegistry {
+pub fn tcp_natives(state: Arc<TcpState>) -> NativeRegistry {
     let mut registry = NativeRegistry::new();
 
-    // network_listen(endpoint: (string, number)) -> Result<ListenerId, string>
+    // tcp_listen(endpoint: (string, number)) -> Result<ListenerId, string>
     let state_clone = Arc::clone(&state);
     bind(
         &mut registry,
-        "network_listen",
+        "tcp_listen",
         Arc::new(move |args: Vec<Value>| {
             into_result((|| {
                 let (host, port) = extract_host_port(&args)?;
                 let id = state_clone
                     .listen(&host, port)
-                    .map_err(|e| VmError::exception(format!("Network.listen: {e}")))?;
+                    .map_err(|e| VmError::exception(format!("Tcp.listen: {e}")))?;
                 #[allow(clippy::cast_precision_loss)]
                 Ok(Value::Number(id as f64))
             })())
         }),
     );
 
-    // network_accept(listener: number) -> Result<ConnectionId, string>
+    // tcp_accept(listener: number) -> Result<ConnectionId, string>
     let state_clone = Arc::clone(&state);
     bind(
         &mut registry,
-        "network_accept",
+        "tcp_accept",
         Arc::new(move |args: Vec<Value>| {
             into_result((|| {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let listener_id = extract_number(&args)? as u64;
                 let id = state_clone
                     .accept(listener_id)
-                    .map_err(|e| VmError::exception(format!("Network.accept: {e}")))?;
+                    .map_err(|e| VmError::exception(format!("Tcp.accept: {e}")))?;
                 #[allow(clippy::cast_precision_loss)]
                 Ok(Value::Number(id as f64))
             })())
         }),
     );
 
-    // network_close_listener(listener: number) -> Result<(), string>
+    // tcp_close_listener(listener: number) -> Result<(), string>
     let state_clone = Arc::clone(&state);
     bind(
         &mut registry,
-        "network_close_listener",
+        "tcp_close_listener",
         Arc::new(move |args: Vec<Value>| {
             into_result((|| {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let listener_id = extract_number(&args)? as u64;
                 state_clone
                     .close_listener(listener_id)
-                    .map_err(|e| VmError::exception(format!("Network.close_listener: {e}")))?;
+                    .map_err(|e| VmError::exception(format!("Tcp.close_listener: {e}")))?;
                 Ok(Value::Unit)
             })())
         }),
     );
 
-    // network_connect(endpoint: (string, number)) -> Result<ConnectionId, string>
+    // tcp_connect(endpoint: (string, number)) -> Result<ConnectionId, string>
     let state_clone = Arc::clone(&state);
     bind(
         &mut registry,
-        "network_connect",
+        "tcp_connect",
         Arc::new(move |args: Vec<Value>| {
             into_result((|| {
                 let (host, port) = extract_host_port(&args)?;
                 let id = state_clone
                     .connect(&host, port)
-                    .map_err(|e| VmError::exception(format!("Network.connect: {e}")))?;
+                    .map_err(|e| VmError::exception(format!("Tcp.connect: {e}")))?;
                 #[allow(clippy::cast_precision_loss)]
                 Ok(Value::Number(id as f64))
             })())
         }),
     );
 
-    // network_close(conn: number) -> Result<(), string>
+    // tcp_close(conn: number) -> Result<(), string>
     let state_clone = Arc::clone(&state);
     bind(
         &mut registry,
-        "network_close",
+        "tcp_close",
         Arc::new(move |args: Vec<Value>| {
             into_result((|| {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let conn_id = extract_number(&args)? as u64;
                 state_clone
                     .close(conn_id)
-                    .map_err(|e| VmError::exception(format!("Network.close: {e}")))?;
+                    .map_err(|e| VmError::exception(format!("Tcp.close: {e}")))?;
                 Ok(Value::Unit)
             })())
         }),
     );
 
-    // network_send(conn: number, data: Binary) -> Result<(), string>
+    // tcp_send(conn: number, data: Binary) -> Result<(), string>
     let state_clone = Arc::clone(&state);
     bind(
         &mut registry,
-        "network_send",
+        "tcp_send",
         Arc::new(move |args: Vec<Value>| {
             into_result((|| {
                 if args.len() < 2 {
@@ -148,17 +148,17 @@ pub fn network_natives(state: Arc<NetworkState>) -> NativeRegistry {
 
                 state_clone
                     .send(conn_id, &data)
-                    .map_err(|e| VmError::exception(format!("Network.send: {e}")))?;
+                    .map_err(|e| VmError::exception(format!("Tcp.send: {e}")))?;
                 Ok(Value::Unit)
             })())
         }),
     );
 
-    // network_receive(conn: number) -> Result<Binary, string>
+    // tcp_receive(conn: number) -> Result<Binary, string>
     let state_clone = Arc::clone(&state);
     bind(
         &mut registry,
-        "network_receive",
+        "tcp_receive",
         Arc::new(move |args: Vec<Value>| {
             into_result((|| {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -166,18 +166,18 @@ pub fn network_natives(state: Arc<NetworkState>) -> NativeRegistry {
 
                 let data = state_clone
                     .receive(conn_id)
-                    .map_err(|e| VmError::exception(format!("Network.receive: {e}")))?;
+                    .map_err(|e| VmError::exception(format!("Tcp.receive: {e}")))?;
 
                 Ok(Value::binary(data))
             })())
         }),
     );
 
-    // network_send_raw(conn: number, data: Binary) -> Result<(), string>
+    // tcp_send_raw(conn: number, data: Binary) -> Result<(), string>
     let state_clone = Arc::clone(&state);
     bind(
         &mut registry,
-        "network_send_raw",
+        "tcp_send_raw",
         Arc::new(move |args: Vec<Value>| {
             into_result((|| {
                 if args.len() < 2 {
@@ -202,17 +202,17 @@ pub fn network_natives(state: Arc<NetworkState>) -> NativeRegistry {
 
                 state_clone
                     .send_raw(conn_id, &data)
-                    .map_err(|e| VmError::exception(format!("Network.send_raw: {e}")))?;
+                    .map_err(|e| VmError::exception(format!("Tcp.send_raw: {e}")))?;
                 Ok(Value::Unit)
             })())
         }),
     );
 
-    // network_receive_raw(conn: number) -> Result<Binary, string>
+    // tcp_receive_raw(conn: number) -> Result<Binary, string>
     let state_clone = Arc::clone(&state);
     bind(
         &mut registry,
-        "network_receive_raw",
+        "tcp_receive_raw",
         Arc::new(move |args: Vec<Value>| {
             into_result((|| {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -220,18 +220,18 @@ pub fn network_natives(state: Arc<NetworkState>) -> NativeRegistry {
 
                 let data = state_clone
                     .receive_raw(conn_id)
-                    .map_err(|e| VmError::exception(format!("Network.receive_raw: {e}")))?;
+                    .map_err(|e| VmError::exception(format!("Tcp.receive_raw: {e}")))?;
 
                 Ok(Value::binary(data))
             })())
         }),
     );
 
-    // network_local_addr(conn: number) -> Result<string, string>
+    // tcp_local_addr(conn: number) -> Result<string, string>
     let state_clone = Arc::clone(&state);
     bind(
         &mut registry,
-        "network_local_addr",
+        "tcp_local_addr",
         Arc::new(move |args: Vec<Value>| {
             into_result((|| {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -239,16 +239,16 @@ pub fn network_natives(state: Arc<NetworkState>) -> NativeRegistry {
 
                 let addr = state_clone
                     .local_addr(conn_id)
-                    .map_err(|e| VmError::exception(format!("Network.local_addr: {e}")))?;
+                    .map_err(|e| VmError::exception(format!("Tcp.local_addr: {e}")))?;
                 Ok(Value::string(addr))
             })())
         }),
     );
 
-    // network_peer_addr(conn: number) -> Result<string, string>
+    // tcp_peer_addr(conn: number) -> Result<string, string>
     bind(
         &mut registry,
-        "network_peer_addr",
+        "tcp_peer_addr",
         Arc::new(move |args: Vec<Value>| {
             into_result((|| {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -256,7 +256,7 @@ pub fn network_natives(state: Arc<NetworkState>) -> NativeRegistry {
 
                 let addr = state
                     .peer_addr(conn_id)
-                    .map_err(|e| VmError::exception(format!("Network.peer_addr: {e}")))?;
+                    .map_err(|e| VmError::exception(format!("Tcp.peer_addr: {e}")))?;
                 Ok(Value::string(addr))
             })())
         }),

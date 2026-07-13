@@ -5,7 +5,7 @@
 //! VM it builds — entry/reconcile VMs and task VMs alike — so
 //! a cell written in one generation is read by the next with no handoff:
 //! the runtime owns the state, and cells belong to no generation. This is
-//! the shared-handle-table pattern (`NetworkState` is the precedent), but
+//! the shared-handle-table pattern (`TcpState` is the precedent), but
 //! the table lives in the deploy core rather than the CLI host, because
 //! deploy validation (the migration fingerprints) needs to see cells
 //! *before* the name swap.

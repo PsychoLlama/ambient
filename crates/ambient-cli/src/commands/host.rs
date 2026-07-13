@@ -30,7 +30,7 @@ use ambient_platform::deploy::{DeployReport, DeployRuntime, PlanReport, function
 use ambient_platform::task::{
     TaskEventSink, TaskReconcileOutcome, TaskRuntime, TaskRuntimeConfig, install_task_natives,
 };
-use ambient_platform::{ExecuteConfig, NetworkState, StdioConfig, StdioSink};
+use ambient_platform::{ExecuteConfig, StdioConfig, StdioSink, TcpState};
 
 /// How long a drained task gets to reach an interruptible perform
 /// before it is hard-stopped and parked.
@@ -89,7 +89,7 @@ impl RuntimeHost {
         let tokio = tokio::runtime::Runtime::new()
             .map_err(|e| anyhow::anyhow!("failed to create async runtime: {e}"))?;
 
-        let network_state = Arc::new(NetworkState::new(tokio.handle().clone()));
+        let network_state = Arc::new(TcpState::new(tokio.handle().clone()));
         let store = Arc::new(std::sync::Mutex::new(Store::new()));
         let argv = Arc::new(program_args);
 
@@ -99,7 +99,7 @@ impl RuntimeHost {
 
         // Host policy for executed-by-hash code (Execute ability): shipped
         // code may print (Stdio, and Log through it) but gets no
-        // FileSystem, Network, Time, Random, or recursive Execute — their
+        // FileSystem, Tcp, Time, Random, or recursive Execute — their
         // performs run the default implementations, whose extern calls
         // land on the stubs and raise catchable "not wired" exceptions.
         let exec_grants = {
@@ -122,7 +122,7 @@ impl RuntimeHost {
             ambient_platform::random_natives(),
             ambient_platform::fs_natives(),
             ambient_platform::env_natives(Arc::clone(&argv)),
-            ambient_platform::network_natives(Arc::clone(&network_state)),
+            ambient_platform::tcp_natives(Arc::clone(&network_state)),
         ];
         sets.push(ambient_platform::execute_natives(ExecuteConfig {
             store: Arc::clone(&store),

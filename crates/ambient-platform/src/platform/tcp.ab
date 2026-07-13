@@ -1,77 +1,77 @@
 //! TCP networking. Listeners and connections are numeric handles.
 
 /// Bind a listener on a `(host, port)` endpoint.
-extern fn network_listen(endpoint: (String, Number)): Result<Number, String>;
+extern fn tcp_listen(endpoint: (String, Number)): Result<Number, String>;
 /// Block until a client connects; returns a connection handle.
-extern fn network_accept(listener: Number): Result<Number, String>;
+extern fn tcp_accept(listener: Number): Result<Number, String>;
 /// Close a listener.
-extern fn network_close_listener(listener: Number): Result<(), String>;
+extern fn tcp_close_listener(listener: Number): Result<(), String>;
 /// Connect to a remote `(host, port)` endpoint.
-extern fn network_connect(endpoint: (String, Number)): Result<Number, String>;
+extern fn tcp_connect(endpoint: (String, Number)): Result<Number, String>;
 /// Close a connection.
-extern fn network_close(connection: Number): Result<(), String>;
+extern fn tcp_close(connection: Number): Result<(), String>;
 /// Send bytes over a connection.
-extern fn network_send(connection: Number, data: Binary): Result<(), String>;
+extern fn tcp_send(connection: Number, data: Binary): Result<(), String>;
 /// Block until bytes arrive on a connection.
-extern fn network_receive(connection: Number): Result<Binary, String>;
+extern fn tcp_receive(connection: Number): Result<Binary, String>;
 /// Write raw bytes — no framing.
-extern fn network_send_raw(connection: Number, data: Binary): Result<(), String>;
+extern fn tcp_send_raw(connection: Number, data: Binary): Result<(), String>;
 /// Read whatever raw bytes arrive next — no framing.
-extern fn network_receive_raw(connection: Number): Result<Binary, String>;
+extern fn tcp_receive_raw(connection: Number): Result<Binary, String>;
 /// The local address of a connection.
-extern fn network_local_addr(connection: Number): Result<String, String>;
+extern fn tcp_local_addr(connection: Number): Result<String, String>;
 /// The remote address of a connection.
-extern fn network_peer_addr(connection: Number): Result<String, String>;
+extern fn tcp_peer_addr(connection: Number): Result<String, String>;
 
 /// TCP networking. Listeners and connections are numeric handles.
-pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000007) ability Network {
+pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000007) ability Tcp {
   /// Bind a listener on a `(host, port)` endpoint like `("127.0.0.1", 8080)`.
   fn listen(endpoint: (String, Number)): Result<Number, String> {
-    network_listen(endpoint)
+    tcp_listen(endpoint)
   }
   /// Block until a client connects; returns a connection handle.
   fn accept(listener: Number): Result<Number, String> {
-    network_accept(listener)
+    tcp_accept(listener)
   }
   /// Close a listener.
   fn close_listener(listener: Number): Result<(), String> {
-    network_close_listener(listener)
+    tcp_close_listener(listener)
   }
   /// Connect to a remote `(host, port)` endpoint; returns a connection handle.
   fn connect(endpoint: (String, Number)): Result<Number, String> {
-    network_connect(endpoint)
+    tcp_connect(endpoint)
   }
   /// Close a connection.
   fn close(connection: Number): Result<(), String> {
-    network_close(connection)
+    tcp_close(connection)
   }
   /// Send bytes over a connection.
   fn send(connection: Number, data: Binary): Result<(), String> {
-    network_send(connection, data)
+    tcp_send(connection, data)
   }
   /// Block until bytes arrive on a connection.
   fn receive(connection: Number): Result<Binary, String> {
-    network_receive(connection)
+    tcp_receive(connection)
   }
   /// Write raw bytes over a connection — no length prefix, no framing.
   /// For speaking foreign wire protocols (HTTP, ...); `send`/`receive`
   /// frame every message with a 4-byte length and only understand each
   /// other. Never mix framed and raw calls on one connection.
   fn send_raw(connection: Number, data: Binary): Result<(), String> {
-    network_send_raw(connection, data)
+    tcp_send_raw(connection, data)
   }
   /// Block until raw bytes arrive on a connection and return whatever
   /// is there (up to one internal buffer). An empty buffer means the
   /// peer closed the connection.
   fn receive_raw(connection: Number): Result<Binary, String> {
-    network_receive_raw(connection)
+    tcp_receive_raw(connection)
   }
   /// The local address of a connection.
   fn local_addr(connection: Number): Result<String, String> {
-    network_local_addr(connection)
+    tcp_local_addr(connection)
   }
   /// The remote address of a connection.
   fn peer_addr(connection: Number): Result<String, String> {
-    network_peer_addr(connection)
+    tcp_peer_addr(connection)
   }
 }
