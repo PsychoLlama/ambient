@@ -306,6 +306,54 @@ fn impl_add_on_a_package_type_leaves_unrelated_modules_memoized() {
 }
 
 #[test]
+fn trait_signature_change_rechecks_a_module_that_names_the_trait() {
+    // "Naming the trait" is covered by the *dependency* channel, not the
+    // dispatch key: to name a trait a module must import it, so a change to the
+    // trait's definition moves the trait module's interface hash and re-checks
+    // every importer. `namer` (`impl Weigh for Item`, importing `Weigh`)
+    // re-checks; `item` (declares `Item`, names no trait) and `other` stay
+    // memoized — the trait's *impl shapes* did not move.
+    let dir = write_package(&[
+        (
+            "weighmod.ab",
+            "pub unique(A1A1A1A1-0000-4000-8000-000000000001) trait Weigh { fn weigh(self): Number; }\n",
+        ),
+        (
+            "item.ab",
+            "pub unique(A1A1A1A1-0000-4000-8000-000000000002) struct Item { g: Number }\n",
+        ),
+        (
+            "namer.ab",
+            "use pkg::weighmod::Weigh;\nuse pkg::item::Item;\n\
+             impl Weigh for Item { fn weigh(self): Number { self.g } }\n",
+        ),
+        ("other.ab", "pub fn f(): Number { 2 }\n"),
+    ]);
+    let mut session = open(&dir);
+    let _ = session.analyze_all();
+    let base = session.rechecks();
+
+    // Change the trait method's return type. The impl in `namer` no longer
+    // matches, so `namer` must re-check and surface an error.
+    session.edit_module(
+        &module_path("weighmod"),
+        "pub unique(A1A1A1A1-0000-4000-8000-000000000001) trait Weigh { fn weigh(self): String; }\n"
+            .to_string(),
+    );
+    let warm = session.analyze_all();
+    assert_eq!(
+        session.rechecks() - base,
+        2,
+        "`weighmod` (source) + `namer` (imports Weigh) re-check; `item`/`other` stay memoized"
+    );
+    assert!(
+        !diags(&warm["namer"]).is_empty(),
+        "namer's impl no longer matches the trait: it must report an error"
+    );
+    assert_matches_cold(&session, &warm);
+}
+
+#[test]
 fn duplicate_impl_add_resurfaces_the_error_in_every_module() {
     // Coherence stays build-global under narrowing: a cold check reports a
     // duplicate `impl Named for W` in *every* module's diagnostics (each seeds a
