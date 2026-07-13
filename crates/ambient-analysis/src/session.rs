@@ -74,7 +74,7 @@ use ambient_engine::build::{dep_interface_hashes, module_cache_key};
 use ambient_engine::module_cycles::cycles_by_member;
 use ambient_engine::module_interface::{
     ModuleInterface, ModuleInterfaceSummary, build_interfaces, dispatch_surface_hash,
-    module_ast_hash,
+    module_ast_hash, module_source_path, structured_items,
 };
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
@@ -335,13 +335,19 @@ impl AnalysisSession {
     /// matching what [`build_interfaces`] produces for it. `None` only if the
     /// module isn't registered (a caller-side invariant violation).
     fn summarize(&self, path: &ModulePath) -> Option<ModuleInterfaceSummary> {
-        let resolved_ast_hash = module_ast_hash(&self.registry.get(path)?.module);
+        let info = self.registry.get(path)?;
+        let resolved_ast_hash = module_ast_hash(&info.module);
         let interface = ModuleInterface::from_module(&self.registry, path);
+        let module = self.registry.module_id(path);
+        let source_path = module_source_path(&module, info);
+        let items = structured_items(&info.module);
         Some(ModuleInterfaceSummary {
-            module: self.registry.module_id(path),
+            module,
             interface_hash: interface.interface_hash(),
             interface,
             resolved_ast_hash,
+            source_path,
+            items,
         })
     }
 

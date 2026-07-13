@@ -30,6 +30,7 @@
 
 mod ast_hash;
 mod encode;
+mod structured;
 #[cfg(test)]
 mod tests;
 
@@ -38,9 +39,10 @@ use std::sync::Arc;
 
 pub use ast_hash::{module_ast_hash, render_type};
 pub use encode::InterfaceError;
+pub use structured::{ItemKindTag, ItemNamespace, StructuredItem, structured_items};
 
 use crate::ast::ItemKind;
-use crate::fqn::ModuleId;
+use crate::fqn::{ModuleId, Scope};
 use crate::module_path::ModulePath;
 use crate::module_registry::{ExportKind, ModuleRegistry, ReExport};
 use crate::types::Type;
@@ -287,6 +289,15 @@ pub struct ModuleInterfaceSummary {
     /// Span-free structural hash of the whole resolved module AST (private
     /// items included) — the "own source" half of the future cache key.
     pub resolved_ast_hash: blake3::Hash,
+    /// The module's source file path relative to the package `src/`
+    /// directory (`utils/format.ab`), for debug-symbol correlation. Empty
+    /// for builtin (`core`/platform) modules, which are embedded and have no
+    /// on-disk source.
+    pub source_path: String,
+    /// The structured, spanned index of every top-level item (private
+    /// included), sorted. Additive to [`Self::interface`]: it is *not* folded
+    /// into [`Self::interface_hash`], so it never perturbs a cache key.
+    pub items: Vec<StructuredItem>,
 }
 
 // Re-export target kind tags (also used by `encode`).
@@ -569,6 +580,8 @@ pub fn build_interfaces(registry: &ModuleRegistry) -> BTreeMap<String, ModuleInt
         let interface = ModuleInterface::from_module(registry, &info.path);
         let interface_hash = interface.interface_hash();
         let resolved_ast_hash = ast_hash::module_ast_hash(&info.module);
+        let source_path = module_source_path(&module, info);
+        let items = structured_items(&info.module);
         out.insert(
             module.to_string(),
             ModuleInterfaceSummary {
@@ -576,10 +589,38 @@ pub fn build_interfaces(registry: &ModuleRegistry) -> BTreeMap<String, ModuleInt
                 interface,
                 interface_hash,
                 resolved_ast_hash,
+                source_path,
+                items,
             },
         );
     }
     out
+}
+
+/// The module's source path relative to the package `src/` directory, via the
+/// canonical file↔module mapping ([`ModulePath::to_file_path`]). Empty for
+/// builtin modules (embedded, no on-disk source). A directory module's file
+/// is its `main.ab`, so it renders `<dir>/main.ab` rather than `<dir>.ab`.
+///
+/// Shared by [`build_interfaces`] and the analysis session so both derive an
+/// identical summary.
+#[must_use]
+pub fn module_source_path(module: &ModuleId, info: &crate::module_registry::ModuleInfo) -> String {
+    if matches!(module.scope, Scope::Builtin) {
+        return String::new();
+    }
+    let segments: Vec<&str> = info.path.segments().iter().map(AsRef::as_ref).collect();
+    if info.is_dir_module {
+        // A directory module is backed by `<dir>/main.ab`.
+        let mut parts = segments;
+        parts.push("main");
+        format!("{}.ab", parts.join("/"))
+    } else if segments.is_empty() {
+        // The package-root module (`main.ab`).
+        "main.ab".to_string()
+    } else {
+        format!("{}.ab", segments.join("/"))
+    }
 }
 
 /// The build-global dispatch-surface hash: a deterministic fold of every

@@ -858,7 +858,7 @@ fn unescape_field(s: &str) -> Option<String> {
 
 mod snapshot;
 pub use snapshot::{
-    BuildManifest, MANIFEST_VERSION, ManifestError, ManifestModule, SNAPSHOT_POINTER,
+    BuildManifest, MANIFEST_VERSION, ManifestError, ManifestItem, ManifestModule, SNAPSHOT_POINTER,
 };
 
 #[cfg(test)]

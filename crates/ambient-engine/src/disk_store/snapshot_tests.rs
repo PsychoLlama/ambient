@@ -1,8 +1,9 @@
 //! Build-snapshot unit tests: manifest encoding, crash-safe write/load,
 //! corruption fallback vs. loud `verify`, and gc protection.
 
-use super::snapshot::{BuildManifest, MANIFEST_VERSION, ManifestModule};
+use super::snapshot::{BuildManifest, MANIFEST_VERSION, ManifestItem, ManifestModule};
 use super::*;
+use crate::module_interface::ItemKindTag;
 use crate::object::{ObjectConstant, ObjectFunction};
 
 fn temp_store() -> (tempfile::TempDir, DiskStore) {
@@ -48,6 +49,15 @@ fn sample_manifest(objects: &[blake3::Hash]) -> BuildManifest {
                 migrations: vec![],
                 lambda_parents: vec![],
                 entry_point: None,
+                source_path: String::new(),
+                items: vec![ManifestItem {
+                    ident: vec!["sqrt".to_string()],
+                    kind: ItemKindTag::Function,
+                    hash: Some(h(0)),
+                    uuid: String::new(),
+                    span: (10, 40),
+                    summary: "(Number) -> Number".to_string(),
+                }],
             },
             ManifestModule {
                 module: "workspace::demo::math".to_string(),
@@ -62,6 +72,25 @@ fn sample_manifest(objects: &[blake3::Hash]) -> BuildManifest {
                 migrations: vec![("cell".to_string(), "A".to_string(), "B".to_string())],
                 lambda_parents: vec![(h(1), "workspace::demo::math::gcd".to_string())],
                 entry_point: Some(h(1)),
+                source_path: "math.ab".to_string(),
+                items: vec![
+                    ManifestItem {
+                        ident: vec!["gcd".to_string()],
+                        kind: ItemKindTag::Function,
+                        hash: Some(h(1)),
+                        uuid: String::new(),
+                        span: (0, 60),
+                        summary: "(Number, Number) -> Number".to_string(),
+                    },
+                    ManifestItem {
+                        ident: vec!["Shape".to_string()],
+                        kind: ItemKindTag::Struct,
+                        hash: None,
+                        uuid: "11111111-1111-1111-1111-111111111111".to_string(),
+                        span: (70, 120),
+                        summary: "{ radius: Number }".to_string(),
+                    },
+                ],
             },
         ],
     }

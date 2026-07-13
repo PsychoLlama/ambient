@@ -34,9 +34,11 @@
 
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use super::{DiskStore, DiskStoreError, write_atomic};
 use crate::build::BuildResult;
+use crate::module_interface::ItemKindTag;
 
 /// Magic bytes identifying an Ambient build-manifest encoding.
 const MANIFEST_MAGIC: [u8; 4] = *b"ABSM";
@@ -48,10 +50,15 @@ const MANIFEST_MAGIC: [u8; 4] = *b"ABSM";
 /// v2 (Phase 3): per module, the cache key and the consumed cross-module link
 /// bindings (for cache-hit validation), plus the products needed to
 /// reconstruct a warm build indistinguishably from cold — migrations, lambda
-/// parents, and entry point; and, per package, the core+platform unit key. A
-/// v1 manifest reads back as "no snapshot", which is the designed cold-start
-/// behavior.
-pub const MANIFEST_VERSION: u8 = 2;
+/// parents, and entry point; and, per package, the core+platform unit key.
+///
+/// v3 (Phase 6): per module, the relative source path and a structured,
+/// spanned item index (functions, consts, types, traits, abilities —
+/// namespace-tagged, each with its definition span and nominal identity), for
+/// LSP symbol resolution and hash↔identifier debug-symbol correlation. A
+/// manifest at any other version reads back as "no snapshot", which is the
+/// designed cold-start behavior.
+pub const MANIFEST_VERSION: u8 = 3;
 
 /// The root-pointer file name under the store root.
 pub const SNAPSHOT_POINTER: &str = "snapshot";
@@ -108,6 +115,45 @@ pub struct ManifestModule {
     pub lambda_parents: Vec<([u8; 32], String)>,
     /// The module's entry-point hash, if it declares `run`.
     pub entry_point: Option<[u8; 32]>,
+    /// The module's source file path relative to the package `src/`
+    /// directory (`utils/format.ab`), or empty for builtin/embedded modules.
+    pub source_path: String,
+    /// The structured, spanned item index (v3): every top-level item,
+    /// namespace-tagged with its span and identity, sorted by ident.
+    pub items: Vec<ManifestItem>,
+}
+
+/// One structured, spanned item in a module's index. The debug-symbol /
+/// codebase-intelligence record: enough to resolve a name to its kind,
+/// identity, and source location without loading an object (types, traits,
+/// and abilities are not objects at all).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestItem {
+    /// The item's ident path relative to its module (a single segment for a
+    /// top-level item); with the enclosing [`ManifestModule::module`] this
+    /// reconstructs the item's fully-qualified name.
+    pub ident: Vec<String>,
+    /// The precise item kind.
+    pub kind: ItemKindTag,
+    /// The content hash of the object the item produced — a function or const
+    /// value. `None` for types/traits/abilities (not objects) and for a value
+    /// item whose build recorded no binding.
+    pub hash: Option<[u8; 32]>,
+    /// The nominal uuid (`struct`/`enum`/`trait`/`ability`), rendered; empty
+    /// otherwise.
+    pub uuid: String,
+    /// The definition's byte range `(start, end)` in the module source.
+    pub span: (u32, u32),
+    /// A one-line shape/signature summary for human inspection.
+    pub summary: String,
+}
+
+impl ManifestItem {
+    /// The item's own name — the last ident segment.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        self.ident.last().map_or("", String::as_str)
+    }
 }
 
 impl BuildManifest {
@@ -122,6 +168,30 @@ impl BuildManifest {
         let mut modules = Vec::with_capacity(build.interfaces.len());
         for (key, summary) in &build.interfaces {
             let output = build.module_outputs.get(key);
+            // Fold the structured index, filling each value item's object hash
+            // from the module's name bindings (types/traits/abilities have no
+            // object — their identity is the nominal uuid on the record).
+            let names = output.map(|o| &o.names);
+            let items = summary
+                .items
+                .iter()
+                .map(|item| {
+                    let hash = if item.kind.is_value() {
+                        let fqn = manifest_item_fqn(key, &item.ident);
+                        names.and_then(|n| n.get(&fqn)).map(|h| *h.as_bytes())
+                    } else {
+                        None
+                    };
+                    ManifestItem {
+                        ident: item.ident.iter().map(ToString::to_string).collect(),
+                        kind: item.kind,
+                        hash,
+                        uuid: item.uuid.clone(),
+                        span: item.span,
+                        summary: item.summary.clone(),
+                    }
+                })
+                .collect();
             modules.push(ManifestModule {
                 module: key.clone(),
                 resolved_ast_hash: *summary.resolved_ast_hash.as_bytes(),
@@ -172,6 +242,8 @@ impl BuildManifest {
                     })
                     .unwrap_or_default(),
                 entry_point: output.and_then(|o| o.entry_point.map(|h| *h.as_bytes())),
+                source_path: summary.source_path.clone(),
+                items,
             });
         }
         // `interfaces` is a BTreeMap, so `modules` is already key-sorted.
@@ -263,6 +335,24 @@ impl BuildManifest {
                 }
                 None => w.buf.push(0),
             }
+            // v3: relative source path and the structured item index.
+            w.str(&module.source_path);
+            w.u32(module.items.len() as u32);
+            for item in &module.items {
+                w.strs(&item.ident);
+                w.buf.push(item.kind.as_u8());
+                match &item.hash {
+                    Some(hash) => {
+                        w.buf.push(1);
+                        w.buf.extend_from_slice(hash);
+                    }
+                    None => w.buf.push(0),
+                }
+                w.str(&item.uuid);
+                w.u32(item.span.0);
+                w.u32(item.span.1);
+                w.str(&item.summary);
+            }
         }
         w.buf
     }
@@ -330,6 +420,12 @@ impl BuildManifest {
                 1 => Some(r.hash()?),
                 other => return Err(ManifestError::BadTag(other)),
             };
+            let source_path = r.str()?;
+            let item_count = r.u32()?;
+            let mut items = Vec::with_capacity((item_count as usize).min(r.remaining()));
+            for _ in 0..item_count {
+                items.push(decode_item(&mut r)?);
+            }
             modules.push(ManifestModule {
                 module,
                 resolved_ast_hash,
@@ -343,6 +439,8 @@ impl BuildManifest {
                 migrations,
                 lambda_parents,
                 entry_point,
+                source_path,
+                items,
             });
         }
         if r.pos != bytes.len() {
@@ -357,6 +455,29 @@ impl BuildManifest {
             modules,
         })
     }
+}
+
+/// Decode one structured item record (v3).
+fn decode_item(r: &mut Reader<'_>) -> Result<ManifestItem, ManifestError> {
+    let ident = r.strs()?;
+    let kind_byte = r.u8()?;
+    let kind = ItemKindTag::from_u8(kind_byte).ok_or(ManifestError::BadTag(kind_byte))?;
+    let hash = match r.u8()? {
+        0 => None,
+        1 => Some(r.hash()?),
+        other => return Err(ManifestError::BadTag(other)),
+    };
+    let uuid = r.str()?;
+    let span = (r.u32()?, r.u32()?);
+    let summary = r.str()?;
+    Ok(ManifestItem {
+        ident,
+        kind,
+        hash,
+        uuid,
+        span,
+        summary,
+    })
 }
 
 /// An error decoding a [`BuildManifest`].
@@ -561,6 +682,19 @@ impl DiskStore {
         hashes.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
         Ok(hashes)
     }
+}
+
+/// The fully-qualified name of a structured item, for looking its object
+/// hash up in the module's name bindings: the module identity string joined
+/// with the ident path (`workspace::pkg::main` + `["run"]` →
+/// `workspace::pkg::main::run`).
+fn manifest_item_fqn(module: &str, ident: &[Arc<str>]) -> String {
+    let mut out = String::from(module);
+    for segment in ident {
+        out.push_str("::");
+        out.push_str(segment);
+    }
+    out
 }
 
 /// Parse a root-pointer file's content into a manifest hash. Returns `None`
