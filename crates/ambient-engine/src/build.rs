@@ -536,21 +536,20 @@ fn compile_module_group(
         );
         paths_by_key.insert(path.to_string(), path.clone());
     }
-    let order = compilation_order(&deps);
 
-    let mut merged = CompiledModule::new();
-    for key in order {
-        let path = paths_by_key
-            .get(&key)
-            .cloned()
-            .ok_or_else(|| BuildError::PackageOpen(format!("module {key} vanished")))?;
+    // Check every module up front — checking reads only registered
+    // signatures, so it is order-independent — then recover the compile-order
+    // edges type-directed dispatch needs (an inherent-method or overloaded-
+    // operator call links against another group module's compiled body, but
+    // the reference is resolved by the checker, not the resolve pass, so it
+    // never became a dependency edge above). See [`crate::dispatch_deps`].
+    let mut checked: Vec<(String, crate::infer::CheckResult)> = Vec::new();
+    for (key, path) in &paths_by_key {
         let ast = registry
-            .get(&path)
+            .get(path)
             .map(|info| info.module.clone())
             .ok_or_else(|| BuildError::PackageOpen(format!("module {path} vanished")))?;
-
-        let check_result =
-            crate::infer::check_module_with_registry((*ast).clone(), &path, registry);
+        let check_result = crate::infer::check_module_with_registry((*ast).clone(), path, registry);
         if !check_result.is_ok() {
             // A reserved-path module failing to type-check is a compiler bug,
             // not user error, so there is no user source to render against.
@@ -565,6 +564,34 @@ fn compile_module_group(
                 error: joined,
             });
         }
+        checked.push((key.clone(), check_result));
+    }
+    let mut modules_for_edges: Vec<(String, crate::ast::Module)> = checked
+        .iter()
+        .map(|(key, cr)| (key.clone(), cr.module.clone()))
+        .collect();
+    for (key, definers) in crate::dispatch_deps::dispatch_edges(&mut modules_for_edges) {
+        let entry = deps.entry(key).or_default();
+        for definer in definers {
+            if !entry.contains(&definer) {
+                entry.push(definer);
+            }
+        }
+    }
+    let mut checked_by_key: BTreeMap<String, crate::infer::CheckResult> =
+        checked.into_iter().collect();
+
+    let order = compilation_order(&deps);
+
+    let mut merged = CompiledModule::new();
+    for key in order {
+        let path = paths_by_key
+            .get(&key)
+            .cloned()
+            .ok_or_else(|| BuildError::PackageOpen(format!("module {key} vanished")))?;
+        let check_result = checked_by_key
+            .remove(&key)
+            .ok_or_else(|| BuildError::PackageOpen(format!("module {key} vanished")))?;
 
         let mut compiled = crate::compiler::compile_module_with_options(
             &check_result.module,

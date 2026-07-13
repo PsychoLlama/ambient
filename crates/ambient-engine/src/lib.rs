@@ -19,6 +19,7 @@ pub mod compiler;
 mod const_eval;
 pub mod core_library;
 pub mod disk_store;
+mod dispatch_deps;
 pub mod format;
 pub mod fqn;
 pub mod infer;
