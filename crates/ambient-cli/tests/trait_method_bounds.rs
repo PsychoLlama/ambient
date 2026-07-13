@@ -166,28 +166,39 @@ fn impl_method_adding_a_trait_bound_is_rejected() {
 }
 
 /// Dispatching a bounded trait method through a *rigid type parameter*
-/// receiver would need to thread the method's own dictionaries through a
-/// fixed-arity dictionary slot, which is not yet supported — rejected loudly.
+/// receiver threads the method's own dictionary through the fixed-arity
+/// dictionary slot as an extra trailing runtime argument. Here the method's
+/// `U: Eq` dictionary is itself a *forwarded* enclosing dictionary parameter
+/// (`DictSource::Param`): `via_param` is generic over `U: Eq`, so `t.same(a,
+/// b)` forwards its `U` dictionary into the slot call.
 #[test]
-fn bounded_trait_method_through_rigid_param_is_rejected() {
+fn bounded_trait_method_through_rigid_param_forwards_a_dict() {
     CliTest::new(
         r#"
         use core::traits::Eq;
         unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF0000050E) trait Tagger {
           fn same<U: Eq>(self, a: U, b: U): Bool;
         }
-        fn via_param<T: Tagger>(t: T): Bool { t.same(1, 2) }
+        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF0000051E) struct Machine { id: Number }
+        impl Tagger for Machine {
+          fn same<U: Eq>(self, a: U, b: U): Bool { a.eq(b) }
+        }
+        fn via_param<T: Tagger, U: Eq>(t: T, a: U, b: U): Bool { t.same(a, b) }
+        fn run(): Bool { via_param(Machine { id: 1 }, 5, 5) }
     "#,
     )
-    .check()
-    .expect_error("can only be called directly on a concrete receiver");
+    .expect_output("true");
 }
 
-/// A conditional impl of a trait with a bounded method cannot be used as a
-/// dictionary source (its fixed-arity dictionary slots cannot carry the
-/// method's own dictionaries) — rejected loudly rather than mis-arity.
+/// A conditional impl of a trait with a bounded method can serve as a
+/// dictionary source: its `DictSource::Generic` slot closure accepts the
+/// method's own dictionary as an extra trailing argument, forwarded after the
+/// impl's captured inner dictionaries. Here `impl<T: Eq> Tagger for Pair<T>`'s
+/// `same<U: Eq>` uses the impl dictionary for `self.a.eq(self.b)` (over `T =
+/// Number`) and the method dictionary for `a.eq(b)` (over `U = String`) — two
+/// distinct dictionaries proving the `impl ++ method` order is preserved.
 #[test]
-fn conditional_impl_of_bounded_method_trait_as_dict_is_rejected() {
+fn conditional_impl_of_bounded_method_trait_serves_as_a_dict() {
     CliTest::new(
         r#"
         use core::traits::Eq;
@@ -195,15 +206,14 @@ fn conditional_impl_of_bounded_method_trait_as_dict_is_rejected() {
           fn same<U: Eq>(self, a: U, b: U): Bool;
         }
         unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000510) struct Pair<T> { a: T, b: T }
-        impl<T> Tagger for Pair<T> {
-          fn same<U: Eq>(self, a: U, b: U): Bool { a.eq(b) }
+        impl<T: Eq> Tagger for Pair<T> {
+          fn same<U: Eq>(self, a: U, b: U): Bool { self.a.eq(self.b) && a.eq(b) }
         }
-        fn needs<X: Tagger>(x: X): Bool { x.same(1, 2) }
-        fn run(): Bool { needs(Pair { a: 1, b: 2 }) }
+        fn needs<X: Tagger>(x: X): Bool { x.same("hi", "hi") }
+        fn run(): Bool { needs(Pair { a: 2, b: 2 }) }
     "#,
     )
-    .check()
-    .expect_error("can only be called directly on a concrete receiver");
+    .expect_output("true");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

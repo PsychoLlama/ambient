@@ -34,12 +34,14 @@ identities — implement those, don't redeclare them (see
 A trait method may declare its own type parameters, and those parameters may
 carry trait bounds (`fn same<U: Eq>(self, a: U, b: U): Bool`). The bound
 threads a hidden dictionary through the call, exactly like a bounded free
-function — see [Generic Constraints](#generic-constraints). The current
-limit is that a bounded trait method dispatches only on a **concrete
-receiver**: calling it through a generic type-parameter receiver, or using a
-conditional impl of such a trait as a dictionary source, is rejected (the
-method's own dictionaries cannot yet thread through a fixed-arity dictionary
-slot).
+function — see [Generic Constraints](#generic-constraints). This works on
+every receiver: a concrete one (direct dispatch), a generic type-parameter
+receiver (dispatch through the enclosing dictionary), and a conditional impl
+of such a trait used as a dictionary source. A dictionary slot is therefore
+_variable-arity_: it accepts the method's own dictionaries as extra trailing
+runtime arguments, forwarded after any inner dictionaries the slot captured,
+matching the `impl ++ method` order the compiled impl method allocates its
+hidden trailing dictionaries in.
 
 Two trait-declaration features parse but are **not supported yet** and are
 rejected at the declaration site: trait-level type parameters (generic
@@ -356,7 +358,11 @@ recursively solves the impl's own bounds against them (`Money: Eq`), and
 builds a dictionary whose slots are closures over those inner
 dictionaries: each slot forwards its value arguments plus the captured
 inner dictionaries to the impl method (which compiles with those exact
-trailing dictionary parameters). Coherence stays at head-uuid granularity
+trailing dictionary parameters). When a trait method carries its **own**
+bounds (`fn m<U: Eq>`), the slot is variable-arity: it also accepts the
+method's dictionaries as extra trailing runtime arguments (pushed by the
+bound-method call site) and forwards them after the captured inner ones —
+the `impl ++ method` order the impl method allocates them in. Coherence stays at head-uuid granularity
 — one impl per `(trait, head)` — so `impl<T> Eq for Pair<T>` and `impl Eq
 for Pair<Number>` conflict; a wrong instantiation (`Option<String>` against
 `impl Eq for Option<Number>`) simply fails to match and reports an
