@@ -15,6 +15,7 @@
 
 mod cache;
 mod pipeline;
+mod reachability;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -89,6 +90,13 @@ pub struct BuildOptions<'a> {
     /// the default) or must ignore it ([`CacheMode::Off`]). `AMBIENT_CACHE=off`
     /// forces `Off` regardless.
     pub cache: CacheMode,
+    /// The entry function to build for, when the build should be **lazy**:
+    /// compile only the package modules reachable from that entry (see
+    /// [`reachability`]). `None` (the default) builds the whole package —
+    /// what `ambient check`, `ambient compile`, and `ambient dev` want. Only
+    /// `ambient run` sets this. If no package module declares a matching
+    /// entry function, the build silently falls back to whole-package.
+    pub entry: Option<&'a str>,
 }
 
 /// The per-module compile products a build snapshot records: everything
@@ -434,7 +442,36 @@ pub fn build_package(
     link.seed(&module_function_hashes, &registry);
 
     // Compile (or load) package modules in dependency order.
-    let module_order = pipeline::compilation_order(&deps);
+    //
+    // A lazy build (`ambient run`, `options.entry` set) restricts this to the
+    // modules reachable from the entry — filtering the whole-package order
+    // rather than recomputing it, so a reached module compiles in the exact
+    // relative order (and against the exact accumulated linking state) it would
+    // in a full build, keeping its objects byte-identical. Unreached modules
+    // are never checked, so their diagnostics are (by policy) not reported by
+    // `run`. See [`reachability`] and `ref/modules.md`.
+    let full_order = pipeline::compilation_order(&deps);
+    let reachable = options.entry.and_then(|entry| {
+        let modules: Vec<reachability::PackageModule<'_>> = pkg
+            .all_modules()
+            .map(|m| reachability::PackageModule {
+                id: registry.module_id(&m.path).to_string(),
+                ast: &m.ast,
+            })
+            .collect();
+        reachability::reachable_module_ids(entry, &dep_ids, &modules)
+    });
+    let module_order: Vec<String> = match &reachable {
+        Some(reachable) => full_order
+            .into_iter()
+            .filter(|key| {
+                paths_by_key
+                    .get(key)
+                    .is_some_and(|path| reachable.contains(&registry.module_id(path).to_string()))
+            })
+            .collect(),
+        None => full_order,
+    };
     let total_modules = module_order.len();
 
     for (idx, module_key) in module_order.iter().enumerate() {
@@ -745,6 +782,35 @@ pub fn build_and_persist(
         Err(e) => Err(e),
     };
     Ok(PersistedBuild { result, persisted })
+}
+
+/// Build a package **lazily** for `ambient run`: compile only the modules
+/// reachable from `entry` (see [`reachability`]), reading the package-local
+/// store for warm cache hits but writing **no** snapshot.
+///
+/// The read-only-cache policy is deliberate and is the simplest sound snapshot
+/// semantics for a partial build: a lazy build never checks (and so never
+/// records) the unreached modules, so persisting its manifest would either
+/// strand ghost records or, if partial, mislead `store diff` (which computes
+/// removals) and the store gc (whose roots are the snapshot's referenced
+/// objects). By only reading, a lazy run fully exploits a warm snapshot that a
+/// prior whole-package `ambient compile`/`dev` (the snapshot writers) left, yet
+/// can never corrupt one. The reached objects it produces are byte-identical to
+/// a full build's, so nothing is lost but the warming of the store from `run`
+/// itself. See `ref/modules.md` ("Lazy compilation").
+///
+/// # Errors
+///
+/// Returns a [`BuildError`] if the build fails.
+pub fn build_reachable<'a>(
+    path: &Path,
+    parse: ParseFn,
+    mut options: BuildOptions<'a>,
+    entry: &'a str,
+) -> Result<BuildResult, BuildError> {
+    options.store_path = Some(DiskStore::package_store_path(path));
+    options.entry = Some(entry);
+    build_package(path, parse, &options)
 }
 
 // Tests are in ambient-cli since they require the parser.
