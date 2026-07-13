@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::ast::Module;
@@ -494,18 +494,21 @@ pub(super) fn compile_loaded_module_with_registry(
     Ok((compiled, prelink))
 }
 
-/// Check and compile a single in-memory session module against a registry,
+/// Compile an already-checked in-memory session module against a registry,
 /// then merge it onto a clone of a cached base module.
 ///
-/// This is the REPL's per-turn pipeline. `base` is the already-built
-/// core (+ project) module to merge onto; `imported_hashes` is the matching
-/// [`NameKey`] linking table (`CoreContext::hashes` or
-/// [`BuildResult::link_table`]) that resolves the session module's
-/// cross-module calls. `registry` must already contain `module` (resolved)
-/// plus every module it references. The session module's own function names
-/// are qualified with `path` (`repl::foo`) before merging — matching how
-/// [`build_package`] qualifies package modules — so the caller can deploy an
-/// entry by its qualified name (`repl::__repl_entry_N`).
+/// This is the REPL's per-turn compile. `check_result` is the turn's single
+/// type-check (from `ambient_analysis::check_session_module`) — the caller has
+/// already gated the turn on its diagnostics, so this never re-runs inference:
+/// it consumes the typed AST and canonical signatures directly. `base` is the
+/// already-built core (+ project) module to merge onto; `imported_hashes` is
+/// the matching [`NameKey`] linking table (`CoreContext::hashes` or
+/// [`BuildResult::link_table`]) that resolves the session module's cross-module
+/// calls. `registry` must already contain the resolved module plus every module
+/// it references. The session module's own function names are qualified with
+/// `path` (`repl::foo`) before merging — matching how [`build_package`]
+/// qualifies package modules — so the caller can deploy an entry by its
+/// qualified name (`repl::__repl_entry_N`).
 ///
 /// Mirrors [`compile_loaded_module_with_registry`] but keeps the "how to wire
 /// the imported channels" logic here in the engine rather than duplicated in
@@ -513,28 +516,17 @@ pub(super) fn compile_loaded_module_with_registry(
 ///
 /// # Errors
 ///
-/// Returns [`BuildError::TypeCheck`] if the module fails to type-check, or
-/// [`BuildError::Compile`] if codegen fails.
+/// Returns [`BuildError::Compile`] if codegen fails. (Type errors are the
+/// caller's gate; a clean `check_result` is a precondition.)
 #[allow(clippy::implicit_hasher)]
 pub fn compile_session_module(
     base: &CompiledModule,
     registry: &ModuleRegistry,
-    module: &Module,
+    check_result: &crate::infer::CheckResult,
     path: &ModulePath,
     source: &str,
     imported_hashes: HashMap<NameKey, blake3::Hash>,
 ) -> Result<CompiledModule, BuildError> {
-    let check_result = crate::infer::check_module_with_registry(module.clone(), path, registry);
-
-    if !check_result.is_ok() {
-        return Err(BuildError::TypeCheck {
-            module: path.to_string(),
-            path: PathBuf::from(path.to_string()),
-            source: source.to_string(),
-            errors: check_result.errors,
-        });
-    }
-
     let source_file = path.to_string();
     let mut compiled = crate::compiler::compile_module_with_options(
         &check_result.module,
@@ -549,7 +541,7 @@ pub fn compile_session_module(
         module: path.to_string(),
         error: e.to_string(),
     })?;
-    compiled.signatures = check_result.signatures;
+    compiled.signatures.clone_from(&check_result.signatures);
 
     // Qualify this module's function and const names with its path
     // (`repl::foo`), the canonical identity, so deploy-by-name resolves them.

@@ -265,11 +265,11 @@ impl ReplSession {
         let committed = self.committed_source();
         let trial_source = format!("{committed}{line}\nfn {entry_local}() {{ }}\n");
 
-        // Type-check the whole trial module; commit only if it is clean.
-        let registry = self.check_trial(&trial_source)?;
+        // Type-check the whole trial module once; commit only if it is clean.
+        let (registry, check) = self.check_trial(&trial_source)?;
 
         let merged = self
-            .compile_trial(&registry, &trial_source)
+            .compile_trial(&registry, &check, &trial_source)
             .map_err(|e| format!("{e}"))?;
 
         let entry_qualified = format!("{REPL_MODULE}::{entry_local}");
@@ -309,9 +309,9 @@ impl ReplSession {
         // `use` needed for fully-qualified platform calls.
         let trial_source = format!("{committed}fn {entry_local}() {{\n{line}\n}}\n");
 
-        let registry = self.check_trial(&trial_source)?;
+        let (registry, check) = self.check_trial(&trial_source)?;
         let merged = self
-            .compile_trial(&registry, &trial_source)
+            .compile_trial(&registry, &check, &trial_source)
             .map_err(|e| format!("{e}"))?;
 
         // The synthetic entry is never committed; restore the package's
@@ -332,21 +332,23 @@ impl ReplSession {
         }
     }
 
-    /// Run the shared analysis over a trial `repl` module and reject the turn
-    /// if it produces any diagnostics. On success the built registry (with
-    /// the trial module resolved) is returned for the caller to compile
-    /// against, avoiding a second registry build.
-    fn check_trial(&mut self, trial_source: &str) -> std::result::Result<ModuleRegistry, String> {
+    /// Type-check a trial `repl` module once and reject the turn if it
+    /// produces any diagnostics. On success the built registry *and* the
+    /// single [`SessionCheck`](ambient_analysis::SessionCheck) (its typed AST
+    /// and canonical signatures) are returned, so the caller compiles from the
+    /// same check instead of re-running inference — a turn type-checks exactly
+    /// once.
+    fn check_trial(
+        &mut self,
+        trial_source: &str,
+    ) -> std::result::Result<(ModuleRegistry, ambient_analysis::SessionCheck), String> {
         self.sync_repl_module(trial_source);
         let registry = self.package.build_registry();
-        let result = ambient_analysis::analyze_with_registry(
-            trial_source,
-            Some(&self.repl_path),
-            Some(&registry),
-        );
-        let diagnostics = result.diagnostics();
+        let check =
+            ambient_analysis::check_session_module(trial_source, &self.repl_path, &registry);
+        let diagnostics = check.diagnostics();
         if diagnostics.is_empty() {
-            Ok(registry)
+            Ok((registry, check))
         } else {
             // Leave the committed module in place for the next turn.
             let committed = self.committed_source();
@@ -355,21 +357,19 @@ impl ReplSession {
         }
     }
 
-    /// Compile the (already type-clean) trial `repl` module against `registry`
-    /// and merge it onto the base.
+    /// Compile the trial `repl` module — reusing the turn's single
+    /// [`SessionCheck`](ambient_analysis::SessionCheck) rather than
+    /// re-inferring — and merge it onto the base.
     fn compile_trial(
         &self,
         registry: &ModuleRegistry,
+        check: &ambient_analysis::SessionCheck,
         trial_source: &str,
     ) -> Result<CompiledModule> {
-        let info = registry
-            .get(&self.repl_path)
-            .ok_or_else(|| anyhow!("repl module missing from registry"))?;
-        let module = info.module.as_ref().clone();
         compile_session_module(
             &self.base,
             registry,
-            &module,
+            &check.check,
             &self.repl_path,
             trial_source,
             self.imported_hashes.clone(),

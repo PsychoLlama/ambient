@@ -47,7 +47,8 @@ pub mod symbols;
 use ambient_engine::ability_resolver::AbilityResolver;
 use ambient_engine::ast::{Module, Span};
 use ambient_engine::infer::{
-    BoxedTypeError, check_module_with_registry, check_module_with_registry_and_resolver,
+    BoxedTypeError, CheckResult, check_module_with_registry,
+    check_module_with_registry_and_resolver,
 };
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
@@ -165,25 +166,42 @@ impl AnalysisResult {
     /// *reporting* that stays conservative.
     #[must_use]
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
-        let mut out: Vec<Diagnostic> = self
-            .parse_errors
-            .iter()
-            .map(Diagnostic::from_parse_error)
-            .collect();
-
-        if out.is_empty() {
-            out.extend(self.type_errors.iter().map(Diagnostic::from_type_error));
-        }
-
-        // An import cycle is a structural fact independent of parse/type
-        // errors, so it is always reported (its span-0 anchor sorts it first).
-        if let Some(cycle) = &self.import_cycle {
-            out.push(cycle.clone());
-        }
-
-        out.sort_by_key(|d| (d.span.start, d.span.end));
-        out
+        diagnostics_from(
+            &self.parse_errors,
+            &self.type_errors,
+            self.import_cycle.as_ref(),
+        )
     }
+}
+
+/// The diagnostics-reporting policy, shared by [`AnalysisResult`] and the
+/// REPL's [`SessionCheck`] so both frontends decide "what is an error"
+/// identically (the AGENTS invariant: the decision lives in `ambient-analysis`,
+/// never a frontend). While parse errors exist, type errors are suppressed;
+/// an import cycle is always reported.
+#[must_use]
+pub fn diagnostics_from(
+    parse_errors: &[ParseError],
+    type_errors: &[BoxedTypeError],
+    import_cycle: Option<&Diagnostic>,
+) -> Vec<Diagnostic> {
+    let mut out: Vec<Diagnostic> = parse_errors
+        .iter()
+        .map(Diagnostic::from_parse_error)
+        .collect();
+
+    if out.is_empty() {
+        out.extend(type_errors.iter().map(Diagnostic::from_type_error));
+    }
+
+    // An import cycle is a structural fact independent of parse/type errors, so
+    // it is always reported (its span-0 anchor sorts it first).
+    if let Some(cycle) = import_cycle {
+        out.push(cycle.clone());
+    }
+
+    out.sort_by_key(|d| (d.span.start, d.span.end));
+    out
 }
 
 /// Analyze a single module without package context.
@@ -275,6 +293,64 @@ pub fn analyze_with_registry_and_resolver(
         _ => None,
     };
     result
+}
+
+/// A REPL turn's single type-check: the diagnostics `analyze_with_registry`
+/// would report *plus* the engine [`CheckResult`] the compiler needs — so a
+/// turn type-checks its accumulated module exactly once instead of twice
+/// (once to gate the turn on diagnostics, once again inside compilation).
+///
+/// The typed module and its canonical signatures travel in [`Self::check`];
+/// [`compile_session_module`](ambient_engine::build::compile_session_module)
+/// consumes them directly rather than re-running inference.
+pub struct SessionCheck {
+    /// Parse/lowering errors, in source order (from `parse_recovering`).
+    pub parse_errors: Vec<ParseError>,
+    /// The engine's check result: type errors, the typed AST, and the
+    /// canonical signature of every named item.
+    pub check: CheckResult,
+    /// An import-cycle diagnostic when this module is in a dependency cycle.
+    pub import_cycle: Option<Diagnostic>,
+}
+
+impl SessionCheck {
+    /// The diagnostics for this turn, using the shared reporting policy — so a
+    /// REPL turn is gated on byte-identically the diagnostics
+    /// [`analyze_with_registry`] would produce.
+    #[must_use]
+    pub fn diagnostics(&self) -> Vec<Diagnostic> {
+        diagnostics_from(
+            &self.parse_errors,
+            &self.check.errors,
+            self.import_cycle.as_ref(),
+        )
+    }
+}
+
+/// Check a REPL session module against `registry` once, returning both its
+/// diagnostics and the engine [`CheckResult`] for compilation.
+///
+/// This mirrors [`analyze_with_registry`] (same parse, same check entry, same
+/// import-cycle overlay) but surfaces the `CheckResult` instead of discarding
+/// it, so the REPL avoids a redundant second inference pass per turn. The
+/// module must already be registered under `path` alongside the rest of the
+/// package and the core/platform declaration modules.
+#[must_use]
+pub fn check_session_module(
+    source: &str,
+    path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> SessionCheck {
+    let recovered = parse_recovering(source);
+    let parse_errors = recovered.errors;
+    let check = check_module_with_registry(recovered.module, path, registry);
+    let import_cycle = ambient_engine::module_cycles::import_cycle_containing(registry, path)
+        .map(|cycle| Diagnostic::error(Span::new(0, 0), cycle.describe(), None));
+    SessionCheck {
+        parse_errors,
+        check,
+        import_cycle,
+    }
 }
 
 /// The check-level analysis of a module: parse errors, type errors, and the
