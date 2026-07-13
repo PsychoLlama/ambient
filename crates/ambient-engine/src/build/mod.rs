@@ -344,6 +344,9 @@ pub fn build_package(
     // identity (matching `interfaces`/`module_outputs` keys) so cache keys can
     // fold each dependency's interface hash.
     let mut dep_ids: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    // The raw resolve-pass dependency closures, keyed by module identity, for
+    // narrowing each module's `ModuleEnv` to what it can actually reference.
+    let mut dep_closures: BTreeMap<String, std::collections::BTreeSet<ModuleId>> = BTreeMap::new();
     for module in pkg.all_modules_mut() {
         let outcome = crate::resolve::resolve_module(&mut module.ast, &module.path, &registry);
         deps.insert(
@@ -358,6 +361,7 @@ pub fn build_package(
             registry.module_id(&module.path).to_string(),
             outcome.deps.iter().map(ToString::to_string).collect(),
         );
+        dep_closures.insert(registry.module_id(&module.path).to_string(), outcome.deps);
         paths_by_key.insert(module.path.to_string(), module.path.clone());
     }
     for module in pkg.all_modules() {
@@ -442,6 +446,9 @@ pub fn build_package(
                     &module_path,
                     &registry,
                     imported.clone(),
+                    dep_closures
+                        .get(&module_id)
+                        .unwrap_or(&std::collections::BTreeSet::new()),
                 )?;
                 // Qualify this module's bare names with its path (`math::gcd`),
                 // the canonical identity, matching the merged store index.

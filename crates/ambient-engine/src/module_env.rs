@@ -14,7 +14,7 @@
 //! subset. If you need a new cross-module channel, add it to [`ModuleEnv`];
 //! never wire it at a call site.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use crate::ast::{EnumDef, ItemKind, TraitDef};
@@ -79,13 +79,61 @@ pub struct ModuleEnv {
 }
 
 impl ModuleEnv {
-    /// Derive `module_path`'s view of the build from the registry.
+    /// Derive `module_path`'s view of the build from the registry, seeing
+    /// **every** other module's public items.
     ///
-    /// This is the only sanctioned way to wire a registry-backed compile:
+    /// This is the sanctioned way to wire a registry-backed compile that has
+    /// no precomputed dependency set (single-file compiles, the REPL, tests):
     /// [`crate::compiler::CompileOptions`] takes the whole env, so a module
-    /// can never be compiled with a partial view of the build.
+    /// can never be compiled with a partial view of the build. The package
+    /// build uses [`Self::new_scoped`] instead, narrowing the foreign-item
+    /// channels to the module's resolve-dependency closure — the global walk
+    /// here is a strict superset that compiles byte-identically (the compiler
+    /// only ever looks up foreign items it holds a resolved reference to, and
+    /// every such reference recorded a dependency edge).
     #[must_use]
     pub fn new(registry: &ModuleRegistry, module_path: &ModulePath) -> Self {
+        Self::build(registry, module_path, None)
+    }
+
+    /// Derive `module_path`'s view of the build, narrowing the foreign-item
+    /// channels (enum variants, unit structs, const hashes) to `deps` — the
+    /// module's resolve-pass dependency closure.
+    ///
+    /// Sound because every consuming reference to a foreign enum variant,
+    /// unit struct, or const canonicalizes through the resolve pass to the
+    /// defining module's [`Fqn`] and records that module as a dependency (see
+    /// [`crate::resolve`]): construction and pattern sites go through
+    /// `resolve_value_ref`, const references likewise, all via `canonical`.
+    /// Re-exports canonicalize to the *defining origin*, so a variant reached
+    /// through two hops of `pub use` still lands on the origin's `Fqn` and
+    /// records the origin (not the intermediary) as the dependency — no
+    /// transitive re-export closure is needed. The compiler keys these
+    /// channels by that same `Fqn`, so a narrowed table still resolves every
+    /// reference the checked module actually contains.
+    ///
+    /// The import-scoped channels ([`imported_enum_defs`],
+    /// [`ModuleRegistry::foreign_abilities`]) are already narrow (or shared
+    /// build-wide by identity) and are unaffected. Coherence — which is
+    /// genuinely build-global — lives in the checker
+    /// (`register_package_items`), never here.
+    #[must_use]
+    pub fn new_scoped(
+        registry: &ModuleRegistry,
+        module_path: &ModulePath,
+        deps: &BTreeSet<ModuleId>,
+    ) -> Self {
+        Self::build(registry, module_path, Some(deps))
+    }
+
+    /// Shared derivation for [`Self::new`] / [`Self::new_scoped`]. `filter`
+    /// `None` admits every foreign module (global view); `Some(deps)` admits
+    /// only modules in the resolve-dependency closure.
+    fn build(
+        registry: &ModuleRegistry,
+        module_path: &ModulePath,
+        filter: Option<&BTreeSet<ModuleId>>,
+    ) -> Self {
         let mut foreign_enum_variants = Vec::new();
         let mut foreign_unit_structs = Vec::new();
         let mut foreign_const_hashes = HashMap::new();
@@ -93,9 +141,15 @@ impl ModuleEnv {
         // One walk over the foreign modules collects every "all public
         // items" channel. Foreign items are provided whether or not they
         // are imported: inline qualified references (`pkg::shapes::Circle`)
-        // need no `use`.
+        // need no `use`. When `filter` is set, only dependency-closure
+        // modules are walked — the only ones a resolved reference can name.
         for info in registry.all_modules() {
             if &info.path == module_path {
+                continue;
+            }
+            if let Some(deps) = filter
+                && !deps.contains(&registry.module_id(&info.path))
+            {
                 continue;
             }
             for item in &info.module.items {

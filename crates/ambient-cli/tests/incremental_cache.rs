@@ -352,6 +352,61 @@ fn verify_mode_recompiles_and_agrees_on_a_multi_module_build() {
 }
 
 #[test]
+fn reexported_enum_consumed_through_two_hops_compiles_and_caches() {
+    // Phase 5 step 1: `ModuleEnv`'s foreign-item channels are narrowed to a
+    // module's resolve-dependency closure. A variant reached through *two*
+    // hops of `pub use` (main → mid → leaf) canonicalizes to the defining
+    // origin (`leaf`), which becomes a direct dependency — so the narrowed
+    // env still holds its variant info, with no transitive re-export closure.
+    // `main` names the variant only through the fully-qualified path
+    // (`pkg::mid::Color::Green`), exercising the narrowed
+    // `foreign_enum_variants` channel rather than the import channel.
+    let files: &[(&str, &str)] = &[
+        (
+            "leaf.ab",
+            "pub unique(AAAA0000-0000-0000-0000-000000000001) enum Color { Red, Green }\n",
+        ),
+        ("mid.ab", "pub use pkg::leaf::Color;\n"),
+        (
+            "main.ab",
+            "use pkg::mid::Color;\n\
+             pub fn run(): Number { let c = pkg::mid::Color::Green; match c { Red => 0, Green => 1 } }\n",
+        ),
+    ];
+    let dir = TempDir::new().expect("temp");
+    write_pkg(dir.path(), files);
+
+    // Cold build must compile the two-hop construction (the narrowed env for
+    // `main` must include `leaf`, or codegen would fail to inline the tag).
+    let cold = build_and_persist(dir.path());
+    assert!(cold.modules_compiled > 0, "first build compiles");
+
+    // Warm zero-change rebuild: a full hit that is byte-identical to cold.
+    let warm = build_and_persist(dir.path());
+    assert_eq!(warm.modules_compiled, 0, "unchanged rebuild is a full hit");
+    assert_warm_equals_cold(&warm, files);
+
+    // And it runs to the right value (variant tag inlined through the narrow
+    // channel), warm hit agreeing with a fresh compile under the oracle.
+    let out = Command::new(env!("CARGO_BIN_EXE_ambient"))
+        .arg("run")
+        .arg(dir.path())
+        .env("AMBIENT_CACHE_VERIFY", "1")
+        .output()
+        .expect("spawn ambient run");
+    assert!(
+        out.status.success(),
+        "two-hop run failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains('1'),
+        "run must yield the Green tag (1): {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
+#[test]
 fn cache_off_flag_forces_a_cold_build() {
     let files: &[(&str, &str)] = &[("main.ab", "pub fn run(): Number { 1 }\n")];
     let dir = TempDir::new().expect("temp");

@@ -3,7 +3,7 @@
 //! entry points. Extracted from `build.rs` so the orchestrator (`mod.rs`) and
 //! the incremental cache (`cache.rs`) each stay within the file-size budget.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -263,6 +263,10 @@ pub(super) fn compile_module_group(
     // Resolve-pass dependency sets keyed and rendered by canonical module
     // identity, for the snapshot (matching `outputs`/`interfaces` keys).
     let mut dep_ids: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    // The raw resolve-pass dependency closures, keyed by path string, for
+    // narrowing each module's `ModuleEnv` to what it can actually reference.
+    let mut dep_closures: BTreeMap<String, std::collections::BTreeSet<crate::fqn::ModuleId>> =
+        BTreeMap::new();
     for path in paths {
         // The prelude module is a pure re-export container (`pub use
         // core::option::{Some, None}`, ...). It is registered so its
@@ -287,6 +291,7 @@ pub(super) fn compile_module_group(
             registry.module_id(path).to_string(),
             outcome.deps.iter().map(ToString::to_string).collect(),
         );
+        dep_closures.insert(path.to_string(), outcome.deps);
         paths_by_key.insert(path.to_string(), path.clone());
     }
 
@@ -354,12 +359,20 @@ pub(super) fn compile_module_group(
             &check_result.module,
             crate::compiler::CompileOptions {
                 imported_hashes: Some(imported.clone()),
-                // These modules compile with the same full view of the build
-                // a user module gets. In particular core modules construct
+                // These modules compile with the dependency-scoped view a
+                // user module gets. In particular core modules construct
                 // prelude enums (`collections/List.ab` builds bare
                 // `Some`/`None`), which arrive via the prelude through
-                // `resolve_imports` — there is no hardcoded seed.
-                env: ModuleEnv::new(registry, &path),
+                // `resolve_imports` and record a dependency on the origin
+                // module (`core::option`) — so the narrowed env still holds
+                // their variants. Dispatch-only edges (bare type references
+                // resolved by the checker) never feed these value-position
+                // channels, so the resolve deps are the exact set.
+                env: ModuleEnv::new_scoped(
+                    registry,
+                    &path,
+                    dep_closures.get(&key).unwrap_or(&BTreeSet::new()),
+                ),
                 ..crate::compiler::CompileOptions::default()
             },
         )
@@ -433,12 +446,17 @@ fn load_module(
 }
 
 /// Compile a loaded module to bytecode with cross-module type checking.
+///
+/// `deps` is the module's resolve-pass dependency closure; the compiler's
+/// foreign-item channels ([`ModuleEnv::new_scoped`]) are narrowed to it, so
+/// the compile reads only the modules its cache key already folds.
 pub(super) fn compile_loaded_module_with_registry(
     loaded: &LoadedModule,
     file_path: &Path,
     module_path: &ModulePath,
     registry: &ModuleRegistry,
     imported_hashes: HashMap<NameKey, blake3::Hash>,
+    deps: &std::collections::BTreeSet<crate::fqn::ModuleId>,
 ) -> Result<CompiledModule, BuildError> {
     let check_result =
         crate::infer::check_module_with_registry(loaded.ast.clone(), module_path, registry);
@@ -459,7 +477,7 @@ pub(super) fn compile_loaded_module_with_registry(
             source: Some(&loaded.source),
             source_file: Some(&source_file),
             imported_hashes: Some(imported_hashes),
-            env: ModuleEnv::new(registry, module_path),
+            env: ModuleEnv::new_scoped(registry, module_path, deps),
         },
     )
     .map_err(|e| BuildError::Compile {
