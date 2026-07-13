@@ -137,7 +137,10 @@ fn is_ab_change(event: &notify::Event) -> bool {
 fn deploy_iteration(host: &RuntimeHost, path: &Path, entry: &str) {
     let start = Instant::now();
 
-    let compiled = match super::run::load_compiled(path) {
+    // `dev` builds the whole package and persists a snapshot (entry `None`):
+    // its deploy diff needs every module's bindings, and a partial build could
+    // look like retirements. Lazy compilation is `ambient run`-only.
+    let compiled = match super::run::load_compiled(path, None) {
         Ok(compiled) => compiled,
         Err(e) => {
             // Diagnostics were already printed for parse/type errors.

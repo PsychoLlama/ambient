@@ -27,7 +27,7 @@ pub fn cmd_run(path: &Path, entry: &str, args: Vec<String>) -> Result<()> {
     let program_args = std::iter::once(path.to_string_lossy().into_owned())
         .chain(args)
         .collect::<Vec<_>>();
-    let compiled = load_compiled(path)?;
+    let compiled = load_compiled(path, Some(entry))?;
     run_compiled(&compiled, entry, program_args)
 }
 
@@ -35,7 +35,14 @@ pub fn cmd_run(path: &Path, entry: &str, args: Vec<String>) -> Result<()> {
 ///
 /// Handles packages (directories with `ambient.toml`), pre-compiled
 /// `.ambient` artifact packs, and bare `.ab` source files.
-pub(super) fn load_compiled(path: &Path) -> Result<CompiledModule> {
+///
+/// `entry` selects the build strategy for a package directory: `Some(name)`
+/// (`ambient run`) builds **lazily** — only the modules reachable from that
+/// entry, reading but not writing the store. `None` (`ambient dev`) builds the
+/// whole package and persists a snapshot, since a deploy needs every module's
+/// bindings and the snapshot writers keep the store complete. It is ignored for
+/// `.ab`/`.ambient` inputs, which never lazily build a package.
+pub(super) fn load_compiled(path: &Path, entry: Option<&str>) -> Result<CompiledModule> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
     if ext == "ab" && path.is_file() {
@@ -53,8 +60,12 @@ pub(super) fn load_compiled(path: &Path) -> Result<CompiledModule> {
         CompiledModule::from_pack(&pack)
             .map_err(|e| anyhow::anyhow!("invalid artifact {}: {e}", path.display()))
     } else if path.is_dir() || path.join("ambient.toml").exists() {
-        // Load package.
-        compile_package(path)
+        // Load package: lazily for `ambient run` (an entry is given), or
+        // whole-package + persist for `ambient dev`.
+        match entry {
+            Some(entry) => compile_package(path, entry),
+            None => compile_package_full(path),
+        }
     } else {
         bail!(
             "expected a directory with ambient.toml or a .ambient file, got: {}",
@@ -63,14 +74,45 @@ pub(super) fn load_compiled(path: &Path) -> Result<CompiledModule> {
     }
 }
 
-/// Compile a package from its root directory.
+/// Compile a package from its root directory for `ambient run`.
+///
+/// This is a **lazy** build ([`ambient_engine::build::build_reachable`]): it
+/// compiles only the modules reachable from the `entry` point, reading the
+/// package-local store for warm cache hits but writing no snapshot. Whole-package
+/// snapshot writing (and thus cache warming) is `ambient compile`/`ambient dev`'s
+/// job — a lazy run must not persist a partial build (see `ref/modules.md`).
+/// Type errors in modules the entry can't reach are, by policy, not reported by
+/// `run`; `ambient check` reports them.
+pub(super) fn compile_package(path: &Path, entry: &str) -> Result<CompiledModule> {
+    // Stub natives satisfy the extern contract at build time (real
+    // implementations are registered per VM by the runtime host).
+    let stubs = ambient_platform::stub_natives();
+    let result = ambient_engine::build::build_reachable(
+        path,
+        super::parse_source,
+        BuildOptions {
+            platform_modules: ambient_platform::platform_modules(),
+            natives: Some(&stubs),
+            ..Default::default()
+        },
+        entry,
+    )
+    .map_err(report_build_error)?;
+
+    Ok(result.compiled)
+}
+
+/// Compile a package whole (every module) and persist a snapshot, for
+/// `ambient dev`.
 ///
 /// Delegates to the engine's shared build-and-persist wiring
 /// ([`ambient_engine::build::build_and_persist`]), which reads the prior
 /// snapshot and persists the new build to the package-local content-addressed
-/// store (`ambient dev` inherits this). Persist failure is a warning, not a
-/// failed run — the store is a rebuildable cache.
-pub(super) fn compile_package(path: &Path) -> Result<CompiledModule> {
+/// store. Persist failure is a warning, not a failed run — the store is a
+/// rebuildable cache. Unlike `ambient run`, `dev` stays whole-package: its
+/// deploy diff needs every module's bindings, and it is the command whose
+/// snapshot keeps the store complete for later lazy runs.
+pub(super) fn compile_package_full(path: &Path) -> Result<CompiledModule> {
     // Stub natives satisfy the extern contract at build time (real
     // implementations are registered per VM by the runtime host).
     let stubs = ambient_platform::stub_natives();
