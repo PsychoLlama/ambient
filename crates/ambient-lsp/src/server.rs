@@ -33,7 +33,7 @@ use lsp_types::{
 };
 use serde_json::Value;
 
-use ambient_analysis::occurrences::{Occurrence, SymbolTarget, collect_occurrences};
+use ambient_analysis::occurrences::{Occurrence, SymbolTarget};
 use ambient_analysis::package::AnalysisPackage;
 use ambient_analysis::queries::{
     find_qname_module_at_offset, find_use_module_at_offset, resolve_qualified_name,
@@ -55,10 +55,10 @@ use crate::util::{path_to_uri, uri_to_path};
 /// The analysis of one open document, plus the context needed to resolve
 /// names from it: its module path and the registry it was checked
 /// against. Handlers never resolve through anything else.
-struct DocumentAnalysis {
-    result: ambient_analysis::AnalysisResult,
-    module_path: ModulePath,
-    registry: Arc<ModuleRegistry>,
+pub(crate) struct DocumentAnalysis {
+    pub(crate) result: ambient_analysis::AnalysisResult,
+    pub(crate) module_path: ModulePath,
+    pub(crate) registry: Arc<ModuleRegistry>,
 }
 
 /// One module's occurrence list plus where to render its spans.
@@ -67,31 +67,48 @@ struct DocumentAnalysis {
 /// exact reference ranges, and `uri` turns a module-local span into an LSP
 /// [`Location`]. Rebuilt from the package's parsed modules on every edit, so
 /// results are always fresh.
-struct ModuleOccurrences {
-    module_path: ModulePath,
-    uri: Uri,
-    occurrences: Vec<Occurrence>,
+pub(crate) struct ModuleOccurrences {
+    pub(crate) module_path: ModulePath,
+    pub(crate) uri: Uri,
+    pub(crate) occurrences: Vec<Occurrence>,
 }
 
 /// Server-wide state.
-struct ServerState {
-    documents: DocumentStore,
+pub(crate) struct ServerState {
+    pub(crate) documents: DocumentStore,
     /// Per-document analyses, keyed by URI string (Uri has interior
     /// mutability, so it can't be a map key).
-    analyses: HashMap<String, DocumentAnalysis>,
-    /// The package containing the open documents, if any.
-    package: Option<AnalysisPackage>,
-    /// The registry for the whole package (shared by all open documents
-    /// when a package is loaded). Rebuilt on every edit.
-    package_registry: Option<Arc<ModuleRegistry>>,
+    pub(crate) analyses: HashMap<String, DocumentAnalysis>,
+    /// The incremental analysis session for the open documents' package, if
+    /// any. Owns the package, the shared registry, and the per-module check
+    /// memo; a keystroke re-analyzes through it so unchanged modules replay
+    /// their cached diagnostics instead of re-checking. All decisions about
+    /// *what is an error* live in `ambient-analysis`; this is a renderer.
+    pub(crate) session: Option<ambient_analysis::session::AnalysisSession>,
     /// Occurrence index backing find-references and rename: every definition
     /// and reference site of every symbol, with exact spans, for every module
     /// in the package (opened or not). Rebuilt on every edit alongside the
     /// registry, so it never goes stale.
-    occurrences: Vec<ModuleOccurrences>,
+    pub(crate) occurrences: Vec<ModuleOccurrences>,
     /// Ability resolver for completions/hover: the platform prelude plus
     /// builtins, the same interfaces analysis checks against.
-    ability_resolver: ambient_engine::ability_resolver::AbilityResolver,
+    pub(crate) ability_resolver: ambient_engine::ability_resolver::AbilityResolver,
+}
+
+impl ServerState {
+    /// The current package, if a package session is loaded.
+    fn package(&self) -> Option<&AnalysisPackage> {
+        self.session
+            .as_ref()
+            .map(ambient_analysis::session::AnalysisSession::package)
+    }
+
+    /// The current shared package registry, if a package session is loaded.
+    fn registry(&self) -> Option<&Arc<ModuleRegistry>> {
+        self.session
+            .as_ref()
+            .map(ambient_analysis::session::AnalysisSession::registry)
+    }
 }
 
 /// Run the LSP server over stdio.
@@ -172,8 +189,7 @@ fn main_loop(connection: &Connection) -> anyhow::Result<()> {
     let mut state = ServerState {
         documents: DocumentStore::new(),
         analyses: HashMap::new(),
-        package: None,
-        package_registry: None,
+        session: None,
         occurrences: Vec::new(),
         ability_resolver: crate::analysis::platform_prelude_resolver(),
     };
@@ -255,7 +271,10 @@ fn handle_request(req: &Request, state: &ServerState) -> Response {
 }
 
 /// The URI for a module of the current package.
-fn module_uri(package: Option<&AnalysisPackage>, module_path: &ModulePath) -> Option<Uri> {
+pub(crate) fn module_uri(
+    package: Option<&AnalysisPackage>,
+    module_path: &ModulePath,
+) -> Option<Uri> {
     let package = package?;
     // Only package modules have files; core/platform modules are embedded.
     package
@@ -404,7 +423,7 @@ fn handle_goto_definition(
     // platform modules are embedded in the binary and have none.
     let target_uri = match &definition.module {
         Some(module_path) if *module_path != analysis.module_path => {
-            match module_uri(state.package.as_ref(), module_path) {
+            match module_uri(state.package(), module_path) {
                 Some(target) => target,
                 None => return Response::new_ok(id, Value::Null),
             }
@@ -637,13 +656,13 @@ fn is_renameable_target(state: &ServerState, target: &SymbolTarget) -> bool {
     match target {
         SymbolTarget::Local { name, .. } => name.as_ref() != "self",
         SymbolTarget::Item { module, name, .. } => {
-            let Some(package) = state.package.as_ref() else {
+            let Some(package) = state.package() else {
                 return false;
             };
             if !package.modules.contains_key(&module.to_string()) {
                 return false;
             }
-            let Some(registry) = state.package_registry.as_ref() else {
+            let Some(registry) = state.registry() else {
                 return false;
             };
             matches!(
@@ -664,8 +683,7 @@ fn is_renameable_target(state: &ServerState, target: &SymbolTarget) -> bool {
 /// module-level symbol there; for a local, additionally reject if another
 /// binding in the same file already uses the name. `Some(reason)` aborts.
 fn rename_collision(state: &ServerState, target: &SymbolTarget, new_name: &str) -> Option<String> {
-    let (Some(package), Some(registry)) = (state.package.as_ref(), state.package_registry.as_ref())
-    else {
+    let (Some(package), Some(registry)) = (state.package(), state.registry()) else {
         return None;
     };
     let candidate = QualifiedName::simple(std::sync::Arc::from(new_name));
@@ -773,9 +791,7 @@ fn handle_workspace_symbol(
     let query = params.query.to_lowercase();
     let mut symbols: Vec<SymbolInformation> = Vec::new();
 
-    if let (Some(package), Some(registry)) =
-        (state.package.as_ref(), state.package_registry.as_ref())
-    {
+    if let (Some(package), Some(registry)) = (state.package(), state.registry()) {
         let mut module_keys: Vec<_> = package.modules.keys().collect();
         module_keys.sort();
 
@@ -1146,15 +1162,16 @@ fn handle_notification(
 
             // Discover the package once, so cross-module analysis and the
             // occurrence index (built in `reanalyze_all`) see every module.
-            if state.package.is_none()
+            // The session owns the package + registry + per-module check memo.
+            if state.session.is_none()
                 && let Some(file_path) = uri_to_path(&uri)
                 && let Some(mut package) = AnalysisPackage::discover(&file_path)
             {
                 package.load_modules();
-                state.package = Some(package);
+                state.session = Some(ambient_analysis::session::AnalysisSession::new(package));
             }
 
-            reanalyze_all(&uri, state, connection)?;
+            crate::reanalyze::reanalyze_all(&uri, state, connection)?;
         }
         DidChangeTextDocument::METHOD => {
             let params: DidChangeTextDocumentParams = serde_json::from_value(notif.params.clone())?;
@@ -1164,7 +1181,7 @@ fn handle_notification(
             // We use full sync, so there's exactly one change with the full text.
             if let Some(change) = params.content_changes.into_iter().next() {
                 state.documents.update(&uri, version, change.text);
-                reanalyze_all(&uri, state, connection)?;
+                crate::reanalyze::reanalyze_all(&uri, state, connection)?;
             }
         }
         DidCloseTextDocument::METHOD => {
@@ -1187,7 +1204,7 @@ fn handle_notification(
 
 /// Collect diagnostics from an analysis result — the shared reporting
 /// policy from `ambient-analysis`, rendered for LSP.
-fn collect_diagnostics(
+pub(crate) fn collect_diagnostics(
     doc: Option<&crate::documents::Document>,
     result: &ambient_analysis::AnalysisResult,
 ) -> Vec<Diagnostic> {
@@ -1203,7 +1220,7 @@ fn collect_diagnostics(
 }
 
 /// Publish diagnostics to the client.
-fn publish_diagnostics(
+pub(crate) fn publish_diagnostics(
     connection: &Connection,
     uri: Uri,
     diagnostics: Vec<Diagnostic>,
@@ -1223,130 +1240,5 @@ fn publish_diagnostics(
     connection
         .sender
         .send(Message::Notification(notification))?;
-    Ok(())
-}
-
-/// Re-analyze after a document change: update the package's view of the
-/// changed file, rebuild the registry once, then re-analyze every open
-/// document against it. A signature change in one file must surface (or
-/// clear) type errors in files that import it.
-fn reanalyze_all(
-    changed_uri: &Uri,
-    state: &mut ServerState,
-    connection: &Connection,
-) -> anyhow::Result<()> {
-    // Update the package's copy of the changed document.
-    if let Some(package) = state.package.as_mut()
-        && let Some(file_path) = uri_to_path(changed_uri)
-        && let Some(module_path) = package.module_path_for(&file_path)
-        && let Some(doc) = state.documents.get(changed_uri)
-    {
-        package.insert_module(module_path, doc.text.clone());
-    }
-
-    // Rebuild the shared registry once per change.
-    state.package_registry = state
-        .package
-        .as_ref()
-        .map(|package| Arc::new(package.build_registry()));
-
-    let uris: Vec<Uri> = state.documents.uris().cloned().collect();
-    for uri in uris {
-        reanalyze_document(&uri, state, connection)?;
-    }
-
-    // Refresh the occurrence index against the rebuilt registry, so
-    // find-references and rename never see stale results.
-    rebuild_occurrence_index(state);
-    Ok(())
-}
-
-/// Rebuild the whole-package occurrence index from the current parsed modules
-/// and registry.
-///
-/// Walks every package module (opened or not) so references and rename reach
-/// files never opened in the editor. With no package, each open document is
-/// indexed as a standalone root. Cheap enough to run on every edit — a pure
-/// AST walk that resolves names through the already-built registry.
-fn rebuild_occurrence_index(state: &mut ServerState) {
-    let mut index = Vec::new();
-
-    if let (Some(package), Some(registry)) =
-        (state.package.as_ref(), state.package_registry.as_ref())
-    {
-        for module in package.modules.values() {
-            let Some(uri) = module_uri(Some(package), &module.path) else {
-                continue;
-            };
-            let occurrences = collect_occurrences(&module.ast, &module.path, registry);
-            index.push(ModuleOccurrences {
-                module_path: module.path.clone(),
-                uri,
-                occurrences,
-            });
-        }
-    } else {
-        for (uri_str, analysis) in &state.analyses {
-            let Ok(uri) = uri_str.parse::<Uri>() else {
-                continue;
-            };
-            let occurrences = collect_occurrences(
-                &analysis.result.module,
-                &analysis.module_path,
-                &analysis.registry,
-            );
-            index.push(ModuleOccurrences {
-                module_path: analysis.module_path.clone(),
-                uri,
-                occurrences,
-            });
-        }
-    }
-
-    state.occurrences = index;
-}
-
-/// Re-analyze one open document against the current registry and publish
-/// fresh diagnostics.
-fn reanalyze_document(
-    uri: &Uri,
-    state: &mut ServerState,
-    connection: &Connection,
-) -> anyhow::Result<()> {
-    let Some(doc) = state.documents.get(uri) else {
-        return Ok(());
-    };
-
-    let package_context = state.package.as_ref().zip(state.package_registry.as_ref());
-    let (module_path, registry) = if let Some((package, registry)) = package_context
-        && let Some(file_path) = uri_to_path(uri)
-        && let Some(module_path) = package.module_path_for(&file_path)
-    {
-        (module_path, Arc::clone(registry))
-    } else {
-        // No package: the document checks as a stand-alone package root
-        // against the core+platform registry, same as `ambient check` on
-        // a bare file.
-        let module_path = ModulePath::root();
-        let mut registry = ambient_analysis::core_platform_registry();
-        let recovered = ambient_parser::parse_recovering(&doc.text);
-        registry.register(&module_path, Arc::new(recovered.module));
-        (module_path, Arc::new(registry))
-    };
-
-    let result =
-        ambient_analysis::analyze_with_registry(&doc.text, Some(&module_path), Some(&registry));
-
-    let diagnostics = collect_diagnostics(Some(doc), &result);
-    publish_diagnostics(connection, uri.clone(), diagnostics, doc.version)?;
-
-    state.analyses.insert(
-        uri.as_str().to_string(),
-        DocumentAnalysis {
-            result,
-            module_path,
-            registry,
-        },
-    );
     Ok(())
 }

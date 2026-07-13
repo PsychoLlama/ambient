@@ -54,6 +54,7 @@ mod convert;
 mod core_completions;
 mod documents;
 mod hover_format;
+mod reanalyze;
 mod semantic_tokens;
 mod server;
 mod util;
