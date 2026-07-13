@@ -174,6 +174,37 @@ impl NativeRegistry {
         self.by_path.is_empty()
     }
 
+    /// A deterministic content hash over the whole binding surface: the
+    /// sorted fold of every `(module path, name, uuid, arity)`. This is the
+    /// native-contract channel a build snapshot records — a UUID re-key, an
+    /// arity change, or a moved binding all move this hash, so Phase 3 can
+    /// treat a drifted host table as a cache miss without re-checking every
+    /// module. Names *do* enter this hash (unlike an object encoding) because
+    /// the manifest's purpose is to detect the exact `(module, name) → uuid`
+    /// wiring the build saw, not to content-address code.
+    #[must_use]
+    pub fn contract_hash(&self) -> blake3::Hash {
+        let mut entries: Vec<(String, &str, Uuid, u8)> = self
+            .by_path
+            .iter()
+            .map(|((module, name), key)| (module.to_string(), name.as_ref(), key.uuid, key.arity))
+            .collect();
+        entries.sort();
+
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"ambient/natives/contract/v1");
+        #[allow(clippy::cast_possible_truncation)]
+        for (module, name, uuid, arity) in entries {
+            hasher.update(&(module.len() as u32).to_le_bytes());
+            hasher.update(module.as_bytes());
+            hasher.update(&(name.len() as u32).to_le_bytes());
+            hasher.update(name.as_bytes());
+            hasher.update(uuid.as_bytes());
+            hasher.update(&[arity]);
+        }
+        hasher.finalize()
+    }
+
     /// Verify the total contract between declarations and bindings over a
     /// set of registered modules.
     ///

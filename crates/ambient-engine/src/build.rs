@@ -66,6 +66,30 @@ pub struct BuildOptions<'a> {
     pub progress: Option<ProgressCallback<'a>>,
 }
 
+/// The per-module compile products a build snapshot records: everything
+/// keyed to one module that the merged [`CompiledModule`] can no longer
+/// attribute back to its source module. Collected during the per-module
+/// compile loops (core, platform, and package) and keyed, like
+/// [`BuildResult::interfaces`], by the module's canonical identity string
+/// (`core::collections::list`, `workspace::pkg::utils`).
+///
+/// Phase 2 of incremental compilation: the manifest folds these together
+/// with each module's interface/AST hash. Purely additive — nothing in the
+/// compile pipeline reads it.
+#[derive(Debug, Clone, Default)]
+pub struct ModuleBuildOutput {
+    /// Canonical object hashes this module produced (redirect stubs
+    /// excluded — they are derived from their group), sorted.
+    pub objects: Vec<blake3::Hash>,
+    /// This module's fully-qualified name → hash bindings (functions and
+    /// consts), as the merged store index carries them.
+    pub names: BTreeMap<String, blake3::Hash>,
+    /// This module's fully-qualified name → canonical signature renderings.
+    pub signatures: BTreeMap<String, String>,
+    /// The resolve-pass dependency modules, as canonical identity strings.
+    pub deps: Vec<String>,
+}
+
 /// Result of building a package.
 pub struct BuildResult {
     /// The compiled module containing all functions.
@@ -81,12 +105,22 @@ pub struct BuildResult {
     /// The content-keyed interface of every registered module (core,
     /// platform, and package), keyed by the module's canonical identity
     /// string. Phase 1 of incremental compilation: computed from the
-    /// resolved ASTs, not persisted (persistence is Phase 2). Purely
-    /// additive — nothing in the compile pipeline reads it yet.
+    /// resolved ASTs. Purely additive — nothing in the compile pipeline
+    /// reads it yet.
     pub interfaces: BTreeMap<String, crate::module_interface::ModuleInterfaceSummary>,
     /// The build-global dispatch-surface hash: a fold of every module's
     /// impl + ability sections (the coherence/dispatch channel).
     pub dispatch_surface_hash: blake3::Hash,
+    /// Per-module compile products (objects, name bindings, signatures,
+    /// dependency sets), keyed like [`Self::interfaces`]. Phase 2: the raw
+    /// material the persisted build manifest folds together with each
+    /// module's interface. Additive — nothing above reads it.
+    pub module_outputs: BTreeMap<String, ModuleBuildOutput>,
+    /// A deterministic hash of the whole native-binding surface the build
+    /// saw (core plus embedder), from
+    /// [`NativeRegistry::contract_hash`](crate::natives::NativeRegistry::contract_hash).
+    /// The manifest records it so a drifted host table is a cache miss.
+    pub natives_contract_hash: blake3::Hash,
 }
 
 /// Error during package building.
@@ -206,8 +240,15 @@ pub fn build_package(
     let mut all_compiled = CompiledModule::new();
     let mut module_function_hashes: HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>> =
         HashMap::new();
-    let core_compiled =
-        compile_core_modules(&mut registry, &mut module_function_hashes, parse_str)?;
+    // Per-module compile products for the build snapshot (Phase 2), keyed by
+    // canonical module identity. Filled by every per-module loop below.
+    let mut module_outputs: BTreeMap<String, ModuleBuildOutput> = BTreeMap::new();
+    let core_compiled = compile_core_modules_collecting(
+        &mut registry,
+        &mut module_function_hashes,
+        &mut module_outputs,
+        parse_str,
+    )?;
     all_compiled.merge(&core_compiled);
 
     // Register and compile the embedder-supplied `core::system` module so
@@ -215,9 +256,10 @@ pub fn build_package(
     // and importable (`use core::system::Tcp;`), and its default
     // implementations exist for perform sites to link against.
     if !options.platform_modules.is_empty() {
-        let platform_compiled = compile_declaration_modules(
+        let platform_compiled = compile_declaration_modules_collecting(
             &mut registry,
             &mut module_function_hashes,
+            &mut module_outputs,
             options.platform_modules,
             parse_str,
         )?;
@@ -233,6 +275,10 @@ pub fn build_package(
     }
     let mut deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut paths_by_key: BTreeMap<String, ModulePath> = BTreeMap::new();
+    // The same resolve-pass dependency sets, keyed and rendered by canonical
+    // module identity (matching `interfaces`/`module_outputs` keys) so the
+    // snapshot can cross-reference a dep's interface hash.
+    let mut dep_ids: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for module in pkg.all_modules_mut() {
         // Block-use failures surface as diagnostics when the module
         // checks (the pass runs again there); only the dependency set
@@ -248,6 +294,10 @@ pub fn build_package(
                 .iter()
                 .map(crate::fqn::ModuleId::module_path_string)
                 .collect(),
+        );
+        dep_ids.insert(
+            registry.module_id(&module.path).to_string(),
+            outcome.deps.iter().map(ToString::to_string).collect(),
         );
         paths_by_key.insert(module.path.to_string(), module.path.clone());
     }
@@ -330,6 +380,15 @@ pub fn build_package(
         compiled.function_names = qualify_names(&compiled.function_names, &module_path, &registry);
         compiled.const_names = qualify_names(&compiled.const_names, &module_path, &registry);
         compiled.signatures = qualify_names(&compiled.signatures, &module_path, &registry);
+
+        let module_id = registry.module_id(&module_path).to_string();
+        module_outputs.insert(
+            module_id.clone(),
+            module_output(
+                &compiled,
+                dep_ids.get(&module_id).cloned().unwrap_or_default(),
+            ),
+        );
         all_compiled.merge(&compiled);
     }
 
@@ -340,6 +399,9 @@ pub fn build_package(
     // affect what the build produces.
     let interfaces = crate::module_interface::build_interfaces(&registry);
     let dispatch_surface_hash = crate::module_interface::dispatch_surface_hash(&interfaces);
+    // The full native surface the build saw: core's own bindings plus any
+    // embedder bindings, all merged into the registry above.
+    let natives_contract_hash = registry.natives().contract_hash();
 
     Ok(BuildResult {
         compiled: all_compiled,
@@ -348,7 +410,43 @@ pub fn build_package(
         link_table: linking_table(&module_function_hashes, &registry),
         interfaces,
         dispatch_surface_hash,
+        module_outputs,
+        natives_contract_hash,
     })
+}
+
+/// Extract one module's snapshot-relevant products from its compiled output
+/// (post-qualification) plus its resolve-pass dependency identities.
+fn module_output(compiled: &CompiledModule, deps: Vec<String>) -> ModuleBuildOutput {
+    let mut objects: Vec<blake3::Hash> = compiled
+        .objects
+        .iter()
+        .filter(|(_, o)| !matches!(o, crate::object::StoredObject::Redirect { .. }))
+        .map(|(h, _)| *h)
+        .collect();
+    objects.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+
+    let names: BTreeMap<String, blake3::Hash> = compiled
+        .function_names
+        .iter()
+        .chain(&compiled.const_names)
+        .map(|(name, hash)| (name.to_string(), *hash))
+        .collect();
+    let signatures: BTreeMap<String, String> = compiled
+        .signatures
+        .iter()
+        .map(|(name, sig)| (name.to_string(), sig.to_string()))
+        .collect();
+    let mut deps = deps;
+    deps.sort_unstable();
+    deps.dedup();
+
+    ModuleBuildOutput {
+        objects,
+        names,
+        signatures,
+        deps,
+    }
 }
 
 /// Load and parse every `.ab` file under the package's `src/` directory.
@@ -495,6 +593,20 @@ pub fn compile_core_modules(
     module_function_hashes: &mut HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>>,
     parse: impl Fn(&str) -> Result<Module, String>,
 ) -> Result<CompiledModule, BuildError> {
+    let mut outputs = BTreeMap::new();
+    compile_core_modules_collecting(registry, module_function_hashes, &mut outputs, parse)
+}
+
+/// Like [`compile_core_modules`], but also records each core module's
+/// snapshot products into `outputs` (keyed by canonical identity). Used by
+/// [`build_package`]; the public wrapper discards the collector.
+#[allow(clippy::implicit_hasher)]
+fn compile_core_modules_collecting(
+    registry: &mut ModuleRegistry,
+    module_function_hashes: &mut HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>>,
+    outputs: &mut BTreeMap<String, ModuleBuildOutput>,
+    parse: impl Fn(&str) -> Result<Module, String>,
+) -> Result<CompiledModule, BuildError> {
     let core_paths = crate::core_library::register_core_modules(registry, parse).map_err(
         |(module, error)| BuildError::Compile {
             module: format!("core.{module}"),
@@ -504,7 +616,7 @@ pub fn compile_core_modules(
 
     // Compile the registered core modules in dependency order, reusing the
     // same resolve + topo-sort every module group shares.
-    compile_module_group(registry, module_function_hashes, &core_paths)
+    compile_module_group(registry, module_function_hashes, outputs, &core_paths)
 }
 
 /// Register and compile an embedder-supplied declaration *tree* (e.g. the
@@ -529,9 +641,30 @@ pub fn compile_declaration_modules(
     modules: &[crate::core_library::DeclModule<'_>],
     parse: impl Fn(&str) -> Result<Module, String>,
 ) -> Result<CompiledModule, BuildError> {
+    let mut outputs = BTreeMap::new();
+    compile_declaration_modules_collecting(
+        registry,
+        module_function_hashes,
+        &mut outputs,
+        modules,
+        parse,
+    )
+}
+
+/// Like [`compile_declaration_modules`], but also records each module's
+/// snapshot products into `outputs`. Used by [`build_package`]; the public
+/// wrapper discards the collector.
+#[allow(clippy::implicit_hasher)]
+fn compile_declaration_modules_collecting(
+    registry: &mut ModuleRegistry,
+    module_function_hashes: &mut HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>>,
+    outputs: &mut BTreeMap<String, ModuleBuildOutput>,
+    modules: &[crate::core_library::DeclModule<'_>],
+    parse: impl Fn(&str) -> Result<Module, String>,
+) -> Result<CompiledModule, BuildError> {
     let paths = crate::core_library::register_declaration_modules(registry, modules, parse)
         .map_err(|(module, error)| BuildError::Compile { module, error })?;
-    compile_module_group(registry, module_function_hashes, &paths)
+    compile_module_group(registry, module_function_hashes, outputs, &paths)
 }
 
 /// Resolve, order, check, and compile an already-registered set of module
@@ -546,6 +679,7 @@ pub fn compile_declaration_modules(
 fn compile_module_group(
     registry: &mut ModuleRegistry,
     module_function_hashes: &mut HashMap<ModulePath, HashMap<Arc<str>, blake3::Hash>>,
+    outputs: &mut BTreeMap<String, ModuleBuildOutput>,
     paths: &[ModulePath],
 ) -> Result<CompiledModule, BuildError> {
     // Compile in dependency order (dependencies first), reusing the same
@@ -556,6 +690,9 @@ fn compile_module_group(
     // re-registering would drop the injected intrinsic exports).
     let mut deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut paths_by_key: BTreeMap<String, ModulePath> = BTreeMap::new();
+    // Resolve-pass dependency sets keyed and rendered by canonical module
+    // identity, for the snapshot (matching `outputs`/`interfaces` keys).
+    let mut dep_ids: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for path in paths {
         // The prelude module is a pure re-export container (`pub use
         // core::option::{Some, None}`, ...). It is registered so its
@@ -574,6 +711,10 @@ fn compile_module_group(
         let outcome = crate::resolve::resolve_module(&mut ast, path, registry);
         deps.insert(
             path.to_string(),
+            outcome.deps.iter().map(ToString::to_string).collect(),
+        );
+        dep_ids.insert(
+            registry.module_id(path).to_string(),
             outcome.deps.iter().map(ToString::to_string).collect(),
         );
         paths_by_key.insert(path.to_string(), path.clone());
@@ -668,6 +809,15 @@ fn compile_module_group(
         compiled.function_names = qualify_names(&compiled.function_names, &path, registry);
         compiled.const_names = qualify_names(&compiled.const_names, &path, registry);
         compiled.signatures = qualify_names(&compiled.signatures, &path, registry);
+
+        let module_id = registry.module_id(&path).to_string();
+        outputs.insert(
+            module_id.clone(),
+            module_output(
+                &compiled,
+                dep_ids.get(&module_id).cloned().unwrap_or_default(),
+            ),
+        );
 
         module_function_hashes.insert(path, func_hashes);
         merged.merge(&compiled);

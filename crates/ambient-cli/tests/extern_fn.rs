@@ -341,6 +341,8 @@ fn extern_fn_ships_through_a_pack() {
         link_table: result.link_table.clone(),
         interfaces: result.interfaces.clone(),
         dispatch_surface_hash: result.dispatch_surface_hash,
+        module_outputs: result.module_outputs.clone(),
+        natives_contract_hash: result.natives_contract_hash,
     };
     let value = run_entry(&rebuilt, &natives).expect("run succeeds");
     assert_eq!(value, Value::Number(42.0));
