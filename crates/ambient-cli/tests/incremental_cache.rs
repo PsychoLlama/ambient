@@ -532,3 +532,85 @@ fn cache_off_flag_forces_a_cold_build() {
         "CacheMode::Off must ignore the snapshot"
     );
 }
+
+// ── `ambient compile` warm builds (feeds and consumes the cache) ────────────
+
+/// The artifact-pack bytes `ambient compile -o` writes for a build: the same
+/// encoding `compile_package_cmd` emits, so a byte comparison here proves the
+/// warm and cold artifacts are identical.
+fn artifact_pack_bytes(result: &BuildResult) -> Vec<u8> {
+    result.compiled.to_pack().encode()
+}
+
+#[test]
+fn compile_wiring_second_build_is_a_full_warm_hit() {
+    // In-process mirror of `compile_package_cmd`'s wiring (build reading the
+    // package store + persist). The second build must be a full warm hit and
+    // its artifact pack byte-identical to the cold one — the guarantee the
+    // command depends on.
+    let files: &[(&str, &str)] = &[
+        ("util.ab", "pub fn helper(): Number { 41 }\n"),
+        (
+            "main.ab",
+            "use pkg::util::helper;\npub fn run(): Number { helper() + 1 }\n",
+        ),
+    ];
+    let dir = TempDir::new().expect("temp");
+    write_pkg(dir.path(), files);
+
+    let cold = build_and_persist(dir.path());
+    assert!(cold.modules_compiled > 0, "first compile builds everything");
+
+    let warm = build_and_persist(dir.path());
+    assert_eq!(
+        warm.modules_compiled, 0,
+        "an unchanged second compile must hit every module"
+    );
+    assert_eq!(
+        artifact_pack_bytes(&warm),
+        artifact_pack_bytes(&cold),
+        "the warm artifact pack must be byte-identical to the cold one"
+    );
+}
+
+#[test]
+fn ambient_compile_twice_is_warm_and_byte_identical() {
+    // Drive the real `ambient compile` command twice (own process, own env) so
+    // the whole command wiring — warm read + persist + artifact write — is
+    // exercised. `AMBIENT_CACHE_VERIFY=1` turns the second (warm) build into
+    // the under-invalidation oracle: any stale hit panics → nonzero exit. The
+    // two `-o` artifacts must be byte-identical.
+    let files: &[(&str, &str)] = &[
+        ("a.ab", "pub fn a(): Number { 1 }\n"),
+        ("b.ab", "use pkg::a::a;\npub fn b(): Number { a() + 1 }\n"),
+        ("main.ab", "use pkg::b::b;\npub fn run(): Number { b() }\n"),
+    ];
+    let dir = TempDir::new().expect("temp");
+    write_pkg(dir.path(), files);
+
+    let cold_out = dir.path().join("cold.ambient");
+    let warm_out = dir.path().join("warm.ambient");
+
+    for out in [&cold_out, &warm_out] {
+        let status = Command::new(env!("CARGO_BIN_EXE_ambient"))
+            .arg("compile")
+            .arg(dir.path())
+            .arg("-o")
+            .arg(out)
+            .env("AMBIENT_CACHE_VERIFY", "1")
+            .output()
+            .expect("spawn ambient compile");
+        assert!(
+            status.status.success(),
+            "ambient compile failed: {}",
+            String::from_utf8_lossy(&status.stderr)
+        );
+    }
+
+    let cold_bytes = fs::read(&cold_out).expect("read cold artifact");
+    let warm_bytes = fs::read(&warm_out).expect("read warm artifact");
+    assert_eq!(
+        cold_bytes, warm_bytes,
+        "warm and cold `ambient compile` artifacts must be byte-identical"
+    );
+}

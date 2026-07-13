@@ -331,6 +331,57 @@ fn test_project_module_is_usable() {
 }
 
 #[test]
+fn test_repl_base_build_warms_off_a_prior_run_snapshot() {
+    // The REPL base build is a read-only cache consumer: a prior `ambient run`
+    // leaves a snapshot in the package store, and opening the REPL in that
+    // project consumes it (warm base build) instead of recompiling cold. Seed
+    // the snapshot with a real `ambient run`, then drive the in-process REPL
+    // and confirm a project function resolves and evaluates through the
+    // snapshot-backed base. (Warm-vs-cold byte identity is pinned by
+    // `incremental_cache.rs`; this pins the REPL boundary wiring.)
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join("ambient.toml"),
+        "[package]\nname = \"warmrepl\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.path().join("src")).unwrap();
+    std::fs::write(
+        dir.path().join("src/util.ab"),
+        "pub fn helper(): Number { 41 }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("src/main.ab"),
+        "use pkg::util::helper;\npub fn run(): Number { helper() + 1 }\n",
+    )
+    .unwrap();
+
+    // Prior `ambient run`: builds the package and persists the snapshot the
+    // REPL base build will warm off. Verify mode guards the run's own hits.
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_ambient"))
+        .arg("run")
+        .arg(dir.path())
+        .env("AMBIENT_CACHE_VERIFY", "1")
+        .output()
+        .expect("spawn ambient run");
+    assert!(
+        status.status.success(),
+        "prior `ambient run` failed: {}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    assert!(
+        dir.path().join(".ambient/store").is_dir(),
+        "the prior run must have created a package store"
+    );
+
+    ReplTest::with_project(dir.path())
+        .type_line("pkg::util::helper() + 1")
+        .expect_output("42")
+        .shutdown();
+}
+
+#[test]
 fn test_non_literal_const_is_rejected() {
     // Language parity: a `const` must be a literal. A computed value (here a
     // function call) is rejected — use a `fn` instead.
