@@ -595,10 +595,21 @@ impl Infer {
                 if let Some(ret_ty) = associated_ret {
                     ret_ty
                 } else {
+                    // Infer (and instantiate) the callee first: if it is a
+                    // function of matching arity, its parameter types seed the
+                    // arguments as their expected types — an unannotated lambda
+                    // argument then adopts them (bidirectional checking). A
+                    // generic callee is already instantiated to fresh variables
+                    // here, so the seeds are in the call's type variables.
                     let callee_ty = self.infer_expr(env, callee)?;
+                    let expected_params = match self.apply(&callee_ty) {
+                        Type::Function(f) if f.params.len() == args.len() => Some(f.params.clone()),
+                        _ => None,
+                    };
                     let mut arg_tys = Vec::with_capacity(args.len());
-                    for arg in args {
-                        arg_tys.push(self.infer_expr(env, arg)?);
+                    for (i, arg) in args.iter_mut().enumerate() {
+                        let expected_arg = expected_params.as_ref().map(|p| &p[i]);
+                        arg_tys.push(self.infer_expr_expecting(env, arg, expected_arg)?);
                     }
 
                     // Expect a function whose abilities are a fresh variable:

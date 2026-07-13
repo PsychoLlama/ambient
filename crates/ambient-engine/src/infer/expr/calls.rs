@@ -56,7 +56,11 @@ impl Infer {
             .zip(f.params[receiver_count..].iter())
             .enumerate()
         {
-            let arg_ty = self.infer_expr(env, arg)?;
+            // Push the parameter's (instantiated) type into the argument as
+            // its expected type: an unannotated lambda argument seeds its
+            // parameter types from it (bidirectional checking). See
+            // `infer_expr_expecting`.
+            let arg_ty = self.infer_expr_expecting(env, arg, Some(param_ty))?;
             if let Err(e) = self.unify(&arg_ty, param_ty, span) {
                 return Err(e.with_context(format!(
                     "in argument {} of method `{}`",
@@ -167,24 +171,22 @@ impl Infer {
         let method_dicts = self.resolve_method_bound_dicts(&method_def, &type_var_map);
         *dicts = self.record_trait_dispatch_dicts(generic_impl, &self_ty, method_dicts, span);
 
-        let mut arg_tys = Vec::with_capacity(args.len());
-        for arg in args.iter_mut() {
-            arg_tys.push(self.infer_expr(env, arg)?);
-        }
-
-        if arg_tys.len() != params.len() {
+        if args.len() != params.len() {
             return Err(type_error(
                 TypeErrorKind::ArityMismatch {
                     expected: params.len(),
-                    actual: arg_tys.len(),
+                    actual: args.len(),
                 },
                 span,
             )
             .with_context(format!("in associated call `{type_name}::{method_name}`")));
         }
 
-        for (i, (arg_ty, param_ty)) in arg_tys.iter().zip(params.iter()).enumerate() {
-            if let Err(e) = self.unify(arg_ty, param_ty, span) {
+        for (i, (arg, param_ty)) in args.iter_mut().zip(params.iter()).enumerate() {
+            // Seed an unannotated lambda argument from the parameter's
+            // instantiated type (bidirectional checking).
+            let arg_ty = self.infer_expr_expecting(env, arg, Some(param_ty))?;
+            if let Err(e) = self.unify(&arg_ty, param_ty, span) {
                 return Err(e.with_context(format!(
                     "in argument {} of associated call `{type_name}::{method_name}`",
                     i + 1
@@ -329,14 +331,10 @@ impl Infer {
         let method_dicts = self.resolve_method_bound_dicts(&method_def, &type_var_map);
         *dicts = self.record_trait_dispatch_dicts(generic_impl, &receiver_ty, method_dicts, span);
 
-        // Infer argument types
-        let mut arg_tys = Vec::new();
-        for arg in args.iter_mut() {
-            arg_tys.push(self.infer_expr(env, arg)?);
-        }
-
-        // Check argument count (excluding self)
-        if arg_tys.len() != params.len() {
+        // Check argument count (excluding self) before inferring the
+        // arguments, so a lambda argument can be seeded from its parameter's
+        // instantiated type.
+        if args.len() != params.len() {
             // Get trait name for error message
             let trait_name = self
                 .trait_registry
@@ -345,16 +343,19 @@ impl Infer {
             return Err(type_error(
                 TypeErrorKind::ArityMismatch {
                     expected: params.len(),
-                    actual: arg_tys.len(),
+                    actual: args.len(),
                 },
                 span,
             )
             .with_context(format!("in method call `{trait_name}.{method_name}`")));
         }
 
-        // Unify argument types with the instantiated parameter types.
-        for (i, (arg_ty, param_ty)) in arg_tys.iter().zip(params.iter()).enumerate() {
-            if let Err(e) = self.unify(arg_ty, param_ty, span) {
+        // Infer each argument under its instantiated parameter type as the
+        // expected type (bidirectional checking: an unannotated lambda seeds
+        // its parameter types from it), then unify.
+        for (i, (arg, param_ty)) in args.iter_mut().zip(params.iter()).enumerate() {
+            let arg_ty = self.infer_expr_expecting(env, arg, Some(param_ty))?;
+            if let Err(e) = self.unify(&arg_ty, param_ty, span) {
                 return Err(e.with_context(format!(
                     "in argument {} of method `{}`",
                     i + 1,
@@ -587,7 +588,9 @@ impl Infer {
             .with_context(format!("in method call `{}.{method_name}`", bound.name)));
         }
         for (i, (arg, param_ty)) in args.iter_mut().zip(params.iter()).enumerate() {
-            let arg_ty = self.infer_expr(env, arg)?;
+            // Seed an unannotated lambda argument from the parameter's
+            // instantiated type (bidirectional checking).
+            let arg_ty = self.infer_expr_expecting(env, arg, Some(param_ty))?;
             if let Err(e) = self.unify(&arg_ty, param_ty, span) {
                 return Err(
                     e.with_context(format!("in argument {} of method `{method_name}`", i + 1))
