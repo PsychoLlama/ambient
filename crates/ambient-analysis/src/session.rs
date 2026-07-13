@@ -545,6 +545,46 @@ mod tests {
     }
 
     #[test]
+    fn unrelated_impl_body_edit_leaves_unrelated_modules_cached() {
+        // Phase 5 step 2: the dispatch surface is body-free. An impl *body*
+        // edit in `shapes` re-checks `shapes` (its own source) and its
+        // dependent `consumer` (the full interface hash still retains bodies,
+        // a spurious-but-safe re-check through the dependency channel), but
+        // leaves `unrelated` — which names neither the type nor the impl's
+        // module — memoized. Under the old body-bearing *global* dispatch
+        // hash the edit moved every module's key, so all three re-checked.
+        let dir = write_package(&[
+            (
+                "shapes.ab",
+                "pub unique(A1B2C3D4-0000-0000-0000-000000000042) struct P { x: Number }\n\
+                 impl P {\n    fn get(self): Number { self.x }\n}\n",
+            ),
+            (
+                "consumer.ab",
+                "use pkg::shapes::P;\npub fn run(): Number { P { x: 1 }.get() }\n",
+            ),
+            ("unrelated.ab", "pub fn f(): Number { 2 }\n"),
+        ]);
+        let mut session = open(&dir);
+        let _ = session.analyze_all();
+        let base = session.rechecks();
+
+        session.edit_module(
+            &module_path("shapes"),
+            "pub unique(A1B2C3D4-0000-0000-0000-000000000042) struct P { x: Number }\n\
+             impl P {\n    fn get(self): Number { self.x + 0 }\n}\n"
+                .to_string(),
+        );
+        let warm = session.analyze_all();
+        assert_eq!(
+            session.rechecks() - base,
+            2,
+            "`shapes` (source) + `consumer` (dep) re-check; `unrelated` stays memoized"
+        );
+        assert_matches_cold(&session, &warm);
+    }
+
+    #[test]
     fn import_cycle_appears_and_clears_across_edits() {
         // Start acyclic, introduce a cycle via a body edit (no interface
         // change), then remove it. Cycles are recomputed per revision, so both

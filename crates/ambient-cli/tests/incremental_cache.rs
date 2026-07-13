@@ -407,6 +407,105 @@ fn reexported_enum_consumed_through_two_hops_compiles_and_caches() {
 }
 
 #[test]
+fn unrelated_impl_body_edit_leaves_unrelated_modules_cached_warm() {
+    // Phase 5 step 2 (build cache): the dispatch surface is body-free, so an
+    // impl *body* edit no longer moves every module's cache key. `shapes`
+    // recompiles (its source changed) and `consumer` recompiles (it links the
+    // moved dispatch symbol → link validation), but `unrelated` — which does
+    // not reference the type — stays a warm hit. Under the old body-bearing
+    // global dispatch hash the whole package recompiled.
+    let base: &[(&str, &str)] = &[
+        (
+            "shapes.ab",
+            "pub unique(D1D1D1D1-0000-0000-0000-000000000001) struct P { x: Number }\n\
+             impl P { fn get(self): Number { self.x } }\n",
+        ),
+        (
+            "main.ab",
+            "use pkg::shapes::P;\npub fn run(): Number { P { x: 1 }.get() }\n",
+        ),
+        ("unrelated.ab", "pub fn f(): Number { 2 }\n"),
+    ];
+    let dir = TempDir::new().expect("temp");
+    write_pkg(dir.path(), base);
+    build_and_persist(dir.path());
+
+    let edited: &[(&str, &str)] = &[
+        (
+            "shapes.ab",
+            "pub unique(D1D1D1D1-0000-0000-0000-000000000001) struct P { x: Number }\n\
+             impl P { fn get(self): Number { self.x + 0 } }\n",
+        ),
+        base[1],
+        base[2],
+    ];
+    fs::write(dir.path().join("src/shapes.ab"), edited[0].1).expect("edit");
+
+    let warm = build_and_persist(dir.path());
+    assert_eq!(
+        warm.modules_compiled, 2,
+        "shapes (source) + main (link) recompile; unrelated stays cached, got {}",
+        warm.modules_compiled
+    );
+    assert_warm_equals_cold(&warm, edited);
+}
+
+#[test]
+fn duplicate_impl_in_unrelated_module_still_errors_on_a_warm_build() {
+    // Phase 5 step 2: narrowing the dispatch surface must NOT weaken
+    // coherence. Coherence keys on the `(trait, type)` identity, which stays
+    // in the body-free surface, so *adding* a second impl of the same trait
+    // for the same type — even in a module unrelated to the rest — moves the
+    // coherence surface, the new module re-checks, and the duplicate is
+    // reported. The warm build must fail.
+    let base: &[(&str, &str)] = &[
+        (
+            "defs.ab",
+            "pub unique(E0E0E0E0-0000-0000-0000-000000000001) struct W { n: Number }\n\
+             pub unique(E0E0E0E0-0000-0000-0000-000000000002) trait Named { fn name(self): Number; }\n",
+        ),
+        (
+            "impl_one.ab",
+            "use pkg::defs::W;\nuse pkg::defs::Named;\n\
+             impl Named for W { fn name(self): Number { self.n } }\n",
+        ),
+        ("main.ab", "pub fn run(): Number { 7 }\n"),
+    ];
+    let dir = TempDir::new().expect("temp");
+    write_pkg(dir.path(), base);
+    // Cold build succeeds and persists a snapshot the warm build can hit.
+    build_and_persist(dir.path());
+
+    // Add a *duplicate* impl in a brand-new, otherwise-unrelated module.
+    fs::write(
+        dir.path().join("src/impl_two.ab"),
+        "use pkg::defs::W;\nuse pkg::defs::Named;\n\
+         impl Named for W { fn name(self): Number { self.n + 1 } }\n",
+    )
+    .expect("write duplicate impl");
+
+    let stubs = ambient_platform::stub_natives();
+    let result = build_package(
+        dir.path(),
+        parse_source,
+        &BuildOptions {
+            platform_modules: ambient_platform::platform_modules(),
+            natives: Some(&stubs),
+            store_path: Some(store_path(dir.path())),
+            ..Default::default()
+        },
+    );
+    let msg = match result {
+        Ok(_) => panic!("a duplicate impl must fail the warm build"),
+        Err(e) => e.to_string(),
+    };
+    assert!(
+        msg.contains("duplicate") || msg.contains("Named"),
+        "warm build must surface the coherence error, got: {msg}"
+    );
+}
+
+#[test]
 fn cache_off_flag_forces_a_cold_build() {
     let files: &[(&str, &str)] = &[("main.ab", "pub fn run(): Number { 1 }\n")];
     let dir = TempDir::new().expect("temp");

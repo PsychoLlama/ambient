@@ -163,6 +163,48 @@ fn interface_hash_flips_on_any_field_change() {
     assert_ne!(base_hash, edited.interface_hash());
 }
 
+#[test]
+fn dispatch_bytes_are_body_free_but_interface_hash_is_not() {
+    // Phase 5 step 2: an impl-method *body* edit moves the full interface
+    // hash (dependents re-check through the dependency channel) but must NOT
+    // move the body-free dispatch surface — so a body edit no longer
+    // invalidates every module's cache key through the global dispatch fold.
+    let base = sample_interface();
+    let mut edited = sample_interface();
+    edited.impls[0].methods[0].body_hash = [99u8; 32];
+
+    assert_ne!(
+        base.interface_hash(),
+        edited.interface_hash(),
+        "the full interface hash still tracks impl bodies"
+    );
+    assert_eq!(
+        base.dispatch_bytes(),
+        edited.dispatch_bytes(),
+        "the dispatch surface is body-free"
+    );
+
+    // A *signature* change, by contrast, must move the dispatch surface (it
+    // changes every dispatcher's inference and can shift coherence).
+    let mut sig = sample_interface();
+    sig.impls[0].methods[0].ret = "named:Number".to_string();
+    assert_ne!(
+        base.dispatch_bytes(),
+        sig.dispatch_bytes(),
+        "an impl-method signature change moves the dispatch surface"
+    );
+
+    // And the `(trait, type)` coherence identity: adding an impl moves it.
+    let mut added = sample_interface();
+    added.impls.push(added.impls[0].clone());
+    added.impls[1].for_type = "nominal:a1b2c3d4-0000-0000-0000-000000000002:{}".to_string();
+    assert_ne!(
+        base.dispatch_bytes(),
+        added.dispatch_bytes(),
+        "adding an impl moves the coherence surface"
+    );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Type rendering
 // ─────────────────────────────────────────────────────────────────────────────

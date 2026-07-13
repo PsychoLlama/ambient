@@ -583,14 +583,23 @@ pub fn build_interfaces(registry: &ModuleRegistry) -> BTreeMap<String, ModuleInt
 }
 
 /// The build-global dispatch-surface hash: a deterministic fold of every
-/// module's impl and ability sections (the coherence/dispatch channel that
-/// no single per-module interface owns).
+/// module's **body-free** impl and ability sections (the coherence/dispatch
+/// channel that no single per-module interface owns).
+///
+/// Method bodies are excluded (see [`ModuleInterface::dispatch_bytes`]): a
+/// body edit no longer moves this hash, so it no longer invalidates every
+/// module's cache key. What remains is the coherence/dispatch *shape* —
+/// `(trait, type)` impl pairs and dispatched signatures — which genuinely is
+/// build-global (a duplicate impl anywhere is an error in every module, and a
+/// signature change alters every dispatcher's inference). Body-driven object
+/// changes are covered elsewhere: link validation for the build cache, the
+/// dependency `interface_hash` (which retains bodies) for importers.
 #[must_use]
 pub fn dispatch_surface_hash(
     interfaces: &BTreeMap<String, ModuleInterfaceSummary>,
 ) -> blake3::Hash {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"ambient/interface/dispatch/v1");
+    hasher.update(b"ambient/interface/dispatch/v2");
     #[allow(clippy::cast_possible_truncation)]
     for (key, summary) in interfaces {
         let bytes = summary.interface.dispatch_bytes();

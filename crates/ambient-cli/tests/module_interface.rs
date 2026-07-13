@@ -230,21 +230,50 @@ fn resolved_ast_hash_flips_on_private_body_change() {
 #[test]
 fn dispatch_surface_hash_reacts_to_impl_and_ability_changes() {
     let base = "unique(A1B2C3D4-0000-0000-0000-000000000001) struct V { x: Number }\n\
-                impl Add for V { fn add(self, o: V): V { V { x: self.x + o.x } } }\n";
+                impl Add for V { fn add(self, o: V): V { V { x: self.x + o.x } } }\n\
+                impl V { fn mag(self): Number { self.x } }\n";
     let base_hash = build(&[("main.ab", base)]).dispatch_surface_hash;
 
-    // Editing an impl method body moves the dispatch surface (bodies feed
-    // dispatch-symbol final hashes).
-    let edited_impl = "unique(A1B2C3D4-0000-0000-0000-000000000001) struct V { x: Number }\n\
-                       impl Add for V { fn add(self, o: V): V { V { x: self.x - o.x } } }\n";
+    // Phase 5 step 2: the dispatch surface is *body-free*. Editing an impl
+    // method body no longer moves it — body-driven callee-hash moves are
+    // covered by link validation (build) and the dependency channel
+    // (importers), never by this build-global fold.
+    let edited_body = "unique(A1B2C3D4-0000-0000-0000-000000000001) struct V { x: Number }\n\
+                       impl Add for V { fn add(self, o: V): V { V { x: self.x - o.x } } }\n\
+                       impl V { fn mag(self): Number { self.x + 1 } }\n";
+    assert_eq!(
+        base_hash,
+        build(&[("main.ab", edited_body)]).dispatch_surface_hash,
+        "an impl body edit must not move the body-free dispatch surface"
+    );
+
+    // A method *signature* change does move it (it alters every dispatcher's
+    // inference and can shift coherence).
+    let edited_sig = "unique(A1B2C3D4-0000-0000-0000-000000000001) struct V { x: Number }\n\
+                      impl Add for V { fn add(self, o: V): V { V { x: self.x + o.x } } }\n\
+                      impl V { fn mag(self, k: Number): Number { self.x + k } }\n";
     assert_ne!(
         base_hash,
-        build(&[("main.ab", edited_impl)]).dispatch_surface_hash
+        build(&[("main.ab", edited_sig)]).dispatch_surface_hash,
+        "an impl-method signature change must move the dispatch surface"
+    );
+
+    // Adding an impl (a new `(trait, type)` / inherent target) moves it —
+    // this is the coherence channel that must stay build-global.
+    let added_impl = "unique(A1B2C3D4-0000-0000-0000-000000000001) struct V { x: Number }\n\
+                      impl Add for V { fn add(self, o: V): V { V { x: self.x + o.x } } }\n\
+                      impl V { fn mag(self): Number { self.x } }\n\
+                      impl Sub for V { fn sub(self, o: V): V { V { x: self.x - o.x } } }\n";
+    assert_ne!(
+        base_hash,
+        build(&[("main.ab", added_impl)]).dispatch_surface_hash,
+        "adding an impl must move the coherence surface"
     );
 
     // A change touching neither impls nor abilities leaves it stable.
     let extra_pub_fn = "unique(A1B2C3D4-0000-0000-0000-000000000001) struct V { x: Number }\n\
                         impl Add for V { fn add(self, o: V): V { V { x: self.x + o.x } } }\n\
+                        impl V { fn mag(self): Number { self.x } }\n\
                         pub fn unrelated(): Number { 5 }\n";
     assert_eq!(
         base_hash,

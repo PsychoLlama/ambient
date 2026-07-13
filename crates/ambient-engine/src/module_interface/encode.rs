@@ -70,12 +70,25 @@ impl ModuleInterface {
         w.buf
     }
 
-    /// The impl + ability sections only — the build-global dispatch surface
-    /// a package fold consumes.
+    /// The impl + ability sections, **body-free** — the build-global
+    /// dispatch/coherence surface a package fold consumes.
+    ///
+    /// Method *bodies* are deliberately excluded (impl-method body hashes and
+    /// ability default-impl body hashes). A module's compiled objects and its
+    /// diagnostics never depend on a *foreign* body: the build cache catches
+    /// body-driven callee-hash moves through link validation, an importer
+    /// catches them through the dependency channel (the full `interface_hash`
+    /// retains bodies), and a non-importing dispatcher's *diagnostics* are a
+    /// pure function of the dispatched method's *signature*. What every
+    /// module's check does depend on build-globally is the impl/ability
+    /// **shape** — the `(trait, type)` coherence pairs (a duplicate anywhere
+    /// is an error in *every* module) and the dispatched signatures — so the
+    /// shape stays in every key while a body edit no longer invalidates the
+    /// whole package.
     pub(crate) fn dispatch_bytes(&self) -> Vec<u8> {
         let mut w = Writer::default();
-        w.vec(&self.impls, write_impl);
-        w.vec(&self.abilities, write_ability);
+        w.vec(&self.impls, write_impl_shape);
+        w.vec(&self.abilities, write_ability_shape);
         w.buf
     }
 
@@ -297,6 +310,42 @@ fn write_impl(w: &mut Writer, i: &ImplShape) {
     w.str(&i.for_type);
     w.strs(&i.type_params);
     w.vec(&i.methods, write_impl_method);
+}
+
+/// A body-free impl encoding for the dispatch/coherence surface: the
+/// `(trait, type)` identity and every method's *signature*, but not its body
+/// hash. See [`ModuleInterface::dispatch_bytes`].
+fn write_impl_shape(w: &mut Writer, i: &ImplShape) {
+    w.opt_str(i.trait_ref.as_deref());
+    w.str(&i.for_type);
+    w.strs(&i.type_params);
+    w.vec(&i.methods, write_impl_method_shape);
+}
+
+fn write_impl_method_shape(w: &mut Writer, m: &ImplMethodEntry) {
+    w.str(&m.name);
+    w.bool(m.has_self);
+    w.strs(&m.params);
+    w.str(&m.ret);
+    w.strs(&m.abilities);
+}
+
+/// A body-free ability encoding for the dispatch/coherence surface: the
+/// ability identity, dependencies, and each method's *signature* (name,
+/// params, return, never-flag), but not its default-impl body hash. See
+/// [`ModuleInterface::dispatch_bytes`].
+fn write_ability_shape(w: &mut Writer, a: &AbilityShape) {
+    w.str(&a.name);
+    w.buf.extend_from_slice(&a.ability_id);
+    w.strs(&a.dependencies);
+    w.vec(&a.methods, write_ability_method_shape);
+}
+
+fn write_ability_method_shape(w: &mut Writer, m: &AbilityMethodEntry) {
+    w.str(&m.name);
+    w.strs(&m.params);
+    w.str(&m.ret);
+    w.bool(m.never);
 }
 
 fn read_impl(r: &mut Reader<'_>) -> Result<ImplShape, InterfaceError> {
