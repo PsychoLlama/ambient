@@ -445,8 +445,8 @@ pub(super) fn compile_handler_literal(
 /// must resolve to the same slot. We thread one by-name accumulator across
 /// every arm — each arm compiler is seeded with the captures discovered so
 /// far, so a reused name keeps its slot and any new free variable appends
-/// at a stable index. (Locals from real source resolve by name; the by-id
-/// capture path only fires for hand-built ASTs, which never share.)
+/// at a stable index. Every reference — real source or hand-built — captures
+/// through this one by-name channel.
 fn compile_handler_methods(
     fc: &FunctionCompiler,
     ability_id: AbilityId,

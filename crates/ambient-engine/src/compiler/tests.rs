@@ -943,7 +943,7 @@ fn test_compile_closure_capture() {
             )],
             Some(Expr::lambda(
                 vec![Param::new(1, "x")],
-                Expr::binary(BinaryOp::Add, Expr::local(1), Expr::local(0)),
+                Expr::binary(BinaryOp::Add, Expr::local(1), Expr::name("y")),
             )),
         ),
     };

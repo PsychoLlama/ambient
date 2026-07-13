@@ -90,32 +90,12 @@ pub(super) fn compile_expr_tail(
         // Variables
         // ─────────────────────────────────────────────────────────────────────
         ExprKind::Local(id) => {
-            // Check if this is a captured variable from the parent scope.
-            if let Some(&capture_slot) = fc.captures.get(id) {
-                fc.builder.emit_load_capture(capture_slot);
-            } else if fc.is_parent_binding(*id) {
-                // This is a free variable from the parent - add it as a capture.
-                // Find the name for this binding from parent.
-                let name = fc
-                    .parent_locals
-                    .as_ref()
-                    .and_then(|_| {
-                        // Look up name from parent_local_names by finding which name maps to the same slot
-                        fc.parent_local_names.as_ref().and_then(|names| {
-                            names.iter().find(|&(_, &slot)| {
-                                fc.parent_locals
-                                    .as_ref()
-                                    .is_some_and(|pl| pl.get(id).copied() == Some(slot))
-                            })
-                        })
-                    })
-                    .map_or_else(|| format!("__binding_{id}").into(), |(n, _)| Arc::clone(n));
-                let capture_slot = fc.get_or_create_capture(*id, name);
-                fc.builder.emit_load_capture(capture_slot);
-            } else {
-                let slot = fc.get_local(*id, (expr.span.start, expr.span.end))?;
-                fc.builder.emit_u16(Opcode::LoadLocal, slot);
-            }
+            // A resolved local binding in this function's own frame. Real
+            // source never produces a `Local` that crosses a closure boundary
+            // (lowering emits `Name`, which captures by name); a `Local` here
+            // is always same-frame, so it loads directly from its slot.
+            let slot = fc.get_local(*id, (expr.span.start, expr.span.end))?;
+            fc.builder.emit_u16(Opcode::LoadLocal, slot);
         }
 
         ExprKind::Name(name) => {

@@ -40,16 +40,11 @@ pub(super) struct FunctionCompiler {
     /// Map from function names to their hashes (for recursive calls).
     pub(super) function_hashes: HashMap<NameKey, blake3::Hash>,
 
-    /// Captured variables (for closures): binding ID -> capture slot index.
-    /// These are variables from enclosing scopes that this function captures.
-    pub(super) captures: HashMap<BindingId, u16>,
-
-    /// Captured variable names (for closures).
+    /// Captured variables (for closures): free-variable name -> capture slot
+    /// index. Every closure form captures by name (see
+    /// [`Self::emit_captured_or_local`]); a `ResolvedName`/`Local` reference and
+    /// a hidden dictionary alike thread through this one channel.
     pub(super) capture_names: HashMap<Arc<str>, u16>,
-
-    /// Parent's locals - used during closure compilation to identify free variables.
-    /// Maps binding IDs from the enclosing scope to their local slots there.
-    pub(super) parent_locals: Option<HashMap<BindingId, u16>>,
 
     /// Parent's local names - for name-based lookups during closure compilation.
     pub(super) parent_local_names: Option<HashMap<Arc<str>, u16>>,
@@ -79,9 +74,7 @@ impl FunctionCompiler {
             local_names: HashMap::new(),
             next_local: 0,
             function_hashes,
-            captures: HashMap::new(),
             capture_names: HashMap::new(),
-            parent_locals: None,
             parent_local_names: None,
             block_consts: HashMap::new(),
             dict_locals: Vec::new(),
@@ -98,9 +91,8 @@ impl FunctionCompiler {
     /// the parent could itself capture (its parent view). That transitive
     /// union is what lets a free variable — or a hidden dictionary — thread
     /// through several nested lambdas: each level forwards it as an ordinary
-    /// capture (see `emit_captured_or_local`). The by-id (`parent_locals`)
-    /// channel stays one level deep, as it only serves hand-built ASTs that
-    /// never nest-capture.
+    /// capture (see `emit_captured_or_local`). Capture is by name only — there
+    /// is no second, by-id channel to keep in sync.
     pub(super) fn for_closure(parent: &FunctionCompiler) -> Self {
         let mut parent_local_names = parent.local_names.clone();
         for (name, slot) in &parent.capture_names {
@@ -117,9 +109,7 @@ impl FunctionCompiler {
             local_names: HashMap::new(),
             next_local: 0,
             function_hashes: parent.function_hashes.clone(),
-            captures: HashMap::new(),
             capture_names: HashMap::new(),
-            parent_locals: Some(parent.locals.clone()),
             parent_local_names: Some(parent_local_names),
             // A lambda inherits the enclosing block consts in scope; each is a
             // bare `LoadObject` of a hash, so no capture slot is needed.
@@ -186,33 +176,12 @@ impl FunctionCompiler {
         self.local_names.get(name).copied()
     }
 
-    /// Check if a binding ID is from the parent scope (needs to be captured).
-    pub(super) fn is_parent_binding(&self, id: BindingId) -> bool {
-        if let Some(parent) = &self.parent_locals {
-            parent.contains_key(&id) && !self.locals.contains_key(&id)
-        } else {
-            false
-        }
-    }
-
     /// Check if a name is from the parent scope (needs to be captured).
     pub(super) fn is_parent_name(&self, name: &str) -> bool {
         if let Some(parent) = &self.parent_local_names {
             parent.contains_key(name) && !self.local_names.contains_key(name)
         } else {
             false
-        }
-    }
-
-    /// Get or create a capture slot for a parent binding.
-    pub(super) fn get_or_create_capture(&mut self, id: BindingId, name: Arc<str>) -> u16 {
-        if let Some(&slot) = self.captures.get(&id) {
-            slot
-        } else {
-            let slot = self.captures.len() as u16;
-            self.captures.insert(id, slot);
-            self.capture_names.insert(name, slot);
-            slot
         }
     }
 
