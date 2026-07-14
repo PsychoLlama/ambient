@@ -545,7 +545,11 @@ fn export_kind(kind: ExportKind) -> ModuleExportKind {
         ExportKind::Struct | ExportKind::TypeAlias => ModuleExportKind::Type,
         ExportKind::Enum => ModuleExportKind::Enum,
         ExportKind::EnumVariant => ModuleExportKind::Variant,
-        ExportKind::Ability | ExportKind::Trait => ModuleExportKind::Ability,
+        // Ability methods are never module-level exports; render one like
+        // its ability if it ever appears here.
+        ExportKind::Ability | ExportKind::Trait | ExportKind::AbilityMethod => {
+            ModuleExportKind::Ability
+        }
     }
 }
 

@@ -311,6 +311,7 @@ pub(crate) const REKIND_ENUM: u8 = 6;
 pub(crate) const REKIND_ENUM_VARIANT: u8 = 7;
 pub(crate) const REKIND_ABILITY: u8 = 8;
 pub(crate) const REKIND_TRAIT: u8 = 9;
+pub(crate) const REKIND_ABILITY_METHOD: u8 = 10;
 
 const fn export_kind_tag(kind: ExportKind) -> u8 {
     match kind {
@@ -321,6 +322,7 @@ const fn export_kind_tag(kind: ExportKind) -> u8 {
         ExportKind::Enum => REKIND_ENUM,
         ExportKind::EnumVariant => REKIND_ENUM_VARIANT,
         ExportKind::Ability => REKIND_ABILITY,
+        ExportKind::AbilityMethod => REKIND_ABILITY_METHOD,
         ExportKind::Trait => REKIND_TRAIT,
     }
 }
@@ -548,7 +550,13 @@ fn reexports(
         // chasing (origin module + defining name); a whole-module re-export
         // resolves to the target module path.
         if let Ok((export, defining)) = registry.lookup_symbol(module_path, local) {
-            let fqn = registry.fqn(&defining, &[Arc::clone(&export.name)]);
+            // An ability method's canonical identity is the two-segment
+            // ident under its ability, mirroring enum variants.
+            let ident = match &export.owner {
+                Some(owner) => vec![Arc::clone(owner), Arc::clone(&export.name)],
+                None => vec![Arc::clone(&export.name)],
+            };
+            let fqn = registry.fqn(&defining, &ident);
             out.push(ReExportEntry {
                 local: local.to_string(),
                 kind: export_kind_tag(export.kind),

@@ -169,6 +169,9 @@ fn export_kind_completion(kind: ExportKind) -> Option<(CompletionItemKind, &'sta
         // Variant constructors complete through their enum (and the prelude
         // ones need no qualification at all).
         ExportKind::EnumVariant => return None,
+        // Never a module-level export (methods import only through the
+        // explicit `Ability::method` path shape).
+        ExportKind::AbilityMethod => return None,
     })
 }
 

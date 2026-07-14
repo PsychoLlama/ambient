@@ -8,7 +8,7 @@ use crate::ast::{ItemKind, Span, UseDef, UsePrefix};
 use crate::fqn::{Fqn, ModuleId};
 use crate::module_path::ModulePath;
 
-use super::{ExportKind, ImportError, ModuleRegistry, RegistryError};
+use super::{ExportInfo, ExportKind, ImportError, ModuleRegistry, RegistryError};
 
 /// One imported item binding in a module's scope: a local name mapped to
 /// the item's canonical identity (defining module + original name), with
@@ -22,6 +22,10 @@ pub struct ItemImport {
     pub name: Arc<str>,
     /// The kind of item.
     pub kind: ExportKind,
+    /// For an [`ExportKind::AbilityMethod`] binding, the name of the
+    /// ability (in the defining module) that declares the method. `None`
+    /// for every other kind.
+    pub owner: Option<Arc<str>>,
     /// The span of the `use` item that created this binding.
     pub span: Span,
 }
@@ -83,6 +87,10 @@ pub enum Namespace {
     Value,
     Type,
     Ability,
+    /// Imported ability methods. Their own namespace, not `Value`: a
+    /// perform site is syntactically distinct (`seed!(…)`), so a method
+    /// import never collides with a same-named function or const.
+    AbilityMethod,
     Trait,
 }
 
@@ -94,6 +102,7 @@ impl ExportKind {
             Self::Function | Self::Const | Self::EnumVariant => Namespace::Value,
             Self::Struct | Self::TypeAlias | Self::Enum => Namespace::Type,
             Self::Ability => Namespace::Ability,
+            Self::AbilityMethod => Namespace::AbilityMethod,
             Self::Trait => Namespace::Trait,
         }
     }
@@ -214,6 +223,7 @@ impl ModuleRegistry {
                 module: origin,
                 name: Arc::clone(&export.name),
                 kind: export.kind,
+                owner: export.owner.clone(),
                 span: Span::default(),
             };
             let entry = scope.prelude_items.entry(Arc::from(local)).or_default();
@@ -403,18 +413,73 @@ impl ModuleRegistry {
                         module: origin,
                         name: Arc::clone(&export.name),
                         kind: export.kind,
+                        owner: export.owner.clone(),
                         span,
                     },
                 );
             }
             Err(error) => {
-                // Only a diagnostic if no namespace bound the name; a
-                // successful submodule import means the missing symbol (or
-                // missing parent module) was never what the user meant.
-                if submodule.is_none() {
-                    scope.errors.push(ImportError { error, span });
+                // `use m::Ability::method;` — the parent segment may name
+                // an ability rather than a module. Bind the method when it
+                // does; report whichever error is more specific otherwise.
+                match self.use_target_as_ability_method(&symbol_parent, original) {
+                    Some(Ok((export, origin))) => {
+                        scope.bind_item(
+                            local,
+                            ItemImport {
+                                module: origin,
+                                name: Arc::clone(&export.name),
+                                kind: export.kind,
+                                owner: export.owner.clone(),
+                                span,
+                            },
+                        );
+                    }
+                    Some(Err(method_error)) if submodule.is_none() => {
+                        scope.errors.push(ImportError {
+                            error: method_error,
+                            span,
+                        });
+                    }
+                    // Only a diagnostic if no namespace bound the name; a
+                    // successful submodule import means the missing symbol
+                    // (or missing parent module) was never what the user
+                    // meant.
+                    None if submodule.is_none() => {
+                        scope.errors.push(ImportError { error, span });
+                    }
+                    _ => {}
                 }
             }
+        }
+    }
+
+    /// Interpret a failed `use` leaf as an ability-method import: the
+    /// leaf's parent segment (`m::Ability` in `use m::Ability::method;`)
+    /// names an ability exported by *its* parent module. Returns `None`
+    /// when the shape doesn't apply (no ability of that name there), so
+    /// the caller reports the original module/symbol error; `Some(Err(…))`
+    /// when the ability exists but the method lookup fails (missing
+    /// method, private ability) — the more specific diagnostic.
+    fn use_target_as_ability_method(
+        &self,
+        symbol_parent: &ModulePath,
+        method: &str,
+    ) -> Option<Result<(ExportInfo, ModulePath), RegistryError>> {
+        if symbol_parent.segments().is_empty() {
+            return None;
+        }
+        let ability = symbol_parent.name().to_string();
+        let ability_parent = symbol_parent.parent().unwrap_or_else(ModulePath::root);
+        match self.lookup_ability_method(&ability_parent, &ability, method) {
+            Ok(found) => Some(Ok(found)),
+            // The ability exists but the method doesn't, or the ability is
+            // private: the path shape matched, so this is the right error.
+            Err(
+                error @ (RegistryError::AbilityMethodNotFound { .. }
+                | RegistryError::NotPublic { .. }),
+            ) => Some(Err(error)),
+            Err(_) => None,
         }
     }
 }

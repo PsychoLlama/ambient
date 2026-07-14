@@ -58,6 +58,11 @@ pub enum RegistryError {
     #[error("symbol `{symbol}` in module `{module}` is not public")]
     NotPublic { module: String, symbol: String },
 
+    /// An ability-method path (`use m::Ability::method;`) named an
+    /// ability that exists but declares no such method.
+    #[error("ability `{ability}` has no method `{method}`")]
+    AbilityMethodNotFound { ability: String, method: String },
+
     /// A `Local`-rooted use path whose head never resolved to a module
     /// alias in scope.
     #[error(
@@ -459,7 +464,7 @@ impl ModuleRegistry {
         &self,
         module_path: &ModulePath,
         symbol_name: &str,
-    ) -> Result<(&ExportInfo, ModulePath), RegistryError> {
+    ) -> Result<(ExportInfo, ModulePath), RegistryError> {
         let info = self
             .modules
             .get(&module_path.to_string())
@@ -473,7 +478,7 @@ impl ModuleRegistry {
                     symbol: symbol_name.to_string(),
                 });
             }
-            return Ok((export, module_path.clone()));
+            return Ok((export.clone(), module_path.clone()));
         }
 
         // Then check re-exports. A re-exported name is the final path
@@ -497,12 +502,83 @@ impl ModuleRegistry {
             {
                 return Ok(resolved);
             }
+            // A method re-export (`pub use m::Ability::method;`): the
+            // re-export path's parent segment names an ability, not a
+            // module. Chase it through the same ability-method lookup a
+            // direct `use` takes.
+            if let Some((ability, grandparent)) = parent.split_last()
+                && let Some(gp_path) = self.resolve_import_path(module_path, re_export, grandparent)
+                && let Ok(resolved) = self.lookup_ability_method(&gp_path, ability, original)
+            {
+                return Ok(resolved);
+            }
         }
 
         Err(RegistryError::SymbolNotFound {
             module: module_path.to_string(),
             symbol: symbol_name.to_string(),
         })
+    }
+
+    /// Look up one method of an ability as an importable symbol:
+    /// `ability_name` is resolved as an exported symbol of `module_path`
+    /// (chasing `pub use` re-export chains and enforcing visibility,
+    /// exactly like [`Self::lookup_symbol`]), and `method_name` must be a
+    /// method its defining declaration carries. Methods are never
+    /// module-level exports — this synthesized [`ExportKind::AbilityMethod`]
+    /// export (its `owner` naming the ability) is reachable only through
+    /// the explicit `use m::Ability::method;` path shape and method
+    /// re-exports.
+    ///
+    /// # Errors
+    ///
+    /// Everything [`Self::lookup_symbol`] reports for the ability segment
+    /// (missing module, missing symbol, not public); `SymbolNotFound` when
+    /// the parent segment resolves to a non-ability;
+    /// [`RegistryError::AbilityMethodNotFound`] when the ability exists
+    /// but declares no such method.
+    pub fn lookup_ability_method(
+        &self,
+        module_path: &ModulePath,
+        ability_name: &str,
+        method_name: &str,
+    ) -> Result<(ExportInfo, ModulePath), RegistryError> {
+        let (ability_export, origin) = self.lookup_symbol(module_path, ability_name)?;
+        if ability_export.kind != ExportKind::Ability {
+            return Err(RegistryError::SymbolNotFound {
+                module: module_path.to_string(),
+                symbol: format!("{ability_name}::{method_name}"),
+            });
+        }
+        let def = self
+            .get(&origin)
+            .and_then(|info| {
+                info.module.items.iter().find_map(|item| match &item.kind {
+                    ItemKind::Ability(def) if def.name == ability_export.name => Some(def),
+                    _ => None,
+                })
+            })
+            .ok_or_else(|| RegistryError::ModuleNotFound(origin.to_string()))?;
+        let method = def
+            .methods
+            .iter()
+            .find(|m| m.name.as_ref() == method_name)
+            .ok_or_else(|| RegistryError::AbilityMethodNotFound {
+                ability: ability_export.name.to_string(),
+                method: method_name.to_string(),
+            })?;
+        Ok((
+            ExportInfo {
+                name: Arc::clone(&method.name),
+                kind: ExportKind::AbilityMethod,
+                is_public: ability_export.is_public,
+                re_export_from: None,
+                name_span: method.span,
+                doc: None,
+                owner: Some(Arc::clone(&def.name)),
+            },
+            origin,
+        ))
     }
 
     /// Get all public exports from a module.

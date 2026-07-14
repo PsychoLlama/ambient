@@ -480,6 +480,16 @@ fn build_import_env(
                     from_module,
                     ..
                 } => register_imported_ability(infer, registry, &from_module, &name, errors),
+                ResolvedImport::Symbol {
+                    export_kind: ExportKind::AbilityMethod,
+                    ..
+                } => {
+                    // An imported ability method binds nothing in the type
+                    // env: the resolve pass canonicalizes each bare
+                    // `method!(…)` perform to its ability's `Fqn`, and the
+                    // namespaced dynamics (seeded for every registered
+                    // module) carry the interface.
+                }
             }
         }
     }

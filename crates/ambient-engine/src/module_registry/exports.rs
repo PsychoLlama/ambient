@@ -23,6 +23,12 @@ pub struct ExportInfo {
     pub name_span: Span,
     /// The item's doc comment, if any (enum variants inherit none).
     pub doc: Option<Arc<str>>,
+    /// For an [`ExportKind::AbilityMethod`], the name of the ability that
+    /// declares the method (in the defining module). `None` for every
+    /// other kind. Carried so a method binding keeps naming *the* ability
+    /// the user spelled — two same-module abilities may share a method
+    /// name.
+    pub owner: Option<Arc<str>>,
 }
 
 /// The kind of exported symbol.
@@ -35,6 +41,13 @@ pub enum ExportKind {
     Enum,
     EnumVariant,
     Ability,
+    /// One method of an ability, importable only through the explicit
+    /// `use m::Ability::method;` path shape (never a module-level symbol —
+    /// [`extract_exports`] does not emit these; they are synthesized by
+    /// [`ModuleRegistry::lookup_ability_method`](super::ModuleRegistry::lookup_ability_method)).
+    /// Importing one lets a perform site drop the ability prefix:
+    /// `seed!(…)` for `Random::seed!(…)`.
+    AbilityMethod,
     Trait,
 }
 
@@ -73,6 +86,7 @@ pub(super) fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> 
                 re_export_from: None,
                 name_span: f.name_span,
                 doc: item.doc.clone(),
+                owner: None,
             }),
             ItemKind::Const(c) => Some(ExportInfo {
                 name: c.name.clone(),
@@ -81,6 +95,7 @@ pub(super) fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> 
                 re_export_from: None,
                 name_span: c.name_span,
                 doc: item.doc.clone(),
+                owner: None,
             }),
             ItemKind::Struct(s) => Some(ExportInfo {
                 name: s.name.clone(),
@@ -89,6 +104,7 @@ pub(super) fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> 
                 re_export_from: None,
                 name_span: s.name_span,
                 doc: item.doc.clone(),
+                owner: None,
             }),
             ItemKind::TypeAlias(t) => Some(ExportInfo {
                 name: t.name.clone(),
@@ -97,6 +113,7 @@ pub(super) fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> 
                 re_export_from: None,
                 name_span: t.name_span,
                 doc: item.doc.clone(),
+                owner: None,
             }),
             ItemKind::Enum(e) => {
                 // Add the enum itself
@@ -109,6 +126,7 @@ pub(super) fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> 
                         re_export_from: None,
                         name_span: e.name_span,
                         doc: item.doc.clone(),
+                        owner: None,
                     },
                 );
 
@@ -123,6 +141,7 @@ pub(super) fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> 
                             re_export_from: None,
                             name_span: variant.span,
                             doc: None,
+                            owner: None,
                         },
                     );
                 }
@@ -135,6 +154,7 @@ pub(super) fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> 
                 re_export_from: None,
                 name_span: a.name_span,
                 doc: item.doc.clone(),
+                owner: None,
             }),
             ItemKind::Trait(t) => Some(ExportInfo {
                 name: t.name.clone(),
@@ -143,6 +163,7 @@ pub(super) fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> 
                 re_export_from: None,
                 name_span: t.name_span,
                 doc: item.doc.clone(),
+                owner: None,
             }),
             // Extern fns export exactly like functions: the missing body is
             // a compile-time binding concern, invisible to importers.
@@ -153,6 +174,7 @@ pub(super) fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> 
                 re_export_from: None,
                 name_span: e.name_span,
                 doc: item.doc.clone(),
+                owner: None,
             }),
             ItemKind::Use(_) | ItemKind::Impl(_) => None, // Use statements and impls are not exports
         };

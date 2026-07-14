@@ -779,3 +779,186 @@ fn failed_imports_are_reported() {
         RegistryError::ModuleNotFound(_)
     ));
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ability-method imports (`use m::Ability::method;`)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn make_ability_with_methods(name: &str, methods: &[&str], is_public: bool) -> Item {
+    use crate::ast::{AbilityDef, AbilityMethod};
+    Item::new(
+        ItemKind::Ability(AbilityDef {
+            name: Arc::from(name),
+            name_span: Span::default(),
+            is_public,
+            dependencies: vec![],
+            methods: methods
+                .iter()
+                .map(|m| AbilityMethod {
+                    name: Arc::from(*m),
+                    type_params: vec![],
+                    params: vec![],
+                    ret_ty: crate::types::Type::Unit,
+                    body: Some(Expr::unit()),
+                    resolved_signature: None,
+                    span: Span::default(),
+                })
+                .collect(),
+            uuid: uuid::Uuid::from_u128(0xA1B2_C3D4),
+            resolved_id: None,
+        }),
+        Span::default(),
+    )
+}
+
+#[test]
+fn ability_method_lookup_finds_method_and_names_its_owner() {
+    let mut registry = ModuleRegistry::new();
+    let fx = ModulePath::from_str_segments(&["fx"]).unwrap();
+    registry.register(
+        &fx,
+        Arc::new(Module {
+            name: Arc::from("fx"),
+            doc: None,
+            items: vec![
+                make_ability_with_methods("Random", &["seed", "int"], true),
+                make_ability_with_methods("Hidden", &["peek"], false),
+                make_function("seedish", true),
+            ],
+        }),
+    );
+
+    let (export, origin) = registry.lookup_ability_method(&fx, "Random", "seed").unwrap();
+    assert_eq!(export.kind, ExportKind::AbilityMethod);
+    assert_eq!(export.name.as_ref(), "seed");
+    assert_eq!(export.owner.as_deref(), Some("Random"));
+    assert_eq!(origin, fx);
+
+    // The ability exists but the method doesn't: the specific error.
+    assert!(matches!(
+        registry.lookup_ability_method(&fx, "Random", "nope"),
+        Err(RegistryError::AbilityMethodNotFound { .. })
+    ));
+    // A private ability's methods are unreachable.
+    assert!(matches!(
+        registry.lookup_ability_method(&fx, "Hidden", "peek"),
+        Err(RegistryError::NotPublic { .. })
+    ));
+    // A non-ability parent segment is a plain missing symbol.
+    assert!(matches!(
+        registry.lookup_ability_method(&fx, "seedish", "seed"),
+        Err(RegistryError::SymbolNotFound { .. })
+    ));
+}
+
+#[test]
+fn use_of_ability_method_binds_in_its_own_namespace() {
+    let mut registry = ModuleRegistry::new();
+    let fx = ModulePath::from_str_segments(&["fx"]).unwrap();
+    registry.register(
+        &fx,
+        Arc::new(Module {
+            name: Arc::from("fx"),
+            doc: None,
+            items: vec![make_ability_with_methods("Random", &["seed"], true)],
+        }),
+    );
+    let main = ModulePath::from_str_segments(&["main"]).unwrap();
+    registry.register(
+        &main,
+        Arc::new(Module {
+            name: Arc::from("main"),
+            doc: None,
+            items: vec![use_module(UsePrefix::Pkg, &["fx", "Random", "seed"], false)],
+        }),
+    );
+
+    let scope = registry.build_module_scope(&main);
+    assert!(scope.errors.is_empty(), "errors: {:?}", scope.errors);
+    let import = scope
+        .item("seed", Namespace::AbilityMethod)
+        .expect("method binding");
+    assert_eq!(import.kind, ExportKind::AbilityMethod);
+    assert_eq!(import.name.as_ref(), "seed");
+    assert_eq!(import.owner.as_deref(), Some("Random"));
+    assert_eq!(import.module, fx);
+    // The binding lives in the method namespace only.
+    assert!(scope.item("seed", Namespace::Value).is_none());
+}
+
+#[test]
+fn use_of_missing_ability_method_reports_the_method_error() {
+    let mut registry = ModuleRegistry::new();
+    let fx = ModulePath::from_str_segments(&["fx"]).unwrap();
+    registry.register(
+        &fx,
+        Arc::new(Module {
+            name: Arc::from("fx"),
+            doc: None,
+            items: vec![make_ability_with_methods("Random", &["seed"], true)],
+        }),
+    );
+    let main = ModulePath::from_str_segments(&["main"]).unwrap();
+    registry.register(
+        &main,
+        Arc::new(Module {
+            name: Arc::from("main"),
+            doc: None,
+            items: vec![use_module(UsePrefix::Pkg, &["fx", "Random", "nope"], false)],
+        }),
+    );
+
+    let scope = registry.build_module_scope(&main);
+    assert_eq!(scope.errors.len(), 1);
+    assert!(matches!(
+        scope.errors[0].error,
+        RegistryError::AbilityMethodNotFound { .. }
+    ));
+}
+
+#[test]
+fn ability_method_re_export_chases_to_the_defining_module() {
+    let mut registry = ModuleRegistry::new();
+    let fx = ModulePath::from_str_segments(&["fx"]).unwrap();
+    registry.register(
+        &fx,
+        Arc::new(Module {
+            name: Arc::from("fx"),
+            doc: None,
+            items: vec![make_ability_with_methods("Random", &["seed"], true)],
+        }),
+    );
+    // `facade` re-exports the method; importers resolve it to `fx`.
+    let facade = ModulePath::from_str_segments(&["facade"]).unwrap();
+    registry.register(
+        &facade,
+        Arc::new(Module {
+            name: Arc::from("facade"),
+            doc: None,
+            items: vec![use_module(UsePrefix::Pkg, &["fx", "Random", "seed"], true)],
+        }),
+    );
+
+    let (export, origin) = registry.lookup_symbol(&facade, "seed").unwrap();
+    assert_eq!(export.kind, ExportKind::AbilityMethod);
+    assert_eq!(export.owner.as_deref(), Some("Random"));
+    assert_eq!(origin, fx);
+
+    // A downstream `use pkg::facade::seed;` binds through the chain.
+    let main = ModulePath::from_str_segments(&["main"]).unwrap();
+    registry.register(
+        &main,
+        Arc::new(Module {
+            name: Arc::from("main"),
+            doc: None,
+            items: vec![use_module(UsePrefix::Pkg, &["facade", "seed"], false)],
+        }),
+    );
+    let scope = registry.build_module_scope(&main);
+    assert!(scope.errors.is_empty(), "errors: {:?}", scope.errors);
+    let import = scope
+        .item("seed", Namespace::AbilityMethod)
+        .expect("method binding through re-export");
+    assert_eq!(import.module, fx);
+    assert_eq!(import.owner.as_deref(), Some("Random"));
+}
