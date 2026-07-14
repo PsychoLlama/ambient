@@ -740,6 +740,18 @@ pub fn build_package(
         all_compiled.merge(&compiled);
     }
 
+    // The walk consumes each pre-pass check exactly once (`checked.remove` on
+    // every compile path). A leftover means the pre-pass's cache predicate
+    // (`check_prepass`'s `key_matches`) and the walk's predicates
+    // (`try_package_module` / `try_relink_module`) disagreed about which
+    // modules hit — a drift that would silently violate checked-exactly-once
+    // (a module checked up front but recompiled, or vice versa). Trip it here.
+    debug_assert!(
+        checked.is_empty(),
+        "pre-pass checks left unconsumed after the compile walk (cache-predicate drift): {:?}",
+        checked.keys().collect::<Vec<_>>(),
+    );
+
     Ok(BuildResult {
         compiled: all_compiled,
         module_count: total_modules,
