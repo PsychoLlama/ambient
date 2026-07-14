@@ -23,6 +23,8 @@ mod expr;
 #[cfg(test)]
 mod function_type_tests;
 mod items;
+#[cfg(test)]
+mod pattern_tests;
 mod patterns;
 #[cfg(test)]
 mod tests;
