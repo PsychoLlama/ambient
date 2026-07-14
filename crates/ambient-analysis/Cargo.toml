@@ -9,6 +9,7 @@ ambient-engine.workspace = true
 ambient-parser.workspace = true
 ambient-platform.workspace = true
 blake3.workspace = true
+dirs = "5.0"
 
 [dev-dependencies]
 tempfile.workspace = true

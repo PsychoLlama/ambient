@@ -127,6 +127,22 @@ fn core_sources() -> &'static HashMap<String, &'static str> {
     })
 }
 
+/// Every embedded core module as `(module_path, source)`, in a
+/// deterministic order (by module path).
+///
+/// Exposes the embedded `core::*` sources so a consumer can materialize them
+/// to disk (the LSP does this to give core items a navigable `file://` URI —
+/// core sources have no on-disk path otherwise). The paired platform sources
+/// come from [`ambient_platform::platform_modules`]; both map a module path to
+/// a file the same way, through [`ModulePath::to_file_path`].
+#[must_use]
+pub fn core_source_modules() -> Vec<(ModulePath, &'static str)> {
+    core_modules()
+        .iter()
+        .map(|module| (module.path.clone(), module.source))
+        .collect()
+}
+
 impl CoreLibrary {
     /// Create a new core library instance.
     #[must_use]
