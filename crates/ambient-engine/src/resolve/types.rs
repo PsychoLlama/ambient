@@ -68,6 +68,17 @@ impl Resolver<'_> {
                 let Ok((_, origin)) = self.registry.lookup_symbol(&target, item) else {
                     return;
                 };
+                // CHECK-ONLY (type position, `deps` only — never `link_deps`):
+                // a qualified dotted type path in an annotation, signature, or
+                // impl target (`pkg::shapes::Money`) is pure type consumption.
+                // The checker needs the defining module *registered* (which
+                // happens upfront), but the compiler emits no link artifact
+                // against it — the nominal identity rides the uuid, available
+                // regardless of compile order. Adding a link edge here would
+                // manufacture the spurious cycles this whole split exists to
+                // avoid (see `resolve_named_type_head`). The value-position
+                // twin — constructing this type (`Money{..}`) — is classified
+                // in `resolve_type_ref` (`refs`), not here.
                 self.deps.insert(self.registry.module_id(&origin));
                 let item = Arc::clone(item);
                 self.apply_named_type_from_module(ty, &origin, &item);

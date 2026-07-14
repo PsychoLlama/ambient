@@ -29,21 +29,21 @@ impl Resolver<'_> {
             if let Some(enum_name) = self.module_variants.get(&name.name) {
                 let ident = vec![Arc::clone(enum_name), Arc::clone(&name.name)];
                 let current = self.current;
-                name.resolved = Some(self.canonical(current, ident));
+                name.resolved = Some(self.canonical_value(current, ident));
                 return;
             }
             // A same-module function, const, or unit-struct value resolves
             // to its own `Fqn(current, [name])`.
             if self.module_values.contains(&name.name) {
                 let current = self.current;
-                name.resolved = Some(self.canonical(current, vec![Arc::clone(&name.name)]));
+                name.resolved = Some(self.canonical_value(current, vec![Arc::clone(&name.name)]));
                 return;
             }
             if let Some(import) = self.scope_item(&name.name, Namespace::Value) {
                 match import.kind {
                     ExportKind::Function | ExportKind::Const => {
                         let (module, item) = (import.module.clone(), import.name.clone());
-                        name.resolved = Some(self.canonical(&module, vec![item]));
+                        name.resolved = Some(self.canonical_value(&module, vec![item]));
                         return;
                     }
                     // An imported enum variant resolves to its declaring
@@ -52,7 +52,8 @@ impl Resolver<'_> {
                     ExportKind::EnumVariant => {
                         let (module, variant) = (import.module.clone(), import.name.clone());
                         if let Some(enum_name) = self.variant_enum(&module, &variant) {
-                            name.resolved = Some(self.canonical(&module, vec![enum_name, variant]));
+                            name.resolved =
+                                Some(self.canonical_value(&module, vec![enum_name, variant]));
                         }
                         return;
                     }
@@ -69,7 +70,7 @@ impl Resolver<'_> {
                 && self.registry.is_unit_struct(&import.module, &import.name)
             {
                 let (module, item) = (import.module.clone(), import.name.clone());
-                name.resolved = Some(self.canonical(&module, vec![item]));
+                name.resolved = Some(self.canonical_value(&module, vec![item]));
             }
             return;
         }
@@ -98,7 +99,7 @@ impl Resolver<'_> {
             // Whether `foo` is a declared item or an injected export
             // (an intrinsic like `core::collections::list::get`), the
             // env/intrinsic tables and linker key by this `Fqn`.
-            name.resolved = Some(self.canonical(&target, vec![Arc::clone(&name.name)]));
+            name.resolved = Some(self.canonical_value(&target, vec![Arc::clone(&name.name)]));
             return;
         }
         if let Some(resolved) = self.lookup_item(&target, &name.name) {
@@ -108,6 +109,13 @@ impl Resolver<'_> {
 
     /// Resolve an ability reference (effect rows, performs, handler arms,
     /// sandbox clauses, ability dependencies).
+    ///
+    /// VALUE (records a link-order dep via `canonical_value`): a perform or
+    /// handler links the ability's method-identity / default-implementation
+    /// dispatch channel, so an imported ability reached here is a genuine
+    /// link edge. An ability that is *only* imported and never referenced
+    /// records its edge through the check-only `use`-loop instead — correct,
+    /// since it emits no dispatch artifact.
     pub(super) fn resolve_ability_ref(&mut self, name: &mut QualifiedName) {
         if name.resolved.is_some() {
             return;
@@ -119,12 +127,12 @@ impl Resolver<'_> {
             // `core::exception`) canonicalize to their declaring module.
             if self.module_abilities.contains(&name.name) {
                 let current = self.current;
-                name.resolved = Some(self.canonical(current, vec![Arc::clone(&name.name)]));
+                name.resolved = Some(self.canonical_value(current, vec![Arc::clone(&name.name)]));
                 return;
             }
             if let Some(import) = self.scope_item(&name.name, Namespace::Ability) {
                 let (module, item) = (import.module.clone(), import.name.clone());
-                name.resolved = Some(self.canonical(&module, vec![item]));
+                name.resolved = Some(self.canonical_value(&module, vec![item]));
             }
             return;
         }
@@ -178,13 +186,30 @@ impl Resolver<'_> {
         }
     }
 
-    /// Resolve a type-namespace reference (typed record constructors).
+    /// Resolve a type-namespace reference (typed record constructors,
+    /// `Foo{..}`).
     ///
     /// Same-module types resolve to their own `Fqn(current, [name])` — the
     /// key the checker binds the current module's type aliases under; only
     /// imported types canonicalize to their declaring module's `Fqn`. The
     /// `Type::Nominal` uuid remains the runtime/content identity; this
     /// `Fqn` is only the checker-side location key.
+    ///
+    /// VALUE (records a link-order dep via `canonical_value`): this is the
+    /// only caller (from `walk`'s `ExprKind::TypedRecord`), and a typed
+    /// record is *construction* of a nominal type, spelled type-side. This
+    /// is classified value **conservatively**, not because the compiler
+    /// emits a link artifact for it — the phase-2 investigation found it does
+    /// not: `compiler::expr` lowers `TypedRecord` to a plain `MakeRecord`
+    /// over structural field pairs and discards `type_name` entirely (the
+    /// nominal identity is a compile-time concept), so a foreign struct
+    /// construction references nothing in the type's module at link time.
+    /// It could therefore be reclassified CHECK-ONLY in phase 3; doing so
+    /// would require threading position through the shared `resolve_path_ref`
+    /// (used here for the qualified `pkg::m::Foo{..}` spelling) so the
+    /// qualified and bare/imported spellings agree. Kept VALUE for now per
+    /// the conservative-toward-value rule — over-including an edge is safe;
+    /// dropping a needed one silently breaks linking.
     pub(super) fn resolve_type_ref(&mut self, name: &mut QualifiedName) {
         if name.resolved.is_some() {
             return;
@@ -192,12 +217,12 @@ impl Resolver<'_> {
         if name.path.is_empty() {
             if self.module_types.contains(&name.name) {
                 let current = self.current;
-                name.resolved = Some(self.canonical(current, vec![Arc::clone(&name.name)]));
+                name.resolved = Some(self.canonical_value(current, vec![Arc::clone(&name.name)]));
                 return;
             }
             if let Some(import) = self.scope_item(&name.name, Namespace::Type) {
                 let (module, item) = (import.module.clone(), import.name.clone());
-                name.resolved = Some(self.canonical(&module, vec![item]));
+                name.resolved = Some(self.canonical_value(&module, vec![item]));
             }
             return;
         }
@@ -213,14 +238,25 @@ impl Resolver<'_> {
     /// two-segment ident `Fqn(enum_module, [Enum, Variant])` — the key its
     /// constructor scheme binds under — so `core::option::Some` resolves
     /// exactly like the imported/bare spellings.
+    ///
+    /// VALUE (records a link-order dep via `canonical_value`): reached only
+    /// through `resolve_path_ref`, whose every caller is a value position —
+    /// `resolve_value_ref` (a qualified call/const `pkg::m::foo`),
+    /// `resolve_ability_ref` (a qualified perform), and `resolve_type_ref`
+    /// (a qualified typed-record construction `pkg::m::Foo{..}`). The
+    /// earlier map flagged the "value or type reached by qualified path"
+    /// ambiguity here; it does not arise. A qualified type *annotation*
+    /// (`x: pkg::m::Foo`) never reaches this path — it is resolved in
+    /// `types` (check-only), never `resolve_type_ref`. So every hit here is
+    /// a genuine value/symbol position, not merely a conservative default.
     fn lookup_item(&mut self, module: &ModulePath, name: &str) -> Option<Fqn> {
         let (export, origin) = self.registry.lookup_symbol(module, name).ok()?;
         let kind = export.kind;
         if kind == ExportKind::EnumVariant {
             let enum_name = self.variant_enum(&origin, name)?;
-            return Some(self.canonical(&origin, vec![enum_name, Arc::from(name)]));
+            return Some(self.canonical_value(&origin, vec![enum_name, Arc::from(name)]));
         }
-        Some(self.canonical(&origin, vec![Arc::from(name)]))
+        Some(self.canonical_value(&origin, vec![Arc::from(name)]))
     }
 
     /// Resolve the explicit-enum variant spelling `m::Enum::Variant`, where
@@ -257,7 +293,7 @@ impl Resolver<'_> {
             return;
         }
         let variant = Arc::clone(&name.name);
-        name.resolved = Some(self.canonical(&origin, vec![enum_name, variant]));
+        name.resolved = Some(self.canonical_value(&origin, vec![enum_name, variant]));
     }
 
     /// Resolve the `Enum::Variant` spelling where `Enum` names an enum in
@@ -275,7 +311,7 @@ impl Resolver<'_> {
         if self.enum_has_variant(self.current, enum_seg, &name.name) {
             let current = self.current;
             let ident = vec![Arc::clone(enum_seg), Arc::clone(&name.name)];
-            name.resolved = Some(self.canonical(current, ident));
+            name.resolved = Some(self.canonical_value(current, ident));
             return;
         }
         // An imported enum resolves into its defining module.
@@ -285,7 +321,7 @@ impl Resolver<'_> {
             let (module, enum_name) = (import.module.clone(), import.name.clone());
             if self.enum_has_variant(&module, &enum_name, &name.name) {
                 let ident = vec![enum_name, Arc::clone(&name.name)];
-                name.resolved = Some(self.canonical(&module, ident));
+                name.resolved = Some(self.canonical_value(&module, ident));
             }
         }
     }

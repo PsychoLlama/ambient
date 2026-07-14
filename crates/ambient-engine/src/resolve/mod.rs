@@ -57,14 +57,30 @@ pub fn resolve_module(
     // Imports themselves are dependencies even when unreferenced: their
     // targets must exist (and their enums/abilities register) for the
     // module to check.
+    //
+    // CHECK-ONLY (type position, `deps` only — never `link_deps`): a `use`
+    // statement emits nothing at compile time. Every *value* use of an
+    // imported binding records its own link-order dep at the reference site
+    // (`canonical_value` in `refs`/`walk`); a `use` that is only ever used
+    // in type position (an annotation, an impl target, a trait bound) has no
+    // link artifact, so it must not manufacture a link-order edge.
     for import in resolver.scope.items.values().flatten() {
         if &import.module != module_path {
             let id = registry.module_id(&import.module);
             resolver.deps.insert(id);
         }
     }
+    // `link_deps ⊆ deps` by construction: the only writer of `link_deps`
+    // (`canonical_value`) writes the same edge into `deps`, and the two
+    // check-only writers (this loop and the qualified-type path in `types`)
+    // touch `deps` alone.
+    debug_assert!(
+        resolver.link_deps.is_subset(&resolver.deps),
+        "link_deps must be a subset of deps",
+    );
     ResolveOutcome {
         deps: resolver.deps,
+        link_deps: resolver.link_deps,
         errors: resolver.import_errors,
     }
 }
@@ -73,8 +89,27 @@ pub fn resolve_module(
 pub struct ResolveOutcome {
     /// Foreign modules the module's references resolved into (as
     /// [`ModuleId`]s, ordered): its true dependency set, which the build
-    /// uses for compilation ordering.
+    /// uses for compilation ordering, cache keys, and `ModuleEnv` scoping.
+    ///
+    /// This is the full superset — every reference, value *and* type. It is
+    /// what every current consumer reads.
     pub deps: BTreeSet<ModuleId>,
+    /// The **link-order** subset of [`Self::deps`]: foreign modules reached
+    /// through a value/symbol-position reference (function/const call,
+    /// enum-variant or unit-struct construction, ability perform/handler,
+    /// module-alias method call) — the edges whose compiled output the
+    /// referencing module's bytecode must link against.
+    ///
+    /// Excludes the pure check-order edges: `use`-import statements and
+    /// qualified type paths in annotations/signatures/impl targets, which
+    /// the checker consumes but the compiler emits nothing against.
+    /// `link_deps ⊆ deps` always holds.
+    ///
+    /// Introduced in phase 2 as data only: no consumer reads it yet. Phase
+    /// 3 will build the compile-ordering graph from `link_deps ∪ structural
+    /// dispatch edges` instead of the full `deps`, fixing the self-orphan
+    /// dispatch cycle.
+    pub link_deps: BTreeSet<ModuleId>,
     /// Failed block-scoped imports. (Module-level import failures are
     /// reported by the checker from the module scope; block-level `use`
     /// items only exist here.)
@@ -122,8 +157,13 @@ struct Resolver<'r> {
     overlays: Vec<ModuleScope>,
     /// Failed block-scoped imports, surfaced through [`ResolveOutcome`].
     import_errors: Vec<ImportError>,
-    /// Foreign modules that references resolved into (as [`ModuleId`]s).
+    /// Foreign modules that references resolved into (as [`ModuleId`]s) —
+    /// the full superset (value *and* type references, plus `use` imports).
     deps: BTreeSet<ModuleId>,
+    /// The link-order subset of [`Self::deps`]: only the value/symbol
+    /// positions, written exclusively by [`Self::canonical_value`]. See
+    /// [`ResolveOutcome::link_deps`].
+    link_deps: BTreeSet<ModuleId>,
 }
 
 impl<'r> Resolver<'r> {
@@ -194,6 +234,7 @@ impl<'r> Resolver<'r> {
             overlays: Vec::new(),
             import_errors: Vec::new(),
             deps: BTreeSet::new(),
+            link_deps: BTreeSet::new(),
         }
     }
 
@@ -238,14 +279,25 @@ impl<'r> Resolver<'r> {
     // Reference resolution
     // ─────────────────────────────────────────────────────────────────────
 
-    /// Build the [`Fqn`] identity for `ident` defined in `module`,
-    /// recording a foreign module as a dependency. Same-module references
-    /// resolve to their *full* `Fqn` (current module + ident) — there is no
-    /// bare special case.
-    fn canonical(&mut self, module: &ModulePath, ident: Vec<Arc<str>>) -> Fqn {
+    /// Build the [`Fqn`] identity for `ident` defined in `module`, recording
+    /// a foreign module as a **link-order** dependency (both `deps` and
+    /// `link_deps`). Same-module references resolve to their *full* `Fqn`
+    /// (current module + ident) and record nothing — there is no bare
+    /// special case.
+    ///
+    /// This is the sole value/symbol-position dep writer: every call site
+    /// reaching it names a reference the compiler emits a link-time artifact
+    /// for — a function/const call, an enum-variant or unit-struct
+    /// construction, an ability perform/handler, or a module-alias method
+    /// call. It is also the only writer of `link_deps`, which keeps
+    /// `link_deps ⊆ deps` true by construction. Pure type-position edges use
+    /// the check-only `deps.insert` paths instead (the `use`-import loop in
+    /// [`resolve_module`] and the qualified type path in `types`).
+    fn canonical_value(&mut self, module: &ModulePath, ident: Vec<Arc<str>>) -> Fqn {
         let module_id = self.registry.module_id(module);
         if module != self.current {
             self.deps.insert(module_id.clone());
+            self.link_deps.insert(module_id.clone());
         }
         Fqn::new(module_id, ident)
     }
@@ -309,6 +361,8 @@ impl<'r> Resolver<'r> {
     }
 }
 
+#[cfg(test)]
+mod dep_classification_tests;
 mod refs;
 #[cfg(test)]
 mod tests;

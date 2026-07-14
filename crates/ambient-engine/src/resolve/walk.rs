@@ -264,7 +264,8 @@ impl Resolver<'_> {
                 target.map(|module| {
                     let mut callee_name =
                         QualifiedName::qualified(vec![Arc::clone(&name.name)], Arc::clone(method));
-                    callee_name.resolved = Some(self.canonical(&module, vec![Arc::clone(method)]));
+                    callee_name.resolved =
+                        Some(self.canonical_value(&module, vec![Arc::clone(method)]));
                     let callee = Expr {
                         kind: ExprKind::Name(callee_name),
                         span: receiver.span,
