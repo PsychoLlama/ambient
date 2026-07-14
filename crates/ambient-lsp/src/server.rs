@@ -12,7 +12,6 @@ use std::sync::Arc;
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, Notification as _,
-    PublishDiagnostics,
 };
 use lsp_types::request::{
     Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, PrepareRenameRequest,
@@ -24,9 +23,9 @@ use lsp_types::{
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
     GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
     InitializeParams, InitializeResult, Location, MarkedString, MarkupContent, MarkupKind, OneOf,
-    PrepareRenameResponse, PublishDiagnosticsParams, ReferenceParams, RenameOptions, RenameParams,
-    SemanticTokens, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
+    PrepareRenameResponse, ReferenceParams, RenameOptions, RenameParams, SemanticTokens,
+    SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
+    SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
     SymbolKind as LspSymbolKind, TextDocumentPositionParams, TextDocumentSyncCapability,
     TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions, WorkspaceEdit,
     WorkspaceSymbolParams, WorkspaceSymbolResponse,
@@ -96,6 +95,19 @@ pub(crate) struct ServerState {
 }
 
 impl ServerState {
+    /// A fresh server: no open documents, no session, the platform-prelude
+    /// ability resolver. The test harness builds state this way too, then
+    /// optionally injects a pre-built in-memory [`AnalysisSession`].
+    pub(crate) fn new() -> Self {
+        Self {
+            documents: DocumentStore::new(),
+            analyses: HashMap::new(),
+            session: None,
+            occurrences: Vec::new(),
+            ability_resolver: crate::analysis::platform_prelude_resolver(),
+        }
+    }
+
     /// The current package, if a package session is loaded.
     fn package(&self) -> Option<&AnalysisPackage> {
         self.session
@@ -184,15 +196,12 @@ pub fn run_server_with_connection(connection: Connection) -> anyhow::Result<()> 
     Ok(())
 }
 
-/// The main server loop.
+/// The main server loop — the *only* place that touches the connection. The
+/// handlers are pure functions of [`ServerState`] that return what to send (a
+/// [`Response`] or a batch of `DiagnosticsUpdate`s); this loop performs every
+/// `send`. That seam lets the harness call the handlers directly, no channel.
 fn main_loop(connection: &Connection) -> anyhow::Result<()> {
-    let mut state = ServerState {
-        documents: DocumentStore::new(),
-        analyses: HashMap::new(),
-        session: None,
-        occurrences: Vec::new(),
-        ability_resolver: crate::analysis::platform_prelude_resolver(),
-    };
+    let mut state = ServerState::new();
 
     for msg in &connection.receiver {
         match msg {
@@ -205,7 +214,11 @@ fn main_loop(connection: &Connection) -> anyhow::Result<()> {
                 connection.sender.send(Message::Response(response))?;
             }
             Message::Notification(notif) => {
-                handle_notification(&notif, &mut state, connection)?;
+                for update in handle_notification(&notif, &mut state)? {
+                    connection
+                        .sender
+                        .send(crate::reanalyze::diagnostics_message(update)?)?;
+                }
             }
             Message::Response(_) => {
                 // We don't send requests, so we don't expect responses.
@@ -226,7 +239,7 @@ fn parse_params<P: serde::de::DeserializeOwned>(
 }
 
 /// Handle an incoming request.
-fn handle_request(req: &Request, state: &ServerState) -> Response {
+pub(crate) fn handle_request(req: &Request, state: &ServerState) -> Response {
     let id = req.id.clone();
 
     match req.method.as_str() {
@@ -1127,12 +1140,14 @@ fn format_ability_method_signature(m: &ambient_engine::ast::AbilityMethod) -> St
     format!("fn({}) -> {}", params.join(", "), format_type(&m.ret_ty))
 }
 
-/// Handle an incoming notification.
-fn handle_notification(
+/// Handle an incoming notification, returning the diagnostics the transport
+/// should publish (empty for notifications that produce none). Pure over
+/// [`ServerState`]: it never touches the connection, so the test harness can
+/// call it directly and read the returned diagnostics without a channel.
+pub(crate) fn handle_notification(
     notif: &Notification,
     state: &mut ServerState,
-    connection: &Connection,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<crate::reanalyze::DiagnosticsUpdate>> {
     match notif.method.as_str() {
         DidOpenTextDocument::METHOD => {
             let params: DidOpenTextDocumentParams = serde_json::from_value(notif.params.clone())?;
@@ -1145,6 +1160,8 @@ fn handle_notification(
             // Discover the package once, so cross-module analysis and the
             // occurrence index (built in `reanalyze_all`) see every module.
             // The session owns the package + registry + per-module check memo.
+            // A harness that injected an in-memory session already has one, so
+            // this on-disk discovery is skipped there.
             if state.session.is_none()
                 && let Some(file_path) = uri_to_path(&uri)
                 && let Some(mut package) = AnalysisPackage::discover(&file_path)
@@ -1158,7 +1175,7 @@ fn handle_notification(
                 state.session = Some(session);
             }
 
-            crate::reanalyze::reanalyze_all(&uri, state, connection)?;
+            Ok(crate::reanalyze::reanalyze_all(&uri, state))
         }
         DidChangeTextDocument::METHOD => {
             let params: DidChangeTextDocumentParams = serde_json::from_value(notif.params.clone())?;
@@ -1168,7 +1185,9 @@ fn handle_notification(
             // We use full sync, so there's exactly one change with the full text.
             if let Some(change) = params.content_changes.into_iter().next() {
                 state.documents.update(&uri, version, change.text);
-                crate::reanalyze::reanalyze_all(&uri, state, connection)?;
+                Ok(crate::reanalyze::reanalyze_all(&uri, state))
+            } else {
+                Ok(Vec::new())
             }
         }
         DidCloseTextDocument::METHOD => {
@@ -1178,15 +1197,18 @@ fn handle_notification(
             state.documents.close(&uri);
             state.analyses.remove(uri.as_str());
 
-            // Clear diagnostics.
-            publish_diagnostics(connection, uri, Vec::new(), 0)?;
+            // Clear diagnostics for the closed document.
+            Ok(vec![crate::reanalyze::DiagnosticsUpdate {
+                uri,
+                diagnostics: Vec::new(),
+                version: 0,
+            }])
         }
         _ => {
             // Unknown notification, ignore.
+            Ok(Vec::new())
         }
     }
-
-    Ok(())
 }
 
 /// Collect diagnostics from an analysis result — the shared reporting
@@ -1204,28 +1226,4 @@ pub(crate) fn collect_diagnostics(
         .iter()
         .map(|d| diagnostic_to_lsp(doc, d))
         .collect()
-}
-
-/// Publish diagnostics to the client.
-pub(crate) fn publish_diagnostics(
-    connection: &Connection,
-    uri: Uri,
-    diagnostics: Vec<Diagnostic>,
-    version: i32,
-) -> anyhow::Result<()> {
-    let params = PublishDiagnosticsParams {
-        uri,
-        diagnostics,
-        version: Some(version),
-    };
-
-    let notification = Notification::new(
-        PublishDiagnostics::METHOD.to_string(),
-        serde_json::to_value(params)?,
-    );
-
-    connection
-        .sender
-        .send(Message::Notification(notification))?;
-    Ok(())
 }

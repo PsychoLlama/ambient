@@ -10,17 +10,44 @@
 
 use std::sync::Arc;
 
-use lsp_server::Connection;
-use lsp_types::Uri;
+use lsp_server::{Message, Notification};
+use lsp_types::notification::{Notification as _, PublishDiagnostics};
+use lsp_types::{Diagnostic, PublishDiagnosticsParams, Uri};
 
 use ambient_analysis::occurrences::collect_occurrences;
 use ambient_engine::module_path::ModulePath;
 
 use crate::server::{
     DocumentAnalysis, ModuleOccurrences, ServerState, collect_diagnostics, module_uri,
-    publish_diagnostics,
 };
 use crate::util::uri_to_path;
+
+/// Diagnostics computed for one document, ready for the transport to publish.
+///
+/// The notification/diagnostics path is split compute-from-send: reanalysis
+/// *returns* these (a pure function of [`ServerState`]) and only the transport
+/// loop turns them into wire messages via [`diagnostics_message`]. The test
+/// harness reads them straight back instead, with no channel.
+pub(crate) struct DiagnosticsUpdate {
+    pub(crate) uri: Uri,
+    pub(crate) diagnostics: Vec<Diagnostic>,
+    pub(crate) version: i32,
+}
+
+/// Render a [`DiagnosticsUpdate`] as a `textDocument/publishDiagnostics`
+/// notification message for the connection to send.
+pub(crate) fn diagnostics_message(update: DiagnosticsUpdate) -> anyhow::Result<Message> {
+    let params = PublishDiagnosticsParams {
+        uri: update.uri,
+        diagnostics: update.diagnostics,
+        version: Some(update.version),
+    };
+    let notification = Notification::new(
+        PublishDiagnostics::METHOD.to_string(),
+        serde_json::to_value(params)?,
+    );
+    Ok(Message::Notification(notification))
+}
 
 /// Re-analyze after a document change.
 ///
@@ -30,11 +57,7 @@ use crate::util::uri_to_path;
 /// refreshes the whole-package occurrence index. A signature change in one file
 /// still surfaces (or clears) type errors in files that import it, because the
 /// session recomputes the importers' keys.
-pub(crate) fn reanalyze_all(
-    changed_uri: &Uri,
-    state: &mut ServerState,
-    connection: &Connection,
-) -> anyhow::Result<()> {
+pub(crate) fn reanalyze_all(changed_uri: &Uri, state: &mut ServerState) -> Vec<DiagnosticsUpdate> {
     // Hand the changed document's current text to the session. `edit_module`
     // decides incremental-vs-full registry update and memo invalidation.
     if let Some(file_path) = uri_to_path(changed_uri)
@@ -49,14 +72,17 @@ pub(crate) fn reanalyze_all(
     }
 
     let uris: Vec<Uri> = state.documents.uris().cloned().collect();
-    for uri in uris {
-        reanalyze_document(&uri, state, connection)?;
+    let mut updates = Vec::with_capacity(uris.len());
+    for uri in &uris {
+        if let Some(update) = reanalyze_document(uri, state) {
+            updates.push(update);
+        }
     }
 
     // Refresh the occurrence index against the updated registry so
     // find-references and rename never see stale results.
     rebuild_occurrence_index(state);
-    Ok(())
+    updates
 }
 
 /// Re-analyze one open document and publish fresh diagnostics.
@@ -65,14 +91,8 @@ pub(crate) fn reanalyze_all(
 /// package (or one outside its `src/`) checks as a stand-alone package root
 /// against the core+platform registry, exactly like `ambient check` on a bare
 /// file.
-pub(crate) fn reanalyze_document(
-    uri: &Uri,
-    state: &mut ServerState,
-    connection: &Connection,
-) -> anyhow::Result<()> {
-    let Some(version) = state.documents.get(uri).map(|doc| doc.version) else {
-        return Ok(());
-    };
+pub(crate) fn reanalyze_document(uri: &Uri, state: &mut ServerState) -> Option<DiagnosticsUpdate> {
+    let version = state.documents.get(uri).map(|doc| doc.version)?;
 
     // Package path: memoized analysis through the session. The session already
     // holds this document's current text (fed in by `reanalyze_all`), so its
@@ -94,14 +114,15 @@ pub(crate) fn reanalyze_document(
         None => standalone_analysis(state, uri),
     };
 
-    // Re-borrow the document only to render spans; publishing and caching are
-    // disjoint from the session borrow above.
-    if let Some(doc) = state.documents.get(uri) {
-        let diagnostics = collect_diagnostics(Some(doc), &analysis.result);
-        publish_diagnostics(connection, uri.clone(), diagnostics, version)?;
-    }
+    // Re-borrow the document only to render spans; caching is disjoint from the
+    // session borrow above.
+    let update = state.documents.get(uri).map(|doc| DiagnosticsUpdate {
+        uri: uri.clone(),
+        diagnostics: collect_diagnostics(Some(doc), &analysis.result),
+        version,
+    });
     state.analyses.insert(uri.as_str().to_string(), analysis);
-    Ok(())
+    update
 }
 
 /// Analyze a document with no package context: a stand-alone package root
