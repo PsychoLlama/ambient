@@ -281,15 +281,20 @@ pub(crate) fn format_module_hover(module_path: &ModulePath, registry: &ModuleReg
 /// (`core::primitives::string`) rather than the bare `String`. The literal arms fall back
 /// to that same FQN when inference hasn't attached a type, since a literal's
 /// primitive is unambiguous.
-pub(crate) fn format_expr_hover(expr: &ambient_engine::ast::Expr) -> String {
+pub(crate) fn format_expr_hover(expr: &ambient_engine::ast::Expr, source: &str) -> String {
     use ambient_engine::types::Primitive;
     match &expr.kind {
-        ambient_engine::ast::ExprKind::Local(local_id) => {
+        ambient_engine::ast::ExprKind::Local(_) => {
             let type_info = expr
                 .ty
                 .as_ref()
                 .map_or("unknown".to_string(), format_type_hover);
-            format!("```ambient\nlocal_{local_id}: {type_info}\n```")
+            // A local reference's span is the spelled variable at the use site;
+            // show that, never the internal `local_<id>` binding number.
+            let name = source
+                .get(expr.span.start as usize..expr.span.end as usize)
+                .unwrap_or("_");
+            format!("```ambient\n{name}: {type_info}\n```")
         }
         ambient_engine::ast::ExprKind::Name(qname) => {
             let type_info = expr

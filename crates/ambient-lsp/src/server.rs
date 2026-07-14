@@ -497,7 +497,7 @@ fn handle_hover(id: RequestId, params: &HoverParams, state: &ServerState) -> Res
     }
 
     // Build hover content based on expression kind.
-    let content = format_expr_hover(expr);
+    let content = format_expr_hover(expr, &doc.text);
 
     let hover = Hover {
         contents: HoverContents::Scalar(MarkedString::String(content)),

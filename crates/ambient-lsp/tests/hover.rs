@@ -262,6 +262,19 @@ fn test_hover_on_lambda_local_has_no_effect_row_var() {
 }
 
 #[test]
+fn test_hover_on_local_shows_spelled_name() {
+    // A local reference hovers as its spelled name, never the internal
+    // `local_<id>` binding number.
+    LspTest::new()
+        .with_source("fn test() { let count = 42; count/*h*/ }")
+        .hover_at("h")
+        .expect_contains("count:")
+        .hover_at("h")
+        .expect_not_contains("local_")
+        .shutdown();
+}
+
+#[test]
 fn test_hover_on_unconstrained_throw_shows_never() {
     // Bottom elimination hands the *use site* a fresh inference variable,
     // but the expression's recorded type stays the pre-adoption `!`; when
