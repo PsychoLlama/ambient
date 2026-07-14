@@ -573,7 +573,7 @@ impl ModuleRegistry {
                 kind: ExportKind::AbilityMethod,
                 is_public: ability_export.is_public,
                 re_export_from: None,
-                name_span: method.span,
+                name_span: method.name_span,
                 doc: None,
                 owner: Some(Arc::clone(&def.name)),
             },
