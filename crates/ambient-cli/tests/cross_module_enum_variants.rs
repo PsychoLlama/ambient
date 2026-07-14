@@ -53,12 +53,12 @@ fn run(main: &str) -> String {
 
 #[test]
 fn every_qualified_spelling_resolves_as_constructor_and_pattern() {
-    // Module-qualified (`shapes::Circle`), explicit-enum (`shapes::Shape::Circle`
-    // as a pattern, `pkg::shapes::Shape::Circle` as a constructor), and
-    // enum-imported (`Shape::Circle` after `use pkg::shapes::Shape`) each
-    // resolve — no `use` of the variant itself. (`pkg`-rooted paths are legal
-    // in expression position but not in patterns, a parser limitation, so
-    // patterns use the module-qualified spelling.)
+    // Module-qualified (`shapes::Circle`), explicit-enum (`shapes::Shape::Circle`),
+    // pkg-rooted (`pkg::shapes::Shape::Circle`), and enum-imported
+    // (`Shape::Circle` after `use pkg::shapes::Shape`) each resolve — no `use`
+    // of the variant itself — identically in *both* constructor and pattern
+    // position. The pkg-rooted pattern arm exercises path-prefix keyword heads
+    // in patterns, which the grammar admits the same as in expressions.
     let out = run(r"
 use pkg::shapes;
 use pkg::shapes::Shape;
@@ -75,13 +75,38 @@ pub fn c(s: Shape): Number {
   match s { Shape::Circle(r) => r, Shape::Dot => 0 }
 }
 
+pub fn d(s: Shape): Number {
+  match s { pkg::shapes::Shape::Circle(r) => r, pkg::shapes::Shape::Dot => 0 }
+}
+
 pub fn run(): Number {
   a(shapes::Circle(1))
     + b(pkg::shapes::Shape::Circle(2))
     + c(Shape::Circle(4))
+    + d(pkg::shapes::Shape::Circle(8))
 }
 ");
-    assert_eq!(out, "7");
+    assert_eq!(out, "15");
+}
+
+#[test]
+fn core_rooted_variant_resolves_as_constructor_and_pattern() {
+    // A `core`-rooted path-prefix head works in pattern position just like in
+    // expression position: `core::option::Option::Some` spells the prelude's
+    // `Option` variant both as a constructor and as a `match` arm.
+    let out = run(r"
+pub fn unwrap_or(o: Option<Number>): Number {
+  match o {
+    core::option::Option::Some(n) => n,
+    core::option::Option::None => 0,
+  }
+}
+
+pub fn run(): Number {
+  unwrap_or(core::option::Option::Some(9)) + unwrap_or(core::option::Option::None)
+}
+");
+    assert_eq!(out, "9");
 }
 
 #[test]
