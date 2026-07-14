@@ -110,7 +110,19 @@
       );
 
       devShells = eachSystem (
-        system: pkgs: {
+        system: pkgs:
+
+        let
+          # Add ambient-cli to path without compiling from scratch.
+          ambient-cli-local = pkgs.writeShellApplication {
+            name = "ambient";
+            text = ''
+              cargo run --quiet --package ambient-cli -- "$@"
+            '';
+          };
+        in
+
+        {
           default = pkgs.mkShell {
             packages = [
               (rustToolchainFor pkgs)
@@ -124,6 +136,8 @@
               pkgs.stylua
               pkgs.tree-sitter
               pkgs.treefmt
+
+              ambient-cli-local
             ];
 
             TREE_SITTER_AMBIENT = self.packages.${system}.tree-sitter-ambient;
