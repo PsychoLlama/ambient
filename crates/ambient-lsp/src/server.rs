@@ -121,6 +121,15 @@ impl ServerState {
             .as_ref()
             .map(ambient_analysis::session::AnalysisSession::registry)
     }
+
+    /// The in-memory source of the package module backing `uri`, if any — the
+    /// exact text analysis ran against, not the file on disk.
+    fn module_source_for_uri(&self, uri: &Uri) -> Option<String> {
+        let session = self.session.as_ref()?;
+        let module_path = session.package().module_path_for(&uri_to_path(uri)?)?;
+        let module = session.package().modules.get(&module_path.to_string())?;
+        Some(module.source.clone())
+    }
 }
 
 /// Run the LSP server over stdio.
@@ -296,20 +305,14 @@ pub(crate) fn module_uri(
         .then(|| path_to_uri(&package.file_for_module(module_path)))?
 }
 
-/// Compute an LSP range in a possibly-unopened file: use the open
-/// document when available, otherwise read the file from disk.
-fn range_in_file(
-    documents: &DocumentStore,
-    uri: &Uri,
-    start: usize,
-    end: usize,
-) -> lsp_types::Range {
-    if let Some(doc) = documents.get(uri) {
+/// Compute an LSP range in a possibly-unopened file: the open document when
+/// available, else the session's in-memory source for that module (empty range
+/// if the uri maps to neither).
+fn range_in_file(state: &ServerState, uri: &Uri, start: usize, end: usize) -> lsp_types::Range {
+    if let Some(doc) = state.documents.get(uri) {
         return offset_range_to_lsp_range(doc, start, end);
     }
-    if let Some(file_path) = uri_to_path(uri)
-        && let Ok(content) = std::fs::read_to_string(&file_path)
-    {
+    if let Some(content) = state.module_source_for_uri(uri) {
         let temp_doc = crate::documents::Document::new(uri.clone(), 0, content);
         return offset_range_to_lsp_range(&temp_doc, start, end);
     }
@@ -445,7 +448,7 @@ fn handle_goto_definition(
     };
 
     let range = range_in_file(
-        &state.documents,
+        state,
         &target_uri,
         definition.span.start as usize,
         definition.span.end as usize,
@@ -500,7 +503,7 @@ fn gather_locations(
                 continue;
             }
             let range = range_in_file(
-                &state.documents,
+                state,
                 &module.uri,
                 occ.span.start as usize,
                 occ.span.end as usize,
@@ -569,7 +572,7 @@ fn handle_prepare_rename(
     }
 
     let range = range_in_file(
-        &state.documents,
+        state,
         &module.uri,
         occurrence.span.start as usize,
         occurrence.span.end as usize,
@@ -628,7 +631,7 @@ fn handle_rename(id: RequestId, params: &RenameParams, state: &ServerState) -> R
                 continue;
             }
             let range = range_in_file(
-                &state.documents,
+                state,
                 &module.uri,
                 occ.span.start as usize,
                 occ.span.end as usize,
@@ -812,12 +815,7 @@ fn handle_workspace_symbol(
             let Some(uri) = path_to_uri(&src_dir.join(&sym.source_path)) else {
                 continue;
             };
-            let range = range_in_file(
-                &state.documents,
-                &uri,
-                sym.span.0 as usize,
-                sym.span.1 as usize,
-            );
+            let range = range_in_file(state, &uri, sym.span.0 as usize, sym.span.1 as usize);
 
             #[allow(deprecated)] // SymbolInformation::deprecated field is deprecated
             symbols.push(SymbolInformation {
