@@ -111,6 +111,11 @@
 
 (variant_pattern
   name: (identifier) @constructor)
+; Qualified variant pattern (`shapes::Shape::Circle`, `pkg::…`): the final
+; path segment is the constructor; leading segments read as namespaces above.
+(variant_pattern
+  name: (scoped_identifier
+    name: (identifier) @constructor))
 
 ; Type definitions
 (type_definition

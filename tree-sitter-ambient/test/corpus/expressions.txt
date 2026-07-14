@@ -92,6 +92,47 @@ fn test(): number {
           body: (number))))))
 
 ================================================================================
+Match on qualified variant patterns
+================================================================================
+
+fn test(): number {
+  match s {
+    shapes::Shape::Circle(r) => r,
+    pkg::shapes::Shape::Dot => 0,
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (match_expression
+        value: (identifier)
+        (match_arm
+          pattern: (variant_pattern
+            name: (scoped_identifier
+              path: (scoped_identifier
+                path: (identifier)
+                name: (identifier))
+              name: (identifier))
+            (identifier))
+          body: (identifier))
+        (match_arm
+          pattern: (variant_pattern
+            name: (scoped_identifier
+              path: (scoped_identifier
+                path: (scoped_identifier
+                  path: (identifier)
+                  name: (identifier))
+                name: (identifier))
+              name: (identifier)))
+          body: (number))))))
+
+================================================================================
 Lambda expression
 ================================================================================
 

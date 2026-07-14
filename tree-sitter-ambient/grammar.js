@@ -494,9 +494,14 @@ module.exports = grammar({
     tuple_pattern: ($) =>
       seq("(", $._pattern, repeat(seq(",", $._pattern)), ")"),
 
+    // A variant pattern names a constructor by a bare or qualified path,
+    // matching expression position: `Circle(r)`, `Shape::Circle(r)`, and
+    // path-root-keyword heads `pkg::shapes::Shape::Circle`, `core::…`. Path-root
+    // keywords are ordinary identifiers to the grammar, so `scoped_identifier`
+    // already admits them.
     variant_pattern: ($) =>
       seq(
-        field("name", $.identifier),
+        field("name", choice($.identifier, $.scoped_identifier)),
         optional(seq("(", optional(seq($._pattern, repeat(seq(",", $._pattern)))), ")"))
       ),
 
