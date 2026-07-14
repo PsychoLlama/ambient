@@ -8,76 +8,24 @@
 //! *type-only* cross-module import (a `deps` edge that is not a `link_deps`
 //! edge, so it no longer constrains compile order).
 
-use std::fs;
 use std::path::Path;
 
-use ambient_engine::ast::Module;
-use ambient_engine::build::{BuildOptions, BuildResult, ParseFailure};
-use ambient_engine::disk_store::BuildManifest;
+use ambient_engine::build::BuildResult;
 use tempfile::TempDir;
 
-fn parse_source(source: &str) -> Result<Module, ParseFailure> {
-    ambient_parser::parse(source).map_err(|e| ParseFailure {
-        message: e.kind.to_string(),
-        span: (e.span.start, e.span.end),
-        context: e.context,
-    })
-}
+mod common;
+use common::{build_and_persist, verify_mode, write_pkg_named};
+
+/// The package name these ordering tests build under; a warm build and its cold
+/// twin must share it (see [`common`]).
+const PKG: &str = "cache_pkg";
 
 fn write_pkg(dir: &Path, files: &[(&str, &str)]) {
-    fs::write(
-        dir.join("ambient.toml"),
-        "[package]\nname = \"cache_pkg\"\nversion = \"0.1.0\"\n",
-    )
-    .expect("manifest");
-    let src = dir.join("src");
-    for (rel, body) in files {
-        let path = src.join(rel);
-        fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
-        fs::write(path, body).expect("write module");
-    }
-}
-
-/// Build reading the package's own store, then persist objects + snapshot so the
-/// next build can hit — the same wiring `ambient run`/`compile` use.
-fn build_and_persist(dir: &Path) -> BuildResult {
-    let stubs = ambient_platform::stub_natives();
-    let built = ambient_engine::build::build_and_persist(
-        dir,
-        parse_source,
-        BuildOptions {
-            platform_modules: ambient_platform::platform_modules(),
-            natives: Some(&stubs),
-            ..Default::default()
-        },
-    )
-    .expect("build succeeds");
-    built.persisted.expect("persist build");
-    built.result
-}
-
-/// The canonical cold manifest for a source: build in a fresh, empty-store
-/// package so everything compiles.
-fn cold_manifest(files: &[(&str, &str)]) -> BuildManifest {
-    let dir = TempDir::new().expect("temp");
-    write_pkg(dir.path(), files);
-    BuildManifest::from_build(&build_and_persist(dir.path()))
+    write_pkg_named(dir, PKG, files);
 }
 
 fn assert_warm_equals_cold(warm: &BuildResult, files: &[(&str, &str)]) {
-    let warm_manifest = BuildManifest::from_build(warm);
-    let cold = cold_manifest(files);
-    assert_eq!(
-        warm_manifest.encode(),
-        cold.encode(),
-        "warm build must be byte-identical to a fresh cold build"
-    );
-}
-
-/// `true` under the `AMBIENT_CACHE_VERIFY=1` recompile-and-compare oracle, which
-/// recompiles every module so the exact `modules_compiled` counts don't hold.
-fn verify_mode() -> bool {
-    std::env::var("AMBIENT_CACHE_VERIFY").is_ok_and(|v| v.eq_ignore_ascii_case("1"))
+    common::assert_warm_equals_cold(PKG, warm, files);
 }
 
 #[test]

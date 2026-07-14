@@ -14,34 +14,21 @@
 //!    fail `ambient run` (that module is never checked), but `ambient check`
 //!    still reports it.
 
-use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use ambient_engine::ast::Module;
-use ambient_engine::build::{BuildOptions, BuildResult, CacheMode, ParseFailure, build_package};
+use ambient_engine::build::{BuildOptions, BuildResult, CacheMode, build_package};
 use tempfile::TempDir;
 
-fn parse_source(source: &str) -> Result<Module, ParseFailure> {
-    ambient_parser::parse(source).map_err(|e| ParseFailure {
-        message: e.kind.to_string(),
-        span: (e.span.start, e.span.end),
-        context: e.context,
-    })
-}
+mod common;
+use common::{parse_source, write_pkg_named};
+
+/// The package name these lazy tests build under; the reachable-module
+/// assertions below spell it (`workspace::lazy_pkg::…`).
+const PKG: &str = "lazy_pkg";
 
 fn write_pkg(dir: &Path, files: &[(&str, &str)]) {
-    fs::write(
-        dir.join("ambient.toml"),
-        "[package]\nname = \"lazy_pkg\"\nversion = \"0.1.0\"\n",
-    )
-    .expect("manifest");
-    let src = dir.join("src");
-    for (rel, body) in files {
-        let path = src.join(rel);
-        fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
-        fs::write(path, body).expect("write module");
-    }
+    write_pkg_named(dir, PKG, files);
 }
 
 /// Build in a fresh package (cold, no store), either whole-package

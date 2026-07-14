@@ -11,63 +11,32 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use ambient_engine::ast::Module;
-use ambient_engine::build::{BuildOptions, BuildResult, CacheMode, ParseFailure, build_package};
+use ambient_engine::build::{BuildOptions, BuildResult, CacheMode, build_package};
 use ambient_engine::disk_store::{BuildManifest, DiskStore};
 use tempfile::TempDir;
 
-fn parse_source(source: &str) -> Result<Module, ParseFailure> {
-    ambient_parser::parse(source).map_err(|e| ParseFailure {
-        message: e.kind.to_string(),
-        span: (e.span.start, e.span.end),
-        context: e.context,
-    })
-}
+mod common;
+use common::{build_and_persist, parse_source, verify_mode, write_pkg_named};
+
+/// The package name every incremental-cache test builds under. A warm build and
+/// its cold twin must share it, or their module ids (and manifests) diverge.
+const PKG: &str = "cache_pkg";
 
 fn write_pkg(dir: &Path, files: &[(&str, &str)]) {
-    fs::write(
-        dir.join("ambient.toml"),
-        "[package]\nname = \"cache_pkg\"\nversion = \"0.1.0\"\n",
-    )
-    .expect("manifest");
-    let src = dir.join("src");
-    for (rel, body) in files {
-        let path = src.join(rel);
-        fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
-        fs::write(path, body).expect("write module");
-    }
+    write_pkg_named(dir, PKG, files);
+}
+
+/// The canonical cold manifest for a source (built under [`PKG`]).
+fn cold_manifest(files: &[(&str, &str)]) -> BuildManifest {
+    common::cold_manifest(PKG, files)
+}
+
+fn assert_warm_equals_cold(warm: &BuildResult, files: &[(&str, &str)]) {
+    common::assert_warm_equals_cold(PKG, warm, files);
 }
 
 fn store_path(dir: &Path) -> PathBuf {
     dir.join(".ambient").join("store")
-}
-
-/// Build reading the package's own store (cache Auto), then persist objects +
-/// snapshot exactly as `ambient run`/`compile` do — so the next build can hit.
-/// Shares the engine's build-and-persist wiring; a persist failure is a hard
-/// error here (the tests depend on the snapshot being durable).
-fn build_and_persist(dir: &Path) -> BuildResult {
-    let stubs = ambient_platform::stub_natives();
-    let built = ambient_engine::build::build_and_persist(
-        dir,
-        parse_source,
-        BuildOptions {
-            platform_modules: ambient_platform::platform_modules(),
-            natives: Some(&stubs),
-            ..Default::default()
-        },
-    )
-    .expect("build succeeds");
-    built.persisted.expect("persist build");
-    built.result
-}
-
-/// The canonical cold manifest for a source: build the given files in a fresh
-/// package (empty store, no snapshot ⇒ everything compiles).
-fn cold_manifest(files: &[(&str, &str)]) -> BuildManifest {
-    let dir = TempDir::new().expect("temp");
-    write_pkg(dir.path(), files);
-    BuildManifest::from_build(&build_and_persist(dir.path()))
 }
 
 /// Build-and-persist while capturing each module's `from_cache` flag from the
@@ -97,29 +66,6 @@ fn build_capturing(dir: &Path) -> (BuildResult, std::collections::HashMap<String
         built.result
     };
     (result, seen.into_inner())
-}
-
-fn assert_warm_equals_cold(warm: &BuildResult, files: &[(&str, &str)]) {
-    let warm_manifest = BuildManifest::from_build(warm);
-    let cold = cold_manifest(files);
-    assert_eq!(
-        warm_manifest.encode(),
-        cold.encode(),
-        "warm build must be byte-identical to a fresh cold build"
-    );
-}
-
-/// `true` when `AMBIENT_CACHE_VERIFY=1` is in this process's environment.
-///
-/// These tests build in-process, so the flag reaches `BuildCache::open` and
-/// forces the recompile-and-compare oracle: every module recompiles rather than
-/// serving warm. The exact hit/miss-count assertions below are then meaningless
-/// (a full `AMBIENT_CACHE_VERIFY=1` suite run would fail them for the wrong
-/// reason), so each guards on this and skips — the byte-identity (`warm ==
-/// cold`) checks and the engine's own stale-hit panic remain the oracle. Read
-/// the flag exactly the way the cache's `env_flag` does.
-fn verify_mode() -> bool {
-    std::env::var("AMBIENT_CACHE_VERIFY").is_ok_and(|v| v.eq_ignore_ascii_case("1"))
 }
 
 #[test]

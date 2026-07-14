@@ -6,50 +6,24 @@
 //! what `ambient check` prints. These tests pin the engine-level contract
 //! that makes that possible.
 
-use std::fs;
-
-use ambient_engine::ast::Module;
-use ambient_engine::build::{BuildError, BuildOptions, ParseFailure, build_package};
+use ambient_engine::build::{BuildError, BuildOptions, build_package};
 use tempfile::TempDir;
 
-/// Parse for the build pipeline, mapping a parse error to the engine's
-/// renderable `ParseFailure` (mirrors the CLI's `parse_source`).
-fn parse_source(source: &str) -> Result<Module, ParseFailure> {
-    ambient_parser::parse(source).map_err(|e| ParseFailure {
-        message: e.kind.to_string(),
-        span: (e.span.start, e.span.end),
-        context: e.context,
-    })
-}
+mod common;
+use common::{parse_source, write_pkg_named};
+
+/// The package name these diagnostics tests build under.
+const PKG: &str = "diag";
 
 /// Write a single-module package with `main.ab` = `source`.
 fn temp_package(source: &str) -> TempDir {
-    let dir = TempDir::new().expect("create temp dir");
-    fs::write(
-        dir.path().join("ambient.toml"),
-        "[package]\nname = \"diag\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"src\"\n",
-    )
-    .expect("write manifest");
-    let src = dir.path().join("src");
-    fs::create_dir_all(&src).expect("create src");
-    fs::write(src.join("main.ab"), source).expect("write main.ab");
-    dir
+    temp_multi_package(&[("main.ab", source)])
 }
 
 /// Write a package from `(src-relative path, source)` pairs.
 fn temp_multi_package(files: &[(&str, &str)]) -> TempDir {
     let dir = TempDir::new().expect("create temp dir");
-    fs::write(
-        dir.path().join("ambient.toml"),
-        "[package]\nname = \"diag\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"src\"\n",
-    )
-    .expect("write manifest");
-    let src = dir.path().join("src");
-    for (rel, body) in files {
-        let path = src.join(rel);
-        fs::create_dir_all(path.parent().unwrap()).expect("create src dir");
-        fs::write(path, body).expect("write module");
-    }
+    write_pkg_named(dir.path(), PKG, files);
     dir
 }
 

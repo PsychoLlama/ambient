@@ -3,8 +3,12 @@
 #![allow(dead_code)]
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+
+use ambient_engine::ast::Module;
+use ambient_engine::build::{BuildOptions, BuildResult, ParseFailure};
+use ambient_engine::disk_store::BuildManifest;
 use tempfile::TempDir;
 
 /// Helper to run the ambient CLI command.
@@ -208,4 +212,88 @@ src = "src"
     }
 
     (dir, pkg_dir)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Incremental-cache / lazy-build helpers (shared by the engine-level test
+// binaries that drive `build_package` directly)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Parse for the build pipeline, mapping a parse error to the engine's
+/// renderable `ParseFailure` (mirrors the CLI's `parse_source`).
+pub fn parse_source(source: &str) -> Result<Module, ParseFailure> {
+    ambient_parser::parse(source).map_err(|e| ParseFailure {
+        message: e.kind.to_string(),
+        span: (e.span.start, e.span.end),
+        context: e.context,
+    })
+}
+
+/// Write a package named `pkg_name` from `(src-relative path, source)` pairs
+/// into `dir` (an existing, caller-owned directory).
+pub fn write_pkg_named(dir: &Path, pkg_name: &str, files: &[(&str, &str)]) {
+    fs::write(
+        dir.join("ambient.toml"),
+        format!("[package]\nname = \"{pkg_name}\"\nversion = \"0.1.0\"\n"),
+    )
+    .expect("manifest");
+    let src = dir.join("src");
+    for (rel, body) in files {
+        let path = src.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
+        fs::write(path, body).expect("write module");
+    }
+}
+
+/// Build reading the package's own store (cache Auto), then persist objects +
+/// snapshot exactly as `ambient run`/`compile` do — so the next build can hit.
+/// Shares the engine's build-and-persist wiring; a persist failure is a hard
+/// error here (the tests depend on the snapshot being durable).
+pub fn build_and_persist(dir: &Path) -> BuildResult {
+    let stubs = ambient_platform::stub_natives();
+    let built = ambient_engine::build::build_and_persist(
+        dir,
+        parse_source,
+        BuildOptions {
+            platform_modules: ambient_platform::platform_modules(),
+            natives: Some(&stubs),
+            ..Default::default()
+        },
+    )
+    .expect("build succeeds");
+    built.persisted.expect("persist build");
+    built.result
+}
+
+/// The canonical cold manifest for a source: build the given files in a fresh
+/// package named `pkg_name` (empty store, no snapshot ⇒ everything compiles).
+pub fn cold_manifest(pkg_name: &str, files: &[(&str, &str)]) -> BuildManifest {
+    let dir = TempDir::new().expect("temp");
+    write_pkg_named(dir.path(), pkg_name, files);
+    BuildManifest::from_build(&build_and_persist(dir.path()))
+}
+
+/// Assert a warm build is byte-identical to a fresh cold build of the same final
+/// source (a package named `pkg_name`).
+pub fn assert_warm_equals_cold(pkg_name: &str, warm: &BuildResult, files: &[(&str, &str)]) {
+    let warm_manifest = BuildManifest::from_build(warm);
+    let cold = cold_manifest(pkg_name, files);
+    assert_eq!(
+        warm_manifest.encode(),
+        cold.encode(),
+        "warm build must be byte-identical to a fresh cold build"
+    );
+}
+
+/// `true` when `AMBIENT_CACHE_VERIFY=1` is in this process's environment.
+///
+/// The in-process cache tests build in-process, so the flag reaches
+/// `BuildCache::open` and forces the recompile-and-compare oracle: every module
+/// recompiles rather than serving warm. The exact hit/miss-count assertions are
+/// then meaningless (a full `AMBIENT_CACHE_VERIFY=1` suite run would fail them
+/// for the wrong reason), so each guards on this and skips — the byte-identity
+/// (`warm == cold`) checks and the engine's own stale-hit panic remain the
+/// oracle. Read the flag exactly the way the cache's `env_flag` does.
+pub fn verify_mode() -> bool {
+    std::env::var("AMBIENT_CACHE_VERIFY").is_ok_and(|v| v.eq_ignore_ascii_case("1"))
 }
