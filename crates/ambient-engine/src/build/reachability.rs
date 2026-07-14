@@ -179,6 +179,16 @@ pub(super) fn dispatch_ordering_graph<'a>(
 /// Whether adding the dependency edge `from -> to` (`from` compiles after `to`)
 /// would close a cycle in `graph`: it does iff `to` can already reach `from`
 /// (i.e. `to` already transitively depends on `from`).
+///
+/// # Complexity
+///
+/// This recomputes a fresh `forward_closure` from `to` for every candidate
+/// edge, so augmenting the whole graph is O(E·(V+E)). That is comfortably fine
+/// at real package sizes (a package's module count and edge count are both
+/// small). If module graphs ever grow large enough for this to matter, the
+/// upgrade path is incremental reachability — maintain the transitive closure
+/// as edges are added instead of rebuilding it per candidate — rather than
+/// restructuring the per-edge acyclic augmentation itself.
 fn edge_would_cycle(graph: &BTreeMap<String, Vec<String>>, from: &str, to: &str) -> bool {
     forward_closure(graph, to).contains(from)
 }
