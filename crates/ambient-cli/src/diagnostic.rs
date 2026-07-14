@@ -136,21 +136,26 @@ pub fn print_diagnostic<D: Diagnostic>(source: &str, file: &Path, error: &D) {
 /// error.
 pub fn report_build_error(error: BuildError) -> anyhow::Error {
     match error {
-        BuildError::TypeCheck {
-            path,
-            source,
-            errors,
-            ..
-        } => {
-            let diagnostics = ambient_analysis::type_error_diagnostics(&errors);
-            for diagnostic in &diagnostics {
-                print_diagnostic(&source, &path, diagnostic);
+        BuildError::TypeCheck { failures } => {
+            // One diagnostic block per failing module, in the pre-pass's
+            // deterministic (by-identity) order; each module's own errors are
+            // sorted into `ambient check` order by `type_error_diagnostics`.
+            let mut total = 0;
+            for failure in &failures {
+                let diagnostics = ambient_analysis::type_error_diagnostics(&failure.errors);
+                for diagnostic in &diagnostics {
+                    print_diagnostic(&failure.source, &failure.path, diagnostic);
+                }
+                total += diagnostics.len();
             }
-            anyhow::anyhow!(
-                "Found {} type error(s) in {}",
-                diagnostics.len(),
-                path.display()
-            )
+            match failures.as_slice() {
+                [only] => {
+                    anyhow::anyhow!("Found {total} type error(s) in {}", only.path.display())
+                }
+                many => {
+                    anyhow::anyhow!("Found {total} type error(s) across {} modules", many.len())
+                }
+            }
         }
         BuildError::Parse {
             path,

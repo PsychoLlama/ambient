@@ -14,6 +14,7 @@
 //! is in [`pipeline`].
 
 mod cache;
+mod check_prepass;
 mod dispatch_scope;
 mod pipeline;
 mod reachability;
@@ -149,6 +150,13 @@ pub struct BuildResult {
     /// *misses*, plus every module of a cold builtin block). Zero on a fully
     /// warm build. Instrumentation for the incremental-cache tests.
     pub modules_compiled: usize,
+    /// Number of package modules **type-checked** this build: the check
+    /// pre-pass's cache-missing modules plus any walk-time lazy fallback check
+    /// (verify mode, or a key match that fails both hit and relink). Zero on a
+    /// fully warm build — a hit/relink never re-checks. Instrumentation pinning
+    /// the pre-pass property that a warm build performs no checks. Excludes the
+    /// builtin block (cached as one unit).
+    pub modules_checked: usize,
     /// Package name.
     pub package_name: String,
     /// The canonical [`NameKey`] linking table for the whole build (core +
@@ -187,6 +195,25 @@ pub struct BuildResult {
     pub modules_relinked: usize,
 }
 
+/// One module's type-check failure: the offending module's identity, source,
+/// and file path alongside its structured (spanned) errors, so a frontend can
+/// render them with source context — byte-identically to `ambient check`.
+///
+/// The check pre-pass ([`check_prepass`]) checks every cache-missing module up
+/// front, so a single cold build can fail in several modules at once; each is
+/// captured here and they surface together (see [`BuildError::TypeCheck`]).
+#[derive(Debug)]
+pub struct ModuleTypeErrors {
+    /// The module's canonical identity (for messages).
+    pub module: String,
+    /// The module's real on-disk source path, for rendering.
+    pub path: PathBuf,
+    /// The module's full source text, for rendering source context.
+    pub source: String,
+    /// The structured, spanned type errors.
+    pub errors: Vec<BoxedTypeError>,
+}
+
 /// Error during package building.
 ///
 /// The `Parse` and `TypeCheck` variants carry the offending module's source
@@ -207,13 +234,11 @@ pub enum BuildError {
         source: String,
         error: Box<ParseFailure>,
     },
-    /// A user module failed to type-check.
-    TypeCheck {
-        module: String,
-        path: PathBuf,
-        source: String,
-        errors: Vec<BoxedTypeError>,
-    },
+    /// One or more user modules failed to type-check. The check pre-pass
+    /// aggregates every cache-missing module's failure so a cold build reports
+    /// them all at once (deterministically ordered by module identity); the
+    /// compile-time fallback check contributes a single-element vec.
+    TypeCheck { failures: Vec<ModuleTypeErrors> },
     /// Codegen failed, or an embedded core/platform module failed to build.
     /// Compiler-internal: no user source to render against.
     Compile { module: String, error: String },
@@ -231,13 +256,21 @@ impl std::fmt::Display for BuildError {
             Self::Parse { module, error, .. } => {
                 write!(f, "parse error in {module}: {}", error.message)
             }
-            Self::TypeCheck { module, errors, .. } => {
-                let joined = errors
+            Self::TypeCheck { failures } => {
+                let joined = failures
                     .iter()
-                    .map(|e| e.kind.to_string())
+                    .map(|failure| {
+                        let errs = failure
+                            .errors
+                            .iter()
+                            .map(|e| e.kind.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("type errors in {}: {errs}", failure.module)
+                    })
                     .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "type errors in {module}: {joined}")
+                    .join("; ");
+                write!(f, "{joined}")
             }
             Self::Compile { module, error } => write!(f, "compile error in {module}: {error}"),
             Self::ImportCycle { message } => write!(f, "{message}"),
@@ -498,6 +531,37 @@ pub fn build_package(
     };
     let total_modules = module_order.len();
 
+    // Every module's cache key, computed once up front (the key never depends
+    // on `LinkState`), keyed by canonical module id. The check pre-pass and the
+    // compile walk both read this map — the key is never recomputed.
+    let cache_keys = check_prepass::compute_cache_keys(
+        &module_order,
+        &paths_by_key,
+        &registry,
+        &dep_ids,
+        &interfaces,
+        &module_dispatch,
+        natives_bytes,
+    );
+
+    // Check pre-pass: type-check every cache-*missing* module up front, in a
+    // deterministic order, so a cold build surfaces *all* modules' check errors
+    // together (not just the first in compile order). Key-match modules are not
+    // checked here — a warm hit or relink must never re-check; the rare
+    // recompile fallbacks (verify mode, unlinkable key match) check lazily in
+    // the walk. Checking is globally order-independent, so this changes only
+    // *when* checks run, never their outcome. See [`check_prepass`].
+    let mut checked = check_prepass::run(
+        &pkg,
+        &registry,
+        &cache,
+        &module_order,
+        &paths_by_key,
+        &cache_keys,
+    )?;
+    // Every pre-pass check, plus any walk-time lazy fallback check tallied below.
+    let mut modules_checked = checked.len();
+
     for (idx, module_key) in module_order.iter().enumerate() {
         let module_path = paths_by_key
             .get(module_key)
@@ -505,18 +569,10 @@ pub fn build_package(
             .ok_or_else(|| BuildError::PackageOpen(format!("module not found: {module_key}")))?;
         let module_id = registry.module_id(&module_path).to_string();
 
-        // This module's cache key (None only if a dependency interface is
-        // somehow absent — then it can never hit and always recompiles).
-        let cache_key = dep_interface_hashes(&dep_ids, &module_id, &interfaces).map(|deps| {
-            let ast = interfaces
-                .get(&module_id)
-                .map_or([0u8; 32], |s| *s.resolved_ast_hash.as_bytes());
-            let dispatch = module_dispatch
-                .get(&module_id)
-                .copied()
-                .unwrap_or([0u8; 32]);
-            cache::module_cache_key(ast, natives_bytes, dispatch, &deps)
-        });
+        // This module's cache key, precomputed above (None only if a dependency
+        // interface is somehow absent — then it can never hit and always
+        // recompiles).
+        let cache_key = cache_keys.get(&module_id).copied().flatten();
 
         let imported = link.table();
         let key = cache_key.unwrap_or([0u8; 32]);
@@ -558,6 +614,12 @@ pub fn build_package(
             // Verify oracle: always recompile, then assert every available warm
             // path (a full hit and/or a relink) is byte-identical to it.
             modules_compiled += 1;
+            // A key-match module reaches verify mode without a pre-pass check;
+            // it is checked lazily here (miss modules carry their pre-pass one).
+            let pre_checked = checked.remove(&module_id);
+            if pre_checked.is_none() {
+                modules_checked += 1;
+            }
             let (bare, prelink) = compile_package_module(
                 &pkg,
                 &registry,
@@ -566,6 +628,7 @@ pub fn build_package(
                 dep_closures
                     .get(&module_id)
                     .unwrap_or(&std::collections::BTreeSet::new()),
+                pre_checked,
             )?;
             let (compiled, output, blob) = finish_module(
                 bare,
@@ -616,6 +679,12 @@ pub fn build_package(
             (compiled, output)
         } else {
             modules_compiled += 1;
+            // No pre-pass check only on the rare key-match-but-unlinkable
+            // fallback (hit and relink both failed); check lazily then.
+            let pre_checked = checked.remove(&module_id);
+            if pre_checked.is_none() {
+                modules_checked += 1;
+            }
             let (bare, prelink) = compile_package_module(
                 &pkg,
                 &registry,
@@ -624,6 +693,7 @@ pub fn build_package(
                 dep_closures
                     .get(&module_id)
                     .unwrap_or(&std::collections::BTreeSet::new()),
+                pre_checked,
             )?;
             let (compiled, output, blob) = finish_module(
                 bare,
@@ -652,6 +722,7 @@ pub fn build_package(
         compiled: all_compiled,
         module_count: total_modules,
         modules_compiled,
+        modules_checked,
         package_name,
         link_table: link.into_table(),
         interfaces,
@@ -664,15 +735,22 @@ pub fn build_package(
     })
 }
 
-/// Check + compile one package module, capturing its pre-link symbolic form.
-/// The returned module has bare names (the caller qualifies via
-/// [`finish_module`]); its `signatures` and the prelink's are already set.
+/// Compile one package module, capturing its pre-link symbolic form. The
+/// returned module has bare names (the caller qualifies via [`finish_module`]);
+/// its `signatures` and the prelink's are already set.
+///
+/// `checked` is the module's pre-pass check result when it was checked up front
+/// (the ordinary miss path); `None` triggers a lazy check here — the only two
+/// paths that reach compilation without a pre-pass check: verify mode
+/// (recompiles even on a key match) and the rare key-match-but-unlinkable
+/// fallback. A module is thus checked exactly once per build.
 fn compile_package_module(
     pkg: &Package,
     registry: &ModuleRegistry,
     module_path: &ModulePath,
     imported: &HashMap<NameKey, blake3::Hash>,
     deps: &std::collections::BTreeSet<ModuleId>,
+    checked: Option<crate::infer::CheckResult>,
 ) -> Result<(CompiledModule, crate::compiler::PrelinkModule), BuildError> {
     let module = pkg
         .get_module(module_path)
@@ -684,13 +762,18 @@ fn compile_package_module(
         || pkg.module_file_path(module_path),
         |sp| pkg.src_path().join(sp),
     );
-    pipeline::compile_loaded_module_with_registry(
+    let check_result = match checked {
+        Some(cr) => cr,
+        None => pipeline::check_loaded_module(module, &file_path, module_path, registry)?,
+    };
+    pipeline::compile_checked_module(
         module,
         &file_path,
         module_path,
         registry,
         imported.clone(),
         deps,
+        check_result,
     )
 }
 

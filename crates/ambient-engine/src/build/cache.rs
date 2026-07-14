@@ -147,6 +147,21 @@ impl BuildCache {
         self.reads && self.prev.as_ref().is_some_and(|m| m.core_cache_key == key)
     }
 
+    /// Whether the previous snapshot holds a record for `module_id` whose cache
+    /// key matches `key`. A match is *necessary but not sufficient* for a warm
+    /// hit (link validation may still fail, sending the module to relink or a
+    /// full recompile), but it is exactly the signal the check pre-pass keys
+    /// off: a key match means every check-level input is unchanged, so the
+    /// module's check output is provably identical and needn't be recomputed.
+    /// Returns `false` when reads are disabled (a cold build ⇒ every module is a
+    /// miss ⇒ the pre-pass checks them all).
+    pub(super) fn key_matches(&self, module_id: &str, key: [u8; 32]) -> bool {
+        self.reads
+            && self
+                .prev_module(module_id)
+                .is_some_and(|m| m.cache_key == key)
+    }
+
     /// Load every builtin (core + platform) module from the store as one unit.
     /// Populates `all_compiled`, `mfh` (bare linking hashes), and `outputs`,
     /// returning `true` only if *every* module loaded; on any failure it

@@ -17,7 +17,7 @@ use crate::module_registry::ModuleRegistry;
 use crate::package::{LoadedModule, Package};
 
 use super::cache::module_output;
-use super::{BuildError, ModuleBuildOutput, ParseFn};
+use super::{BuildError, ModuleBuildOutput, ModuleTypeErrors, ParseFn};
 
 /// Load and parse every `.ab` file under the package's `src/` directory.
 pub(super) fn load_all_modules(pkg: &mut Package, parse: ParseFn) -> Result<(), BuildError> {
@@ -454,31 +454,54 @@ fn load_module(
     })
 }
 
-/// Compile a loaded module to bytecode with cross-module type checking.
+/// Type-check a loaded module against the registry, returning its
+/// [`CheckResult`](crate::infer::CheckResult) or a structured single-module
+/// [`BuildError::TypeCheck`].
+///
+/// Checking reads only the registered ASTs + signatures, so it is globally
+/// order-independent — the check pre-pass ([`super::check_prepass`]) exploits
+/// this to check every cache-missing module up front, and the compile walk's
+/// fallback (verify mode, or a key match that fails both hit and relink) calls
+/// it lazily. Either way a module is checked exactly once per build.
+pub(super) fn check_loaded_module(
+    loaded: &LoadedModule,
+    file_path: &Path,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> Result<crate::infer::CheckResult, BuildError> {
+    let check_result =
+        crate::infer::check_module_with_registry(loaded.ast.clone(), module_path, registry);
+
+    if !check_result.is_ok() {
+        return Err(BuildError::TypeCheck {
+            failures: vec![ModuleTypeErrors {
+                module: module_path.to_string(),
+                path: file_path.to_path_buf(),
+                source: loaded.source.clone(),
+                errors: check_result.errors,
+            }],
+        });
+    }
+    Ok(check_result)
+}
+
+/// Compile an already-checked loaded module to bytecode, capturing its pre-link
+/// symbolic form.
 ///
 /// `deps` is the module's resolve-pass dependency closure; the compiler's
 /// foreign-item channels ([`ModuleEnv::new_scoped`]) are narrowed to it, so
-/// the compile reads only the modules its cache key already folds.
-pub(super) fn compile_loaded_module_with_registry(
+/// the compile reads only the modules its cache key already folds. The
+/// `check_result` is consumed for its typed AST and canonical signatures — the
+/// module is never re-checked here.
+pub(super) fn compile_checked_module(
     loaded: &LoadedModule,
     file_path: &Path,
     module_path: &ModulePath,
     registry: &ModuleRegistry,
     imported_hashes: HashMap<NameKey, blake3::Hash>,
     deps: &std::collections::BTreeSet<crate::fqn::ModuleId>,
+    check_result: crate::infer::CheckResult,
 ) -> Result<(CompiledModule, crate::compiler::PrelinkModule), BuildError> {
-    let check_result =
-        crate::infer::check_module_with_registry(loaded.ast.clone(), module_path, registry);
-
-    if !check_result.is_ok() {
-        return Err(BuildError::TypeCheck {
-            module: module_path.to_string(),
-            path: file_path.to_path_buf(),
-            source: loaded.source.clone(),
-            errors: check_result.errors,
-        });
-    }
-
     let source_file = file_path.display().to_string();
     let (mut compiled, mut prelink) = crate::compiler::compile_module_capturing(
         &check_result.module,
