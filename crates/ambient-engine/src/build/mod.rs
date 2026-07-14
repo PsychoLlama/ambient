@@ -519,8 +519,10 @@ pub fn build_package(
     // full `deps`) as the base is what makes the self-orphan case acyclic: a
     // `use`/type-target edge back to the type's module is check-order-only and
     // must not constrain compile order. See [`reachability::dispatch_ordering_graph`]
-    // (cycle-guarded; falls back to the full `deps` order for a genuinely cyclic
-    // dispatch dep, which then fails to link exactly as before — correct).
+    // (per-edge acyclic augmentation: a structural edge is added only when it
+    // keeps the graph acyclic, so a genuinely cyclic dispatch dep drops its own
+    // edge and fails to link exactly as before — correct — without poisoning
+    // unrelated edges).
     let ordering_modules: Vec<(String, &crate::ast::Module)> = pkg
         .all_modules()
         .map(|m| (m.path.to_string(), &m.ast))

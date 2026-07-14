@@ -346,6 +346,124 @@ fn genuine_dispatch_cycle_still_fails_to_link() {
     );
 }
 
+/// The regression package: a spurious dispatch 2-cycle in one cluster
+/// (`gm`/`gc`/`gd`) must not poison an unrelated, perfectly satisfiable orphan
+/// dispatch in the same package (`common`/`zebra`/`main`).
+///
+/// The cluster manufactures a 2-cycle among structural edges: `gm` declares
+/// `Bee`+`Wye`+`zero()`; `gc` declares `Aye`+`Exx` and holds `impl Wye for Bee`
+/// (type-only dep `gc -> gm`, pure body — no link dep); `gd` holds
+/// `impl Exx for Aye` (type-only dep `gd -> gc`) and *calls* `gm::zero()` (link
+/// dep `gd -> gm`). The structural dispatch edges are `gm -> gc`, `gd -> gc`
+/// (dispatchers of `Bee`) and `gc -> gd` (dispatcher of `Aye`); the pair
+/// `gc -> gd` + `gd -> gc` is a cycle. The old all-or-nothing guard discarded
+/// *every* structural edge on any cycle, dropping the unrelated `main -> zebra`
+/// edge the orphan needs (`main` dispatches `Widget.describe()`, `impl` lives in
+/// later-sorting `zebra`), so the whole-package build failed to link. The
+/// per-edge acyclic augmentation drops only the specific cycle-closing edge, so
+/// `main -> zebra` survives and the program links and prints 15.
+const SPURIOUS_CYCLE_PKG: &[(&str, &str)] = &[
+    (
+        "gm.ab",
+        "pub unique(DEADBEEF-0000-0000-0000-0000000000E0) struct Bee { n: Number }\n\
+         pub unique(DEADBEEF-0000-0000-0000-0000000000E1) trait Wye { fn wye(self): Number; }\n\
+         pub fn zero(): Number { 0 }\n",
+    ),
+    (
+        "gc.ab",
+        "use pkg::gm::Bee;\n\
+         use pkg::gm::Wye;\n\
+         pub unique(DEADBEEF-0000-0000-0000-0000000000E2) struct Aye { n: Number }\n\
+         pub unique(DEADBEEF-0000-0000-0000-0000000000E3) trait Exx { fn exx(self): Number; }\n\
+         impl Wye for Bee { fn wye(self): Number { self.n } }\n",
+    ),
+    (
+        "gd.ab",
+        "use pkg::gc::Aye;\n\
+         use pkg::gc::Exx;\n\
+         use pkg::gm::zero;\n\
+         impl Exx for Aye { fn exx(self): Number { self.n } }\n\
+         pub fn g(): Number { zero() }\n",
+    ),
+    (
+        "common.ab",
+        "pub unique(DEADBEEF-0000-0000-0000-0000000000EA) struct Widget { size: Number }\n\
+         pub unique(DEADBEEF-0000-0000-0000-0000000000EB) trait Describe { fn describe(self): Number; }\n",
+    ),
+    (
+        "zebra.ab",
+        "use pkg::common::Widget;\n\
+         use pkg::common::Describe;\n\
+         impl Describe for Widget { fn describe(self): Number { 10 + self.size } }\n",
+    ),
+    (
+        "main.ab",
+        "use pkg::common::Widget;\n\
+         use pkg::common::Describe;\n\
+         pub fn run(): Number { let w = Widget { size: 5 }; w.describe() }\n",
+    ),
+];
+
+#[test]
+fn spurious_dispatch_cycle_does_not_poison_an_unrelated_orphan() {
+    // Whole-package build must link the `main -> zebra` orphan despite the
+    // `gc`/`gd` cluster's spurious structural cycle. This FAILS before the
+    // per-edge augmentation fix (the wholesale fallback drops `main -> zebra`).
+    let full = build(SPURIOUS_CYCLE_PKG, None)
+        .expect("whole-package build must link the unrelated orphan despite the spurious cycle");
+    assert_eq!(package_modules(&full).len(), 6);
+
+    // And it runs, printing 15 (10 + size 5), proving the orphan dispatch linked.
+    let dir = TempDir::new().expect("temp");
+    write_pkg(dir.path(), SPURIOUS_CYCLE_PKG);
+    let out = Command::new(ambient_bin())
+        .arg("run")
+        .arg(dir.path())
+        .output()
+        .expect("spawn ambient run");
+    assert!(
+        out.status.success(),
+        "ambient run failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("15"), "expected result 15, got: {stdout}");
+}
+
+#[test]
+fn lazy_run_is_not_poisoned_by_an_unreachable_spurious_cycle() {
+    // The lazy entry (`run` in `main`) reaches only `main`/`common`/`zebra`; the
+    // `gm`/`gc`/`gd` cluster (with its spurious structural cycle) is unreachable
+    // and must not affect the reachable part's ordering. The ordering graph is
+    // computed over *all* modules before the lazy filter, so an unreachable
+    // poisoner would still corrupt the reachable order under the old guard.
+    let lazy = build(SPURIOUS_CYCLE_PKG, Some("run"))
+        .expect("lazy build must link the orphan; the unreachable cluster must not poison it");
+    assert_eq!(
+        package_modules(&lazy),
+        vec![
+            "workspace::lazy_pkg::common".to_string(),
+            "workspace::lazy_pkg::main".to_string(),
+            "workspace::lazy_pkg::zebra".to_string(),
+        ],
+        "only the orphan cluster is reached; the spurious-cycle cluster is pruned"
+    );
+
+    let dir = TempDir::new().expect("temp");
+    write_pkg(dir.path(), SPURIOUS_CYCLE_PKG);
+    let out = Command::new(ambient_bin())
+        .arg("run")
+        .arg(dir.path())
+        .output()
+        .expect("spawn ambient run");
+    assert!(
+        out.status.success(),
+        "ambient run failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).contains("15"));
+}
+
 #[test]
 fn ambient_run_executes_orphan_impl_module_sorted_after_dispatcher() {
     // End-to-end: the run result (15 = 10 + size 5) proves the dispatch reached

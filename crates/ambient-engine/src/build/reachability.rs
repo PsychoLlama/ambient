@@ -40,6 +40,7 @@
 //! costs compile time, never correctness. It is *not* item/FQN-grain — a
 //! reachable module compiles whole (the checker's intra-module coupling).
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
@@ -98,7 +99,7 @@ use crate::types::Type;
 /// no package dep — every module is a candidate. A superset only over-orders
 /// (spurious edges cost nothing as long as the graph stays acyclic).
 ///
-/// ## Cycle policy
+/// ## Cycle policy: per-edge acyclic augmentation
 ///
 /// Structural edges only *order*; they never enter cycle **diagnostics** (those
 /// stay on the full `deps` — see [`crate::module_cycles`]). A candidate that `I`
@@ -106,46 +107,78 @@ use crate::types::Type;
 /// unsatisfiable in a single pass (`I` needs its dep compiled first *and* the
 /// dep needs `I`'s symbol). Only a genuine *link* dep of `I` on the candidate
 /// makes the edge unsatisfiable — a mere type-only dep does not (suppressing on
-/// that was the self-orphan bug). As a final guard, if the augmented graph is
-/// cyclic while `link_deps` alone is not, the structural edges are discarded and
-/// the build falls back to the **full `deps`** order (see the fallback site).
+/// that was the self-orphan bug).
+///
+/// The candidate-skip cannot catch *every* cycle, though: it only follows link
+/// edges out of one impl module, so a cycle that closes through a *second*
+/// structural edge (impl A's edge `X -> A` plus impl B's edge `A -> X`) slips
+/// past it. Rather than discard the whole augmentation on any residual cycle —
+/// which lets one spurious 2-cycle in an unrelated cluster drop a perfectly
+/// satisfiable orphan's edge elsewhere in the package — we augment **one edge at
+/// a time** over the provably-acyclic `link_deps` base, skipping any single edge
+/// whose addition would close a cycle (i.e. skip `from -> to` when `from` is
+/// already reachable from `to` in the graph built so far). A spurious cycle then
+/// costs only the specific edge(s) that close it; unrelated edges survive.
+///
+/// The genuine-cycle case still fails to link, as it must: there the needed
+/// structural edge is the one whose reverse is a real *link* dep, so it is the
+/// edge that closes the cycle and gets skipped — leaving the dispatcher ordered
+/// *before* its impl, exactly the failing order the old fallback produced.
+///
+/// ## Determinism
+///
+/// The augmentation is order-sensitive (greedy: when two structural edges close
+/// a cycle *with each other*, whichever comes first wins; the other is skipped —
+/// strictly no worse than the old fallback, which dropped both). So we iterate
+/// edges in a fully deterministic order — sorted by `(from, to)` — realized by
+/// the `BTreeMap` key order over `extra` and the per-key `definers.sort_unstable`
+/// in [`structural_dispatch_edges`]. `(from, to)` order carries no semantic
+/// priority (anchor vs. reverse vs. dispatch edges are indistinguishable here and
+/// any deterministic tie-break is acceptable); it is chosen purely for a stable,
+/// obvious rule. This keeps warm == cold == lazy byte-identity: the graph is
+/// built the same way every time regardless of the module iteration order.
 ///
 /// `modules` carries each package module's resolved AST keyed by the same string
 /// `deps`/`link_deps` use (its dotted [`ModulePath`](crate::module_path::ModulePath)).
-pub(super) fn dispatch_ordering_graph(
+pub(super) fn dispatch_ordering_graph<'a>(
     deps: &BTreeMap<String, Vec<String>>,
-    link_deps: &BTreeMap<String, Vec<String>>,
+    link_deps: &'a BTreeMap<String, Vec<String>>,
     modules: &[(String, &Module)],
-) -> BTreeMap<String, Vec<String>> {
+) -> Cow<'a, BTreeMap<String, Vec<String>>> {
     let extra = structural_dispatch_edges(deps, link_deps, modules);
     if extra.is_empty() {
-        return link_deps.clone();
+        // No structural edges to add — the caller only borrows, so hand back the
+        // `link_deps` base without a deep clone.
+        return Cow::Borrowed(link_deps);
     }
+    // `link_deps ⊆ deps` and the full `deps` is acyclic (the build rejects import
+    // cycles before ordering), so this base is acyclic. Each structural edge is
+    // added only when it keeps the graph acyclic, so the result stays acyclic by
+    // construction — no post-hoc cycle detection or wholesale fallback.
     let mut augmented = link_deps.clone();
-    for (caller, definers) in &extra {
-        let slot = augmented.entry(caller.clone()).or_default();
-        for definer in definers {
-            if !slot.contains(definer) {
-                slot.push(definer.clone());
+    for (from, definers) in &extra {
+        for to in definers {
+            if from == to || edge_would_cycle(&augmented, from, to) {
+                continue;
+            }
+            let slot = augmented.entry(from.clone()).or_default();
+            if !slot.contains(to) {
+                slot.push(to.clone());
             }
         }
     }
-    // `link_deps ⊆ deps` and the full `deps` is acyclic (the build rejects
-    // import cycles before ordering), so `link_deps` alone is acyclic too — any
-    // cycle here was introduced by a structural edge.
-    //
-    // Fall back to the **full `deps`** graph, not `link_deps`: this preserves
-    // the exact pre-`link_deps` behavior for a genuinely cyclic dispatch
-    // dependency. If an impl body really link-depends on a function of the
-    // type's own module (`common -> zebra` structural edge meets a real
-    // `zebra -> common` link dep), single-pass linking cannot satisfy both and
-    // the program *should* fail to link — which is correct per the design. The
-    // full-`deps` order is the deterministic order such a program always had.
-    if crate::module_cycles::detect_import_cycles(&augmented).is_empty() {
-        augmented
-    } else {
-        deps.clone()
-    }
+    debug_assert!(
+        crate::module_cycles::detect_import_cycles(&augmented).is_empty(),
+        "per-edge augmentation must keep the ordering graph acyclic"
+    );
+    Cow::Owned(augmented)
+}
+
+/// Whether adding the dependency edge `from -> to` (`from` compiles after `to`)
+/// would close a cycle in `graph`: it does iff `to` can already reach `from`
+/// (i.e. `to` already transitively depends on `from`).
+fn edge_would_cycle(graph: &BTreeMap<String, Vec<String>>, from: &str, to: &str) -> bool {
+    forward_closure(graph, to).contains(from)
 }
 
 /// The structural dispatch ordering edges (`dispatcher -> impl-module`) derived
