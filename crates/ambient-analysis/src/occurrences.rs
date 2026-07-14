@@ -415,8 +415,13 @@ impl Collector<'_> {
                 // dropping the args too). The *method* name carries no span on
                 // `AbilityCall` and no engine-minted `Fqn`, so it is not indexed
                 // (see the module-level scope note).
-                let span = call.ability.name_span.unwrap_or(call.span);
-                self.name_ref(&call.ability, span);
+                // A bare-method perform's synthesized ability carries no
+                // spelled spans; the method ident is the reference's
+                // anchor. An unresolved bare perform indexes nothing.
+                if let Some(ability) = &call.ability {
+                    let span = ability.name_span.unwrap_or(call.method_span);
+                    self.name_ref(ability, span);
+                }
                 for a in &call.args {
                     self.expr(a);
                 }

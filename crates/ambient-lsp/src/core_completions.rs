@@ -167,11 +167,10 @@ fn export_kind_completion(kind: ExportKind) -> Option<(CompletionItemKind, &'sta
         ExportKind::Trait => (CompletionItemKind::INTERFACE, "trait"),
         ExportKind::Ability => (CompletionItemKind::INTERFACE, "ability"),
         // Variant constructors complete through their enum (and the prelude
-        // ones need no qualification at all).
-        ExportKind::EnumVariant => return None,
-        // Never a module-level export (methods import only through the
-        // explicit `Ability::method` path shape).
-        ExportKind::AbilityMethod => return None,
+        // ones need no qualification at all); ability methods are never
+        // module-level exports (they import only through the explicit
+        // `Ability::method` path shape).
+        ExportKind::EnumVariant | ExportKind::AbilityMethod => return None,
     })
 }
 

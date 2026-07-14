@@ -141,6 +141,15 @@ pub enum TypeErrorKind {
     /// Unknown ability method.
     UnknownAbilityMethod { ability: Arc<str>, method: Arc<str> },
 
+    /// A bare-method perform (`seed!(…)`) whose method name no ability
+    /// method import brings into scope. `suggestion` carries a `use` path
+    /// that would import it, when some in-scope ability declares a method
+    /// of that name.
+    UnimportedAbilityMethod {
+        method: Arc<str>,
+        suggestion: Option<Arc<str>>,
+    },
+
     /// A declared ability (row) variable (`E!`) was used where a type is
     /// expected (e.g. `x: E`). An ability variable names an effect row, not
     /// a type.
@@ -438,6 +447,13 @@ impl std::fmt::Display for TypeErrorKind {
             }
             Self::UnknownAbilityMethod { ability, method } => {
                 write!(f, "unknown method `{method}` for ability `{ability}`")
+            }
+            Self::UnimportedAbilityMethod { method, suggestion } => {
+                write!(f, "no ability method `{method}` in scope")?;
+                if let Some(path) = suggestion {
+                    write!(f, "; import it with `use {path};`")?;
+                }
+                Ok(())
             }
             Self::AbilityVarAsType { name } => {
                 write!(

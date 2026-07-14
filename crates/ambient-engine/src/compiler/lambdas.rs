@@ -340,11 +340,22 @@ pub(super) fn compile_ability_call(
     // prelude (including `Exception`) — resolves through the context; the
     // identities come from the type checker, the implementation hash from
     // the same name→hash table calls link through.
-    let ability_name = &ability_call.ability.name;
     let method_name = &ability_call.method;
     let span = (ability_call.span.start, ability_call.span.end);
 
-    let info = ctx.resolve_ability(&ability_call.ability).ok_or_else(|| {
+    // A bare-method perform the resolve pass could not canonicalize is
+    // rejected by the checker; reaching compilation is an internal error.
+    let Some(ability) = &ability_call.ability else {
+        return Err(CompileError::new(
+            CompileErrorKind::Internal {
+                message: "unresolved bare-method perform survived checking",
+            },
+            span,
+        ));
+    };
+    let ability_name = &ability.name;
+
+    let info = ctx.resolve_ability(ability).ok_or_else(|| {
         CompileError::new(
             CompileErrorKind::UnknownAbilityMethod {
                 ability: Arc::clone(ability_name),

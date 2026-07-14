@@ -434,10 +434,21 @@ pub struct Param {
 /// An ability method call.
 #[derive(Debug, Clone)]
 pub struct AbilityCall {
-    /// The ability name.
-    pub ability: QualifiedName,
-    /// The method name.
+    /// The ability reference. `None` for a bare-method perform
+    /// (`seed!(…)`, legal when the method was imported via
+    /// `use m::Random::seed;`): the resolve pass canonicalizes the
+    /// imported method and fills this with the ability's canonical
+    /// reference (resolved `Fqn`, no spelled spans), after which the call
+    /// is indistinguishable from a qualified perform downstream. Still
+    /// `None` after resolution means no such method import is in scope —
+    /// the checker diagnoses it.
+    pub ability: Option<QualifiedName>,
+    /// The method name. For a bare-method perform this starts as the
+    /// local (possibly `as`-aliased) imported name; the resolve pass
+    /// rewrites it to the declared method name alongside `ability`.
     pub method: Arc<str>,
+    /// Span of the method name (IDE features, bare-perform diagnostics).
+    pub method_span: Span,
     /// Arguments.
     pub args: Vec<Expr>,
     /// Hidden trailing fingerprint arguments for the State ability's

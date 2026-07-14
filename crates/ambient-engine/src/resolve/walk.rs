@@ -373,7 +373,11 @@ impl Resolver<'_> {
                 }
             }
             ExprKind::Perform(call) => {
-                self.resolve_ability_ref(&mut call.ability);
+                if let Some(ability) = &mut call.ability {
+                    self.resolve_ability_ref(ability);
+                } else {
+                    self.resolve_bare_method_perform(call);
+                }
                 for arg in &mut call.args {
                     self.resolve_expr(arg);
                 }

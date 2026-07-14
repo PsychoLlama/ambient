@@ -147,6 +147,37 @@ impl Resolver<'_> {
         self.resolve_path_ref(name, RefPos::Value);
     }
 
+    /// Resolve a bare-method perform (`seed!(…)`, no spelled ability)
+    /// through the imported-ability-method scope channel
+    /// (`use m::Random::seed;`, block-scoped included). On a hit the call
+    /// is canonicalized in place: the ability reference is synthesized
+    /// with the declaring module's `Fqn` (no spelled spans) and the method
+    /// rewritten to its declared name (an `as` alias vanishes here), so
+    /// everything downstream — checker, compiler, interface hashing — sees
+    /// exactly what the qualified spelling resolves to. A miss leaves
+    /// `ability` as `None` and the checker diagnoses it.
+    ///
+    /// VALUE edge, like every perform: the site links the ability's
+    /// method-identity / default-implementation dispatch channel.
+    pub(super) fn resolve_bare_method_perform(&mut self, call: &mut crate::ast::AbilityCall) {
+        let Some(import) = self.scope_item(&call.method, Namespace::AbilityMethod) else {
+            return;
+        };
+        let Some(owner) = import.owner.clone() else {
+            return;
+        };
+        let (module, method) = (import.module.clone(), import.name.clone());
+        let fqn = self.canonical_value(&module, vec![Arc::clone(&owner)]);
+        call.method = method;
+        call.ability = Some(QualifiedName {
+            path: vec![],
+            path_spans: vec![],
+            name: owner,
+            name_span: None,
+            resolved: Some(fqn),
+        });
+    }
+
     /// Resolve a trait reference (an impl header `impl Show for X`, or a
     /// bound `T: Show` / `where T: Show`) to the trait's `Fqn`.
     ///

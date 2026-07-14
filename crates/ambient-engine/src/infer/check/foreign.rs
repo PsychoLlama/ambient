@@ -452,12 +452,17 @@ fn build_import_env(
                         | ExportKind::Const
                         | ExportKind::Struct
                         | ExportKind::TypeAlias
-                        | ExportKind::Trait,
+                        | ExportKind::Trait
+                        | ExportKind::AbilityMethod,
                     ..
                 } => {
                     // Modules resolve through paths; enums are registered by
                     // `register_imported_enums`; values resolve canonically;
                     // types/traits register through `register_package_items`.
+                    // Ability methods bind nothing here: the resolve pass
+                    // canonicalizes each bare `method!(…)` perform to its
+                    // ability's `Fqn`, and the namespaced dynamics (seeded
+                    // for every registered module) carry the interface.
                 }
                 ResolvedImport::Symbol {
                     export_kind: ExportKind::EnumVariant,
@@ -480,16 +485,6 @@ fn build_import_env(
                     from_module,
                     ..
                 } => register_imported_ability(infer, registry, &from_module, &name, errors),
-                ResolvedImport::Symbol {
-                    export_kind: ExportKind::AbilityMethod,
-                    ..
-                } => {
-                    // An imported ability method binds nothing in the type
-                    // env: the resolve pass canonicalizes each bare
-                    // `method!(…)` perform to its ability's `Fqn`, and the
-                    // namespaced dynamics (seeded for every registered
-                    // module) carry the interface.
-                }
             }
         }
     }

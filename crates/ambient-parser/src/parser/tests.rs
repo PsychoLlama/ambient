@@ -946,3 +946,47 @@ fn test_parse_pub_use() {
     assert!(uses[0].is_public);
     assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Pkg);
 }
+
+#[test]
+fn test_parse_bare_method_perform() {
+    // A bare-method perform: the ability is unspelled (empty segments),
+    // implied by an imported ability method.
+    let mut parser = Parser::new(r#"seed!("hello")"#).unwrap();
+    let expr = parser.parse_expression().expect("parse error");
+    match expr.kind {
+        CstExprKind::Perform {
+            ability,
+            method,
+            args,
+        } => {
+            assert!(ability.segments.is_empty());
+            assert_eq!(&*method.name, "seed");
+            assert_eq!(args.len(), 1);
+        }
+        other => panic!("Expected perform, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_bare_method_perform_requires_argument_list() {
+    // `seed!` without `(…)` is not a perform (a bare `!` on a value is
+    // reserved for future suspended-ability syntax).
+    let mut parser = Parser::new("seed! + 1").unwrap();
+    assert!(parser.parse_expression().is_err());
+}
+
+#[test]
+fn test_parse_qualified_perform_still_carries_its_ability() {
+    let mut parser = Parser::new(r#"core::system::Stdio::out!("hi")"#).unwrap();
+    let expr = parser.parse_expression().expect("parse error");
+    match expr.kind {
+        CstExprKind::Perform {
+            ability, method, ..
+        } => {
+            let path: Vec<&str> = ability.segments.iter().map(|s| s.name.as_ref()).collect();
+            assert_eq!(path, ["core", "system", "Stdio"]);
+            assert_eq!(&*method.name, "out");
+        }
+        other => panic!("Expected perform, got {other:?}"),
+    }
+}

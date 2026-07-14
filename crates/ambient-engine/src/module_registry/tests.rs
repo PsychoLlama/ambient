@@ -828,7 +828,9 @@ fn ability_method_lookup_finds_method_and_names_its_owner() {
         }),
     );
 
-    let (export, origin) = registry.lookup_ability_method(&fx, "Random", "seed").unwrap();
+    let (export, origin) = registry
+        .lookup_ability_method(&fx, "Random", "seed")
+        .unwrap();
     assert_eq!(export.kind, ExportKind::AbilityMethod);
     assert_eq!(export.name.as_ref(), "seed");
     assert_eq!(export.owner.as_deref(), Some("Random"));

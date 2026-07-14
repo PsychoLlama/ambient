@@ -180,13 +180,26 @@ impl Infer {
     /// Returns a `TypeError` if the ability or method is not found, or if the namespace is incorrect.
     pub fn lookup_ability_method(
         &mut self,
-        ability: &QualifiedName,
+        ability: Option<&QualifiedName>,
         method_name: &str,
         arg_tys: &[Type],
         dicts: &mut Option<crate::ast::Dicts>,
         fingerprints: &mut Option<crate::ast::Fingerprints>,
         span: (u32, u32),
     ) -> InferResult<(AbilityId, Type, AbilitySet)> {
+        // A bare-method perform (`seed!(…)`) resolves through an imported
+        // ability method; the resolve pass fills `ability` when one is in
+        // scope. Still-`None` means no import covers the name — diagnose,
+        // suggesting a `use` when some registered ability declares it.
+        let Some(ability) = ability else {
+            return Err(type_error(
+                TypeErrorKind::UnimportedAbilityMethod {
+                    method: method_name.into(),
+                    suggestion: self.ability_resolver.suggest_method_import(method_name),
+                },
+                span,
+            ));
+        };
         // One policy for every position that names an ability: namespaced
         // dynamics (ability preludes, e.g. the `platform` module, and the
         // prelude-injected `Exception`) resolve only under their declaring
@@ -499,7 +512,7 @@ mod tests {
         let qualified = QualifiedName::qualified(vec!["core", "system"], "Printer");
         let (id, ret, _) = infer
             .lookup_ability_method(
-                &qualified,
+                Some(&qualified),
                 "go",
                 &[Type::string()],
                 &mut None,
@@ -512,7 +525,7 @@ mod tests {
 
         // Declared signatures are enforced: wrong argument type fails.
         let err = infer.lookup_ability_method(
-            &qualified,
+            Some(&qualified),
             "go",
             &[Type::number()],
             &mut None,
@@ -526,7 +539,7 @@ mod tests {
         assert!(
             infer
                 .lookup_ability_method(
-                    &wrong,
+                    Some(&wrong),
                     "go",
                     &[Type::string()],
                     &mut None,
@@ -651,7 +664,7 @@ mod tests {
         // A namespaced prelude ability performed bare should fail.
         let bare = QualifiedName::simple("Printer");
         let result = infer.lookup_ability_method(
-            &bare,
+            Some(&bare),
             "go",
             &[Type::string()],
             &mut None,
@@ -666,7 +679,7 @@ mod tests {
         // The same perform with the namespace succeeds.
         let qualified = platform_ability("Printer");
         let result = infer.lookup_ability_method(
-            &qualified,
+            Some(&qualified),
             "go",
             &[Type::string()],
             &mut None,

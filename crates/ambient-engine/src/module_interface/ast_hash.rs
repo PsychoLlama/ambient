@@ -665,7 +665,17 @@ fn write_expr(sink: &mut Sink, expr: &Expr) {
             ..
         }) => {
             sink.tag(20);
-            sink.name(ability);
+            // A bare-method perform (`seed!(…)`) hashes distinctly from a
+            // spelled `seed::seed!(…)` until resolution; once the resolve
+            // pass fills the ability's canonical reference it hashes
+            // exactly like the qualified spelling.
+            match ability {
+                Some(ability) => {
+                    sink.tag(1);
+                    sink.name(ability);
+                }
+                None => sink.tag(0),
+            }
             sink.str(method);
             write_exprs(sink, args);
         }

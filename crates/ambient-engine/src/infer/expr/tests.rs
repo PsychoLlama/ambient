@@ -751,8 +751,9 @@ fn infer_with_exception() -> Infer {
 fn throw_expr(msg: &str) -> Expr {
     Expr::new(
         ExprKind::Perform(crate::ast::AbilityCall {
-            ability: crate::ast::QualifiedName::simple("Exception"),
+            ability: Some(crate::ast::QualifiedName::simple("Exception")),
             method: "throw".into(),
+            method_span: crate::ast::Span::default(),
             args: vec![Expr::string(msg)],
             fingerprints: None,
             span: crate::ast::Span::default(),

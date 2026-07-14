@@ -131,8 +131,33 @@ bare thereafter. A bare `Stdio` that was _never_ imported (and is not a
 local declaration) is a type error — the diagnostic suggests qualifying with
 `core::system::` or adding the `use`. A local `ability Stdio` shadows an
 imported one under the bare name; the platform one stays reachable
-qualified. The builtin `Exception` is always bare and may not be spelled
-with a namespace.
+qualified. The builtin `Exception` is an ordinary declaration in
+`core::exception`, re-exported by the prelude, so it is bare everywhere
+with no import (and still reachable as `core::exception::Exception`).
+
+Ability **methods** import individually, dropping the prefix at _call
+sites_:
+
+```ambient
+use core::system::{Random, Random::seed};
+
+fn example(): Number with Random {
+  seed!("bare perform")     // = Random::seed!("bare perform")
+}
+```
+
+A method import is calls-only and lives in its own namespace (a perform
+is syntactically distinct — `name!(…)` — so it never collides with a
+same-named function): handler arms stay qualified (`Random::seed(s) =>
+…`), and `with` rows, `Handler<A>` types, and sandbox clauses still name
+the _ability_. The bare perform resolves to the identical
+`(AbilityId, MethodKey)` as the qualified spelling — handlers intercept
+both the same way, and content hashes cannot tell them apart. Method
+imports alias (`use …::Random::seed as reseed;`), re-export (`pub use`),
+and block-scope like any other `use` leaf; a `pub ability` exposes its
+methods the way a `pub enum` exposes variants. A bare `seed!(…)` with no
+method import in scope is a type error whose diagnostic suggests the
+`use` that would fix it.
 
 ## Ability Syntax in Type Signatures
 

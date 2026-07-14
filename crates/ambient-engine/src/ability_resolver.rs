@@ -308,6 +308,40 @@ impl AbilityResolver {
             .map(|(_, ability)| ability)
     }
 
+    /// A `use` path that would import `method` as a bare ability method,
+    /// if any registered dynamic declares a method of that name. Rendered
+    /// in *importable* form — `core::…`/`pkg::…` for namespaced dynamics,
+    /// `self::…` for local declarations — never the diagnostic-only
+    /// `workspace::<pkg>` spelling, which `use` does not accept.
+    /// Deterministic (lexically least) when several match.
+    #[must_use]
+    pub fn suggest_method_import(&self, method: &str) -> Option<Arc<str>> {
+        let importable = |namespace: &ModuleId| {
+            let root = match namespace.scope {
+                crate::fqn::Scope::Builtin => "core",
+                crate::fqn::Scope::Workspace(_) => "pkg",
+            };
+            std::iter::once(root)
+                .chain(namespace.path.iter().map(AsRef::as_ref))
+                .collect::<Vec<_>>()
+                .join("::")
+        };
+        let mut candidates: Vec<String> = self
+            .namespaced_by_name
+            .iter()
+            .filter(|(_, ability)| ability.method(method).is_some())
+            .map(|((namespace, name), _)| format!("{}::{name}::{method}", importable(namespace)))
+            .chain(
+                self.dynamic_by_name
+                    .values()
+                    .filter(|ability| ability.method(method).is_some())
+                    .map(|ability| format!("self::{}::{method}", ability.name)),
+            )
+            .collect();
+        candidates.sort_unstable();
+        candidates.into_iter().next().map(Arc::from)
+    }
+
     /// Convert an ability ID to its name.
     #[must_use]
     pub fn id_to_name(&self, id: AbilityId) -> Option<&str> {

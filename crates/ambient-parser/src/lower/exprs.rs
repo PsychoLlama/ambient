@@ -185,9 +185,14 @@ pub(super) fn lower_expression(
                 .iter()
                 .map(|e| lower_expression(ctx, e))
                 .collect::<Result<Vec<_>, _>>()?;
+            // Empty segments mark a bare-method perform (`seed!(…)`):
+            // the ability is unspelled, and the resolve pass fills it
+            // from the imported-method scope channel.
+            let ability = (!ability.segments.is_empty()).then(|| lower_qualified_name(ability));
             ExprKind::Perform(AbilityCall {
-                ability: lower_qualified_name(ability),
+                ability,
                 method: method.name.clone(),
+                method_span: Span::new(method.span.start, method.span.end),
                 args: lowered_args,
                 fingerprints: None,
                 span: expr.span,

@@ -218,8 +218,9 @@ fn name_expr(qn: QualifiedName) -> Expr {
 fn perform_expr(ability: QualifiedName, method: &str) -> Expr {
     Expr {
         kind: ExprKind::Perform(AbilityCall {
-            ability,
+            ability: Some(ability),
             method: Arc::from(method),
+            method_span: Span::default(),
             args: vec![],
             fingerprints: None,
             span: Span::default(),

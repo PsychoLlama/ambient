@@ -626,7 +626,9 @@ pub enum CstExprKind {
     // ─────────────────────────────────────────────────────────────────────────
     // Abilities
     // ─────────────────────────────────────────────────────────────────────────
-    /// Ability call with perform: `Stdio.out!("hello")`.
+    /// Ability call with perform: `Stdio::out!("hello")`. A bare-method
+    /// perform (`out!("hello")`, the ability implied by an imported
+    /// ability method) carries an `ability` with empty segments.
     Perform {
         ability: CstQualifiedName,
         method: CstIdent,

@@ -73,109 +73,105 @@ impl ReExport {
     }
 }
 
+/// A direct (non-method) export: every kind here is a module-level item,
+/// so `owner` is always `None`.
+fn direct(
+    name: &Arc<str>,
+    kind: ExportKind,
+    is_public: bool,
+    name_span: Span,
+    doc: Option<Arc<str>>,
+) -> ExportInfo {
+    ExportInfo {
+        name: Arc::clone(name),
+        kind,
+        is_public,
+        re_export_from: None,
+        name_span,
+        doc,
+        owner: None,
+    }
+}
+
 /// Extract exports from a module.
 pub(super) fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> {
     let mut exports = HashMap::new();
 
     for item in &module.items {
+        let doc = item.doc.clone();
         let info = match &item.kind {
-            ItemKind::Function(f) => Some(ExportInfo {
-                name: f.name.clone(),
-                kind: ExportKind::Function,
-                is_public: f.is_public,
-                re_export_from: None,
-                name_span: f.name_span,
-                doc: item.doc.clone(),
-                owner: None,
-            }),
-            ItemKind::Const(c) => Some(ExportInfo {
-                name: c.name.clone(),
-                kind: ExportKind::Const,
-                is_public: c.is_public,
-                re_export_from: None,
-                name_span: c.name_span,
-                doc: item.doc.clone(),
-                owner: None,
-            }),
-            ItemKind::Struct(s) => Some(ExportInfo {
-                name: s.name.clone(),
-                kind: ExportKind::Struct,
-                is_public: s.is_public,
-                re_export_from: None,
-                name_span: s.name_span,
-                doc: item.doc.clone(),
-                owner: None,
-            }),
-            ItemKind::TypeAlias(t) => Some(ExportInfo {
-                name: t.name.clone(),
-                kind: ExportKind::TypeAlias,
-                is_public: t.is_public,
-                re_export_from: None,
-                name_span: t.name_span,
-                doc: item.doc.clone(),
-                owner: None,
-            }),
+            ItemKind::Function(f) => Some(direct(
+                &f.name,
+                ExportKind::Function,
+                f.is_public,
+                f.name_span,
+                doc,
+            )),
+            ItemKind::Const(c) => Some(direct(
+                &c.name,
+                ExportKind::Const,
+                c.is_public,
+                c.name_span,
+                doc,
+            )),
+            ItemKind::Struct(s) => Some(direct(
+                &s.name,
+                ExportKind::Struct,
+                s.is_public,
+                s.name_span,
+                doc,
+            )),
+            ItemKind::TypeAlias(t) => Some(direct(
+                &t.name,
+                ExportKind::TypeAlias,
+                t.is_public,
+                t.name_span,
+                doc,
+            )),
             ItemKind::Enum(e) => {
                 // Add the enum itself
                 exports.insert(
                     e.name.clone(),
-                    ExportInfo {
-                        name: e.name.clone(),
-                        kind: ExportKind::Enum,
-                        is_public: e.is_public,
-                        re_export_from: None,
-                        name_span: e.name_span,
-                        doc: item.doc.clone(),
-                        owner: None,
-                    },
+                    direct(&e.name, ExportKind::Enum, e.is_public, e.name_span, doc),
                 );
-
-                // Variants inherit the enum's visibility.
+                // Variants inherit the enum's visibility (and no doc).
                 for variant in &e.variants {
                     exports.insert(
                         variant.name.clone(),
-                        ExportInfo {
-                            name: variant.name.clone(),
-                            kind: ExportKind::EnumVariant,
-                            is_public: e.is_public,
-                            re_export_from: None,
-                            name_span: variant.span,
-                            doc: None,
-                            owner: None,
-                        },
+                        direct(
+                            &variant.name,
+                            ExportKind::EnumVariant,
+                            e.is_public,
+                            variant.span,
+                            None,
+                        ),
                     );
                 }
                 None // Already added
             }
-            ItemKind::Ability(a) => Some(ExportInfo {
-                name: a.name.clone(),
-                kind: ExportKind::Ability,
-                is_public: a.is_public,
-                re_export_from: None,
-                name_span: a.name_span,
-                doc: item.doc.clone(),
-                owner: None,
-            }),
-            ItemKind::Trait(t) => Some(ExportInfo {
-                name: t.name.clone(),
-                kind: ExportKind::Trait,
-                is_public: t.is_public,
-                re_export_from: None,
-                name_span: t.name_span,
-                doc: item.doc.clone(),
-                owner: None,
-            }),
+            ItemKind::Ability(a) => Some(direct(
+                &a.name,
+                ExportKind::Ability,
+                a.is_public,
+                a.name_span,
+                doc,
+            )),
+            ItemKind::Trait(t) => Some(direct(
+                &t.name,
+                ExportKind::Trait,
+                t.is_public,
+                t.name_span,
+                doc,
+            )),
             // Extern fns export exactly like functions: the missing body is
             // a compile-time binding concern, invisible to importers.
-            ItemKind::ExternFn(e) => Some(ExportInfo {
-                name: e.name.clone(),
-                kind: ExportKind::Function,
-                is_public: e.is_public,
-                re_export_from: None,
-                name_span: e.name_span,
-                doc: item.doc.clone(),
-                owner: None,
-            }),
+            ItemKind::ExternFn(e) => Some(direct(
+                &e.name,
+                ExportKind::Function,
+                e.is_public,
+                e.name_span,
+                doc,
+            )),
             ItemKind::Use(_) | ItemKind::Impl(_) => None, // Use statements and impls are not exports
         };
 

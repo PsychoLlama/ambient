@@ -38,7 +38,7 @@ impl Infer {
         // dictionaries ride as hidden trailing perform arguments, exactly
         // like a bounded function call's.
         let (ability_id, result_ty, additional_abilities) = self.lookup_ability_method(
-            &ability_call.ability,
+            ability_call.ability.as_ref(),
             &ability_call.method,
             &arg_tys,
             dicts,

@@ -63,6 +63,7 @@ use http::client::get;                  //   ...and a module alias can root
                                         //   another use (any order; resolved
                                         //   by fixed point)
 use pkg::shapes::Shape;                 // Enum import: type, constructors, patterns
+use pkg::fx::Random::seed;              // Ability-method import: `seed!(…)` performs bare
 ```
 
 Braces are pure grouping — the tree flattens during lowering, so
@@ -100,7 +101,18 @@ constructors and patterns into scope wholesale, as if declared locally;
 a single variant cannot be imported on its own, and a qualified _type_
 reference alone (`pkg::shapes::Shape` in a signature) does not bring
 constructors into scope — import the enum where you construct or match
-it. `pub use` re-exports items (and whole modules), and imports through a
+it.
+
+Ability **methods** are the one member kind importable on their own:
+`use pkg::fx::Random::seed;` lets perform sites drop the prefix
+(`seed!(…)` for `Random::seed!(…)`). The binding is calls-only and
+occupies its own namespace (a perform is syntactically distinct —
+`name!(…)` — so a method import never collides with a same-named function
+or type); handler arms, `with` rows, and `Handler<A>` types still name
+the ability. Method imports alias (`as`), re-export (`pub use`), and
+block-scope like any other leaf; visibility is the ability's (`pub
+ability` exposes its methods, exactly as `pub enum` exposes variants).
+See [Using Abilities](abilities.md#using-abilities). `pub use` re-exports items (and whole modules), and imports through a
 re-export resolve (and link) to the module that defines the symbol.
 Re-export paths must be rooted (`pkg`/`core`/`self`/`super`),
 not alias-relative, so downstream modules can resolve them without this
