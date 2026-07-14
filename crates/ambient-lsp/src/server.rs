@@ -575,15 +575,27 @@ fn handle_goto_definition(
 ///
 /// Occurrences are leaf identifiers and never nest, so the first span that
 /// contains the offset is the answer.
+///
+/// Identity policy: the request `uri` is editor-sent, but the index's `uri` is
+/// server-minted — two independent spellings of the same file that raw-string
+/// equality must never be trusted to reconcile (a `[build] src = "./"` package,
+/// percent-encoding, casing, symlinks). So when the request URI resolves to a
+/// package module, match on MODULE PATH (the path-structural route that already
+/// works everywhere else). Only a URI outside the package — a core-cache builtin
+/// opened in the editor, or a no-package standalone document — falls back to
+/// URI-string identity, and there both URIs come from the same mint.
 pub(crate) fn occurrence_at<'a>(
     state: &'a ServerState,
     uri: &Uri,
     offset: u32,
 ) -> Option<(&'a ModuleOccurrences, &'a Occurrence)> {
-    let module = state
-        .occurrences
-        .iter()
-        .find(|m| m.uri.as_str() == uri.as_str())?;
+    let request_module = state
+        .package()
+        .and_then(|pkg| uri_to_path(uri).and_then(|path| pkg.module_path_for(&path)));
+    let module = state.occurrences.iter().find(|m| match &request_module {
+        Some(module_path) => m.module_path == *module_path,
+        None => m.uri.as_str() == uri.as_str(),
+    })?;
     let occurrence = module
         .occurrences
         .iter()

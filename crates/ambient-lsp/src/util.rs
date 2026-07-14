@@ -16,8 +16,15 @@ pub fn uri_to_path(uri: &Uri) -> Option<PathBuf> {
 }
 
 /// Convert a file path to a file:// URI.
+///
+/// The single mint point for every server-produced `file://` URI. Paths are
+/// lexically normalized first (`ambient_analysis::package::lexically_normalize`)
+/// so a `.`/`..` segment — e.g. from a `[build] src = "./"` manifest — never
+/// reaches the wire: a minted URI must spell a file exactly as an editor-sent
+/// URI would, or raw-string URI comparison silently fails.
 pub fn path_to_uri(path: &std::path::Path) -> Option<Uri> {
-    let path_str = path.to_str()?;
+    let normalized = ambient_analysis::package::lexically_normalize(path);
+    let path_str = normalized.to_str()?;
     let encoded = percent_encode(path_str);
     let uri_str = format!("file://{encoded}");
     uri_str.parse().ok()

@@ -6,7 +6,7 @@
 //! cross-module resolution instead of vanishing from the package.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use ambient_engine::ast::Module;
@@ -79,8 +79,8 @@ impl AnalysisPackage {
             if manifest_path.exists() {
                 let manifest = Manifest::from_file(&manifest_path).ok()?;
                 return Some(Self {
-                    root: current.to_path_buf(),
-                    src_dir: current.join(&manifest.src_dir),
+                    root: lexically_normalize(current),
+                    src_dir: lexically_normalize(&current.join(&manifest.src_dir)),
                     package_name: manifest.name,
                     modules: HashMap::new(),
                     host_abilities: manifest.host_abilities,
@@ -113,8 +113,8 @@ impl AnalysisPackage {
         let manifest = Manifest::from_file(&manifest_path)
             .map_err(|e| format!("failed to read {}: {e}", manifest_path.display()))?;
         let mut package = Self {
-            root: root.to_path_buf(),
-            src_dir: root.join(&manifest.src_dir),
+            root: lexically_normalize(root),
+            src_dir: lexically_normalize(&root.join(&manifest.src_dir)),
             package_name: manifest.name,
             modules: HashMap::new(),
             host_abilities: manifest.host_abilities,
@@ -348,6 +348,41 @@ impl AnalysisPackage {
             })
             .collect()
     }
+}
+
+/// Lexically normalize a path: drop `.` components and resolve `..` against the
+/// preceding directory, purely syntactically — no filesystem access, so no
+/// symlink surprises and it works on paths that don't exist yet (unlike
+/// `fs::canonicalize`).
+///
+/// This is the canonical-path policy for every path an [`AnalysisPackage`] will
+/// mint into a `file://` URI. A manifest `[build] src = "./"` would otherwise
+/// leave `src_dir` (and thus every server-minted URI) carrying a literal `/./`
+/// segment that no editor-sent URI contains — silently breaking any raw-string
+/// URI comparison. Path-structural comparisons (`strip_prefix`, `starts_with`)
+/// already fold `.` away, so this only has to match them at the mint boundary.
+#[must_use]
+pub fn lexically_normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => match out.components().next_back() {
+                Some(Component::Normal(_)) => {
+                    out.pop();
+                }
+                // Root's parent is root; drop the `..`.
+                Some(Component::RootDir | Component::Prefix(_)) => {}
+                // Nothing to pop (empty or a leading `..` chain): keep it.
+                _ => out.push(component.as_os_str()),
+            },
+            other => out.push(other.as_os_str()),
+        }
+    }
+    if out.as_os_str().is_empty() {
+        out.push(".");
+    }
+    out
 }
 
 /// Recursively discover all `.ab` files under a directory, sorted for
