@@ -37,18 +37,26 @@
 //! - **Ability references at perform sites and handler-literal arms**, keyed on
 //!   the ability's own item `Fqn` (the ability is spelled statically). This is
 //!   a reference to the *ability*, not a method occurrence.
+//! - **Method references and declarations**, keyed on the engine's
+//!   content-addressed dispatch symbol ([`SymbolTarget::Method`]) — trait method
+//!   calls (`x.show()`), inherent method calls, overloaded operators' *methods*,
+//!   associated calls (`Enum::default`), and ability methods at perform sites,
+//!   handler arms, and their declarations. This requires the **checked** AST:
+//!   the symbol lives in `ResolvedMethod`/`ImplMethod::resolved_symbol`, which
+//!   the checker fills; on parse-only input the method arms are no-ops. See
+//!   [`SymbolTarget::Method`] for the grouping semantics.
 //! - Local bindings with their same-file references.
 //!
-//! Deliberately **not** indexed (the honesty line — see the task record):
-//! - **Trait/ability method references.** Trait-method dispatch (`x.show()`,
-//!   overloaded operators) is type-directed: the resolved symbol is filled by
-//!   the *checker* (`ResolvedMethod`), which this collector — running on the
-//!   parsed/resolve-only AST — cannot see, and explicit associated paths
-//!   (`Enum::default`) are checker territory too. Ability-method *names* carry
-//!   no span on `AbilityCall` and no engine-minted `Fqn`. Indexing any of these
-//!   by name would be a name-keyed guess, so we index neither their
-//!   definitions nor their references. Rename of a method is refused, not
-//!   approximated.
+//! Deliberately **not** indexed:
+//! - **Trait-method *declarations*** (`fn show(self)` inside `trait Show`): the
+//!   dispatch symbol embeds the implementing type's uuid, which a type-blind
+//!   declaration lacks, so it cannot share a `Method` identity with any call
+//!   site. Navigation from a concrete call lands on the impl method (the runtime
+//!   target) instead.
+//! - **Overloaded operators as reference sites**: a `Binary` node has no method
+//!   identifier span to anchor an occurrence, so operators contribute no
+//!   occurrence (their dispatch is still navigable via the impl method's own
+//!   declaration occurrence).
 //! - Type references in signatures and annotations (including the `Enum` in an
 //!   `Enum::Variant` path prefix), so enum/type rename stays gated off.
 
@@ -57,11 +65,12 @@ use std::sync::Arc;
 
 use ambient_engine::ast::{
     BindingId, Expr, ExprKind, Item, ItemKind, Module, Param, Pattern, PatternKind, QualifiedName,
-    Span, Stmt, StmtKind, UseDef,
+    ResolvedMethod, Span, Stmt, StmtKind, UseDef,
 };
 use ambient_engine::fqn::Fqn;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
+use ambient_engine::types::uuid_to_source;
 
 use crate::queries::{ItemRef, resolve_item_ref};
 
@@ -108,6 +117,41 @@ pub enum SymbolTarget {
         /// The binding's name (metadata; not part of identity).
         name: Arc<str>,
     },
+    /// A method — trait, inherent, or ability — identified by the engine's
+    /// content-addressed **dispatch symbol**, the sole equality key.
+    ///
+    /// Method dispatch is nominal but not name-keyed: the symbol is uuid-derived
+    /// and is the same string the checker mints at the call site
+    /// ([`ResolvedMethod::Symbol`](ambient_engine::ast::ResolvedMethod)) and
+    /// writes onto the declaration
+    /// ([`ImplMethod::resolved_symbol`](ambient_engine::ast::ImplMethod)), so a
+    /// concrete call site and the impl method it dispatches to collapse to one
+    /// identity — the method analogue of an [`Item`](Self::Item)'s `Fqn`.
+    ///
+    /// - Trait/inherent methods and overloaded operators: the checker's
+    ///   `<type-uuid>::<trait-uuid>::<method>` / `<type-uuid>::<method>` symbol.
+    /// - Ability methods: `<ability-uuid>::<method>`, synthesized from the
+    ///   resolved ability `Fqn`, shared by the declaration, perform sites, and
+    ///   handler arms.
+    ///
+    /// Because the symbol embeds the *implementing type's* uuid, references group
+    /// per concrete `(type, trait, method)` — a call on `Foo` does not collapse
+    /// with a call on `Bar`, and the type-blind trait-method *declaration* (no
+    /// type uuid) is deliberately not indexed. This keys off structured identity,
+    /// never a bare name, so it is sound to navigate and (were it enabled)
+    /// rename; rename stays refused for methods.
+    ///
+    /// Only emitted when fed the **checked** AST — the parsed AST carries no
+    /// `resolved_method`/`resolved_symbol`, so the collector stays a no-op for
+    /// methods on parse-only input (single-file unit tests).
+    Method {
+        /// The engine-minted dispatch symbol (the sole equality key).
+        symbol: Arc<str>,
+        /// The module the site lives in (metadata; not part of identity).
+        module: ModulePath,
+        /// The method's simple name (metadata; not part of identity).
+        name: Arc<str>,
+    },
 }
 
 impl SymbolTarget {
@@ -115,7 +159,7 @@ impl SymbolTarget {
     #[must_use]
     pub fn name(&self) -> &Arc<str> {
         match self {
-            Self::Item { name, .. } | Self::Local { name, .. } => name,
+            Self::Item { name, .. } | Self::Local { name, .. } | Self::Method { name, .. } => name,
         }
     }
 
@@ -123,7 +167,9 @@ impl SymbolTarget {
     #[must_use]
     pub fn module(&self) -> &ModulePath {
         match self {
-            Self::Item { module, .. } | Self::Local { module, .. } => module,
+            Self::Item { module, .. }
+            | Self::Local { module, .. }
+            | Self::Method { module, .. } => module,
         }
     }
 
@@ -150,6 +196,7 @@ impl PartialEq for SymbolTarget {
                     ..
                 },
             ) => m1 == m2 && b1 == b2,
+            (Self::Method { symbol: s1, .. }, Self::Method { symbol: s2, .. }) => s1 == s2,
             _ => false,
         }
     }
@@ -190,6 +237,16 @@ pub fn collect_occurrences(
         collector.item(item);
     }
     collector.out
+}
+
+/// The `<ability-uuid>::<method>` dispatch identity for an ability method,
+/// mirroring the engine's `<type-uuid>::<trait-uuid>::<method>` impl-method
+/// symbols (`ambient_engine::types::impl_method_symbol`): both the declaration
+/// and every perform/handler-arm reference fold the same uuid + name, so they
+/// share one [`SymbolTarget::Method`] identity. The `::` separator never appears
+/// in a module-qualified name, so these never collide with an item `Fqn`.
+fn ability_dispatch_symbol(uuid_source: &str, method: &str) -> Arc<str> {
+    format!("{uuid_source}::{method}").into()
 }
 
 struct Collector<'a> {
@@ -319,6 +376,46 @@ impl Collector<'_> {
         });
     }
 
+    /// Record a method occurrence (a call site or a declaration) keyed on its
+    /// engine-minted dispatch `symbol`. `module` is the defining module for a
+    /// declaration and the current module for a reference — metadata only, since
+    /// [`SymbolTarget::Method`] keys solely on `symbol`.
+    fn method_occurrence(
+        &mut self,
+        symbol: Arc<str>,
+        name: Arc<str>,
+        module: ModulePath,
+        span: Span,
+        is_definition: bool,
+    ) {
+        self.out.push(Occurrence {
+            span,
+            target: SymbolTarget::Method {
+                symbol,
+                module,
+                name,
+            },
+            is_definition,
+        });
+    }
+
+    /// The `<ability-uuid>::<method>` dispatch identity for an ability-method
+    /// reference: resolve the (statically spelled) ability to its declaration
+    /// and fold its nominal uuid with the method name — the same identity the
+    /// ability-method *declaration* site synthesizes, so performs, handler arms,
+    /// and the declaration collapse. `None` if the ability doesn't resolve.
+    fn ability_method_symbol(&self, ability: &QualifiedName, method: &str) -> Option<Arc<str>> {
+        let r = resolve_item_ref(self.module, self.module_path, self.registry, ability)?;
+        let ability_name = r.name();
+        let info = self.registry.get(&r.module)?;
+        info.module.items.iter().find_map(|item| match &item.kind {
+            ItemKind::Ability(a) if a.name == ability_name => {
+                Some(ability_dispatch_symbol(&uuid_to_source(&a.uuid), method))
+            }
+            _ => None,
+        })
+    }
+
     // ── walk ────────────────────────────────────────────────────────────────
 
     fn item(&mut self, item: &Item) {
@@ -358,15 +455,44 @@ impl Collector<'_> {
                     });
                 }
             }
-            ItemKind::Ability(a) => self.item_def(&a.name, a.name_span),
+            ItemKind::Ability(a) => {
+                self.item_def(&a.name, a.name_span);
+                // Each method declaration is its own `Method` symbol, folding
+                // the ability's uuid with the method name — the identity perform
+                // sites and handler arms resolve to.
+                let uuid_source = uuid_to_source(&a.uuid);
+                for method in &a.methods {
+                    let symbol = ability_dispatch_symbol(&uuid_source, &method.name);
+                    self.method_occurrence(
+                        symbol,
+                        Arc::clone(&method.name),
+                        self.module_path.clone(),
+                        method.name_span,
+                        true,
+                    );
+                }
+            }
             ItemKind::Trait(t) => self.item_def(&t.name, t.name_span),
             ItemKind::ExternFn(e) => self.item_def(&e.name, e.name_span),
             ItemKind::Use(use_def) => self.use_items(use_def),
             ItemKind::Impl(impl_def) => {
                 for method in &impl_def.methods {
-                    // The method name is not indexed (method rename is a
-                    // follow-up), but its body references package items and
-                    // locals that must be found.
+                    // The declaration is a `Method` occurrence keyed on the
+                    // checker-minted dispatch symbol — the identity call sites
+                    // dispatching to it resolve to. Absent on parse-only input
+                    // (`resolved_symbol` is filled by the checker), so this is a
+                    // no-op there.
+                    if let Some(symbol) = &method.resolved_symbol {
+                        self.method_occurrence(
+                            Arc::clone(symbol),
+                            Arc::clone(&method.name),
+                            self.module_path.clone(),
+                            method.name_span,
+                            true,
+                        );
+                    }
+                    // The body references package items and locals that must be
+                    // found regardless.
                     self.push_scope();
                     if method.has_self
                         && let Some(scope) = self.scopes.last_mut()
@@ -421,6 +547,19 @@ impl Collector<'_> {
                 if let Some(ability) = &call.ability {
                     let span = ability.name_span.unwrap_or(call.method_span);
                     self.name_ref(ability, span);
+                    // The method name has its own span (even for a bare-method
+                    // perform, whose synthesized ability carries none): index it
+                    // against the ability's `<uuid>::<method>` identity, the same
+                    // one the ability's declaration synthesizes.
+                    if let Some(symbol) = self.ability_method_symbol(ability, &call.method) {
+                        self.method_occurrence(
+                            symbol,
+                            Arc::clone(&call.method),
+                            self.module_path.clone(),
+                            call.method_span,
+                            false,
+                        );
+                    }
                 }
                 for a in &call.args {
                     self.expr(a);
@@ -464,7 +603,27 @@ impl Collector<'_> {
                 }
             }
             ExprKind::RecordField(obj, _) => self.expr(obj),
-            ExprKind::MethodCall { receiver, args, .. } => {
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                method_span,
+                args,
+                resolved_method,
+            } => {
+                // Dot dispatch (`x.show()`) and inherent calls: the checker
+                // resolved the concrete dispatch symbol. A `DictSlot` (a
+                // bounded-parameter receiver) dispatches through a runtime
+                // dictionary and has no concrete declaration to anchor, so it is
+                // skipped.
+                if let Some(ResolvedMethod::Symbol(symbol)) = resolved_method {
+                    self.method_occurrence(
+                        Arc::clone(symbol),
+                        Arc::clone(method),
+                        self.module_path.clone(),
+                        *method_span,
+                        false,
+                    );
+                }
                 self.expr(receiver);
                 for a in args {
                     self.expr(a);
@@ -515,7 +674,27 @@ impl Collector<'_> {
                 self.pop_scope();
             }
             ExprKind::Call(callee, args) => {
-                self.expr(callee);
+                // An associated call (`Enum::default()`): the checker rewrote the
+                // callee to a bare `Name` whose `name` is the dispatch symbol
+                // (unresolved, `::`-bearing — a separator no user name uses). The
+                // `name_span` still points at the spelled method segment, so
+                // anchor the occurrence there.
+                if let ExprKind::Name(qname) = &callee.kind
+                    && qname.path.is_empty()
+                    && qname.resolved.is_none()
+                    && let Some((_, method)) = qname.name.rsplit_once("::")
+                {
+                    let span = qname.name_span.unwrap_or(callee.span);
+                    self.method_occurrence(
+                        Arc::clone(&qname.name),
+                        Arc::from(method),
+                        self.module_path.clone(),
+                        span,
+                        false,
+                    );
+                } else {
+                    self.expr(callee);
+                }
                 for a in args {
                     self.expr(a);
                 }
@@ -534,10 +713,22 @@ impl Collector<'_> {
             ExprKind::HandlerLiteral(literal) => {
                 for method in &literal.methods {
                     // The handled ability is named statically (like a perform),
-                    // so index it as a reference to its declaration. The method
-                    // name is not indexed (no engine-minted `Fqn`).
+                    // so index it as a reference to its declaration.
                     let span = method.ability.name_span.unwrap_or(method.method_span);
                     self.name_ref(&method.ability, span);
+                    // The handled method name is a reference to the ability
+                    // method, keyed on the same `<uuid>::<method>` identity.
+                    if let Some(symbol) =
+                        self.ability_method_symbol(&method.ability, &method.method)
+                    {
+                        self.method_occurrence(
+                            symbol,
+                            Arc::clone(&method.method),
+                            self.module_path.clone(),
+                            method.method_span,
+                            false,
+                        );
+                    }
                     self.push_scope();
                     for param in &method.params {
                         self.bind_param(param);
@@ -601,162 +792,5 @@ impl Collector<'_> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Collect occurrences for a single source as the package root.
-    fn occurrences_of(source: &str) -> Vec<Occurrence> {
-        let recovered = ambient_parser::parse_recovering(source);
-        let module_path = ModulePath::root();
-        let mut registry = crate::core_platform_registry();
-        registry.register(&module_path, std::sync::Arc::new(recovered.module.clone()));
-        collect_occurrences(&recovered.module, &module_path, &registry)
-    }
-
-    fn find<'a>(occ: &'a [Occurrence], name: &str, is_def: bool) -> Vec<&'a Occurrence> {
-        occ.iter()
-            .filter(|o| o.target.name().as_ref() == name && o.is_definition == is_def)
-            .collect()
-    }
-
-    #[test]
-    fn function_definition_and_call_share_a_target() {
-        let occ = occurrences_of("fn helper(): Number { 1 }\nfn run(): Number { helper() }");
-        let def = find(&occ, "helper", true);
-        let refs = find(&occ, "helper", false);
-        assert_eq!(def.len(), 1);
-        assert_eq!(refs.len(), 1);
-        assert_eq!(def[0].target, refs[0].target);
-    }
-
-    #[test]
-    fn local_param_and_uses_share_a_target() {
-        let occ = occurrences_of("fn run(x: Number): Number { x + x }");
-        let all: Vec<_> = occ
-            .iter()
-            .filter(|o| o.target.is_local() && o.target.name().as_ref() == "x")
-            .collect();
-        assert_eq!(all.len(), 3, "one param def + two uses");
-        assert_eq!(all.iter().filter(|o| o.is_definition).count(), 1);
-        for o in &all {
-            assert_eq!(o.target, all[0].target);
-        }
-    }
-
-    #[test]
-    fn param_definition_span_excludes_the_type() {
-        let occ = occurrences_of("fn run(count: Number): Number { count }");
-        let def = find(&occ, "count", true);
-        assert_eq!(def.len(), 1);
-        // "fn run(" is 7 bytes; `count` spans [7, 12), not `count: number`.
-        assert_eq!(def[0].span, Span::new(7, 12));
-    }
-
-    #[test]
-    fn let_shadow_rhs_refers_to_outer_binding() {
-        // `let y = x; ...` — the two `x` uses are the param; `y` is distinct.
-        let occ = occurrences_of("fn run(x: Number): Number { let y = x; y }");
-        let xs: Vec<_> = occ
-            .iter()
-            .filter(|o| o.target.is_local() && o.target.name().as_ref() == "x")
-            .collect();
-        assert_eq!(xs.len(), 2, "param def + one use in the initializer");
-        let ys: Vec<_> = occ
-            .iter()
-            .filter(|o| o.target.is_local() && o.target.name().as_ref() == "y")
-            .collect();
-        assert_eq!(ys.len(), 2, "let def + one use in the result");
-        assert_ne!(xs[0].target, ys[0].target);
-    }
-
-    #[test]
-    fn item_identity_is_span_independent() {
-        // The whole point of Fqn keying: shifting a definition's span (here by
-        // leading blank lines) must not change its target identity, so another
-        // module's reference — built at a different revision — still matches.
-        let a = occurrences_of("fn helper(): Number { 1 }\nfn run(): Number { helper() }");
-        let b = occurrences_of("\n\nfn helper(): Number { 1 }\nfn run(): Number { helper() }");
-        let da = find(&a, "helper", true);
-        let db = find(&b, "helper", true);
-        assert_eq!(da.len(), 1);
-        assert_eq!(db.len(), 1);
-        // The definition spans differ (b is shifted by two newlines)...
-        assert_ne!(da[0].span, db[0].span);
-        // ...but the identities are equal, because they key on the Fqn.
-        assert_eq!(da[0].target, db[0].target);
-        // And a reference in b still collapses onto that identity.
-        let rb = find(&b, "helper", false);
-        assert_eq!(rb.len(), 1);
-        assert_eq!(rb[0].target, da[0].target);
-    }
-
-    #[test]
-    fn variant_construction_and_declaration_share_a_target() {
-        let occ = occurrences_of(
-            "unique(A1B2C3D4-0000-0000-0000-0000000000A1) enum Shape { Circle(Number), Square }\n\
-             fn run(): Shape { Shape::Circle(2.0) }",
-        );
-        let def = find(&occ, "Circle", true);
-        let refs = find(&occ, "Circle", false);
-        assert_eq!(def.len(), 1, "one variant declaration");
-        assert_eq!(refs.len(), 1, "one construction site");
-        assert_eq!(def[0].target, refs[0].target);
-        // The variant identity is distinct from the enum's.
-        let enum_def = find(&occ, "Shape", true);
-        assert_eq!(enum_def.len(), 1);
-        assert_ne!(enum_def[0].target, def[0].target);
-    }
-
-    #[test]
-    fn bare_and_qualified_variant_spellings_collapse() {
-        // The same variant referenced bare (imported-style, here same-module)
-        // and via `Enum::Variant` must land on one identity.
-        let occ = occurrences_of(
-            "unique(A1B2C3D4-0000-0000-0000-0000000000A2) enum Dir { Up, Down }\n\
-             fn a(): Dir { Up }\n\
-             fn b(): Dir { Dir::Up }",
-        );
-        let def = find(&occ, "Up", true);
-        let refs = find(&occ, "Up", false);
-        assert_eq!(def.len(), 1);
-        assert_eq!(refs.len(), 2, "bare `Up` and `Dir::Up`");
-        for r in &refs {
-            assert_eq!(r.target, def[0].target);
-        }
-    }
-
-    #[test]
-    fn variant_pattern_references_the_variant() {
-        let occ = occurrences_of(
-            "unique(A1B2C3D4-0000-0000-0000-0000000000A3) enum Opt { Has(Number), Empty }\n\
-             fn run(x: Opt): Number { match x { Has(n) => n, Empty => 0 } }",
-        );
-        let has_def = find(&occ, "Has", true);
-        let has_refs = find(&occ, "Has", false);
-        assert_eq!(has_def.len(), 1);
-        assert_eq!(has_refs.len(), 1, "the `Has(n)` pattern");
-        assert_eq!(has_def[0].target, has_refs[0].target);
-        // `n` bound by the pattern is a local, not the variant.
-        let empty_refs = find(&occ, "Empty", false);
-        assert_eq!(empty_refs.len(), 1, "the `Empty` pattern");
-    }
-
-    #[test]
-    fn inner_shadow_is_a_distinct_binding() {
-        // The lambda's `x` shadows the param `x`: two distinct targets.
-        let occ = occurrences_of("fn run(x: Number): Number { let f = (x) => x + 1; x }");
-        let targets: std::collections::HashSet<_> = occ
-            .iter()
-            .filter(|o| o.target.is_local() && o.target.name().as_ref() == "x")
-            .map(|o| match &o.target {
-                SymbolTarget::Local { binding_id, .. } => *binding_id,
-                SymbolTarget::Item { .. } => unreachable!(),
-            })
-            .collect();
-        assert_eq!(
-            targets.len(),
-            2,
-            "param x and lambda x are different bindings"
-        );
-    }
-}
+#[path = "occurrences_tests.rs"]
+mod tests;

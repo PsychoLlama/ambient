@@ -504,14 +504,20 @@ impl AnalysisSession {
     /// occurrence identities are span-free `Fqn`s (see [`crate::occurrences`]).
     fn rebuild_occurrences_for(&mut self, path: &ModulePath) {
         let key = path.to_string();
-        // Borrow package + registry immutably to collect, release, then insert
-        // into the disjoint `occurrences` field. `collect_occurrences` returns
-        // an owned Vec, so no AST clone is needed.
-        let collected = self
+        // Method occurrences key on the checker-minted dispatch symbol, absent
+        // on the parsed AST, so collect against the **checked** module (served
+        // through the memo, so this shares — never adds — the check `analyze_all`
+        // already performs). Detach source/path from the `&self.package` borrow
+        // first so the `&mut self` serve is free of aliasing.
+        let source_path = self
             .package
             .modules
             .get(&key)
-            .map(|m| collect_occurrences(&m.ast, &m.path, &self.registry));
+            .map(|m| (m.source.clone(), m.path.clone()));
+        let collected = source_path.map(|(source, path)| {
+            let checked = self.serve(&path, &source).module;
+            collect_occurrences(&checked, &path, &self.registry)
+        });
         match collected {
             Some(occ) => {
                 self.occurrences.insert(key, occ);
@@ -561,7 +567,13 @@ impl AnalysisSession {
             .modules
             .values()
             .map(|m| {
-                let occ = collect_occurrences(&m.ast, &m.path, &self.registry);
+                // Mirror `rebuild_occurrences_for`: collect against a fresh
+                // check of the module (the oracle is `&self`, so it re-checks
+                // rather than serving the memo).
+                let checked =
+                    check_without_cycle(&m.source, Some(&m.path), Some(&self.registry), None)
+                        .module;
+                let occ = collect_occurrences(&checked, &m.path, &self.registry);
                 (m.path.to_string(), normalize_occurrences(&occ))
             })
             .collect();
@@ -593,6 +605,7 @@ fn normalize_occurrences(occ: &[Occurrence]) -> Vec<(u32, u32, String, bool)> {
                 SymbolTarget::Local {
                     module, binding_id, ..
                 } => format!("local:{module}:{binding_id:?}"),
+                SymbolTarget::Method { symbol, .. } => format!("method:{symbol}"),
             };
             (o.span.start, o.span.end, identity, o.is_definition)
         })
