@@ -70,7 +70,7 @@ check-oracles:
   #!/usr/bin/env bash
   failed=0
   echo "=== Build Cache Oracle (AMBIENT_CACHE_VERIFY=1) ==="
-  AMBIENT_CACHE_VERIFY=1 cargo test -p ambient-cli --test incremental_cache --quiet || failed=1
+  AMBIENT_CACHE_VERIFY=1 cargo test -p ambient-cli --test incremental_cache --test incremental_cache_deps --quiet || failed=1
   echo ""
   echo "=== Analysis Oracle (AMBIENT_ANALYSIS_VERIFY=1) ==="
   AMBIENT_ANALYSIS_VERIFY=1 cargo test -p ambient-analysis --quiet || failed=1
