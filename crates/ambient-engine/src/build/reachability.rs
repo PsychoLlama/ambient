@@ -49,10 +49,25 @@ use crate::ast::{ItemKind, Module};
 use crate::types::Type;
 
 /// The compile-order graph the build loop feeds to
-/// [`compilation_order`](super::pipeline::compilation_order): the resolve-
-/// dependency graph `deps` augmented with **structural** type-directed dispatch
-/// edges, so an orphan trait impl compiles before any module that may dispatch
-/// it.
+/// [`compilation_order`](super::pipeline::compilation_order): the **link**-
+/// dependency graph `link_deps` augmented with **structural** type-directed
+/// dispatch edges, so an orphan trait impl compiles before any module that may
+/// dispatch it — including a dispatch in the type's *own* module.
+///
+/// ## Why `link_deps`, not the full `deps`, is the base
+///
+/// Compile order only has to satisfy **link-time** edges: a module's bytecode
+/// links against another module's compiled output iff it holds a value/symbol-
+/// position reference to it (`link_deps` — a call, const ref, variant
+/// construction, ability perform, …). The check-order-only edges in `deps` — a
+/// `use` import, a qualified type path in an annotation — emit no bytecode
+/// against the referenced module, so they need not constrain compile order.
+/// Basing the order on `link_deps` is what lets the *self-orphan* case link: a
+/// module `common` that both declares `Widget`/`Describe` and dispatches
+/// `Widget{..}.describe()` while `impl Describe for Widget` lives in a later-
+/// sorting `zebra` needs the edge `common -> zebra`; `zebra -> common` is only a
+/// `use`/type-target edge (check-order-only, *not* a link dep), so it vanishes
+/// from the base and `common -> zebra` survives acyclically.
 ///
 /// ## Why the resolve graph is not enough
 ///
@@ -60,8 +75,8 @@ use crate::types::Type;
 /// content-addressed `<uuid>::method` dispatch symbol defined in whichever
 /// module wrote the `impl` — which the dispatcher **need not import** (there is
 /// no orphan rule). That reference is resolved by the *checker*, not the resolve
-/// pass, so it never became a `deps` edge. If the impl module happens to sort
-/// after the dispatcher, the symbol is missing at link time (`undefined
+/// pass, so it never became a `deps` edge at all. If the impl module happens to
+/// sort after the dispatcher, the symbol is missing at link time (`undefined
 /// function: <uuid>::method`). The core/platform groups avoid this with
 /// [`crate::dispatch_deps`] (edges recovered from *checked* ASTs), but a user
 /// build cannot check every module up front — unreached modules must not be
@@ -72,10 +87,13 @@ use crate::types::Type;
 /// We recover a **conservative superset** of the real edges from the resolved
 /// (unchecked) ASTs, via the same structural fact [`reachable_module_ids`]
 /// uses: to dispatch an impl for type `T`, reachable code must hold a `T`, so
-/// any dispatcher of that impl transitively resolve-depends on `T`'s defining
-/// module. So for each impl module `I` with a *package* target type declared in
-/// module `Tmod`, every module that transitively depends on `Tmod` gets an edge
-/// to `I` (`dispatcher -> I`, so `I` compiles first). For an impl on a
+/// any dispatcher of that impl transitively depends on `T`'s defining module —
+/// or *is* that module. So for each impl module `I` with a *package* target
+/// type declared in module `Tmod`, `Tmod` **itself** and every module that
+/// transitively depends on `Tmod` gets an edge to `I` (`dispatcher -> I`, so
+/// `I` compiles first). Candidate discovery walks the **full** `deps` graph
+/// (holding a `T` value can flow through any dep path, even a type-only one), so
+/// the candidate set stays a safe over-approximation. For an impl on a
 /// builtin/prelude type or a blanket impl — which reachable code can hold with
 /// no package dep — every module is a candidate. A superset only over-orders
 /// (spurious edges cost nothing as long as the graph stays acyclic).
@@ -83,27 +101,27 @@ use crate::types::Type;
 /// ## Cycle policy
 ///
 /// Structural edges only *order*; they never enter cycle **diagnostics** (those
-/// stay on `deps` alone — see [`crate::module_cycles`]). A candidate that `I`
-/// itself transitively resolve-depends on is dropped up front: that ordering is
+/// stay on the full `deps` — see [`crate::module_cycles`]). A candidate that `I`
+/// itself **link**-depends on is dropped up front: that ordering is
 /// unsatisfiable in a single pass (`I` needs its dep compiled first *and* the
-/// dep needs `I`'s symbol) and would only manufacture a cycle a real dispatch
-/// edge would not. As a final guard, if the augmented graph is cyclic while
-/// `deps` alone is not, the structural edges are discarded wholesale and the
-/// plain resolve order is used — such a program has a genuinely cyclic dispatch
-/// dependency single-pass linking cannot satisfy, and it fails to link exactly
-/// as it did before this pass (never a new false cycle *error*).
+/// dep needs `I`'s symbol). Only a genuine *link* dep of `I` on the candidate
+/// makes the edge unsatisfiable — a mere type-only dep does not (suppressing on
+/// that was the self-orphan bug). As a final guard, if the augmented graph is
+/// cyclic while `link_deps` alone is not, the structural edges are discarded and
+/// the build falls back to the **full `deps`** order (see the fallback site).
 ///
 /// `modules` carries each package module's resolved AST keyed by the same string
-/// `deps` uses (its dotted [`ModulePath`](crate::module_path::ModulePath)).
+/// `deps`/`link_deps` use (its dotted [`ModulePath`](crate::module_path::ModulePath)).
 pub(super) fn dispatch_ordering_graph(
     deps: &BTreeMap<String, Vec<String>>,
+    link_deps: &BTreeMap<String, Vec<String>>,
     modules: &[(String, &Module)],
 ) -> BTreeMap<String, Vec<String>> {
-    let extra = structural_dispatch_edges(deps, modules);
+    let extra = structural_dispatch_edges(deps, link_deps, modules);
     if extra.is_empty() {
-        return deps.clone();
+        return link_deps.clone();
     }
-    let mut augmented = deps.clone();
+    let mut augmented = link_deps.clone();
     for (caller, definers) in &extra {
         let slot = augmented.entry(caller.clone()).or_default();
         for definer in definers {
@@ -112,9 +130,17 @@ pub(super) fn dispatch_ordering_graph(
             }
         }
     }
-    // `deps` alone is acyclic (the build rejects import cycles before ordering),
-    // so any cycle here was introduced by a structural edge; fall back rather
-    // than order a genuinely-cyclic dispatch dependency arbitrarily.
+    // `link_deps ⊆ deps` and the full `deps` is acyclic (the build rejects
+    // import cycles before ordering), so `link_deps` alone is acyclic too — any
+    // cycle here was introduced by a structural edge.
+    //
+    // Fall back to the **full `deps`** graph, not `link_deps`: this preserves
+    // the exact pre-`link_deps` behavior for a genuinely cyclic dispatch
+    // dependency. If an impl body really link-depends on a function of the
+    // type's own module (`common -> zebra` structural edge meets a real
+    // `zebra -> common` link dep), single-pass linking cannot satisfy both and
+    // the program *should* fail to link — which is correct per the design. The
+    // full-`deps` order is the deterministic order such a program always had.
     if crate::module_cycles::detect_import_cycles(&augmented).is_empty() {
         augmented
     } else {
@@ -125,8 +151,14 @@ pub(super) fn dispatch_ordering_graph(
 /// The structural dispatch ordering edges (`dispatcher -> impl-module`) derived
 /// from resolved ASTs. See [`dispatch_ordering_graph`] for the reasoning and
 /// the cycle policy the caller applies on top.
+///
+/// Candidate dispatchers and impl target-type resolution walk the **full**
+/// `deps` (holding a value can flow through any dep, including a type-only one);
+/// the candidate-skip uses `link_deps` (only a genuine link dep of the impl
+/// module on a candidate makes the edge unsatisfiable).
 fn structural_dispatch_edges(
     deps: &BTreeMap<String, Vec<String>>,
+    link_deps: &BTreeMap<String, Vec<String>>,
     modules: &[(String, &Module)],
 ) -> BTreeMap<String, Vec<String>> {
     // Types each module declares, for resolving an impl's target-type head to
@@ -158,9 +190,11 @@ fn structural_dispatch_edges(
             .map(String::as_str)
             .collect();
         scope.push(impl_id.as_str());
-        // Modules this impl module transitively resolve-depends on: forcing the
+        // Modules this impl module transitively *link*-depends on: forcing the
         // impl before one of them is unsatisfiable, so such candidates are cut.
-        let impl_deps = forward_closure(deps, impl_id);
+        // A type-only dep does not suppress the edge (that suppression was the
+        // self-orphan bug) — only a genuine link dep, so this reads `link_deps`.
+        let impl_deps = forward_closure(link_deps, impl_id);
 
         for item in &ast.items {
             let ItemKind::Impl(imp) = &item.kind else {
@@ -178,13 +212,21 @@ fn structural_dispatch_edges(
             }
         }
     }
+    // Sort each definer list so the augmented graph is deterministic regardless
+    // of the module iteration order (`modules` derives from a `HashMap`): the
+    // topo sort in `compilation_order` breaks ties by adjacency-vector order.
+    for definers in edges.values_mut() {
+        definers.sort_unstable();
+    }
     edges
 }
 
 /// The candidate dispatcher modules for one impl block's target type: every
 /// module that can hold a value of that type. For a *package* target type, that
-/// is the modules transitively depending on the type's module (walking `rev`);
-/// for a builtin/prelude type or a blanket/param impl, any module qualifies.
+/// is the type's own defining module (`anchor`) **plus** the modules
+/// transitively depending on it (walking `rev`) — the anchor is included because
+/// the type's own module can dispatch its own type (the self-orphan case); for a
+/// builtin/prelude type or a blanket/param impl, any module qualifies.
 fn dispatchers_of(
     for_type: &Type,
     scope: &[&str],
@@ -215,6 +257,9 @@ fn dispatchers_of(
     }
     let mut out = BTreeSet::new();
     for anchor in anchors {
+        // The anchor dispatches its own type (self-orphan case), so it is a
+        // candidate of its own type — `reverse_reachable` adds only ancestors.
+        out.insert((*anchor).to_string());
         reverse_reachable(rev, anchor, &mut out);
     }
     out

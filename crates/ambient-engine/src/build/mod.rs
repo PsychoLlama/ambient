@@ -419,6 +419,13 @@ pub fn build_package(
         }
     }
     let mut deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    // The link-order subset of `deps` (value/symbol-position references only),
+    // keyed the same way (dotted `ModulePath`). This is the base of the
+    // compile-ordering graph: only link-time edges must constrain compile order,
+    // and dropping the check-order-only edges is what lets the self-orphan
+    // dispatch cycle link. Every module is present as a key (possibly empty) so
+    // `compilation_order` sees the whole graph. See [`reachability`].
+    let mut link_deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut paths_by_key: BTreeMap<String, ModulePath> = BTreeMap::new();
     // The resolve-pass dependency sets, keyed and rendered by canonical module
     // identity (matching `interfaces`/`module_outputs` keys) so cache keys can
@@ -433,6 +440,14 @@ pub fn build_package(
             module.path.to_string(),
             outcome
                 .deps
+                .iter()
+                .map(ModuleId::module_path_string)
+                .collect(),
+        );
+        link_deps.insert(
+            module.path.to_string(),
+            outcome
+                .link_deps
                 .iter()
                 .map(ModuleId::module_path_string)
                 .collect(),
@@ -497,16 +512,21 @@ pub fn build_package(
     // in a full build, keeping its objects byte-identical. Unreached modules
     // are never checked, so their diagnostics are (by policy) not reported by
     // `run`. See [`reachability`] and `ref/modules.md`.
-    // Order by resolve deps *plus* structural type-directed dispatch edges, so
-    // an orphan trait impl compiles before any module that dispatches it — even
-    // one the dispatcher never imports and that sorts after it alphabetically.
-    // See [`reachability::dispatch_ordering_graph`] (cycle-guarded; falls back
-    // to the plain resolve order rather than order a cyclic dispatch dep).
+    // Order by *link* deps plus structural type-directed dispatch edges, so an
+    // orphan trait impl compiles before any module that dispatches it — even one
+    // the dispatcher never imports, one that sorts after it alphabetically, or
+    // the type's own module (the self-orphan case). Using `link_deps` (not the
+    // full `deps`) as the base is what makes the self-orphan case acyclic: a
+    // `use`/type-target edge back to the type's module is check-order-only and
+    // must not constrain compile order. See [`reachability::dispatch_ordering_graph`]
+    // (cycle-guarded; falls back to the full `deps` order for a genuinely cyclic
+    // dispatch dep, which then fails to link exactly as before — correct).
     let ordering_modules: Vec<(String, &crate::ast::Module)> = pkg
         .all_modules()
         .map(|m| (m.path.to_string(), &m.ast))
         .collect();
-    let ordering_graph = reachability::dispatch_ordering_graph(&deps, &ordering_modules);
+    let ordering_graph =
+        reachability::dispatch_ordering_graph(&deps, &link_deps, &ordering_modules);
     let full_order = pipeline::compilation_order(&ordering_graph);
     let reachable = options.entry.and_then(|entry| {
         let modules: Vec<reachability::PackageModule<'_>> = pkg
