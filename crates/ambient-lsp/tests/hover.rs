@@ -239,6 +239,29 @@ fn test_hover_on_builtin_callsite_shows_signature() {
 }
 
 #[test]
+fn test_hover_on_callsite_has_no_effect_row_var() {
+    // A function with no `with` clause generalizes its effect row; a callsite
+    // instantiates a fresh unconstrained row var, which must never surface as
+    // `with E<n>!` in hover.
+    LspTest::new()
+        .with_source("fn pure(x: Number): Number { x }\nfn test() { pure/*h*/(1) }")
+        .hover_at("h")
+        .expect_not_contains("with E")
+        .shutdown();
+}
+
+#[test]
+fn test_hover_on_lambda_local_has_no_effect_row_var() {
+    // A local bound to a lambda has a function type; its (empty) effect row is
+    // an unconstrained var that must not render as `with E<n>!`.
+    LspTest::new()
+        .with_source("fn test() { let f = (x: Number): Number => x; f/*h*/ }")
+        .hover_at("h")
+        .expect_not_contains("with E")
+        .shutdown();
+}
+
+#[test]
 fn test_hover_on_unconstrained_throw_shows_never() {
     // Bottom elimination hands the *use site* a fresh inference variable,
     // but the expression's recorded type stays the pre-adoption `!`; when

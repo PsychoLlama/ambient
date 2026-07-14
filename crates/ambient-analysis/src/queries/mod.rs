@@ -195,7 +195,10 @@ fn find_expr_in_tree(expr: &Expr, offset: u32) -> Option<&Expr> {
 /// way.
 #[must_use]
 pub fn format_type(ty: &Type) -> String {
-    ty.to_string()
+    // Close unconstrained effect rows: a generalized-but-uninstantiated `E!`
+    // means "no known effects", so it must not render as `with E23!` in a
+    // signature. Display-only — never applied to diagnostics or hashing.
+    ty.close_rows_for_display().to_string()
 }
 
 /// Format a type for hover, surfacing the module-qualified identity of a
@@ -210,7 +213,9 @@ pub fn format_type(ty: &Type) -> String {
 pub fn format_type_hover(ty: &Type) -> String {
     match ty.as_primitive() {
         Some(prim) => prim.fqn().to_string(),
-        None => ty.to_string(),
+        // Close unconstrained effect rows so a function-typed hover (a local
+        // bound to a lambda) doesn't leak `with E23!`. Display-only.
+        None => ty.close_rows_for_display().to_string(),
     }
 }
 

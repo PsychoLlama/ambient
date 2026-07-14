@@ -47,6 +47,23 @@ impl HoverResult {
         self.test
     }
 
+    /// Assert that the hover content does NOT contain the given substring.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the hover is present and contains the substring.
+    #[must_use]
+    pub fn expect_not_contains(self, unexpected: &str) -> LspTest {
+        let formatted = format_hover_snapshot(&self.hover);
+        assert!(
+            !formatted.contains(unexpected),
+            "Expected hover to NOT contain '{}', but got:\n{}",
+            unexpected,
+            formatted
+        );
+        self.test
+    }
+
     /// Assert that no hover information is available.
     ///
     /// # Panics
