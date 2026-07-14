@@ -61,9 +61,10 @@ pub fn resolve_module(
     // module to check. This routes through the same classified funnel as
     // every other edge, tagged [`RefPos::Import`] (check-only, `deps` only —
     // a `use` emits nothing at compile time; every *value* use of an imported
-    // binding records its own link edge at the reference site). Only
-    // *module-level* imports appear here — block-scoped `use` overlays are
-    // popped with their block, so an unreferenced block `use` records nothing.
+    // binding records its own link edge at the reference site). This loop
+    // records the *module-level* imports; block-scoped `use` statements record
+    // the same `RefPos::Import` edge as they bind their overlay (see
+    // `bind_block_use` in `walk`), so any `use`, at any scope, is a dependency.
     for import in resolver.scope.items.values().flatten() {
         if &import.module != module_path {
             let id = registry.module_id(&import.module);
@@ -106,10 +107,11 @@ pub(super) enum RefPos {
     /// needs the defining module registered, but the compiler emits no link
     /// artifact, so it writes `deps` only.
     Type,
-    /// A `use` import statement. Its target must exist (and its
-    /// enums/abilities register) for the module to check, but a `use` emits
-    /// nothing at compile time, so it writes `deps` only — every *value* use
-    /// of an imported binding records its own link edge at the reference site.
+    /// A `use` import statement, at module scope or block scope alike. Its
+    /// target must exist (and its enums/abilities register) for the module to
+    /// check, but a `use` emits nothing at compile time, so it writes `deps`
+    /// only — every *value* use of an imported binding records its own link
+    /// edge at the reference site.
     Import,
 }
 

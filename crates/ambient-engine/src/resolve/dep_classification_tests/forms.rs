@@ -266,14 +266,14 @@ fn block_scoped_use_with_value_reference_is_a_link_dep() {
 }
 
 #[test]
-fn unreferenced_block_scoped_use_records_no_dep() {
-    // `{ use pkg::defs::helper; }` with no reference. Unlike a module-level
-    // `use`, a block-scoped import records *no* dep: its overlay is popped
-    // with the block, and the `use`-import loop in `resolve_module` iterates
-    // the module scope's items only. Every value reference through the
-    // overlay records its own edge (test above), so nothing is lost for
-    // link ordering — but note the asymmetry with the module-level rule
-    // "imports themselves are dependencies even when unreferenced".
+fn unreferenced_block_scoped_use_is_check_only() {
+    // `{ use pkg::defs::helper; }` with no reference. A `use` is a dependency
+    // at *any* scope: `bind_block_use` records a check-only `RefPos::Import`
+    // edge for every foreign item the block `use` binds, exactly like the
+    // module-level import loop, even when the binding is never referenced. So
+    // the edge lands in `deps` but not `link_deps` — a `use` emits nothing at
+    // compile time, and no value reference through the overlay exists to add a
+    // link edge.
     let (outcome, defs) = resolve_main(
         vec![func("helper", Expr::unit(), vec![])],
         vec![func(
@@ -283,25 +283,28 @@ fn unreferenced_block_scoped_use_records_no_dep() {
         )],
     );
     assert!(
-        !outcome.deps.contains(&defs),
-        "a block-scoped use is not itself a dep"
+        outcome.deps.contains(&defs),
+        "an unreferenced block-scoped use is still a check-order dep"
     );
-    assert!(!outcome.link_deps.contains(&defs));
+    assert!(
+        !outcome.link_deps.contains(&defs),
+        "a use statement emits no link artifact"
+    );
     assert_subset(&outcome);
 }
 
 #[test]
-fn block_scoped_use_with_type_only_reference_records_no_dep() {
-    // `{ use pkg::defs::Widget; let x: Widget = 1; }`. The block `use`
-    // records nothing (loop iterates module-scope items only) and the bare
-    // annotation head resolves through `resolve_named_type_head`, which
-    // records nothing either — so the type's module never enters `deps` at
-    // all, even though the module genuinely consumed its type. This pins
-    // *current* behavior: the identity is inlined into the annotation by
-    // `apply_named_type_from_module` during resolve, so the checker never
-    // needs the edge, but it is an asymmetry with the module-level `use`
-    // (which would have recorded a check-only edge) worth knowing about if
-    // `deps` ever grows a consumer that needs type-only edges to be complete.
+fn block_scoped_use_with_type_only_reference_is_check_only() {
+    // `{ use pkg::defs::Widget; let x: Widget = 1; }`. The bare annotation
+    // head resolves through `resolve_named_type_head`, which records no dep of
+    // its own — but the block `use` itself now records a check-only
+    // `RefPos::Import` edge (`bind_block_use`), so the type's defining module
+    // does enter `deps`. That edge is what carries a block-imported
+    // definition's interface change into the consumer's cache key: even though
+    // `apply_named_type_from_module` inlines the identity into the annotation
+    // during resolve today, the `use`-is-a-dependency rule makes the
+    // invalidation structural rather than reliant on that inlining staying
+    // total. It stays out of `link_deps`: a `use` emits no link artifact.
     let (outcome, defs, main) = resolve_main_module(
         vec![record_struct("Widget")],
         vec![func(
@@ -342,10 +345,14 @@ fn block_scoped_use_with_type_only_reference_records_no_dep() {
         "the annotation resolved through the block use: {let_ty:?}"
     );
     assert!(
-        !outcome.deps.contains(&defs),
-        "a type-only block-scoped use leaves no dep edge (current behavior)"
+        outcome.deps.contains(&defs),
+        "a type-only block-scoped use records a check-order dep (its interface \
+         change must reach the consumer's cache key)"
     );
-    assert!(!outcome.link_deps.contains(&defs));
+    assert!(
+        !outcome.link_deps.contains(&defs),
+        "a use statement emits no link artifact"
+    );
     assert_subset(&outcome);
 }
 

@@ -11,7 +11,7 @@ use crate::ast::{
 use crate::module_path::ModulePath;
 use crate::module_registry::{ImportError, ModuleScope};
 
-use super::Resolver;
+use super::{RefPos, Resolver};
 
 impl Resolver<'_> {
     pub(super) fn resolve(&mut self, module: &mut Module) {
@@ -476,6 +476,19 @@ impl Resolver<'_> {
         self.registry
             .bind_use_target(&mut bound, use_def, &target, span);
         self.import_errors.append(&mut bound.errors);
+        // A `use` is a dependency at *any* scope, exactly like a module-level
+        // one: record a check-only `RefPos::Import` edge for every foreign item
+        // this block `use` binds (mirroring the loop in `resolve_module`), even
+        // when the binding is never referenced. Items land per-namespace in
+        // `bound.items`; the recorder's sets are BTreeSets, so re-recording the
+        // same module is free. Module aliases (`bound.modules`) are excluded,
+        // keeping symmetry with the module-level rule.
+        for import in bound.items.values().flatten() {
+            if import.module != *self.current {
+                let id = self.registry.module_id(&import.module);
+                self.deps.record(&id, RefPos::Import);
+            }
+        }
         if let Some(overlay) = self.overlays.last_mut() {
             for (name, module) in bound.modules {
                 overlay.modules.insert(name, module);
