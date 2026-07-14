@@ -139,6 +139,10 @@ fn zero_change_rebuild_is_a_full_warm_hit() {
 
     let cold = build_and_persist(dir.path());
     assert!(cold.modules_compiled > 0, "first build compiles everything");
+    assert!(
+        cold.modules_checked > 0,
+        "a cold build type-checks every missing module"
+    );
 
     let warm = build_and_persist(dir.path());
     if !verify_mode() {
@@ -149,6 +153,12 @@ fn zero_change_rebuild_is_a_full_warm_hit() {
         assert_eq!(
             warm.modules_relinked, 0,
             "an unchanged rebuild needs no relink — every module is a full hit"
+        );
+        // The check pre-pass skips every key-match module, and a full hit never
+        // reaches the walk's lazy fallback, so a warm build re-checks nothing.
+        assert_eq!(
+            warm.modules_checked, 0,
+            "a full warm hit must perform zero type-checks"
         );
     }
     assert_warm_equals_cold(&warm, files);
@@ -203,6 +213,10 @@ fn body_only_edit_recompiles_only_the_leaf_and_its_dependents() {
         assert_eq!(
             warm.modules_relinked, 2,
             "mid + main relink (link-only miss, key match)"
+        );
+        assert_eq!(
+            warm.modules_checked, 1,
+            "only the leaf re-checks; the relinked dependents (key match) do not"
         );
     }
     // The relinked build is byte-identical to a fresh cold build of the final

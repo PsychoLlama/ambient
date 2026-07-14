@@ -338,6 +338,7 @@ fn extern_fn_ships_through_a_pack() {
         compiled: module,
         module_count: result.module_count,
         modules_compiled: result.modules_compiled,
+        modules_checked: result.modules_checked,
         package_name: result.package_name.clone(),
         link_table: result.link_table.clone(),
         interfaces: result.interfaces.clone(),

@@ -9,7 +9,7 @@
 use std::fs;
 
 use ambient_engine::ast::Module;
-use ambient_engine::build::{BuildError, ParseFailure, build_package};
+use ambient_engine::build::{BuildError, BuildOptions, ParseFailure, build_package};
 use tempfile::TempDir;
 
 /// Parse for the build pipeline, mapping a parse error to the engine's
@@ -36,6 +36,81 @@ fn temp_package(source: &str) -> TempDir {
     dir
 }
 
+/// Write a package from `(src-relative path, source)` pairs.
+fn temp_multi_package(files: &[(&str, &str)]) -> TempDir {
+    let dir = TempDir::new().expect("create temp dir");
+    fs::write(
+        dir.path().join("ambient.toml"),
+        "[package]\nname = \"diag\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"src\"\n",
+    )
+    .expect("write manifest");
+    let src = dir.path().join("src");
+    for (rel, body) in files {
+        let path = src.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).expect("create src dir");
+        fs::write(path, body).expect("write module");
+    }
+    dir
+}
+
+/// The check pre-pass runs before the compile walk, so a cold build surfaces the
+/// type errors of *every* failing module at once — not just the first in compile
+/// order. Two independent modules each fail here; both must come back, in the
+/// pre-pass's deterministic (by module-identity) order.
+#[test]
+fn cold_build_reports_type_errors_in_every_failing_module() {
+    let dir = temp_multi_package(&[
+        ("main.ab", "pub fn run(): Number { 0 }\n"),
+        // Each returns a number from a `String`-typed function: a type error.
+        ("alpha.ab", "pub fn a(): String { 1 }\n"),
+        ("beta.ab", "pub fn b(): String { 2 }\n"),
+    ]);
+
+    let stubs = ambient_platform::stub_natives();
+    let Err(err) = build_package(
+        dir.path(),
+        parse_source,
+        &BuildOptions {
+            platform_modules: ambient_platform::platform_modules(),
+            natives: Some(&stubs),
+            ..Default::default()
+        },
+    ) else {
+        panic!("type errors should fail the build");
+    };
+
+    let BuildError::TypeCheck { failures } = err else {
+        panic!("expected a structured TypeCheck error, got: {err:?}");
+    };
+
+    assert_eq!(
+        failures.len(),
+        2,
+        "both failing modules must surface together, not just the first"
+    );
+    // Deterministically ordered by module identity.
+    let modules: Vec<&str> = failures.iter().map(|f| f.module.as_str()).collect();
+    let mut sorted = modules.clone();
+    sorted.sort_unstable();
+    assert_eq!(
+        modules, sorted,
+        "failures must be deterministically ordered"
+    );
+    assert!(failures.iter().any(|f| f.module.ends_with("alpha")));
+    assert!(failures.iter().any(|f| f.module.ends_with("beta")));
+    // Each failure carries its own structured errors and rendered source.
+    for failure in &failures {
+        assert!(
+            !failure.errors.is_empty(),
+            "each module carries structured errors"
+        );
+        assert!(failure.path.ends_with(format!(
+            "{}.ab",
+            failure.module.rsplit("::").next().unwrap()
+        )));
+    }
+}
+
 #[test]
 fn build_package_type_error_is_structured_with_nonzero_span() {
     // `run` returns a number from a function declared to return a string.
@@ -54,15 +129,15 @@ fn build_package_type_error_is_structured_with_nonzero_span() {
         panic!("type error should fail the build");
     };
 
-    let BuildError::TypeCheck {
-        source,
-        errors,
-        path,
-        ..
-    } = err
-    else {
+    let BuildError::TypeCheck { failures } = err else {
         panic!("expected a structured TypeCheck error, got: {err:?}");
     };
+    // A single-module package fails in exactly one module.
+    assert_eq!(failures.len(), 1, "expected one failing module");
+    let failure = &failures[0];
+    let source = &failure.source;
+    let path = &failure.path;
+    let errors = &failure.errors;
 
     // The source and file path travel with the error so the frontend can
     // render source context.
