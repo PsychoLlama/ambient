@@ -6,7 +6,7 @@
 //! Note: This module provides the package structure, but actual parsing
 //! is done by the CLI layer which has access to `ambient-parser`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 
 use thiserror::Error;
@@ -75,8 +75,12 @@ pub struct Package {
     manifest: Manifest,
     /// Root directory of the package (where ambient.toml is).
     root: PathBuf,
-    /// Loaded modules, keyed by module path.
-    modules: HashMap<ModulePath, LoadedModule>,
+    /// Loaded modules, keyed by module path. A `BTreeMap` (not a `HashMap`) so
+    /// [`Self::all_modules`] iterates in a deterministic, source-order-independent
+    /// order — build determinism (warm == cold == lazy byte-identity) then holds
+    /// by construction rather than relying on every downstream consumer to launder
+    /// the iteration order through its own sort.
+    modules: BTreeMap<ModulePath, LoadedModule>,
     /// Modules currently being loaded (for cycle detection).
     loading: HashSet<ModulePath>,
 }
@@ -88,7 +92,7 @@ impl Package {
         Self {
             manifest,
             root,
-            modules: HashMap::new(),
+            modules: BTreeMap::new(),
             loading: HashSet::new(),
         }
     }
@@ -141,11 +145,16 @@ impl Package {
 
     /// Get all loaded modules.
     #[must_use]
-    pub fn modules(&self) -> &HashMap<ModulePath, LoadedModule> {
+    pub fn modules(&self) -> &BTreeMap<ModulePath, LoadedModule> {
         &self.modules
     }
 
-    /// Iterate over all loaded modules.
+    /// Iterate over all loaded modules, in ascending [`ModulePath`] order.
+    ///
+    /// The order is deterministic and independent of load/insertion order (the
+    /// backing store is a `BTreeMap`). Downstream consumers may rely on this for
+    /// build determinism and need not re-sort to launder a nondeterministic
+    /// iteration order.
     pub fn all_modules(&self) -> impl Iterator<Item = &LoadedModule> {
         self.modules.values()
     }

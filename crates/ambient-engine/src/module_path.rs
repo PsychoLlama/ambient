@@ -21,7 +21,11 @@ use thiserror::Error;
 /// Module paths are sequences of identifiers that correspond to the
 /// filesystem path relative to the source directory, without the `.ab`
 /// extension.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// `Ord`/`PartialOrd` are the natural segment-wise lexicographic order over the
+/// path segments (`Arc<str>` compares as `str`). This is what makes a
+/// `BTreeMap<ModulePath, _>` iterate in a stable, source-order-independent way —
+/// see [`crate::package::Package::all_modules`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModulePath {
     /// Path segments (e.g., `["utils", "format"]`).
     segments: Vec<Arc<str>>,
