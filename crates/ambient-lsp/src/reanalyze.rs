@@ -180,6 +180,14 @@ pub(crate) fn rebuild_occurrence_index(state: &mut ServerState) {
     let mut index = Vec::new();
     let core_root = state.core_cache_root.clone();
 
+    // Builtin definition occurrences come from the session's memoized checked
+    // view (`&mut` for the one-time lazy check); compute them before the
+    // immutable package loop so the two borrows don't overlap.
+    let builtin = state
+        .session
+        .as_mut()
+        .map(|session| builtin_occurrences(session, core_root.as_deref()));
+
     if let Some(session) = state.session.as_ref() {
         let package = session.package();
         for module in package.modules.values() {
@@ -195,7 +203,9 @@ pub(crate) fn rebuild_occurrence_index(state: &mut ServerState) {
                 occurrences: occurrences.to_vec(),
             });
         }
-        index.extend(builtin_occurrences(session, core_root.as_deref()));
+        if let Some(builtin) = builtin {
+            index.extend(builtin);
+        }
     } else {
         for (uri_str, analysis) in &state.analyses {
             let Ok(uri) = uri_str.parse::<Uri>() else {
@@ -218,35 +228,32 @@ pub(crate) fn rebuild_occurrence_index(state: &mut ServerState) {
 }
 
 /// Definition occurrences for every builtin (core/platform) module, so a
-/// call/perform of a core method (`Exception::throw`) can jump to its
-/// declaration. Only *definitions* are indexed — references inside core are out
+/// call/perform of a core method — an impl method (`String::join`, `s.concat`)
+/// as well as an ability method (`Exception::throw`) — can jump to its
+/// declaration. Only *definitions* are indexed; references inside core are out
 /// of scope, and keeping them out leaves package-symbol find-references
-/// unchanged. Collected against the registry's resolved builtin ASTs, which
-/// carry ability uuids + method name spans (ability-method dispatch symbols
-/// need no checking); impl-method declarations, which need the checker's
-/// resolved symbol, are simply absent and skipped.
+/// unchanged.
+///
+/// The occurrences themselves are the session's memoized **checked** view
+/// ([`AnalysisSession::builtin_definition_occurrences`]) — checking is what mints
+/// the impl-method `resolved_symbol`s a `Method` occurrence keys on, absent from
+/// the registry's parse+resolve-only builtin ASTs. This renderer only attaches
+/// each module's materialized-source URI (skipping any not on disk). Cloning the
+/// memo out releases the `&mut` borrow before the URI lookup reads the package.
 fn builtin_occurrences(
-    session: &ambient_analysis::session::AnalysisSession,
+    session: &mut ambient_analysis::session::AnalysisSession,
     core_root: Option<&std::path::Path>,
 ) -> Vec<ModuleOccurrences> {
     let Some(root) = core_root else {
         return Vec::new();
     };
+    let occurrences = session.builtin_definition_occurrences().to_vec();
     let package = session.package();
-    let registry = session.registry().as_ref();
     let mut out = Vec::new();
-    for path in ambient_analysis::core_cache::builtin_module_paths() {
-        let Some(info) = registry.get(&path) else {
-            continue;
-        };
+    for (path, occurrences) in occurrences {
         let Some(uri) = module_uri(Some(package), Some(root), &path) else {
             continue;
         };
-        let mut occurrences = collect_occurrences(&info.module, &path, registry);
-        occurrences.retain(|occ| occ.is_definition);
-        if occurrences.is_empty() {
-            continue;
-        }
         out.push(ModuleOccurrences {
             module_path: path,
             uri,

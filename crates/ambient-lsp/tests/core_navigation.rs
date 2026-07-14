@@ -8,6 +8,7 @@
 //! shapes: a plain core `pub fn`, a core ability method, and an extern fn.
 
 use ambient_lsp::test_harness::{LspTest, TestClient};
+use lsp_types::Location;
 
 /// A package whose `main.ab` references one item of each shape core defines.
 /// `boom` performs `Exception::throw` (so it must declare `with Exception`).
@@ -63,6 +64,84 @@ fn goto_core_ability_method_lands_in_core_source() {
         .expect_file("exception.ab")
         .done()
         .shutdown();
+}
+
+/// A package exercising builtin *method* navigation: an associated/inherent
+/// call (`String::join`) and a dot-dispatch call (`"a".concat(..)`). Both
+/// dispatch to core impl methods on `String`, whose declarations only carry a
+/// navigable `Method` occurrence once the builtin module is *checked* — the
+/// registry's parse+resolve-only builtin ASTs lack the impl-method dispatch
+/// symbol. The session memoizes that check; this pins that the declaration side
+/// now lands in the materialized core source, like plain items and ability
+/// methods already do.
+const METHODS: &str = "\
+fn joined(parts: List<String>): String {
+  String::join/*join*/(parts, \", \")
+}
+
+fn glued(): String {
+  \"a\".concat/*concat*/(\"b\")
+}
+";
+
+/// A package with `METHODS` as its opened root module.
+fn methods_test() -> LspTest {
+    LspTest::new()
+        .with_package()
+        .with_file("src/main.ab", METHODS)
+        .open_file("src/main.ab")
+}
+
+/// Assert the single definition location lands in `filename` with its range
+/// covering exactly `method` — the method's *name* span inside the materialized
+/// core source, read back off disk to confirm the byte range is the declaration.
+fn assert_method_declaration(locations: &[Location], filename: &str, method: &str) {
+    let loc = locations
+        .iter()
+        .find(|l| l.uri.as_str().ends_with(filename))
+        .unwrap_or_else(|| panic!("no definition in {filename}; got {locations:?}"));
+    let path = loc
+        .uri
+        .as_str()
+        .strip_prefix("file://")
+        .expect("file uri into the materialized cache");
+    // A materialized read-only cache copy, not the package's own `src/` tree.
+    assert!(
+        !path.contains("/src/"),
+        "expected a materialized core-cache path, not a package source, got {path}"
+    );
+    let content = std::fs::read_to_string(path).expect("materialized core file readable");
+    let line = content
+        .lines()
+        .nth(loc.range.start.line as usize)
+        .expect("declaration line present");
+    let (start, end) = (
+        loc.range.start.character as usize,
+        loc.range.end.character as usize,
+    );
+    assert_eq!(
+        &line[start..end],
+        method,
+        "definition range should cover the method name in {filename}"
+    );
+}
+
+#[test]
+fn goto_builtin_associated_method_lands_in_core_source() {
+    // `String::join(..)`: an associated call the checker rewrites to the impl
+    // method's dispatch symbol. Navigation now reaches the checked declaration.
+    let (test, locations) = methods_test().goto_definition_at("join").raw();
+    assert_method_declaration(&locations, "string.ab", "join");
+    test.shutdown();
+}
+
+#[test]
+fn goto_builtin_dot_method_lands_in_core_source() {
+    // `"a".concat("b")`: dot dispatch on a `String` receiver, resolved to the
+    // same kind of impl-method symbol. Navigation lands on its declaration.
+    let (test, locations) = methods_test().goto_definition_at("concat").raw();
+    assert_method_declaration(&locations, "string.ab", "concat");
+    test.shutdown();
 }
 
 /// A package using the bare, prelude-injected enum-variant constructors and
