@@ -130,13 +130,15 @@ use crate::types::Type;
 /// The augmentation is order-sensitive (greedy: when two structural edges close
 /// a cycle *with each other*, whichever comes first wins; the other is skipped —
 /// strictly no worse than the old fallback, which dropped both). So we iterate
-/// edges in a fully deterministic order — sorted by `(from, to)` — realized by
-/// the `BTreeMap` key order over `extra` and the per-key `definers.sort_unstable`
-/// in [`structural_dispatch_edges`]. `(from, to)` order carries no semantic
-/// priority (anchor vs. reverse vs. dispatch edges are indistinguishable here and
-/// any deterministic tie-break is acceptable); it is chosen purely for a stable,
-/// obvious rule. This keeps warm == cold == lazy byte-identity: the graph is
-/// built the same way every time regardless of the module iteration order.
+/// edges in a fully deterministic order: the `from` keys follow the `BTreeMap`
+/// key order over `extra`, and within each key the `to` definers follow the
+/// order they were collected in — ascending `ModulePath` order, since
+/// [`structural_dispatch_edges`] walks `modules` (which `Package` yields in
+/// `BTreeMap` order). This order carries no semantic priority (anchor vs. reverse
+/// vs. dispatch edges are indistinguishable here and any deterministic tie-break
+/// is acceptable); it falls out of the deterministic module store for free. This
+/// keeps warm == cold == lazy byte-identity: the graph is built the same way
+/// every time regardless of the order modules happened to load.
 ///
 /// `modules` carries each package module's resolved AST keyed by the same string
 /// `deps`/`link_deps` use (its dotted [`ModulePath`](crate::module_path::ModulePath)).
@@ -265,12 +267,11 @@ fn structural_dispatch_edges(
             }
         }
     }
-    // Sort each definer list so the augmented graph is deterministic regardless
-    // of the module iteration order (`modules` derives from a `HashMap`): the
-    // topo sort in `compilation_order` breaks ties by adjacency-vector order.
-    for definers in edges.values_mut() {
-        definers.sort_unstable();
-    }
+    // Each definer list is already deterministic: definers are pushed in `modules`
+    // iteration order, which is ascending `ModulePath` order (`Package` stores its
+    // modules in a `BTreeMap` — see [`crate::package::Package::all_modules`]), so
+    // no laundering sort is needed. The topo sort in `compilation_order` breaks
+    // ties by adjacency-vector order.
     edges
 }
 
