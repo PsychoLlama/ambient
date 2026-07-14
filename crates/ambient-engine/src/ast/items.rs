@@ -362,6 +362,10 @@ pub struct AbilityDef {
 pub struct AbilityMethod {
     /// Method name.
     pub name: Arc<str>,
+    /// Span of the method name (for IDE features), mirroring
+    /// [`TraitMethod::name_span`]/[`ImplMethod::name_span`]. Distinct from
+    /// [`span`](Self::span), which covers the whole signature/body.
+    pub name_span: Span,
     /// Type parameters (generics).
     pub type_params: Vec<TypeParam>,
     /// Parameters. Every parameter carries a declared type (enforced in

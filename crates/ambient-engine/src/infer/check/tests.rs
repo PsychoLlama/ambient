@@ -16,6 +16,7 @@ fn method(
 ) -> crate::ast::AbilityMethod {
     crate::ast::AbilityMethod {
         name: Arc::from(name),
+        name_span: span(),
         type_params: type_params
             .iter()
             .map(|name| crate::ast::TypeParam {

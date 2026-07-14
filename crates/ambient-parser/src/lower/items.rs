@@ -462,6 +462,7 @@ fn lower_ability_def(
 
             Ok(AbilityMethod {
                 name: m.name.name.clone(),
+                name_span: m.name.span,
                 type_params,
                 params,
                 ret_ty,

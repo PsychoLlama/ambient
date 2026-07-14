@@ -796,6 +796,7 @@ fn make_ability_with_methods(name: &str, methods: &[&str], is_public: bool) -> I
                 .iter()
                 .map(|m| AbilityMethod {
                     name: Arc::from(*m),
+                    name_span: Span::default(),
                     type_params: vec![],
                     params: vec![],
                     ret_ty: crate::types::Type::Unit,
