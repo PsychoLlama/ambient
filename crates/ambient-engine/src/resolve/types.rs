@@ -12,7 +12,7 @@ use crate::module_path::ModulePath;
 use crate::module_registry::Namespace;
 use crate::types::{NamedType, Type};
 
-use super::Resolver;
+use super::{RefPos, Resolver};
 
 impl Resolver<'_> {
     /// Resolve a dotted type reference inside a `types::Type` value.
@@ -78,8 +78,11 @@ impl Resolver<'_> {
                 // manufacture the spurious cycles this whole split exists to
                 // avoid (see `resolve_named_type_head`). The value-position
                 // twin — constructing this type (`Money{..}`) — is classified
-                // in `resolve_type_ref` (`refs`), not here.
-                self.deps.insert(self.registry.module_id(&origin));
+                // in `resolve_type_ref` (`refs`), not here. Routes through the
+                // same classified funnel as every other edge, tagged
+                // [`RefPos::Type`].
+                self.deps
+                    .record(&self.registry.module_id(&origin), RefPos::Type);
                 let item = Arc::clone(item);
                 self.apply_named_type_from_module(ty, &origin, &item);
             }
