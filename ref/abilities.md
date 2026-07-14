@@ -427,12 +427,15 @@ to `core::system`, so its ability bodies are their only callers.
 
 ## Error Handling
 
-Errors are abilities. `Exception::throw!` raises; the nearest enclosing
-`with ... handle` for Exception catches. A handler arm's value becomes the
-handle expression's value, and execution continues after the handle
-expression (catch-and-continue). The optional trailing `else (result) =>
-E` clause transforms the body's value on _normal_ completion only; arms
-bypass it.
+Errors are abilities. `throw!` raises (`Exception::throw` rides the
+prelude as an ability-method re-export, so no import and no prefix — the
+qualified `Exception::throw!` spelling stays equivalent); the nearest
+enclosing `with ... handle` for Exception catches. A handler arm's value
+becomes the handle expression's value, and execution continues after the
+handle expression (catch-and-continue). The optional trailing
+`else (result) => E` clause transforms the body's value on _normal_
+completion only; arms bypass it — and arms still spell
+`Exception::throw(e)`: method re-exports cover calls only.
 
 ```ambient
 // The one abstract ability method in the language: `throw` returns `!`,
@@ -447,7 +450,7 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000001) ability Exception {
 fn parse_int(s: String): Number with Exception {
   match try_parse(s) {
     Some(n) => n,
-    None => Exception::throw!("not a number"),   // E = String
+    None => throw!("not a number"),   // E = String; prelude method re-export
   }
 }
 

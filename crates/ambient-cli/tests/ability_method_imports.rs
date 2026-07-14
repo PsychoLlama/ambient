@@ -255,6 +255,49 @@ fn private_ability_methods_cannot_be_imported() {
 }
 
 #[test]
+fn prelude_throw_performs_bare_and_catches_like_the_qualified_spelling() {
+    // `Exception::throw` rides the prelude as a method re-export, so
+    // `throw!(…)` needs no import — and one handler arm (still spelled
+    // qualified) catches both spellings.
+    let dir = package(&[(
+        "main.ab",
+        r#"
+fn bare(): Number with Exception { throw!("bare") }
+fn qualified(): Number with Exception { Exception::throw!("qualified") }
+
+pub fn run(): Number {
+  let a = with { Exception::throw(e) => 1 } handle bare();
+  let b = with { Exception::throw(e) => 2 } handle qualified();
+  a + b
+}
+"#,
+    )]);
+    assert_eq!(run(dir.path()), "3");
+}
+
+#[test]
+fn explicit_method_import_shadows_the_prelude_throw() {
+    // An explicit `use` of another ability's `throw` wins over the
+    // prelude's `Exception::throw` under the bare name; the prelude one
+    // stays reachable qualified.
+    let dir = package(&[
+        (
+            "effects.ab",
+            "pub unique(AB000000-0000-0000-0000-000000000024) ability Soft {\n  fn throw(msg: String): Number { 5 }\n}\n",
+        ),
+        (
+            "main.ab",
+            r#"
+use pkg::effects::{Soft, Soft::throw};
+
+pub fn run(): Number with Soft { throw!("soft") }
+"#,
+        ),
+    ]);
+    assert_eq!(run(dir.path()), "5");
+}
+
+#[test]
 fn bare_perform_without_an_import_suggests_the_use_path() {
     let dir = package(&[
         ("effects.ab", EFFECTS),

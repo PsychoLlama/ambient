@@ -30,7 +30,7 @@ fn need(result: Result<Number, String>): Number with Exception {
     match result {
         Ok(value) => value,
         Err(msg) => {
-            Exception::throw!(msg);
+            throw!(msg);
             -1
         }
     }

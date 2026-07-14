@@ -1,7 +1,18 @@
 //! Error handling example with Exception effects.
 //!
 //! Demonstrates the Exception ability for error handling.
-//! Shows how to catch and handle errors using handlers.
+//! Shows how to catch and handle errors using handlers. Raising is just
+//! `throw!(…)` — `Exception::throw` rides the prelude — while catching
+//! still names the ability (`Exception::throw(msg) => …`).
+
+/// Throws on a negative input, otherwise passes the number through.
+fn positive_or_throw(n: Number): Number with Exception {
+    if (n < 0) {
+        throw!("negative input")
+    } else {
+        n
+    }
+}
 
 /// Entry point demonstrating error handling with handlers.
 pub fn run(): Number {
@@ -47,6 +58,14 @@ pub fn run(): Number {
     };
     // Expected: 123 (no errors in either layer)
 
-    // Sum the results: 42 + 25 + 123 = 190
-    success_result + seq_result + nested_result
+    // Test 4: An actual throw - unwinds to the handler, which yields 7
+    let caught_result = with {
+        Exception::throw(msg) => {
+            7
+        }
+    } handle positive_or_throw(-3);
+    // Expected: 7 (the throw unwound; -3 never came back)
+
+    // Sum the results: 42 + 25 + 123 + 7 = 197
+    success_result + seq_result + nested_result + caught_result
 }

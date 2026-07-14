@@ -5,7 +5,10 @@
 // block; with no handler in scope the exception is uncaught and surfaces as
 // an engine fault. Unlike the platform abilities (`core::system::*`), it is
 // re-exported onto the prelude (see `prelude.ab`), so it is in scope bare in
-// every module without an import — exactly like `Option`/`Result`.
+// every module without an import — exactly like `Option`/`Result`. The
+// `throw` method rides the prelude too (an ability-method re-export), so
+// raising is just `throw!("...")`; handler arms still spell
+// `Exception::throw(e)`, since method imports cover calls only.
 //
 // The ability's identity derives from its declaration uuid, so this
 // declaration reproduces exactly the id the VM anchors its throw/unwind

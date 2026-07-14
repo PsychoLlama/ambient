@@ -72,6 +72,6 @@ fn serve_once(): () with Tcp, State, Live, Stdio {
 fn need(result: Result<Number, String>): Number with Exception {
   match result {
     Ok(value) => value,
-    Err(message) => Exception::throw!(message),
+    Err(message) => throw!(message),
   }
 }

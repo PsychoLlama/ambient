@@ -167,8 +167,11 @@ fn prelude_reexports_the_full_global_set() {
         "List",
         "Map",
         "Set",
-        // The language-level error-signalling ability.
+        // The language-level error-signalling ability, plus its one method
+        // as an ability-method re-export: `throw!(…)` works bare in every
+        // module (handler arms still spell `Exception::throw`).
         "Exception",
+        "throw",
         // Operator traits (`Default` is deliberately excluded from the prelude).
         "Add",
         "Sub",

@@ -27,7 +27,7 @@ pub fn run(): () with Stdio, Tcp, FileSystem, Env, Exception {
   let deploy_conn = need(Tcp::connect!(("127.0.0.1", port("DEPLOY_PORT", 7911))));
   match Tcp::send!(deploy_conn, pack) {
     Ok(_) => (),
-    Err(message) => Exception::throw!("pack send failed: ${message}"),
+    Err(message) => throw!("pack send failed: ${message}"),
   };
   let report = receive_text(deploy_conn);
   Stdio::out!("report: ${report}");
@@ -52,7 +52,7 @@ pub fn run(): () with Stdio, Tcp, FileSystem, Env, Exception {
 fn request(conn: Number, text: String): String with Tcp, Exception {
   match Tcp::send!(conn, Binary::from_string(text)) {
     Ok(_) => (),
-    Err(message) => Exception::throw!("send failed: ${message}"),
+    Err(message) => throw!("send failed: ${message}"),
   };
   receive_text(conn)
 }
@@ -61,7 +61,7 @@ fn request(conn: Number, text: String): String with Tcp, Exception {
 fn receive_text(conn: Number): String with Tcp, Exception {
   match Tcp::receive!(conn) {
     Ok(data) => data.to_string().unwrap_or(""),
-    Err(message) => Exception::throw!("receive failed: ${message}"),
+    Err(message) => throw!("receive failed: ${message}"),
   }
 }
 
@@ -69,7 +69,7 @@ fn receive_text(conn: Number): String with Tcp, Exception {
 fn read_pack(path: String): Binary with FileSystem, Exception {
   match FileSystem::read_binary!(path) {
     Ok(bytes) => bytes,
-    Err(message) => Exception::throw!("could not read pack ${path}: ${message}"),
+    Err(message) => throw!("could not read pack ${path}: ${message}"),
   }
 }
 
@@ -82,6 +82,6 @@ fn port(var: String, default: Number): Number with Env {
 fn need(result: Result<Number, String>): Number with Exception {
   match result {
     Ok(value) => value,
-    Err(message) => Exception::throw!(message),
+    Err(message) => throw!(message),
   }
 }

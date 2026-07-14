@@ -34,5 +34,9 @@ pub use core::traits::{Add, Sub, Mul, Div, Mod, Eq, Ord, Show};
 // containers, its runtime semantics are engine-built (the VM's throw/unwind
 // path keys on its content-addressed id), but the name resolves through
 // scope like any other ability — bare here via the prelude, or
-// `core::exception::Exception` fully-qualified.
+// `core::exception::Exception` fully-qualified. Its one method rides the
+// prelude too, as an ability-method re-export, so raising an error is just
+// `throw!("...")` — no import, no prefix. Handler arms still spell
+// `Exception::throw(e)`: method imports cover calls only.
 pub use core::exception::Exception;
+pub use core::exception::Exception::throw;
