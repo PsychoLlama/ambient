@@ -54,8 +54,11 @@ pub(crate) fn get_core_path_completions(scope: &str, prefix: &str) -> Vec<Comple
 
     // Child modules: any registered module one segment deeper than the
     // target. These are the sub-namespaces and modules (`collections`,
-    // `List`, ...) reached by walking the path further.
-    let mut children: Vec<&str> = registry
+    // `List`, ...) reached by walking the path further. `all_modules` yields
+    // ascending module-path-string order; every match here shares the exact
+    // `target::` prefix, so they already arrive sorted by their last segment —
+    // no explicit sort needed.
+    let children: Vec<&str> = registry
         .all_modules()
         .filter_map(|info| {
             let segments = info.path.segments();
@@ -68,7 +71,6 @@ pub(crate) fn get_core_path_completions(scope: &str, prefix: &str) -> Vec<Comple
             .flatten()
         })
         .collect();
-    children.sort_unstable();
     for child in children {
         if child.starts_with(prefix) && seen.insert(child.to_string()) {
             let qualified = if scope.is_empty() {

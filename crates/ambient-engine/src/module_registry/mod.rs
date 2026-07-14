@@ -22,7 +22,7 @@ pub use exports::{ExportInfo, ExportKind, ReExport};
 pub use imports::{ImportError, ResolvedImport, ResolvedImports};
 pub use scope::{ItemImport, ModuleScope, Namespace};
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::ast::{ItemKind, Module, UsePrefix};
@@ -110,8 +110,14 @@ pub struct ModuleInfo {
 /// building: module ASTs are shared through `Arc`.
 #[derive(Debug)]
 pub struct ModuleRegistry {
-    /// Map from module path string to module info.
-    modules: HashMap<String, ModuleInfo>,
+    /// Map from module path string to module info. A `BTreeMap` (not a
+    /// `HashMap`) so [`Self::all_modules`] iterates in a deterministic,
+    /// registration-order-independent order (ascending by module-path string) —
+    /// build determinism (warm == cold == lazy byte-identity) and stable
+    /// diagnostic/completion ordering then hold by construction rather than
+    /// relying on every downstream consumer to launder a nondeterministic
+    /// iteration order through its own sort.
+    modules: BTreeMap<String, ModuleInfo>,
     /// The workspace package name (`ambient.toml` `name`) user modules are
     /// scoped under (`workspace::<name>`). Empty until
     /// [`Self::set_workspace_name`] runs — a consistent placeholder that
@@ -163,7 +169,7 @@ impl Clone for ModuleRegistry {
 impl Default for ModuleRegistry {
     fn default() -> Self {
         Self {
-            modules: HashMap::new(),
+            modules: BTreeMap::new(),
             workspace_name: Arc::from(""),
             prelude: None,
             natives: crate::natives::NativeRegistry::new(),
@@ -532,7 +538,15 @@ impl ModuleRegistry {
             .ok()
     }
 
-    /// Get all registered modules.
+    /// Get all registered modules, in ascending module-path-string order.
+    ///
+    /// The order is deterministic and independent of registration order (the
+    /// backing store is a `BTreeMap`). Downstream consumers may rely on this
+    /// for build determinism and stable diagnostic/completion ordering, and
+    /// need not re-sort to launder a nondeterministic iteration order — though
+    /// a consumer that wants a *different* order (e.g. a declaration module
+    /// hoisted first, or a canonical multiset hash over shape bytes) must still
+    /// impose it.
     pub fn all_modules(&self) -> impl Iterator<Item = &ModuleInfo> {
         self.modules.values()
     }
