@@ -508,15 +508,6 @@ pub fn impl_dispatch_shape(i: &crate::ast::ImplDef) -> Vec<u8> {
     encode::impl_shape_bytes(&impl_shape(i))
 }
 
-/// The body-free dispatch-shape bytes of a single ability — the abilities half
-/// of the dispatch surface, per-ability. Abilities stay build-global (a
-/// performer always names the ability, so the dependency channel already
-/// carries their changes), so this folds into every module's key uniformly.
-#[must_use]
-pub fn ability_dispatch_shape(a: &crate::ast::AbilityDef) -> Vec<u8> {
-    encode::ability_shape_bytes(&ability_shape(a))
-}
-
 fn impl_shape(i: &crate::ast::ImplDef) -> ImplShape {
     let mut methods: Vec<ImplMethodEntry> = i
         .methods

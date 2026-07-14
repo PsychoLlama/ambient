@@ -322,14 +322,6 @@ pub(super) fn impl_shape_bytes(i: &ImplShape) -> Vec<u8> {
     w.buf
 }
 
-/// The body-free shape bytes for one ability, standalone. See
-/// [`super::ability_dispatch_shape`].
-pub(super) fn ability_shape_bytes(a: &AbilityShape) -> Vec<u8> {
-    let mut w = Writer::default();
-    write_ability_shape(&mut w, a);
-    w.buf
-}
-
 /// A body-free impl encoding for the dispatch/coherence surface: the
 /// `(trait, type)` identity and every method's *signature*, but not its body
 /// hash. See [`ModuleInterface::dispatch_bytes`].

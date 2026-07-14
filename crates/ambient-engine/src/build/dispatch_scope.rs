@@ -57,9 +57,48 @@
 //!   re-check via their own per-module relevance; the global promotion is what
 //!   keeps the error surfacing in *non-holders*, matching cold.)
 //!
-//! Abilities stay global unconditionally: a performer always names the ability
-//! (a resolve dep), so the dependency channel already carries ability changes,
-//! and keeping them global exactly preserves the pre-narrowing behavior.
+//! # Why abilities are absent entirely — not global, not narrowed
+//!
+//! Abilities carry **no** dispatch-key input, global or per-module: the
+//! dependency `interface_hash` channel already covers every consumer, so folding
+//! ability shapes here would be redundant double-counting.
+//!
+//! The reason abilities differ from impls is that they have no *orphans*. An
+//! impl can live in a third module the dispatcher never imports (an orphan `Add
+//! for Widget`), so type-directed dispatch reaches it with no resolve-dep edge —
+//! which is exactly why impls need the type-anchored narrowing (or the global
+//! bucket). An ability cannot be consumed that way: **every** path that makes a
+//! module's check or objects depend on ability `A`'s *shape* spells `A`, and the
+//! resolve pass canonicalizes every spelled ability reference to `A`'s declaring
+//! module (`resolve::refs::resolve_ability_ref`), recording a direct resolve-dep
+//! edge:
+//!
+//! - a perform site (`A::method!(..)`), a handler arm / `handle` expression, a
+//!   `Handler<A, R>` annotation, and an ability-method bound all name `A`;
+//! - an `A` effect row on a signature names `A` (and `pub` items must annotate
+//!   their effect row, so a cross-module-visible propagator spells it);
+//! - the prelude's `Exception` is no exception: an unqualified `throw`
+//!   canonicalizes to `core::exception`, its *declaring* module, not the prelude.
+//!
+//! The one path that does *not* spell `A` — a module that merely calls a
+//! function performing `A` and re-propagates the effect without handling it —
+//! does not depend on `A`'s shape at all: it never dispatches an `A` method, so
+//! adding/removing an `A` method or flipping a never-flag cannot change its
+//! objects or diagnostics. It depends only on the *callee's* signature (which
+//! carries the `A` effect identity), covered by the callee module's dep edge.
+//!
+//! So a direct resolve-dep edge to `A`'s module exists for exactly the modules
+//! whose output depends on `A`'s shape, and [`dep_interface_hashes`] folds that
+//! module's full `interface_hash` — which *retains* the ability's signature and
+//! default-impl body hash — into their cache key. A signature/never-flag edit,
+//! or a method add/remove, moves the declaring module's `interface_hash` and
+//! re-checks its consumers; unrelated modules stay warm. A default-impl *body*
+//! edit is covered identically to impl bodies: the dispatch surface has always
+//! been body-free, so consumers relink/recompile through the ordinary
+//! callee-hash channels (link validation for the build cache, the retained-body
+//! `interface_hash` for importers), never a whole-package re-check.
+//!
+//! [`dep_interface_hashes`]: super::dep_interface_hashes
 //!
 //! # Determinism
 //!
@@ -69,13 +108,16 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::ast::{ItemKind, Module};
-use crate::module_interface::{ability_dispatch_shape, impl_dispatch_shape};
+use crate::module_interface::impl_dispatch_shape;
 use crate::module_registry::ModuleRegistry;
 
 use super::reachability::{TypeDecl, declared_types, forward_closure, type_head, type_matches};
 
-/// Domain separator for the global (unconditional + colliding + ability) bytes.
-const GLOBAL_VERSION: &[u8] = b"ambient/dispatch/global/v1";
+/// Domain separator for the global (unconditional + colliding impl) bytes.
+/// Abilities carry no dispatch-key input (the dependency channel covers them);
+/// the version is bumped from `v1` so a stale cache from the ability-global era
+/// misses cleanly rather than reusing a key that folded ability shapes.
+const GLOBAL_VERSION: &[u8] = b"ambient/dispatch/global/v2";
 /// Domain separator for a module's narrowed dispatch key.
 const MODULE_VERSION: &[u8] = b"ambient/dispatch/permodule/v1";
 
@@ -125,17 +167,15 @@ pub fn per_module_dispatch_hashes(
 
     let facts = collect_impl_facts(&modules, dep_ids, &declared);
 
-    // The global bytes: unconditional + colliding impl shapes, plus every
-    // ability shape. Folded into every module's key.
+    // The global bytes: unconditional + colliding impl shapes, folded into every
+    // module's key. Abilities are deliberately absent — the dependency
+    // `interface_hash` channel already covers every performer/handler (see the
+    // module docs), so folding ability shapes here would double-count.
     let mut global_shapes: Vec<&[u8]> = Vec::new();
     for f in &facts {
         if f.colliding || f.package_anchors.is_empty() {
             global_shapes.push(&f.shape);
         }
-    }
-    let ability_shapes = collect_ability_shapes(&modules);
-    for s in &ability_shapes {
-        global_shapes.push(s);
     }
     global_shapes.sort_unstable();
     let mut gh = blake3::Hasher::new();
@@ -273,19 +313,6 @@ fn package_anchors_of(
         })
         .map(ToString::to_string)
         .collect()
-}
-
-/// Every ability's body-free shape, across all modules — folded globally.
-fn collect_ability_shapes(modules: &[(String, &Module)]) -> Vec<Vec<u8>> {
-    let mut out = Vec::new();
-    for (_, ast) in modules {
-        for item in &ast.items {
-            if let ItemKind::Ability(a) = &item.kind {
-                out.push(ability_dispatch_shape(a));
-            }
-        }
-    }
-    out
 }
 
 /// A stable string identity for a type head: its uuid when present (the strict
