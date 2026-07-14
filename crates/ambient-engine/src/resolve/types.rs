@@ -80,9 +80,14 @@ impl Resolver<'_> {
                 // twin — constructing this type (`Money{..}`) — is classified
                 // in `resolve_type_ref` (`refs`), not here. Routes through the
                 // same classified funnel as every other edge, tagged
-                // [`RefPos::Type`].
-                self.deps
-                    .record(&self.registry.module_id(&origin), RefPos::Type);
+                // [`RefPos::Type`]. The `origin != current` self-edge guard
+                // matches `Resolver::canonical` (a re-export chain resolving
+                // back to the current module records nothing) — the resolve
+                // pass never depends on its own module.
+                if origin != *self.current {
+                    self.deps
+                        .record(&self.registry.module_id(&origin), RefPos::Type);
+                }
                 let item = Arc::clone(item);
                 self.apply_named_type_from_module(ty, &origin, &item);
             }
