@@ -110,19 +110,8 @@
       );
 
       devShells = eachSystem (
-        system: pkgs:
-
-        let
-          # Add ambient-cli to path without compiling from scratch.
-          ambient-cli-local = pkgs.writeShellApplication {
-            name = "ambient";
-            text = ''
-              cargo run --quiet --package ambient-cli -- "$@"
-            '';
-          };
-        in
-
-        {
+        system: pkgs: rec {
+          # Common environment used in development and CI.
           default = pkgs.mkShell {
             packages = [
               (rustToolchainFor pkgs)
@@ -136,9 +125,31 @@
               pkgs.stylua
               pkgs.tree-sitter
               pkgs.treefmt
-
-              ambient-cli-local
             ];
+          };
+
+          # Tools that only matter when a human (or coding agent) is actively
+          # iterating on the source.
+          coding = pkgs.mkShell {
+            inputsFrom = [ default ];
+
+            packages = [
+              (pkgs.writeShellApplication {
+                name = "ambient";
+                text = ''
+                  cargo run --quiet --package ambient-cli -- "$@"
+                '';
+              })
+            ];
+
+            # Share the Rust build cache across worktrees.
+            # Only local - not set in CI.
+            shellHook = ''
+              if _git_common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; then
+                export CARGO_TARGET_DIR="$(dirname "$_git_common")/target"
+                unset _git_common
+              fi
+            '';
 
             TREE_SITTER_AMBIENT = self.packages.${system}.tree-sitter-ambient;
           };
