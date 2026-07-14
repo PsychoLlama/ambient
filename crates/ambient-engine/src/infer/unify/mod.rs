@@ -123,12 +123,6 @@ impl Infer {
                 self.unify_abilities(&f1.abilities, &f2.abilities, span)
             }
 
-            // AbilityValue types (Milestone 8)
-            (Type::AbilityValue(av1), Type::AbilityValue(av2)) => {
-                self.unify(&av1.result, &av2.result, span)?;
-                self.unify_abilities(&av1.ability, &av2.ability, span)
-            }
-
             // Handler types (Milestone 13): the ability must match, then the
             // answer types unify. Two handlers for different abilities are
             // distinct types; same ability with a free answer var absorbs the
@@ -261,7 +255,6 @@ impl Infer {
             }
             Type::Named(n) => n.args.iter().any(|a| self.occurs(var, a)),
             Type::Nominal(n) => self.occurs(var, &n.inner),
-            Type::AbilityValue(av) => self.occurs(var, &av.result),
             Type::Handler(h) => self.occurs(var, &h.answer),
             _ => false,
         }
@@ -578,28 +571,6 @@ mod tests {
         );
 
         let result = infer.unify(&f1, &f2, span());
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_unify_ability_values() {
-        let mut infer = Infer::new();
-
-        let av1 = Type::ability_value(Type::string(), AbilitySet::single(aid(1)));
-        let av2 = Type::ability_value(Type::string(), AbilitySet::single(aid(1)));
-
-        let result = infer.unify(&av1, &av2, span());
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_unify_ability_values_different_result_fails() {
-        let mut infer = Infer::new();
-
-        let av1 = Type::ability_value(Type::string(), AbilitySet::single(aid(1)));
-        let av2 = Type::ability_value(Type::number(), AbilitySet::single(aid(1)));
-
-        let result = infer.unify(&av1, &av2, span());
         assert!(result.is_err());
     }
 

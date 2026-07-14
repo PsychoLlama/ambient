@@ -108,9 +108,6 @@ fn report_undefined_types(
             }
             report_undefined_types(infer, &f.ret, span, extra_known, errors);
         }
-        Type::AbilityValue(av) => {
-            report_undefined_types(infer, &av.result, span, extra_known, errors);
-        }
         Type::Forall(fa) => report_undefined_types(infer, &fa.body, span, extra_known, errors),
         // Leaves, and already-resolved forms (`Nominal`, `Param`, `Var`,
         // primitives, `Unit`, ...): nothing to flag. `Nominal` inners belong
@@ -162,9 +159,6 @@ fn error_undefined_types(infer: &Infer, ty: &Type) -> Type {
             error_undefined_types(infer, &f.ret),
             f.abilities.clone(),
         ),
-        Type::AbilityValue(av) => {
-            Type::ability_value(error_undefined_types(infer, &av.result), av.ability.clone())
-        }
         Type::Forall(fa) => Type::Forall(crate::types::ForallType::with_abilities(
             fa.vars.clone(),
             fa.ability_vars.clone(),

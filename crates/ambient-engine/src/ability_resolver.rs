@@ -567,11 +567,6 @@ impl CanonicalTypeRenderer {
                 let inner = self.render(&nominal.inner);
                 format!("nominal:{}:{inner}", nominal.uuid)
             }
-            Type::AbilityValue(av) => {
-                let result = self.render(&av.result);
-                let abilities = self.render_ability_set(&av.ability);
-                format!("ability<{result}, {{{abilities}}}>")
-            }
             // A rigid type parameter renders byte-identically to the
             // unresolved `Named{args:[]}` it replaced (`named:T`), so method
             // signature hashes are invariant even if a `Param` were to reach a

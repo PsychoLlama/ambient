@@ -4,8 +4,7 @@
 use std::collections::HashMap;
 
 use super::{
-    AbilitySet, AbilityValueType, AbilityVarId, ForallType, FunctionType, HandlerType, RecordType,
-    Type, TypeVarId,
+    AbilitySet, AbilityVarId, ForallType, FunctionType, HandlerType, RecordType, Type, TypeVarId,
 };
 
 impl Type {
@@ -24,7 +23,6 @@ impl Type {
             Self::Named(n) => n.args.iter().all(Type::is_concrete),
             Self::Nominal(n) => n.inner.is_concrete(),
             Self::Forall(f) => f.body.is_concrete(),
-            Self::AbilityValue(av) => av.result.is_concrete() && av.ability.ability_var().is_none(),
             Self::Handler(h) => h.answer.is_concrete(),
             // All other types are concrete by default
             _ => true,
@@ -45,7 +43,6 @@ impl Type {
             Self::Named(n) => n.args.iter().any(Type::mentions_param),
             Self::Nominal(n) => n.inner.mentions_param(),
             Self::Forall(f) => f.body.mentions_param(),
-            Self::AbilityValue(av) => av.result.mentions_param(),
             Self::Handler(h) => h.answer.mentions_param(),
             _ => false,
         }
@@ -86,7 +83,6 @@ impl Type {
                 }
             }
             Self::Nominal(n) => n.inner.collect_free_vars(vars),
-            Self::AbilityValue(av) => av.result.collect_free_vars(vars),
             Self::Handler(h) => h.answer.collect_free_vars(vars),
             Self::Forall(f) => {
                 // Bound variables are not free
@@ -137,10 +133,6 @@ impl Type {
                 }
             }
             Self::Nominal(n) => n.inner.collect_free_ability_vars(vars),
-            Self::AbilityValue(av) => {
-                av.result.collect_free_ability_vars(vars);
-                vars.extend(av.ability.free_ability_vars());
-            }
             Self::Handler(h) => h.answer.collect_free_ability_vars(vars),
             Self::Forall(f) => {
                 let mut body_vars = Vec::new();
@@ -203,13 +195,6 @@ impl Type {
             ),
             Self::Nominal(n) => {
                 Self::Nominal(n.map_inner(n.inner.substitute_all(type_subst, ability_subst)))
-            }
-            Self::AbilityValue(av) => {
-                let new_ability = substitute_ability_set(&av.ability, ability_subst);
-                Self::AbilityValue(AbilityValueType::new(
-                    av.result.substitute_all(type_subst, ability_subst),
-                    new_ability,
-                ))
             }
             Self::Handler(h) => Self::Handler(HandlerType::new(
                 h.ability,

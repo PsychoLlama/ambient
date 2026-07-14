@@ -282,27 +282,23 @@ special case:
   still provide a body (e.g. one that translates into another never
   ability it declares in its `with` row).
 
-### Suspended ability values with never results (design note)
+### Suspended ability operations with never results (design note)
 
-No surface syntax currently produces a first-class _suspended_ ability
-operation: a bare `Exception::throw("x")` (no `!`) does not parse as
-"suspend without performing", and the compiler always emits
-`Suspend`+`Perform` as a pair, so `Type::AbilityValue` is unreachable
-from source today. If/when ability-value syntax lands, never methods are
-specified to behave as follows:
+There is no first-class _suspended_ ability operation: no surface syntax
+produces one (a bare `Exception::throw("x")` without `!` does not parse as
+"suspend without performing"), and the compiler always emits
+`Suspend`+`Perform` as a pair. The former checker-side type for such a
+value (`Type::AbilityValue`) has been deleted as dead; only the VM's
+runtime `SuspendedAbility` object survives, and it is live machinery, not
+a stored language value.
 
-- **Typing**: bottom elimination applies at the **perform site**, not
-  the binding site. Binding a suspended never operation has the ability
-  value's own type (`AbilityValue<!, E>` — a perfectly ordinary value);
-  _performing_ it adopts the context exactly like a direct
-  `Ability::method!(...)` perform does.
-- **Runtime**: already correct. The `never` unwind flag travels inside
-  the suspended value itself, and the value's only constructor derives
-  it from the method's compiled reference (`SuspendedAbility::
-from_method_ref`), so a stored, passed-around, or host-built suspended
-  never operation unwinds at its eventual `Perform` exactly like a
-  compiled perform site (pinned by a VM test:
-  `test_host_constructed_suspended_never_value_unwinds`).
+The runtime is already correct for never methods regardless: the `never`
+unwind flag travels inside the suspended value itself, and the value's
+only constructor derives it from the method's compiled reference
+(`SuspendedAbility::from_method_ref`), so a host-built suspended never
+operation unwinds at its eventual `Perform` exactly like a compiled
+perform site (pinned by a VM test:
+`test_host_constructed_suspended_never_value_unwinds`).
 
 ## Handlers as Values
 

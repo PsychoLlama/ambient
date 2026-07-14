@@ -123,14 +123,6 @@ pub enum Type {
     Nominal(NominalType),
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Ability types (Milestone 8)
-    // ─────────────────────────────────────────────────────────────────────────
-    /// A suspended ability value: `Ability<T, A!>`
-    /// Represents an ability call that has been suspended and stored as a value.
-    /// `T` is the result type when performed, `A!` is the ability required.
-    AbilityValue(AbilityValueType),
-
-    // ─────────────────────────────────────────────────────────────────────────
     // Handler types (Milestone 13)
     // ─────────────────────────────────────────────────────────────────────────
     /// A handler value type: `Handler<A>`
@@ -225,27 +217,6 @@ impl FunctionType {
     #[must_use]
     pub fn is_pure(&self) -> bool {
         self.abilities.is_pure()
-    }
-}
-
-/// A suspended ability value type: `Ability<T, A!>`
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AbilityValueType {
-    /// The result type when the ability is performed.
-    pub result: Box<Type>,
-
-    /// The ability required to perform this suspended value.
-    pub ability: AbilitySet,
-}
-
-impl AbilityValueType {
-    /// Create a new ability value type.
-    #[must_use]
-    pub fn new(result: Type, ability: AbilitySet) -> Self {
-        Self {
-            result: Box::new(result),
-            ability,
-        }
     }
 }
 
@@ -475,12 +446,6 @@ impl Type {
     #[must_use]
     pub fn function_with_abilities(params: Vec<Type>, ret: Type, abilities: AbilitySet) -> Self {
         Self::Function(FunctionType::with_abilities(params, ret, abilities))
-    }
-
-    /// Create an ability value type: `Ability<T, A!>`.
-    #[must_use]
-    pub fn ability_value(result: Type, ability: AbilitySet) -> Self {
-        Self::AbilityValue(AbilityValueType::new(result, ability))
     }
 
     /// Create a handler type: `Handler<A, R>`.

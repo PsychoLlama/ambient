@@ -236,19 +236,6 @@ fn test_ability_set_free_vars() {
 }
 
 #[test]
-fn test_ability_value_type() {
-    let av = Type::ability_value(Type::string(), AbilitySet::single(aid(1)));
-    assert_eq!(av.to_string(), format!("Ability<String, {{#{}}}>", aid(1)));
-
-    if let Type::AbilityValue(avt) = av {
-        assert_eq!(*avt.result, Type::string());
-        assert!(avt.ability.contains(aid(1)));
-    } else {
-        panic!("Expected AbilityValue type");
-    }
-}
-
-#[test]
 fn test_function_with_abilities() {
     let func = Type::function_with_abilities(
         vec![Type::string()],
@@ -304,15 +291,6 @@ fn test_forall_with_ability_vars() {
 }
 
 #[test]
-fn test_ability_value_is_not_concrete() {
-    let av = Type::ability_value(Type::string(), AbilitySet::var(0));
-    assert!(!av.is_concrete());
-
-    let av_concrete = Type::ability_value(Type::string(), AbilitySet::single(aid(1)));
-    assert!(av_concrete.is_concrete());
-}
-
-#[test]
 fn test_function_with_ability_var_is_not_concrete() {
     let func =
         Type::function_with_abilities(vec![Type::number()], Type::number(), AbilitySet::var(0));
@@ -324,12 +302,6 @@ fn test_free_ability_vars_in_function() {
     let func =
         Type::function_with_abilities(vec![Type::number()], Type::number(), AbilitySet::var(42));
     assert_eq!(func.free_ability_vars(), vec![42]);
-}
-
-#[test]
-fn test_free_ability_vars_in_ability_value() {
-    let av = Type::ability_value(Type::string(), AbilitySet::var(10));
-    assert_eq!(av.free_ability_vars(), vec![10]);
 }
 
 #[test]

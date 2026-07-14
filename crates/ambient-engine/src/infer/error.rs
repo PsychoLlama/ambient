@@ -168,9 +168,6 @@ pub enum TypeErrorKind {
     /// ability at both ends (`A → B → A`).
     AbilityDependencyCycle { cycle: Vec<Arc<str>> },
 
-    /// Not a suspended ability value.
-    NotAnAbilityValue { ty: Type },
-
     /// Ability not handled.
     AbilityNotHandled { ability: AbilityId },
 
@@ -480,9 +477,6 @@ impl std::fmt::Display for TypeErrorKind {
                     "ability dependency cycle: {path}. Abilities may not depend on \
                      each other through `with`, directly or transitively"
                 )
-            }
-            Self::NotAnAbilityValue { ty } => {
-                write!(f, "expected a suspended ability value, found `{ty}`")
             }
             Self::AbilityNotHandled { ability } => {
                 write!(f, "ability #{ability} is not handled")

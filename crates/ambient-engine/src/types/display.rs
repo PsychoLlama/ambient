@@ -117,10 +117,6 @@ impl fmt::Display for Type {
                 }
             }
 
-            Self::AbilityValue(av) => {
-                write!(f, "Ability<{}, {}>", av.result, av.ability)
-            }
-
             Self::Handler(handler) => {
                 write!(f, "Handler<#{}, {}>", handler.ability, handler.answer)
             }

@@ -144,13 +144,6 @@ fn write_type(out: &mut String, ty: &Type) {
             }
             write_type(out, &n.inner);
         }
-        Type::AbilityValue(av) => {
-            out.push_str("ability<");
-            write_type(out, &av.result);
-            out.push_str(", ");
-            out.push_str(&render_ability_set(&av.ability));
-            out.push('>');
-        }
         Type::Handler(h) => {
             let _ = write!(out, "handler<{}>", h.ability.to_hex());
         }
