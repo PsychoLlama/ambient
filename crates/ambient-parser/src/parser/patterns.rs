@@ -130,29 +130,20 @@ impl Parser<'_> {
             });
         }
 
-        // Identifier (binding or variant)
-        if self.check(TokenKind::Ident) {
-            let ident = self.parse_ident()?;
+        // Identifier or path-prefix-keyword-headed variant. A pattern path may
+        // be rooted at the same prefix keywords expression position accepts
+        // (`pkg`, `core`, `super`, `self`), lexed as their own token kinds
+        // rather than `Ident`; `parse_path_segment` is the shared head reader.
+        let keyword_head = matches!(
+            self.current_kind(),
+            TokenKind::Pkg | TokenKind::Core | TokenKind::Super | TokenKind::Self_
+        );
+        if self.check(TokenKind::Ident) || keyword_head {
+            let ident = self.parse_path_segment()?;
 
-            // Check for variant pattern with payload
-            if self.check(TokenKind::LParen) {
-                self.advance();
-                let payload = self.parse_pattern()?;
-                let end = self.expect(TokenKind::RParen)?.span.end;
-
-                return Ok(CstPattern {
-                    kind: CstPatternKind::Variant {
-                        name: CstQualifiedName {
-                            segments: vec![ident],
-                            span: Span::new(start, end),
-                        },
-                        payload: Some(Box::new(payload)),
-                    },
-                    span: Span::new(start, end),
-                });
-            }
-
-            // Check for qualified variant
+            // Check for qualified variant (`pkg::shapes::Shape::Circle`,
+            // `shapes::Shape::Circle`). A keyword head must reach this branch:
+            // a lone `pkg`/`core`/`super`/`self` is not a pattern.
             if self.check(TokenKind::ColonColon) {
                 let mut segments = vec![ident];
                 while self.consume(TokenKind::ColonColon).is_some() {
@@ -181,6 +172,33 @@ impl Parser<'_> {
                             span: Span::new(start, end),
                         },
                         payload,
+                    },
+                    span: Span::new(start, end),
+                });
+            }
+
+            // A path-prefix keyword with no following `::` is malformed
+            // (`pkg` alone, `pkg::` with nothing after). Reject cleanly.
+            if keyword_head {
+                return Err(ParseError::new(
+                    ParseErrorKind::InvalidPattern,
+                    Span::new(start, self.current().span.start),
+                ));
+            }
+
+            // Check for variant pattern with payload (`Circle(r)`)
+            if self.check(TokenKind::LParen) {
+                self.advance();
+                let payload = self.parse_pattern()?;
+                let end = self.expect(TokenKind::RParen)?.span.end;
+
+                return Ok(CstPattern {
+                    kind: CstPatternKind::Variant {
+                        name: CstQualifiedName {
+                            segments: vec![ident],
+                            span: Span::new(start, end),
+                        },
+                        payload: Some(Box::new(payload)),
                     },
                     span: Span::new(start, end),
                 });

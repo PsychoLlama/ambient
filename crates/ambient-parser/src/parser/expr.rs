@@ -534,10 +534,10 @@ impl Parser<'_> {
         })
     }
 
-    /// Parse a single path-segment head: a regular identifier, or one of the
-    /// module-prefix keywords (`pkg`, `core`, `super`, `self`) which are lexed
-    /// as their own token kinds rather than as `Ident`.
-    fn parse_path_segment(&mut self) -> Result<CstIdent, ParseError> {
+    /// Parse a single path-segment head: a regular identifier, or a
+    /// module-prefix keyword (`pkg`, `core`, `super`, `self`) lexed as its own
+    /// token kind. Shared with pattern parsing — do not fork a second reader.
+    pub(super) fn parse_path_segment(&mut self) -> Result<CstIdent, ParseError> {
         match self.current_kind() {
             TokenKind::Pkg | TokenKind::Core | TokenKind::Super | TokenKind::Self_ => {
                 let token = self.advance();
