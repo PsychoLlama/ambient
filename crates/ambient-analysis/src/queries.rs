@@ -236,27 +236,136 @@ pub fn find_definition(
     registry: &ModuleRegistry,
     offset: u32,
 ) -> Option<Definition> {
-    let expr = find_expr_at_offset(module, offset)?;
-
-    match &expr.kind {
-        ExprKind::Local(binding_id) => {
-            for item in &module.items {
-                if let ItemKind::Function(func) = &item.kind
-                    && let Some(def_span) = find_binding_definition(func, *binding_id)
-                {
-                    return Some(Definition::local(def_span));
+    if let Some(expr) = find_expr_at_offset(module, offset) {
+        match &expr.kind {
+            ExprKind::Local(binding_id) => {
+                for item in &module.items {
+                    if let ItemKind::Function(func) = &item.kind
+                        && let Some(def_span) = find_binding_definition(func, *binding_id)
+                    {
+                        return Some(Definition::local(def_span));
+                    }
                 }
+                return None;
             }
-            None
-        }
-        ExprKind::Name(qname) => resolve_qualified_name(module, module_path, registry, qname),
-        ExprKind::Call(callee, _) => {
-            if let ExprKind::Name(qname) = &callee.kind {
-                resolve_qualified_name(module, module_path, registry, qname)
-            } else {
-                None
+            ExprKind::Name(qname) => {
+                return resolve_qualified_name(module, module_path, registry, qname);
             }
+            ExprKind::Call(callee, _) => {
+                if let ExprKind::Name(qname) = &callee.kind {
+                    return resolve_qualified_name(module, module_path, registry, qname);
+                }
+                return None;
+            }
+            _ => return None,
         }
+    }
+
+    // No expression under the cursor: it may be an enum-variant *pattern*
+    // (`Some(n)` in a match arm). Patterns aren't expressions, so the walk
+    // above never reaches them; resolve the variant name through the same
+    // registry path a constructor uses.
+    let qname = find_variant_pattern_at_offset(module, offset)?;
+    resolve_qualified_name(module, module_path, registry, qname)
+}
+
+/// Find the enum-variant pattern whose name span contains `offset`, scanning
+/// function and const bodies (the only items with expression bodies, matching
+/// [`find_expr_at_offset`]'s reach). Patterns live only in match arms.
+fn find_variant_pattern_at_offset(module: &Module, offset: u32) -> Option<&QualifiedName> {
+    module.items.iter().find_map(|item| match &item.kind {
+        ItemKind::Function(f) => variant_pattern_in_expr(&f.body, offset),
+        ItemKind::Const(c) => variant_pattern_in_expr(&c.value, offset),
+        _ => None,
+    })
+}
+
+/// Recurse through an expression to every match arm, returning the variant
+/// pattern whose name span contains `offset`.
+fn variant_pattern_in_expr(expr: &Expr, offset: u32) -> Option<&QualifiedName> {
+    match &expr.kind {
+        ExprKind::Match(scrutinee, arms) => {
+            variant_pattern_in_expr(scrutinee, offset).or_else(|| {
+                arms.iter().find_map(|arm| {
+                    variant_pattern_in_pattern(&arm.pattern, offset)
+                        .or_else(|| variant_pattern_in_expr(&arm.body, offset))
+                })
+            })
+        }
+        ExprKind::Block(stmts, result) => stmts
+            .iter()
+            .find_map(|stmt| match &stmt.kind {
+                StmtKind::Let(b) => variant_pattern_in_expr(&b.init, offset),
+                StmtKind::Const(c) => variant_pattern_in_expr(&c.value, offset),
+                StmtKind::Expr(e) => variant_pattern_in_expr(e, offset),
+                StmtKind::Use(_) => None,
+            })
+            .or_else(|| {
+                result
+                    .as_ref()
+                    .and_then(|e| variant_pattern_in_expr(e, offset))
+            }),
+        ExprKind::Lambda(lambda) => variant_pattern_in_expr(&lambda.body, offset),
+        ExprKind::If(c, t, e) => variant_pattern_in_expr(c, offset)
+            .or_else(|| variant_pattern_in_expr(t, offset))
+            .or_else(|| e.as_ref().and_then(|e| variant_pattern_in_expr(e, offset))),
+        ExprKind::Binary { left, right, .. } => {
+            variant_pattern_in_expr(left, offset).or_else(|| variant_pattern_in_expr(right, offset))
+        }
+        ExprKind::Unary(_, e)
+        | ExprKind::Resume(e)
+        | ExprKind::TupleIndex(e, _)
+        | ExprKind::RecordField(e, _) => variant_pattern_in_expr(e, offset),
+        ExprKind::Sandbox(s) => variant_pattern_in_expr(&s.body, offset),
+        ExprKind::Call(callee, args) => variant_pattern_in_expr(callee, offset)
+            .or_else(|| args.iter().find_map(|a| variant_pattern_in_expr(a, offset))),
+        ExprKind::MethodCall { receiver, args, .. } => variant_pattern_in_expr(receiver, offset)
+            .or_else(|| args.iter().find_map(|a| variant_pattern_in_expr(a, offset))),
+        ExprKind::Tuple(elems) | ExprKind::List(elems) => elems
+            .iter()
+            .find_map(|e| variant_pattern_in_expr(e, offset)),
+        ExprKind::Record(fields) | ExprKind::TypedRecord { fields, .. } => fields
+            .iter()
+            .find_map(|(_, e)| variant_pattern_in_expr(e, offset)),
+        ExprKind::Perform(call) => call
+            .args
+            .iter()
+            .find_map(|a| variant_pattern_in_expr(a, offset)),
+        ExprKind::Handle(handle) => variant_pattern_in_expr(&handle.body, offset)
+            .or_else(|| {
+                handle
+                    .handlers
+                    .iter()
+                    .find_map(|h| variant_pattern_in_expr(h, offset))
+            })
+            .or_else(|| {
+                handle
+                    .else_clause
+                    .as_ref()
+                    .and_then(|e| variant_pattern_in_expr(e, offset))
+            }),
+        _ => None,
+    }
+}
+
+/// Descend a pattern to the variant whose name span contains `offset`.
+fn variant_pattern_in_pattern(pattern: &Pattern, offset: u32) -> Option<&QualifiedName> {
+    match &pattern.kind {
+        PatternKind::Variant(qname, payload) => {
+            let span = qname.name_span.unwrap_or(pattern.span);
+            if offset >= span.start && offset <= span.end {
+                return Some(qname);
+            }
+            payload
+                .as_ref()
+                .and_then(|p| variant_pattern_in_pattern(p, offset))
+        }
+        PatternKind::Tuple(elems) => elems
+            .iter()
+            .find_map(|p| variant_pattern_in_pattern(p, offset)),
+        PatternKind::Record(fields) => fields
+            .iter()
+            .find_map(|(_, p)| variant_pattern_in_pattern(p, offset)),
         _ => None,
     }
 }
@@ -274,6 +383,17 @@ pub fn resolve_qualified_name(
     registry: &ModuleRegistry,
     qname: &QualifiedName,
 ) -> Option<Definition> {
+    // Prefer the engine's canonical resolution when the resolve pass filled it
+    // in. This is the sole path for a bare prelude-injected enum variant
+    // (`Some`, `Ok`): the prelude excludes variants from `resolve_imports`
+    // (module_registry/imports.rs), so the spelling-based walk below can't see
+    // them, yet the resolve pass resolves them straight off the prelude scope.
+    if let Some(item_ref) = item_ref_from_resolution(registry, qname)
+        && let Some(def) = definition_from_item_ref(module_path, registry, &item_ref)
+    {
+        return Some(def);
+    }
+
     if qname.path.is_empty() {
         // Bare name: local item first, then item imports.
         if let Some(def) = find_local_item(module, &qname.name) {
@@ -440,6 +560,11 @@ pub fn resolve_item_ref(
     registry: &ModuleRegistry,
     qname: &QualifiedName,
 ) -> Option<ItemRef> {
+    // Prefer the engine's canonical resolution (bare prelude variants like
+    // `Some`/`Ok` resolve only this way — see `resolve_qualified_name`).
+    if let Some(item_ref) = item_ref_from_resolution(registry, qname) {
+        return Some(item_ref);
+    }
     if qname.path.is_empty() {
         return resolve_bare_item_ref(module, module_path, registry, &qname.name);
     }
@@ -456,6 +581,25 @@ pub fn resolve_item_ref(
     // deterministic name-scope resolution (the enum is spelled), landing on
     // the same `[Enum, Variant]` identity.
     resolve_explicit_variant_ref(module, module_path, registry, qname)
+}
+
+/// Turn the engine's canonical resolution — the [`Fqn`] the resolve pass wrote
+/// onto a reference — into an [`ItemRef`], if present and its module is
+/// registered. This is the shared "prefer engine resolution over re-derivation"
+/// entry point behind both [`resolve_item_ref`] and [`resolve_qualified_name`]:
+/// the resolve pass already canonicalizes every spelling (bare, qualified,
+/// prelude-injected) to one `Fqn`, so consuming it is both more direct and the
+/// only way to reach names the analysis-layer walk can't (bare prelude enum
+/// variants, which `resolve_imports` deliberately omits).
+///
+/// [`Fqn`]: ambient_engine::fqn::Fqn
+fn item_ref_from_resolution(registry: &ModuleRegistry, qname: &QualifiedName) -> Option<ItemRef> {
+    let fqn = qname.resolved.as_ref()?;
+    let module = fqn.module.to_module_path()?;
+    registry.contains(&module).then(|| ItemRef {
+        module,
+        ident: fqn.ident.clone(),
+    })
 }
 
 /// Resolve a bare (unqualified) reference — a same-module item or variant

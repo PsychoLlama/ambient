@@ -137,6 +137,21 @@ impl ModuleId {
             }
         }
     }
+
+    /// The [`ModulePath`] this module is keyed under in the registry — the
+    /// structured inverse of [`Self::from_module_path`], re-attaching the
+    /// leading `core` segment for a builtin and dropping the
+    /// `workspace::<pkg>` framing for a user module. `None` only for the
+    /// degenerate empty-path module (which the registry never holds).
+    #[must_use]
+    pub fn to_module_path(&self) -> Option<ModulePath> {
+        let mut segments: Vec<Arc<str>> = Vec::new();
+        if matches!(self.scope, Scope::Builtin) {
+            segments.push(Arc::from("core"));
+        }
+        segments.extend(self.path.iter().cloned());
+        ModulePath::from_segments(segments)
+    }
 }
 
 impl fmt::Display for ModuleId {

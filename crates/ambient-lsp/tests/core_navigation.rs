@@ -65,6 +65,67 @@ fn goto_core_ability_method_lands_in_core_source() {
         .shutdown();
 }
 
+/// A package using the bare, prelude-injected enum-variant constructors and
+/// patterns (`Some`/`Ok`), which resolve with no `use` and no `core::` prefix.
+const VARIANTS: &str = "\
+fn make(): Option<Number> {
+  Some/*some_expr*/(1)
+}
+
+fn take(o: Option<Number>): Number {
+  match o {
+    Some/*some_pat*/(n) => n,
+    None => 0
+  }
+}
+
+fn wrap(): Result<Number, Number> {
+  Ok/*ok_expr*/(1)
+}
+";
+
+/// A package with `VARIANTS` as its opened root module.
+fn variants_test() -> LspTest {
+    LspTest::new()
+        .with_package()
+        .with_file("src/main.ab", VARIANTS)
+        .open_file("src/main.ab")
+}
+
+#[test]
+fn goto_bare_prelude_variant_some_expr_lands_in_core() {
+    // Bare `Some(..)` is a prelude re-export of `core::option::Some` — no `use`,
+    // no prefix. The engine's resolve pass canonicalizes it to the `[Option,
+    // Some]` variant identity; navigation consumes that (the prelude excludes
+    // variants from `resolve_imports`, so the spelling-based walk can't).
+    variants_test()
+        .goto_definition_at("some_expr")
+        .expect_file("option.ab")
+        .done()
+        .shutdown();
+}
+
+#[test]
+fn goto_bare_prelude_variant_some_pattern_lands_in_core() {
+    // A bare variant *pattern* lands on the same `[Option, Some]` identity as
+    // the constructor, so it navigates to the same core declaration.
+    variants_test()
+        .goto_definition_at("some_pat")
+        .expect_file("option.ab")
+        .done()
+        .shutdown();
+}
+
+#[test]
+fn goto_bare_prelude_variant_ok_lands_in_core() {
+    // `Ok` rides the prelude from `core::result`, distinct from `Option`.
+    variants_test()
+        .goto_definition_at("ok_expr")
+        .expect_file("result.ab")
+        .done()
+        .shutdown();
+}
+
 /// Opening a materialized core file (the editor's `didOpen` when the user
 /// navigates into one) must publish no diagnostics: it is a read-only view of a
 /// builtin already checked in place, and standalone analysis of core's
