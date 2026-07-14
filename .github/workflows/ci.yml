@@ -17,4 +17,14 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@v14
         with:
           use-flakehub: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', 'flake.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
       - run: just check
