@@ -522,6 +522,67 @@ mod tests {
     }
 
     #[test]
+    fn root_layout_src_dot_yields_clean_paths() {
+        // Regression: an example-style manifest declares `[build] src = "./"`
+        // with `main.ab` at the package root. Before normalization, `src_dir`
+        // became `<root>/./`, so every minted URI carried a literal `/./` that
+        // no editor-sent URI contained — breaking find-references/rename/goto.
+        let dir = TempDir::new().expect("create temp dir");
+        let root = dir.path();
+        fs::write(
+            root.join("ambient.toml"),
+            "[package]\nname = \"strings\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"./\"\n",
+        )
+        .expect("write manifest");
+        fs::write(root.join("main.ab"), "pub fn run(): Number { 1 }\n").expect("write main");
+
+        // `discover` (the LSP's entry point) must produce a normalized src_dir.
+        let main = root.join("main.ab");
+        let mut package = AnalysisPackage::discover(&main).expect("discover package");
+        let normalized_root = lexically_normalize(root);
+        assert_eq!(
+            package.src_dir, normalized_root,
+            "src = \"./\" should normalize src_dir to the package root"
+        );
+        assert!(
+            !package.src_dir.to_string_lossy().contains("/./"),
+            "src_dir must not carry a `.` component: {:?}",
+            package.src_dir
+        );
+
+        // And the module→file reconstruction every minted URI flows through must
+        // itself be clean.
+        package.load_modules();
+        let module_path = package
+            .module_path_for(&main)
+            .expect("main resolves to a module");
+        let file = package.file_for_module(&module_path);
+        assert!(
+            !file.components().any(|c| c == Component::CurDir),
+            "file_for_module must not carry a `.` component: {file:?}"
+        );
+        assert_eq!(file, normalized_root.join("main.ab"));
+    }
+
+    #[test]
+    fn lexically_normalize_folds_dot_and_dotdot() {
+        assert_eq!(
+            lexically_normalize(Path::new("/a/b/./c")),
+            PathBuf::from("/a/b/c")
+        );
+        assert_eq!(
+            lexically_normalize(Path::new("/a/b/../c")),
+            PathBuf::from("/a/c")
+        );
+        assert_eq!(lexically_normalize(Path::new("/a/./")), PathBuf::from("/a"));
+        // Idempotent on an already-clean absolute path.
+        assert_eq!(
+            lexically_normalize(Path::new("/a/b/c")),
+            PathBuf::from("/a/b/c")
+        );
+    }
+
+    #[test]
     fn missing_import_is_reported() {
         let dir = create_test_package();
         fs::write(
