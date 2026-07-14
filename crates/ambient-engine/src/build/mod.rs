@@ -257,20 +257,22 @@ impl std::fmt::Display for BuildError {
                 write!(f, "parse error in {module}: {}", error.message)
             }
             Self::TypeCheck { failures } => {
-                let joined = failures
+                // A terse structural summary only. The *rendered* diagnostics —
+                // spanned, source-context, `ambient check`-identical — live in
+                // the CLI's `report_build_error`; this `Display` exists for
+                // logging/`Debug`-adjacent uses and must not fork a second,
+                // lossier rendering of the errors themselves. Callers wanting
+                // the details read the structured `failures` field.
+                let modules = failures
                     .iter()
-                    .map(|failure| {
-                        let errs = failure
-                            .errors
-                            .iter()
-                            .map(|e| e.kind.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        format!("type errors in {}: {errs}", failure.module)
-                    })
+                    .map(|failure| failure.module.as_str())
                     .collect::<Vec<_>>()
-                    .join("; ");
-                write!(f, "{joined}")
+                    .join(", ");
+                write!(
+                    f,
+                    "type checking failed in {} module(s): {modules}",
+                    failures.len()
+                )
             }
             Self::Compile { module, error } => write!(f, "compile error in {module}: {error}"),
             Self::ImportCycle { message } => write!(f, "{message}"),

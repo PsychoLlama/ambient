@@ -11,7 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use ambient_engine::build::{BuildOptions, BuildResult, CacheMode, build_package};
+use ambient_engine::build::{BuildError, BuildOptions, BuildResult, CacheMode, build_package};
 use ambient_engine::disk_store::{BuildManifest, DiskStore};
 use tempfile::TempDir;
 
@@ -822,10 +822,16 @@ fn duplicate_impl_in_unrelated_module_still_errors_on_a_warm_build() {
             ..Default::default()
         },
     );
-    let msg = match result {
-        Ok(_) => panic!("a duplicate impl must fail the warm build"),
-        Err(e) => e.to_string(),
+    let Err(BuildError::TypeCheck { failures }) = result else {
+        panic!("a duplicate impl must fail the warm build with a structured type error");
     };
+    // Assert on the structured errors (not `Display`, which is only a terse
+    // module summary): the coherence error must name the duplicated trait.
+    let msg = failures
+        .iter()
+        .flat_map(|f| f.errors.iter().map(ToString::to_string))
+        .collect::<Vec<_>>()
+        .join("; ");
     assert!(
         msg.contains("duplicate") || msg.contains("Named"),
         "warm build must surface the coherence error, got: {msg}"
