@@ -104,6 +104,7 @@ pub fn builtin_file(root: &Path, module_path: &ModulePath) -> PathBuf {
 /// Write-once: an existing directory (its name already pins the content) is
 /// reused untouched. Files are made read-only best-effort; a filesystem that
 /// refuses is not an error.
+#[must_use]
 pub fn materialize(explicit_base: Option<&Path>) -> Option<PathBuf> {
     let sources = builtin_sources();
     let root = cache_base(explicit_base)?.join(content_key(&sources));
@@ -122,13 +123,14 @@ pub fn materialize(explicit_base: Option<&Path>) -> Option<PathBuf> {
 /// the final content-keyed `root`. The rename is the publish point, so a
 /// reader never sees a partial tree.
 fn write_tree(root: &Path, sources: &[(ModulePath, &'static str)]) -> std::io::Result<()> {
-    let parent = root.parent().unwrap_or(root);
-    std::fs::create_dir_all(parent)?;
-
     // Unique per call (pid + a process-global counter) so concurrent writers —
     // including parallel test threads sharing a base — never share a staging
     // dir and clobber each other mid-write.
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    let parent = root.parent().unwrap_or(root);
+    std::fs::create_dir_all(parent)?;
+
     let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let staging = parent.join(format!(".staging-{}-{seq}", std::process::id()));
     let _ = std::fs::remove_dir_all(&staging); // clear a crashed run's leftovers

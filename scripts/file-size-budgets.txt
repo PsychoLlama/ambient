@@ -5,5 +5,4 @@
 # The goal is for this file to become empty — never add an entry to
 # accommodate new growth; split the file instead.
 crates/ambient-engine/src/vm/tests.rs 1201
-crates/ambient-lsp/src/server.rs 1040
 crates/ambient-parser/src/parser/expr.rs 1053
