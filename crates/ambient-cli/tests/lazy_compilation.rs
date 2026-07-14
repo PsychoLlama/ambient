@@ -395,10 +395,13 @@ fn genuine_dispatch_cycle_still_fails_to_link() {
     // The self-orphan shape, but `zebra`'s impl body now *link*-depends on
     // `common` (`common::helper(...)`), so the structural `common -> zebra`
     // dispatch edge meets a real `zebra -> common` link dep: a genuine cycle
-    // single-pass linking cannot satisfy. The ordering pass detects the cycle
-    // and falls back to the full-`deps` order (`common` before `zebra`), so
-    // `common`'s self-dispatch fails to link exactly as it did before — the
-    // deliberate, correct outcome for a truly cyclic dispatch dependency.
+    // single-pass linking cannot satisfy. Per-edge acyclic augmentation adds
+    // the needed `common -> zebra` edge only if it keeps the graph acyclic —
+    // but `zebra -> common` is already in the `link_deps` base, so that edge
+    // would close a cycle and is individually skipped. `common` then stays
+    // ordered before `zebra`, so its self-dispatch fails to link exactly as it
+    // did before — the deliberate, correct outcome for a truly cyclic dispatch
+    // dependency.
     let files: &[(&str, &str)] = &[
         (
             "common.ab",
