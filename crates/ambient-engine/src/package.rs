@@ -209,6 +209,19 @@ impl Package {
         self.src_path().join(path.to_file_path())
     }
 
+    /// The on-disk path to render `module`'s diagnostics against.
+    ///
+    /// Prefers the real discovered path (a directory module's `<dir>/main.ab`);
+    /// falls back to the canonical reconstruction ([`Self::module_file_path`])
+    /// only for a module with no recorded on-disk path.
+    #[must_use]
+    pub fn module_diagnostic_path(&self, module: &LoadedModule, path: &ModulePath) -> PathBuf {
+        module.source_path.as_ref().map_or_else(
+            || self.module_file_path(path),
+            |sp| self.src_path().join(sp),
+        )
+    }
+
     /// Check if a module file exists.
     #[must_use]
     pub fn module_exists(&self, path: &ModulePath) -> bool {

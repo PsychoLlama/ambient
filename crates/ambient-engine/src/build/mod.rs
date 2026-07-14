@@ -767,13 +767,7 @@ fn compile_package_module(
     let module = pkg
         .get_module(module_path)
         .ok_or_else(|| BuildError::PackageOpen(format!("module not found: {module_path}")))?;
-    // Prefer the real discovered path (a directory module's `<dir>/main.ab`)
-    // for diagnostics; fall back to the canonical reconstruction only for a
-    // module with no recorded on-disk path.
-    let file_path = module.source_path.as_ref().map_or_else(
-        || pkg.module_file_path(module_path),
-        |sp| pkg.src_path().join(sp),
-    );
+    let file_path = pkg.module_diagnostic_path(module, module_path);
     let check_result = match checked {
         Some(cr) => cr,
         None => pipeline::check_loaded_module(module, &file_path, module_path, registry)?,
